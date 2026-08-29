@@ -20,7 +20,13 @@ final class EventSummary
         public readonly string $title,
         public readonly string $calendarName,
         public readonly string $startDate,
-        public readonly string $endDate
+        public readonly string $endDate,
+        /**
+         * The event's free-text description, when it has one — added for
+         * finance's categorization hints, which quote it to the model.
+         * Null for a picker that only needs a label.
+         */
+        public readonly ?string $description = null
     ) {
     }
 }

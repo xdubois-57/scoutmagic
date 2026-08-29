@@ -9,7 +9,7 @@ declare(strict_types=1);
 namespace Modules\Gallery\Repository;
 
 use Core\Security\EncryptionService;
-use Modules\Gallery\Service\GalleryException;
+use Modules\Gallery\Api\GalleryException;
 
 class StorageLocationRepository
 {

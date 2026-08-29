@@ -139,7 +139,7 @@ class OgScraperServiceRedirectChainTest extends TestCase
             }
         };
 
-        $this->expectException(\Modules\Gallery\Service\GalleryException::class);
+        $this->expectException(\Modules\Gallery\Api\GalleryException::class);
         $service->fetch('http://public-redirector.example/page');
     }
 

@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\Gallery\Service;
 
+use Modules\Gallery\Api\GalleryException;
+
 /**
  * GD-based photo resize (no external binary — unlike video, this always
  * works). Produces three JPEG sizes from a source file: thumb (300px long

@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Gallery\Service;
 
 use Core\Http\StreamResponseHeaders;
+use Modules\Gallery\Api\GalleryException;
 
 /**
  * Fetches Open Graph metadata (og:title/og:description/og:image) from an

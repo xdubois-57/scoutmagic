@@ -23,7 +23,7 @@ use Core\Service\DateInput;
 use Core\Service\IntegerInput;
 use Core\View\MonthGrid\DayState;
 use Core\View\MonthGrid\DayStateGridBuilder;
-use Modules\Calendar\Service\CalendarService;
+use Modules\Calendar\Api\CalendarDirectoryInterface;
 use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Availability\MonthWindow;
 use Modules\Rental\Booking\BookingMilestones;
@@ -168,7 +168,12 @@ class RentalManagementController extends AbstractController
          * Modules\Calendar\Service\VirtualEventRegistry for how the other
          * half is wired.
          */
-        private ?CalendarService $calendarService = null,
+        /**
+         * The calendar's PUBLISHED read Api (ARCHITECTURE.md §7.5) —
+         * null with the module disabled, and the publication section
+         * says there is nothing to publish onto.
+         */
+        private ?CalendarDirectoryInterface $calendarDirectory = null,
         /**
          * Optional (§7.7): null without the `inbound_mail` module, in which
          * case the Communications tab is simply not offered. `rental`
@@ -1292,12 +1297,12 @@ class RentalManagementController extends AbstractController
             'inventory_template' => $this->stayService?->inventoryTemplateFor($asset->id) ?? [],
             // Calendar publication (§6.30). With the module off there is
             // nothing to publish onto, and the section says so.
-            'calendar_available' => $this->calendarService !== null,
+            'calendar_available' => $this->calendarDirectory !== null,
             // Labels resolved by the calendar module itself
-            // (CalendarService::listSelectableCalendars): a section calendar
-            // has no name of its own, so rendering `calendar.name` gave a
-            // list of blank options with only "Animateurs" readable.
-            'calendars' => $this->calendarService?->listSelectableCalendars() ?? [],
+            // (Api\CalendarDirectoryInterface): a section calendar has no
+            // name of its own, so rendering `calendar.name` gave a list
+            // of blank options with only "Animateurs" readable.
+            'calendars' => $this->calendarDirectory?->selectableCalendars() ?? [],
             'publish_from_options' => PublishFrom::all(),
             'csrf_token' => CsrfGuard::generateToken(),
             'nav_page' => 'templates',
@@ -1427,7 +1432,7 @@ class RentalManagementController extends AbstractController
         }
 
         $asset = $this->manageableAssetById((int) $request->getBody('asset_id', 0));
-        if ($asset === null || $this->calendarService === null) {
+        if ($asset === null || $this->calendarDirectory === null) {
             return new Response('Not Found', 404);
         }
 
@@ -1437,8 +1442,8 @@ class RentalManagementController extends AbstractController
         // that actually exist, so a stale id in a posted form cannot create
         // a row pointing at nothing.
         $existingIds = array_map(
-            static fn(array $calendar) => $calendar['id'],
-            $this->calendarService->listSelectableCalendars()
+            static fn(\Modules\Calendar\Api\SelectableCalendar $calendar): int => $calendar->id,
+            $this->calendarDirectory->selectableCalendars()
         );
         $postedCalendarIds = IntegerInput::idList((array) ($request->getBody('calendar_ids') ?? []));
         if ($postedCalendarIds === null) {

@@ -2647,12 +2647,14 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     // instances built above) — the AI prompt simply omits the "nearby
     // section calendar events" section when calendar is disabled.
     $financeAiSuggestionRepo = new \Modules\Finance\Repository\AiCategorySuggestionRepository($pdo);
-    $financeCalendarRepoForAi = in_array('calendar', $moduleManager->getEnabledModuleIds(), true) ? $calendarRepo : null;
-    $financeCalendarEventRepoForAi = in_array('calendar', $moduleManager->getEnabledModuleIds(), true) ? $calendarEventRepo : null;
     $financeAiCategorizationService = new \Modules\Finance\Service\AiCategorizationService(
         $llmConnectorForRgpd, $financeCategoryRepo, $financeAiSuggestionRepo, $journalService,
         $financeAccountRepo, $financeTransactionAttachmentRepo, $financeAttachmentRepo,
-        $financeCalendarRepoForAi, $financeCalendarEventRepoForAi
+        // The calendar's PUBLISHED read Api (§7.5) — the null-seeded
+        // handle from the calendar block above implements it; null with
+        // calendar disabled, and the AI prompt simply omits the "nearby
+        // section calendar events" hints.
+        $calendarServiceForOthers
     );
     $financeBulkCategorizationService = new \Modules\Finance\Service\BulkCategorizationService(
         $financeTransactionRepo, $financeRuleEngine, $financeAiCategorizationService, $settingService, $schedulerService

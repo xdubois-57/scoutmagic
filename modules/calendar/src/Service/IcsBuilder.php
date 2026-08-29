@@ -17,11 +17,23 @@ use Modules\Calendar\Repository\CalendarEvent;
  * Builds an RFC 5545 (iCalendar) document from a flat list of events. Pure
  * text generation, no database access — trivially unit-testable.
  */
-class IcsBuilder
+class IcsBuilder implements \Modules\Calendar\Api\IcsFeedBuilderInterface
 {
     private const PRODID = '-//ScoutMagic//Calendrier//FR';
     private const TIMEZONE_ID = 'Europe/Brussels';
     private const MAX_LINE_OCTETS = 75;
+
+    /**
+     * Api\IcsFeedBuilderInterface implementation — the virtual-events-only
+     * feed a consuming module (rental's renter feed) renders without ever
+     * seeing this module's own event rows.
+     *
+     * @param VirtualEvent[] $virtualEvents
+     */
+    public function buildVirtualCalendar(string $calendarName, array $virtualEvents): string
+    {
+        return $this->build($calendarName, [], $virtualEvents);
+    }
 
     /**
      * @param CalendarEvent[] $events

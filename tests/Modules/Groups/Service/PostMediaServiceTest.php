@@ -7,7 +7,7 @@ namespace Tests\Modules\Groups\Service;
 use Modules\Gallery\Api\DelegatedAlbum;
 use Modules\Gallery\Api\DelegatedAlbumManager;
 use Modules\Gallery\Api\DelegatedMedia;
-use Modules\Gallery\Service\GalleryException;
+use Modules\Gallery\Api\GalleryException;
 use Modules\Groups\Repository\GroupRepository;
 use Modules\Groups\Repository\PostMediaRepository;
 use Modules\Groups\Service\PostMediaService;

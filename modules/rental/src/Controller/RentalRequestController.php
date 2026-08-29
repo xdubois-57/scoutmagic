@@ -20,7 +20,7 @@ use Core\Security\CsrfGuard;
 use Core\Security\HumanCheck\HumanCheckService;
 use Core\Service\DateInput;
 use Core\View\EditableContentService;
-use Modules\Calendar\Service\IcsBuilder;
+use Modules\Calendar\Api\IcsFeedBuilderInterface;
 use Modules\Rental\Booking\ChangeRequestKind;
 use Modules\Rental\Booking\ChangeRequestOrigin;
 use Modules\Rental\Booking\RentalBooking;
@@ -83,7 +83,12 @@ class RentalRequestController extends AbstractController
          * case the renter's page simply offers no ICS link. Only the ICS
          * generator is borrowed — no calendar row is ever involved.
          */
-        private ?IcsBuilder $icsBuilder = null,
+        /**
+         * The calendar's PUBLISHED feed-formatting Api (ARCHITECTURE.md
+         * §7.5) — null with the module disabled, and the tracking page
+         * simply offers no ICS link.
+         */
+        private ?IcsFeedBuilderInterface $icsBuilder = null,
         private ?RenterFeedBuilder $renterFeedBuilder = null
     ) {
         parent::__construct($twig);
@@ -132,7 +137,7 @@ class RentalRequestController extends AbstractController
         );
 
         return (new Response(
-            $this->icsBuilder->build($this->renterFeedBuilder->calendarName($booking), [], [$event])
+            $this->icsBuilder->buildVirtualCalendar($this->renterFeedBuilder->calendarName($booking), [$event])
         ))
             ->setHeader('Content-Type', 'text/calendar; charset=utf-8')
             ->setHeader('Content-Disposition', 'attachment; filename="location.ics"');

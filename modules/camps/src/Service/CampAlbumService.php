@@ -13,7 +13,7 @@ use Core\Audit\AuditSource;
 use Modules\Camps\Repository\Camp;
 use Modules\Gallery\Api\DelegatedAlbumManager;
 use Modules\Gallery\Api\DelegatedMedia;
-use Modules\Gallery\Service\GalleryException;
+use Modules\Gallery\Api\GalleryException;
 
 /**
  * Photos of a stay, hosted by the gallery module as a delegated album

@@ -37,6 +37,30 @@ class IcsBuilderTest extends TestCase
         return explode("\r\n", rtrim($ics, "\r\n"));
     }
 
+    public function testBuildVirtualCalendarRendersACompleteFeedFromVirtualEventsAlone(): void
+    {
+        // The Api\IcsFeedBuilderInterface half (chantier IT-06): a
+        // consuming module (rental's renter feed) renders a standalone
+        // VCALENDAR from §7.6 virtual events, without ever seeing this
+        // module's own event rows.
+        $ics = $this->builder->buildVirtualCalendar('Ma réservation', [
+            new \Modules\Calendar\Api\VirtualEvent(
+                'rental-booking-42@scoutmagic',
+                0,
+                'Location du local',
+                '2026-09-04',
+                '2026-09-06'
+            ),
+        ]);
+        $lines = $this->lines($ics);
+
+        $this->assertSame('BEGIN:VCALENDAR', $lines[0]);
+        $this->assertContains('X-WR-CALNAME:Ma réservation', $lines);
+        $this->assertContains('UID:rental-booking-42@scoutmagic', $lines);
+        $this->assertContains('SUMMARY:Location du local', $lines);
+        $this->assertSame('END:VCALENDAR', $lines[count($lines) - 1]);
+    }
+
     public function testBuildProducesValidVcalendarWrapper(): void
     {
         $ics = $this->builder->build('Mon calendrier', []);

@@ -14,7 +14,7 @@ use Core\ScoutYear\ScoutYearResolver;
 use Core\Config\SettingService;
 use Core\Journal\JournalService;
 use Modules\Gallery\Api\DelegatedAlbumManager;
-use Modules\Gallery\Service\GalleryException;
+use Modules\Gallery\Api\GalleryException;
 use Modules\Groups\Repository\DiscussionGroup;
 use Modules\Groups\Repository\GroupRepository;
 use Modules\Groups\Repository\Post;

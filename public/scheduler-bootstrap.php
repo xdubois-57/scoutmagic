@@ -94,6 +94,23 @@ function scoutmagic_bootstrap_scheduler(
     );
 
     $capabilities->register(
+        \Modules\Calendar\Api\CalendarEventLookupInterface::class,
+        'calendar',
+        static fn (): object => new \Modules\Calendar\Service\CalendarService(
+            new \Modules\Calendar\Repository\CalendarRepository($pdo, $encryptionService),
+            new \Modules\Calendar\Repository\CalendarEventRepository($pdo),
+            new \Core\Member\SectionService(
+                \Core\Database\Connection::withPdo($pdo),
+                $encryptionService,
+                new \Core\Badge\MemberBadgeRepository($pdo)
+            ),
+            new \Modules\Calendar\Repository\CalendarUnitFeedTokenRepository($pdo, $encryptionService)
+            // No retro link lookup on the scheduled path: nothing a task
+            // reads through this lookup renders a retro link.
+        )
+    );
+
+    $capabilities->register(
         \Modules\InboundMail\Api\InboundMailInterface::class,
         'inbound_mail',
         static fn (): object => new \Modules\InboundMail\Service\InboundMailService(

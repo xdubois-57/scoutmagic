@@ -16,7 +16,7 @@ use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Modules\Gallery\Repository\StorageLocation;
 use Modules\Gallery\Repository\StorageLocationRepository;
-use Modules\Gallery\Service\GalleryException;
+use Modules\Gallery\Api\GalleryException;
 use Modules\Gallery\Service\S3ErrorExplainerService;
 use Modules\Gallery\Service\StorageLocationService;
 use Twig\Environment;

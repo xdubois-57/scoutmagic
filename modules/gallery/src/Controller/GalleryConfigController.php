@@ -23,7 +23,7 @@ use Modules\Gallery\Repository\StorageLocationRepository;
 use Modules\Gallery\Service\AlbumService;
 use Modules\Gallery\Service\DelegatedAlbumDescriberRegistry;
 use Modules\Gallery\Service\FfmpegAvailability;
-use Modules\Gallery\Service\GalleryException;
+use Modules\Gallery\Api\GalleryException;
 use Modules\Gallery\Service\S3ErrorExplainerService;
 use Modules\Gallery\Service\S3TestFailure;
 use Modules\Gallery\Service\Storage\S3StorageBackend;

@@ -37,7 +37,7 @@ interface DelegatedAlbumManager
      * location is currently the default, same resolution as an ordinary
      * local album.
      *
-     * @throws \Modules\Gallery\Service\GalleryException when the resolved
+     * @throws \Modules\Gallery\Api\GalleryException when the resolved
      *         storage location has a public URL configured — a delegated
      *         album must live on a location gallery can serve only
      *         through a genuinely access-controlled path (a private
@@ -68,7 +68,7 @@ interface DelegatedAlbumManager
 
     /**
      * @param array<string, mixed> $uploadedFile $_FILES entry
-     * @throws \Modules\Gallery\Service\GalleryException on an invalid
+     * @throws \Modules\Gallery\Api\GalleryException on an invalid
      *         file, a disabled type, over-quota, or an unknown/
      *         non-delegated $albumId
      */
@@ -80,7 +80,7 @@ interface DelegatedAlbumManager
     public function listMedia(int $albumId): array;
 
     /**
-     * @throws \Modules\Gallery\Service\GalleryException when $mediaId
+     * @throws \Modules\Gallery\Api\GalleryException when $mediaId
      *         doesn't belong to $albumId
      */
     public function deleteMedia(int $albumId, int $mediaId): void;
@@ -120,7 +120,7 @@ interface DelegatedAlbumManager
      * relative order and are appended after whatever the target already
      * held.
      *
-     * @throws \Modules\Gallery\Service\GalleryException on any refusal above
+     * @throws \Modules\Gallery\Api\GalleryException on any refusal above
      */
     public function moveMedia(string $ownerType, int $fromAlbumId, int $toAlbumId): int;
 

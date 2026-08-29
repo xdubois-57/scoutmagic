@@ -10,6 +10,7 @@ namespace Modules\Gallery\Service;
 
 use Core\Http\LinkPreview;
 use Core\Http\LinkPreviewFetcher;
+use Modules\Gallery\Api\GalleryException;
 use Modules\Gallery\Repository\LinkPreviewCacheRepository;
 
 /**

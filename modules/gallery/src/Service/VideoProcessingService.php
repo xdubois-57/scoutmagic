@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\Gallery\Service;
 
+use Modules\Gallery\Api\GalleryException;
+
 /**
  * FFmpeg/FFprobe wrapper (Service\FfmpegAvailability guards every call
  * site — this class assumes the binaries exist). Operates on filesystem
