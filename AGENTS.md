@@ -15,6 +15,7 @@ Read `ARCHITECTURE.md` in full before any task. Key rules:
 - **Layered MVC**: Controller → Service → Repository. No SQL in Controllers. No business logic in Controllers or Views. No `$_SESSION`/`$_POST` access in Services.
 - **RBAC guard**: called by the Router, never by a Controller. Every route has `role_min`.
 - **Modules**: self-contained under `modules/<name>/`. Never modify `schema/core.sql` for a module-specific need. Each module has its own `schema.sql` (complete current state, not incremental migrations).
+- **Strict `Api\` contract** (ARCHITECTURE.md §7.5): outside a module's own code, the ONLY part of it anything may name is its `Api\` namespace — interfaces, immutable value objects, its user-facing exception. Never import another module's `Service\`/`Repository\`/`Task\` classes, from core or from a module; `tests/Architecture/ModuleBoundariesTest.php` fails the build on the first such reference, with zero exceptions. Cross-module capabilities are consumed as nullable `Api\` constructor deps (§7.5), core hooks register in `Core\Module\HookRegistry` (§7.4), mutual dependencies go through a mutable registry (§7.6), and scheduled tasks resolve capabilities via `TaskContext::getOptional()`.
 - **Single file per concern**: one Controller class per file, one Service, one Repository.
 
 ## Security checklist (every PR)

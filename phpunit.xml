@@ -29,6 +29,13 @@
         <testsuite name="Integration">
             <directory>tests/Integration</directory>
         </testsuite>
+        <!--
+            The module-boundary net (ARCHITECTURE.md §7.5): outside a
+            module's own code, only its Api\ namespace may be named.
+        -->
+        <testsuite name="Architecture">
+            <directory>tests/Architecture</directory>
+        </testsuite>
     </testsuites>
     <!--
         No <groups><exclude> here, deliberately: every test runs by default,

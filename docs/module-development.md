@@ -8,7 +8,13 @@ This guide explains how to create a module for ScoutMagic. Modules are self-cont
 modules/my_module/
   module.json          # Manifest (required)
   schema.sql           # Database tables (optional)
+  drops.sql            # Reviewed column/FK/table drops (optional)
   src/
+    Api/               # Public contract: interfaces + value objects + your
+                       # user-facing exception — the ONLY namespace other
+                       # modules and core may name (the architecture test
+                       # enforces it)
+      MyCapabilityInterface.php
     Controller/
       MyModuleController.php
       ConfigController.php
@@ -16,9 +22,13 @@ modules/my_module/
       MyModuleService.php
     Repository/
       MyModuleRepository.php
+    Task/
+      MyScheduledHandler.php   # module.json scheduled_tasks handlers
   views/
     index.html.twig
     config.html.twig
+  help/
+    my-module.md       # Contextual help topics (Markdown + front matter)
 ```
 
 The directory name **must** match the `id` field in `module.json`.
