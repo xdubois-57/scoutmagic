@@ -54,11 +54,11 @@ grille** : ils suivent chaque enregistrement sans rien copier, et ne
 se modifient donc pas depuis la page du calendrier — c'est la grille
 qui fait foi.
 
-> Si votre unité utilisait ce module avant que les gardes deviennent
-> des évènements calculés, les anciens évènements « SOS Staff d'U : … »
-> écrits à l'époque dans le calendrier « Animateurs » y sont restés en
-> double. Supprimez-les une fois depuis la page du calendrier, comme
-> n'importe quel évènement ; ils ne reviendront pas.
+Si votre unité utilisait ce module avant que les gardes deviennent des
+évènements calculés, les anciens évènements « SOS Staff d'U : … »
+écrits à l'époque dans le calendrier « Animateurs » y sont restés en
+double. Supprimez-les une fois depuis la page du calendrier, comme
+n'importe quel évènement ; ils ne reviendront pas.
 
 Le raccordement à l'opérateur (identifiants, choix de la ligne) se
 fait sur la page de configuration du module, réservée à
