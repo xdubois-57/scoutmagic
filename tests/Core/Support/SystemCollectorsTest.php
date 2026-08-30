@@ -9,6 +9,7 @@ use Core\Config\SettingService;
 use Core\Database\Connection;
 use Core\Support\Collector\BackgroundExecutionCollector;
 use Core\Support\Collector\CommandsCollector;
+use Core\Support\Collector\CronCadenceCollector;
 use Core\Support\Collector\ExtensionsCollector;
 use Core\Support\Collector\FilesystemCollector;
 use Core\Support\Collector\LogsCollector;
@@ -214,15 +215,34 @@ class SystemCollectorsTest extends TestCase
         $this->assertMatchesRegularExpression('/disponible : (oui|non)/', $commands);
     }
 
-    public function testCommandsDoesNotProbeBinariesTheApplicationNoLongerUses(): void
+    /**
+     * `mysql` and `mysqldump` used to be absent from this file entirely:
+     * dumping and restoring became pure PHP over PDO (DatabaseDumper /
+     * DatabaseRestorer) when those binaries proved unusable on the
+     * production host, so probing them reported on something the
+     * application never calls.
+     *
+     * They are probed again, and the reason is a change of question
+     * rather than a reversal: the archive is read by something that
+     * cannot ask a follow-up, so what the HOST has is a fact worth
+     * recording even when nothing here calls it — and whether those two
+     * exist at all is the first thing anyone re-litigating that decision
+     * asks. What must not come back is the misreading the original
+     * removal prevented, so the separation is what this pins: they appear
+     * under the host inventory, never among the commands the code uses.
+     */
+    public function testTheMysqlBinariesAreInventoriedButNeverPresentedAsUsedByTheCode(): void
     {
-        // Dumping and restoring are pure PHP now (DatabaseDumper /
-        // DatabaseRestorer), so probing the MySQL CLI would report on
-        // something the application never calls.
         $commands = $this->runCollector(new CommandsCollector())['entries']['commands.txt'];
 
-        $this->assertStringNotContainsString('## mysqldump', $commands);
-        $this->assertStringNotContainsString('## mysql', $commands);
+        $this->assertStringContainsString('## mysqldump — inventaire seulement', $commands);
+        $this->assertStringContainsString('## mysql — inventaire seulement', $commands);
+
+        // Everything before the inventory heading is the code-derived
+        // list, and neither may appear in it.
+        $usedByCode = substr($commands, 0, (int) strpos($commands, "# Inventaire de l'hôte"));
+        $this->assertStringNotContainsString('mysqldump', $usedByCode);
+        $this->assertStringNotContainsString('## mysql', $usedByCode);
     }
 
     /**
@@ -299,52 +319,63 @@ class SystemCollectorsTest extends TestCase
 
     // --- background-execution.txt ---
 
-    public function testBackgroundExecutionReportsTheMechanismsAndTheMeasuredCadence(): void
+    public function testBackgroundExecutionReportsWhatIsPossibleOnThisHost(): void
     {
         $report = $this->runCollector(new BackgroundExecutionCollector())['entries']['background-execution.txt'];
 
         $this->assertStringContainsString('fastcgi_finish_request : ', $report);
         $this->assertStringContainsString('stream_socket_client : ', $report);
         $this->assertStringContainsString('Exécution shell vérifiée : ', $report);
-        $this->assertStringContainsString('## Cadence réelle', $report);
-        $this->assertStringContainsString('## File en retard', $report);
+        $this->assertStringContainsString('## Limites', $report);
+        $this->assertStringContainsString('open_basedir : ', $report);
+        $this->assertStringContainsString('disable_functions : ', $report);
+        $this->assertStringContainsString('## Boucle HTTP vers soi-même', $report);
         $this->assertStringContainsString("## Réglages de l'ordonnanceur", $report);
-
-        // An empty queue is an answer, not a failure.
-        $this->assertStringContainsString("Aucune tâche n'a été exécutée dans la fenêtre.", $report);
     }
 
     /**
-     * The cadence is the whole point: it is the only observable answer to
-     * "is the cron actually firing", since a cron entry is invisible from
-     * inside PHP. Executions moments apart are one pass; what matters is
-     * the gap between passes.
+     * With no base_url there is no target, and inventing one from
+     * HTTP_HOST would make a support collector connect wherever an
+     * attacker-supplied header pointed — an SSRF triggerable by anyone who
+     * can get a superadmin to generate a package.
      */
-    public function testTheCadenceGroupsOneBurstIntoOnePassAndMeasuresTheGapBetweenThem(): void
+    public function testTheLoopbackTestRefusesToInventATargetWithoutABaseUrl(): void
     {
-        $insert = $this->pdo->prepare(
-            'INSERT INTO scheduled_actions (module_id, task_key, run_at, status, executed_at)
-             VALUES (?, ?, ?, ?, ?)'
-        );
-        // Two passes an hour apart, three tasks each — the shape of a
-        // scheduler driven hourly.
-        foreach ([0, 3600] as $offset) {
-            foreach ([0, 1, 2] as $withinPass) {
-                $moment = (new \DateTimeImmutable('-4 hours'))->modify('+' . ($offset + $withinPass) . ' seconds');
-                $insert->execute([
-                    'core',
-                    'probe_task',
-                    $moment->format('Y-m-d H:i:s'),
-                    'done',
-                    $moment->format('Y-m-d H:i:s'),
-                ]);
-            }
-        }
+        $report = $this->runCollector(new BackgroundExecutionCollector())['entries']['background-execution.txt'];
+
+        $this->assertStringContainsString('base_url vide : aucune cible à tester', $report);
+    }
+
+    /**
+     * Both targets are reported, never just the first that answers:
+     * loopback and the public name fail for different reasons — one is
+     * firewalled off from PHP, the other goes out through a proxy or a WAF
+     * — and which of the two answers is what turns a report into a fix.
+     */
+    public function testTheLoopbackTestReportsEveryTargetSeparately(): void
+    {
+        $this->settings->register('base_url', '', 'text', 'base', 'test', null, null, null, false, 900);
+        // A port nothing is listening on: both targets must be attempted
+        // and both must be reported as having failed, rather than the file
+        // stopping at the first refusal.
+        $this->settings->setInternal('base_url', 'http://127.0.0.1:' . $this->aPortNobodyIsUsing());
 
         $report = $this->runCollector(new BackgroundExecutionCollector())['entries']['background-execution.txt'];
 
-        $this->assertStringContainsString('Exécutions : 6 réparties sur 2 passe(s)', $report);
-        $this->assertStringContainsString('Intervalle médian entre deux passes : 1 h 0 min', $report);
+        $this->assertStringContainsString('loopback (127.0.0.1 avec en-tête Host)', $report);
+        $this->assertStringContainsString('nom public', $report);
+        $this->assertSame(2, substr_count($report, 'ÉCHEC de connexion'));
+    }
+
+    private function aPortNobodyIsUsing(): int
+    {
+        $probe = @stream_socket_server('tcp://127.0.0.1:0', $errno, $errstr);
+        $this->assertNotFalse($probe, "could not reserve a local port: {$errstr}");
+        $name = (string) stream_socket_get_name($probe, false);
+        $port = (int) substr($name, (int) strrpos($name, ':') + 1);
+        fclose($probe);
+
+        return $port;
     }
 
     /**
@@ -375,6 +406,128 @@ class SystemCollectorsTest extends TestCase
         $report = $this->runCollector(new BackgroundExecutionCollector())['entries']['background-execution.txt'];
 
         $this->assertStringContainsString('Secret de continuation : ABSENT', $report);
+    }
+
+    // --- cron-cadence.txt ---
+
+    private function registerCronSettings(): void
+    {
+        \Core\Scheduler\CronRunHistory::register($this->settings);
+        $this->settings->register('cron_last_run', '0', 'number', 'cron', 'test', null, null, null, false, 999);
+        $this->settings->register('scheduler_last_run', '0', 'number', 'pseudo', 'test', null, null, null, false, 999);
+    }
+
+    /**
+     * The verdict is the point of the file. One stamp cannot distinguish a
+     * crontab firing every minute from one the host silently dropped an
+     * hour ago, and support acts very differently on those two answers.
+     */
+    public function testAnInstallationThatHasNeverRunARealCronSaysSoPlainly(): void
+    {
+        $this->registerCronSettings();
+
+        $report = $this->runCollector(new CronCadenceCollector())['entries']['cron-cadence.txt'];
+
+        $this->assertStringContainsString('VRAI CRON : jamais détecté.', $report);
+        $this->assertStringContainsString('PSEUDO-CRON : jamais déclenché.', $report);
+    }
+
+    public function testARealCronThatHasStoppedIsDistinguishedFromOneThatNeverRan(): void
+    {
+        $this->registerCronSettings();
+        $this->settings->setInternal('cron_last_run', (string) (time() - 10800));
+
+        $result = $this->runCollector(new CronCadenceCollector());
+        $report = $result['entries']['cron-cadence.txt'];
+
+        $this->assertStringContainsString('VRAI CRON : configuré mais SILENCIEUX', $report);
+        // And it reaches collection-status.json too, not just the file.
+        $this->assertNotSame([], $result['notes']);
+    }
+
+    public function testAnActiveRealCronIsReportedWithItsMeasuredIntervals(): void
+    {
+        $this->registerCronSettings();
+        $now = time();
+        $this->settings->setInternal('cron_last_run', (string) $now);
+        // Five passes, five minutes apart — a crontab doing its job.
+        $history = [];
+        for ($i = 4; $i >= 0; $i--) {
+            $history[] = $now - ($i * 300);
+        }
+        $this->settings->setInternal(
+            \Core\Scheduler\CronRunHistory::SETTING,
+            (string) json_encode($history)
+        );
+
+        $report = $this->runCollector(new CronCadenceCollector())['entries']['cron-cadence.txt'];
+
+        $this->assertStringContainsString('VRAI CRON : détecté et actif', $report);
+        // Raw before derived, per the archive's format rule.
+        $this->assertStringContainsString('Intervalles bruts (s) : 300, 300, 300, 300', $report);
+        $this->assertStringContainsString('Médian : 5 min 0 s', $report);
+        $this->assertStringContainsString('Maximum : 5 min 0 s', $report);
+    }
+
+    /**
+     * The number that mattered. Six production update failures all read
+     * "stuck at migrating for more than 15 minutes", and the cause was
+     * trivial unrelated tasks running six minutes after their due time
+     * against a watchdog set at fifteen — a gap only visible by
+     * subtracting two columns of a spreadsheet by hand.
+     */
+    public function testTheSchedulingLatencyIsReportedPerTaskAndSummarised(): void
+    {
+        $this->registerCronSettings();
+
+        $insert = $this->pdo->prepare(
+            'INSERT INTO scheduled_actions (module_id, task_key, run_at, status, executed_at, attempts)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        );
+        $due = new \DateTimeImmutable('-2 hours');
+        foreach ([0, 360] as $lateBySeconds) {
+            $insert->execute([
+                'core',
+                'check_stable_update',
+                $due->format('Y-m-d H:i:s'),
+                'done',
+                $due->modify('+' . $lateBySeconds . ' seconds')->format('Y-m-d H:i:s'),
+                1,
+            ]);
+        }
+
+        $report = $this->runCollector(new CronCadenceCollector())['entries']['cron-cadence.txt'];
+
+        $this->assertStringContainsString("## Latence d'ordonnancement", $report);
+        $this->assertStringContainsString('check_stable_update', $report);
+        $this->assertStringContainsString('Retard maximum : 6 min 0 s', $report);
+        $this->assertStringContainsString('Exécutions considérées : 2', $report);
+    }
+
+    /**
+     * A reader who does not know a list was cut concludes wrongly: "no
+     * late task" and "no late task among the 200 shown" are different
+     * sentences. The archive's own rule is that every truncation is
+     * declared in the file AND in collection-status.json.
+     */
+    public function testATruncatedLatencyListSaysSoInTheFileAndInTheStatus(): void
+    {
+        $this->registerCronSettings();
+
+        $insert = $this->pdo->prepare(
+            'INSERT INTO scheduled_actions (module_id, task_key, run_at, status, executed_at, attempts)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        );
+        $due = new \DateTimeImmutable('-3 hours');
+        for ($i = 0; $i < 205; $i++) {
+            $moment = $due->modify('+' . $i . ' seconds')->format('Y-m-d H:i:s');
+            $insert->execute(['core', 'noisy_task', $moment, 'done', $moment, 1]);
+        }
+
+        $result = $this->runCollector(new CronCadenceCollector());
+
+        $this->assertStringContainsString('*** TRONQUÉ', $result['entries']['cron-cadence.txt']);
+        $this->assertNotSame([], $result['notes']);
     }
 
     // --- webserver/ ---

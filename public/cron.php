@@ -115,7 +115,16 @@ $settingService = new SettingService(new SettingRepository($pdo));
 $settingService->register('cron_last_run', '0', 'number', 'Dernier passage du cron réel',
     'Horodatage (timestamp Unix) du dernier passage de public/cron.php — jamais mis à jour par le pseudo-cron. Lecture seule.',
     null, null, null, false, 999);
-(new SettingRepository($pdo))->updateValue(null, 'cron_last_run', (string) time());
+$cronSettingRepository = new SettingRepository($pdo);
+$cronSettingRepository->updateValue(null, 'cron_last_run', (string) time());
+
+// ...and the ring buffer beside it. One stamp answers "did a real cron
+// ever run"; it cannot answer "how often", and a crontab configured hourly
+// on a host that silently drops it looks identical through one stamp to a
+// crontab firing every minute. Only the intervals tell them apart, and an
+// interval needs two timestamps (Core\Scheduler\CronRunHistory).
+\Core\Scheduler\CronRunHistory::register($settingService);
+\Core\Scheduler\CronRunHistory::record($cronSettingRepository, time());
 $journalRepo = new JournalRepository($pdo);
 $journalService = new JournalService($journalRepo);
 $schedulerRepo = new SchedulerRepository($pdo);

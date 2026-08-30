@@ -111,9 +111,17 @@ class ExtensionsCollector implements SupportCollectorInterface
             : 'Absentes mais optionnelles : ' . implode(', ', $missingOptional);
         $lines[] = '';
 
+        // Raw and complete, with versions, per the archive's format rule:
+        // the mapping above is a convenience laid BESIDE this list, never
+        // instead of it. A hand-picked list necessarily misses the next
+        // dependency somebody adds, and the reader of this archive cannot
+        // ask a follow-up question.
         sort($loaded);
-        $lines[] = '## Toutes les extensions chargées (' . count($loaded) . ')';
-        $lines[] = implode(', ', $loaded);
+        $lines[] = '## Toutes les extensions chargées, avec versions (' . count($loaded) . ')';
+        foreach ($loaded as $extension) {
+            $version = phpversion($extension);
+            $lines[] = sprintf('%-24s %s', $extension, $version === false ? '(sans version)' : $version);
+        }
 
         $context->addFileFromContent('extensions.txt', implode("\n", $lines) . "\n");
     }

@@ -14,28 +14,24 @@ use Core\Support\SupportCollectorInterface;
 use Core\System\ShellExecutor;
 
 /**
- * `background-execution.txt` — how background work actually gets executed
- * on this installation, and how often it actually has been.
+ * `background-execution.txt` — whether this installation can run work in
+ * the background at all, and by which mechanism.
  *
- * `scheduled-tasks.xlsx` answers "what is queued and what ran"; this
- * answers the question underneath it, which is the one that explains a
- * queue that is not draining: **is anything driving the scheduler at
- * all, and how often?**
+ * This is the permanent form of the one-off probe that established what
+ * the reference host could and could not do: the self-directed HTTP loop
+ * works there, on every target, while a detached CLI spawn does not —
+ * `system`, `passthru`, `proc_open` and `popen` are all in
+ * `disable_functions`. Those two facts decided the whole design of the
+ * scheduler's continuation, and neither of them was visible in a support
+ * package. Now that chained continuation is in production, "pourquoi la
+ * file n'avance pas chez cette unité" is the first question support will
+ * be asked, and this file is the answer to it.
  *
- * Nothing here is a setting somebody chose. The cadence is measured from
- * `scheduled_actions.executed_at` — the gaps between distinct moments at
- * which work actually happened — because that is the only honest source:
- * whether a real cron entry exists is invisible from inside PHP, and a
- * site with no cron at all still advances its queue on visits, slowly and
- * irregularly. A median gap of a few minutes says something is driving it
- * steadily; a maximum gap of six hours on a site with a nightly cron says
- * the cron is not firing, whatever the hosting panel claims.
- *
- * The rest is the machinery each mechanism needs, reported as present or
- * absent rather than assumed: `fastcgi_finish_request` (whether the
- * poor-man's cron makes a visitor wait), `stream_socket_client` (whether
- * a self-continuation hop can be emitted at all), and shell execution,
- * demonstrated rather than declared (`ShellExecutor::probe()`).
+ * Its companion is `cron-cadence.txt`, which answers what has actually
+ * been happening; this one answers what is possible here. Both targets of
+ * the loop are tried and both are reported, never just the first that
+ * works: loopback and the public name fail for different reasons, and
+ * knowing which of the two answers is what turns a report into a fix.
  *
  * **The continuation secret is reported as present or absent and never
  * printed.** It authenticates a request to this site's own scheduler
@@ -46,15 +42,20 @@ use Core\System\ShellExecutor;
  */
 class BackgroundExecutionCollector implements SupportCollectorInterface
 {
-    /** Same window as the event journal and the task volumes, so the three read together. */
-    private const WINDOW_HOURS = 48;
+    /**
+     * A support package must never hang on a socket. Two seconds is the
+     * same budget SchedulerContinuation gives a real hop.
+     */
+    private const CONNECT_TIMEOUT_SECONDS = 2.0;
 
     /**
-     * Two executions closer together than this are one scheduler pass, not
-     * two: a pass runs its whole due list in a few hundred milliseconds.
-     * The interesting number is the gap BETWEEN passes.
+     * The loopback test asks for this rather than the continuation
+     * endpoint: it is public, cheap, and has NO side effect. Probing the
+     * continuation endpoint would either run scheduler work or — with a
+     * wrong secret — write a `security` journal entry every time somebody
+     * generates a support package.
      */
-    private const SAME_PASS_SECONDS = 30;
+    private const PROBE_PATH = '/api/version';
 
     public function name(): string
     {
@@ -66,13 +67,13 @@ class BackgroundExecutionCollector implements SupportCollectorInterface
         $lines = [];
         $lines[] = '# Exécution en arrière-plan';
         $lines[] = '#';
-        $lines[] = '# scheduled-tasks.xlsx dit ce qui est en file et ce qui a tourné.';
-        $lines[] = '# Ce fichier-ci dit si quelque chose entraîne l\'ordonnanceur, et à quel rythme.';
+        $lines[] = '# scheduled-tasks.xlsx dit ce qui est en file, cron-cadence.txt ce qui s\'est';
+        $lines[] = '# réellement passé. Ce fichier-ci dit ce qui est POSSIBLE sur cet hébergement.';
         $lines[] = '';
 
         $this->mechanisms($lines);
-        $this->cadence($lines, $context);
-        $this->backlog($lines, $context);
+        $this->limits($lines);
+        $this->loopback($lines, $context);
         $this->settings($lines, $context);
 
         $context->addFileFromContent('background-execution.txt', implode("\n", $lines) . "\n");
@@ -93,147 +94,159 @@ class BackgroundExecutionCollector implements SupportCollectorInterface
         $lines[] = 'Exécution shell vérifiée : ' . ($shell['works'] ? 'oui' : 'NON')
             . ' (' . ($shell['function'] ?? 'aucune fonction') . ' — ' . $shell['detail'] . ')';
         $lines[] = 'SAPI : ' . PHP_SAPI;
+        $lines[] = '';
+        $lines[] = 'Note : le spawn d\'un processus CLI détaché n\'est délibérément pas tenté, ici comme';
+        $lines[] = 'ailleurs — il est mesuré non fonctionnel sur l\'hébergement de référence et resterait';
+        $lines[] = 'exposé au ramassage des processus orphelins. Ce que ScoutMagic utilise, c\'est la';
+        $lines[] = 'boucle HTTP testée plus bas.';
+        $lines[] = '';
+    }
+
+    /**
+     * The three limits that decide what a background pass can do here,
+     * printed raw. `disable_functions` in particular is quoted in full
+     * rather than summarised: which functions a host disables is the
+     * single most useful line when a mechanism silently does nothing, and
+     * the interesting entry is always the one nobody thought to check for.
+     *
+     * @param array<int, string> $lines
+     */
+    private function limits(array &$lines): void
+    {
+        $openBasedir = trim((string) ini_get('open_basedir'));
+        $disabled = trim((string) ini_get('disable_functions'));
+
+        $lines[] = '## Limites';
         $lines[] = 'max_execution_time : ' . (string) ini_get('max_execution_time') . ' s';
-        $lines[] = '';
-        $lines[] = 'Note : l\'existence d\'une vraie tâche cron système n\'est pas observable depuis PHP.';
-        $lines[] = 'La cadence mesurée ci-dessous est la seule réponse honnête à « le cron tourne-t-il ? ».';
+        $lines[] = 'memory_limit : ' . (string) ini_get('memory_limit');
+        $lines[] = 'open_basedir : ' . ($openBasedir === '' ? '(aucun)' : $openBasedir);
+        $lines[] = 'disable_functions : ' . ($disabled === '' ? '(aucune)' : $disabled);
         $lines[] = '';
     }
 
     /**
-     * The measured answer. Executions are grouped into passes, and it is
-     * the gaps between passes that say whether anything is driving the
-     * scheduler on a schedule or whether it is coasting on visits.
+     * Can this site reach itself over HTTP? Measured, per target, because
+     * that loop is the engine of the whole continuation mechanism: without
+     * it a queue only advances when somebody visits, and "pourquoi la file
+     * n'avance pas chez cette unité" is the first support question a
+     * chained scheduler produces.
+     *
+     * Both targets are tried and both are reported, never just the first
+     * that works: loopback and the public name fail for different reasons
+     * — one is firewalled off from PHP, the other goes out through a proxy
+     * or a WAF — and knowing which of the two answers is what turns a
+     * report into a fix.
+     *
+     * The destination comes from the configured `base_url` and nothing
+     * else. Never `HTTP_HOST`: it is attacker-supplied, this host sits
+     * behind a proxy with `SERVER_ADDR = 127.0.0.1`, and a collector that
+     * connected wherever a header pointed would be an SSRF triggerable by
+     * anyone who can make a superadmin generate a support package.
      *
      * @param array<int, string> $lines
      */
-    private function cadence(array &$lines, SupportCollectorContext $context): void
+    private function loopback(array &$lines, SupportCollectorContext $context): void
     {
-        $lines[] = '## Cadence réelle (' . self::WINDOW_HOURS . ' dernières heures)';
+        $lines[] = '## Boucle HTTP vers soi-même';
+        $lines[] = '# Cible demandée : ' . self::PROBE_PATH . ' (publique, sans effet de bord).';
 
-        try {
-            $stmt = $context->pdo()->prepare(
-                'SELECT executed_at FROM scheduled_actions
-                 WHERE executed_at IS NOT NULL AND executed_at >= :since
-                 ORDER BY executed_at ASC'
-            );
-            $stmt->execute([
-                ':since' => (new \DateTimeImmutable('-' . self::WINDOW_HOURS . ' hours'))->format('Y-m-d H:i:s'),
-            ]);
-            /** @var array<int, string> $timestamps */
-            $timestamps = $stmt->fetchAll(\PDO::FETCH_COLUMN);
-        } catch (\PDOException $e) {
-            $lines[] = 'non mesurable : ' . $context->redact($e->getMessage());
+        $configured = trim((string) ($context->settings()->get('base_url') ?? ''));
+        if ($configured === '') {
+            $lines[] = 'base_url vide : aucune cible à tester, et aucun saut ne peut partir.';
             $lines[] = '';
 
             return;
         }
 
-        if ($timestamps === []) {
-            $lines[] = 'Aucune tâche n\'a été exécutée dans la fenêtre.';
-            $lines[] = 'C\'est le symptôme d\'un ordonnanceur que rien n\'entraîne — ou d\'une file vide.';
-            $lines[] = 'Le nombre de tâches en retard, ci-dessous, tranche entre les deux.';
+        $parts = parse_url($configured);
+        if (!is_array($parts) || !isset($parts['host'])) {
+            $lines[] = 'base_url illisible (' . $configured . ') : aucune cible testable.';
             $lines[] = '';
 
             return;
         }
 
-        $passes = $this->passStartTimes($timestamps);
-        $lines[] = 'Exécutions : ' . count($timestamps) . ' réparties sur ' . count($passes) . ' passe(s)';
-        $lines[] = 'Première : ' . date('Y-m-d H:i:s', $passes[0]);
-        $lines[] = 'Dernière : ' . date('Y-m-d H:i:s', $passes[count($passes) - 1]);
+        $scheme = ($parts['scheme'] ?? 'https') === 'http' ? 'http' : 'https';
+        $host = (string) $parts['host'];
+        $port = isset($parts['port']) ? (int) $parts['port'] : ($scheme === 'https' ? 443 : 80);
+        $prefix = rtrim((string) ($parts['path'] ?? ''), '/');
+        $transport = $scheme === 'https' ? 'ssl' : 'tcp';
 
-        $gaps = [];
-        for ($i = 1, $n = count($passes); $i < $n; $i++) {
-            $gaps[] = $passes[$i] - $passes[$i - 1];
+        foreach ([
+            'loopback (127.0.0.1 avec en-tête Host)' => $transport . '://127.0.0.1:' . $port,
+            'nom public' => $transport . '://' . $host . ':' . $port,
+        ] as $label => $target) {
+            $lines[] = $label . ' → ' . $target;
+            $lines[] = '  ' . $this->probe($target, $host, $prefix . self::PROBE_PATH);
         }
 
-        if ($gaps === []) {
-            $lines[] = 'Une seule passe dans la fenêtre : pas d\'intervalle mesurable.';
-            $lines[] = '';
-
-            return;
-        }
-
-        sort($gaps);
-        $lines[] = 'Intervalle médian entre deux passes : ' . $this->duration($gaps[intdiv(count($gaps), 2)]);
-        $lines[] = 'Intervalle le plus long : ' . $this->duration($gaps[count($gaps) - 1]);
-        $lines[] = 'Intervalle le plus court : ' . $this->duration($gaps[0]);
         $lines[] = '';
     }
 
     /**
-     * Executions within SAME_PASS_SECONDS of each other are one pass.
-     *
-     * @param array<int, string> $timestamps ascending
-     * @return array<int, int> pass start times, as unix timestamps
+     * One connect, one request, one status line. Never more: a support
+     * collector that reads a whole response body is a support collector
+     * that can be made to wait.
      */
-    private function passStartTimes(array $timestamps): array
+    private function probe(string $target, string $host, string $path): string
     {
-        $passes = [];
-        $previous = null;
+        // Same certificate rule as a real hop: TLS to 127.0.0.1 validates
+        // against the site's own name via SNI, and verification is never
+        // switched off.
+        $streamContext = stream_context_create([
+            'ssl' => [
+                'peer_name' => $host,
+                'verify_peer' => true,
+                'verify_peer_name' => true,
+            ],
+        ]);
 
-        foreach ($timestamps as $timestamp) {
-            $moment = strtotime($timestamp);
-            if ($moment === false) {
-                continue;
-            }
-            if ($previous === null || ($moment - $previous) > self::SAME_PASS_SECONDS) {
-                $passes[] = $moment;
-            }
-            $previous = $moment;
+        $errno = 0;
+        $errstr = '';
+        $socket = @stream_socket_client(
+            $target,
+            $errno,
+            $errstr,
+            self::CONNECT_TIMEOUT_SECONDS,
+            STREAM_CLIENT_CONNECT,
+            $streamContext
+        );
+
+        if ($socket === false) {
+            return 'ÉCHEC de connexion : ' . ($errstr !== '' ? $errstr : 'erreur ' . $errno);
         }
 
-        return $passes;
-    }
+        // An explicit user-agent, for the same reason a hop carries one:
+        // a request without one is a documented cause of WAF refusal on
+        // other hosts, and a refusal here would be read as "the loop does
+        // not work" rather than "the loop was blocked".
+        $request = "GET {$path} HTTP/1.1\r\n"
+            . "Host: {$host}\r\n"
+            . "User-Agent: ScoutMagic-Support/1.0 (+background-execution probe)\r\n"
+            . "Connection: close\r\n\r\n";
 
-    /**
-     * The backlog is what turns a cadence into a verdict: a slow scheduler
-     * with nothing waiting is not a problem, and a fast one with a task
-     * three days overdue is.
-     *
-     * @param array<int, string> $lines
-     */
-    private function backlog(array &$lines, SupportCollectorContext $context): void
-    {
-        $lines[] = '## File en retard';
+        stream_set_timeout($socket, (int) self::CONNECT_TIMEOUT_SECONDS);
+        $written = @fwrite($socket, $request);
+        if ($written === false || $written <= 0) {
+            @fclose($socket);
 
-        try {
-            $overdue = $context->pdo()->prepare(
-                "SELECT COUNT(*) AS n, MIN(run_at) AS oldest
-                 FROM scheduled_actions WHERE status = 'pending' AND run_at <= NOW()"
-            );
-            $overdue->execute();
-            /** @var array<string, mixed>|false $row */
-            $row = $overdue->fetch(\PDO::FETCH_ASSOC);
-
-            $processing = $context->pdo()->prepare(
-                "SELECT COUNT(*) FROM scheduled_actions WHERE status = 'processing'"
-            );
-            $processing->execute();
-            $stuck = (int) $processing->fetchColumn();
-        } catch (\PDOException $e) {
-            $lines[] = 'non mesurable : ' . $context->redact($e->getMessage());
-            $lines[] = '';
-
-            return;
+            return 'connecté, mais écriture impossible sur la socket';
         }
 
-        $count = (int) (is_array($row) ? ($row['n'] ?? 0) : 0);
-        $lines[] = 'Tâches dues et non traitées : ' . $count;
+        $statusLine = @fgets($socket, 2048);
+        $info = stream_get_meta_data($socket);
+        @fclose($socket);
 
-        $oldest = is_array($row) ? ($row['oldest'] ?? null) : null;
-        if ($count > 0 && is_string($oldest)) {
-            $age = time() - (int) strtotime($oldest);
-            $lines[] = 'La plus ancienne attend depuis : ' . $this->duration(max(0, $age)) . ' (due le ' . $oldest . ')';
+        if ($info['timed_out']) {
+            return 'connecté et requête écrite, mais aucune réponse avant expiration ('
+                . self::CONNECT_TIMEOUT_SECONDS . ' s)';
         }
 
-        // 'processing' is a claimed row nothing ever re-claims: a non-zero
-        // count here means a pass died mid-task, and those rows will never
-        // run again on their own.
-        $lines[] = 'Tâches bloquées en « processing » : ' . $stuck
-            . ($stuck > 0 ? ' — une passe est morte en cours de route ; rien ne les reprendra seul' : '');
-        $lines[] = '';
+        if (!is_string($statusLine) || trim($statusLine) === '') {
+            return 'connecté et requête écrite, mais réponse vide';
+        }
+
+        return 'OK — ' . trim($statusLine);
     }
 
     /**
@@ -273,20 +286,5 @@ class BackgroundExecutionCollector implements SupportCollectorInterface
         } catch (\Throwable) {
             return false;
         }
-    }
-
-    private function duration(int $seconds): string
-    {
-        if ($seconds < 60) {
-            return $seconds . ' s';
-        }
-        if ($seconds < 3600) {
-            return intdiv($seconds, 60) . ' min ' . ($seconds % 60) . ' s';
-        }
-        if ($seconds < 86400) {
-            return intdiv($seconds, 3600) . ' h ' . intdiv($seconds % 3600, 60) . ' min';
-        }
-
-        return intdiv($seconds, 86400) . ' j ' . intdiv($seconds % 86400, 3600) . ' h';
     }
 }

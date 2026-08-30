@@ -16,6 +16,7 @@ use Core\Statistics\StatisticsServiceFactory;
 use Core\Support\Collector\BackgroundExecutionCollector;
 use Core\Support\Collector\CommandsCollector;
 use Core\Support\Collector\ConfigurationParametersCollector;
+use Core\Support\Collector\CronCadenceCollector;
 use Core\Support\Collector\DatabaseStructureCollector;
 use Core\Support\Collector\EventJournalCollector;
 use Core\Support\Collector\ExtensionsCollector;
@@ -75,6 +76,7 @@ final class SupportPackageFactory
             new FilesystemCollector(),
             new CommandsCollector(),
             new BackgroundExecutionCollector(),
+            new CronCadenceCollector(),
             new WebServerCollector(),
             new LogsCollector(),
         ];
