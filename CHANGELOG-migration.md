@@ -410,3 +410,41 @@ n'est antérieure à ce changement : plus aucune mise à jour ne peut exécuter
 le `MigrationRunner` d'une version contre le `MigrationResult` d'une autre.
 Elles restent en place jusque-là — leur retrait est une décision sur le parc
 installé, pas sur le code.
+
+### MySQL et MariaDB : ce que l'échec de CI a révélé
+
+Le correctif ci-dessus, écrit et mesuré contre MariaDB, a fait tomber en CI
+le test auquel je tenais le plus — celui qui vérifie qu'une colonne ayant
+réellement `NULL` pour défaut le conserve. La CI tourne sur MySQL 8.
+
+La règle « `NULL` non cité signifie pas de défaut » est **vraie sur MariaDB
+et fausse sur MySQL**, qui ne cite pas les littéraux : `DEFAULT 'NULL'` y
+revient aussi en `NULL` nu, et c'est « pas de défaut » qui s'y exprime par
+un vrai NULL SQL. Chaque moteur est cohérent avec lui-même ; les deux se
+contredisent. Appliquer la lecture MariaDB à MySQL **efface un défaut
+réel** ; appliquer celle de MySQL à MariaDB en **invente 472**.
+
+Vérifié contre les deux moteurs réels plutôt que contre la documentation :
+un MySQL 8.0.46 — la version exacte de la CI — a été démarré localement à
+côté du MariaDB 10.11.
+
+### Le trou de couverture, plus important que le correctif
+
+Les quatre jobs de CI tournaient sur `mysql:8.0`. **La production tourne
+sur le moteur que la CI ne testait jamais.**
+
+L'asymétrie était du mauvais côté. Ce qui vient de se passer était le cas
+favorable : du code juste sur MariaDB, attrapé par une CI MySQL. Le cas
+inverse — juste sur MySQL, faux sur MariaDB — passe la CI et casse la
+production, et il y a un précédent : `SchemaComparator` n'atteignant jamais
+son état stable sur un hébergement MariaDB, avec des requêtes qui
+paraissaient bloquées.
+
+Un job `database-mariadb` couvre désormais `--group=database` contre
+MariaDB 10.11. Délibérément étroit : pas de couverture, pas de duplication
+du rapport Clover que SonarQube consomme, seulement les tests qui ont
+besoin d'un vrai serveur — c'est là que vit toute la divergence entre
+moteurs.
+
+**Convergence mesurée sur les deux : 534 → 0 sur MariaDB 10.11, 0 sur
+MySQL 8.0.46.**

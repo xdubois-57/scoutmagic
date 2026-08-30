@@ -86,6 +86,59 @@ jobs:
             phpunit-report.xml
           retention-days: 1
 
+  # The engine production actually runs, which every other job here does
+  # not. `test` above runs the whole suite against MySQL 8 with coverage,
+  # and that asymmetry used to point the wrong way: code correct on MySQL
+  # and wrong on MariaDB passed CI and reached the reference installation,
+  # which is MariaDB 10.11 on shared hosting. That is not hypothetical —
+  # SchemaComparator once never reached a "nothing to do" steady state
+  # there, and the site's requests appeared to hang (ARCHITECTURE.md §
+  # early session lock release).
+  #
+  # Deliberately narrow: only `--group=database`, only the tests that need
+  # a real server, and no coverage. The engine-specific behaviour is all
+  # in how INFORMATION_SCHEMA reports what it stores, so that group is
+  # where a divergence shows — and the `test` job stays the single source
+  # of the Clover report SonarQube consumes, unduplicated.
+  database-mariadb:
+    runs-on: ubuntu-latest
+
+    services:
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: test_password
+          MARIADB_DATABASE: test_db
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
+        with:
+          php-version: '8.4'
+          extensions: mbstring, pdo, pdo_mysql, openssl, imagick
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress
+
+      - name: Run the database-backed tests against MariaDB
+        env:
+          TEST_DB_HOST: 127.0.0.1
+          TEST_DB_PORT: 3306
+          TEST_DB_NAME: test_db
+          TEST_DB_USER: root
+          TEST_DB_PASSWORD: test_password
+        run: vendor/bin/phpunit --group=database
+
   javascript-tests:
     runs-on: ubuntu-latest
 
