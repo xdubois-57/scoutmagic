@@ -514,12 +514,27 @@ class InstallUpdateHandler implements TaskHandlerInterface
                 'L\'installation de la mise à jour a échoué — la version précédente a été restaurée '
                 . 'automatiquement. Le détail est dans le journal des événements.'
             ));
+            // The technical detail goes HERE and nowhere else. The
+            // user-facing message above deliberately says only "the detail
+            // is in the event journal" (UserFacingMessage's rule: no class
+            // name, no file path, no library text on a page) — which was a
+            // promise this entry did not keep. Six production rollbacks
+            // were diagnosable only by reasoning about the diff, because
+            // the exception message existed nowhere: not in the journal,
+            // not in update_history, and not in the server log either,
+            // since the handler catches it.
             $context->journal->log(
                 'core',
                 'update_rolled_back',
                 'info',
                 'Restauration automatique effectuée après échec de mise à jour',
-                ['version_from' => $history->versionFrom, 'version_to' => $history->versionTo],
+                [
+                    'version_from' => $history->versionFrom,
+                    'version_to' => $history->versionTo,
+                    'error' => $error->getMessage(),
+                    'error_class' => $error::class,
+                    'error_at' => basename($error->getFile()) . ':' . $error->getLine(),
+                ],
                 $history->requestedBy
             );
             $notifyTitle = 'Échec de la mise à jour';

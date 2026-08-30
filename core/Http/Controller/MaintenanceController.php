@@ -49,6 +49,9 @@ class MaintenanceController extends AbstractController
 
     private const KEEP_BACKUPS = 5;
 
+    /** How many past installations Configuration > Maintenance lists. */
+    private const UPDATE_HISTORY_SHOWN = 20;
+
     /**
      * How long the `dev` channel may go without installing anything before
      * the page says so. Long enough that an ordinary quiet stretch — a
@@ -139,7 +142,13 @@ class MaintenanceController extends AbstractController
             'update_release_notes' => (string) ($this->settingService->get('update_release_notes') ?: ''),
             'update_release_html_url' => (string) ($this->settingService->get('update_release_html_url') ?: ''),
             'update_dependencies_changed' => (bool) ((int) ($this->settingService->get('update_dependencies_changed') ?: '0')),
-            'update_history' => $this->updateHistoryRepository->findRecent(5),
+            // Twenty, not five. Five showed roughly one evening of dev-mode
+            // auto-updates: the six consecutive rollbacks that wedged
+            // production did not fit on the page at once, so the pattern
+            // — every attempt failing, always at the same point — was
+            // invisible to the person looking at it. A run of failures is
+            // the thing this table exists to make obvious.
+            'update_history' => $this->updateHistoryRepository->findRecent(self::UPDATE_HISTORY_SHOWN),
             'backups' => $this->backupRepository->findRecent(self::KEEP_BACKUPS),
             'gallery_enabled' => in_array('gallery', $this->moduleManager->getEnabledModuleIds(), true),
             'zip_encryption_supported' => $this->backupService->supportsZipEncryption(),
