@@ -21,7 +21,7 @@
                     {% include 'partials/form_field.html.twig' with {
                         field_id: 'journal-filter-level', field_name: 'level',
                         label: 'Niveau', type: 'select', size: 'sm', wrapper_class: '',
-                        options: { '': 'Tous', 'info': 'Info', 'security': 'Sécurité' }
+                        options: { '': 'Tous', 'info': 'Info', 'security': 'Sécurité', 'error': 'Erreur' }
                             |map((label, value) => {
                                 value: value, label: label, selected: filter_level == value,
                             }),
@@ -89,7 +89,9 @@
                         data-reveal="next:.context-row" style="cursor:pointer;">
                         <td class="text-nowrap small">{{ entry.logged_at }}</td>
                         <td>
-                            {% if entry.level == 'security' %}
+                            {% if entry.level == 'error' %}
+                                <span class="badge text-bg-danger">erreur</span>
+                            {% elseif entry.level == 'security' %}
                                 <span class="badge text-bg-warning">sécurité</span>
                             {% else %}
                                 <span class="badge text-bg-info">info</span>
@@ -126,7 +128,9 @@
             <div class="card-body py-2 px-3">
                 <div class="d-flex justify-content-between align-items-center mb-1">
                     <span class="text-body-secondary" style="font-size:0.7rem;">{{ entry.logged_at }}</span>
-                    {% if entry.level == 'security' %}
+                    {% if entry.level == 'error' %}
+                        <span class="badge text-bg-danger" style="font-size:0.65rem;">erreur</span>
+                    {% elseif entry.level == 'security' %}
                         <span class="badge text-bg-warning" style="font-size:0.65rem;">sécurité</span>
                     {% else %}
                         <span class="badge text-bg-info" style="font-size:0.65rem;">info</span>
