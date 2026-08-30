@@ -4667,13 +4667,6 @@ if ($isEnabled('leadership')) {
 
     $attentionProviders[] = new \Modules\Leadership\Service\LeadershipAttentionProvider(
         $leadershipRepository,
-        new \Modules\Leadership\Service\TrainingService(
-            $leadershipRepository,
-            $sectionService,
-            $memberYearService,
-            new \Modules\Leadership\Service\SupervisionCalculator()
-        ),
-        $leadershipResolver,
         new \Modules\Leadership\Service\StewardService($leadershipRepository, $leadershipObligationsService)
     );
 
