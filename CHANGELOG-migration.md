@@ -440,11 +440,17 @@ production, et il y a un précédent : `SchemaComparator` n'atteignant jamais
 son état stable sur un hébergement MariaDB, avec des requêtes qui
 paraissaient bloquées.
 
-Un job `database-mariadb` couvre désormais `--group=database` contre
-MariaDB 10.11. Délibérément étroit : pas de couverture, pas de duplication
-du rapport Clover que SonarQube consomme, seulement les tests qui ont
-besoin d'un vrai serveur — c'est là que vit toute la divergence entre
-moteurs.
+Un job `database-mariadb` fait désormais tourner **toute** la suite contre
+MariaDB 10.11, sans couverture — le rapport Clover que SonarQube consomme
+reste produit une seule fois.
+
+Toute la suite plutôt que `--group=database`, délibérément. Les neuf
+fichiers qui lisent `TEST_DB_*` portent tous ce groupe aujourd'hui, donc la
+forme étroite couvrirait le même terrain — mais seulement jusqu'à ce que
+quelqu'un en ajoute un qui ne le porte pas, et le mode d'échec de cet oubli
+est le silencieux : il passe en CI et casse la production. Deux minutes de
+plus achètent la disparition complète de la question « quels tests sont
+sensibles au moteur ».
 
 **Convergence mesurée sur les deux : 534 → 0 sur MariaDB 10.11, 0 sur
 MySQL 8.0.46.**

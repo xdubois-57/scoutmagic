@@ -86,20 +86,26 @@ jobs:
             phpunit-report.xml
           retention-days: 1
 
-  # The engine production actually runs, which every other job here does
-  # not. `test` above runs the whole suite against MySQL 8 with coverage,
-  # and that asymmetry used to point the wrong way: code correct on MySQL
-  # and wrong on MariaDB passed CI and reached the reference installation,
-  # which is MariaDB 10.11 on shared hosting. That is not hypothetical —
-  # SchemaComparator once never reached a "nothing to do" steady state
-  # there, and the site's requests appeared to hang (ARCHITECTURE.md §
-  # early session lock release).
+  # The same suite, against the engine production actually runs.
   #
-  # Deliberately narrow: only `--group=database`, only the tests that need
-  # a real server, and no coverage. The engine-specific behaviour is all
-  # in how INFORMATION_SCHEMA reports what it stores, so that group is
-  # where a divergence shows — and the `test` job stays the single source
-  # of the Clover report SonarQube consumes, unduplicated.
+  # `test` above runs everything on MySQL 8 with coverage, and until this
+  # job existed that was the only engine CI ever saw — while the reference
+  # installation is MariaDB 10.11 on shared hosting. The asymmetry pointed
+  # the wrong way: code correct on MySQL and wrong on MariaDB passed CI and
+  # reached production. Not hypothetical — SchemaComparator once never
+  # reached a "nothing to do" steady state there, and the site's requests
+  # appeared to hang (ARCHITECTURE.md § early session lock release).
+  #
+  # The WHOLE suite rather than `--group=database`, deliberately. Every
+  # file reading TEST_DB_* happens to carry that group today, so the narrow
+  # form would cover the same ground — but only until someone adds one that
+  # does not, and the failure mode of that omission is the silent one: it
+  # passes here and breaks production. Two extra minutes buys away the
+  # entire question of which tests are engine-sensitive.
+  #
+  # No coverage: the `test` job stays the single source of the Clover
+  # report SonarQube consumes, and duplicating it would double the cost of
+  # the slowest job here for nothing.
   database-mariadb:
     runs-on: ubuntu-latest
 
@@ -130,14 +136,14 @@ jobs:
       - name: Install dependencies
         run: composer install --prefer-dist --no-progress
 
-      - name: Run the database-backed tests against MariaDB
+      - name: Run the full suite against MariaDB
         env:
           TEST_DB_HOST: 127.0.0.1
           TEST_DB_PORT: 3306
           TEST_DB_NAME: test_db
           TEST_DB_USER: root
           TEST_DB_PASSWORD: test_password
-        run: vendor/bin/phpunit --group=database
+        run: vendor/bin/phpunit
 
   javascript-tests:
     runs-on: ubuntu-latest
