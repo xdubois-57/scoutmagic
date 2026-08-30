@@ -31,6 +31,50 @@ class SchemaIntrospector
     }
 
     /**
+     * What `INFORMATION_SCHEMA.COLUMNS.COLUMN_DEFAULT` reports, turned
+     * back into the value the column actually defaults to.
+     *
+     * On MariaDB 10.2+ that column holds a SQL **expression**, not a
+     * value, and the difference is not academic — it is 532 phantom
+     * `MODIFY COLUMN` statements on this codebase's schema, regenerated
+     * on every migration pass for ever:
+     *
+     * - a nullable column with no default reports the bare, unquoted text
+     *   `NULL`, where MySQL reports a real SQL NULL. Read literally, every
+     *   such column looks like it wants a default of the four-character
+     *   string "NULL" — 472 of them here;
+     * - a string default is reported quoted and escaped (`'public'`,
+     *   `'it''s'`), while a schema file declares `DEFAULT 'public'` and
+     *   the parser hands back `public` — 60 more.
+     *
+     * The quoting is what makes the first case decidable rather than
+     * ambiguous: a column that genuinely defaults to the string "NULL"
+     * reports it WITH quotes, so the unquoted form can only ever mean "no
+     * default". That is why the NULL test comes first.
+     *
+     * Normalised here rather than in `SchemaComparator` — unlike
+     * `current_timestamp()` versus `CURRENT_TIMESTAMP`, which are two
+     * spellings of one real default and so only need reconciling when
+     * comparing, these two are the introspector reporting something the
+     * column does not have. Every reader deserves the truth, not only the
+     * one that happens to diff.
+     */
+    private static function decodeDefault(?string $reported): ?string
+    {
+        if ($reported === null || $reported === 'NULL') {
+            return null;
+        }
+
+        if (strlen($reported) >= 2 && str_starts_with($reported, "'") && str_ends_with($reported, "'")) {
+            $inner = substr($reported, 1, -1);
+
+            return str_replace(["''", '\\\\'], ["'", '\\'], $inner);
+        }
+
+        return $reported;
+    }
+
+    /**
      * Get the column definitions for a table.
      *
      * @return array<ColumnDefinition>
@@ -51,7 +95,7 @@ class SchemaIntrospector
                 name: $row['COLUMN_NAME'],
                 type: $row['COLUMN_TYPE'],
                 nullable: $row['IS_NULLABLE'] === 'YES',
-                default: $row['COLUMN_DEFAULT'],
+                default: self::decodeDefault($row['COLUMN_DEFAULT']),
                 autoIncrement: str_contains($row['EXTRA'], 'auto_increment'),
                 extra: $row['EXTRA'] ?: null
             );
@@ -236,7 +280,7 @@ class SchemaIntrospector
                 name: $row['COLUMN_NAME'],
                 type: $row['COLUMN_TYPE'],
                 nullable: $row['IS_NULLABLE'] === 'YES',
-                default: $row['COLUMN_DEFAULT'],
+                default: self::decodeDefault($row['COLUMN_DEFAULT']),
                 autoIncrement: str_contains($row['EXTRA'], 'auto_increment'),
                 extra: $row['EXTRA'] ?: null
             );
