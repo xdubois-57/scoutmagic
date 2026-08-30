@@ -18,6 +18,12 @@ class UserAccount
         public readonly ?string $passwordHash,
         public readonly bool $isSuperAdmin,
         public readonly ?\DateTimeImmutable $lastLoginAt,
+        /**
+         * Whether this account may still log in — see the
+         * user_accounts.is_active column comment. Defaults to true so a
+         * caller constructing an account by hand gets the ordinary case.
+         */
+        public readonly bool $isActive = true,
         public readonly ?\DateTimeImmutable $passwordChangedAt = null,
         /**
          * Sessions issued before this instant are revoked — see the

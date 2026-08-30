@@ -262,6 +262,26 @@ class RosterReplacementGuardTest extends TestCase
         $this->assertTrue($assessment->unitStaffWipedOut());
     }
 
+    /**
+     * A deactivated super admin is refused by every login path, so it is
+     * not an escape hatch at all. Counting it here would report a way out
+     * that nobody can open, and let through exactly the import that
+     * leaves the unit with no administrative access whatsoever.
+     */
+    public function testADeactivatedSuperAdminDoesNotSatisfyTheInvariant(): void
+    {
+        $this->buildRoster(['BAL1' => 20, 'LOUV1' => 24]);
+        $this->addChiefToRoster('CU-1');
+        $accountId = $this->createUserAccount('super_idx', true);
+        $this->pdo->exec('UPDATE user_accounts SET is_active = 0 WHERE id = ' . $accountId);
+
+        $parsed = $this->parsedFile(['BAL1' => 20, 'LOUV1' => 24]);
+        $assessment = $this->guard->assess($parsed, $this->scoutYearId, 0);
+
+        $this->assertFalse($assessment->hasSuperAdminAccount);
+        $this->assertSame(RosterReplacementVerdict::NO_ADMIN_LEFT, $assessment->verdict);
+    }
+
     public function testAFunctionThisInstallationHasNeverSeenCountsAsTheLowestRole(): void
     {
         $this->buildRoster(['BAL1' => 20, 'LOUV1' => 24]);

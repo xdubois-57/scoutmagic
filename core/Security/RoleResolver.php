@@ -121,15 +121,32 @@ class RoleResolver
      * by this check). Deliberately the same current-year matching
      * resolve() itself uses — a member who dropped out has no current-year
      * row and is correctly rejected here too.
+     *
+     * This is also where a deactivated account is refused, and it is the
+     * only place it needs to be: the five ways into the site all come
+     * through here — AuthController::verifyMagicLink(), pollMagicLink(),
+     * loginWithPassword() and passkeyVerify() via isMemberAuthorized(),
+     * and SessionRevalidator::revalidate() on every request of a session
+     * already open.
+     *
+     * The is_active check comes BEFORE the super-admin shortcut, and the
+     * order is the whole point: the other way round, `is_super_admin` would
+     * return true first and a deactivated super admin — exactly the account
+     * an operator most wants to be able to shut out — would keep logging
+     * in.
      */
     public function isEmailAuthorizedToLogin(string $email, int $currentScoutYearId): bool
     {
         $normalizedEmail = strtolower(trim($email));
         $blindIndex = $this->encryption->blindIndex($normalizedEmail, 'email');
 
-        $stmt = $this->pdo->prepare('SELECT is_super_admin FROM user_accounts WHERE email_blind_index = ?');
+        $stmt = $this->pdo->prepare('SELECT is_super_admin, is_active FROM user_accounts WHERE email_blind_index = ?');
         $stmt->execute([$blindIndex]);
         $userRow = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        if ($userRow !== false && !(bool) $userRow['is_active']) {
+            return false;
+        }
 
         if ($userRow !== false && (bool) $userRow['is_super_admin']) {
             return true;

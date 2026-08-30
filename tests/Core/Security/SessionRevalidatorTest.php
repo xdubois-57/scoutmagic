@@ -240,4 +240,49 @@ class SessionRevalidatorTest extends TestCase
         );
         $stmt->execute([$memberYearId, $functionId]);
     }
+
+    /**
+     * A deactivation that only closed the door for the NEXT login would
+     * leave the account fully usable in whatever tab is already open, for
+     * up to the 30 days of the session cookie. deactivate() stamps
+     * sessions_valid_from precisely so it does not.
+     */
+    public function testDeactivatingAnAccountDropsItsLiveSessionOnTheNextRequest(): void
+    {
+        $account = $this->userRepo->create('admin@test.com', true);
+        AuthSession::login($account->id, $account->email, 'superadmin');
+        $this->assertTrue($this->revalidator->revalidate(fn(): int => $this->scoutYearId));
+
+        $this->userRepo->deactivate($account->id);
+
+        $this->assertFalse($this->revalidator->revalidate(fn(): int => $this->scoutYearId));
+        $this->assertFalse(AuthSession::isAuthenticated());
+    }
+
+    public function testAnActiveAccountsSessionIsUnaffectedByTheNewColumn(): void
+    {
+        $account = $this->userRepo->create('admin@test.com', true);
+        AuthSession::login($account->id, $account->email, 'superadmin');
+
+        $this->assertTrue($this->revalidator->revalidate(fn(): int => $this->scoutYearId));
+        $this->assertTrue($this->revalidator->revalidate(fn(): int => $this->scoutYearId));
+        $this->assertTrue(AuthSession::isAuthenticated());
+    }
+
+    /**
+     * Reactivation deliberately leaves sessions_valid_from alone, so the
+     * sessions the deactivation revoked stay revoked — but a session
+     * opened afterwards works normally.
+     */
+    public function testASessionOpenedAfterReactivationSurvives(): void
+    {
+        $account = $this->userRepo->create('admin@test.com', true);
+        $this->userRepo->deactivate($account->id);
+        $this->userRepo->reactivate($account->id);
+
+        AuthSession::login($account->id, $account->email, 'superadmin');
+
+        $this->assertTrue($this->revalidator->revalidate(fn(): int => $this->scoutYearId));
+        $this->assertTrue(AuthSession::isAuthenticated());
+    }
 }
