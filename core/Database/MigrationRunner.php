@@ -30,6 +30,34 @@ class MigrationRunner
     public const ABANDONED_SETTING = 'schema_migration_abandoned';
 
     /**
+     * Shortest interval between two checkpoint WRITES, in seconds.
+     *
+     * checkpoint() is called after every statement, which used to mean one
+     * UPSERT into `settings` per DDL statement. On the reference
+     * installation that is 139 writes per pass, for the cosmetic MODIFY
+     * COLUMNs MariaDB reports as needed on every run — 139 round trips to
+     * persist a value nothing reads until the pass ends.
+     *
+     * Spacing them is only safe because of what a checkpoint now carries.
+     * Since the re-diff landed, it holds no queue: the live schema is the
+     * state, and every pass regenerates exactly the statements still
+     * missing. What a skipped write loses is the accumulated list of
+     * executed statements and the progress-bar denominator — reporting,
+     * not correctness. A pass killed mid-way still resumes correctly,
+     * because it resumes from the database, not from this row.
+     */
+    private const CHECKPOINT_MIN_INTERVAL_SECONDS = 0.5;
+
+    /**
+     * When saveProgress() last actually wrote, as a microtime(true).
+     * Kept on the instance rather than per-migrate() call, for the same
+     * reason as $introspectionCache: ModuleManager shares one runner
+     * across the core schema and every module's, so the write rate that
+     * matters is the one across all of them, not within each.
+     */
+    private float $lastCheckpointAt = 0.0;
+
+    /**
      * @param JournalService|null $journal Used for the one thing this class
      *   does that a `security`-level journal entry has to record: an
      *   explicit drop from a drops.sql actually removing a column, a
@@ -433,12 +461,22 @@ class MigrationRunner
      * the incomplete MigrationResult the caller should return immediately.
      * Returns null when there's still budget left, meaning the caller
      * should carry on to the next unit of work.
+     *
+     * The write is rate-limited (CHECKPOINT_MIN_INTERVAL_SECONDS) but the
+     * one that matters is not: a pass leaving on its budget always writes
+     * before it goes, so the row the next pass reads is never stale by
+     * more than one skipped interval of purely informational state.
      */
     private function checkpoint(string $progressKey, MigrationProgress $progress, float $deadline): ?MigrationResult
     {
-        $this->saveProgress($progressKey, $progress);
+        $now = microtime(true);
+        $outOfBudget = $now >= $deadline;
 
-        if (microtime(true) < $deadline) {
+        if ($outOfBudget || ($now - $this->lastCheckpointAt) >= self::CHECKPOINT_MIN_INTERVAL_SECONDS) {
+            $this->saveProgress($progressKey, $progress);
+        }
+
+        if (!$outOfBudget) {
             return null;
         }
 
@@ -575,6 +613,7 @@ class MigrationRunner
 
     private function saveProgress(string $key, MigrationProgress $progress): void
     {
+        $this->lastCheckpointAt = microtime(true);
         $this->upsertInternalSetting(
             $key,
             (string) json_encode($progress->toArray()),
