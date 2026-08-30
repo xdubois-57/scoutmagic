@@ -30,10 +30,13 @@ use Modules\Fees\Repository\HouseholdDetailRepository;
 use Modules\Fees\Repository\HouseholdTariffRepository;
 use Modules\Fees\Repository\IgnoredHouseholdRepository;
 use Modules\Fees\Service\FeeAccuracyService;
+use Modules\Fees\Service\FederalScaleLookupService;
 use Modules\Fees\Service\HouseholdTariffService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Fees\FeesTestHelper;
+use Tests\Modules\Fees\Support\FakeLlmConnector;
+use Tests\Modules\Fees\Support\StubbedFederalScaleLookupService;
 use Twig\Environment;
 
 /**
@@ -53,9 +56,13 @@ class FeeAccuracyControllerTest extends TestCase
     private HouseholdService $households;
     private IgnoredHouseholdRepository $ignored;
     private HouseholdTariffService $tariffs;
+    private SettingService $settingService;
+    private JournalService $journalService;
     private int $scoutYearId;
     private int $normalFeeId;
     private int $familyFeeId;
+    private FeeCategoryRepository $feeCategories;
+    private ScoutYearResolver $scoutYearResolver;
 
     protected function setUp(): void
     {
@@ -64,6 +71,7 @@ class FeeAccuracyControllerTest extends TestCase
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
 
         $settingService = new SettingService(new SettingRepository($this->pdo));
+        $this->settingService = $settingService;
         $settingService->register(ScoutYearResolver::SETTING_PUBLIC_YEAR, '0', 'number', 'Public', 'desc', null, '^[0-9]+$', null, false);
         $settingService->register(ScoutYearResolver::SETTING_STAFF_YEAR, '0', 'number', 'Staff', 'desc', null, '^[0-9]+$', null, false);
 
@@ -79,6 +87,7 @@ class FeeAccuracyControllerTest extends TestCase
         $this->households = new HouseholdService(new HouseholdRepository($this->pdo), $this->encryption);
         $this->ignored = new IgnoredHouseholdRepository($this->pdo, $this->encryption);
         $this->tariffs = new HouseholdTariffService(new HouseholdTariffRepository($this->pdo), $feeCategories);
+        $this->journalService = new JournalService(new JournalRepository($this->pdo));
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $moduleViews = dirname(__DIR__, 4) . '/modules/fees/views';
@@ -93,23 +102,13 @@ class FeeAccuracyControllerTest extends TestCase
         $twig->addGlobal('csp_nonce', 'test-nonce');
         $this->twig = $twig;
 
-        $this->controller = new FeeAccuracyController(
-            $twig,
-            new FeeAccuracyService(
-                $this->households,
-                new HouseholdDetailRepository($this->pdo, $this->encryption),
-                $this->tariffs,
-                $this->ignored,
-                $feeCategories
-            ),
-            $this->tariffs,
-            $this->ignored,
-            $this->households,
-            new FeesImportRepository($this->pdo),
-            $feeCategories,
-            $scoutYearResolver,
-            new JournalService(new JournalRepository($this->pdo))
-        );
+        $this->feeCategories = $feeCategories;
+        $this->scoutYearResolver = $scoutYearResolver;
+
+        // The default: no llm_connector at all, which is what most
+        // installations look like and what every pre-existing assertion
+        // below was written against.
+        $this->useLookupService(new FederalScaleLookupService(null, $settingService, $this->journalService));
 
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
@@ -119,6 +118,30 @@ class FeeAccuracyControllerTest extends TestCase
     protected function tearDown(): void
     {
         AuthSession::logout();
+        $_SESSION = [];
+    }
+
+    /** Rebuild the controller around a given lookup service. */
+    private function useLookupService(FederalScaleLookupService $lookup): void
+    {
+        $this->controller = new FeeAccuracyController(
+            $this->twig,
+            new FeeAccuracyService(
+                $this->households,
+                new HouseholdDetailRepository($this->pdo, $this->encryption),
+                $this->tariffs,
+                $this->ignored,
+                $this->feeCategories
+            ),
+            $this->tariffs,
+            $this->ignored,
+            $this->households,
+            new FeesImportRepository($this->pdo),
+            $this->feeCategories,
+            $this->scoutYearResolver,
+            $this->journalService,
+            $lookup
+        );
     }
 
     private function createMember(string $firstName, ?int $feeCategoryId): void
@@ -182,6 +205,7 @@ class FeeAccuracyControllerTest extends TestCase
             'ignoring a household' => ['POST', '/admin/fees/tarifs/ignorer', 'ignore'],
             'putting one back' => ['POST', '/admin/fees/tarifs/reprendre', 'unignore'],
             'saving the scale' => ['POST', '/admin/fees/tarifs/bareme', 'saveTariffs'],
+            'looking the amounts up' => ['POST', '/admin/fees/tarifs/bareme/chercher', 'lookupTariffs'],
         ];
     }
 
@@ -393,6 +417,162 @@ class FeeAccuracyControllerTest extends TestCase
         $this->assertSame($this->normalFeeId, $panel['normal']['fee_category_id']);
         $this->assertNull($panel['couple']['fee_category_id']);
         $this->assertSame($this->familyFeeId, $panel['family']['fee_category_id']);
+    }
+
+    // ------------------------------------------------------------------
+    // « Chercher les montants » — the optional llm_connector dependency.
+    // ------------------------------------------------------------------
+
+    /**
+     * The three ways the connector can be missing all look the same on
+     * screen, which is the whole of ARCHITECTURE.md §7.5: the button is
+     * absent, not disabled and not broken, and everything else about the
+     * barème is untouched.
+     *
+     * @return array<string, array{0: ?FakeLlmConnector}>
+     */
+    public static function absentConnectorProvider(): array
+    {
+        return [
+            'llm_connector not in the build, or disabled' => [null],
+            'enabled but no model on the cheap tier' => [new FakeLlmConnector(tierAvailable: false)],
+        ];
+    }
+
+    /** @dataProvider absentConnectorProvider */
+    #[\PHPUnit\Framework\Attributes\DataProvider('absentConnectorProvider')]
+    public function testTheAiButtonIsAbsentWithoutAUsableConnector(?FakeLlmConnector $connector): void
+    {
+        $this->useLookupService(new FederalScaleLookupService($connector, $this->settingService, $this->journalService));
+        AuthSession::login(1, 'admin@test.be', 'admin');
+
+        $body = (string) $this->dispatch('GET', '/admin/fees/tarifs', 'index')->getBody();
+
+        $this->assertStringNotContainsString('Chercher les montants', $body);
+        // The barème itself is exactly what it always was.
+        $this->assertStringContainsString('Enregistrer le barème', $body);
+        $this->assertStringContainsString('Montant par personne', $body);
+    }
+
+    public function testTheAiButtonAppearsOnlyWithACheapTierModel(): void
+    {
+        $this->useLookupService(new FederalScaleLookupService(
+            new FakeLlmConnector(tierAvailable: true),
+            $this->settingService,
+            $this->journalService
+        ));
+        AuthSession::login(1, 'admin@test.be', 'admin');
+
+        $body = (string) $this->dispatch('GET', '/admin/fees/tarifs', 'index')->getBody();
+
+        $this->assertStringContainsString('Chercher les montants', $body);
+        $this->assertStringContainsString('/admin/fees/tarifs/bareme/chercher', $body);
+    }
+
+    /**
+     * The route answers the same way whether it was reached from a stale
+     * page or by hand — visibility is a convenience, never a boundary
+     * (SECURITY.md §3).
+     */
+    public function testTheLookupRouteRefusesWhenNoConnectorIsConfigured(): void
+    {
+        AuthSession::login(1, 'admin@test.be', 'admin');
+
+        $response = $this->dispatch('POST', '/admin/fees/tarifs/bareme/chercher', 'lookupTariffs', [
+            '_csrf_token' => CsrfGuard::generateToken(),
+        ]);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertNull($this->tariffs->amountCentsFor(HouseholdFeeCategory::NORMAL));
+    }
+
+    /**
+     * The heart of the feature: a successful lookup PRE-FILLS and saves
+     * nothing. The three fields come back filled, the block names the page
+     * and the year the figures rest on, and `fees_household_tariffs` is
+     * still empty until somebody clicks « Enregistrer le barème ».
+     */
+    public function testASuccessfulLookupPreFillsTheFieldsAndWritesNothing(): void
+    {
+        $this->useLookupService($this->lookupAnswering(
+            '{"annee": "2025-2026", "normale": "57,50", "couple": "46", "familiale": "39"}'
+        ));
+        AuthSession::login(1, 'admin@test.be', 'admin');
+
+        $response = $this->dispatch('POST', '/admin/fees/tarifs/bareme/chercher', 'lookupTariffs', [
+            '_csrf_token' => CsrfGuard::generateToken(),
+        ]);
+        $this->assertSame(302, $response->getStatusCode());
+
+        // Nothing reached the database from the model's answer.
+        $this->assertNull($this->tariffs->amountCentsFor(HouseholdFeeCategory::NORMAL));
+        $this->assertNull($this->tariffs->amountCentsFor(HouseholdFeeCategory::COUPLE));
+        $this->assertNull($this->tariffs->amountCentsFor(HouseholdFeeCategory::FAMILY));
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM fees_household_tariffs')->fetchColumn()
+        );
+
+        $body = (string) $this->dispatch('GET', '/admin/fees/tarifs', 'index')->getBody();
+
+        $this->assertStringContainsString('value="57,50"', $body);
+        $this->assertStringContainsString('value="46,00"', $body);
+        $this->assertStringContainsString('value="39,00"', $body);
+        // Without these two a treasurer validates a number without knowing
+        // what it rests on.
+        $this->assertStringContainsString('2025-2026', $body);
+        $this->assertStringContainsString(FederalScaleLookupService::DEFAULT_URL, $body);
+    }
+
+    /** The suggestion survives exactly one render, then it is gone. */
+    public function testThePreFillIsConsumedByTheFirstRenderOnly(): void
+    {
+        $this->useLookupService($this->lookupAnswering(
+            '{"annee": "2025-2026", "normale": "57,50", "couple": "46", "familiale": "39"}'
+        ));
+        AuthSession::login(1, 'admin@test.be', 'admin');
+        $this->dispatch('POST', '/admin/fees/tarifs/bareme/chercher', 'lookupTariffs', [
+            '_csrf_token' => CsrfGuard::generateToken(),
+        ]);
+
+        $this->assertStringContainsString('value="57,50"', (string) $this->dispatch('GET', '/admin/fees/tarifs', 'index')->getBody());
+        $this->assertStringNotContainsString('value="57,50"', (string) $this->dispatch('GET', '/admin/fees/tarifs', 'index')->getBody());
+    }
+
+    /**
+     * The federal page carries two seasons at once. A page answering for
+     * the other one pre-fills nothing at all — three plausible numbers
+     * from the wrong year are worse than an empty form.
+     */
+    public function testAnAnswerForAnotherScoutYearPreFillsNothing(): void
+    {
+        $this->useLookupService($this->lookupAnswering(
+            '{"annee": "2026-2027", "normale": "57,50", "couple": "46", "familiale": "39"}'
+        ));
+        AuthSession::login(1, 'admin@test.be', 'admin');
+
+        $this->dispatch('POST', '/admin/fees/tarifs/bareme/chercher', 'lookupTariffs', [
+            '_csrf_token' => CsrfGuard::generateToken(),
+        ]);
+
+        $body = (string) $this->dispatch('GET', '/admin/fees/tarifs', 'index')->getBody();
+
+        $this->assertStringNotContainsString('value="57,50"', $body);
+        $this->assertStringContainsString('2026-2027', $body);
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM fees_household_tariffs')->fetchColumn()
+        );
+    }
+
+    private function lookupAnswering(string $content): FederalScaleLookupService
+    {
+        return new StubbedFederalScaleLookupService(
+            new FakeLlmConnector(tierAvailable: true, content: $content),
+            $this->settingService,
+            $this->journalService,
+            '<html><body><h2>COTISATIONS</h2></body></html>'
+        );
     }
 
     public function testTheExportIsASpreadsheetNamedAfterTheScreen(): void

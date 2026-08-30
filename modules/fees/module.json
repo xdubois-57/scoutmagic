@@ -2,7 +2,7 @@
   "id": "fees",
   "name": "Cotisations",
   "description": "Vérifie les cotisations que la fédération facture : justesse des catégories tarifaires encodées dans Desk, et lecture des factures reçues. Le module n'écrit jamais dans Desk.",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "routes": [
     {
       "path": "/admin/fees",
@@ -109,9 +109,26 @@
       "menu": "espace_admin",
       "label": "",
       "role_min": "admin"
+    },
+    {
+      "path": "/admin/fees/tarifs/bareme/chercher",
+      "method": "POST",
+      "controller": "Modules\\Fees\\Controller\\FeeAccuracyController",
+      "action": "lookupTariffs",
+      "menu": "espace_admin",
+      "label": "",
+      "role_min": "admin"
     }
   ],
-  "settings": [],
+  "settings": [
+    {
+      "key": "fees_federal_scale_url",
+      "default_value": "https://www.lesscouts.be/fr/ressources-scouts/administratif-1/inscriptions-et-cotisations/inscriptions-et-cotisations",
+      "type": "url",
+      "label": "Page des cotisations de la fédération",
+      "description": "Page lue par le bouton « Chercher les montants » du barème, dans Justesse des tarifs. Le site n'utilise aucun moteur de recherche : le jour où la fédération déplace cette page, c'est ce champ qu'il faut corriger. Sans connecteur IA actif, ce réglage ne sert à rien et le bouton n'est pas proposé."
+    }
+  ],
   "cookies": [],
   "scheduled_tasks": [],
   "storage": {}

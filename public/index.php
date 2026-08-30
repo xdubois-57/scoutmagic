@@ -4846,7 +4846,17 @@ if ($isEnabled('fees')) {
             $feesImportRepo,
             $feeCategoryRepo,
             $scoutYearResolver,
-            $journalService
+            $journalService,
+            // Optional dependency on llm_connector (ARCHITECTURE.md §7.5):
+            // $llmConnectorForOthers is already null when that module is
+            // disabled, and the service then answers isAvailable() false —
+            // « Chercher les montants » is simply not rendered on the
+            // barème and its route refuses.
+            new \Modules\Fees\Service\FederalScaleLookupService(
+                $llmConnectorForOthers,
+                $settingService,
+                $journalService
+            )
         )
     );
 

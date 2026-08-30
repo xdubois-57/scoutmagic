@@ -24,8 +24,10 @@ use Modules\Fees\HouseholdCategoryLabel;
 use Modules\Fees\Repository\FeesImportRepository;
 use Modules\Fees\Repository\IgnoredHouseholdRepository;
 use Modules\Fees\Service\DeskClipboardText;
+use Modules\Fees\Service\FederalScaleLookupService;
 use Modules\Fees\Service\FeeAccuracyService;
 use Modules\Fees\Service\HouseholdTariffService;
+use Modules\Fees\Support\SuggestedScale;
 use Modules\Fees\Value\FeeAccuracyReport;
 use Modules\Fees\Value\HouseholdReview;
 use Modules\Fees\Value\HouseholdReviewMember;
@@ -62,7 +64,18 @@ class FeeAccuracyController extends AbstractController
         private FeesImportRepository $imports,
         private FeeCategoryRepository $feeCategories,
         private ScoutYearResolver $scoutYearResolver,
-        private JournalService $journal
+        private JournalService $journal,
+        /**
+         * Reads the federation's own page and proposes the three amounts.
+         * Always present, never a nullable dependency of its own: the
+         * optional module is `llm_connector`, and it is that service which
+         * holds the nullable `Api\` handle (ARCHITECTURE.md §7.5). With the
+         * connector absent, disabled or unconfigured, `isAvailable()`
+         * answers false, the button is not rendered, and the barème is what
+         * it has always been — three fields typed by hand. Same shape as
+         * `Modules\News\Service\SeoKeywordService` in the article editor.
+         */
+        private FederalScaleLookupService $federalScale
     ) {
     }
 
@@ -76,6 +89,11 @@ class FeeAccuracyController extends AbstractController
         $year = $this->effectiveYear();
         $report = $this->accuracy->report($year->id);
         $view = $this->resolveView($request->getQuery('vue'));
+
+        // Read once, cleared on read: the amounts a lookup just proposed
+        // survive exactly the redirect that brought us here, and nothing
+        // else. They are shown in the form's own fields, unsaved.
+        $suggested = SuggestedScale::take();
 
         return $this->render('@fees/accuracy.html.twig', [
             'scout_year_label' => $year->label,
@@ -93,6 +111,11 @@ class FeeAccuracyController extends AbstractController
             'tariff_panel' => $this->tariffs->panel(),
             'has_any_amount' => $this->tariffs->hasAnyAmount(),
             'fee_categories' => $this->feeCategories->findAll(),
+            // The « Chercher les montants » button exists only while a
+            // CHEAP-tier model is really reachable; everything else about
+            // the barème is unchanged when it is not.
+            'scale_lookup_available' => $this->federalScale->isAvailable(),
+            'scale_suggestion' => $suggested,
             // Behaviour reads its data from a JSON island, never from an
             // inline script (design.md §7.5). Only the households the
             // current tab actually draws: on a large unit the other tabs'
@@ -217,6 +240,51 @@ class FeeAccuracyController extends AbstractController
         );
 
         FlashMessage::set('success', 'Barème enregistré.');
+
+        return $this->redirect(self::PATH);
+    }
+
+    /**
+     * POST /admin/fees/tarifs/bareme/chercher — « Chercher les montants ».
+     *
+     * Reads the federation's page through the AI connector and comes back
+     * with a **proposal**: the three fields are pre-filled and the block
+     * says which page was read and for which year, so nobody validates a
+     * number without knowing what it rests on. **Nothing is saved here** —
+     * the only write is the treasurer's own « Enregistrer le barème »
+     * afterwards, and this action holds no repository at all.
+     *
+     * @param array<string, string> $params
+     */
+    public function lookupTariffs(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, self::PATH)) !== null) {
+            return $guard;
+        }
+
+        // The button is not rendered when the connector is unavailable, but
+        // a POST is a POST: the route answers the same way whether it was
+        // reached from a stale page or by hand.
+        if (!$this->federalScale->isAvailable()) {
+            FlashMessage::set(
+                'error',
+                "Aucun connecteur IA n'est configuré : les montants ne peuvent pas être cherchés."
+            );
+
+            return $this->redirect(self::PATH);
+        }
+
+        $year = $this->effectiveYear();
+        $lookup = $this->federalScale->lookup($year->label, AuthSession::getUserAccountId());
+
+        if (!$lookup->isFound()) {
+            FlashMessage::set('error', $lookup->message);
+
+            return $this->redirect(self::PATH);
+        }
+
+        SuggestedScale::set($lookup);
+        FlashMessage::set('success', $lookup->message);
 
         return $this->redirect(self::PATH);
     }
