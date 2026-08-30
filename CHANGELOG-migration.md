@@ -645,3 +645,46 @@ formulaire d'installation l'affiche à côté de son spinner. C'est
 l'`installing`/`migrating` qui peut durer des minutes : sans ce chiffre,
 une migration qui avance et une mise à jour bloquée se ressemblent
 exactement. Le texte est posé en `textContent`, jamais en `innerHTML`.
+
+### Deux mises à jour « En cours » à partir de la même version
+
+Xavier a vu, sur la page Maintenance, deux lignes partant toutes deux de
+`dev-f2ca7af` : l'une à `pending`, l'autre à `migrating`. La question
+était juste : est-ce normal, est-ce dangereux ?
+
+**Ce n'était pas deux migrations en parallèle.** Une seule a tourné. Deux
+pushes à deux minutes d'écart : le second a annulé la tâche planifiée du
+premier — c'est le comportement voulu — mais rien n'a fermé sa ligne
+d'historique. `findInProgress()` et `markOtherInProgressAsFailed()`
+excluent `pending` délibérément (une install en file n'a touché à rien,
+elle ne doit pas mettre les visiteurs derrière la page de maintenance), et
+le filet des quinze minutes ne regarde que les lignes déjà en cours. La
+ligne restait donc « En cours (pending) » pour toujours. Pas dangereux,
+mais un historique qui ment en permanence — exactement le genre de
+mensonge qui a rendu l'incident de production difficile à voir.
+
+**Le danger réel était juste à côté.** Rien ne sérialisait deux
+installations. La protection tenait à deux choses qui ne se recouvrent
+pas : un garde qui ne voit pas une install en file, et une déduplication
+qui n'opère qu'à l'intérieur d'une même référence. Deux lignes de
+références différentes échappaient aux deux, et le commentaire du code
+notait déjà que ça avait corrompu une installation en pratique.
+
+Trois correctifs :
+
+- `Maintenance\InstallLock` — un `GET_LOCK` nommé, **timeout 0** comme
+  tous les verrous d'exclusion ici, pris avant
+  `markOtherInProgressAsFailed()` et tenu pendant sauvegarde, download et
+  `installFiles()`. Le perdant marque sa propre ligne `failed` et se
+  retire, au lieu de faire la queue derrière une copie de fichiers pour
+  démarrer la sienne à la seconde où elle finit.
+- `GitHubWebhookService::supersedeQueuedInstall()` — ferme la ligne
+  supplantée au lieu de l'abandonner à `pending`.
+- `Maintenance\AbandonedInstallSweeper` — le filet en dessous, lancé
+  depuis `public/cron.php`, qui ferme une ligne `pending` qu'aucune tâche
+  planifiée n'attend plus. Le prédicat est cette absence, jamais l'âge :
+  une install de release qui attend lundi 03:00 est légitimement en file
+  pendant des jours.
+
+Vérifiés en échec, les trois : neutraliser le verrou, la fermeture de la
+ligne supplantée ou le prédicat du balayeur fait tomber son test.

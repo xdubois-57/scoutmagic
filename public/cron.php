@@ -47,6 +47,8 @@ use Core\Config\SettingService;
 use Core\Cookie\CookieConsentService;
 use Core\Database\Connection;
 use Core\Database\DeploymentMigration;
+use Core\Maintenance\AbandonedInstallSweeper;
+use Core\Maintenance\UpdateHistoryRepository;
 use Core\Http\Router;
 use Core\Import\MemberYearRepository;
 use Core\Journal\JournalRepository;
@@ -268,6 +270,14 @@ scoutmagic_bootstrap_scheduler(
 // Database\DeploymentMigration — a seam a test can reach, which an inline
 // block in a cron script is not.
 $migrationResult = DeploymentMigration::run($connection, dirname(__DIR__));
+
+// Housekeeping: close update_history rows left at 'pending' that no
+// scheduled action is ever going to start. 'pending' is the one
+// non-terminal status with no net of its own — see the class.
+AbandonedInstallSweeper::sweep(
+    new UpdateHistoryRepository($pdo),
+    new SchedulerRepository($pdo)
+);
 
 if (!$migrationResult->complete) {
     // Not an error: the next cron pass resumes from the checkpoint. Said
