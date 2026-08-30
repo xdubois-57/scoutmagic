@@ -1,26 +1,27 @@
 {
-    "name": "scoutmagic-js-tests",
-    "private": true,
-    "version": "0.0.0",
-    "description": "Development-only Node/npm tooling for ScoutMagic's first-party browser JavaScript: static analysis (TypeScript's checkJs, no emit), unit tests (Vitest + jsdom), and end-to-end browser tests (Playwright + Chromium). Not required to run, build, or deploy ScoutMagic itself — production JavaScript stays plain, unbundled, and Node-free. See AGENTS.md and ARCHITECTURE.md.",
-    "license": "AGPL-3.0-or-later",
-    "type": "module",
-    "scripts": {
-        "typecheck": "node scripts/js-typecheck.mjs",
-        "test": "vitest run",
-        "test:coverage": "vitest run --coverage",
-        "e2e": "./scripts/e2e.sh --grep-invert @full",
-        "e2e:full": "./scripts/e2e.sh",
-        "e2e:install": "playwright install --with-deps chromium"
-    },
-    "engines": {
-        "node": ">=22"
-    },
-    "devDependencies": {
-        "@playwright/test": "^1.56.0",
-        "@vitest/coverage-v8": "^3.2.0",
-        "jsdom": "^25.0.1",
-        "typescript": "^7.0.2",
-        "vitest": "^3.2.0"
-    }
+  "name": "scoutmagic-js-tests",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Development-only Node/npm tooling for ScoutMagic's first-party browser JavaScript: static analysis (TypeScript's checkJs, no emit), unit tests (Vitest + jsdom), and end-to-end browser tests (Playwright + Chromium). Not required to run, build, or deploy ScoutMagic itself — production JavaScript stays plain, unbundled, and Node-free. See AGENTS.md and ARCHITECTURE.md.",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "scripts": {
+    "typecheck": "node scripts/js-typecheck.mjs",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "e2e": "./scripts/e2e.sh --grep-invert @full",
+    "e2e:full": "./scripts/e2e.sh",
+    "e2e:install": "playwright install --with-deps chromium",
+    "test:engines": "./scripts/test-engines.sh"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.0",
+    "@vitest/coverage-v8": "^3.2.0",
+    "jsdom": "^25.0.1",
+    "typescript": "^7.0.2",
+    "vitest": "^3.2.0"
+  }
 }

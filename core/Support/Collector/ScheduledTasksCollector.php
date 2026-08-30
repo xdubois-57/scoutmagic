@@ -78,6 +78,71 @@ class ScheduledTasksCollector implements SupportCollectorInterface
                 'Tâches planifiées'
             )
         );
+
+        $this->backgroundSettings($context);
+    }
+
+    /**
+     * `scheduler-settings.txt` — the settings that decide what the
+     * background does, none of which appeared anywhere in this archive.
+     *
+     * They are read from the same `settings` table the sheet above draws
+     * its tasks from, and they belong here for the same reason: a task
+     * that "never ran" and a task whose schedule is switched off look
+     * identical on the sheet. Auto-update in particular is the setting
+     * that explains a site receiving twenty releases a day, which is the
+     * context every other number in this archive has to be read against.
+     *
+     * The list is written out even when a key is unset — an absent row
+     * would be indistinguishable from a key nobody thought to include,
+     * and "(non défini)" is itself an answer, since an unset setting means
+     * the code's own default applies rather than anything an admin chose.
+     */
+    private function backgroundSettings(SupportCollectorContext $context): void
+    {
+        $groups = [
+            'Sauvegarde automatique' => [
+                'backup_auto_frequency' => 'fréquence des sauvegardes automatiques',
+                'backup_auto_last_run' => 'dernier passage de la sauvegarde automatique',
+            ],
+            'Mise à jour automatique' => [
+                'auto_update_enabled' => 'la mise à jour automatique est-elle active',
+                'auto_update_level' => 'niveau accepté (patch / minor / major / dev)',
+                'auto_update_day' => 'jour de la fenêtre hebdomadaire',
+                'auto_update_time' => 'heure de la fenêtre',
+                'auto_update_last_push_at' => 'dernier déclenchement par webhook',
+                'auto_update_last_push_result' => 'résultat de ce déclenchement',
+                'dev_update_branch' => 'branche suivie en mode dev',
+            ],
+            'Rétention' => [
+                'notifications_retention_days' => 'purge des notifications',
+                'journal_retention_days' => 'purge du journal d\'événements',
+                'offline_cache_staleness_days' => 'péremption du cache hors ligne',
+            ],
+        ];
+
+        $lines = [];
+        $lines[] = '# Réglages pilotant le comportement de fond';
+        $lines[] = '#';
+        $lines[] = '# Une tâche qui « n\'a jamais tourné » et une tâche dont la planification est';
+        $lines[] = '# désactivée se ressemblent sur scheduled-tasks.xlsx. Ces réglages tranchent.';
+        $lines[] = '';
+
+        foreach ($groups as $title => $keys) {
+            $lines[] = '## ' . $title;
+            foreach ($keys as $key => $meaning) {
+                $value = $context->settings()->get($key);
+                $lines[] = sprintf(
+                    '%-32s %-24s %s',
+                    $key,
+                    $value === null || $value === '' ? '(non défini)' : self::asString($value),
+                    $meaning
+                );
+            }
+            $lines[] = '';
+        }
+
+        $context->addFileFromContent('scheduler-settings.txt', implode("\n", $lines) . "\n");
     }
 
     /**

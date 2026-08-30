@@ -437,16 +437,19 @@ class GroupController extends AbstractController
 
         $result = [];
         foreach ($this->postMediaService->mediaByIds($group, $ids) as $media) {
-            $resolved = in_array($media->processingStatus, ['done', 'failed'], true);
+            // Data, never markup. This used to return the rendered
+            // `media_thumb.html.twig` partial, which the client dropped
+            // into `innerHTML` — and that is a DOM-XSS sink whatever is
+            // flowing through it today. The partial happens to contain no
+            // user data at all (an integer id and an enum), so nothing was
+            // exploitable; the sink was, and it would have become a real
+            // one the first time somebody added a caption to that
+            // template. groups.js builds the cell from these three fields
+            // with createElement instead.
             $result[] = [
                 'id' => $media->id,
                 'status' => $media->processingStatus,
-                // Only rendered once resolved: while still pending/
-                // processing, the client already shows the spinner
-                // media_thumb.html.twig would render right back anyway.
-                'html' => $resolved
-                    ? $this->twig->render('@groups/partials/media_thumb.html.twig', ['media' => $media])
-                    : null,
+                'media_type' => $media->mediaType,
             ];
         }
 

@@ -581,4 +581,50 @@ class ApplicationCollectorsTest extends TestCase
             '{"k":"v"}',
         ]);
     }
+
+    // --- scheduler-settings.txt (A3) ---
+
+    /**
+     * A task that "never ran" and a task whose schedule is switched off
+     * look identical on scheduled-tasks.xlsx. These settings tell them
+     * apart, and none of them appeared anywhere in the archive before.
+     */
+    public function testTheSettingsDrivingBackgroundBehaviourAreReported(): void
+    {
+        $settings = $this->runCollector(new ScheduledTasksCollector())['entries']['scheduler-settings.txt'];
+
+        foreach ([
+            'backup_auto_frequency',
+            'auto_update_enabled',
+            'auto_update_level',
+            'dev_update_branch',
+            'notifications_retention_days',
+            'offline_cache_staleness_days',
+        ] as $key) {
+            $this->assertStringContainsString($key, $settings);
+        }
+    }
+
+    /**
+     * An unset key is written out as such rather than omitted: a missing
+     * row is indistinguishable from a key nobody thought to include, and
+     * "(non défini)" is itself the answer — the code's own default
+     * applies, rather than anything an admin chose.
+     */
+    public function testAnUnsetSettingIsPrintedRatherThanOmitted(): void
+    {
+        $settings = $this->runCollector(new ScheduledTasksCollector())['entries']['scheduler-settings.txt'];
+
+        $this->assertStringContainsString('(non défini)', $settings);
+    }
+
+    public function testAConfiguredSettingIsPrintedWithItsValue(): void
+    {
+        $this->settings->register('auto_update_level', 'patch', 'text', 'niveau', 'test', null, null, null, false, 900);
+        $this->settings->setInternal('auto_update_level', 'minor');
+
+        $settings = $this->runCollector(new ScheduledTasksCollector())['entries']['scheduler-settings.txt'];
+
+        $this->assertMatchesRegularExpression('/auto_update_level\s+minor\s/', $settings);
+    }
 }
