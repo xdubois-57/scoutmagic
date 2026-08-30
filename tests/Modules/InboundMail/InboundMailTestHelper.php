@@ -50,9 +50,9 @@ class InboundMailTestHelper
             folder TEXT NOT NULL,
             uid_validity INTEGER NOT NULL DEFAULT 0,
             imap_uid INTEGER NOT NULL DEFAULT 0,
-            consumer_id TEXT NOT NULL,
-            business_reference TEXT NOT NULL,
-            link_origin TEXT NOT NULL,
+            consumer_id TEXT,
+            business_reference TEXT,
+            link_origin TEXT,
             message_id_blind_index TEXT NOT NULL,
             in_reply_to_blind_index TEXT,
             from_email_blind_index TEXT NOT NULL,
@@ -66,7 +66,19 @@ class InboundMailTestHelper
             body_html_encrypted BLOB NOT NULL,
             sent_at TEXT NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE (mailbox_id, consumer_id, business_reference, message_id_blind_index)
+            UNIQUE (mailbox_id, message_id_blind_index)
+        )');
+
+        $pdo->exec('CREATE TABLE inbound_message_links (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            message_id INTEGER NOT NULL,
+            consumer_id TEXT NOT NULL,
+            business_reference TEXT NOT NULL,
+            attachment_id INTEGER NOT NULL DEFAULT 0,
+            link_origin TEXT NOT NULL,
+            created_by_user_account_id INTEGER,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (message_id, consumer_id, business_reference, attachment_id)
         )');
 
         $pdo->exec('CREATE TABLE inbound_message_attachments (

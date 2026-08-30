@@ -426,10 +426,11 @@ class MergeServiceTest extends TestCase
         $from = $this->stay($place, '2024-07-19');
         $to = $this->stay($place, '2024-07-26');
         $messageId = $messages->create(
-            1, 'INBOX', 1, 10, CampsMessageConsumer::CONSUMER_ID, 'camp-' . $from,
-            LinkOrigin::SENDER, '<a@mail>', null, 'Le terrain', 'lambert@example.org', null,
+            1, 'INBOX', 1, 10,
+            '<a@mail>', null, 'Le terrain', 'lambert@example.org', null,
             'Bonjour', '', new \DateTimeImmutable('2024-06-01')
         );
+        $messages->addLink($messageId, CampsMessageConsumer::CONSUMER_ID, 'camp-' . $from, LinkOrigin::SENDER);
 
         $service->mergeCamps($this->camp($from), $this->camp($to), 42, $this->today());
 
