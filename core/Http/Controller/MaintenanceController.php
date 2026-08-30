@@ -14,6 +14,7 @@ use Core\Config\SettingService;
 use Core\Exception\UserFacingMessage;
 use Core\File\FileRepository;
 use Core\Http\FlashMessage;
+use Core\Database\SchemaFiles;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
@@ -100,7 +101,11 @@ class MaintenanceController extends AbstractController
         private SettingService $settingService,
         private string $storagePath,
         private SecretManager $secretManager,
-        private ?GitHubReleaseClientInterface $releaseClient = null
+        private ?GitHubReleaseClientInterface $releaseClient = null,
+        // Optional, and trailing, so no existing construction site moves.
+        // Null simply means updateStatus() polls without advancing the
+        // migration — exactly what it did before.
+        private ?MigrationRunner $migrationRunner = null
     ) {
     }
 
@@ -430,10 +435,60 @@ class MaintenanceController extends AbstractController
             return $this->json(['error' => 'Mise à jour introuvable.'], 404);
         }
 
+        $progress = $this->advanceMigration($history->status);
+        $history = $this->updateHistoryRepository->findById($id) ?? $history;
+
         return $this->json([
             'status' => $history->status,
             'error_message' => $history->errorMessage,
+            'migration_progress' => $progress,
         ]);
+    }
+
+    /**
+     * One short migration slice, on the poll that is already happening.
+     *
+     * The administrator watching this page is refetching every three
+     * seconds anyway; before this, each of those requests read a status
+     * row and did nothing. Now they drive the work — the same thing
+     * `POST /api/system/migration-step` does for the migration-in-progress
+     * page, and for the same reason: a queue that only advances when the
+     * scheduler happens to run is a queue somebody watches not advancing.
+     *
+     * Three deliberate limits.
+     *
+     * **Only during `migrating`.** Any other status means either nothing
+     * to migrate or a step that is not this one's to touch, and running
+     * DDL on a status poll for a failed update would be gratuitous.
+     *
+     * **A short budget**, because this runs inside a request a person is
+     * waiting on. It is the same 5 s the migration-step endpoint uses, not
+     * the 900 s `public/cron.php` can afford — the poll returns, the next
+     * one three seconds later resumes from the checkpoint.
+     *
+     * **Never fatal.** This endpoint's job is to report a status; a
+     * migration that throws must not turn that into a 500 and leave the
+     * page with no idea what is happening. The scheduled resume task owns
+     * the failure path, including the rollback, and it will see the same
+     * error on its own pass.
+     *
+     * Nothing here advances `update_history`: finishing the update stays
+     * `Task\InstallUpdateHandler`'s, whose resume path re-diffs and finds
+     * the work already done.
+     */
+    private function advanceMigration(string $status): ?float
+    {
+        if ($status !== 'migrating' || $this->migrationRunner === null) {
+            return null;
+        }
+
+        try {
+            return $this->migrationRunner
+                ->migrate(SchemaFiles::all(dirname($this->storagePath)))
+                ->progressFraction;
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /**

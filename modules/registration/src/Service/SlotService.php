@@ -20,9 +20,26 @@ use Modules\Registration\Repository\SlotCapacityRepository;
  * Orchestrates Service\SlotMath against real data: configured brackets/
  * capacities, the current scout year's member_years (for projected
  * headcount), and pending requests (for the waitlist-tier adjustment).
+ *
+ * **A slot with no recorded capacity is UNLIMITED, never full.** The
+ * database says so with a NULL (schema.sql's own comment on
+ * `registration_slot_capacities`), and the whole point of carrying `?int`
+ * through this class rather than defaulting to `0` on read is that
+ * `$capacities[...] ?? 0` — the shape this code used to have — announces
+ * every unconfigured branch as "complet" the moment the column is allowed
+ * to be empty. `0` still means something, and something else: a branch a
+ * chief deliberately closed.
  */
 class SlotService
 {
+    /**
+     * The capacity a slot gets when it has none at all — genuinely
+     * WRITTEN to the database by seedMissingCapacities(), not just shown
+     * in an empty box, so a chief editing it afterwards edits a real
+     * stored number like any other.
+     */
+    public const DEFAULT_CAPACITY = 15;
+
     public function __construct(
         private \PDO $pdo,
         private EncryptionService $encryption,
@@ -38,6 +55,40 @@ class SlotService
         $value = (string) $this->settingService->get('registration_reference_date', 'registration', '12-31');
 
         return preg_match('/^\d{2}-\d{2}$/', $value) === 1 ? $value : '12-31';
+    }
+
+    /**
+     * Gives every configured slot (branch × year-in-branch) that has NO
+     * row at all a real, stored capacity of DEFAULT_CAPACITY. Returns how
+     * many rows it created.
+     *
+     * The default is written to the database rather than merely rendered
+     * into an empty box, so that what a chief sees on the management page
+     * is what the availability computation and the public page are
+     * actually using — a displayed-only default is a number nobody can
+     * trust, since clearing the box and saving would have produced a
+     * different behaviour than never touching it.
+     *
+     * It is deliberately a *seed*, not a repair: a slot whose row exists
+     * is never rewritten, whatever it holds. An empty box a chief saved on
+     * purpose stored NULL ("pas de limite") and must stay NULL — a
+     * re-seed would silently overrule that decision on the next page load.
+     * A branch created later (a new `age_branches` row) is seeded the
+     * first time the page is opened after it appears, which is the same
+     * rule applied to a slot that genuinely has no capacity yet.
+     */
+    public function seedMissingCapacities(): int
+    {
+        $seeded = 0;
+        foreach ($this->ageBracketRepository->findAllOrdered() as $bracket) {
+            for ($yearInBranch = 1; $yearInBranch <= $bracket->durationYears; $yearInBranch++) {
+                if ($this->slotCapacityRepository->insertIfMissing($bracket->ageBranchId, $yearInBranch, self::DEFAULT_CAPACITY)) {
+                    $seeded++;
+                }
+            }
+        }
+
+        return $seeded;
     }
 
     /**
@@ -98,10 +149,18 @@ class SlotService
         foreach ($brackets as $bracket) {
             for ($yearInBranch = 1; $yearInBranch <= $bracket->durationYears; $yearInBranch++) {
                 $slotKey = $bracket->ageBranchId . ':' . $yearInBranch;
-                $capacity = $capacities[$bracket->ageBranchId][$yearInBranch] ?? 0;
-                $remaining = $capacity - ($projected[$slotKey] ?? 0) - ($accepted[$slotKey] ?? 0);
+                $capacity = $capacities[$bracket->ageBranchId][$yearInBranch] ?? null;
+                $remaining = $capacity === null
+                    ? null
+                    : $capacity - ($projected[$slotKey] ?? 0) - ($accepted[$slotKey] ?? 0);
 
-                $tier = SlotMath::tierForRemaining($capacity, $remaining, $availableThreshold, $limitedThreshold);
+                // An unlimited slot has no tier of its own. Publicly it
+                // reads as TIER_AVAILABLE — "inscription immédiate" is
+                // exactly what no limit means to a family — and it must
+                // never land in TIER_LIMITED or TIER_HEAVY, which is what
+                // reading its missing capacity as 0 used to do.
+                $tier = SlotMath::tierForRemaining($capacity, $remaining ?? 0, $availableThreshold, $limitedThreshold)
+                    ?? SlotMath::TIER_AVAILABLE;
                 $birthYear = SlotMath::birthYearForSlot($bracket, $yearInBranch, $referenceYear);
                 $tiers[$tier][] = $birthYear;
             }
@@ -171,9 +230,15 @@ class SlotService
      * bucketed into birth years, so a chief can verify the public tier
      * isn't a black box.
      *
+     * `capacity`, `remaining` and `tier` are all nullable together: a slot
+     * with no recorded capacity has no remaining count and no public level
+     * to report, and the table renders that as "sans limite" rather than
+     * as a zero — the one place a chief would otherwise read an
+     * unconfigured branch as a full one.
+     *
      * @return array<int, array{
      *   age_branch_id: int, branch_label: string, branch_sort_order: int, year_in_branch: int,
-     *   capacity: int, projected: int, accepted: int, remaining: int, tier: string
+     *   capacity: ?int, projected: int, accepted: int, remaining: ?int, tier: ?string
      * }>
      */
     public function capacityBreakdownForYear(int $targetScoutYearId, string $targetScoutYearLabel, int $currentScoutYearId): array
@@ -195,10 +260,10 @@ class SlotService
         foreach ($brackets as $bracket) {
             for ($yearInBranch = 1; $yearInBranch <= $bracket->durationYears; $yearInBranch++) {
                 $slotKey = $bracket->ageBranchId . ':' . $yearInBranch;
-                $capacity = $capacities[$bracket->ageBranchId][$yearInBranch] ?? 0;
+                $capacity = $capacities[$bracket->ageBranchId][$yearInBranch] ?? null;
                 $projectedCount = $projected[$slotKey] ?? 0;
                 $acceptedCount = $accepted[$slotKey] ?? 0;
-                $remaining = $capacity - $projectedCount - $acceptedCount;
+                $remaining = $capacity === null ? null : $capacity - $projectedCount - $acceptedCount;
 
                 $rows[] = [
                     'age_branch_id' => $bracket->ageBranchId,
@@ -209,7 +274,7 @@ class SlotService
                     'projected' => $projectedCount,
                     'accepted' => $acceptedCount,
                     'remaining' => $remaining,
-                    'tier' => SlotMath::tierForRemaining($capacity, $remaining, $availableThreshold, $limitedThreshold),
+                    'tier' => SlotMath::tierForRemaining($capacity, $remaining ?? 0, $availableThreshold, $limitedThreshold),
                 ];
             }
         }

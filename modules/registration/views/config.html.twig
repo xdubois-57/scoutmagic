@@ -4,12 +4,29 @@
     <div class="page-wide">
         {% include 'partials/page_header.html.twig' with { title: 'Gestion des inscriptions' } only %}
         <p class="text-body-secondary small mb-4">
-            Les autres réglages (seuils d'affichage des places, adresse d'alerte...) se trouvent sur la page <a href="/config/settings">Réglages</a>.
+            Les autres réglages (adresse d'alerte, textes des emails, rétention...) se trouvent sur la page <a href="/config/settings">Réglages</a>.
         </p>
+
+        {# Trois encarts sont repliés par défaut : le pilotage du
+           formulaire, la légende des états et les capacités. Ce sont des
+           réglages qu'on ouvre quand on en a besoin ; ce que la page sert
+           d'abord, c'est la liste des demandes. Le motif est celui de
+           Configuration > Réglages : un <h2> qui porte le bouton
+           `data-bs-toggle="collapse"`, donc un titre ET un bouton pour un
+           lecteur d'écran, et rien d'inline (la CSP nonce-only rend un
+           `on*=` silencieusement mort — design.md §7.5). #}
 
         <div class="card mb-4">
             <div class="card-body">
-                <h2 class="h5 mb-3">Formulaire d'inscription</h2>
+                <h2 class="h5 mb-0">
+                    <button type="button" class="btn w-100 d-flex align-items-center gap-2 text-start p-0 collapsed"
+                            data-bs-toggle="collapse" data-bs-target="#registration-form-box"
+                            aria-expanded="false" aria-controls="registration-form-box">
+                        <span class="flex-grow-1">Formulaire d'inscription</span>
+                        <i class="bi bi-chevron-down text-body-tertiary" aria-hidden="true"></i>
+                    </button>
+                </h2>
+                <div class="collapse mt-3" id="registration-form-box">
                 <p class="mb-3">
                     État actuel :
                     {% if registration_form_open %}
@@ -55,6 +72,7 @@
                         <button type="submit" class="btn btn-outline-primary btn-sm">Enregistrer la programmation</button>
                     </div>
                 </form>
+                </div>
             </div>
         </div>
 
@@ -82,7 +100,15 @@
 
         <div class="card mb-4">
             <div class="card-body">
-                <h2 class="h6 mb-3">États d'une demande</h2>
+                <h2 class="h6 mb-0">
+                    <button type="button" class="btn w-100 d-flex align-items-center gap-2 text-start p-0 collapsed"
+                            data-bs-toggle="collapse" data-bs-target="#registration-states-box"
+                            aria-expanded="false" aria-controls="registration-states-box">
+                        <span class="flex-grow-1">États d'une demande</span>
+                        <i class="bi bi-chevron-down text-body-tertiary" aria-hidden="true"></i>
+                    </button>
+                </h2>
+                <div class="collapse mt-3" id="registration-states-box">
                 <div class="row g-2 small">
                     <div class="col-12 col-sm-6 col-lg-4">{% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'En attente' } only %} reçue, pas encore examinée.</div>
                     <div class="col-12 col-sm-6 col-lg-4">{% include 'partials/status_badge.html.twig' with { status: 'confirmed', label: 'Acceptée' } only %} décidée, en attente de son email et/ou de rapprochement Desk.</div>
@@ -93,17 +119,75 @@
                 <p class="text-body-secondary small mt-3 mb-0">
                     Important : la page de suivi de la famille n'affiche jamais une acceptation ou un refus tant que l'email correspondant n'a pas réellement été envoyé — voir la colonne « Email » ci-dessous.
                 </p>
+                </div>
             </div>
         </div>
 
         <form method="post" action="/config/inscriptions" class="card mb-4">
             <div class="card-body">
-                <h2 class="h5 mb-3">Capacités par branche</h2>
+                <h2 class="h5 mb-0">
+                    <button type="button" class="btn w-100 d-flex align-items-center gap-2 text-start p-0 collapsed"
+                            data-bs-toggle="collapse" data-bs-target="#registration-capacities-box"
+                            aria-expanded="false" aria-controls="registration-capacities-box">
+                        <span class="flex-grow-1">Capacités par branche</span>
+                        <i class="bi bi-chevron-down text-body-tertiary" aria-hidden="true"></i>
+                    </button>
+                </h2>
+                <div class="collapse mt-3" id="registration-capacities-box">
                 <p class="text-body-secondary small mb-3">
                     Les âges par branche sont fixés par la fédération et communs à tout le site (déjà utilisés par
                     exemple par le module Statistiques) — ils ne se configurent pas ici.
                 </p>
                 {{ csrf_field()|raw }}
+
+                {# La gestion des listes d'attente vit ici, avec les
+                   capacités qu'elle lit, et non plus seulement dans
+                   Configuration > Réglages : c'est le même réglage, au même
+                   endroit que ce dont il décide. Un seul bouton
+                   « Enregistrer » pour tout l'encart (design.md §7.13) : un
+                   interrupteur, des seuils et une grille de capacités ne
+                   veulent rien dire séparément. #}
+                <div class="form-check form-switch mb-3">
+                    <input class="form-check-input" type="checkbox" role="switch"
+                           id="waitlist_enabled" name="waitlist_enabled" value="1"
+                           {{ waitlist_enabled ? 'checked' : '' }}>
+                    <label class="form-check-label" for="waitlist_enabled">Gérer les listes d'attente</label>
+                    <span class="form-text d-block">
+                        Quand c'est actif, la page publique annonce pour chaque année de naissance si les places sont
+                        disponibles, l'attente limitée ou l'attente importante, et le tableau « Vérification des
+                        capacités » ci-dessous affiche le restant et le niveau vu par le public. Quand ce n'est pas
+                        actif, rien de tout cela n'apparaît nulle part.
+                    </span>
+                </div>
+
+                {% if waitlist_enabled %}
+                    <div class="row g-2 mb-3">
+                        <div class="col-12 col-sm-6 col-md-4">
+                            {% include 'partials/form_field.html.twig' with {
+                                field_id: 'threshold_available', field_name: 'threshold_available',
+                                label: 'Seuil « places disponibles »', value: threshold_available,
+                                placeholder: '0.5', size: 'sm', wrapper_class: '',
+                                help: 'Part de la capacité encore libre au-delà de laquelle un créneau est annoncé « disponible ». Ex. : 0.5 = au moins la moitié.',
+                            } only %}
+                        </div>
+                        <div class="col-12 col-sm-6 col-md-4">
+                            {% include 'partials/form_field.html.twig' with {
+                                field_id: 'threshold_limited', field_name: 'threshold_limited',
+                                label: 'Seuil « attente limitée »', value: threshold_limited,
+                                placeholder: '0.1', size: 'sm', wrapper_class: '',
+                                help: 'En dessous du seuil précédent, part encore libre au-delà de laquelle l\'attente est annoncée « limitée » plutôt qu\'« importante ». Doit être inférieur au seuil « places disponibles ».',
+                            } only %}
+                        </div>
+                    </div>
+                {% endif %}
+
+                <p class="text-body-secondary small mb-3">
+                    Une case vide veut dire <strong>pas de limite</strong> : la branche n'est jamais annoncée complète
+                    et ne déclenche aucune liste d'attente. Pour fermer une branche aux inscriptions, indiquez
+                    explicitement <strong>0</strong>. Une branche sans capacité enregistrée en reçoit une de
+                    {{ default_capacity }} la première fois que cette page est ouverte ; elle se modifie ensuite
+                    comme n'importe quelle autre.
+                </p>
                 <div class="table-responsive">
                     <table class="table align-middle">
                         <thead>
@@ -123,7 +207,13 @@
                                     {% for yearInBranch in 1..max_years_in_branch %}
                                         <td style="max-width:100px;">
                                             {% if yearInBranch <= bracket.durationYears %}
-                                                <input type="number" inputmode="numeric" min="0" class="form-control form-control-sm" name="capacity[{{ bracket.ageBranchId }}][{{ yearInBranch }}]" value="{{ capacities[bracket.ageBranchId][yearInBranch] ?? '' }}" aria-label="Capacité {{ bracket.branchLabel }} — {{ yearInBranch }}e année">
+                                                {# Le `?? null` couvre le créneau qui n'a pas encore de ligne ;
+                                                   le `is null` qui suit garde le 0 VISIBLE. Écrire
+                                                   `capacity ?? ''` d'un seul tenant afficherait « 0 » et
+                                                   « pas de limite » de la même façon, alors que ce sont deux
+                                                   réglages opposés (schema.sql). #}
+                                                {% set slot_capacity = capacities[bracket.ageBranchId][yearInBranch] ?? null %}
+                                                <input type="number" inputmode="numeric" min="0" class="form-control form-control-sm" name="capacity[{{ bracket.ageBranchId }}][{{ yearInBranch }}]" value="{{ slot_capacity is null ? '' : slot_capacity }}" aria-label="Capacité {{ bracket.branchLabel }} — {{ yearInBranch }}e année">
                                             {% endif %}
                                         </td>
                                     {% endfor %}
@@ -133,6 +223,7 @@
                     </table>
                 </div>
                 <button type="submit" class="btn btn-primary">Enregistrer</button>
+                </div>
             </div>
         </form>
 
@@ -300,6 +391,17 @@
                         et les demandes acceptées, elles, sont bien historiques.
                     </p>
                 {% endif %}
+                {# « Restant » et « Niveau public » décrivent la disponibilité annoncée : sans gestion des
+                   listes d'attente, il n'y a rien à annoncer, et ces deux colonnes sont donc absentes plutôt
+                   que remplies de chiffres qui ne servent à rien. Les valeurs stockées, elles, ne bougent
+                   pas : réactiver l'interrupteur au-dessus les ramène telles quelles. #}
+                {% set show_waitlist_columns = not is_past_year and waitlist_enabled %}
+                {% if not waitlist_enabled %}
+                    <p class="small text-body-secondary">
+                        La gestion des listes d'attente est désactivée : le restant et le niveau vu par le public
+                        ne sont pas calculés. Vous pouvez la réactiver dans l'encart « Capacités par branche ».
+                    </p>
+                {% endif %}
                 <div class="table-responsive">
                     <table class="table table-sm align-middle">
                         <thead>
@@ -309,7 +411,7 @@
                                 <th>Capacité</th>
                                 {% if not is_past_year %}<th>Effectif projeté</th>{% endif %}
                                 <th>Demandes acceptées</th>
-                                {% if not is_past_year %}
+                                {% if show_waitlist_columns %}
                                     <th>Restant</th>
                                     <th>Niveau public</th>
                                 {% endif %}
@@ -320,13 +422,19 @@
                                 <tr>
                                     <td>{{ row.branch_label }}</td>
                                     <td>{{ row.year_in_branch }}<sup>e</sup></td>
-                                    <td>{{ row.capacity }}</td>
+                                    {# Une capacité nulle est « sans limite », jamais « 0 » : afficher le
+                                       nombre brut ferait lire une branche non configurée comme une branche
+                                       fermée, exactement l'erreur que la colonne nullable existe pour
+                                       éviter. Le 0, lui, s'affiche bien comme 0. #}
+                                    <td>{% if row.capacity is null %}<span class="text-body-secondary">Sans limite</span>{% else %}{{ row.capacity }}{% endif %}</td>
                                     {% if not is_past_year %}<td>{{ row.projected }}</td>{% endif %}
                                     <td>{{ row.accepted }}</td>
-                                    {% if not is_past_year %}
-                                        <td>{{ row.remaining }}</td>
+                                    {% if show_waitlist_columns %}
+                                        <td>{% if row.remaining is null %}<span class="text-body-secondary">—</span>{% else %}{{ row.remaining }}{% endif %}</td>
                                         <td>
-                                            {% if row.tier == 'available' %}
+                                            {% if row.tier is null %}
+                                                <span class="badge text-bg-secondary">Sans limite</span>
+                                            {% elseif row.tier == 'available' %}
                                                 <span class="badge text-bg-success">Disponible</span>
                                             {% elseif row.tier == 'limited' %}
                                                 <span class="badge text-bg-warning">Attente limitée</span>

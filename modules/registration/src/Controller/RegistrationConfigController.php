@@ -61,6 +61,18 @@ class RegistrationConfigController extends AbstractController
      */
     private const NOTICE_CONTENT_KEY = 'registration_management_notice';
 
+    /**
+     * Waitlist management: the master switch, and the two ratio thresholds
+     * that only mean anything while it is on. All three are declared in
+     * module.json and stored in `settings` like any other — they are
+     * *surfaced* here, inside the capacity box they belong to, rather than
+     * owned here, exactly as the form's open/close state and the recurring
+     * schedule already are.
+     */
+    private const SETTING_WAITLIST_ENABLED = 'registration_waitlist_enabled';
+    private const SETTING_THRESHOLD_AVAILABLE = 'registration_waitlist_threshold_available';
+    private const SETTING_THRESHOLD_LIMITED = 'registration_waitlist_threshold_limited';
+
     public function __construct(
         protected Environment $twig,
         private AgeBracketRepository $ageBracketRepository,
@@ -86,6 +98,18 @@ class RegistrationConfigController extends AbstractController
      */
     public function index(Request $request, array $params): Response
     {
+        // The module's default capacity is WRITTEN, not merely displayed:
+        // a slot that has no row yet gets one here, so the grid, the
+        // capacity-verification table and the public page all read the
+        // same stored number. Seeding on this page rather than at module
+        // activation is deliberate — `age_branches` is filled by the Desk
+        // import, which typically happens well after the module is
+        // switched on, so activation is simply too early to know which
+        // slots exist. It runs once per missing slot and never rewrites an
+        // existing row (Service\SlotService::seedMissingCapacities()), so
+        // a chief who cleared a box keeps their "pas de limite".
+        $this->slotService->seedMissingCapacities();
+
         [$requestedYearId, $statusFilter, $search] = $this->readListFilters($request);
 
         return $this->render('@registration/config.html.twig', $this->buildPageContext(
@@ -173,12 +197,20 @@ class RegistrationConfigController extends AbstractController
     }
 
     /**
-     * POST /config/inscriptions — saves the capacity grid (module spec:
-     * minimal screen). Age brackets (entry age/duration per branch) are no
-     * longer configured here — Repository\AgeBracketRepository resolves
-     * them directly from Core\Member\MemberYearService::BRANCHES, the same
-     * central federation age ranges member_stats already uses, so there is
-     * nothing to save for them.
+     * POST /config/inscriptions — saves the capacity box: the grid itself,
+     * the waitlist switch that governs it, and the two ratio thresholds
+     * that only mean anything while that switch is on. Age brackets (entry
+     * age/duration per branch) are no longer configured here —
+     * Repository\AgeBracketRepository resolves them directly from
+     * Core\Member\MemberYearService::BRANCHES, the same central federation
+     * age ranges member_stats already uses, so there is nothing to save
+     * for them.
+     *
+     * One box, one « Enregistrer » (design.md §7.13): the switch and the
+     * numbers under it only mean something together — a capacity grid
+     * saved without the level thresholds that read it is a half-applied
+     * form — so this is the "group of fields" shape, not the
+     * one-independent-control-saves-on-change one.
      *
      * @param array<string, string> $params
      */
@@ -199,19 +231,111 @@ class RegistrationConfigController extends AbstractController
             return $this->redirect('/config/inscriptions');
         }
 
+        $waitlistEnabled = (string) $request->getBody('waitlist_enabled', '0') === '1';
+
+        // The two thresholds are rendered only while the switch is already
+        // on, so a submission that turns the waitlist OFF — and equally one
+        // that turns it back ON — carries neither of them. An ABSENT field
+        // is not an emptied one: the stored values are left exactly as they
+        // are, and come back unchanged. Only fields actually submitted are
+        // validated, and an inconsistent pair refuses the whole save rather
+        // than applying half of it.
+        /** @var array<string, string> $thresholdWrites setting key => value, empty when nothing was submitted */
+        $thresholdWrites = [];
+        $rawAvailable = $request->getBody('threshold_available', null);
+        $rawLimited = $request->getBody('threshold_limited', null);
+        if ($waitlistEnabled && ($rawAvailable !== null || $rawLimited !== null)) {
+            $available = self::parseThreshold($rawAvailable);
+            $limited = self::parseThreshold($rawLimited);
+            if ($available === null || $limited === null || $limited >= $available) {
+                FlashMessage::set(
+                    'error',
+                    'Seuils invalides : indiquez deux nombres entre 0 et 1, le seuil « attente limitée » '
+                    . 'devant être inférieur au seuil « places disponibles ». Rien n\'a été enregistré.'
+                );
+                return $this->redirect('/config/inscriptions');
+            }
+            $thresholdWrites = [
+                self::SETTING_THRESHOLD_AVAILABLE => self::formatThreshold($available),
+                self::SETTING_THRESHOLD_LIMITED => self::formatThreshold($limited),
+            ];
+        }
+
         foreach ($this->ageBracketRepository->findAllOrdered() as $bracket) {
             $branchCapacities = $capacities[$bracket->ageBranchId] ?? null;
             if (!is_array($branchCapacities)) {
                 continue;
             }
             for ($yearInBranch = 1; $yearInBranch <= $bracket->durationYears; $yearInBranch++) {
-                $capacity = (int) ($branchCapacities[$yearInBranch] ?? 0);
-                $this->slotCapacityRepository->upsert($bracket->ageBranchId, $yearInBranch, max(0, $capacity));
+                $this->slotCapacityRepository->upsert(
+                    $bracket->ageBranchId,
+                    $yearInBranch,
+                    self::parseCapacity($branchCapacities[$yearInBranch] ?? null)
+                );
             }
+        }
+
+        $this->settingService->set(self::SETTING_WAITLIST_ENABLED, $waitlistEnabled ? '1' : '0', 'registration');
+        foreach ($thresholdWrites as $settingKey => $settingValue) {
+            $this->settingService->set($settingKey, $settingValue, 'registration');
         }
 
         FlashMessage::set('success', 'Configuration enregistrée.');
         return $this->redirect('/config/inscriptions');
+    }
+
+    /**
+     * One capacity box, read the way the column stores it: **an empty box
+     * is NULL — "pas de limite" — and never 0.**
+     *
+     * `(int) $value`, which this used to be, is exactly the trap
+     * schema.sql warns about: it turns an empty field, a missing key and
+     * any stray non-numeric body value into a 0, and a 0 is a branch
+     * announced full. A typed `0` still means that, on purpose; nothing
+     * else does.
+     */
+    private static function parseCapacity(mixed $value): ?int
+    {
+        if (!is_scalar($value)) {
+            return null;
+        }
+        $trimmed = trim((string) $value);
+        if ($trimmed === '' || !is_numeric($trimmed)) {
+            return null;
+        }
+
+        return max(0, (int) $trimmed);
+    }
+
+    /**
+     * A waitlist threshold is a ratio in [0, 1]. Null means "not a usable
+     * ratio", which save() turns into a refusal rather than into a number
+     * that would silently change how full every branch looks. A comma is
+     * accepted as the decimal separator — the field is French, and 0,5 is
+     * what a chief types.
+     */
+    private static function parseThreshold(mixed $value): ?float
+    {
+        if (!is_scalar($value)) {
+            return null;
+        }
+        $trimmed = str_replace(',', '.', trim((string) $value));
+        if ($trimmed === '' || !is_numeric($trimmed)) {
+            return null;
+        }
+        $ratio = (float) $trimmed;
+
+        return ($ratio < 0 || $ratio > 1) ? null : $ratio;
+    }
+
+    /**
+     * Back to the plain dot-decimal string the setting stores and
+     * Service\SlotService reads with a `(float)` cast — never a
+     * locale-formatted one.
+     */
+    private static function formatThreshold(float $ratio): string
+    {
+        return rtrim(rtrim(number_format($ratio, 4, '.', ''), '0'), '.') ?: '0';
     }
 
     /**
@@ -436,6 +560,16 @@ class RegistrationConfigController extends AbstractController
             'registration_form_open' => $this->settingService->get('registration_form_open', 'registration', '0') === '1',
             'scheduled_open_at' => (string) $this->settingService->get('registration_scheduled_open_at', 'registration', ''),
             'scheduled_close_at' => (string) $this->settingService->get('registration_scheduled_close_at', 'registration', ''),
+
+            // Waitlist management, surfaced inside the capacity box rather
+            // than hidden away in Configuration > Réglages. When it is off,
+            // the two thresholds and the waitlist columns of the capacity
+            // table are not rendered at all — they describe a mechanism
+            // that is not running (their stored values are untouched).
+            'waitlist_enabled' => $this->settingService->get(self::SETTING_WAITLIST_ENABLED, 'registration', '1') === '1',
+            'threshold_available' => (string) $this->settingService->get(self::SETTING_THRESHOLD_AVAILABLE, 'registration', '0.5'),
+            'threshold_limited' => (string) $this->settingService->get(self::SETTING_THRESHOLD_LIMITED, 'registration', '0.1'),
+            'default_capacity' => SlotService::DEFAULT_CAPACITY,
 
             'selectable_years' => $years['selectable'],
             'target_year_id' => (int) $years['target']['id'],
