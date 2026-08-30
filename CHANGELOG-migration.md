@@ -620,6 +620,13 @@ plutôt qu'aucun budget — la plus lente des 133 mises à jour de production
 a pris 831 s au total, et un budget absurde échangerait un schéma à moitié
 migré contre une passe de cron tuée en plein DDL.
 
+La passe est dans `Database\DeploymentMigration` et non en ligne dans le
+script, parce que c'est précisément le point : aucun test et aucun
+navigateur n'exécute `cron.php`, donc un bloc en ligne y est un bloc que
+rien ne peut vérifier — c'est comme ça qu'un `MigrationRunner` jamais
+appelé y a survécu à une itération entière. `DeploymentMigrationTest`
+exécute la vraie passe contre la vraie base, budget compris.
+
 **Le sondage de la page Maintenance ne faisait que lire.** Il exécute
 maintenant une tranche courte à chaque passage, pendant l'étape
 `migrating` seulement. L'administrateur qui regarde refetche toutes les
