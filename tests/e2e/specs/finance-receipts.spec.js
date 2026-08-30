@@ -28,6 +28,7 @@ import { expect, test } from '@playwright/test';
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { loginAsAdmin } from '../support/admin-login.js';
 import { pngBuffer } from '../support/png.js';
+import { scaled } from '../support/timeouts.js';
 
 const ACCOUNT_NAME = `Compte reçus E2E ${Date.now()}`;
 const ACCOUNT_IBAN = 'BE71 0961 2345 6769';
@@ -92,7 +93,7 @@ test('a statement imports, a receipt uploads through the client-side resize, and
     await page.getByLabel('Solde après ce relevé').fill('574,10');
     await page.getByRole('button', { name: 'Importer' }).click();
 
-    await expect(page.getByText('2 ligne(s) lue(s), 2 nouvelle(s)', { exact: false })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('2 ligne(s) lue(s), 2 nouvelle(s)', { exact: false })).toBeVisible({ timeout: scaled(15_000) });
     await page.getByRole('link', { name: 'Voir les mouvements' }).click();
     await page.waitForURL(/\/finance\/movements\?account_id=\d+/, { waitUntil: 'load' });
     // The list renders every row twice (desktop table + phone cards) —

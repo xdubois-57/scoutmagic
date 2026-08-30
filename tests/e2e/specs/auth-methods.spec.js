@@ -58,6 +58,7 @@ import { expect, test } from '@playwright/test';
 import { linkFromMail, readMailbox, waitForMail } from '../support/maildrop.js';
 import { logoutControl } from '../support/admin-login.js';
 import { waitOutHumanCheckDelay } from '../support/human-check.js';
+import { scaled } from '../support/timeouts.js';
 
 /**
  * An address with no account and no member behind it. Used to check that
@@ -175,7 +176,7 @@ test('a magic link signs in the device that asked for it, and says nothing about
     // where the navigation offers the logout control to a session that
     // really exists.
     // ---------------------------------------------------------------
-    await expect(page.getByRole('heading', { name: 'Connecté' })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole('heading', { name: 'Connecté' })).toBeVisible({ timeout: scaled(20_000) });
     await page.waitForURL('**/', { waitUntil: 'domcontentloaded' });
     await expect(logoutControl(page)).toBeVisible();
 

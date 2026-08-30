@@ -50,6 +50,7 @@ import { autoConfirm } from '../support/confirm-dialog.js';
 import { loginAsAdmin } from '../support/admin-login.js';
 import { readMailbox, waitForMail } from '../support/maildrop.js';
 import { runScheduler } from '../support/scheduler.js';
+import { scaled } from '../support/timeouts.js';
 
 const FIXTURES = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../fixtures');
 const EXTERNAL_RECIPIENT = 'publipostage-externe@example.invalid';
@@ -62,7 +63,7 @@ const SUBJECT_TEMPLATE = `Camp {{Prenom}} — infos ${RUN_TAG}`;
 test('a mail merge refuses a bad file line by line, previews each row, and delivers personalized mail', async ({ page }) => {
     // Two real sends (test + batch) plus a scheduler pass — roomier than
     // the default budget, far under the classic spec's cron-waiting 180s.
-    test.setTimeout(120_000);
+    test.setTimeout(scaled(120_000));
 
     const memberEmail = process.env.E2E_MEMBER_EMAIL;
     if (!memberEmail) {
@@ -207,7 +208,7 @@ test('a mail merge refuses a bad file line by line, previews each row, and deliv
 
     const testMail = await waitForMail(
         (message) => message.to.includes(TEST_RECIPIENT) && message.subject.includes(`Camp Emma — infos ${RUN_TAG}`),
-        { description: `a test send rendered with row 2's values, addressed to ${TEST_RECIPIENT}`, timeout: 20_000 },
+        { description: `a test send rendered with row 2's values, addressed to ${TEST_RECIPIENT}`, timeout: scaled(20_000) },
     );
     expect(testMail.text).toContain('Cher Emma, tu devras payer 80 €');
 

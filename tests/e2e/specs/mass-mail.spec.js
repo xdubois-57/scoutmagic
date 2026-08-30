@@ -30,6 +30,7 @@ import { autoConfirm } from '../support/confirm-dialog.js';
 import { loginAsAdmin } from '../support/admin-login.js';
 import { pngBuffer } from '../support/png.js';
 import { readMailbox, waitForMail } from '../support/maildrop.js';
+import { scaled } from '../support/timeouts.js';
 
 const SUBJECT = `Fête d'unité — infos pratiques ${Date.now()}`;
 const BODY_LINE = 'Rendez-vous samedi à 14h au local, goûter offert.';
@@ -39,7 +40,7 @@ const ATTACHMENT_NAME = 'plan-acces.png';
 test('a mass mail walks draft → test → sending, and really lands in the members\' mailboxes', async ({ page }) => {
     // The real delivery below waits out the poor-man's cron (at most one
     // scheduler pass per minute) — well past the default test budget.
-    test.setTimeout(180_000);
+    test.setTimeout(scaled(180_000));
 
     const memberEmail = process.env.E2E_MEMBER_EMAIL;
     if (!memberEmail) {
@@ -137,7 +138,7 @@ test('a mass mail walks draft → test → sending, and really lands in the memb
 
     const testMail = await waitForMail(
         (message) => message.to.includes(TEST_RECIPIENT) && message.subject.includes(SUBJECT),
-        { description: `a test send addressed to ${TEST_RECIPIENT}`, timeout: 20_000 },
+        { description: `a test send addressed to ${TEST_RECIPIENT}`, timeout: scaled(20_000) },
     );
     expect(testMail.text).toContain(BODY_LINE);
 
@@ -163,7 +164,7 @@ test('a mass mail walks draft → test → sending, and really lands in the memb
         );
     }, {
         message: `the mass mail must reach ${memberEmail} once the batch task runs`,
-        timeout: 120_000,
+        timeout: scaled(120_000),
         intervals: [2_000],
     }).toBe(true);
 

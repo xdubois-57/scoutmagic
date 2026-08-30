@@ -42,6 +42,7 @@ import { expect, test } from '@playwright/test';
 
 import { answerConfirmation } from '../support/confirm-dialog.js';
 import { loginAsAdmin } from '../support/admin-login.js';
+import { scaled } from '../support/timeouts.js';
 
 const BOARD_TITLE = `Rétro camp E2E ${Date.now()}`;
 const WORD_FROM_FIRST = 'Le feu de camp du samedi soir était magique';
@@ -50,7 +51,7 @@ const WORD_FROM_SECOND = 'Prévoir plus de temps pour le rangement';
 /** Assertions that depend on the other browser's poll cycle (the harness
  * default interval, bounded below by 3 s in retro-board.js) get headroom
  * over the expect default. */
-const POLL = { timeout: 15_000 };
+const POLL = { timeout: scaled(15_000) };
 
 /**
  * The board column a word lives in, addressed the way the page's own
@@ -82,7 +83,7 @@ test('two anonymous visitors write and vote on a live board, a chief moderates, 
     // Three browsers synchronising through a multi-second polling loop —
     // most of this scenario's clock is deliberate waiting, and CI's
     // coverage instrumentation stretches it further.
-    test.setTimeout(180_000);
+    test.setTimeout(scaled(180_000));
 
     /** @type {string[]} */
     const pageErrors = [];
