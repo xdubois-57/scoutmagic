@@ -22,12 +22,21 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 
 /**
- * No test here emits a real hop: `base_url` is deliberately left unset, so
- * SchedulerContinuation::baseUrl() answers null and emitHop() returns
- * before touching a socket. What is under test is the decision — the three
- * cumulative conditions and the ceiling — and the slice mechanics around
- * it, which is where the damage would be. A test that opened a socket
- * would be testing the network.
+ * Almost no test here emits a real hop: `base_url` is deliberately left
+ * unset, so SchedulerContinuation::baseUrl() answers null and emitHop()
+ * returns before touching a socket. What is under test is the decision —
+ * the three cumulative conditions and the ceiling — and the slice
+ * mechanics around it, which is where the damage would be. A test that
+ * reached out to the network would be testing the network.
+ *
+ * The two exceptions at the end of this class are about whether a hop was
+ * SENT, which is a different question and became a load-bearing one when
+ * `Task\InstallUpdateHandler` stopped migrating in its own process: the
+ * answer decides whether the schema migration starts now or waits for a
+ * visitor. Both point `base_url` at a socket on 127.0.0.1 that the test
+ * itself owns — one listening, one that nothing is listening on. That is
+ * not the network; it is the two outcomes of a local connect, which is
+ * exactly what emitHop() has to tell apart.
  */
 class SchedulerContinuationTest extends TestCase
 {
@@ -412,6 +421,59 @@ class SchedulerContinuationTest extends TestCase
 
         $this->assertFalse($secretless->verifySecret(''));
         $this->assertFalse($secretless->verifySecret('anything'));
+    }
+
+    /**
+     * A configured base_url with nothing listening: the hop is attempted
+     * against every target and none of them takes it. Reported as not
+     * sent, and — the part that matters — not thrown. The caller here is
+     * an update that has already succeeded.
+     */
+    public function testAHopReportsFailureWhenNothingIsListening(): void
+    {
+        $port = $this->aPortNobodyIsUsing();
+        $this->settings->register('base_url', '', 'text', 'base', 'test', null, null, null, false, 900);
+        $this->settings->setInternal('base_url', 'http://127.0.0.1:' . $port);
+
+        $this->assertFalse($this->continuation->kick());
+    }
+
+    /**
+     * And the other outcome, which is the one the migration depends on: a
+     * listening socket takes the request, so the kick reports that it was
+     * sent. The socket is this test's own, accepted and dropped without
+     * ever being read — which is precisely what fire-and-forget means, and
+     * why the caller never waits for a response.
+     */
+    public function testAHopReportsSuccessWhenTheRequestIsAccepted(): void
+    {
+        $server = @stream_socket_server('tcp://127.0.0.1:0', $errno, $errstr);
+        $this->assertNotFalse($server, "could not open a local listening socket: {$errstr}");
+
+        $name = stream_socket_get_name($server, false);
+        $this->assertNotFalse($name);
+        $port = (int) substr((string) $name, (int) strrpos((string) $name, ':') + 1);
+
+        $this->settings->register('base_url', '', 'text', 'base', 'test', null, null, null, false, 900);
+        $this->settings->setInternal('base_url', 'http://127.0.0.1:' . $port);
+
+        try {
+            $this->assertTrue($this->continuation->kick());
+            $this->assertSame(1, $this->continuation->hopCount(), 'a sent hop consumes one of the chain budget');
+        } finally {
+            fclose($server);
+        }
+    }
+
+    private function aPortNobodyIsUsing(): int
+    {
+        $probe = @stream_socket_server('tcp://127.0.0.1:0', $errno, $errstr);
+        $this->assertNotFalse($probe, "could not reserve a local port: {$errstr}");
+        $name = (string) stream_socket_get_name($probe, false);
+        $port = (int) substr($name, (int) strrpos($name, ':') + 1);
+        fclose($probe);
+
+        return $port;
     }
 
     /**

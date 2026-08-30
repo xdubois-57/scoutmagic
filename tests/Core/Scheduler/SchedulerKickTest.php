@@ -10,9 +10,11 @@ use Core\Database\Connection;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Mail\MailService;
+use Core\Scheduler\SchedulerContinuation;
 use Core\Scheduler\SchedulerKick;
 use Core\Scheduler\TaskContext;
 use Core\Security\EncryptionService;
+use Core\Security\SecretManager;
 use Core\Security\UserAccountRepository;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -62,6 +64,51 @@ class SchedulerKickTest extends TestCase
             new SettingService(new SettingRepository($this->pdo)),
             $this->createMock(UserAccountRepository::class),
             $this->storagePath
+        );
+    }
+
+    /**
+     * The path that matters: a real secrets.enc carrying a real
+     * continuation secret, so the kick gets all the way to
+     * SchedulerContinuation::kick() instead of bailing out early.
+     *
+     * `base_url` is deliberately unset, so nothing is written to a socket
+     * — a test that opened one would be testing the network. What proves
+     * the kick really happened is the side effect that precedes the
+     * request: kick() begins a FRESH chain, so a hop counter left over
+     * from an unrelated chain is back to zero. An update is not a
+     * continuation of whatever was running, and must get the full hop
+     * budget.
+     */
+    public function testARealSecretGetsTheKickAllTheWayToAFreshChain(): void
+    {
+        $secretManager = new SecretManager(
+            $this->storagePath . '/keys/master.key',
+            $this->storagePath . '/config/secrets.enc'
+        );
+        $secretManager->generateMasterKey();
+        $secretManager->writeSecrets(['scheduler_continuation_secret' => 'a-secret-nobody-else-has']);
+
+        $settings = new SettingService(new SettingRepository($this->pdo));
+        $settings->register(SchedulerContinuation::HOPS_SETTING, '0', 'number', 'hops', 'test', null, null, null, false, 900);
+        $settings->setInternal(SchedulerContinuation::HOPS_SETTING, '19');
+
+        $context = new TaskContext(
+            Connection::withPdo($this->pdo),
+            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)),
+            $this->createMock(MailService::class),
+            new JournalService(new JournalRepository($this->pdo)),
+            $settings,
+            $this->createMock(UserAccountRepository::class),
+            $this->storagePath
+        );
+
+        SchedulerKick::now($context);
+
+        $this->assertSame(
+            '0',
+            (string) $settings->get(SchedulerContinuation::HOPS_SETTING),
+            'the kick must have reached kick(), which begins a fresh chain'
         );
     }
 
