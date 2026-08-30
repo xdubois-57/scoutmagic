@@ -75,6 +75,34 @@ async function openConfigBox(page, name, panelId) {
     await expect(page.locator(`#${panelId}`)).toBeVisible();
 }
 
+/**
+ * Submits the « Capacités par branche » box and waits for the page its
+ * redirect renders.
+ *
+ * The barrier is the toggle going back to `aria-expanded="false"`, not the
+ * URL: this POST redirects to the address the browser is ALREADY on, so
+ * `waitForURL` would resolve instantly and let the next assertion read the
+ * page from before the save — which is how a "must not appear" assertion
+ * passes for the wrong reason. The box is open when the click happens and
+ * folded again on the page that comes back, so that attribute flipping is
+ * a genuine "the new document is here" signal.
+ *
+ * The save button is scoped to the panel: the rich-text editor's modal on
+ * this page carries an « Enregistrer » of its own.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+async function saveCapacitiesBox(page) {
+    await Promise.all([
+        page.waitForResponse((response) =>
+            response.request().method() === 'POST' && response.url().endsWith('/config/inscriptions')),
+        page.locator('#registration-capacities-box')
+            .getByRole('button', { name: 'Enregistrer', exact: true }).click(),
+    ]);
+    await expect(page.getByRole('button', { name: 'Capacités par branche', exact: true }))
+        .toHaveAttribute('aria-expanded', 'false');
+}
+
 const PARENT_NAME = 'Camille Verstraeten';
 const FAMILY_EMAIL = 'famille-inscription@example.invalid';
 const FAMILY_PHONE = '+32 470 11 22 33';
@@ -151,10 +179,7 @@ test('a family registers a child, follows the mailed tracking link, and the admi
 
     // 0 — the branch is deliberately closed, and says so.
     await capacityBoxes.first().fill('0');
-    // Scoped to the panel: the rich-text editor's own modal carries an
-    // « Enregistrer » of its own, and this box's button is the one meant.
-    await page.locator('#registration-capacities-box').getByRole('button', { name: 'Enregistrer', exact: true }).click();
-    await page.waitForURL('**/config/inscriptions', { waitUntil: 'domcontentloaded' });
+    await saveCapacitiesBox(page);
     await expect(
         page.getByText('Attente importante', { exact: true }),
         'a capacity of zero is a branch closed on purpose — it must still read as full',
@@ -165,8 +190,7 @@ test('a family registers a child, follows the mailed tracking link, and the admi
     for (let i = 0; i < capacityCount; i++) {
         await page.locator('#registration-capacities-box input[name^="capacity["]').nth(i).fill('');
     }
-    await page.locator('#registration-capacities-box').getByRole('button', { name: 'Enregistrer', exact: true }).click();
-    await page.waitForURL('**/config/inscriptions', { waitUntil: 'domcontentloaded' });
+    await saveCapacitiesBox(page);
     await expect(
         page.getByText('Attente importante', { exact: true }),
         'a branch with NO recorded capacity must never be announced full',

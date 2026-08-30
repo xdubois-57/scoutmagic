@@ -59,15 +59,28 @@ async function openCapacitiesBox(page) {
 }
 
 /**
- * Submits that box. Scoped to the panel: the rich-text editor's modal on
- * this page carries an « Enregistrer » of its own.
+ * Submits that box and waits for the page its redirect renders.
+ *
+ * The barrier is the toggle going back to `aria-expanded="false"`, not the
+ * URL: this POST redirects to the address the browser is ALREADY on, so
+ * `waitForURL` would resolve instantly and let the next assertion read the
+ * page from before the save. The box is open when the click happens and
+ * folded again on the page that comes back.
+ *
+ * The button is scoped to the panel: the rich-text editor's modal on this
+ * page carries an « Enregistrer » of its own.
  *
  * @param {import('@playwright/test').Page} page
  */
 async function saveCapacitiesBox(page) {
-    await page.locator('#registration-capacities-box')
-        .getByRole('button', { name: 'Enregistrer', exact: true }).click();
-    await page.waitForURL('**/config/inscriptions', { waitUntil: 'domcontentloaded' });
+    await Promise.all([
+        page.waitForResponse((response) =>
+            response.request().method() === 'POST' && response.url().endsWith('/config/inscriptions')),
+        page.locator('#registration-capacities-box')
+            .getByRole('button', { name: 'Enregistrer', exact: true }).click(),
+    ]);
+    await expect(page.getByRole('button', { name: 'Capacités par branche', exact: true }))
+        .toHaveAttribute('aria-expanded', 'false');
 }
 
 test('the departures and passage grids save on change, with no save button anywhere', async ({ page }) => {
