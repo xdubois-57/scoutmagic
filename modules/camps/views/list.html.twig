@@ -36,16 +36,26 @@
             <div class="mb-3">
                 <button class="btn btn-outline-secondary camps-map-toggle" type="button"
                         data-bs-toggle="collapse" data-bs-target="#camps-map-panel"
-                        aria-expanded="false" aria-controls="camps-map-panel">
+                        aria-expanded="true" aria-controls="camps-map-panel">
                     <i class="bi bi-map" aria-hidden="true"></i> Carte
                 </button>
             </div>
 
-            {# Collapsed by default, and the map is BUILT on first open rather
-               than on page load: building it fetches tiles, which hands the
-               tile provider the IP of every chief who opens this list — even
-               the ones who never wanted a map. #}
-            <div class="collapse mb-4" id="camps-map-panel">
+            {# Expanded by default: « où est-on déjà allés ? » is the question
+               this screen exists to answer, and a map nobody unfolds answers
+               it for nobody. The cost is stated rather than avoided — the map
+               is built on load, so the tile provider receives the IP of every
+               chief who opens this list, and core/View/rgpd_default.html says
+               exactly that under « Fond de carte et géocodage ».
+
+               The fold is the reader's, and public/assets/js/camps-map.js
+               remembers it from one visit to the next: in localStorage, and
+               only with functional cookie consent (see that file's header and
+               core/Cookie/CookieRegistry.php). Without consent nothing is
+               remembered and the map is expanded again on every visit — so
+               `show` is the one state the server can always render, the fold
+               being applied by the script afterwards or not at all. #}
+            <div class="collapse show mb-4" id="camps-map-panel">
                 <div class="card">
                     <div id="camps-map" style="height: 20rem;"
                          data-places="{{ map_places|json_encode }}"></div>

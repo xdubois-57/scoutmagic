@@ -9,12 +9,13 @@ use PHPUnit\Framework\TestCase;
 
 class CookieRegistryTest extends TestCase
 {
-    public function testGetCoreCookiesReturnsSevenCookies(): void
+    public function testGetCoreCookiesReturnsEightCookies(): void
     {
-        // Six historical entries plus theme_preference (the dark-mode
-        // choice, functional, stored client-side).
+        // Six historical entries plus the two client-side, functional
+        // localStorage keys: theme_preference (the dark-mode choice) and
+        // camps_map_collapsed (the camps map's fold).
         $cookies = CookieRegistry::getCoreCookies();
-        $this->assertCount(7, $cookies);
+        $this->assertCount(8, $cookies);
     }
 
     public function testEachCookieHasRequiredKeys(): void
@@ -53,7 +54,7 @@ class CookieRegistryTest extends TestCase
     public function testMostCoreCookiesAreNecessaryExceptTheFunctionalOnes(): void
     {
         $cookies = CookieRegistry::getCoreCookies();
-        $functionalNames = ['last_login_method', 'content-{accountScope}-{version}', 'theme_preference'];
+        $functionalNames = ['last_login_method', 'content-{accountScope}-{version}', 'theme_preference', 'camps_map_collapsed'];
 
         foreach ($cookies as $cookie) {
             $expected = in_array($cookie['name'], $functionalNames, true) ? 'functional' : 'necessary';

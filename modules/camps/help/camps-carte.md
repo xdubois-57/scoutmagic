@@ -12,10 +12,15 @@ La carte montre **les lieux**, pas les séjours : un terrain où l'unité est
 allée quatre fois est une seule épingle. Touchez-en une pour ouvrir une
 petite fiche, puis le lieu.
 
-Elle est **repliée par défaut** et ne se charge qu'à l'ouverture. Ce n'est
-pas de la coquetterie : afficher une carte télécharge son fond depuis les
-serveurs d'OpenStreetMap, qui reçoivent alors votre adresse IP. Un
-animateur qui n'ouvre pas la carte ne contacte jamais ce service.
+Elle est **dépliée par défaut**, et se charge donc avec la page. Cela a un
+coût qu'il faut connaître : afficher une carte télécharge son fond depuis
+les serveurs d'OpenStreetMap, qui reçoivent alors votre adresse IP.
+
+Le bouton « Carte » la replie, et **votre choix est retenu** d'une visite à
+l'autre : repliée, elle ne contacte plus rien tant que vous ne la rouvrez
+pas. Ce souvenir est rangé dans le stockage local de votre navigateur, et
+n'y est écrit que si vous avez accepté les cookies fonctionnels — sinon
+rien n'est retenu et la carte est dépliée à chaque visite.
 
 ## D'où viennent les coordonnées
 

@@ -5,10 +5,19 @@
 // implementation in public/assets/js/camps-map.js (imported below, never
 // reimplemented here).
 //
-// The fixture mirrors modules/camps/views/index.html.twig: a collapse
-// panel holding the map container, its `data-places` island, and the card
-// the markers write into.
+// The fixture mirrors modules/camps/views/list.html.twig: the « Carte »
+// toggle, the collapse panel it controls — rendered OPEN (`collapse show`)
+// by the server — the map container with its `data-places` island, and
+// the card the markers write into.
+//
+// Two things are under test here that a browser alone would tell us
+// slowly: the map is built on load rather than on a click, and the
+// reader's fold is remembered ONLY with functional cookie consent
+// (AGENTS.md § Cookie consent, key `camps_map_collapsed` declared in
+// core/Cookie/CookieRegistry.php).
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const KEY = 'camps_map_collapsed';
 
 const PLACES = [
     { name: 'Domaine de Mozet', locality: '5340 Mozet', url: '/chefs/camps/lieux/1', lat: 50.42, lng: 4.98 },
@@ -17,11 +26,21 @@ const PLACES = [
 
 function page(placesJson) {
     return `
-        <button class="camps-map-toggle" type="button">Voir la carte</button>
-        <div class="collapse" id="camps-map-panel">
+        <button class="btn btn-outline-secondary camps-map-toggle" type="button"
+                data-bs-toggle="collapse" data-bs-target="#camps-map-panel"
+                aria-expanded="true" aria-controls="camps-map-panel">Carte</button>
+        <div class="collapse show" id="camps-map-panel">
             <div id="camps-map" data-places='${placesJson}'></div>
             <div class="camps-map-card"></div>
         </div>`;
+}
+
+function clearConsentCookie() {
+    document.cookie = 'cookie_consent=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
+}
+
+function giveConsent(functional) {
+    document.cookie = 'cookie_consent=' + encodeURIComponent(JSON.stringify({ functional, analytics: false }));
 }
 
 /**
@@ -71,13 +90,18 @@ function stubLeaflet() {
 }
 
 /**
- * Imports the real file and runs its DOMContentLoaded handler exactly
- * once.
+ * Imports the real file and returns its DOMContentLoaded handler, without
+ * running it.
  *
  * The handler is captured rather than dispatched: the file is an IIFE that
  * registers on `document`, `vi.resetModules()` re-runs it, and jsdom keeps
  * one document for the whole file — so a dispatched event would also fire
  * every previous test's still-registered handler and build the map twice.
+ *
+ * The import itself is not inert: the file applies a stored fold as soon
+ * as it runs, which is what keeps a folded map from flashing open behind
+ * Leaflet's own script. Returning the handler unrun is what lets a test
+ * observe that.
  *
  * @param {string} markup
  * @returns {Promise<() => void>} the captured handler
@@ -111,30 +135,42 @@ async function load(placesJson = JSON.stringify(PLACES)) {
     return calls;
 }
 
+function panel() {
+    return document.getElementById('camps-map-panel');
+}
+
+function toggle() {
+    return document.querySelector('.camps-map-toggle');
+}
+
+/** Bootstrap's own event, once the panel has finished opening. */
 function openPanel() {
-    document.getElementById('camps-map-panel').dispatchEvent(new Event('shown.bs.collapse'));
+    panel().classList.add('show');
+    panel().dispatchEvent(new Event('shown.bs.collapse'));
+}
+
+/** Bootstrap's own event, once the panel has finished closing. */
+function closePanel() {
+    panel().classList.remove('show');
+    panel().dispatchEvent(new Event('hidden.bs.collapse'));
 }
 
 describe('camps-map.js', () => {
     beforeEach(() => {
         delete window.L;
+        localStorage.clear();
+        clearConsentCookie();
     });
 
-    it('builds nothing until the panel is actually opened', async () => {
-        // Building eagerly fetches tiles, which means contacting the tile
-        // provider with the reader's IP for every chief who opens the
-        // camps list and never looks at the map.
+    it('builds the map on load, with no click anywhere', async () => {
+        // Expanded by default (modules/camps/views/list.html.twig): the
+        // question this screen answers is "où est-on déjà allés", and a
+        // map nobody unfolds answers it for nobody. The cost — the tile
+        // provider seeing the reader's IP from the first visit — is
+        // stated in core/View/rgpd_default.html rather than avoided.
         const calls = await load();
 
-        expect(calls.tileLayers).toHaveLength(0);
-        expect(calls.markers).toHaveLength(0);
-    });
-
-    it('draws one marker per place once the panel opens', async () => {
-        const calls = await load();
-
-        openPanel();
-
+        expect(calls.tileLayers).toHaveLength(1);
         expect(calls.markers).toHaveLength(2);
         expect(calls.markers[0].position).toEqual([50.42, 4.98]);
         expect(calls.markers[1].position).toEqual([50.28, 5.91]);
@@ -142,8 +178,6 @@ describe('camps-map.js', () => {
 
     it('fits the view to the places it has rather than staying on Wallonia', async () => {
         const calls = await load();
-
-        openPanel();
 
         expect(calls.views[0]).toEqual([[50.45, 4.87], 8]);
         expect(calls.fitBounds).toHaveLength(1);
@@ -153,18 +187,17 @@ describe('camps-map.js', () => {
     it('leaves the fallback view alone when there is nothing to fit', async () => {
         const calls = await load('[]');
 
-        openPanel();
-
         expect(calls.markers).toHaveLength(0);
         expect(calls.fitBounds).toHaveLength(0);
         expect(calls.views[0]).toEqual([[50.45, 4.87], 8]);
     });
 
-    it('builds once, however many times the panel is reopened', async () => {
+    it('builds once, however many times the panel is folded and reopened', async () => {
         const calls = await load();
 
+        closePanel();
         openPanel();
-        openPanel();
+        closePanel();
         openPanel();
 
         expect(calls.markers).toHaveLength(2);
@@ -175,7 +208,6 @@ describe('camps-map.js', () => {
         // On a phone, a mis-tap that leaves the map costs the whole
         // pan-and-zoom the reader just did.
         const calls = await load();
-        openPanel();
 
         calls.markers[0].fire('click');
 
@@ -187,7 +219,6 @@ describe('camps-map.js', () => {
 
     it('replaces the card rather than stacking cards', async () => {
         const calls = await load();
-        openPanel();
 
         calls.markers[0].fire('click');
         calls.markers[1].fire('click');
@@ -200,7 +231,6 @@ describe('camps-map.js', () => {
 
     it('omits the locality line for a place that has none', async () => {
         const calls = await load();
-        openPanel();
 
         calls.markers[1].fire('click');
 
@@ -212,7 +242,6 @@ describe('camps-map.js', () => {
         const calls = await load(JSON.stringify([
             { name: '<img src=x onerror=alert(1)>', locality: null, url: '/chefs/camps/lieux/3', lat: 50, lng: 5 },
         ]));
-        openPanel();
 
         calls.markers[0].fire('click');
 
@@ -225,14 +254,14 @@ describe('camps-map.js', () => {
         // A blank map beats a page whose script died halfway through.
         const calls = await load('not json at all');
 
-        expect(() => openPanel()).not.toThrow();
+        expect(calls.tileLayers).toHaveLength(1);
         expect(calls.markers).toHaveLength(0);
     });
 
     it('does nothing at all when Leaflet failed to load', async () => {
         const ready = await importWith(page(JSON.stringify(PLACES)));
-        ready();
 
+        expect(() => ready()).not.toThrow();
         expect(() => openPanel()).not.toThrow();
         expect(document.querySelector('.camps-map-card').innerHTML).toBe('');
     });
@@ -242,5 +271,110 @@ describe('camps-map.js', () => {
         const ready = await importWith('<p>Aucun lieu géocodé.</p>');
 
         expect(() => ready()).not.toThrow();
+    });
+
+    describe('remembering the fold (functional consent)', () => {
+        it('stores the fold once functional consent is given', async () => {
+            giveConsent(true);
+            await load();
+
+            closePanel();
+
+            expect(localStorage.getItem(KEY)).toBe('1');
+        });
+
+        it('stores unfolded as an absence, the way the default is written nowhere', async () => {
+            giveConsent(true);
+            localStorage.setItem(KEY, '1');
+            await load();
+
+            openPanel();
+
+            expect(localStorage.getItem(KEY)).toBeNull();
+        });
+
+        it('never writes anything without a consent cookie', async () => {
+            // AGENTS.md § Cookie consent: no non-essential storage key is
+            // ever written before consent covers its category.
+            await load();
+
+            closePanel();
+
+            expect(localStorage.getItem(KEY)).toBeNull();
+        });
+
+        it('never writes anything when functional consent was refused', async () => {
+            giveConsent(false);
+            await load();
+
+            closePanel();
+
+            expect(localStorage.getItem(KEY)).toBeNull();
+        });
+
+        it('reopens folded, and leaves the tiles unrequested, when that is what was stored', async () => {
+            giveConsent(true);
+            localStorage.setItem(KEY, '1');
+            const calls = await load();
+
+            expect(panel().classList.contains('show')).toBe(false);
+            expect(calls.tileLayers).toHaveLength(0);
+            expect(calls.markers).toHaveLength(0);
+        });
+
+        it('tells the toggle what it is announcing when it folds the panel itself', async () => {
+            // Bootstrap has no Collapse instance yet — it builds one on
+            // the first click — so the class and aria-expanded are ours
+            // to keep in step with what is on screen.
+            giveConsent(true);
+            localStorage.setItem(KEY, '1');
+            await load();
+
+            expect(toggle().getAttribute('aria-expanded')).toBe('false');
+            expect(toggle().classList.contains('collapsed')).toBe(true);
+        });
+
+        it('folds the panel as the file runs, before its DOMContentLoaded handler', async () => {
+            // The <script> sits at the end of <body>, so applying the
+            // fold here rather than at DOMContentLoaded is what keeps a
+            // folded map from flashing open on every visit.
+            giveConsent(true);
+            localStorage.setItem(KEY, '1');
+            stubLeaflet();
+
+            await importWith(page(JSON.stringify(PLACES).replace(/'/g, '&#39;')));
+
+            expect(panel().classList.contains('show')).toBe(false);
+        });
+
+        it('leaves the toggle alone when nothing was stored', async () => {
+            giveConsent(true);
+            await load();
+
+            expect(panel().classList.contains('show')).toBe(true);
+            expect(toggle().getAttribute('aria-expanded')).toBe('true');
+            expect(toggle().classList.contains('collapsed')).toBe(false);
+        });
+
+        it('ignores a stored fold without consent, and drops what it may not read', async () => {
+            // Consent granted, map folded, consent withdrawn: nothing
+            // else on this page would ever come back to remove the key,
+            // so the read that may not use it is what clears it.
+            localStorage.setItem(KEY, '1');
+            const calls = await load();
+
+            expect(panel().classList.contains('show')).toBe(true);
+            expect(calls.tileLayers).toHaveLength(1);
+            expect(localStorage.getItem(KEY)).toBeNull();
+        });
+
+        it('ignores a stored fold when functional consent was refused', async () => {
+            giveConsent(false);
+            localStorage.setItem(KEY, '1');
+            await load();
+
+            expect(panel().classList.contains('show')).toBe(true);
+            expect(localStorage.getItem(KEY)).toBeNull();
+        });
     });
 });

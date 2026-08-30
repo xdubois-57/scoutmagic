@@ -19,6 +19,18 @@
 // MergeServiceTest, the mail screen in CampsMailControllerTest, and every
 // route's RBAC boundary in CampsRbacTest.
 //
+// THE SECOND SCENARIO, AND WHY IT IS SEPARATE
+// ----------------------------------------------------------------------------
+// The map on that same list is a different question, not a further step
+// of this one: it asks whether a preference SURVIVES a visit, and only
+// when cookie consent covers it. Answering it means recording a consent
+// decision, changing it, and reloading the page between each — which
+// inside the chain above would leave a scenario about two things and a
+// reader unable to tell which half a failure came from. It lives here
+// rather than in a file of its own because it is the same page, the same
+// module and the same login, and a second provisioning would cost more
+// than the whole assertion.
+//
 // WHAT IT ASSERTS THAT NOTHING ELSE CAN
 // ----------------------------------------------------------------------------
 // That the pieces are wired to each other on a running install: the place
@@ -42,6 +54,7 @@
 // accessible name of its own.
 import { test, expect } from '@playwright/test';
 import { loginAsAdmin } from '../support/admin-login.js';
+import { answerCookieBanner } from '../support/cookie-banner.js';
 import { openSectionEditor } from '../support/section-editor.js';
 
 function isoDaysAgo(days) {
@@ -149,5 +162,85 @@ test.describe('Camps', () => {
         await expect(
             page.locator('select[name="place_id"]').getByRole('option', { name: PLACE_NAME }),
         ).toHaveCount(1);
+    });
+
+    test('the map opens by itself, and remembers being folded only with functional consent', async ({ page }) => {
+        // The map is EXPANDED by default and built as the page loads
+        // (modules/camps/views/list.html.twig, public/assets/js/camps-map.js).
+        // What only a real browser can show is the pair of facts this
+        // rests on: Leaflet really takes the container over with no click
+        // anywhere, and the reader's fold really survives a visit —
+        // through localStorage, which PHPUnit cannot see at all and which
+        // Vitest only sees in a jsdom of its own making, with no server,
+        // no real consent round trip and no second page load.
+        //
+        // It is also the browser half of AGENTS.md § Cookie consent for
+        // the `camps_map_collapsed` key (declared in
+        // core/Cookie/CookieRegistry.php, category "functional"): the
+        // refusal half first, where the fold must be forgotten, then the
+        // grant half, where it must not be.
+        await loginAsAdmin(page);
+
+        const panel = page.locator('#camps-map-panel');
+        // Leaflet stamps this class on the element it takes over, so it
+        // is proof the map was BUILT — not merely that a div is on
+        // screen. The module's own JavaScript binds to these two ids;
+        // neither the panel nor the container carries a role or an
+        // accessible name a locator could use instead (README.md § Tests
+        // de bout en bout).
+        const built = page.locator('#camps-map.leaflet-container');
+        const toggle = page.getByRole('button', { name: 'Carte', exact: true });
+
+        // --- Without functional consent. ---
+        await page.goto('/chefs/camps', { waitUntil: 'domcontentloaded' });
+        await expect(panel).toBeVisible();
+        await expect(built).toHaveCount(1);
+
+        // Refusing is the "no functional consent" case, recorded rather
+        // than left implicit — and it also gets the fixed-bottom banner
+        // out of the way of everything below (support/cookie-banner.js).
+        await answerCookieBanner(page);
+
+        await toggle.click();
+        await expect(panel).toBeHidden();
+
+        await page.goto('/chefs/camps', { waitUntil: 'domcontentloaded' });
+        await expect(panel, 'a fold must not be remembered without functional consent').toBeVisible();
+        await expect(built).toHaveCount(1);
+
+        // --- With functional consent, granted through the real page. ---
+        await page.goto('/cookies', { waitUntil: 'domcontentloaded' });
+        await page.locator('#cookie-functional').check();
+        await page.getByRole('button', { name: 'Enregistrer mes choix' }).click();
+        await expect(page.getByText('Vos préférences cookies ont été enregistrées.')).toBeVisible();
+
+        await page.goto('/chefs/camps', { waitUntil: 'domcontentloaded' });
+        await expect(panel).toBeVisible();
+        await toggle.click();
+        await expect(panel).toBeHidden();
+
+        await page.goto('/chefs/camps', { waitUntil: 'domcontentloaded' });
+        await expect(panel, 'the fold must survive the visit once consent covers it').toBeHidden();
+        // Folded means the tile provider is not contacted at all, which is
+        // the only thing that made the old always-collapsed default worth
+        // its cost — the reader keeps that, they just choose it.
+        await expect(built).toHaveCount(0);
+        // The button must announce the state that is on screen: Bootstrap
+        // has no Collapse instance yet on a fresh load, so camps-map.js
+        // sets this itself.
+        await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+
+        await toggle.click();
+        await expect(panel).toBeVisible();
+        await expect(built).toHaveCount(1);
+
+        // Expanded is the default, so it is stored as an absence: coming
+        // back finds the map open again with nothing left behind.
+        await page.goto('/chefs/camps', { waitUntil: 'domcontentloaded' });
+        await expect(panel).toBeVisible();
+        await expect(
+            await page.evaluate(() => localStorage.getItem('camps_map_collapsed')),
+            'unfolding must REMOVE the key, never store a second value for the default',
+        ).toBeNull();
     });
 });
