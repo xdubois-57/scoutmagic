@@ -67,16 +67,56 @@ class SchedulerRunner
     }
 
     /**
-     * Process all due tasks.
+     * Process due tasks, optionally within a time budget.
+     *
+     * @param float|null $deadline microtime(true) value past which no
+     *   further task is STARTED. A task already running always runs to
+     *   completion — there is no way to interrupt a handler mid-flight,
+     *   and pretending otherwise would leave whatever it was doing half
+     *   done. So the budget bounds when the pass stops taking on new
+     *   work, not how long the pass lasts; a single slow handler can
+     *   still overrun it, which is why the budget is set well under
+     *   max_execution_time rather than at it.
+     *
+     *   Null (the default) means "no budget": every claimed task runs.
+     *   That is what the CLI entry point wants, where
+     *   max_execution_time is 0 and a single uninterrupted pass is
+     *   strictly better than a chain of them.
+     *
+     * Tasks claimed but not started are handed back to the pending pool
+     * before returning — see SchedulerRepository::release().
      */
-    public function processOverdue(): int
+    public function processOverdue(?float $deadline = null): int
     {
         RequestTimeline::mark('scheduler_claim_overdue_start');
         $tasks = $this->repository->claimOverdue();
         RequestTimeline::mark('scheduler_claim_overdue_done', ['task_count' => count($tasks)]);
         $processed = 0;
+        $released = 0;
+        $started = 0;
 
-        foreach ($tasks as $task) {
+        foreach ($tasks as $index => $task) {
+            // Checked before starting a task, never in the middle of one.
+            // The first task of a pass always runs, however late the pass
+            // began: a budget that can decline to do anything at all would
+            // let a chain spin forever, hopping and achieving nothing.
+            // Counted as STARTED, not as succeeded — a first task that
+            // throws still consumed the pass's one guaranteed slot, and
+            // gating on $processed would let a queue of failing tasks
+            // ignore the budget entirely.
+            if ($deadline !== null && $started > 0 && microtime(true) >= $deadline) {
+                foreach (array_slice($tasks, $index) as $unrun) {
+                    $this->repository->release((int) $unrun['id']);
+                    $released++;
+                }
+                RequestTimeline::mark('scheduler_budget_exhausted', [
+                    'processed' => $processed,
+                    'released' => $released,
+                ]);
+                break;
+            }
+
+            $started++;
             $handlerKey = $task['module_id'] . '::' . $task['task_key'];
             $handler = $this->handlers[$handlerKey] ?? null;
             $taskStart = microtime(true);

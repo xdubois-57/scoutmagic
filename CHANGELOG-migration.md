@@ -119,3 +119,68 @@ plus couverte.
   faut alors dumper *entre* le diff et l'exécution, donc en tenant le
   verrou, donc en rallongeant la tranche que IT-02 cherche justement à
   garder courte — pour reproduire un fichier que personne ne relit.
+
+## IT-02 — Continuation générique de l'ordonnanceur
+
+### Fait
+
+C'est une itération sur `Core\Scheduler`, pas sur la migration : elle ne
+contient aucune ligne spécifique au schéma, et bénéficie identiquement à
+l'installation de mise à jour, aux backups, aux notifications et aux envois
+de masse.
+
+- `Core\Scheduler\SchedulerContinuation` : le moteur. Une tranche sous
+  verrou d'exclusion (`GET_LOCK('scoutmagic_scheduler_slice', 0)`, timeout
+  zéro), puis un saut HTTP vers le site lui-même si la tranche l'a mérité.
+- `POST /api/scheduler/continue` : l'endpoint, public et sans session pour
+  la même raison que le webhook GitHub — l'appelant est le processus PHP de
+  cette installation. Le secret partagé est toute l'autorisation ; il vit
+  dans `secrets.enc`, jamais dans `settings`. `ignore_user_abort(true)`
+  avant tout travail, sans quoi le tout premier saut serait avorté.
+- `SchedulerRunner::processOverdue(?float $deadline)` : budget de temps,
+  contrôlé **entre** les tâches et jamais au milieu de l'une d'elles.
+- `SchedulerRepository::release()` / `countOverdue()`.
+- Le faux cron reste inchangé et reste l'allumage ; son bridage à une
+  exécution par minute ne s'applique pas aux sauts, qui arrivent sur leur
+  propre route.
+
+### Ce qui a surpris
+
+**Le piège du `claimOverdue()`.** Ajouter naïvement un budget de temps à
+`processOverdue()` aurait perdu des tâches en silence. `claimOverdue()`
+bascule *toutes* les tâches en retard en `processing` d'un bloc, et rien ne
+re-réclame jamais une ligne `processing` — le claim filtre sur `pending`.
+S'arrêter au budget sans rendre les lignes non démarrées les aurait
+laissées bloquées à jamais, invisibles de toute passe ultérieure. D'où
+`release()`, et un test qui vérifie que les tâches relâchées repassent bien
+en `pending` et non en `processing`, sans être comptées comme ayant échoué.
+
+**Une garde que j'avais écrite fausse.** La première version conditionnait
+le budget à `$processed > 0` — donc une file de tâches qui échouent toutes
+aurait ignoré le budget entièrement, `$processed` ne bougeant jamais. Le
+compteur porte maintenant sur les tâches *démarrées*.
+
+**La matrice d'autorisation exige un littéral.**
+`tests/Security/AuthorizationMatrixInventoryTest` analyse `public/index.php`
+et refuse d'auditer une liste qu'elle n'a pas pu parser entièrement. Écrire
+la route avec la constante `SchedulerContinuationRoute::PATH` la rendait
+invisible à cet audit, et le test a échoué immédiatement. C'est la bonne
+exigence : une route invisible à la matrice de sécurité est pire qu'une
+chaîne dupliquée. Le littéral est revenu dans `addRoute()`, et
+`SchedulerContinuationRouteTest` épingle les deux copies l'une à l'autre —
+si elles divergeaient, le saut atteindrait un 404 et, comme personne ne lit
+la réponse d'un saut, la file cesserait de se vider sans la moindre erreur
+nulle part.
+
+### Écarté
+
+- **Le spawn CLI détaché.** Mesuré non fonctionnel sur l'hébergement cible
+  (`system`, `passthru`, `proc_open`, `popen` tous dans
+  `disable_functions`), et de toute façon exposé à `kill_orphaned_php`.
+  `ShellExecutor` et `ExecutableLocator` existent dans le codebase et
+  donnent l'impression que c'est la solution ; ce n'en est pas une ici.
+- **Un timeout non nul sur le verrou.** La tentation de « lisser » avec
+  quelques secondes d'attente coûterait un worker FPM par visiteur en
+  attente, sur un plafond d'environ vingt Entry Processes.
+- **Un worker résident.** C'est exactement la silhouette que
+  `kill_orphaned_php` cible.
