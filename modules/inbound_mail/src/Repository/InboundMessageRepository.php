@@ -188,6 +188,22 @@ class InboundMessageRepository
     }
 
     /**
+     * Every association a message carries, whoever made it.
+     *
+     * Unscoped on purpose, and the one read that is: this is what
+     * `Service\InboundMessageAccessRegistry` asks before letting anybody
+     * download an attachment, and it needs the whole list to know which
+     * consumers to put the question to. Nothing about the message itself
+     * comes back with it.
+     *
+     * @return MessageLink[]
+     */
+    public function findLinksForMessage(int $messageId): array
+    {
+        return $this->findLinksFor([$messageId])[$messageId] ?? [];
+    }
+
+    /**
      * How many associations a message still carries — what tells a caller
      * whether removing one has left the message belonging to nobody.
      */
@@ -482,6 +498,54 @@ class InboundMessageRepository
         $stmt->execute([$consumerId, $businessReference]);
 
         return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
+    /**
+     * A message that still holds this file, other than the one named.
+     *
+     * Deduplication means several messages can share one stored file while
+     * `files.owner_id` names only one of them. When that one is destroyed,
+     * the survivors need the ownership handed over — otherwise the file
+     * keeps pointing at a message that no longer exists, and
+     * `Service\InboundMessageAccessRegistry` finds no associations to ask
+     * about, silently locking out the very people who may read it.
+     *
+     * @return int|null the message id, or null when nothing holds it any more
+     */
+    public function findMessageHoldingFile(int $fileId): ?int
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT message_id FROM inbound_message_attachments WHERE file_id = ? ORDER BY id ASC LIMIT 1'
+        );
+        $stmt->execute([$fileId]);
+        $messageId = $stmt->fetchColumn();
+
+        return $messageId === false ? null : (int) $messageId;
+    }
+
+    /**
+     * Every (file, message) pair an attachment row records, oldest first —
+     * what the one-time reprise of `files.owner_type`/`owner_id` walks.
+     *
+     * @return array<int, array{file_id: int, message_id: int}>
+     */
+    public function findAttachmentFileOwners(): array
+    {
+        $stmt = $this->pdo->query(
+            'SELECT file_id, message_id FROM inbound_message_attachments ORDER BY id ASC'
+        );
+
+        if ($stmt === false) {
+            return [];
+        }
+
+        return array_map(
+            static fn(array $row) => [
+                'file_id' => (int) $row['file_id'],
+                'message_id' => (int) $row['message_id'],
+            ],
+            $stmt->fetchAll(\PDO::FETCH_ASSOC)
+        );
     }
 
     /**

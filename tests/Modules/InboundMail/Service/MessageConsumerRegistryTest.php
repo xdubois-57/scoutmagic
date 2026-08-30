@@ -61,6 +61,11 @@ class MessageConsumerRegistryTest extends TestCase
             public function onMessageStored(InboundMessage $message): void
             {
             }
+
+            public function canRead(string $businessReference, array $linkedMemberIds, string $role): bool
+            {
+                return true;
+            }
         };
     }
 
@@ -117,6 +122,11 @@ class MessageConsumerRegistryTest extends TestCase
 
             public function onMessageStored(InboundMessage $message): void
             {
+            }
+
+            public function canRead(string $businessReference, array $linkedMemberIds, string $role): bool
+            {
+                return true;
             }
         });
         $registry->register($this->consumer(new MessageClaim('LOC-2027-0042', LinkOrigin::REFERENCE)));
