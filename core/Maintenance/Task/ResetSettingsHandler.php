@@ -27,6 +27,9 @@ class ResetSettingsHandler implements TaskHandlerInterface
 {
     private const KEEP_BACKUPS = 5;
 
+    private const TYPE_COMPLETED = 'core.settings_reset_completed';
+    private const TYPE_FAILED = 'core.settings_reset_failed';
+
     /**
      * @param array<string, mixed> $payload
      */
@@ -80,14 +83,13 @@ class ResetSettingsHandler implements TaskHandlerInterface
 
             $this->purgeBeyondLimit($backupRepository, $fileRepository, $context->storagePath);
 
-            if ($requestedBy !== null) {
-                $context->notifications?->notify(
-                    $requestedBy,
-                    'Réinitialisation terminée',
-                    'La réinitialisation des paramètres par défaut est terminée.',
-                    '/config/maintenance'
-                );
-            }
+            $this->notifyRequester(
+                $context,
+                $requestedBy,
+                self::TYPE_COMPLETED,
+                'Réinitialisation terminée',
+                'La réinitialisation des paramètres par défaut est terminée.'
+            );
         } catch (\Throwable $e) {
             $context->journal->log(
                 'core',
@@ -98,14 +100,13 @@ class ResetSettingsHandler implements TaskHandlerInterface
                 $requestedBy
             );
 
-            if ($requestedBy !== null) {
-                $context->notifications?->notify(
-                    $requestedBy,
-                    'Échec de la réinitialisation',
-                    'La réinitialisation des paramètres par défaut a échoué.',
-                    '/config/maintenance'
-                );
-            }
+            $this->notifyRequester(
+                $context,
+                $requestedBy,
+                self::TYPE_FAILED,
+                'Échec de la réinitialisation',
+                'La réinitialisation des paramètres par défaut a échoué.'
+            );
         }
     }
 
@@ -128,6 +129,34 @@ class ResetSettingsHandler implements TaskHandlerInterface
             }
             $backupRepository->delete($old->id);
         }
+    }
+
+    /**
+     * Tells whoever asked for this operation how it went — a declared type
+     * through NotificationService::dispatch(), never the type-less
+     * notify(). Backup CREATION already worked this way; restoration and
+     * the settings reset did not, which is exactly why neither of them had
+     * a row on /notifications/preferences to switch off.
+     *
+     * Nobody to tell (an automatic run, or a scheduler built without the
+     * notification stack) is a no-op, as it was before.
+     */
+    private function notifyRequester(
+        TaskContext $context,
+        ?int $requestedBy,
+        string $typeId,
+        string $title,
+        string $body
+    ): void {
+        if ($requestedBy === null) {
+            return;
+        }
+
+        $context->notifications?->dispatch(
+            $typeId,
+            [['userAccountId' => $requestedBy, 'memberId' => null]],
+            ['title' => $title, 'body' => $body, 'url' => '/config/maintenance']
+        );
     }
 
     private function relativePath(string $storagePath, string $absolutePath): string

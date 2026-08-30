@@ -9,6 +9,7 @@ use Core\Mail\MailService;
 use Core\Member\MemberFunctionInfo;
 use Core\Member\MemberProfile;
 use Core\Member\MemberService;
+use Core\Notification\NotificationService;
 use Core\Security\UserAccount;
 use Core\Security\UserAccountRepository;
 use Modules\SosStaff\Provider\ForwardingState;
@@ -30,6 +31,7 @@ class RedirectServiceTest extends TestCase
     private UserAccountRepository $userAccountRepository;
     private MailService $mailService;
     private JournalService $journalService;
+    private NotificationService $notificationService;
     private Environment $twig;
 
     protected function setUp(): void
@@ -40,6 +42,7 @@ class RedirectServiceTest extends TestCase
         $this->userAccountRepository = $this->createMock(UserAccountRepository::class);
         $this->mailService = $this->createMock(MailService::class);
         $this->journalService = $this->createMock(JournalService::class);
+        $this->notificationService = $this->createMock(NotificationService::class);
 
         $loader = new FilesystemLoader(dirname(__DIR__, 4) . '/core/View/templates');
         $loader->addPath(dirname(__DIR__, 4) . '/modules/sos_staff/views', 'sos_staff');
@@ -49,7 +52,7 @@ class RedirectServiceTest extends TestCase
         $this->twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
     }
 
-    private function service(): RedirectService
+    private function service(?NotificationService $notifications = null): RedirectService
     {
         return new RedirectService(
             $this->providerConfigService,
@@ -58,8 +61,18 @@ class RedirectServiceTest extends TestCase
             $this->userAccountRepository,
             $this->mailService,
             $this->journalService,
-            $this->twig
+            $this->twig,
+            $notifications ?? $this->notificationService
         );
+    }
+
+    /**
+     * A signed-up account for a member's address — what turns a handover
+     * into a recipient. A member with none is simply not one.
+     */
+    private function accountFor(string $email): UserAccount
+    {
+        return new UserAccount(42, $email, null, null, null, false, null);
     }
 
     private function profile(int $memberId, string $displayName, ?string $mobile, ?string $email): MemberProfile
@@ -207,7 +220,14 @@ class RedirectServiceTest extends TestCase
         }
     }
 
-    public function testApplySendsHandoverEmailsToNewAndPreviousMember(): void
+    /**
+     * The handover pair goes through the notification centre (the two
+     * types module.json declares), not through a direct mail any more —
+     * so it reaches push and /notifications/preferences, which the emails
+     * this replaced never did. The RULE is unchanged: the person taking
+     * the duty and the person ending it, each once.
+     */
+    public function testApplyDispatchesAHandoverNotificationToNewAndPreviousMember(): void
     {
         $provider = $this->createMock(PhoneProviderInterface::class);
         $provider->method('readForwardingState')->willReturnOnConsecutiveCalls(
@@ -221,13 +241,56 @@ class RedirectServiceTest extends TestCase
             [2, 100, $this->profile(2, 'Baloo', '+32470000002', 'baloo@test.be')],
             [1, 100, $this->profile(1, 'Akela', '+32470000001', 'akela@test.be')],
         ]);
+        $this->userAccountRepository->method('findByEmail')
+            ->willReturnCallback(fn(string $email) => $this->accountFor($email));
 
-        $this->mailService->expects($this->exactly(2))->method('send');
+        $dispatched = [];
+        $this->notificationService->expects($this->exactly(2))->method('dispatch')
+            ->willReturnCallback(function (string $typeId, array $recipients, array $payload) use (&$dispatched): void {
+                $dispatched[] = [$typeId, $recipients, $payload];
+            });
+        // The redirect itself is the only thing that mails anybody now,
+        // and only on failure (the admin alert).
+        $this->mailService->expects($this->never())->method('send');
 
         $this->service()->apply(2, 1, 100);
+
+        self::assertSame('sos_staff.oncall_started', $dispatched[0][0]);
+        self::assertSame(2, $dispatched[0][1][0]['memberId']);
+        self::assertSame('sos_staff.oncall_ended', $dispatched[1][0]);
+        self::assertSame(1, $dispatched[1][1][0]['memberId']);
     }
 
-    public function testApplySkipsEmailWhenMemberHasNoEmail(): void
+    /**
+     * SECURITY.md §19: a push renders on a lock screen, outside this
+     * site's access control. The number adds nothing the recipient does
+     * not already know — it is their own mobile — so it never enters the
+     * payload, where the email it replaced named it.
+     */
+    public function testHandoverPayloadCarriesNoPhoneNumber(): void
+    {
+        $provider = $this->createMock(PhoneProviderInterface::class);
+        $provider->method('readForwardingState')->willReturnOnConsecutiveCalls(
+            new ForwardingState(true, '+32470000000'),
+            new ForwardingState(true, '+32470000001')
+        );
+
+        $this->providerConfigService->method('getActiveProvider')->willReturn($provider);
+        $this->settingsService->method('isEmailNotificationsEnabled')->willReturn(true);
+        $this->memberService->method('findProfileByMemberAndYear')
+            ->willReturn($this->profile(1, 'Akela', '+32470000001', 'akela@test.be'));
+        $this->userAccountRepository->method('findByEmail')->willReturn($this->accountFor('akela@test.be'));
+
+        $this->notificationService->expects($this->once())->method('dispatch')
+            ->willReturnCallback(function (string $typeId, array $recipients, array $payload): void {
+                self::assertStringNotContainsString('+32470000001', $payload['title'] . ' ' . $payload['body']);
+                self::assertSame('/admin/sos', $payload['url']);
+            });
+
+        $this->service()->apply(1, null, 100);
+    }
+
+    public function testApplySkipsTheNotificationWhenMemberHasNoEmail(): void
     {
         $provider = $this->createMock(PhoneProviderInterface::class);
         $provider->method('readForwardingState')->willReturnOnConsecutiveCalls(
@@ -240,9 +303,148 @@ class RedirectServiceTest extends TestCase
         $this->memberService->method('findProfileByMemberAndYear')
             ->willReturn($this->profile(1, 'Akela', '+32470000001', null));
 
+        $this->notificationService->expects($this->never())->method('dispatch');
         $this->mailService->expects($this->never())->method('send');
 
         $this->service()->apply(1, null, 100);
+    }
+
+    /** A member with no account on this site is simply not a recipient. */
+    public function testApplySkipsTheNotificationWhenMemberHasNoAccount(): void
+    {
+        $provider = $this->createMock(PhoneProviderInterface::class);
+        $provider->method('readForwardingState')->willReturnOnConsecutiveCalls(
+            new ForwardingState(true, '+32470000000'),
+            new ForwardingState(true, '+32470000001')
+        );
+
+        $this->providerConfigService->method('getActiveProvider')->willReturn($provider);
+        $this->settingsService->method('isEmailNotificationsEnabled')->willReturn(true);
+        $this->memberService->method('findProfileByMemberAndYear')
+            ->willReturn($this->profile(1, 'Akela', '+32470000001', 'akela@test.be'));
+        $this->userAccountRepository->method('findByEmail')->willReturn(null);
+
+        $this->notificationService->expects($this->never())->method('dispatch');
+
+        $this->service()->apply(1, null, 100);
+    }
+
+    /**
+     * The module's own setting stays the GLOBAL switch in front of the
+     * dispatch — per-user channels are each member's business, but an
+     * admin can still silence the whole thing.
+     */
+    public function testTheModuleSettingStillSilencesEveryHandoverNotification(): void
+    {
+        $provider = $this->createMock(PhoneProviderInterface::class);
+        $provider->method('readForwardingState')->willReturnOnConsecutiveCalls(
+            new ForwardingState(true, '+32470000000'),
+            new ForwardingState(true, '+32470000001')
+        );
+
+        $this->providerConfigService->method('getActiveProvider')->willReturn($provider);
+        $this->settingsService->method('isEmailNotificationsEnabled')->willReturn(false);
+        $this->memberService->method('findProfileByMemberAndYear')
+            ->willReturn($this->profile(1, 'Akela', '+32470000001', 'akela@test.be'));
+
+        $this->notificationService->expects($this->never())->method('dispatch');
+
+        $this->service()->apply(1, null, 100);
+    }
+
+    /**
+     * Nobody is told when the two sides are the same person, and a null
+     * side is nobody at all (the default number governs that day, and a
+     * number has no inbox). Unchanged rule, kept under the new channel.
+     */
+    public function testApplyTellsNobodyWhenTheDutyDidNotChangeHands(): void
+    {
+        $provider = $this->createMock(PhoneProviderInterface::class);
+        $provider->method('readForwardingState')->willReturnOnConsecutiveCalls(
+            new ForwardingState(true, '+32470000000'),
+            new ForwardingState(true, '+32470000001')
+        );
+
+        $this->providerConfigService->method('getActiveProvider')->willReturn($provider);
+        $this->settingsService->method('isEmailNotificationsEnabled')->willReturn(true);
+        $this->memberService->method('findProfileByMemberAndYear')
+            ->willReturn($this->profile(1, 'Akela', '+32470000001', 'akela@test.be'));
+        $this->userAccountRepository->method('findByEmail')->willReturn($this->accountFor('akela@test.be'));
+
+        $this->notificationService->expects($this->never())->method('dispatch');
+
+        $this->service()->apply(1, 1, 100);
+    }
+
+    /**
+     * The notification stack is optional (ARCHITECTURE.md §7.5): without
+     * it the redirection still applies and simply tells nobody.
+     */
+    public function testApplyStillRedirectsWithoutANotificationService(): void
+    {
+        $provider = $this->createMock(PhoneProviderInterface::class);
+        $provider->method('readForwardingState')->willReturnOnConsecutiveCalls(
+            new ForwardingState(true, '+32470000000'),
+            new ForwardingState(true, '+32470000001')
+        );
+        $provider->expects($this->once())->method('setForwarding')->with('+32470000001');
+
+        $this->providerConfigService->method('getActiveProvider')->willReturn($provider);
+        $this->settingsService->method('isEmailNotificationsEnabled')->willReturn(true);
+        $this->memberService->method('findProfileByMemberAndYear')
+            ->willReturn($this->profile(1, 'Akela', '+32470000001', 'akela@test.be'));
+
+        $service = new RedirectService(
+            $this->providerConfigService,
+            $this->settingsService,
+            $this->memberService,
+            $this->userAccountRepository,
+            $this->mailService,
+            $this->journalService,
+            $this->twig,
+            null
+        );
+
+        $service->apply(1, null, 100);
+    }
+
+    /**
+     * A notification that cannot be dispatched is journaled, never fatal:
+     * the phone forwarding already succeeded (SECURITY.md §19 — a
+     * notification never reverses the action that triggered it), and the
+     * recipient's address never reaches the journal (§11).
+     */
+    public function testAFailedNotificationIsJournaledWithoutTheAddress(): void
+    {
+        $provider = $this->createMock(PhoneProviderInterface::class);
+        $provider->method('readForwardingState')->willReturnOnConsecutiveCalls(
+            new ForwardingState(true, '+32470000000'),
+            new ForwardingState(true, '+32470000001')
+        );
+
+        $this->providerConfigService->method('getActiveProvider')->willReturn($provider);
+        $this->settingsService->method('isEmailNotificationsEnabled')->willReturn(true);
+        $this->memberService->method('findProfileByMemberAndYear')
+            ->willReturn($this->profile(1, 'Akela', '+32470000001', 'akela@test.be'));
+        $this->userAccountRepository->method('findByEmail')->willReturn($this->accountFor('akela@test.be'));
+        $this->notificationService->method('dispatch')
+            ->willThrowException(new \RuntimeException('push refusé pour akela@test.be'));
+
+        $descriptions = [];
+        $this->journalService->method('log')
+            ->willReturnCallback(function (string $module, string $type, string $level, string $description) use (&$descriptions): void {
+                $descriptions[] = $description;
+            });
+
+        $this->service()->apply(1, null, 100);
+
+        $notificationFailures = array_values(array_filter(
+            $descriptions,
+            static fn(string $d) => str_contains($d, 'notification de changement de garde')
+        ));
+        self::assertCount(1, $notificationFailures);
+        self::assertStringNotContainsString('akela@test.be', $notificationFailures[0]);
+        self::assertStringContainsString('[adresse]', $notificationFailures[0]);
     }
 
     public function testApplyFallsBackToDefaultNumberWhenNoOneOnCall(): void

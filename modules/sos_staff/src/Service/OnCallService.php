@@ -110,6 +110,58 @@ class OnCallService
     }
 
     /**
+     * Who actually receives the calls, for every day of a month, plus how
+     * many people are marked on call that day.
+     *
+     * The "single on-call person" rule (module spec §2.6) is one line of
+     * roster-order arithmetic and it is the ONE thing a duty planning
+     * screen has to get right — so it is resolved here, once, and handed
+     * to the page ready to render. A template recomputing it from the
+     * states grid would be a second implementation of the rule that
+     * decides where the unit's emergency calls land, free to drift from
+     * the one computeAndScheduleTransitions() actually schedules against.
+     *
+     * `oncall_count` is what lets the page flag a day where several people
+     * are marked and only the first is used — the honest way to show that
+     * the extra marks change nothing.
+     *
+     * @param int[] $orderedStaffMemberIds roster order, as saveMonth() takes it
+     * @return array<string, array{member_id: ?int, oncall_count: int}> keyed by ISO date
+     */
+    public function resolveTargetsForMonth(int $year, int $month, array $orderedStaffMemberIds): array
+    {
+        $firstOfMonth = DateInput::firstOfMonth($year, $month);
+        $lastOfMonth = $firstOfMonth->modify('last day of this month');
+
+        $byDate = [];
+        foreach ($this->repository->findForRange($firstOfMonth->format('Y-m-d'), $lastOfMonth->format('Y-m-d')) as $assignment) {
+            $byDate[$assignment->date][] = $assignment;
+        }
+
+        $targets = [];
+        $cursor = $firstOfMonth;
+        while ($cursor <= $lastOfMonth) {
+            $dateStr = $cursor->format('Y-m-d');
+            $dayAssignments = $byDate[$dateStr] ?? [];
+
+            $onCallCount = 0;
+            foreach ($dayAssignments as $assignment) {
+                if ($assignment->state === OnCallAssignment::STATE_ONCALL) {
+                    $onCallCount++;
+                }
+            }
+
+            $targets[$dateStr] = [
+                'member_id' => $this->resolveTarget($dayAssignments, $orderedStaffMemberIds),
+                'oncall_count' => $onCallCount,
+            ];
+            $cursor = $cursor->modify('+1 day');
+        }
+
+        return $targets;
+    }
+
+    /**
      * Purge duty data older than one year (module spec §6): assignment
      * rows and the scheduled_actions rows this module created for them.
      * Calendar-sync cleanup is a separate concern (CalendarSyncService).

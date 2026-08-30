@@ -2597,8 +2597,13 @@ if ($isEnabled('sos_staff')) {
         $settingService, $moduleHooks->getOptional(\Core\Module\SectionResponsableProvider::class)
     );
     $sosOnCallService = new \Modules\SosStaff\Service\OnCallService($sosOnCallRepo, $schedulerService, $sosSettingsService);
+    // The handover pair is told through the notification centre (the two
+    // types module.json declares) rather than by a direct mail — hence the
+    // NotificationService here. sendAdminAlert() still uses $mailService:
+    // a technical alert addressed to a role, not a personal notice.
     $sosRedirectService = new \Modules\SosStaff\Service\RedirectService(
-        $sosProviderConfigService, $sosSettingsService, $memberService, $userAccountRepo, $mailService, $journalService, $twig
+        $sosProviderConfigService, $sosSettingsService, $memberService, $userAccountRepo, $mailService, $journalService,
+        $twig, $notificationService
     );
 
     $frontController->registerController(
@@ -2612,6 +2617,11 @@ if ($isEnabled('sos_staff')) {
         new \Modules\SosStaff\Controller\SosAdminController(
             $twig, $sosProviderConfigService, $sosSettingsService, $sosOnCallService, $sosRedirectService,
             $sectionService, $schedulerService, $scoutYearResolver, $journalService,
+            // « Ma disponibilité » needs to know which roster member the
+            // signed-in visitor is — a convenience tab, never a rule: the
+            // route stays role_min admin and the month tab still edits
+            // anybody.
+            $memberService,
             // The admin page's section-activity columns consume the
             // calendar module's read Api (§7.5) and no-op when it's
             // disabled ($calendarServiceForOthers is then still null).

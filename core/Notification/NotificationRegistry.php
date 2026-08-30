@@ -39,6 +39,47 @@ class NotificationRegistry
                 roleMin: 'admin',
                 channels: ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_off']
             ),
+            // Restoring a backup and resetting the settings were this
+            // registry's asymmetry: CREATING a backup had declared types,
+            // the two operations that UNDO one had none, so they reached
+            // their requester through NotificationService::notify() — no
+            // type, no channel resolution, no row on
+            // /notifications/preferences to switch off. Same shape as the
+            // backup pair above, one role tighter, because that is what
+            // the routes are: /config/maintenance/reset/* is superadmin
+            // while /config/maintenance/backup/* is admin.
+            new NotificationType(
+                id: 'core.restore_completed',
+                label: 'Restauration terminée',
+                description: 'Quand une restauration de sauvegarde que tu as demandée est terminée',
+                group: 'Maintenance',
+                roleMin: 'superadmin',
+                channels: ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_off']
+            ),
+            new NotificationType(
+                id: 'core.restore_failed',
+                label: 'Échec de restauration',
+                description: 'Quand une restauration de sauvegarde que tu as demandée a échoué',
+                group: 'Maintenance',
+                roleMin: 'superadmin',
+                channels: ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_off']
+            ),
+            new NotificationType(
+                id: 'core.settings_reset_completed',
+                label: 'Réinitialisation terminée',
+                description: 'Quand la réinitialisation des paramètres que tu as demandée est terminée',
+                group: 'Maintenance',
+                roleMin: 'superadmin',
+                channels: ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_off']
+            ),
+            new NotificationType(
+                id: 'core.settings_reset_failed',
+                label: 'Échec de réinitialisation',
+                description: 'Quand la réinitialisation des paramètres que tu as demandée a échoué',
+                group: 'Maintenance',
+                roleMin: 'superadmin',
+                channels: ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_off']
+            ),
             // The two automatic-update notices. Only ever dispatched by
             // Core\Maintenance\Task\InstallUpdateHandler for an install
             // NOBODY requested — a webhook-triggered release or dev-branch

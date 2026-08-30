@@ -58,6 +58,9 @@ class RestoreBackupHandler implements TaskHandlerInterface
 {
     private const KEEP_BACKUPS = 5;
 
+    private const TYPE_COMPLETED = 'core.restore_completed';
+    private const TYPE_FAILED = 'core.restore_failed';
+
     /** @var string[] */
     private const ENCRYPTED_BACKUP_TYPES = ['full_config', 'full_no_gallery', 'full_with_gallery'];
 
@@ -161,14 +164,13 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 $requestedBy
             );
 
-            if ($requestedBy !== null) {
-                $context->notifications?->notify(
-                    $requestedBy,
-                    'Échec de la restauration',
-                    'La sauvegarde de sécurité préalable a échoué — aucune modification n\'a été effectuée.',
-                    '/config/maintenance'
-                );
-            }
+            $this->notifyRequester(
+                $context,
+                $requestedBy,
+                self::TYPE_FAILED,
+                'Échec de la restauration',
+                'La sauvegarde de sécurité préalable a échoué — aucune modification n\'a été effectuée.'
+            );
         } finally {
             if ($uploadedTempPath !== null) {
                 @unlink($uploadedTempPath);
@@ -233,14 +235,13 @@ class RestoreBackupHandler implements TaskHandlerInterface
                     ['error' => $migrationError->getMessage()],
                     $requestedBy
                 );
-                if ($requestedBy !== null) {
-                    $context->notifications?->notify(
-                        $requestedBy,
-                        'Échec critique de la restauration',
-                        'La migration a échoué et aucune sauvegarde de sécurité n\'a pu être restaurée automatiquement. Une intervention manuelle est nécessaire.',
-                        '/config/maintenance'
-                    );
-                }
+                $this->notifyRequester(
+                    $context,
+                    $requestedBy,
+                    self::TYPE_FAILED,
+                    'Échec critique de la restauration',
+                    'La migration a échoué et aucune sauvegarde de sécurité n\'a pu être restaurée automatiquement. Une intervention manuelle est nécessaire.'
+                );
                 return;
             }
 
@@ -294,14 +295,13 @@ class RestoreBackupHandler implements TaskHandlerInterface
 
         $this->purgeBeyondLimit($backupRepository, $fileRepository, $context->storagePath);
 
-        if ($requestedBy !== null) {
-            $context->notifications?->notify(
-                $requestedBy,
-                'Restauration terminée',
-                'La restauration de la sauvegarde est terminée.',
-                '/config/maintenance'
-            );
-        }
+        $this->notifyRequester(
+            $context,
+            $requestedBy,
+            self::TYPE_COMPLETED,
+            'Restauration terminée',
+            'La restauration de la sauvegarde est terminée.'
+        );
     }
 
     /**
@@ -354,9 +354,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
             $notifyBody = 'La restauration a échoué et la restauration automatique de l\'état précédent a également échoué. Une intervention manuelle est nécessaire.';
         }
 
-        if ($requestedBy !== null) {
-            $context->notifications?->notify($requestedBy, $notifyTitle, $notifyBody, '/config/maintenance');
-        }
+        $this->notifyRequester($context, $requestedBy, self::TYPE_FAILED, $notifyTitle, $notifyBody);
     }
 
     /**
@@ -448,6 +446,34 @@ class RestoreBackupHandler implements TaskHandlerInterface
             }
             $backupRepository->delete($old->id);
         }
+    }
+
+    /**
+     * Tells whoever asked for this operation how it went — a declared type
+     * through NotificationService::dispatch(), never the type-less
+     * notify(). Backup CREATION already worked this way; restoration and
+     * the settings reset did not, which is exactly why neither of them had
+     * a row on /notifications/preferences to switch off.
+     *
+     * Nobody to tell (an automatic run, or a scheduler built without the
+     * notification stack) is a no-op, as it was before.
+     */
+    private function notifyRequester(
+        TaskContext $context,
+        ?int $requestedBy,
+        string $typeId,
+        string $title,
+        string $body
+    ): void {
+        if ($requestedBy === null) {
+            return;
+        }
+
+        $context->notifications?->dispatch(
+            $typeId,
+            [['userAccountId' => $requestedBy, 'memberId' => null]],
+            ['title' => $title, 'body' => $body, 'url' => '/config/maintenance']
+        );
     }
 
     private function relativePath(string $storagePath, string $absolutePath): string
