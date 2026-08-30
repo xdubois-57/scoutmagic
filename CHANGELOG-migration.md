@@ -454,3 +454,27 @@ sensibles au moteur ».
 
 **Convergence mesurée sur les deux : 534 → 0 sur MariaDB 10.11, 0 sur
 MySQL 8.0.46.**
+
+### Et en local : `npm run test:engines`
+
+Le trou de couverture avait une seconde moitié, moins visible : **en local
+on teste sur MariaDB, la CI teste sur MySQL, donc personne ne voit jamais
+les deux avant de pousser.** C'est exactement le piège dans lequel ce
+chantier est tombé — le correctif des défauts a été écrit et mesuré contre
+MariaDB, validé en local, poussé, et c'est la CI qui a révélé qu'il effaçait
+un défaut réel sur MySQL.
+
+`scripts/test-engines.sh` fait tourner la suite contre les deux : le
+MariaDB que le hook de session a déjà démarré, et un MySQL 8 jetable —
+conteneur Docker normalement, `mysqld` natif là où il en existe un.
+
+**Découvert en le construisant** : `mysql-server` et `mariadb-server` sont
+en **conflit** comme paquets Debian/Ubuntu — apt désinstalle l'un pour
+poser l'autre. Un conteneur est donc ce qui rend « les deux, en local »
+possible tout court, et c'est déjà le mécanisme que `scripts/e2e.sh`
+utilise pour la même raison.
+
+Un moteur que le script n'a pas pu démarrer est rapporté comme tel et fait
+sortir en échec. « Vert sur les deux moteurs » et « vert sur le seul moteur
+que j'ai trouvé » ne sont pas la même phrase — et c'est précisément la
+seconde qui se lisait comme la première.
