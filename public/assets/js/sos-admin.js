@@ -231,7 +231,7 @@
      * @returns {string|null}
      */
     function stateOf(date, memberId) {
-        return (cellStates[date] && cellStates[date][memberId]) || null;
+        return cellStates[date]?.[memberId] || null;
     }
 
     /** @param {string} text */
@@ -322,9 +322,9 @@
      * @returns {number|null}
      */
     function targetForDate(date) {
-        for (var i = 0; i < orderedMemberIds.length; i++) {
-            if (stateOf(date, String(orderedMemberIds[i])) === 'oncall') {
-                return orderedMemberIds[i];
+        for (const memberId of orderedMemberIds) {
+            if (stateOf(date, String(memberId)) === 'oncall') {
+                return memberId;
             }
         }
         return null;

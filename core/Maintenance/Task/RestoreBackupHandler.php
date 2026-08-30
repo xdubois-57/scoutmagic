@@ -241,7 +241,8 @@ class RestoreBackupHandler implements TaskHandlerInterface
                     $requestedBy,
                     self::TYPE_FAILED,
                     'Échec critique de la restauration',
-                    'La migration a échoué et aucune sauvegarde de sécurité n\'a pu être restaurée automatiquement. Une intervention manuelle est nécessaire.'
+                    'La migration a échoué et aucune sauvegarde de sécurité n\'a pu être '
+                    . 'restaurée automatiquement. Une intervention manuelle est nécessaire.'
                 );
                 return;
             }

@@ -92,7 +92,8 @@ class SosAdminController extends AbstractController
             // — exactly the condition applyImmediatelyIfTodayUsesDefault()
             // acts on. A permanent warning that is wrong half the time
             // ends up ignored.
-            'today_uses_default_number' => $this->onCallService->resolveTargetForDate($today, $orderedStaffMemberIds) === null,
+            'today_uses_default_number' => $this->onCallService
+                ->resolveTargetForDate($today, $orderedStaffMemberIds) === null,
             'transition_hour' => $this->settingsService->getTransitionHour(),
             'email_notifications_enabled' => $this->settingsService->isEmailNotificationsEnabled(),
             'year' => $year,
@@ -139,14 +140,28 @@ class SosAdminController extends AbstractController
      * part of the list off the first two screens is the whole defect this
      * screen exists to fix. Any other month is shown whole.
      *
-     * @param array{days: array<int, array{date: string, day_number: int, day_name: string, is_today: bool, is_weekend: bool}>, states: array<string, array<int, string>>} $grid
-     * @param array<int, array{section_id: int, label: string, color: ?string, events_by_day: array<string, string[]>}> $sectionActivity
+     * @param array{
+     *   days: array<int, array{date: string, day_number: int, day_name: string, is_today: bool, is_weekend: bool}>,
+     *   states: array<string, array<int, string>>
+     * } $grid
+     * @param array<int, array{
+     *   section_id: int, label: string, color: ?string, events_by_day: array<string, string[]>
+     * }> $sectionActivity
      * @param array<string, array{member_id: ?int, oncall_count: int}> $targets
      * @param array<int, array{member_id: int, label: string, mobile: string}> $staffOptions
-     * @return array<int, array{date: string, day_number: int, day_name: string, date_label: string, is_today: bool, is_weekend: bool, activity: string[], target_member_id: ?int, target_label: ?string, oncall_count: int}>
+     * @return array<int, array{
+     *   date: string, day_number: int, day_name: string, date_label: string,
+     *   is_today: bool, is_weekend: bool, activity: string[],
+     *   target_member_id: ?int, target_label: ?string, oncall_count: int
+     * }>
      */
-    private function buildMobileDays(array $grid, array $sectionActivity, array $targets, array $staffOptions, string $today): array
-    {
+    private function buildMobileDays(
+        array $grid,
+        array $sectionActivity,
+        array $targets,
+        array $staffOptions,
+        string $today
+    ): array {
         $rows = [];
         foreach ($grid['days'] as $day) {
             $activity = [];

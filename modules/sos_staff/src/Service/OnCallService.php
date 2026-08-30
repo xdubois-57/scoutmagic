@@ -134,7 +134,11 @@ class OnCallService
         $lastOfMonth = $firstOfMonth->modify('last day of this month');
 
         $byDate = [];
-        foreach ($this->repository->findForRange($firstOfMonth->format('Y-m-d'), $lastOfMonth->format('Y-m-d')) as $assignment) {
+        $assignmentsInRange = $this->repository->findForRange(
+            $firstOfMonth->format('Y-m-d'),
+            $lastOfMonth->format('Y-m-d')
+        );
+        foreach ($assignmentsInRange as $assignment) {
             $byDate[$assignment->date][] = $assignment;
         }
 

@@ -28,18 +28,32 @@
 
   Height comes from `.tap-target` in app.css's `pointer: coarse` block
   (design.md §7.2), never from an inline min-height.
+
+  The three buttons are grouped by a real <fieldset> rather than by a
+  generic element carrying role="group": the <legend> names the group for
+  screen readers exactly as the former aria-label did, and Bootstrap's
+  reboot strips the fieldset's border, padding and margin, so the visible
+  rendering is the .btn-group row alone. The row keeps `mt-2` itself
+  rather than handing it to the fieldset — a block-level margin there
+  would collapse with the preceding heading's and close the gap. The
+  legend is `.visually-hidden` because the group is already named on
+  screen by the day heading (phone list) or the member's name (day
+  sheet).
 #}
-<div class="btn-group w-100 mt-2" role="group" aria-label="{{ group_label }}">
-    <button type="button"
-            class="btn btn-sm tap-target sos-state-button {{ state == 'oncall' ? 'btn-success' : 'btn-outline-secondary' }}"
-            data-member-id="{{ member_id }}" data-date="{{ date }}" data-state="oncall"
-            aria-pressed="{{ state == 'oncall' ? 'true' : 'false' }}">Garde</button>
-    <button type="button"
-            class="btn btn-sm tap-target sos-state-button {{ state == 'unavailable' ? 'btn-danger' : 'btn-outline-secondary' }}"
-            data-member-id="{{ member_id }}" data-date="{{ date }}" data-state="unavailable"
-            aria-pressed="{{ state == 'unavailable' ? 'true' : 'false' }}">Indispo</button>
-    <button type="button"
-            class="btn btn-sm tap-target sos-state-button {{ state ? 'btn-outline-secondary' : 'btn-secondary' }}"
-            data-member-id="{{ member_id }}" data-date="{{ date }}" data-state=""
-            aria-pressed="{{ state ? 'false' : 'true' }}">Rien</button>
-</div>
+<fieldset>
+    <legend class="visually-hidden">{{ group_label }}</legend>
+    <div class="btn-group w-100 mt-2">
+        <button type="button"
+                class="btn btn-sm tap-target sos-state-button {{ state == 'oncall' ? 'btn-success' : 'btn-outline-secondary' }}"
+                data-member-id="{{ member_id }}" data-date="{{ date }}" data-state="oncall"
+                aria-pressed="{{ state == 'oncall' ? 'true' : 'false' }}">Garde</button>
+        <button type="button"
+                class="btn btn-sm tap-target sos-state-button {{ state == 'unavailable' ? 'btn-danger' : 'btn-outline-secondary' }}"
+                data-member-id="{{ member_id }}" data-date="{{ date }}" data-state="unavailable"
+                aria-pressed="{{ state == 'unavailable' ? 'true' : 'false' }}">Indispo</button>
+        <button type="button"
+                class="btn btn-sm tap-target sos-state-button {{ state ? 'btn-outline-secondary' : 'btn-secondary' }}"
+                data-member-id="{{ member_id }}" data-date="{{ date }}" data-state=""
+                aria-pressed="{{ state ? 'false' : 'true' }}">Rien</button>
+    </div>
+</fieldset>
