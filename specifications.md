@@ -116,7 +116,7 @@ Two photos, never mixed. A **member's** photo belongs to a scout year and is the
 
 | Page | Content |
 |---|---|
-| {Member display name} × N | One page per linked member, two-column layout (same grid/stacking as Accueil, §4.1). Header: photo (replaceable by the member themselves outside configuration mode), display name, section, scout year. Right column: branch card (federation logo + link, per the member's age branch). Left column, in order: section name/email; section responsable (full legal name + postal address); badges assigned within the section; Staff d'U "Référent {section}" badge holders; next upcoming section event and links to Trombinoscope/Calendrier filtered on that section (both optional modules); the member's own functions this year; recent mass-mail communications with a "view as sent" detail page (module, optional); private documents — self only, never staff-visible (future home of fiscal attestations); photo galleries linked to the member's sections this scout year (module, optional); known contact emails (self-service: add/delete/resend verification/reactivate); all personal info from Desk with a mandatory note that it can't be edited here. Chiefs can adjust a member's scout year offset (+1/0/-1) when age-vs-section mismatch requires it. |
+| {Member display name} × N | One page per linked member, two-column layout (same grid/stacking as Accueil, §4.1). Header: photo (replaceable by the member themselves outside configuration mode), display name, section, scout year. Right column: branch card (federation logo + link, per the member's age branch). Left column, in order: section name/email; section responsable (full legal name + postal address); badges assigned within the section; Staff d'U "Référent {section}" badge holders; next upcoming section event and links to Trombinoscope/Calendrier filtered on that section (both optional modules); the member's own functions this year; recent mass-mail communications with a "view as sent" detail page (module, optional); private documents — the member's own, for the year shown (the Staff d'Unité read them from the admin member sheet instead, §41.7); photo galleries linked to the member's sections this scout year (module, optional); known contact emails (self-service: add/delete/resend verification/reactivate); all personal info from Desk with a mandatory note that it can't be edited here. Chiefs can adjust a member's scout year offset (+1/0/-1) when age-vs-section mismatch requires it. |
 | {Member email detail} | One page per mass-mail email received, reachable only from the member's own page — subject, section, sent date, full body as actually sent |
 | Trombinoscope (module) | Every section's chief/chief-d'unité staff, grouped by section, with the section's designated "responsable" highlighted. Accepts `?section={id}` to preselect a section (also used by the member page's own link above). |
 | Galerie (module) | Photo/video albums (identified: view; chief: manage — see §4.3). Opening a media fills the screen; **one control** offers to save it at the best quality the site keeps of it. Each file is named after the photo's own name plus its media id — so two photos two phones both called `IMG_1234` are saved as two files rather than one overwriting the other — and the whole album's ZIP names its entries exactly the same way. |
@@ -197,7 +197,7 @@ Pas de QR ni d'IBAN ici, contrairement à la page du membre : un chef d'unité r
 
 **Les groupes, c'est l'appartenance et rien d'autre** : aucun message, aucune réponse, aucun décompte. Un chef d'unité a besoin de savoir par quels groupes la personne est joignable ; ce que les gens s'écrivent n'est pas un fait à résumer sur une page de staff.
 
-**Two things are never on this page.** A member's **private documents**: `files.owner_member_id` carries an explicit guarantee (ARCHITECTURE.md §8.3) of no chief and no admin bypass, tax certificates will live there, and listing them here would revoke that guarantee in silence. And a **writable** secondary-address control, for the reason above.
+**A member's private documents ARE on this page**, all scout years together, each openable and resendable by e-mail — this reverses what this paragraph used to say, and the guarantee behind it (no chief and no admin bypass on `files.owner_member_id`) was withdrawn deliberately: see §41.7 for the reasoning and the three bounds, and ARCHITECTURE.md §8.3 for the mechanism. **One thing is still never on this page**: a **writable** secondary-address control, for the reason above.
 
 **Searching, and who it proposes.** The repository never filtered on `is_active` and the result has always carried the flag — what was missing was a way to narrow. The filter is **actifs** by default (what is wanted nine times out of ten), with *inactifs* and *tous* one tap away, and it travels with the query so a submit keeps it. The row is unchanged otherwise: the export checkbox, the initials pill, the totem after the first name, the section and function, and the status badge whose exact words stay « inscrit » / « non inscrit », never « actif ». **The two exports coexist** — the whole search, and the checked selection — and are never merged; both follow the filter the screen is showing.
 
@@ -1884,7 +1884,29 @@ message sans le lire. La notification ne nomme personne : elle porte le libellé
 s'affiche sur un écran verrouillé. Le canal e-mail de cette notification est désactivé — l'attestation
 elle-même arrive déjà par e-mail.
 
-### 41.7 Hors périmètre
+### 41.7 Répondre à une famille après coup
+
+« Nous n'avons rien reçu. » C'est la question qui revient, et sans réponse elle oblige à redéposer
+tout le PDF fédéral.
+
+Sur la fiche d'un membre, le Staff d'unité voit désormais ses **documents privés**, toutes années
+confondues — la demande porte presque toujours sur une saison passée — et peut les ouvrir et les
+**renvoyer par e-mail** à l'adresse que le site connaît pour ce membre.
+
+**Cela retire une garantie que le site annonçait.** Un document rattaché à son propriétaire était
+jusqu'ici illisible par le staff, sans exception de rôle. Ce n'est plus vrai, et le mécanisme n'est
+pas cloisonnable : l'ouvrir pour les attestations l'ouvre pour tout ce qui sera un jour rattaché à
+un propriétaire. Trois bornes l'encadrent :
+
+- l'accès s'arrête au **Staff d'unité** — jamais un animateur de section, qui n'a aucune raison de
+  lire l'attestation fiscale d'un animé ;
+- le plancher de rôle du fichier reste vérifié à part, donc rien n'est atteint qu'un rôle
+  n'atteignait déjà ;
+- **chaque ouverture et chaque renvoi sont consignés au journal du site**, au niveau « sécurité »,
+  sous forme d'identifiants uniquement — jamais un nom, jamais une adresse. C'est cette trace qui
+  remplace la barrière retirée, et la page le dit à celui qui la consulte.
+
+### 41.8 Hors périmètre
 
 La **génération** d'attestations par l'unité elle-même. Le site ne produit aucun document : il découpe
 un PDF qu'on lui fournit. Une attestation de présence après camp entre donc dans le périmètre si elle

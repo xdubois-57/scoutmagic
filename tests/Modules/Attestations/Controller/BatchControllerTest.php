@@ -451,7 +451,7 @@ class BatchControllerTest extends TestCase
             '#value="' . $this->lineIds['margaux'] . '"[^>]*disabled#',
             $body
         );
-        $this->assertStringContainsString('Vous ne pouvez pas rouvrir les documents publiés', $body);
+        $this->assertStringContainsString('Un lot publié ne se modifie plus', $body);
     }
 
     /**

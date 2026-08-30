@@ -111,9 +111,9 @@ class BatchRepository
 
     /**
      * The documents are on the members' pages. From here the batch is
-     * read-only: `owner_member_id` makes every certificate unreadable by
-     * the staff who published it, so there is nothing left to check and
-     * nothing left to change — only to take back in full (see the reset).
+     * read-only: a published certificate belongs to its member, and there
+     * is nothing left to change on this side — only to take back in full
+     * (see the reset).
      */
     public function markPublished(int $batchId): void
     {

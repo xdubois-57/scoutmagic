@@ -11,6 +11,7 @@ namespace Modules\Attestations\Service;
 use Core\Config\AppClock;
 use Core\Journal\JournalService;
 use Core\Member\MemberAccountResolver;
+use Core\Member\MemberDocumentMailer;
 use Core\Notification\NotificationService;
 use Modules\Attestations\Repository\BatchLineRepository;
 use Modules\Attestations\Repository\BatchRepository;
@@ -49,7 +50,7 @@ class BatchDistributionService
         private BatchRepository $batches,
         private BatchLineRepository $lines,
         private MemberNameRepository $members,
-        private CertificateMailer $mailer,
+        private MemberDocumentMailer $mailer,
         private MemberAccountResolver $accounts,
         private JournalService $journal,
         private ?NotificationService $notifications = null
@@ -101,7 +102,7 @@ class BatchDistributionService
             }
 
             try {
-                $this->mailer->send($batch, $line->fileId, $address, $unitName);
+                $this->mailer->send($batch->label, $line->fileId, $address, $unitName);
                 $this->lines->recordDelivery($line->id, DeliveryState::Sent, AppClock::now()->format('Y-m-d H:i:s'));
                 $sent++;
             } catch (\Throwable $e) {

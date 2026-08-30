@@ -9,10 +9,10 @@ related: attestations, attestations-distribuer
 ---
 
 Après le découpage, le site vous montre une ligne par attestation : le nom
-lu dans le PDF, et le membre auquel il correspond. C'est votre seule
-occasion de vérifier. Une fois distribuée, une attestation n'est lisible
-que par la famille concernée — vous ne pourrez plus la rouvrir pour
-contrôler quoi que ce soit.
+lu dans le PDF, et le membre auquel il correspond. C'est le moment de
+vérifier. Ensuite, plus rien ne rapproche les deux : le document s'appelle
+« Attestation fiscale 2025 » sur la page de son membre, et rien n'y indique
+quel nom est imprimé à l'intérieur.
 
 L'appariement se fait sur le nom, parce que c'est la seule information que
 le document porte. Il couvre toutes les années scoutes : une attestation

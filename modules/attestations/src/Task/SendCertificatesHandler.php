@@ -13,6 +13,7 @@ use Core\File\EncryptedFileStorageService;
 use Core\File\FileRepository;
 use Core\Import\MemberYearRepository;
 use Core\Member\MemberAccountResolver;
+use Core\Member\MemberDocumentMailer;
 use Core\Member\MemberEmailRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
@@ -23,7 +24,6 @@ use Modules\Attestations\Repository\BatchRepository;
 use Modules\Attestations\Repository\MemberNameRepository;
 use Modules\Attestations\Service\BatchDistributionService;
 use Modules\Attestations\Service\BatchPublicationService;
-use Modules\Attestations\Service\CertificateMailer;
 
 /**
  * Sends one slice of a published batch, then re-arms itself while work
@@ -64,7 +64,7 @@ class SendCertificatesHandler implements TaskHandlerInterface
             new BatchRepository($context->connection),
             new BatchLineRepository($context->connection, $context->encryption),
             new MemberNameRepository($context->connection, $context->encryption),
-            new CertificateMailer($context->mailService, $fileStorage, $context->storagePath),
+            new MemberDocumentMailer($context->mailService, $fileStorage, $context->storagePath),
             new MemberAccountResolver(
                 new MemberYearRepository($pdo),
                 new MemberEmailRepository($pdo, $context->encryption),

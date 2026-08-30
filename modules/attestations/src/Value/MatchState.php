@@ -15,10 +15,11 @@ namespace Modules\Attestations\Value;
  * Two members can carry the same name. The previous site kept the first
  * match it found, preferring the most recent year — a silent choice, on a
  * nominative document, that sends one family's certificate to another
- * without anybody noticing. Staff cannot re-read what they published
- * (files.owner_member_id, ARCHITECTURE.md §8.3), so nothing downstream
- * would ever catch it. Ambiguous is therefore a state of its own, never a
- * resolved match, and nothing is published while one remains.
+ * without anybody noticing. Nothing downstream would ever catch it: the
+ * document's title says nothing about whose name is printed inside, so the
+ * two only disagree for whoever opens it. Ambiguous is therefore a state of
+ * its own, never a resolved match, and nothing is published while one
+ * remains.
  */
 enum MatchState: string
 {

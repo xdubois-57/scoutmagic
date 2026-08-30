@@ -15,10 +15,10 @@ namespace Modules\Attestations\Service;
  * **This is the worst outcome this feature can have, and it is what makes
  * the refusal non-negotiable.** A split one page out of step gives every
  * family the next family's certificate — a nominative document, sent by
- * e-mail, that staff cannot re-read afterwards because owner_member_id
- * forbids it (ARCHITECTURE.md §8.3). Nobody would ever find out. So the
- * split stops before it starts rather than guessing where the boundaries
- * are.
+ * e-mail, sitting afterwards on a member's page under a title that says
+ * nothing about whose name is printed inside. Nobody would ever find out
+ * without opening one and reading it. So the split stops before it starts
+ * rather than guessing where the boundaries are.
  *
  * It carries the two numbers as well as the sentence, because the screen
  * shows the subtraction — « 89 pages, 2 pages par attestation, reste 1 » —

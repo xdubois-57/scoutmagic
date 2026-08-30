@@ -89,14 +89,22 @@ class CertificateAccessTest extends TestCase
     }
 
     /**
-     * Not even the chef d'unité who published it — which is also what
-     * protects their own children from the rest of the staff.
+     * The Staff d'Unité opens it, and an animateur de section does not.
+     *
+     * That first half is a guarantee this project used to make the other
+     * way round (ARCHITECTURE.md §8.3, SECURITY.md §6): an owner-scoped file
+     * was unreachable by anybody but its owner. It was withdrawn on purpose
+     * so a chef d'unité can answer « nous n'avons rien reçu » from the
+     * member's own sheet. The bound that remains is this second assertion —
+     * a `chief` is refused, because an animateur has no reason to read an
+     * animé's tax certificate — plus the `security`-level journal entry
+     * FileController writes for every such opening.
      */
-    public function testTheStaffWhoPublishedItCannotReopenIt(): void
+    public function testTheStaffOpensItAndAnAnimateurDoesNot(): void
     {
         $fileId = $this->storeCertificate($this->familyMemberId);
 
-        $this->assertNull($this->guard('admin', [])->check($fileId));
+        $this->assertNotNull($this->guard('admin', [])->check($fileId));
         $this->assertNull($this->guard('chief', [])->check($fileId));
     }
 

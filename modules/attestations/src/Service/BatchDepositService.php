@@ -47,9 +47,9 @@ class BatchDepositService
      * `identified`, because the family reads the certificate and a family
      * is `identified`. `FileAccessGuard::check()` wants the role floor AND
      * the ownership match, so an `admin` floor here would lock out exactly
-     * the people the document is for while granting staff nothing — they
-     * are not linked to the member, so the owner check refuses them
-     * anyway.
+     * the people the document is for — while changing nothing for the Staff
+     * d'Unité, who reach an owner-scoped file through the role bypass
+     * rather than through this floor.
      */
     public const FILE_ROLE_MIN_OWNED = 'identified';
 

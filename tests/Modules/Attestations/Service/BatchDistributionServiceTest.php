@@ -11,13 +11,13 @@ use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Mail\MailService;
 use Core\Member\MemberAccountResolver;
+use Core\Member\MemberDocumentMailer;
 use Core\Member\MemberEmailRepository;
 use Core\Import\MemberYearRepository;
 use Modules\Attestations\Repository\BatchLineRepository;
 use Modules\Attestations\Repository\BatchRepository;
 use Modules\Attestations\Repository\MemberNameRepository;
 use Modules\Attestations\Service\BatchDistributionService;
-use Modules\Attestations\Service\CertificateMailer;
 use Modules\Attestations\Value\AttestationCategory;
 use Modules\Attestations\Value\BatchStatus;
 use Modules\Attestations\Value\DeliveryState;
@@ -43,7 +43,7 @@ class BatchDistributionServiceTest extends TestCase
     private string $storageRoot;
     private BatchRepository $batches;
     private BatchLineRepository $lines;
-    private RecordingCertificateMailer $mailer;
+    private RecordingDocumentMailer $mailer;
     private BatchDistributionService $service;
     private int $scoutYearId;
     private int $batchId;
@@ -68,7 +68,7 @@ class BatchDistributionServiceTest extends TestCase
 
         $this->batches = new BatchRepository($connection);
         $this->lines = new BatchLineRepository($connection, $encryption);
-        $this->mailer = new RecordingCertificateMailer($fileStorage, $this->storageRoot);
+        $this->mailer = new RecordingDocumentMailer($fileStorage, $this->storageRoot);
 
         $this->service = new BatchDistributionService(
             $this->batches,
@@ -398,7 +398,7 @@ class BatchDistributionServiceTest extends TestCase
  * production constructor signature stays under test, and overrides the one
  * method that would reach the network.
  */
-class RecordingCertificateMailer extends CertificateMailer
+class RecordingDocumentMailer extends MemberDocumentMailer
 {
     /** @var array<string, string> address => subject */
     public array $sentByAddress = [];
@@ -418,17 +418,13 @@ class RecordingCertificateMailer extends CertificateMailer
         );
     }
 
-    public function send(
-        \Modules\Attestations\Repository\Batch $batch,
-        int $fileId,
-        string $toAddress,
-        string $unitName
-    ): void {
+    public function send(string $title, int $fileId, string $toAddress, string $unitName): void
+    {
         if ($this->failFor === $toAddress) {
             throw new \RuntimeException('SMTP said no.');
         }
 
-        $this->sentByAddress[$toAddress] = $batch->label;
+        $this->sentByAddress[$toAddress] = $title;
         $this->fileIdByAddress[$toAddress] = $fileId;
     }
 }

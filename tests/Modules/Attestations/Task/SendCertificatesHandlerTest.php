@@ -39,7 +39,7 @@ use Tests\Modules\Attestations\AttestationsTestHelper;
  * that stops halfway, with half the families told and half not.
  *
  * The transport is a recorder, so the real `MailService` and the real
- * `CertificateMailer` are exercised (the attachment is really built) and
+ * `MemberDocumentMailer` are exercised (the attachment is really built) and
  * nothing reaches the network.
  */
 #[Group('database')]

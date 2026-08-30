@@ -32,8 +32,10 @@ use Smalot\PdfParser\Parser;
  * of the detected size, nothing is produced at all
  * (PageCountMismatchException). A split one page out of step would give
  * every family the next family's certificate — the worst thing this feature
- * can do, and undetectable afterwards because staff cannot re-read what
- * they published.
+ * can do, and nothing downstream would ever catch it: each certificate sits
+ * on a member's page under a title that says nothing about whose name is
+ * printed inside, so the mismatch is invisible unless somebody opens one and
+ * reads it.
  *
  * **Matching runs over every text field of the certificate's pages**, not
  * just the first: the name sits wherever the template put it, and the only

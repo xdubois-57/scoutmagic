@@ -1996,6 +1996,10 @@ $router->addRoute('GET', '/admin/members/{id}', MemberSearchController::class, '
 $router->addRoute('POST', '/admin/members/{id}/notes', MemberSearchController::class, 'addNote', 'admin');
 $router->addRoute('POST', '/admin/members/{id}/notes/{note_id}', MemberSearchController::class, 'updateNote', 'admin');
 $router->addRoute('POST', '/admin/members/{id}/notes/{note_id}/delete', MemberSearchController::class, 'deleteNote', 'admin');
+// Private documents on a member's sheet (ARCHITECTURE.md §8.3's Staff
+// d'Unité bypass). Same `admin` floor as the page and as the bypass
+// itself — never `chief`.
+$router->addRoute('POST', '/admin/members/{id}/documents/{document_id}/renvoyer', MemberSearchController::class, 'resendDocument', 'admin');
 $router->addRoute('POST', '/admin/members/temporary-access/remove', TemporaryMemberController::class, 'remove', 'admin');
 $router->addRoute('POST', '/admin/members/{id}/temporary-access', TemporaryMemberController::class, 'add', 'admin');
 $router->addRoute('GET', '/admin/scout-year', ScoutYearController::class, 'index', 'admin', ['label' => 'Année scoute', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]]);
@@ -4924,13 +4928,17 @@ $frontController->registerController(MemberSearchController::class, new MemberSe
     new \Core\Member\AdminMemberPageService(
         $memberBadgeRepository, $memberPhotoService, $sectionMembershipRepository,
         $sectionService, $scoutYearService, $memberEmailRepository,
+        $memberDocumentService,
         $moduleHooks
     ),
     $memberYearRepo,
     new \Core\Member\MemberNoteService(
         new \Core\Member\MemberNoteRepository($pdo, $encryptionService, $userAccountRepo),
         $journalService
-    )
+    ),
+    $memberDocumentService,
+    new \Core\Member\MemberDocumentMailer($mailService, $encryptedFileStorageService, $storagePath),
+    $settingService
 ));
 
 // File access (/files/{id}) — built here, deliberately last, because

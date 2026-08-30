@@ -13,10 +13,11 @@ Publier et prévenir sont deux gestes, et c'est voulu.
 ## Publier
 
 « Publier » dépose chaque attestation conservée sur la page de son membre.
-À partir de là, le lot est verrouillé : vous ne pouvez plus rien y changer,
-ni même relire les documents publiés — une attestation n'est lisible que par
-la famille concernée. C'est aussi ce qui protège vos propres enfants du
-regard des autres membres du staff.
+À partir de là, le lot est verrouillé : vous ne pouvez plus rien y changer.
+Pour répondre à une famille, vous pouvez ouvrir son attestation depuis sa
+fiche — une par une, et chaque ouverture est consignée au journal. Aucune
+famille ne voit celle d'une autre, et un animateur de section n'en voit
+aucune.
 
 Les lignes non cochées sont supprimées à ce moment-là, y compris celles qui
 n'ont pas de membre. Le lot conserve leur nombre, pas leur contenu.

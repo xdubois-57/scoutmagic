@@ -150,10 +150,13 @@ class BatchController extends AbstractController
      * POST /admin/attestations/{id}/publier — commit the selection and put
      * the kept certificates on their members' pages.
      *
-     * One gesture, because it is one decision. From here the batch is
-     * read-only to its own staff: `owner_member_id` makes every certificate
-     * unreadable by whoever published it, so there is nothing left to check
-     * and nothing left to correct — only to take back in full.
+     * One gesture, because it is one decision. From here the batch itself
+     * is read-only: a published certificate belongs to its member, and the
+     * only thing left to do with a wrong one is take the batch back in
+     * full. (A chef d'unité can still open a single document from that
+     * member's own sheet, journaled at `security` level — ARCHITECTURE.md
+     * §8.3 — which is a way to answer one family, not a way to re-check a
+     * batch of two hundred.)
      *
      * @param array<string, string> $params
      */
