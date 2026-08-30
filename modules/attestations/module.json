@@ -1,0 +1,123 @@
+{
+  "id": "attestations",
+  "name": "Attestations",
+  "description": "Découpe le PDF d'attestations envoyé par la fédération et dépose l'attestation de chaque membre sur sa page, visible par lui seul.",
+  "version": "1.4.0",
+  "routes": [
+    {
+      "path": "/admin/attestations",
+      "method": "GET",
+      "controller": "Modules\\Attestations\\Controller\\AttestationsController",
+      "action": "index",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": "Attestations",
+      "menu_icon": "bi-file-earmark-text",
+      "menu_group": "membres_annee",
+      "breadcrumb": {
+        "label": "Attestations",
+        "parents": ["Espace chefs d'U"]
+      }
+    },
+    {
+      "path": "/admin/attestations",
+      "method": "POST",
+      "controller": "Modules\\Attestations\\Controller\\AttestationsController",
+      "action": "store",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/attestations/couverture",
+      "method": "GET",
+      "controller": "Modules\\Attestations\\Controller\\CoverageController",
+      "action": "index",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": "",
+      "breadcrumb": {
+        "label": "Couverture",
+        "parents": ["Espace chefs d'U"],
+        "ancestors": [{ "label": "Attestations", "path": "/admin/attestations" }]
+      }
+    },
+    {
+      "path": "/admin/attestations/{id}",
+      "method": "GET",
+      "controller": "Modules\\Attestations\\Controller\\BatchController",
+      "action": "show",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": "",
+      "breadcrumb": {
+        "label": "Lot d'attestations",
+        "parents": ["Espace chefs d'U"],
+        "ancestors": [{ "label": "Attestations", "path": "/admin/attestations" }]
+      }
+    },
+    {
+      "path": "/admin/attestations/{id}/rattacher",
+      "method": "POST",
+      "controller": "Modules\\Attestations\\Controller\\BatchController",
+      "action": "assign",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/attestations/{id}/publier",
+      "method": "POST",
+      "controller": "Modules\\Attestations\\Controller\\BatchController",
+      "action": "publish",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/attestations/{id}/prevenir",
+      "method": "POST",
+      "controller": "Modules\\Attestations\\Controller\\BatchController",
+      "action": "notify",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/attestations/{id}/reprendre",
+      "method": "POST",
+      "controller": "Modules\\Attestations\\Controller\\BatchController",
+      "action": "resetBatch",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    }
+  ],
+  "settings": [],
+  "cookies": [],
+  "notifications": [
+    {
+      "id": "attestations.published",
+      "label": "Attestation disponible",
+      "description": "Un document nominatif vous a été envoyé et déposé sur la page du membre concerné.",
+      "group": "Attestations",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "off"
+      }
+    }
+  ],
+  "scheduled_tasks": [
+    {
+      "key": "send_batch",
+      "handler": "Modules\\Attestations\\Task\\SendCertificatesHandler"
+    }
+  ],
+  "storage": {
+    "attestations/documents": {
+      "role_min": "identified"
+    }
+  }
+}

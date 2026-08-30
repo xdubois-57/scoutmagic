@@ -36,8 +36,19 @@ Les camps sont déduits : ce sont des sections qui partent, pas des
 personnes une par une. Une ligne apparaît quand sa section est partie
 une année où elle en faisait partie.
 
-Les documents privés d'un membre n'apparaissent pas ici : ils restent
-accessibles au seul membre, sans contournement possible par le staff.
+## Les documents privés
+
+Les attestations déposées sur la page du membre, **toutes années
+confondues** : une famille qui réclame la sienne parle presque toujours
+de l'année passée.
+
+Vous pouvez ouvrir un document, ou le **renvoyer par e-mail** à l'adresse
+que le site connaît pour ce membre — c'est la réponse à « nous n'avons
+rien reçu », sans avoir à redéposer le fichier de la fédération.
+
+Ces documents appartiennent au membre. Chaque ouverture et chaque renvoi
+sont consignés au journal du site. Un animateur de section n'y a pas
+accès.
 
 ## Les actions
 

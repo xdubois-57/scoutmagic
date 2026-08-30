@@ -71,15 +71,26 @@ use Core\Photo\MemberPhotoService;
  * could not already open one menu away, and the interface's docblock is
  * updated in the same change so the two do not disagree.
  *
- * **Two things this page must never show**, and the reasons are worth
+ * **A member's private documents ARE listed here, and that reverses what
+ * this docblock used to say.** `files.owner_member_id` used to carry an
+ * explicit guarantee — no chief or admin bypass, a file scoped to its
+ * owner unreachable to staff who are not that member — and this page was
+ * the place that guarantee was kept. It was withdrawn deliberately
+ * (ARCHITECTURE.md §8.3, SECURITY.md §6, both rewritten in the same
+ * change rather than left to contradict the code): a chef d'unité
+ * fielding « nous n'avons rien reçu » about a tax certificate has to be
+ * able to open the document and send it again, and a mechanism that
+ * forbids it turns every such question into a fresh deposit. Two bounds
+ * survive — the bypass stops at `admin`, never `chief`, so an animateur
+ * de section reads none of this; and every opening is journaled at
+ * `security` level with identifiers only.
+ *
+ * The list is **not** year-scoped, unlike the member's own page: the
+ * question being answered is almost always about a past season.
+ *
+ * **One thing this page must still never show**, and the reason is worth
  * keeping next to the code:
  *
- * - **A member's private documents.** `files.owner_member_id` carries an
- *   explicit guarantee (ARCHITECTURE.md §8.3): *no chief or admin
- *   bypass*, a file scoped to its owner stays unreachable to staff who
- *   are not that member. Tax certificates will live there. Listing them
- *   here would revoke that guarantee in silence, without anyone
- *   re-reading §8.3.
  * - **A writable secondary-email control.** Those addresses are strict
  *   self-service (§8.27): the member alone manages them, with no chief
  *   or admin bypass. Showing them is defensible — a chef d'unité
@@ -103,6 +114,7 @@ class AdminMemberPageService
         private SectionService $sectionService,
         private ScoutYearService $scoutYearService,
         private MemberEmailRepository $memberEmailRepository,
+        private MemberDocumentService $memberDocumentService,
         /**
          * The five optional module blocks of this page (payments, the
          * registration-origin line, the three parcours) resolve through
@@ -143,6 +155,7 @@ class AdminMemberPageService
             'functions' => $this->buildFunctions($profile),
             'section_history' => $this->buildSectionHistory($profile->memberId, $scoutYearId),
             'member_emails' => $this->buildReadOnlyEmails($profile),
+            'member_documents' => $this->buildDocuments($profile->memberId),
             'open_payments' => $this->hooks?->getOptional(MemberPaymentProvider::class)?->getOpenPayments($profile->memberId) ?? [],
             'settled_payments' => $settled,
             // Said on screen rather than left to be inferred: a member of
@@ -159,6 +172,31 @@ class AdminMemberPageService
             'camp_stays_capped' => count($campStays) >= MemberCampStayProvider::LIMIT,
             'discussion_groups' => $this->hooks?->getOptional(MemberDiscussionGroupProvider::class)?->getDiscussionGroups($profile->memberId) ?? [],
         ];
+    }
+
+    /**
+     * The member's private documents, newest first, each paired with the
+     * scout year it belongs to.
+     *
+     * The year is resolved here rather than in the template because the
+     * template has no way to ask, and because a document whose year no
+     * longer resolves must still be listed — it is the document that
+     * matters, and dropping the row would hide exactly the old certificate
+     * somebody is looking for.
+     *
+     * @return array<int, array{document: MemberDocument, year_label: string}>
+     */
+    private function buildDocuments(int $memberId): array
+    {
+        $documents = [];
+        foreach ($this->memberDocumentService->listForMemberAllYears($memberId) as $document) {
+            $documents[] = [
+                'document' => $document,
+                'year_label' => (string) ($this->scoutYearService->findById($document->scoutYearId)['label'] ?? ''),
+            ];
+        }
+
+        return $documents;
     }
 
     /**

@@ -122,6 +122,9 @@ class FileOwnershipCheckerWiringTest extends TestCase
         );
 
         sort($publicMethods);
-        $this->assertSame(['__construct', 'check'], $publicMethods);
+        // isStaffBypass() reads the same state check() did and answers a
+        // question about a record it returned — it registers nothing and
+        // changes nothing, which is why it is allowed to be public here.
+        $this->assertSame(['__construct', 'check', 'isStaffBypass'], $publicMethods);
     }
 }

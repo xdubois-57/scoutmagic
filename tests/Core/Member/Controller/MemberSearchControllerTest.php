@@ -41,6 +41,10 @@ class MemberSearchControllerTest extends TestCase
     private \PDO $pdo;
     private EncryptionService $enc;
     private MemberSearchController $controller;
+    /** Records outgoing mail instead of delivering it. */
+    private object $mailTransport;
+    private string $storageRoot;
+    private \Core\File\EncryptedFileStorageService $fileStorage;
     private int $yearId;
 
     protected function setUp(): void
@@ -48,6 +52,27 @@ class MemberSearchControllerTest extends TestCase
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         $this->enc = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $connection = Connection::withPdo($this->pdo);
+
+        $this->storageRoot = sys_get_temp_dir() . '/member_search_' . bin2hex(random_bytes(6));
+        mkdir($this->storageRoot . '/temp', 0755, true);
+        $this->fileStorage = new \Core\File\EncryptedFileStorageService(
+            new \Core\File\FileRepository($this->pdo),
+            $this->enc,
+            $this->storageRoot
+        );
+        $this->mailTransport = new class implements \Core\Mail\MailTransportInterface {
+            /** @var list<\PHPMailer\PHPMailer\PHPMailer> */
+            public array $delivered = [];
+            public bool $refuse = false;
+
+            public function deliver(\PHPMailer\PHPMailer\PHPMailer $mail): void
+            {
+                if ($this->refuse) {
+                    throw new \RuntimeException('SMTP said no.');
+                }
+                $this->delivered[] = $mail;
+            }
+        };
 
         $scoutYearService = new ScoutYearService($this->pdo);
         $settingService = new SettingService(new SettingRepository($this->pdo));
@@ -110,7 +135,10 @@ class MemberSearchControllerTest extends TestCase
                 new \Core\Member\SectionMembershipRepository($this->pdo),
                 $sectionService,
                 $scoutYearService,
-                new \Core\Member\MemberEmailRepository($this->pdo, $this->enc)
+                new \Core\Member\MemberEmailRepository($this->pdo, $this->enc),
+                $documentService = new \Core\Member\MemberDocumentService(
+                    new \Core\Member\MemberDocumentRepository($this->pdo)
+                )
             ),
             $memberYearRepo,
             new \Core\Member\MemberNoteService(
@@ -120,7 +148,22 @@ class MemberSearchControllerTest extends TestCase
                     new \Core\Security\UserAccountRepository($this->pdo, $this->enc)
                 ),
                 new JournalService(new JournalRepository($this->pdo))
-            )
+            ),
+            $documentService,
+            new \Core\Member\MemberDocumentMailer(
+                new \Core\Mail\MailService(
+                    'local',
+                    'unite@exemple.be',
+                    'Unité',
+                    'EX',
+                    new \Core\Mail\DkimManager($this->storageRoot),
+                    's1',
+                    transport: $this->mailTransport
+                ),
+                $this->fileStorage,
+                $this->storageRoot
+            ),
+            new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo))
         );
 
         if (session_status() !== PHP_SESSION_ACTIVE) {
@@ -128,6 +171,21 @@ class MemberSearchControllerTest extends TestCase
             session_start();
         }
         AuthSession::login(1, 'admin@test.be', 'admin');
+    }
+
+    protected function tearDown(): void
+    {
+        if (is_dir($this->storageRoot)) {
+            $entries = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($this->storageRoot, \FilesystemIterator::SKIP_DOTS),
+                \RecursiveIteratorIterator::CHILD_FIRST
+            );
+            foreach ($entries as $entry) {
+                /** @var \SplFileInfo $entry */
+                $entry->isDir() ? @rmdir($entry->getPathname()) : @unlink($entry->getPathname());
+            }
+            @rmdir($this->storageRoot);
+        }
     }
 
     private function seedMember(?string $birthDate = null, string $firstName = 'jean', bool $active = true): int
@@ -569,16 +627,36 @@ class MemberSearchControllerTest extends TestCase
     }
 
     /**
-     * ARCHITECTURE.md §8.3 — owner-scoped files carry an explicit
-     * no-chief-and-no-admin-bypass guarantee, and tax certificates will
-     * live there. The page says so rather than quietly omitting them,
-     * which is what stops the next person from "completing" it.
+     * The page lists the member's private documents — the reverse of what
+     * it used to say, and deliberately (ARCHITECTURE.md §8.3, SECURITY.md
+     * §6). What is pinned here is the sentence that comes with them: a
+     * reader must learn from the page itself that opening one is recorded,
+     * and that an animateur de section sees none of this.
      */
-    public function testMemberPageNeverListsPrivateDocumentsAndSaysWhy(): void
+    public function testMemberPageListsPrivateDocumentsAndSaysWhatThatCosts(): void
     {
-        $body = $this->showMember($this->seedMember())->getBody();
+        $memberYearId = $this->seedMember();
+        $body = $this->showMember($memberYearId)->getBody();
 
-        $this->assertStringContainsString('Les documents privés du membre n\'apparaissent pas ici', $body);
+        $this->assertStringContainsString('Documents privés', $body);
+        $this->assertStringContainsString('chaque ouverture est consignée au journal du site', $body);
+        $this->assertStringContainsString('Un animateur de section n\'y a pas accès', $body);
+        $this->assertStringContainsString('Aucun document privé pour ce membre', $body);
+    }
+
+    /** A document, its link and the one thing to do with it. */
+    public function testEachPrivateDocumentIsOpenableAndResendable(): void
+    {
+        [$memberYearId, $documentId] = $this->seedMemberWithDocument();
+
+        $body = $this->showMember($memberYearId)->getBody();
+
+        $this->assertStringContainsString('Attestation fiscale 2025', $body);
+        $this->assertStringContainsString(
+            '/admin/members/' . $memberYearId . '/documents/' . $documentId . '/renvoyer',
+            $body
+        );
+        $this->assertStringContainsString('Renvoyer par e-mail', $body);
     }
 
     public function testTheSearchPageNoLongerRendersTheDetailInline(): void
@@ -660,6 +738,142 @@ class MemberSearchControllerTest extends TestCase
         }
         $header = implode('|', array_map('strval', $rows[0]));
         $this->assertStringNotContainsStringIgnoringCase('note', $header);
+    }
+
+    // --- POST /admin/members/{id}/documents/{document_id}/renvoyer -------
+
+    /**
+     * @return array{0: int, 1: int} member_year id, member_document id
+     */
+    private function seedMemberWithDocument(string $title = 'Attestation fiscale 2025'): array
+    {
+        $memberYearId = $this->seedMember();
+        $memberId = (int) $this->pdo
+            ->query('SELECT member_id FROM member_years WHERE id = ' . $memberYearId)
+            ->fetchColumn();
+
+        $fileId = $this->fileStorage->store(
+            '%PDF-1.4 fake',
+            'application/pdf',
+            'attestation.pdf',
+            'attestations/documents',
+            'identified',
+            'attestations',
+            null,
+            $memberId
+        );
+        $documentId = (new \Core\Member\MemberDocumentRepository($this->pdo))
+            ->create($memberId, $this->yearId, $title, $fileId, null);
+
+        return [$memberYearId, $documentId];
+    }
+
+    private function resend(int $memberYearId, int $documentId): \Core\Http\Response
+    {
+        return $this->controller->resendDocument(
+            new Request(
+                'POST',
+                '/admin/members/' . $memberYearId . '/documents/' . $documentId . '/renvoyer',
+                [],
+                ['_csrf_token' => CsrfGuard::generateToken()],
+                [],
+                []
+            ),
+            ['id' => (string) $memberYearId, 'document_id' => (string) $documentId]
+        );
+    }
+
+    /**
+     * The gesture the Staff d'Unité bypass exists for: a family says they
+     * received nothing, and the document goes out again as an attachment.
+     */
+    public function testAStaffResendSendsTheDocumentToTheMembersOwnAddress(): void
+    {
+        [$memberYearId, $documentId] = $this->seedMemberWithDocument();
+
+        $response = $this->resend($memberYearId, $documentId);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertCount(1, $this->mailTransport->delivered);
+
+        $mail = $this->mailTransport->delivered[0];
+        $this->assertSame('jean@ex.be', $mail->getToAddresses()[0][0]);
+        $this->assertStringEndsWith('Attestation fiscale 2025', $mail->Subject);
+        $this->assertCount(1, $mail->getAttachments());
+    }
+
+    /**
+     * A document id in a request body is a request, never an authority
+     * (SECURITY.md §3). Without this check the route would mail any private
+     * document on the site to any address reachable through a member sheet.
+     */
+    public function testADocumentBelongingToSomebodyElseIsRefused(): void
+    {
+        [$memberYearId] = $this->seedMemberWithDocument();
+        [, $otherDocumentId] = $this->seedMemberWithDocument('Attestation de quelqu\'un d\'autre');
+
+        $response = $this->resend($memberYearId, $otherDocumentId);
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertSame([], $this->mailTransport->delivered);
+    }
+
+    public function testAResendWithoutAValidCsrfTokenSendsNothing(): void
+    {
+        [$memberYearId, $documentId] = $this->seedMemberWithDocument();
+
+        $this->controller->resendDocument(
+            new Request(
+                'POST',
+                '/admin/members/' . $memberYearId . '/documents/' . $documentId . '/renvoyer',
+                [],
+                ['_csrf_token' => 'invalide'],
+                [],
+                []
+            ),
+            ['id' => (string) $memberYearId, 'document_id' => (string) $documentId]
+        );
+
+        $this->assertSame([], $this->mailTransport->delivered);
+    }
+
+    /**
+     * A copy of a nominative document leaving the site is worth the same
+     * trace as one being read: `security` level, identifiers only.
+     */
+    public function testAResendIsJournaledAsASecurityEventNamingNobody(): void
+    {
+        [$memberYearId, $documentId] = $this->seedMemberWithDocument();
+
+        $this->resend($memberYearId, $documentId);
+
+        $rows = $this->pdo
+            ->query("SELECT * FROM event_log WHERE event_type = 'member_document_resent'")
+            ->fetchAll(\PDO::FETCH_ASSOC);
+
+        $this->assertCount(1, $rows);
+        $this->assertSame('security', $rows[0]['level']);
+        $this->assertStringNotContainsString('@', (string) $rows[0]['context']);
+        $this->assertStringNotContainsString('@', (string) $rows[0]['description']);
+        $this->assertSame(
+            $documentId,
+            json_decode((string) $rows[0]['context'], true)['member_document_id']
+        );
+    }
+
+    /** A refused send is said out loud, and journals no success. */
+    public function testAFailedResendSaysSoAndRecordsNothing(): void
+    {
+        [$memberYearId, $documentId] = $this->seedMemberWithDocument();
+        $this->mailTransport->refuse = true;
+
+        $response = $this->resend($memberYearId, $documentId);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'member_document_resent'")->fetchColumn()
+        );
     }
 
     /**
