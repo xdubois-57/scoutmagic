@@ -32,16 +32,41 @@ class FileAccessGuard
     }
 
     /**
+     * The one role that reads an owner-scoped file it does not own.
+     *
+     * `admin` and deliberately not `chief`: an animateur de section has no
+     * reason to read an animé's tax certificate, and the Staff d'Unité is
+     * already the floor of every page that would show one. Superadmin comes
+     * along for free, being above it.
+     */
+    public const STAFF_BYPASS_ROLE = 'admin';
+
+    /**
      * Check if the current user can access a file.
      * Returns the file record if allowed, null if denied or not found.
      *
      * The usual role_min floor is always required, plus — independently —
      * whichever of the two ownership mechanisms the file actually uses:
      * owner_member_id (e.g. a member's private document — the current
-     * session must be linked to that exact member) or owner_type/owner_id
-     * (the generic registry above). Neither has a chief/admin bypass: a
-     * higher role_min alone never substitutes for being the actual owner
-     * or satisfying the registered checker.
+     * session must be linked to that exact member, OR hold the Staff
+     * d'Unité role, see below) or owner_type/owner_id (the generic
+     * registry above, which has no such bypass: a higher role_min never
+     * substitutes for satisfying the registered checker).
+     *
+     * **`owner_member_id` HAS a Staff d'Unité bypass, and it is recent.**
+     * This guard used to state the opposite — an owner-scoped file was
+     * unreachable to staff who were not that member, full stop — and that
+     * guarantee was withdrawn deliberately when the Staff d'Unité was given
+     * the private documents block on the admin member page: a chef d'unité
+     * answering « nous n'avons rien reçu » has to be able to open the
+     * document and send it again, and a mechanism that forbids it turns
+     * every such question into a fresh deposit. It is not compartmentable:
+     * opening it for certificates opens it for everything owner-scoped
+     * later, which is why the trade is written down here, in
+     * ARCHITECTURE.md §8.3 and in SECURITY.md §6 rather than left to be
+     * discovered. Two bounds keep it narrow: it stops at `admin`, and
+     * `FileController` journals every such opening at `security` level
+     * (identifiers only) — the audit trail is what replaces the wall.
      */
     public function check(int $fileId): ?FileRecord
     {
@@ -57,7 +82,7 @@ class FileAccessGuard
             return null;
         }
 
-        if ($file->ownerMemberId !== null && !in_array($file->ownerMemberId, $this->linkedMemberIds, true)) {
+        if ($this->isOwnerScopedAgainst($file) && !$this->hasStaffBypass()) {
             return null;
         }
 
@@ -69,6 +94,31 @@ class FileAccessGuard
         }
 
         return $file;
+    }
+
+    /**
+     * Whether this access is the Staff d'Unité bypass rather than the
+     * member's own reading — the question `FileController` asks to decide
+     * which journal entry to write, and at which level.
+     *
+     * Pure: it re-asks the same two questions `check()` did, of the record
+     * `check()` returned, rather than remembering anything between calls.
+     */
+    public function isStaffBypass(FileRecord $file): bool
+    {
+        return $this->isOwnerScopedAgainst($file) && $this->hasStaffBypass();
+    }
+
+    /** The file has an owner, and this session is not linked to them. */
+    private function isOwnerScopedAgainst(FileRecord $file): bool
+    {
+        return $file->ownerMemberId !== null
+            && !in_array($file->ownerMemberId, $this->linkedMemberIds, true);
+    }
+
+    private function hasStaffBypass(): bool
+    {
+        return $this->currentRole->hasAccess(Role::fromString(self::STAFF_BYPASS_ROLE));
     }
 
     private function isAllowedByRegistry(string $ownerType, int $ownerId): bool

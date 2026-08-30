@@ -95,12 +95,18 @@ class FileAccessGuardTest extends TestCase
     }
 
     /**
-     * Deliberate no-bypass rule (member page spec, §5): an owner-scoped
-     * file (e.g. a member's private document) must be denied to a chief or
-     * admin account too, unless that account is itself linked to the
-     * file's owner — a higher role_min never substitutes for ownership.
+     * An owner-scoped file (a member's private document) is denied to a
+     * chief who is not linked to its owner, and READ by the Staff d'Unité.
+     *
+     * The second half reverses what this test used to assert. The no-bypass
+     * rule was withdrawn on purpose so a chef d'unité can answer « nous
+     * n'avons rien reçu » from the member's own sheet (ARCHITECTURE.md §8.3
+     * and SECURITY.md §6, both rewritten in the same change). What survives
+     * is the bound: it stops at `admin`, so an animateur de section still
+     * reads none of it — and `FileController` journals every staff opening
+     * at `security` level.
      */
-    public function testOwnerScopedFileDeniedToAChiefOrAdminNotLinkedToTheOwner(): void
+    public function testOwnerScopedFileDeniedToAChiefAndReadableByTheStaff(): void
     {
         $id = $this->repo->create('f.pdf', 'f.pdf', 'application/pdf', 100, 'identified', null, null, false, 42);
 
@@ -108,7 +114,46 @@ class FileAccessGuardTest extends TestCase
         $this->assertNull($chiefGuard->check($id));
 
         $adminGuard = new FileAccessGuard($this->repo, Role::ADMIN, []);
-        $this->assertNull($adminGuard->check($id));
+        $this->assertNotNull($adminGuard->check($id));
+    }
+
+    /**
+     * The role floor is still checked first and independently: the bypass
+     * lets the Staff d'Unité past the OWNERSHIP half, never past a floor
+     * their role does not reach.
+     */
+    public function testTheStaffBypassDoesNotLiftTheRoleFloor(): void
+    {
+        $id = $this->repo->create('f.pdf', 'f.pdf', 'application/pdf', 100, 'superadmin', null, null, false, 42);
+
+        $guard = new FileAccessGuard($this->repo, Role::ADMIN, []);
+        $this->assertNull($guard->check($id));
+    }
+
+    /**
+     * Which of the two ways in was used — the question FileController asks
+     * to decide whether to write an ordinary `info` entry or the
+     * `security`-level one that is the whole compensation for the wall this
+     * bypass removed.
+     */
+    public function testTheGuardSaysWhetherAnAccessWasTheStaffBypass(): void
+    {
+        $id = $this->repo->create('f.pdf', 'f.pdf', 'application/pdf', 100, 'identified', null, null, false, 42);
+
+        $staffGuard = new FileAccessGuard($this->repo, Role::ADMIN, []);
+        $file = $staffGuard->check($id);
+        $this->assertNotNull($file);
+        $this->assertTrue($staffGuard->isStaffBypass($file));
+
+        // The owner reading their own document is not a bypass, whatever
+        // their role happens to be.
+        $ownerGuard = new FileAccessGuard($this->repo, Role::ADMIN, [42]);
+        $this->assertFalse($ownerGuard->isStaffBypass($file));
+
+        $unowned = $this->repo->create('g.jpg', 'g.jpg', 'image/jpeg', 100, 'public', null, null);
+        $unownedFile = $staffGuard->check($unowned);
+        $this->assertNotNull($unownedFile);
+        $this->assertFalse($staffGuard->isStaffBypass($unownedFile));
     }
 
     public function testFileWithNoOwnerIsUnaffectedByLinkedMemberIds(): void

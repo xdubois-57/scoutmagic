@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Core\Member\Controller;
 
+use Core\Config\SettingService;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\FlashMessage;
@@ -19,6 +20,8 @@ use Core\Member\Export\MemberExportRowBuilder;
 use Core\Member\Export\MemberExportService;
 use Core\Member\AdminMemberPageService;
 use Core\Member\MemberNoteException;
+use Core\Member\MemberDocumentMailer;
+use Core\Member\MemberDocumentService;
 use Core\Member\MemberNoteService;
 use Core\Member\MemberNotFoundException;
 use Core\Member\MemberService;
@@ -48,7 +51,10 @@ class MemberSearchController extends AbstractController
         private JournalService $journalService,
         private AdminMemberPageService $adminMemberPageService,
         private MemberYearRepository $memberYearRepository,
-        private MemberNoteService $memberNoteService
+        private MemberNoteService $memberNoteService,
+        private MemberDocumentService $memberDocumentService,
+        private MemberDocumentMailer $memberDocumentMailer,
+        private SettingService $settingService
     ) {
     }
 
@@ -182,7 +188,7 @@ class MemberSearchController extends AbstractController
      */
     public function addNote(Request $request, array $params): Response
     {
-        [$profile, $error] = $this->loadMemberForNote($params);
+        [$profile, $error] = $this->loadMember($params);
         if ($error !== null) {
             return $error;
         }
@@ -215,7 +221,7 @@ class MemberSearchController extends AbstractController
      */
     public function updateNote(Request $request, array $params): Response
     {
-        [$profile, $error] = $this->loadMemberForNote($params);
+        [$profile, $error] = $this->loadMember($params);
         if ($error !== null) {
             return $error;
         }
@@ -249,7 +255,7 @@ class MemberSearchController extends AbstractController
      */
     public function deleteNote(Request $request, array $params): Response
     {
-        [$profile, $error] = $this->loadMemberForNote($params);
+        [$profile, $error] = $this->loadMember($params);
         if ($error !== null) {
             return $error;
         }
@@ -271,13 +277,95 @@ class MemberSearchController extends AbstractController
         return $this->redirect($this->memberPath($profile->memberYearId));
     }
 
+    /**
+     * POST /admin/members/{id}/documents/{document_id}/renvoyer — send one
+     * private document to the family again.
+     *
+     * The one gesture the Staff d'Unité bypass on `files.owner_member_id`
+     * exists for (ARCHITECTURE.md §8.3): a family says « nous n'avons rien
+     * reçu », and without this the only answer is to deposit the whole
+     * federation PDF again.
+     *
+     * Three things are decided here rather than by the form:
+     *
+     * - **The document must belong to THIS member.** A document id in a
+     *   request body is a request, never an authority (SECURITY.md §3):
+     *   without this check the route would mail any private document in the
+     *   site to any address the staff can reach through a member sheet.
+     * - **The address is the member's own, read from their record.** The
+     *   form carries none, so there is nothing to tamper with and no way to
+     *   turn this into a send-anywhere endpoint.
+     * - **It is journaled at `security` level**, like the opening itself,
+     *   with identifiers only — a copy of a nominative document leaving the
+     *   site is worth the same trace as one being read.
+     *
+     * @param array<string, string> $params
+     */
+    public function resendDocument(Request $request, array $params): Response
+    {
+        [$profile, $error] = $this->loadMember($params);
+        if ($error !== null) {
+            return $error;
+        }
+        $path = $this->memberPath($profile->memberYearId);
+        if (($guard = $this->guardCsrf($request, $path)) !== null) {
+            return $guard;
+        }
+
+        $documentId = (int) ($params['document_id'] ?? 0);
+        $document = $documentId > 0 ? $this->memberDocumentService->findDocument($documentId) : null;
+        if ($document === null || $document->memberId !== $profile->memberId) {
+            return $this->notFound();
+        }
+
+        $address = trim((string) $profile->email);
+        if ($address === '') {
+            FlashMessage::set(
+                'error',
+                'Le site ne connaît aucune adresse e-mail pour ce membre. Corrigez-la dans Desk, '
+                . 'puis relancez l\'envoi.'
+            );
+
+            return $this->redirect($path);
+        }
+
+        try {
+            $this->memberDocumentMailer->send(
+                $document->title,
+                $document->fileId,
+                $address,
+                (string) $this->settingService->get('site_name', null, 'Votre unité')
+            );
+        } catch (\Throwable $e) {
+            FlashMessage::set(
+                'error',
+                'L\'envoi a échoué. Vérifiez l\'adresse du membre, puis réessayez.'
+            );
+
+            return $this->redirect($path);
+        }
+
+        $this->journalService->log(
+            'core',
+            'member_document_resent',
+            'security',
+            'Document privé d\'un membre renvoyé par e-mail',
+            ['member_document_id' => $document->id, 'member_id' => $document->memberId, 'file_id' => $document->fileId],
+            AuthSession::getUserAccountId()
+        );
+
+        FlashMessage::set('success', 'Document renvoyé par e-mail.');
+
+        return $this->redirect($path);
+    }
+
     private function memberPath(int $memberYearId): string
     {
         return '/admin/members/' . $memberYearId;
     }
 
     /**
-     * The member the note routes act on, resolved exactly as show() does
+     * The member a POST route acts on, resolved exactly as show() does
      * — including the normalisation onto their most recent annual row, so
      * a note added from a former member's page attaches to the person and
      * not to the year the URL happened to name.
@@ -285,7 +373,7 @@ class MemberSearchController extends AbstractController
      * @param array<string, string> $params
      * @return array{0: \Core\Member\MemberProfile|null, 1: Response|null}
      */
-    private function loadMemberForNote(array $params): array
+    private function loadMember(array $params): array
     {
         $memberYearId = (int) ($params['id'] ?? 0);
         if ($memberYearId <= 0) {

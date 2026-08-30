@@ -688,3 +688,97 @@ Trois correctifs :
 
 Vérifiés en échec, les trois : neutraliser le verrou, la fermeture de la
 ligne supplantée ou le prédicat du balayeur fait tomber son test.
+
+### La migration n'avançait que si quelqu'un regardait
+
+Régression d'IT-07, de mon fait, constatée en production le 30 août :
+`dev-3fdd425 → dev-00804d3`, « Échouée ».
+
+Le journal est sans ambiguïté. À 18:57:49 la tâche `install_update` se
+termine en 7,3 s : sauvegarde, download, remplacement des fichiers,
+statut `migrating`, tâche de reprise planifiée à 18:57:48 — exactement ce
+qu'IT-07 prescrit. Puis plus rien pendant trente minutes. À 19:28:04 la
+tâche de reprise s'exécute enfin, avec **30 min 16 s** de retard et en
+1 ms — elle ne fait plus rien, le chien de garde des quinze minutes a
+déjà tué la ligne — et une cinquantaine de tâches en retard se vident
+dans la même seconde.
+
+**Pourquoi la file a gelé.** Le bloc « migration en attente » de
+`public/index.php` s'exécute avant le routage : toute requête qui n'est
+pas `POST /api/system/migration-step` reçoit la page de progression et
+`exit`. C'est voulu — un visiteur ne doit pas atteindre un site à moitié
+migré. Ce qui ne l'était pas, c'est que ce court-circuit avale aussi
+l'ordonnanceur : `SchedulerKick::now()`, ajouté en IT-07 précisément pour
+que la migration n'attende pas un visiteur, est une requête HTTP vers ce
+même site. Elle reçoit la page de progression comme les autres. Et sur
+cet hébergement `cron_last_run` vaut `0 (jamais)` : `public/cron.php` n'y
+a jamais tourné. Le seul moteur restant était un navigateur humain posé
+sur la page de progression.
+
+J'avais mis le kick en face du bon problème et il ne pouvait
+structurellement pas le résoudre. Ma dernière addition — le sondage de
+`update-status` qui fait avancer la migration — est derrière le même
+bloc : elle est morte dans la fenêtre pour laquelle je l'ai écrite.
+
+**État de la production après coup**, vérifié sur l'archive de support :
+fichiers en `00804d3`, schéma **migré** (`registration_slot_capacities.
+capacity` bien passé en `DEFAULT NULL`), mais `VERSION` resté à
+`dev-3fdd425` parce que `finishInstall()` n'a jamais tourné. Aucun
+rollback, rien de cassé — le site tourne sur `00804d3` en se déclarant
+d'une version en retard, ce que la prochaine mise à jour réussie corrige.
+
+**Le correctif.** Ni spawn CLI détaché, ni worker résident, ni dépendance
+à un vrai crontab : les trois sont exclus, et ce qui reste est la boucle
+HTTP vers soi-même que le projet utilise déjà. `Database\MigrationChain`
+fait démarrer, par la requête même qui allait afficher une page de
+progression à personne, une chaîne de sauts sans attente vers le seul
+point d'entrée atteignable pendant la fenêtre — et chaque tranche qui
+laisse du travail émet le suivant. Plafond propre (zéro le désactive),
+chaîne relançable après 120 s sans saut pour qu'une chaîne tuée en vol ne
+gèle pas le mécanisme, et repli exact sur le comportement précédent sans
+`base_url` ou sur socket refusé.
+
+Au passage, `Http\SelfRequest` : le transport commun aux deux chaînes,
+pour que la règle « la destination vient de `base_url`, jamais de
+`HTTP_HOST` » n'existe qu'à un seul endroit.
+
+Vérifiés en échec : neutraliser le plafond, le garde « une chaîne tourne
+déjà » ou l'allumage dans `index.php` fait tomber les tests
+correspondants.
+
+Le Quality Gate a d'abord refusé la première version à 74,2 % : les
+32 lignes neuves étaient dans `public/index.php`, dans une branche que
+l'end-to-end n'entre jamais — il provisionne une installation dont le
+schéma est déjà à jour. Même leçon que `DeploymentMigration` pour
+`cron.php` : ce qui vit en ligne dans cette branche est du code que rien
+ne peut vérifier. La construction de la chaîne, l'enregistrement de ses
+réglages et l'ordre « on écrit la réponse, puis on émet le saut » sont
+donc dans la classe ; `index.php` ne garde que trois appels.
+
+Le même défaut a reparu à 20:03, à l'identique, sur une install manuelle
+cette fois : `dev-3000afc → dev-8f47824`, tâche d'installation terminée
+en 8 s à 20:07:36, puis rien jusqu'à 20:24:11 où la reprise s'exécute en
+1 ms sur une ligne déjà tuée. Le correctif n'était pas encore déployé.
+
+### L'onglet ouvert qui tournait à vide
+
+Suite du même incident. L'installation de 20:03 était manuelle : Xavier
+avait la page Maintenance ouverte, dont le sondage interroge
+`/api/maintenance/update-status/…`. Cette adresse est derrière le bloc
+« migration en attente » et renvoie donc, pendant toute la fenêtre, le
+HTML de la page de progression avec un code 200. Le `res.json()` échoue,
+`getJson()` répond `{ok: false, status: 200, data: null}`, et le sondeur
+traitait ça comme un accroc réseau : il continuait à interroger, toutes
+les trois secondes, la seule adresse structurellement incapable de lui
+répondre. Un onglet ouvert, actif, et parfaitement inutile.
+
+Un 200 qui n'est pas du JSON, à cette URL, ne veut dire qu'une chose. Le
+formulaire recharge donc, ce qui fait atterrir l'onglet sur la page de
+progression — celle dont le script fait réellement avancer la migration,
+et qui recharge en retour vers la page Maintenance une fois terminé.
+
+La distinction est nette et non heuristique : `getJson()` répond
+`status: 0` sur une vraie panne réseau, jamais 200. Recharger là-dessus
+jetterait une page valide à chaque clignotement du wifi — c'est le second
+test, et il tombe si l'on élargit la condition.
+

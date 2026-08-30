@@ -410,7 +410,14 @@ $migrationIsPending = $migrationRunner->isPending($schemaFiles);
 \Core\Debug\RequestTimeline::mark('migration_pending_check_done', ['pending' => $migrationIsPending]);
 
 if ($migrationIsPending) {
-    $migrationStepPath = '/api/system/migration-step';
+    $migrationStepPath = \Core\Database\MigrationChain::STEP_PATH;
+
+    // The chain that finishes this migration when nobody is watching.
+    // Everything about it — the settings it steers on, the ordering of
+    // flush and hop — lives in the class: this branch runs before the
+    // application's SettingService exists, exits before reaching it, and
+    // is entered by no test and no browser. See MigrationChain.
+    $migrationChain = \Core\Database\MigrationChain::forPendingMigration($connection->getPdo());
 
     if ($request->getMethod() === 'POST' && $request->getPath() === $migrationStepPath) {
         // This endpoint runs live DDL and is reachable before any session,
@@ -454,6 +461,10 @@ if ($migrationIsPending) {
             'complete' => $stepResult->complete,
             'progress' => round($stepResult->progressFraction, 3),
         ]);
+
+        // What makes the chain a chain: the ignition below only ever emits
+        // one hop.
+        $migrationChain?->afterSlice($stepResult->complete);
         exit;
     }
 
@@ -527,6 +538,13 @@ if ($migrationIsPending) {
 </body>
 </html>
 HTML);
+
+    // Ignition. This request was going to show a progress page to whoever
+    // asked — which, when the asker is Scheduler\SchedulerKick's hop after
+    // an install, is nobody at all. Starting the chain here is what stops
+    // a pending migration from waiting on a human: see MigrationChain, and
+    // the thirty-minute production stall that class documents.
+    $migrationChain?->afterProgressPage();
     exit;
 }
 
@@ -1201,7 +1219,8 @@ $sectionStaffAuthorizationService = new \Core\Member\SectionStaffAuthorizationSe
 
 // Member page (Espace membres) "Documents privés" storage — see
 // Core\Member\MemberDocumentService.
-$memberDocumentService = new \Core\Member\MemberDocumentService(new \Core\Member\MemberDocumentRepository($pdo));
+$memberDocumentRepository = new \Core\Member\MemberDocumentRepository($pdo);
+$memberDocumentService = new \Core\Member\MemberDocumentService($memberDocumentRepository);
 
 // Member page "Adresses email" — multi-email support per member (Core\
 // Member\MemberEmailService). $memberEmailRepository was already built
@@ -1977,6 +1996,10 @@ $router->addRoute('GET', '/admin/members/{id}', MemberSearchController::class, '
 $router->addRoute('POST', '/admin/members/{id}/notes', MemberSearchController::class, 'addNote', 'admin');
 $router->addRoute('POST', '/admin/members/{id}/notes/{note_id}', MemberSearchController::class, 'updateNote', 'admin');
 $router->addRoute('POST', '/admin/members/{id}/notes/{note_id}/delete', MemberSearchController::class, 'deleteNote', 'admin');
+// Private documents on a member's sheet (ARCHITECTURE.md §8.3's Staff
+// d'Unité bypass). Same `admin` floor as the page and as the bypass
+// itself — never `chief`.
+$router->addRoute('POST', '/admin/members/{id}/documents/{document_id}/renvoyer', MemberSearchController::class, 'resendDocument', 'admin');
 $router->addRoute('POST', '/admin/members/temporary-access/remove', TemporaryMemberController::class, 'remove', 'admin');
 $router->addRoute('POST', '/admin/members/{id}/temporary-access', TemporaryMemberController::class, 'add', 'admin');
 $router->addRoute('GET', '/admin/scout-year', ScoutYearController::class, 'index', 'admin', ['label' => 'Année scoute', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]]);
@@ -2651,6 +2674,91 @@ if ($isEnabled('sos_staff')) {
             $sosOnCallRepo, $memberService, $calendarServiceForOthers
         ));
     }
+}
+
+if ($isEnabled('attestations')) {
+    $attestationBatchRepository = new \Modules\Attestations\Repository\BatchRepository($connection);
+    $attestationLineRepository = new \Modules\Attestations\Repository\BatchLineRepository(
+        $connection,
+        $encryptionService
+    );
+    $attestationMemberRepository = new \Modules\Attestations\Repository\MemberNameRepository(
+        $connection,
+        $encryptionService
+    );
+
+    $frontController->registerController(
+        \Modules\Attestations\Controller\AttestationsController::class,
+        new \Modules\Attestations\Controller\AttestationsController(
+            $twig,
+            $attestationBatchRepository,
+            $scoutYearService,
+            $scoutYearResolver,
+            new \Modules\Attestations\Service\BatchDepositService(
+                $connection,
+                $attestationBatchRepository,
+                $attestationLineRepository,
+                $attestationMemberRepository,
+                new \Modules\Attestations\Service\AttestationPdfReader(),
+                new \Modules\Attestations\Service\AttestationPdfSplitter(),
+                $encryptedFileStorageService,
+                $journalService
+            ),
+            $journalService,
+            $storagePath
+        )
+    );
+
+    $attestationVerificationService = new \Modules\Attestations\Service\BatchVerificationService(
+        $connection,
+        $attestationBatchRepository,
+        $attestationLineRepository,
+        $fileRepository,
+        $encryptedFileStorageService,
+        $journalService
+    );
+
+    $frontController->registerController(
+        \Modules\Attestations\Controller\BatchController::class,
+        new \Modules\Attestations\Controller\BatchController(
+            $twig,
+            $attestationBatchRepository,
+            $attestationLineRepository,
+            $attestationMemberRepository,
+            $attestationVerificationService,
+            new \Modules\Attestations\Service\BatchPublicationService(
+                $connection,
+                $attestationBatchRepository,
+                $attestationLineRepository,
+                $attestationVerificationService,
+                $memberDocumentRepository,
+                $schedulerService,
+                $journalService
+            ),
+            new \Modules\Attestations\Service\BatchResetService(
+                $connection,
+                $attestationBatchRepository,
+                $attestationLineRepository,
+                $memberDocumentRepository,
+                $encryptedFileStorageService,
+                $journalService
+            ),
+            new \Modules\Attestations\Service\DuplicateDetector($attestationLineRepository),
+            $scoutYearService
+        )
+    );
+
+    $frontController->registerController(
+        \Modules\Attestations\Controller\CoverageController::class,
+        new \Modules\Attestations\Controller\CoverageController(
+            $twig,
+            new \Modules\Attestations\Service\CoverageService(
+                $attestationMemberRepository,
+                $attestationLineRepository
+            ),
+            $scoutYearResolver
+        )
+    );
 }
 
 if ($isEnabled('banner')) {
@@ -4858,13 +4966,17 @@ $frontController->registerController(MemberSearchController::class, new MemberSe
     new \Core\Member\AdminMemberPageService(
         $memberBadgeRepository, $memberPhotoService, $sectionMembershipRepository,
         $sectionService, $scoutYearService, $memberEmailRepository,
+        $memberDocumentService,
         $moduleHooks
     ),
     $memberYearRepo,
     new \Core\Member\MemberNoteService(
         new \Core\Member\MemberNoteRepository($pdo, $encryptionService, $userAccountRepo),
         $journalService
-    )
+    ),
+    $memberDocumentService,
+    new \Core\Member\MemberDocumentMailer($mailService, $encryptedFileStorageService, $storagePath),
+    $settingService
 ));
 
 // File access (/files/{id}) — built here, deliberately last, because
