@@ -410,7 +410,44 @@ $migrationIsPending = $migrationRunner->isPending($schemaFiles);
 \Core\Debug\RequestTimeline::mark('migration_pending_check_done', ['pending' => $migrationIsPending]);
 
 if ($migrationIsPending) {
-    $migrationStepPath = '/api/system/migration-step';
+    $migrationStepPath = \Core\Database\MigrationChain::STEP_PATH;
+
+    // Its own SettingService, for the same reason the journal above has
+    // one: the application's is built two hundred lines below, and this
+    // block never gets there. register() is idempotent and only ever runs
+    // on a request that is already terminal, so it costs nothing on a
+    // normal page load.
+    //
+    // Everything about the chain is best-effort. On an installation whose
+    // `settings` table does not exist yet — a brand-new setup, migrating
+    // for the very first time — this throws, and the migration then
+    // advances exactly the way it always did, on the progress page's own
+    // polling.
+    $migrationChain = null;
+    try {
+        $migrationSettings = new SettingService(new SettingRepository($connection->getPdo()));
+        $migrationSettings->register(
+            \Core\Database\MigrationChain::MAX_HOPS_SETTING, '800', 'number',
+            'Nombre maximum de tranches enchaînées pour une migration',
+            'Plafond dur du nombre de fois qu\'une migration de schéma peut se relancer elle-même pendant qu\'aucun humain ne regarde. Zéro désactive le mécanisme : la migration n\'avance alors que sur la page de progression.',
+            null, null, null, true, 903
+        );
+        $migrationSettings->register(
+            \Core\Database\MigrationChain::HOPS_SETTING, '0', 'number',
+            'Tranches enchaînées de la migration en cours (interne)',
+            'Compteur interne remis à zéro au démarrage de chaque chaîne ; sert à faire respecter le plafond ci-dessus.',
+            null, null, null, false, 904
+        );
+        $migrationSettings->register(
+            \Core\Database\MigrationChain::LAST_HOP_SETTING, '0', 'number',
+            'Dernier saut de la migration en cours (interne)',
+            'Horodatage interne du dernier saut émis ; une chaîne sans saut récent est considérée morte et peut être relancée.',
+            null, null, null, false, 905
+        );
+        $migrationChain = new \Core\Database\MigrationChain($migrationSettings);
+    } catch (\Throwable) {
+        $migrationChain = null;
+    }
 
     if ($request->getMethod() === 'POST' && $request->getPath() === $migrationStepPath) {
         // This endpoint runs live DDL and is reachable before any session,
@@ -454,6 +491,19 @@ if ($migrationIsPending) {
             'complete' => $stepResult->complete,
             'progress' => round($stepResult->progressFraction, 3),
         ]);
+
+        // What makes the chain a chain: the ignition below only ever emits
+        // one hop. Emitted after the response is flushed, so the caller —
+        // the progress page's fetch(), or the previous hop — is never kept
+        // waiting on a socket; and after migrate() returned, so the next
+        // slice does not arrive while this one still holds the lock and
+        // burn a hop doing nothing.
+        if ($migrationChain !== null) {
+            if (function_exists('fastcgi_finish_request')) {
+                @fastcgi_finish_request();
+            }
+            $stepResult->complete ? $migrationChain->finished() : $migrationChain->continueChain();
+        }
         exit;
     }
 
@@ -527,6 +577,18 @@ if ($migrationIsPending) {
 </body>
 </html>
 HTML);
+
+    // Ignition. This request was going to show a progress page to whoever
+    // asked — which, when the asker is Scheduler\SchedulerKick's hop after
+    // an install, is nobody at all. Starting the chain here is what stops
+    // a pending migration from waiting on a human: see MigrationChain, and
+    // the thirty-minute production stall that class documents.
+    if ($migrationChain !== null) {
+        if (function_exists('fastcgi_finish_request')) {
+            @fastcgi_finish_request();
+        }
+        $migrationChain->ensureRunning();
+    }
     exit;
 }
 
