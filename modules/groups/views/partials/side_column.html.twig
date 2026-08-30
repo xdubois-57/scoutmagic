@@ -1,0 +1,102 @@
+{#
+  The group page's side column, below the search box — who is in this
+  group, and what has been photographed in it lately.
+
+  Drawn ONLY from 992px up: show.html.twig hides the block below that
+  breakpoint (`d-none d-lg-block`), and components.css places it in the
+  second grid track above it. This is a use for width the feed gave back
+  when it was capped at 680px, not a section moved to the bottom of a
+  phone page — the feed paginates as you scroll (groups.js), so anything
+  placed after it there is content nobody reaches.
+
+  Both blocks are teasers: a glance, then the real page underneath. The
+  members list and the gallery both already exist as pages of their own,
+  and neither is duplicated here — this column shows the first few rows
+  of each and links to them.
+
+  Expects: group, side_members, side_members_total, side_photos
+  (Controller\GroupController::show()).
+#}
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h6 mb-2">Membres</h2>
+        {% if side_members is empty %}
+            {% include 'partials/empty_state.html.twig' with {
+                message: 'Aucun membre à afficher.',
+                compact: true,
+            } only %}
+        {% else %}
+            <ul class="list-unstyled mb-2">
+                {% for member in side_members %}
+                    <li class="d-flex align-items-center gap-2 py-1">
+                        {#
+                          The shared avatar component (person_avatar(),
+                          Core\View\PersonAvatar) keyed on the MEMBER, so
+                          it resolves the member's own photo for the year
+                          rather than the photo of whichever account is
+                          linked to them — a parent's face next to their
+                          child's name is exactly the mix-up that function
+                          refuses to make.
+                        #}
+                        {{ person_avatar(member.identity.account_name, { member_id: member.member_id, size: 32 }) }}
+                        {#
+                          Named through the shared partial, like every
+                          other surface of this module with room for
+                          markup: the account in front, its memberships
+                          for the year in parentheses behind. A flat
+                          string here would be this module's one place
+                          where the same person reads differently.
+
+                          text-break rather than text-truncate: a flex
+                          item will not shrink below its own content
+                          without a min-width:0 this project has no
+                          utility for, so truncating would overflow the
+                          card instead of ellipsizing. A long name wraps.
+                        #}
+                        <span class="small text-break">
+                            {% include '@groups/partials/identity.html.twig' with { identity: member.identity } only %}
+                        </span>
+                    </li>
+                {% endfor %}
+            </ul>
+            {% if side_members_total > side_members|length %}
+                <p class="small text-body-secondary mb-2">
+                    et {{ side_members_total - side_members|length }}
+                    autre{{ side_members_total - side_members|length > 1 ? 's' : '' }}
+                </p>
+            {% endif %}
+        {% endif %}
+        <a class="small text-decoration-none" href="/groups/{{ group.id }}/members">
+            Voir tous les membres
+        </a>
+    </div>
+</div>
+
+{#
+  No photo yet, no block: an empty three-cell strip in a side column says
+  nothing a reader can act on, and the header already carries a permanent
+  « Galerie » button for the page itself.
+#}
+{% if side_photos is not empty %}
+    <div class="card">
+        <div class="card-body">
+            <h2 class="h6 mb-2">Dernières photos</h2>
+            {#
+              ONE link around the whole strip rather than one per
+              thumbnail: six links reading "photo" in a row is six stops
+              for a keyboard or a screen reader, all of them going to the
+              same place. The photos open in the group's gallery, which is
+              where the real viewer (gallery's lightbox) lives — these
+              cells carry none of its trigger attributes on purpose, so
+              they cannot join the feed's own lightbox set.
+            #}
+            <a href="/groups/{{ group.id }}/gallery"
+               class="groups-side-photo-grid text-decoration-none"
+               aria-label="Voir toutes les photos du groupe">
+                {% for photo in side_photos %}
+                    <img src="/gallery/media/{{ photo.id }}/thumb" alt="" loading="lazy" decoding="async">
+                {% endfor %}
+            </a>
+        </div>
+    </div>
+{% endif %}

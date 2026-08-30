@@ -332,6 +332,95 @@
     .calendar-event-bar { font-size: 0.75rem; }
 }
 
+/* Modules\Groups\views\show.html.twig — the group page's two columns,
+   from 992px up.
+
+   The problem this solves is a width one. The feed spans the whole
+   `.container` base.html.twig renders (up to 1200px here), and
+   `.groups-media-grid-1` is 100% wide with a 4/3 box, so ONE photo in a
+   message came out close to 900px tall on a laptop: a single message
+   filled the screen and the conversation around it disappeared. On a
+   phone the very same rules give exactly the right result, which is why
+   nothing below 992px changes — this whole file's mobile-first default
+   (AGENTS.md § CSS / frontend) stays the shipped behaviour and the
+   breakpoint only adds to it.
+
+   So above 992px the feed is capped at 680px — a comfortable measure for
+   a column of messages — and the width that frees up becomes a real side
+   column instead of margin: the group's search box, its members, its
+   latest photos.
+
+   Grid rather than a Bootstrap row, for one reason: the search box has to
+   be ABOVE the composer in the document (a member arriving to find
+   something said last month should not scroll past every message to
+   discover that looking for it is possible — show.html.twig's own
+   comment), and be the FIRST thing in the side column on a desktop. One
+   element placed into two different layouts is what grid placement is
+   for; a Bootstrap row would have meant rendering the form twice, with
+   two elements sharing one id.
+
+   Track 2 is `1fr` rather than a fixed width: what the side column is
+   worth is exactly what the feed's cap gives back — about 250px at
+   992px, about 470px on a 1200px screen. */
+.groups-layout-side-extra {
+    /* Below the breakpoint this block is `d-none` and never drawn: the
+       feed paginates as you scroll (groups.js), so anything placed after
+       it on a phone is content nobody reaches. It is a desktop
+       affordance, not a mobile section moved to the bottom. */
+    margin-bottom: 1rem;
+}
+
+/* The side column's photo teaser — a plain square grid, deliberately NOT
+   `.groups-media-grid`: these thumbnails carry no `data-media-id`, so
+   groups.js's media polling (which resolves a pending cell with
+   `document.querySelector('[data-media-id="…"]')`, first match wins)
+   cannot pick one of them instead of the feed cell it meant to fill.
+   Only media already processed are listed here for the same reason —
+   there is nothing to poll. */
+.groups-side-photo-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 2px;
+    border-radius: 0.5rem;
+    overflow: hidden;
+}
+.groups-side-photo-grid img {
+    display: block;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    object-fit: cover;
+}
+
+@media (min-width: 992px) {
+    .groups-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 680px) minmax(0, 1fr);
+        column-gap: 1.5rem;
+        /* Both columns start at the top; without this the shorter one
+           stretches and its cards grow to the feed's height. */
+        align-items: start;
+    }
+    /* The feed spans both rows of the side column, so it keeps running
+       past the members/photos blocks instead of stopping level with
+       them. `min-width: 0` is what lets a long word or a wide code span
+       inside a message be cut rather than widen the track. */
+    .groups-layout-feed {
+        grid-column: 1;
+        grid-row: 1 / span 2;
+        min-width: 0;
+    }
+    .groups-layout-search {
+        grid-column: 2;
+        grid-row: 1;
+        min-width: 0;
+    }
+    .groups-layout-side-extra {
+        grid-column: 2;
+        grid-row: 2;
+        min-width: 0;
+    }
+}
+
 /* Modules\Groups\views\show.html.twig — the composer folded down to one
    line, revealed by public/assets/js/groups.js.
 
@@ -397,6 +486,24 @@
     position: relative;
     display: block;
     background-color: var(--bs-tertiary-bg);
+}
+
+/* The same 992px rule as the two-column layout above, and the reason it
+   exists: a 4/3 box at the full width of a desktop feed is a photo taller
+   than the screen it is read on. 420px is a picture in a conversation
+   rather than a poster — and the same number app.css caps a rich-text
+   image at, so a photo posted in a group and a photo pasted into an
+   article do not come out at two different sizes. Written on the wrapper
+   so every count keeps its own internal proportions (1 wide, 2 side by
+   side, 3 with a tall cell on the left, 4 in a 2x2) untouched.
+
+   Deliberately not scoped to the group page: the same card, with the same
+   grid, is what the search results, a message's own permalink and the
+   moderator's reports page draw, and they had the same photo. */
+@media (min-width: 992px) {
+    .groups-media-grid {
+        max-width: 420px;
+    }
 }
 
 /* Modules\Groups\views\partials\post_link.html.twig — a post's optional

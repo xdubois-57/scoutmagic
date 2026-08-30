@@ -3682,7 +3682,7 @@ if ($isEnabled('groups')) {
                 $groupsContextFactory, $sectionService, $feedService, $groupsPostMediaService,
                 $groupsPostRepo, $groupsSectionGroupSync, $groupsModeratorBinding, $groupsMembershipService,
                 $settingService, $groupsReadStateService, $eventService, $groupsIdentityService,
-                $groupsReportService, $groupsPostService
+                $groupsReportService, $groupsPostService, $groupsRecipientResolver
             )
         );
         // The moderator's reports page renders the same post cards as the
