@@ -517,6 +517,131 @@ describe('groups.js dynamic post submit and draft cache', () => {
     });
 });
 
+// The composer folded down to one line (show.html.twig's
+// #groups-composer-open bar, revealed by groups.js).
+//
+// The markup ships the opposite way round on purpose — bar hidden, form
+// open — so that a browser which never runs groups.js keeps the composer
+// it has always had. The DOM below therefore starts exactly as the server
+// renders it, and every assertion here is about what the script DOES to
+// that starting point.
+describe('groups.js collapsed composer', () => {
+    beforeEach(() => {
+        localStorage.clear();
+        global.DataTransfer = FakeDataTransfer;
+        global.URL.createObjectURL = vi.fn(() => 'blob:fake');
+        document.body.innerHTML = `
+            <button type="button" id="groups-composer-open" class="btn w-100 mb-3 d-none align-items-center">Écrire un message…</button>
+            <form id="groups-post-form" action="/groups/1/posts" class="card mb-3" data-max-media="4" data-group-id="1" data-draft-ttl-minutes="60">
+                <textarea id="post-body" name="body"></textarea>
+                <div id="groups-media-previews"></div>
+                <input type="file" name="media[]" id="groups-media-hidden" class="d-none" multiple>
+                <input type="file" id="groups-media-input" multiple>
+                <p class="d-none" id="groups-post-error"></p>
+                <button type="submit">Publier</button>
+            </form>
+        `;
+        Object.defineProperty(document.getElementById('groups-media-hidden'), 'files', {
+            writable: true,
+            configurable: true,
+            value: [],
+        });
+    });
+
+    function bar() {
+        return document.getElementById('groups-composer-open');
+    }
+
+    function form() {
+        return document.getElementById('groups-post-form');
+    }
+
+    function textarea() {
+        return document.getElementById('post-body');
+    }
+
+    it('folds the form away and offers the bar instead', async () => {
+        await loadGroups();
+
+        expect(form().classList.contains('d-none')).toBe(true);
+        expect(bar().classList.contains('d-none')).toBe(false);
+        // d-flex rather than merely "not d-none": the bar lays its avatar,
+        // its invitation and its two icons out in a row.
+        expect(bar().classList.contains('d-flex')).toBe(true);
+    });
+
+    it('unfolds the form on a click, puts the bar away and hands over the caret', async () => {
+        await loadGroups();
+
+        bar().click();
+
+        expect(form().classList.contains('d-none')).toBe(false);
+        expect(bar().classList.contains('d-none')).toBe(true);
+        expect(bar().classList.contains('d-flex')).toBe(false);
+        expect(document.activeElement).toBe(textarea());
+    });
+
+    it('stays unfolded once opened, publishing included', async () => {
+        await loadGroups();
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ html: '<article id="post-77">Bonjour</article>' })
+        }));
+
+        bar().click();
+        textarea().value = 'Bonjour';
+        form().dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+        await vi.waitFor(() => expect(textarea().value).toBe(''));
+
+        // Somebody who has just written is the likeliest person on the
+        // page to write again, and taking the form back would read as the
+        // message having failed.
+        expect(form().classList.contains('d-none')).toBe(false);
+        expect(bar().classList.contains('d-none')).toBe(true);
+    });
+
+    it('starts unfolded when a cached draft was restored into the field', async () => {
+        localStorage.setItem('groups-draft-1', JSON.stringify({ body: 'Pas encore envoyé', savedAt: Date.now() }));
+
+        await loadGroups();
+
+        expect(textarea().value).toBe('Pas encore envoyé');
+        expect(form().classList.contains('d-none')).toBe(false);
+        expect(bar().classList.contains('d-none')).toBe(true);
+    });
+
+    it('folds again when the cached draft is too old to be restored', async () => {
+        localStorage.setItem('groups-draft-1', JSON.stringify({ body: 'Trop vieux', savedAt: Date.now() - 61 * 60000 }));
+
+        await loadGroups();
+
+        expect(textarea().value).toBe('');
+        expect(form().classList.contains('d-none')).toBe(true);
+    });
+
+    it('starts unfolded for a message the moderation refused and handed back', async () => {
+        // What show.html.twig renders for a rejected_draft carrying no
+        // post_id: the text back in this composer, and the flag saying so.
+        // The panel above has just told the member their text was kept in
+        // the form below — folding that form away would hide it.
+        form().dataset.rejectedDraft = '1';
+        textarea().value = 'Texte refusé par la modération';
+
+        await loadGroups();
+
+        expect(form().classList.contains('d-none')).toBe(false);
+        expect(bar().classList.contains('d-none')).toBe(true);
+    });
+
+    it('leaves the composer open when the page renders no bar at all', async () => {
+        bar().remove();
+
+        await loadGroups();
+
+        expect(form().classList.contains('d-none')).toBe(false);
+    });
+});
+
 describe('groups.js live link preview', () => {
     beforeEach(() => {
         localStorage.clear();
