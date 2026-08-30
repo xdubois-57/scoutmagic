@@ -113,8 +113,23 @@
         var submitBtn = /** @type {HTMLButtonElement} */ (form.querySelector('button[type="submit"]'));
         var progressEl = form.querySelector('[id$="-progress"]') || document.getElementById('update-install-progress');
         var errorEl = form.querySelector('[id$="-error"]') || document.getElementById('update-install-error');
+        // Filled in while the update sits in `migrating`: that step is the one
+        // that can run for minutes, and each poll now drives a slice of it
+        // server-side, so the spinner alone would hide real progress.
+        var detailEl = progressEl ? progressEl.querySelector('[data-role="migration-detail"]') : null;
         /** @type {{stop: () => void}|null} */
         var pollHandle = null;
+
+        /** @param {unknown} fraction */
+        function showMigrationProgress(fraction) {
+            if (!detailEl) return;
+            if (typeof fraction !== 'number' || !isFinite(fraction)) {
+                detailEl.textContent = '';
+                return;
+            }
+            var percent = Math.max(0, Math.min(100, Math.round(fraction * 100)));
+            detailEl.textContent = ' Migration du schéma : ' + percent + ' %.';
+        }
 
         function stopPolling() {
             if (pollHandle) {
@@ -151,6 +166,7 @@
                         return false;
                     }
                     // pending / backing_up / downloading / installing / migrating: keep polling.
+                    showMigrationProgress(res.data.status === 'migrating' ? res.data.migration_progress : null);
                     return undefined;
                 });
             }, { intervalMs: 3000 });

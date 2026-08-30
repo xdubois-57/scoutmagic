@@ -12,6 +12,19 @@ La page « Gestion des inscriptions » rassemble tout le traitement des
 demandes : l'ouverture du formulaire, les capacités par branche, la
 liste des demandes et leur fiche.
 
+## Les capacités et les listes d'attente
+
+L'encart « Capacités par branche » dit combien de places chaque branche
+offre, par année. Une case vide signifie **pas de limite** : la branche
+n'est jamais annoncée complète. Pour la fermer aux inscriptions, écrivez
+**0** — ce n'est pas la même chose. Une branche sans capacité en reçoit
+une de 15 dès votre première visite ; modifiez-la ensuite librement.
+
+L'interrupteur « Gérer les listes d'attente » vit dans le même encart.
+Désactivé, plus personne ne voit la disponibilité des places, et les
+seuils qui la calculent disparaissent — vos valeurs restent en place et
+reviennent si vous le réactivez.
+
 ## Le cycle d'une demande
 
 En attente → Acceptée ou Refusée/Retirée, puis, pour une acceptée,
