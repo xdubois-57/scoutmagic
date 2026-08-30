@@ -411,6 +411,75 @@ le `MigrationRunner` d'une version contre le `MigrationResult` d'une autre.
 Elles restent en place jusque-là — leur retrait est une décision sur le parc
 installé, pas sur le code.
 
+## Annexe A — Additions au paquet de support
+
+### A1 — Cron réel et cadence
+
+`cron_last_run` et `scheduler_last_run` existaient depuis longtemps et
+n'étaient remontés nulle part. Ensemble ils répondent à la question qui
+oriente toute une conversation de support : est-ce que quelque chose
+d'autre que les visiteurs entraîne la file ?
+
+Aucun des deux ne répond à *à quelle fréquence*, parce que ce sont des
+horodatages uniques écrasés à chaque passage — un crontab configuré à
+l'heure sur un hôte qui le laisse tomber en silence ressemble exactement,
+à travers un seul horodatage, à un crontab qui part toutes les minutes.
+D'où `CronRunHistory`, tampon circulaire de vingt entrées écrit par
+`public/cron.php` seul, seule source possible d'un intervalle.
+
+**La latence d'ordonnancement est la raison d'être du fichier.** Six échecs
+de mise à jour en production disaient tous « bloquée à *migrating* depuis
+plus de 15 minutes », et la cause n'était pas la migration : c'étaient des
+tâches triviales exécutées six minutes après leur heure prévue, face à un
+chien de garde réglé à quinze. Cet écart n'était visible qu'en soustrayant
+deux colonnes de `scheduled-tasks.xlsx` à la main. C'est désormais une
+colonne, avec médiane et maximum.
+
+### A2 — Prouver plutôt qu'affirmer
+
+`commands.txt` écrivait « exécution de commandes disponible : oui » sur la
+seule foi de `disable_functions`. Ce n'est pas une mesure. `ShellExecutor::
+probe()` lance `echo` et compare la sortie à un marqueur ; les deux
+réponses — déclarée et vérifiée — sont imprimées et jamais fusionnées.
+C'est ce qui rend interprétables les cinq « non » qui suivent.
+
+`extensions.txt` liste `get_loaded_extensions()` en entier avec les
+versions, et la correspondance extension → fonctionnalité l'accompagne sans
+la remplacer. La liste des binaires n'est plus curée : à côté des cinq que
+le code appelle, un inventaire de l'hôte que rien ici n'appelle.
+
+### A3 — Réglages de fond
+
+Une tâche qui « n'a jamais tourné » et une tâche dont la planification est
+désactivée se ressemblent sur `scheduled-tasks.xlsx`. `scheduler-settings.
+txt` tranche : sauvegarde automatique, `auto_update_*`, `dev_update_*`,
+rétentions. Une clé non définie est imprimée comme telle plutôt qu'omise —
+une ligne absente est indistinguable d'une clé que personne n'a pensé à
+inclure.
+
+### A4 — Ce qui est possible sur cet hôte
+
+`background-execution.txt` est la sonde ponctuelle transformée en
+collecteur permanent : boucle HTTP testée **par cible** et les deux
+résultats conservés, `open_basedir`, `disable_functions` cité en entier,
+`fastcgi_finish_request`, `max_execution_time`, compteur de sauts.
+
+La cible est prise dans `base_url` et jamais dans `HTTP_HOST` : un
+collecteur qui se connecterait là où pointe un en-tête serait une SSRF
+déclenchable par quiconque peut faire générer un paquet de support à un
+superadmin. Et la sonde vise `/api/version`, publique et sans effet de
+bord — viser l'endpoint de continuation ferait tourner du travail
+d'ordonnanceur, ou écrirait une entrée de journal `security` à chaque
+génération de paquet.
+
+### Écarté
+
+- Le spawn CLI détaché, y compris en repli. Mesuré non fonctionnel sur
+  l'hébergement de référence, et de toute façon exposé au ramassage des
+  processus orphelins.
+- Un verdict unique fusionnant « déclaré » et « vérifié ». C'est
+  précisément la fusion qui rendait le fichier trompeur.
+
 ### MySQL et MariaDB : ce que l'échec de CI a révélé
 
 Le correctif ci-dessus, écrit et mesuré contre MariaDB, a fait tomber en CI

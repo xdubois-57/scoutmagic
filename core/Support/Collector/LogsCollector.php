@@ -24,7 +24,7 @@ use Core\Support\SupportCollectorInterface;
  * about something that happened recently, and a month of access logs
  * answers nothing extra. **A hard byte cap per file** because a busy site's
  * access log is measured in hundreds of megabytes and an archive that big
- * cannot be emailed, which would defeat the whole point; a truncated file
+ * cannot be transmitted, which would defeat the whole point; a truncated file
  * is reported as such in `collection-status.json` rather than silently
  * shortened.
  *
