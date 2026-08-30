@@ -88,7 +88,9 @@ final class StatisticsServiceFactory
                 $context->connection,
                 new SchemaIntrospector($pdo),
                 new SchemaComparator(),
-                new SqlParser()
+                new SqlParser(),
+                20,
+                $context->journal
             ),
             $context->journal,
             new Router()

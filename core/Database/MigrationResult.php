@@ -30,7 +30,6 @@ class MigrationResult
     public function __construct(
         public readonly array $executedStatements,
         public readonly array $warnings,
-        public readonly bool $backupCreated,
         public readonly bool $complete = true,
         public readonly float $progressFraction = 1.0
     ) {

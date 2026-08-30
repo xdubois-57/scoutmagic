@@ -269,7 +269,6 @@ INSTANCE_DIR=""
 MYSQL_CONTAINER=""
 ZAP_CONTAINER=""
 DATABASE_PROVISIONED=0
-BACKUP_SNAPSHOT=""
 
 stop_pid() {
     local pid="$1" name="$2"
@@ -325,17 +324,6 @@ cleanup() {
     if [[ -n "${MYSQL_CONTAINER}" ]]; then
         echo "DAST: removing the throwaway MySQL container."
         docker rm -f "${MYSQL_CONTAINER}" > /dev/null 2>&1
-    fi
-
-    # Core\Database\MigrationRunner dumps into the REPOSITORY's
-    # storage/temp regardless of how isolated the instance is — same
-    # situation, and the same snapshot-and-diff answer, as scripts/e2e.sh.
-    if [[ -n "${BACKUP_SNAPSHOT}" && -f "${BACKUP_SNAPSHOT}" ]]; then
-        find "${REPO_ROOT}/storage/temp" -maxdepth 1 -type f -name 'backup_*.sql' 2>/dev/null | sort \
-            | comm -13 "${BACKUP_SNAPSHOT}" - \
-            | while IFS= read -r stray_backup; do
-                  [[ -n "${stray_backup}" ]] && rm -f "${stray_backup}"
-              done
     fi
 
     if [[ -n "${INSTANCE_DIR}" && -d "${INSTANCE_DIR}" ]]; then
@@ -455,7 +443,6 @@ INSTANCE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/scoutmagic-dast.XXXXXX")"
 SERVER_LOG="${INSTANCE_DIR}/php-server.log"
 TLS_LOG="${INSTANCE_DIR}/tls-proxy.log"
 ZAP_LOG="${INSTANCE_DIR}/zap.log"
-BACKUP_SNAPSHOT="${INSTANCE_DIR}/backups-before-run.txt"
 CERT_FILE="${INSTANCE_DIR}/server.pem"
 
 # The run's mailbox, and the instance directory the scenarios reach for
@@ -502,7 +489,6 @@ if [[ -n "${PLAN_FILE}" ]]; then
     chmod 0644 "${ZAP_WORK_DIR}/plan.yaml"
 fi
 
-find "${REPO_ROOT}/storage/temp" -maxdepth 1 -type f -name 'backup_*.sql' 2>/dev/null | sort > "${BACKUP_SNAPSHOT}"
 
 PORT="${DAST_PORT:-$(php "${SUPPORT}" free-port)}"
 BACKEND_PORT="${DAST_BACKEND_PORT:-$(php "${SUPPORT}" free-port)}"

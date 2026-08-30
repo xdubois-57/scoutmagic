@@ -9,6 +9,7 @@ use Core\Database\MigrationRunner;
 use Core\Database\SchemaComparator;
 use Core\Database\SchemaIntrospector;
 use Core\Database\SqlParser;
+use Core\Journal\JournalService;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -181,8 +182,20 @@ class MigrationRunnerTest extends TestCase
         }
     }
 
-    public function testMigrationResultContainsWarningsWhenBackupUnavailable(): void
+    /**
+     * migrate() used to dump the entire database before doing anything —
+     * before even knowing whether there was any DDL to apply, and once per
+     * schema file set, so a release touching six modules produced seven
+     * full dumps of which six were immediately discarded. It was the
+     * single largest cost of a migration, and a duplicate of the backup
+     * every caller that can change a schema file already takes. Nothing
+     * here may write a dump again.
+     */
+    public function testMigrateWritesNoDatabaseDump(): void
     {
+        $tempDir = dirname(__DIR__, 3) . '/storage/temp';
+        $before = glob($tempDir . '/backup_*.sql') ?: [];
+
         $runner = new MigrationRunner(
             $this->connection,
             $this->introspector,
@@ -193,11 +206,88 @@ class MigrationRunnerTest extends TestCase
         $schemaPath = dirname(__DIR__, 3) . '/schema/core.sql';
         $result = $runner->migrate([$schemaPath]);
 
-        // This test just verifies the result object structure is correct;
-        // whether the backup itself succeeds depends on the environment
-        // DatabaseDumper connects to, not on this test's setup.
-        $this->assertIsBool($result->backupCreated);
         $this->assertIsArray($result->warnings);
+        $this->assertSame($before, glob($tempDir . '/backup_*.sql') ?: []);
+    }
+
+    /**
+     * The one place in the migration path that destroys data, so the one
+     * place that owes the journal a `security` entry.
+     */
+    public function testExecutedDropIsJournaledAtSecurityLevel(): void
+    {
+        $pdo = $this->connection->getPdo();
+        $pdo->exec('CREATE TABLE journaled_drop_test (id INT PRIMARY KEY, name VARCHAR(50) NOT NULL, legacy VARCHAR(50) NOT NULL)');
+
+        $tmpDir = sys_get_temp_dir() . '/migration_journal_test_' . uniqid();
+        mkdir($tmpDir);
+        file_put_contents($tmpDir . '/schema.sql', "CREATE TABLE journaled_drop_test (\n    id INT PRIMARY KEY,\n    name VARCHAR(50) NOT NULL\n);");
+        file_put_contents($tmpDir . '/drops.sql', 'ALTER TABLE journaled_drop_test DROP COLUMN legacy;');
+
+        try {
+            $journal = $this->createMock(JournalService::class);
+            $journal->expects($this->once())
+                ->method('log')
+                ->with(
+                    'core',
+                    'schema_drop_executed',
+                    'security',
+                    $this->anything(),
+                    ['table' => 'journaled_drop_test', 'column' => 'legacy']
+                );
+
+            $runner = new MigrationRunner(
+                $this->connection,
+                $this->introspector,
+                new SchemaComparator(),
+                new SqlParser(),
+                20,
+                $journal
+            );
+
+            $runner->migrate([$tmpDir . '/schema.sql']);
+        } finally {
+            @unlink($tmpDir . '/schema.sql');
+            @unlink($tmpDir . '/drops.sql');
+            @rmdir($tmpDir);
+        }
+    }
+
+    /**
+     * The counterpart: a drops.sql line whose column is already gone is
+     * skipped before anything executes, so it must not produce a journal
+     * entry either — otherwise every migration on every installed site
+     * would re-log the whole file forever.
+     */
+    public function testAlreadyAppliedDropIsNotJournaled(): void
+    {
+        $pdo = $this->connection->getPdo();
+        $pdo->exec('CREATE TABLE quiet_drop_test (id INT PRIMARY KEY, name VARCHAR(50) NOT NULL)');
+
+        $tmpDir = sys_get_temp_dir() . '/migration_quiet_test_' . uniqid();
+        mkdir($tmpDir);
+        file_put_contents($tmpDir . '/schema.sql', "CREATE TABLE quiet_drop_test (\n    id INT PRIMARY KEY,\n    name VARCHAR(50) NOT NULL\n);");
+        file_put_contents($tmpDir . '/drops.sql', 'ALTER TABLE quiet_drop_test DROP COLUMN legacy;');
+
+        try {
+            $journal = $this->createMock(JournalService::class);
+            $journal->expects($this->never())->method('log');
+
+            $runner = new MigrationRunner(
+                $this->connection,
+                $this->introspector,
+                new SchemaComparator(),
+                new SqlParser(),
+                20,
+                $journal
+            );
+
+            $runner->migrate([$tmpDir . '/schema.sql']);
+        } finally {
+            @unlink($tmpDir . '/schema.sql');
+            @unlink($tmpDir . '/drops.sql');
+            @rmdir($tmpDir);
+        }
     }
 
     public function testMigrateAppliesExplicitColumnDropFromSiblingDropsFile(): void

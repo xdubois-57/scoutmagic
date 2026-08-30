@@ -153,7 +153,6 @@ PLAYWRIGHT_PID=""
 INSTANCE_DIR=""
 DOCKER_CONTAINER=""
 DATABASE_PROVISIONED=0
-BACKUP_SNAPSHOT=""
 COVERAGE_DIR=""
 
 # Stop the application server and wait for it to actually be gone.
@@ -212,25 +211,6 @@ cleanup() {
     if [[ -n "${DOCKER_CONTAINER}" ]]; then
         echo "E2E: removing the throwaway MySQL container."
         docker rm -f "${DOCKER_CONTAINER}" > /dev/null 2>&1
-    fi
-
-    # Core\Database\MigrationRunner dumps the database it is about to
-    # migrate into the REPOSITORY's storage/temp — it anchors that
-    # directory to its own file location, and the throwaway instance loads
-    # core/ from the repository, so no amount of instance isolation can
-    # redirect it. A run produces several of these (the provisioning
-    # migration, then one per module applying its own schema.sql on the
-    # first request), all of them dumps of a database that no longer
-    # exists by the time this runs. Only the files that appeared during
-    # this run are removed, matched against a snapshot taken before it
-    # started — a real backup a developer already had sitting there is
-    # never touched.
-    if [[ -n "${BACKUP_SNAPSHOT}" && -f "${BACKUP_SNAPSHOT}" ]]; then
-        find "${REPO_ROOT}/storage/temp" -maxdepth 1 -type f -name 'backup_*.sql' 2>/dev/null | sort \
-            | comm -13 "${BACKUP_SNAPSHOT}" - \
-            | while IFS= read -r stray_backup; do
-                  [[ -n "${stray_backup}" ]] && rm -f "${stray_backup}"
-              done
     fi
 
     if [[ -n "${INSTANCE_DIR}" && -d "${INSTANCE_DIR}" ]]; then
@@ -331,7 +311,6 @@ INSTANCE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/scoutmagic-e2e.XXXXXX")"
 SERVER_LOG="${INSTANCE_DIR}/php-server.log"
 
 # Taken before anything migrates — see cleanup()'s own comment.
-BACKUP_SNAPSHOT="${INSTANCE_DIR}/backups-before-run.txt"
 
 # ---------------------------------------------------------------
 # The run's mailbox. The instance is provisioned in local mail mode
@@ -375,7 +354,6 @@ if [[ "${E2E_COVERAGE}" != "0" ]]; then
     export E2E_COVERAGE_DIR="${COVERAGE_DIR}"
     echo "E2E: recording PHP coverage into ${E2E_COVERAGE_FILE}."
 fi
-find "${REPO_ROOT}/storage/temp" -maxdepth 1 -type f -name 'backup_*.sql' 2>/dev/null | sort > "${BACKUP_SNAPSHOT}"
 
 attempt=0
 while true; do

@@ -493,16 +493,6 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
         new Core\Database\SqlParser()
     );
 
-    // Note for whoever wonders where the dumps went: MigrationRunner backs
-    // the database up before migrating, into the REPOSITORY's storage/temp
-    // (Core\Database\MigrationRunner::attemptBackup() anchors that
-    // directory to its own file location, and the instance loads core/
-    // from the repository — so an instance of its own cannot redirect it).
-    // Those dumps are of the throwaway E2E database and are worthless the
-    // moment the run ends; scripts/e2e.sh removes exactly the ones the run
-    // created, and it does so around the whole run rather than here,
-    // because the module activation below migrates too (every module
-    // applies its own schema.sql as it is switched on).
     $result = $migrationRunner()->migrate([$schemaPath]);
 
     if (!$result->complete) {

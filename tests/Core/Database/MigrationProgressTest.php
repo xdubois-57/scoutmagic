@@ -14,7 +14,6 @@ class MigrationProgressTest extends TestCase
         $progress = MigrationProgress::start('abc123');
 
         $this->assertSame('abc123', $progress->targetHash);
-        $this->assertFalse($progress->backupDone);
         $this->assertFalse($progress->tableQueueBuilt);
         $this->assertSame([], $progress->remainingTableNames);
         $this->assertSame(0, $progress->totalTableCount);
@@ -25,8 +24,6 @@ class MigrationProgressTest extends TestCase
     public function testToArrayThenFromArrayRoundTripsEveryField(): void
     {
         $progress = MigrationProgress::start('abc123');
-        $progress->backupDone = true;
-        $progress->backupCreated = true;
         $progress->tableQueueBuilt = true;
         $progress->actualTableNames = ['members', 'scout_years'];
         $progress->remainingTableNames = ['scout_years'];
@@ -42,8 +39,6 @@ class MigrationProgressTest extends TestCase
 
         $this->assertNotNull($restored);
         $this->assertSame($progress->targetHash, $restored->targetHash);
-        $this->assertSame($progress->backupDone, $restored->backupDone);
-        $this->assertSame($progress->backupCreated, $restored->backupCreated);
         $this->assertSame($progress->tableQueueBuilt, $restored->tableQueueBuilt);
         $this->assertSame($progress->actualTableNames, $restored->actualTableNames);
         $this->assertSame($progress->remainingTableNames, $restored->remainingTableNames);
@@ -58,7 +53,7 @@ class MigrationProgressTest extends TestCase
 
     public function testFromArrayReturnsNullWhenTargetHashIsMissing(): void
     {
-        $this->assertNull(MigrationProgress::fromArray(['backup_done' => true]));
+        $this->assertNull(MigrationProgress::fromArray(['table_queue_built' => true]));
     }
 
     public function testFromArrayReturnsNullWhenTargetHashIsNotAString(): void
@@ -72,10 +67,37 @@ class MigrationProgressTest extends TestCase
 
         $this->assertNotNull($restored);
         $this->assertSame('abc123', $restored->targetHash);
-        $this->assertFalse($restored->backupDone);
+        $this->assertFalse($restored->tableQueueBuilt);
         $this->assertSame([], $restored->remainingTableNames);
         $this->assertSame(0, $restored->totalTableCount);
         $this->assertSame(0, $restored->failedCount);
+    }
+
+    /**
+     * A site can be mid-migration when the update that removed the backup
+     * phase lands: its checkpointed row still carries `backup_done` and
+     * `backup_created`. Those keys are simply not read any more — the
+     * attempt must resume from the rest of the row, never be discarded (it
+     * would restart the migration) and never fatal on the unknown keys.
+     */
+    public function testFromArrayResumesAProgressRowWrittenBeforeTheBackupPhaseWasRemoved(): void
+    {
+        $restored = MigrationProgress::fromArray([
+            'target_hash' => 'abc123',
+            'backup_done' => true,
+            'backup_created' => true,
+            'table_queue_built' => true,
+            'actual_table_names' => ['members'],
+            'remaining_table_names' => ['scout_years'],
+            'total_table_count' => 2,
+        ]);
+
+        $this->assertNotNull($restored);
+        $this->assertSame('abc123', $restored->targetHash);
+        $this->assertTrue($restored->tableQueueBuilt);
+        $this->assertSame(['members'], $restored->actualTableNames);
+        $this->assertSame(['scout_years'], $restored->remainingTableNames);
+        $this->assertSame(2, $restored->totalTableCount);
     }
 
     public function testFromArrayIgnoresNonArrayValuesForArrayFields(): void

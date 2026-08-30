@@ -538,7 +538,7 @@ class ModuleManagerTest extends TestCase
     public function testActivateSucceedsOnceTheRequirementIsEnabled(): void
     {
         $this->migrationRunner->method('migrate')->willReturn(
-            new \Core\Database\MigrationResult([], [], false)
+            new \Core\Database\MigrationResult([], [])
         );
         $this->manager->activate('valid_module', 1);
 
@@ -552,7 +552,7 @@ class ModuleManagerTest extends TestCase
     public function testDeactivateRefusesWhileAnEnabledModuleRequiresIt(): void
     {
         $this->migrationRunner->method('migrate')->willReturn(
-            new \Core\Database\MigrationResult([], [], false)
+            new \Core\Database\MigrationResult([], [])
         );
         $this->manager->activate('valid_module', 1);
         $this->manager->activate('dependent_module', 1);
@@ -566,7 +566,7 @@ class ModuleManagerTest extends TestCase
     public function testDeactivateSucceedsOnceTheDependentIsDisabled(): void
     {
         $this->migrationRunner->method('migrate')->willReturn(
-            new \Core\Database\MigrationResult([], [], false)
+            new \Core\Database\MigrationResult([], [])
         );
         $this->manager->activate('valid_module', 1);
         $this->manager->activate('dependent_module', 1);

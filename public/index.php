@@ -375,11 +375,21 @@ if (!$notificationsV2Migrated) {
 // below, polled by the page's own JS) or show the progress page instead of
 // routing normally — never do migration work inline on a normal page load.
 \Core\Debug\RequestTimeline::mark('migration_pending_check_begin');
+// Its own JournalService rather than the one built further down: the
+// migration has to run here, long before the application's services are
+// wired up, and the only thing MigrationRunner journals is an explicit
+// drop actually removing a column, a foreign key or a table — a
+// `security` entry that must not be lost just because this happens early.
+// Both instances wrap the same PDO, so this is a second handle on one
+// table, not a second log.
+$migrationJournal = new JournalService(new JournalRepository($connection->getPdo()));
 $migrationRunner = new MigrationRunner(
     $connection,
     new SchemaIntrospector($connection->getPdo()),
     new SchemaComparator(),
-    new SqlParser()
+    new SqlParser(),
+    20,
+    $migrationJournal
 );
 $migrationIsPending = $migrationRunner->isPending([$schemaPath]);
 \Core\Debug\RequestTimeline::mark('migration_pending_check_done', ['pending' => $migrationIsPending]);
@@ -413,7 +423,8 @@ if ($migrationIsPending) {
             new SchemaIntrospector($connection->getPdo()),
             new SchemaComparator(),
             new SqlParser(),
-            5
+            5,
+            $migrationJournal
         );
         $stepResult = $stepRunner->migrate([$schemaPath]);
         \Core\Debug\RequestTimeline::mark('migration_step_done', [

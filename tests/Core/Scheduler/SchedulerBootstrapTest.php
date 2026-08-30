@@ -132,7 +132,7 @@ class SchedulerBootstrapTest extends TestCase
         // migration — answered here by a mock reporting "complete, nothing
         // done", since this SQLite database has no module tables to write.
         $migrationRunner = $this->createMock(MigrationRunner::class);
-        $migrationRunner->method('migrate')->willReturn(new \Core\Database\MigrationResult([], [], false));
+        $migrationRunner->method('migrate')->willReturn(new \Core\Database\MigrationResult([], []));
 
         $moduleManager = new ModuleManager(
             dirname(__DIR__, 3) . '/modules',
