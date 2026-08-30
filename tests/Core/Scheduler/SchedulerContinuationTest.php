@@ -383,6 +383,62 @@ class SchedulerContinuationTest extends TestCase
     }
 
     /**
+     * A ceiling of zero means chaining is OFF here, and a kick is a chain
+     * of one — so it has to honour it like any other hop.
+     *
+     * It did not, and the omission had a precise cost: kick() went
+     * straight to emitHop(), which only checks base_url, while the ceiling
+     * lives in shouldHop(). The end-to-end and dynamic-scan harnesses set
+     * the ceiling to zero because `php -S` serves one request per worker
+     * and defaults to one worker, so the kick queued behind the request
+     * that emitted it and held the only worker for a whole slice — a
+     * browser step timed out waiting on a navigation, intermittently, and
+     * only under the scan where every request already carries proxy
+     * latency.
+     */
+    public function testKickHonoursACeilingOfZeroLikeAnyOtherHop(): void
+    {
+        // A socket that really is listening, so a kick that ignored the
+        // ceiling would succeed — a dead port would make this pass for
+        // the wrong reason, which is exactly how the first version of
+        // this test managed to pass without the fix.
+        $server = @stream_socket_server('tcp://127.0.0.1:0', $errno, $errstr);
+        $this->assertNotFalse($server, "could not open a local listening socket: {$errstr}");
+        $name = (string) stream_socket_get_name($server, false);
+        $port = (int) substr($name, (int) strrpos($name, ':') + 1);
+
+        $this->settings->register('base_url', '', 'text', 'base', 'test', null, null, null, false, 900);
+        $this->settings->setInternal('base_url', 'http://127.0.0.1:' . $port);
+        $this->settings->setInternal(SchedulerContinuation::MAX_HOPS_SETTING, '0');
+        $this->settings->setInternal(SchedulerContinuation::HOPS_SETTING, '7');
+
+        try {
+            $this->assertFalse($this->continuation->kick(), 'chaining is off: nothing may be emitted');
+            $this->assertSame(7, $this->continuation->hopCount(), 'and no chain may be begun either');
+        } finally {
+            fclose($server);
+        }
+    }
+
+    /**
+     * The counterpart: an unset ceiling must not be read as zero, or a
+     * fresh installation would silently never kick — and the migration an
+     * update just scheduled would wait for the next visitor, which is
+     * exactly what the kick exists to prevent.
+     */
+    public function testKickStillFiresWhenTheCeilingIsSimplyUnset(): void
+    {
+        $this->pdo->exec("DELETE FROM settings WHERE setting_key = '" . SchedulerContinuation::MAX_HOPS_SETTING . "'");
+
+        // No base_url, so nothing is written either way — what is asserted
+        // is that it got PAST the ceiling and began a chain.
+        $this->settings->setInternal(SchedulerContinuation::HOPS_SETTING, '9');
+        $this->continuation->kick();
+
+        $this->assertSame(0, $this->continuation->hopCount(), 'a fresh chain was begun');
+    }
+
+    /**
      * And it degrades exactly like a hop. No base_url means no request to
      * write — which must be reported, not thrown: the update that calls
      * this has already succeeded, and the migration is queued either way.
