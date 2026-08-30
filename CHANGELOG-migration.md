@@ -30,11 +30,23 @@ juger de l'ampleur réelle.
   `drops.sql` dont la colonne a déjà disparu est ignorée avant ce point,
   donc un site installé ne rejournalise pas tout le fichier à chaque
   migration.
-- `MigrationRunner` reçoit un `?JournalService` nullable, câblé partout où
-  un journal existe (`public/index.php`, `public/cron.php`,
-  `InstallUpdateHandler`, `RestoreBackupHandler`,
-  `StatisticsServiceFactory`). Il reste nul dans `SetupController` : sur
-  une installation neuve, `event_log` est créée par la migration même qui
+- `MigrationRunner` reçoit un `?JournalService` nullable, passé en
+  argument nommé (`journal:`) plutôt qu'en sixième position — répéter le
+  budget de temps par défaut à chaque site d'appel pour atteindre le
+  paramètre suivant est exactement le genre de duplication qui diverge
+  silencieusement le jour où la valeur par défaut change.
+- **Câblé au seul chemin qui migre réellement aujourd'hui**,
+  `public/index.php` (le contrôle de migration en attente et l'endpoint
+  `/api/system/migration-step`). Volontairement pas dans
+  `InstallUpdateHandler` ni `RestoreBackupHandler` : aucun test n'atteint
+  leur étape de migration, et IT-07 réécrit précisément ces sites d'appel
+  pour leur passer l'ensemble des fichiers de schéma. Y câbler le journal
+  là-bas, avec le test que IT-07 doit de toute façon écrire, vaut mieux
+  que le câbler ici sans couverture. Pas dans `public/cron.php` non plus :
+  le `MigrationRunner` qu'il construit ne sert qu'à satisfaire le
+  constructeur de `ModuleManager` et n'est jamais appelé — c'est IT-07 qui
+  lui donnera un rôle. Il reste nul dans `SetupController` : sur une
+  installation neuve, `event_log` est créée par la migration même qui
   tourne.
 - Nettoyage induit : `scripts/e2e.sh` et `scripts/dast.sh` transportaient
   chacun un mécanisme d'instantané-et-diff de `storage/temp/backup_*.sql`
@@ -81,6 +93,19 @@ tout module. C'est très exactement la mise en garde d'`AGENTS.md`
 même trompé, `grep 'new MigrationResult('` ne trouvant pas les
 `new \Core\Database\MigrationResult(` pleinement qualifiés des tests. La
 suite de tests, elle, l'a vu immédiatement.
+
+### Ce qu'a coûté la couverture
+
+Le Quality Gate SonarQube exige 80 % de couverture sur le code nouveau ;
+la première version de cette itération est tombée à 43,9 %. Le déficit ne
+venait pas de `MigrationRunner` (92,5 % de lignes couvertes) mais des
+lignes de câblage ajoutées dans cinq racines de composition, qu'aucun
+test n'atteint — `InstallUpdateHandlerTest` et `RestoreBackupHandlerTest`
+existent mais ne vont jamais jusqu'à l'étape de migration. La réponse
+retenue n'a pas été d'écrire des tests pour ces chemins (ils appartiennent
+à IT-07) ni d'assouplir la porte, mais de **ne pas modifier ces lignes
+dans cette itération**. Une itération plus petite est aussi une itération
+plus couverte.
 
 ### Écarté
 

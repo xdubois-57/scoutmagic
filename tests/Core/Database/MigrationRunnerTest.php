@@ -211,6 +211,47 @@ class MigrationRunnerTest extends TestCase
     }
 
     /**
+     * The advisory lock is deliberately non-blocking (timeout 0): on the
+     * shared host this targets, ten visitors waiting on a lock are ten FPM
+     * workers immobilised against a ceiling of about twenty, so the site
+     * would fall over because of the mechanism meant to protect it. A
+     * caller that does not get the lock hands back immediately and simply
+     * reports "not done yet".
+     */
+    public function testMigrateYieldsImmediatelyWhenAnotherProcessHoldsTheLock(): void
+    {
+        $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';
+        $port = (int) (getenv('TEST_DB_PORT') ?: 3306);
+        $dbName = getenv('TEST_DB_NAME') ?: 'test_db';
+        $user = getenv('TEST_DB_USER') ?: 'root';
+        $password = getenv('TEST_DB_PASSWORD') ?: '';
+
+        // A second connection is a second MySQL session, which is what
+        // GET_LOCK() is scoped to — the same connection would just be
+        // granted the lock it already holds.
+        $other = new Connection($host, $port, $dbName, $user, $password);
+        $holder = $other->getPdo()->query("SELECT GET_LOCK('scoutmagic_schema_migration', 0)");
+        $this->assertSame(1, (int) $holder->fetchColumn());
+        $holder->closeCursor();
+
+        try {
+            $runner = new MigrationRunner($this->connection, $this->introspector, new SchemaComparator(), new SqlParser());
+
+            $result = $runner->migrate([dirname(__DIR__, 3) . '/schema/core.sql']);
+
+            $this->assertFalse($result->complete);
+            $this->assertEmpty($result->executedStatements);
+            // Nothing was created: the lock holder is the one doing the work.
+            $this->assertNotContains('members', $this->introspector->getTables());
+        } finally {
+            $release = $other->getPdo()->query("SELECT RELEASE_LOCK('scoutmagic_schema_migration')");
+            if ($release !== false) {
+                $release->closeCursor();
+            }
+        }
+    }
+
+    /**
      * The one place in the migration path that destroys data, so the one
      * place that owes the journal a `security` entry.
      */
@@ -241,8 +282,7 @@ class MigrationRunnerTest extends TestCase
                 $this->introspector,
                 new SchemaComparator(),
                 new SqlParser(),
-                20,
-                $journal
+                journal: $journal
             );
 
             $runner->migrate([$tmpDir . '/schema.sql']);
@@ -278,11 +318,51 @@ class MigrationRunnerTest extends TestCase
                 $this->introspector,
                 new SchemaComparator(),
                 new SqlParser(),
-                20,
-                $journal
+                journal: $journal
             );
 
             $runner->migrate([$tmpDir . '/schema.sql']);
+        } finally {
+            @unlink($tmpDir . '/schema.sql');
+            @unlink($tmpDir . '/drops.sql');
+            @rmdir($tmpDir);
+        }
+    }
+
+    /**
+     * `event_log` is itself one of the tables a migration may still be
+     * creating, so writing the journal entry can throw. A drop that
+     * already succeeded must not be turned into a failed migration by the
+     * attempt to record it.
+     */
+    public function testAJournalThatThrowsDoesNotFailTheDrop(): void
+    {
+        $pdo = $this->connection->getPdo();
+        $pdo->exec('CREATE TABLE noisy_journal_test (id INT PRIMARY KEY, name VARCHAR(50) NOT NULL, legacy VARCHAR(50) NOT NULL)');
+
+        $tmpDir = sys_get_temp_dir() . '/migration_noisy_test_' . uniqid();
+        mkdir($tmpDir);
+        file_put_contents($tmpDir . '/schema.sql', "CREATE TABLE noisy_journal_test (\n    id INT PRIMARY KEY,\n    name VARCHAR(50) NOT NULL\n);");
+        file_put_contents($tmpDir . '/drops.sql', 'ALTER TABLE noisy_journal_test DROP COLUMN legacy;');
+
+        try {
+            $journal = $this->createMock(JournalService::class);
+            $journal->method('log')->willThrowException(new \RuntimeException('no event_log yet'));
+
+            $runner = new MigrationRunner(
+                $this->connection,
+                $this->introspector,
+                new SchemaComparator(),
+                new SqlParser(),
+                journal: $journal
+            );
+
+            $result = $runner->migrate([$tmpDir . '/schema.sql']);
+
+            $this->assertTrue($result->complete);
+            $this->assertContains('ALTER TABLE `noisy_journal_test` DROP COLUMN `legacy`', $result->executedStatements);
+            $columns = array_map(fn($c) => $c->name, $this->introspector->getColumns('noisy_journal_test'));
+            $this->assertNotContains('legacy', $columns);
         } finally {
             @unlink($tmpDir . '/schema.sql');
             @unlink($tmpDir . '/drops.sql');
@@ -355,7 +435,24 @@ class MigrationRunnerTest extends TestCase
         file_put_contents($tmpDir . '/drops.sql', 'DROP TABLE table_drop_test;');
 
         try {
-            $runner = new MigrationRunner($this->connection, $this->introspector, new SchemaComparator(), new SqlParser());
+            $journal = $this->createMock(JournalService::class);
+            $journal->expects($this->once())
+                ->method('log')
+                ->with(
+                    'core',
+                    'schema_drop_executed',
+                    'security',
+                    $this->anything(),
+                    ['table' => 'table_drop_test']
+                );
+
+            $runner = new MigrationRunner(
+                $this->connection,
+                $this->introspector,
+                new SchemaComparator(),
+                new SqlParser(),
+                journal: $journal
+            );
 
             $result = $runner->migrate([$tmpDir . '/schema.sql']);
 
@@ -397,7 +494,24 @@ class MigrationRunnerTest extends TestCase
         file_put_contents($tmpDir . '/drops.sql', 'ALTER TABLE fk_drop_test_child DROP FOREIGN KEY fk_drop_test_old;');
 
         try {
-            $runner = new MigrationRunner($this->connection, $this->introspector, new SchemaComparator(), new SqlParser());
+            $journal = $this->createMock(JournalService::class);
+            $journal->expects($this->once())
+                ->method('log')
+                ->with(
+                    'core',
+                    'schema_drop_executed',
+                    'security',
+                    $this->anything(),
+                    ['table' => 'fk_drop_test_child', 'constraint' => 'fk_drop_test_old']
+                );
+
+            $runner = new MigrationRunner(
+                $this->connection,
+                $this->introspector,
+                new SchemaComparator(),
+                new SqlParser(),
+                journal: $journal
+            );
 
             $result = $runner->migrate([$tmpDir . '/schema.sql']);
 

@@ -132,9 +132,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
                     $context->connection,
                     new SchemaIntrospector($pdo),
                     new SchemaComparator(),
-                    new SqlParser(),
-                    20,
-                    $context->journal
+                    new SqlParser()
                 );
                 $migrationResult = $migrationRunner->migrate([$basePath . '/schema/core.sql']);
                 $source = (string) ($payload['source'] ?? 'server');
@@ -202,9 +200,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 $context->connection,
                 new SchemaIntrospector($pdo),
                 new SchemaComparator(),
-                new SqlParser(),
-                20,
-                $context->journal
+                new SqlParser()
             );
             $migrationResult = $migrationRunner->migrate([$basePath . '/schema/core.sql']);
 

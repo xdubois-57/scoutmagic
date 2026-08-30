@@ -176,9 +176,7 @@ class InstallUpdateHandler implements TaskHandlerInterface
                     $context->connection,
                     new SchemaIntrospector($pdo),
                     new SchemaComparator(),
-                    new SqlParser(),
-                    20,
-                    $context->journal
+                    new SqlParser()
                 );
                 $migrationResult = $migrationRunner->migrate([$basePath . '/schema/core.sql']);
 
@@ -262,9 +260,7 @@ class InstallUpdateHandler implements TaskHandlerInterface
                 $context->connection,
                 new SchemaIntrospector($pdo),
                 new SchemaComparator(),
-                new SqlParser(),
-                20,
-                $context->journal
+                new SqlParser()
             );
             $migrationResult = $migrationRunner->migrate([$basePath . '/schema/core.sql']);
 

@@ -209,9 +209,7 @@ $migrationRunner = new MigrationRunner(
     $connection,
     new SchemaIntrospector($pdo),
     new SchemaComparator(),
-    new SqlParser(),
-    20,
-    $journalService
+    new SqlParser()
 );
 $moduleManager = new ModuleManager(
     __DIR__ . '/../modules',

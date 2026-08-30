@@ -388,8 +388,7 @@ $migrationRunner = new MigrationRunner(
     new SchemaIntrospector($connection->getPdo()),
     new SchemaComparator(),
     new SqlParser(),
-    20,
-    $migrationJournal
+    journal: $migrationJournal
 );
 $migrationIsPending = $migrationRunner->isPending([$schemaPath]);
 \Core\Debug\RequestTimeline::mark('migration_pending_check_done', ['pending' => $migrationIsPending]);
