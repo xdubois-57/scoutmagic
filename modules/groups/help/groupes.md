@@ -16,6 +16,10 @@ années passées, en lecture seule.
 
 ## Publier un message
 
+En haut du groupe, touchez la barre « Écrire un message… » : le
+formulaire complet s'ouvre. Le reste du temps elle tient sur une ligne
+et laisse la place aux messages.
+
 Écrivez jusqu'à 5000 caractères, joignez jusqu'à quatre photos ou
 vidéos, et mentionnez quelqu'un en tapant « @ » suivi de son nom — la
 personne citée est prévenue. Un lien tapé dans le texte est détecté

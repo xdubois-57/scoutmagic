@@ -399,6 +399,57 @@
 
         restoreDraft();
 
+        // --- Folded down to one line until it is asked for.
+        //
+        // show.html.twig renders the bar HIDDEN and the form open, so a
+        // browser that never runs this file keeps the composer it has
+        // always had — the fold is an enhancement, never the only way in.
+        // Everything below therefore only ever HIDES the form after
+        // having something to put in its place.
+        //
+        // Two states open it on arrival instead, and they are the same
+        // fact seen from two sides: this composer already holds text
+        // nobody has published yet.
+        //
+        //  - a local draft, just restored by restoreDraft() above (a
+        //    lost connection, a refused submit, a closed tab);
+        //  - a message the AI moderation refused and handed back to its
+        //    author, filled in server-side (data-rejected-draft, set by
+        //    show.html.twig for the shape that fills THIS composer). The
+        //    panel above it has just said the text was kept in the form
+        //    below; folding that form away would hide exactly what the
+        //    member was told to look for.
+        //
+        // Reading the textarea covers the first case and would cover the
+        // second on its own; the attribute is still consulted, because a
+        // rule the server states is not one to re-derive from a symptom.
+        //
+        // Opening is one-way: publishing a message does NOT fold the
+        // composer back. Somebody who has just written is the one person
+        // on the page likely to write again, and taking the form away
+        // from under them would read as the post having failed.
+        var openButton = document.getElementById('groups-composer-open');
+        if (openButton) {
+            var startsOpen = textarea.value.trim() !== '' || form.dataset.rejectedDraft === '1';
+
+            if (!startsOpen) {
+                form.classList.add('d-none');
+                openButton.classList.remove('d-none');
+                openButton.classList.add('d-flex');
+            }
+
+            openButton.addEventListener('click', function () {
+                form.classList.remove('d-none');
+                openButton.classList.add('d-none');
+                openButton.classList.remove('d-flex');
+                // The click meant "I want to write", so the caret goes
+                // where the writing happens rather than leaving one more
+                // tap between the member and the field they just asked
+                // for.
+                textarea.focus();
+            });
+        }
+
         // --- "Publier", offered only when there is something to publish.
         //
         // The same four things the server accepts a post for (Service\
