@@ -66,6 +66,14 @@ CREATE TABLE IF NOT EXISTS attestation_batches (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     published_at DATETIME NULL,
 
+    -- The two instants that separate the three states a reader can act on:
+    -- deposited (nothing published), published, and — the one that matters
+    -- most — published with nobody told yet. A tax certificate has a short
+    -- window of use: a family that does not know theirs is there will ask
+    -- for it in June, by e-mail, to the treasurer.
+    distribution_started_at DATETIME NULL,
+    notified_at DATETIME NULL,
+
     -- Who deposited it. ON DELETE SET NULL: losing the account must not
     -- lose the batch, which is a fact about the unit rather than about them.
     created_by INT UNSIGNED NULL,
@@ -127,13 +135,30 @@ CREATE TABLE IF NOT EXISTS attestation_batch_lines (
     -- forty boxes for a normal batch.
     is_selected BOOLEAN NOT NULL DEFAULT TRUE,
 
+    -- What publication put on the member's page. This is what makes a batch
+    -- reversible: it names exactly the rows THIS batch created, so taking
+    -- the batch back deletes what it produced and nothing else.
+    -- ON DELETE SET NULL rather than CASCADE — losing the document must not
+    -- lose the line, which still carries the page range and the count the
+    -- batch is accountable for.
+    member_document_id INT UNSIGNED NULL,
+
+    -- 'pending' | 'sent' | 'no_address' | 'failed' (Value\DeliveryState).
+    -- Telling the last two apart is the point: a family with no address on
+    -- record and a family whose mail server refused the message need two
+    -- different things from a chef d'unité, and « non envoyé » would say
+    -- neither.
+    delivery_state VARCHAR(20) NOT NULL DEFAULT 'pending',
+    sent_at DATETIME NULL,
+
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     UNIQUE INDEX idx_abl_batch_position (batch_id, position),
     INDEX idx_abl_member (member_id),
     CONSTRAINT fk_abl_batch FOREIGN KEY (batch_id) REFERENCES attestation_batches(id) ON DELETE CASCADE,
     CONSTRAINT fk_abl_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE,
-    CONSTRAINT fk_abl_file FOREIGN KEY (file_id) REFERENCES files(id)
+    CONSTRAINT fk_abl_file FOREIGN KEY (file_id) REFERENCES files(id),
+    CONSTRAINT fk_abl_document FOREIGN KEY (member_document_id) REFERENCES member_documents(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 
@@ -157,3 +182,4 @@ CREATE TABLE IF NOT EXISTS attestation_line_candidates (
     CONSTRAINT fk_alc_line FOREIGN KEY (line_id) REFERENCES attestation_batch_lines(id) ON DELETE CASCADE,
     CONSTRAINT fk_alc_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+

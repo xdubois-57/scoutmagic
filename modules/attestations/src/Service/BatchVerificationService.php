@@ -77,10 +77,12 @@ class BatchVerificationService
         $this->lines->assignMember($lineId, $memberId);
 
         // The certificate becomes readable by its owner and by nobody else
-        // the moment it has one — not later, at publication. A file with no
-        // owner is reachable by nobody at all, which is the safe direction
-        // while a decision is pending.
+        // the moment it has one — not later, at publication. Both halves
+        // move together: the owner check takes over the deciding, so the
+        // strict floor an unowned file carries comes down to the one a
+        // family can actually reach (BatchDepositService's two constants).
         $this->files->updateOwnerMember($line->fileId, $memberId);
+        $this->files->updateRoleMin($line->fileId, BatchDepositService::FILE_ROLE_MIN_OWNED);
 
         $this->journal->log(
             'attestations',

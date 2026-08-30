@@ -12,6 +12,7 @@ use Core\Journal\JournalService;
 use Modules\Attestations\Repository\BatchLineRepository;
 use Modules\Attestations\Repository\BatchRepository;
 use Modules\Attestations\Service\AttestationsException;
+use Modules\Attestations\Service\BatchDepositService;
 use Modules\Attestations\Service\BatchVerificationService;
 use Modules\Attestations\Value\AttestationCategory;
 use Modules\Attestations\Value\MatchState;
@@ -129,7 +130,9 @@ class BatchVerificationServiceTest extends TestCase
             'application/pdf',
             'attestation.pdf',
             'attestations/documents',
-            'admin',
+            $ownerMemberId === null
+                ? BatchDepositService::FILE_ROLE_MIN_UNOWNED
+                : BatchDepositService::FILE_ROLE_MIN_OWNED,
             'attestations',
             null,
             $ownerMemberId
@@ -166,6 +169,29 @@ class BatchVerificationServiceTest extends TestCase
         $this->assertSame(
             $this->memberIds['zoe_a'],
             $this->files->findById($line->fileId)?->ownerMemberId
+        );
+    }
+
+    /**
+     * And the floor comes down with it. `FileAccessGuard` checks the role
+     * floor AND the ownership match independently, so a certificate left at
+     * the strict floor it carried while unowned would stay unreadable by
+     * the very family it has just been attached to.
+     */
+    public function testResolvingALineAlsoLowersTheFloorToOneAFamilyCanReach(): void
+    {
+        $line = $this->lines->findById($this->lineIds['ambiguous']);
+        $this->assertNotNull($line);
+        $this->assertSame(
+            BatchDepositService::FILE_ROLE_MIN_UNOWNED,
+            $this->files->findById($line->fileId)?->roleMin
+        );
+
+        $this->service->assignMember($this->batchId, $this->lineIds['ambiguous'], $this->memberIds['zoe_a']);
+
+        $this->assertSame(
+            BatchDepositService::FILE_ROLE_MIN_OWNED,
+            $this->files->findById($line->fileId)?->roleMin
         );
     }
 

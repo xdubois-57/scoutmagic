@@ -1219,7 +1219,8 @@ $sectionStaffAuthorizationService = new \Core\Member\SectionStaffAuthorizationSe
 
 // Member page (Espace membres) "Documents privés" storage — see
 // Core\Member\MemberDocumentService.
-$memberDocumentService = new \Core\Member\MemberDocumentService(new \Core\Member\MemberDocumentRepository($pdo));
+$memberDocumentRepository = new \Core\Member\MemberDocumentRepository($pdo);
+$memberDocumentService = new \Core\Member\MemberDocumentService($memberDocumentRepository);
 
 // Member page "Adresses email" — multi-email support per member (Core\
 // Member\MemberEmailService). $memberEmailRepository was already built
@@ -2704,6 +2705,15 @@ if ($isEnabled('attestations')) {
         )
     );
 
+    $attestationVerificationService = new \Modules\Attestations\Service\BatchVerificationService(
+        $connection,
+        $attestationBatchRepository,
+        $attestationLineRepository,
+        $fileRepository,
+        $encryptedFileStorageService,
+        $journalService
+    );
+
     $frontController->registerController(
         \Modules\Attestations\Controller\BatchController::class,
         new \Modules\Attestations\Controller\BatchController(
@@ -2711,12 +2721,14 @@ if ($isEnabled('attestations')) {
             $attestationBatchRepository,
             $attestationLineRepository,
             $attestationMemberRepository,
-            new \Modules\Attestations\Service\BatchVerificationService(
+            $attestationVerificationService,
+            new \Modules\Attestations\Service\BatchPublicationService(
                 $connection,
                 $attestationBatchRepository,
                 $attestationLineRepository,
-                $fileRepository,
-                $encryptedFileStorageService,
+                $attestationVerificationService,
+                $memberDocumentRepository,
+                $schedulerService,
                 $journalService
             ),
             new \Modules\Attestations\Service\DuplicateDetector($attestationLineRepository),

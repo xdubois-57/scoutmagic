@@ -2,7 +2,7 @@
   "id": "attestations",
   "name": "Attestations",
   "description": "Découpe le PDF d'attestations envoyé par la fédération et dépose l'attestation de chaque membre sur sa page, visible par lui seul.",
-  "version": "1.1.0",
+  "version": "1.3.0",
   "routes": [
     {
       "path": "/admin/attestations",
@@ -52,10 +52,19 @@
       "label": ""
     },
     {
-      "path": "/admin/attestations/{id}/valider",
+      "path": "/admin/attestations/{id}/publier",
       "method": "POST",
       "controller": "Modules\\Attestations\\Controller\\BatchController",
-      "action": "commit",
+      "action": "publish",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/attestations/{id}/prevenir",
+      "method": "POST",
+      "controller": "Modules\\Attestations\\Controller\\BatchController",
+      "action": "notify",
       "menu": "espace_admin",
       "role_min": "admin",
       "label": ""
@@ -63,10 +72,29 @@
   ],
   "settings": [],
   "cookies": [],
-  "scheduled_tasks": [],
+  "notifications": [
+    {
+      "id": "attestations.published",
+      "label": "Attestation disponible",
+      "description": "Un document nominatif vous a été envoyé et déposé sur la page du membre concerné.",
+      "group": "Attestations",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "off"
+      }
+    }
+  ],
+  "scheduled_tasks": [
+    {
+      "key": "send_batch",
+      "handler": "Modules\\Attestations\\Task\\SendCertificatesHandler"
+    }
+  ],
   "storage": {
-    "documents": {
-      "role_min": "admin"
+    "attestations/documents": {
+      "role_min": "identified"
     }
   }
 }

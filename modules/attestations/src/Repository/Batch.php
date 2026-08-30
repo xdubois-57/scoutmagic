@@ -34,12 +34,31 @@ final class Batch
         public readonly int $discardedCount,
         public readonly string $createdAt,
         public readonly ?string $publishedAt,
-        public readonly ?int $createdBy
+        public readonly ?int $createdBy,
+        public readonly ?string $distributionStartedAt = null,
+        public readonly ?string $notifiedAt = null
     ) {
     }
 
     public function isPublished(): bool
     {
         return $this->status === BatchStatus::Published;
+    }
+
+    /**
+     * Published, and nobody told yet — the state the screen has to shout
+     * about. A tax certificate has a short window of use: a family that
+     * does not know theirs is there will ask for it in June, by e-mail, to
+     * the treasurer.
+     */
+    public function awaitsDistribution(): bool
+    {
+        return $this->isPublished() && $this->distributionStartedAt === null;
+    }
+
+    /** The send is under way: asked for, not finished. */
+    public function isDistributing(): bool
+    {
+        return $this->distributionStartedAt !== null && $this->notifiedAt === null;
     }
 }

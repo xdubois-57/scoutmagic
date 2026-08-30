@@ -110,6 +110,43 @@ class BatchRepository
     }
 
     /**
+     * The documents are on the members' pages. From here the batch is
+     * read-only: `owner_member_id` makes every certificate unreadable by
+     * the staff who published it, so there is nothing left to check and
+     * nothing left to change — only to take back in full (see the reset).
+     */
+    public function markPublished(int $batchId): void
+    {
+        $stmt = $this->connection->getPdo()->prepare(
+            'UPDATE attestation_batches SET status = ?, published_at = ? WHERE id = ?'
+        );
+        $stmt->execute([BatchStatus::Published->value, AppClock::now()->format('Y-m-d H:i:s'), $batchId]);
+    }
+
+    /**
+     * The send was asked for. Stamped when the chef d'unité presses, not
+     * when the last message leaves: the screen has to stop saying
+     * « familles non prévenues » the moment the gesture is made, or
+     * somebody presses again.
+     */
+    public function markDistributionStarted(int $batchId): void
+    {
+        $stmt = $this->connection->getPdo()->prepare(
+            'UPDATE attestation_batches SET distribution_started_at = ? WHERE id = ? AND distribution_started_at IS NULL'
+        );
+        $stmt->execute([AppClock::now()->format('Y-m-d H:i:s'), $batchId]);
+    }
+
+    /** Every line settled and the one notification sent. */
+    public function markNotified(int $batchId): void
+    {
+        $stmt = $this->connection->getPdo()->prepare(
+            'UPDATE attestation_batches SET notified_at = ? WHERE id = ? AND notified_at IS NULL'
+        );
+        $stmt->execute([AppClock::now()->format('Y-m-d H:i:s'), $batchId]);
+    }
+
+    /**
      * @param array<string, mixed> $row
      */
     private static function mapRow(array $row): Batch
@@ -129,7 +166,11 @@ class BatchRepository
             discardedCount: (int) $row['discarded_count'],
             createdAt: (string) $row['created_at'],
             publishedAt: $row['published_at'] !== null ? (string) $row['published_at'] : null,
-            createdBy: $row['created_by'] !== null ? (int) $row['created_by'] : null
+            createdBy: $row['created_by'] !== null ? (int) $row['created_by'] : null,
+            distributionStartedAt: ($row['distribution_started_at'] ?? null) !== null
+                ? (string) $row['distribution_started_at']
+                : null,
+            notifiedAt: ($row['notified_at'] ?? null) !== null ? (string) $row['notified_at'] : null
         );
     }
 }

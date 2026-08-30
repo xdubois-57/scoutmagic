@@ -1828,7 +1828,7 @@ validé n'a rien donné à personne.
 **Un membre qui apparaît deux fois dans un même lot** est signalé de la même façon, sur les deux
 lignes : c'est le même fait, et le lecteur choisit laquelle garder.
 
-### 41.5 À la validation
+### 41.5 À la publication
 
 Les lignes non cochées sont **supprimées** — leur découpe n'est pas conservée, aucun document n'est
 créé. Une ligne sans membre part avec elles plutôt que de bloquer tout le lot : un chef d'unité ne
@@ -1837,7 +1837,54 @@ doit pas rester coincé sur un nom que Desk ne contient pas, et l'écran l'annon
 Le lot garde en revanche **le compte de ce qui a été écarté**, pour qu'on puisse répondre six mois
 plus tard à « pourquoi 43 attestations pour 55 membres ? ». Un compteur, pas des noms.
 
-### 41.6 Hors périmètre
+Chaque ligne conservée dépose **un document sur la page de son membre** (`member_documents`),
+pointant vers l'attestation déjà découpée : la publication ne crée pas un second fichier, elle
+rattache celui qui existe. Le document porte le libellé du lot et l'année scoute du lot, et la ligne
+retient l'identifiant du document qu'elle a produit — c'est ce qui rendra le lot reprenable.
+
+**Un lot publié est verrouillé, y compris pour celui qui l'a publié.** `owner_member_id` rend chaque
+attestation illisible par le staff : il n'y a donc plus rien à vérifier ni rien à corriger, seulement
+à reprendre en entier. L'écran continue d'afficher les lignes, en lecture seule — un lot publié reste
+le relevé de ce qui est parti où.
+
+### 41.6 Prévenir les familles
+
+**Publier n'est pas envoyer, et c'est délibérément deux gestes.** Une attestation ne sert qu'au
+moment où la famille en a besoin ; sans avertissement, elle la réclamera des mois plus tard, par
+e-mail, au trésorier. Tant que personne n'a appuyé, l'écran affiche « Familles non prévenues » en
+évidence.
+
+L'envoi n'est **jamais automatique** : c'est un bouton du chef d'unité. Un lot déposé n'est pas
+forcément un lot qu'on veut envoyer aujourd'hui, et une découpe se vérifie avant que quoi que ce soit
+ne parte.
+
+**L'attestation part en pièce jointe.** C'est ce qui résout le cas du membre parti : sa famille n'a
+plus aucun accès au site, et c'est elle qui a le plus besoin du document. Un lien public porteur d'un
+jeton a été écarté — un jeton qui circule vaut un accès, l'exposition serait la même avec en plus une
+route et une exception au contrôle d'accès.
+
+**Un message par famille, envoyé par petits groupes**, jamais dans la requête qui l'a demandé : deux
+cents attestations, ce sont deux cents allers-retours SMTP, et une rafale est ce qui abîme la
+réputation d'un domaine. Le déclenchement arme une tâche planifiée qui envoie une tranche puis se
+réarme tant qu'il reste du travail.
+
+**Un envoi n'est jamais réessayé.** Un échec de transport ne sait pas distinguer « jamais parti » de
+« parti, puis la connexion est tombée », et une attestation reçue deux fois est pire qu'une
+attestation reçue une fois : la famille ne peut pas savoir laquelle fait foi. La ligne est marquée,
+l'écran la compte, et le chef d'unité renvoie à la main depuis la fiche du membre.
+
+L'adresse utilisée est celle **du membre, la plus récente que le site connaisse**. Un membre dont le
+site ne connaît aucune adresse est compté « aucune adresse connue » plutôt que réessayé indéfiniment :
+son attestation est bien sur sa page, et l'écran dit ce que ces deux compteurs — sans adresse, envoi
+refusé — veulent dire et ce qu'on peut y faire.
+
+**Une notification par compte, pas une par document.** Un parent de trois enfants recevrait sinon
+trois notifications d'affilée, ce qui est exactement la façon dont on apprend à balayer ce genre de
+message sans le lire. La notification ne nomme personne : elle porte le libellé du lot, parce qu'elle
+s'affiche sur un écran verrouillé. Le canal e-mail de cette notification est désactivé — l'attestation
+elle-même arrive déjà par e-mail.
+
+### 41.7 Hors périmètre
 
 La **génération** d'attestations par l'unité elle-même. Le site ne produit aucun document : il découpe
 un PDF qu'on lui fournit. Une attestation de présence après camp entre donc dans le périmètre si elle

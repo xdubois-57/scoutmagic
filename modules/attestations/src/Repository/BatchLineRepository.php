@@ -12,6 +12,7 @@ use Core\Config\AppClock;
 use Core\Database\Connection;
 use Core\Security\EncryptionService;
 use Modules\Attestations\Value\BatchStatus;
+use Modules\Attestations\Value\DeliveryState;
 use Modules\Attestations\Value\MatchState;
 
 /**
@@ -221,6 +222,94 @@ class BatchLineRepository
         return array_map(static fn(array $row): int => (int) $row['file_id'], $rows);
     }
 
+    /**
+     * Record the document publication put on the member's page. This is
+     * what makes the batch reversible: it names exactly the rows THIS batch
+     * created.
+     */
+    public function attachDocument(int $lineId, int $memberDocumentId): void
+    {
+        $stmt = $this->connection->getPdo()->prepare(
+            'UPDATE attestation_batch_lines SET member_document_id = ? WHERE id = ?'
+        );
+        $stmt->execute([$memberDocumentId, $lineId]);
+    }
+
+    /**
+     * The lines of a published batch nothing has been attempted for yet,
+     * oldest first and bounded.
+     *
+     * Bounded because distribution is a mail send per member: a batch of two
+     * hundred is two hundred SMTP round trips, which is why it runs through
+     * the scheduler in slices rather than inside the request that asked for
+     * it (deliverability, and a page that would otherwise time out).
+     *
+     * @return list<BatchLine>
+     */
+    public function findPendingDelivery(int $batchId, int $limit): array
+    {
+        $stmt = $this->connection->getPdo()->prepare(
+            'SELECT * FROM attestation_batch_lines
+             WHERE batch_id = ? AND member_id IS NOT NULL AND delivery_state = ?
+             ORDER BY position ASC
+             LIMIT ' . max(1, $limit)
+        );
+        $stmt->execute([$batchId, DeliveryState::Pending->value]);
+        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+
+        return array_map(fn(array $row): BatchLine => $this->mapRow($row, []), $rows);
+    }
+
+    public function recordDelivery(int $lineId, DeliveryState $state, ?string $sentAt): void
+    {
+        $stmt = $this->connection->getPdo()->prepare(
+            'UPDATE attestation_batch_lines SET delivery_state = ?, sent_at = ? WHERE id = ?'
+        );
+        $stmt->execute([$state->value, $sentAt, $lineId]);
+    }
+
+    /**
+     * How many lines are in each delivery state — what the published
+     * screen reports, and what tells the handler it has finished.
+     *
+     * @return array<string, int> state value => count
+     */
+    public function countByDeliveryState(int $batchId): array
+    {
+        $stmt = $this->connection->getPdo()->prepare(
+            'SELECT delivery_state, COUNT(*) AS total
+             FROM attestation_batch_lines
+             WHERE batch_id = ?
+             GROUP BY delivery_state'
+        );
+        $stmt->execute([$batchId]);
+
+        $counts = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $counts[(string) $row['delivery_state']] = (int) $row['total'];
+        }
+
+        return $counts;
+    }
+
+    /**
+     * Every member a published batch reached, once each — the audience of
+     * the one notification the batch sends.
+     *
+     * @return list<int>
+     */
+    public function findMemberIds(int $batchId): array
+    {
+        $stmt = $this->connection->getPdo()->prepare(
+            'SELECT DISTINCT member_id FROM attestation_batch_lines
+             WHERE batch_id = ? AND member_id IS NOT NULL
+             ORDER BY member_id ASC'
+        );
+        $stmt->execute([$batchId]);
+
+        return array_map(intval(...), $stmt->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
     public function countByBatch(int $batchId): int
     {
         $stmt = $this->connection->getPdo()->prepare(
@@ -349,7 +438,14 @@ class BatchLineRepository
             state: MatchState::tryFrom((string) $row['state']) ?? MatchState::Unmatched,
             fileId: (int) $row['file_id'],
             isSelected: (bool) $row['is_selected'],
-            candidateMemberIds: $candidateMemberIds
+            candidateMemberIds: $candidateMemberIds,
+            memberDocumentId: ($row['member_document_id'] ?? null) !== null
+                ? (int) $row['member_document_id']
+                : null,
+            deliveryState: DeliveryState::tryFromValue(
+                isset($row['delivery_state']) ? (string) $row['delivery_state'] : null
+            ) ?? DeliveryState::Pending,
+            sentAt: ($row['sent_at'] ?? null) !== null ? (string) $row['sent_at'] : null
         );
     }
 

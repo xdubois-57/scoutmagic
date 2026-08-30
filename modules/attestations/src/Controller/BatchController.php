@@ -14,12 +14,15 @@ use Core\Http\Controller\AbstractController;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Security\AuthSession;
 use Core\Service\IntegerInput;
 use Modules\Attestations\Repository\BatchLineRepository;
 use Modules\Attestations\Repository\BatchRepository;
 use Modules\Attestations\Repository\MemberNameRepository;
+use Modules\Attestations\Service\BatchPublicationService;
 use Modules\Attestations\Service\BatchVerificationService;
 use Modules\Attestations\Service\DuplicateDetector;
+use Modules\Attestations\Value\DeliveryState;
 use Modules\Attestations\Value\BatchStatus;
 use Modules\Attestations\Value\MatchState;
 use Twig\Environment;
@@ -43,6 +46,7 @@ class BatchController extends AbstractController
         private BatchLineRepository $lines,
         private MemberNameRepository $members,
         private BatchVerificationService $verification,
+        private BatchPublicationService $publication,
         private DuplicateDetector $duplicates,
         private ScoutYearService $scoutYears
     ) {
@@ -93,6 +97,11 @@ class BatchController extends AbstractController
             'selected_count' => $this->countSelected($lines),
             'pending_count' => $this->countPending($lines),
             'is_editable' => $batch->status === BatchStatus::Draft,
+            'delivery_counts' => $this->deliveryCounts($batchId),
+            'delivery_labels' => array_combine(
+                array_map(static fn(DeliveryState $state): string => $state->value, DeliveryState::cases()),
+                array_map(static fn(DeliveryState $state): string => $state->label(), DeliveryState::cases())
+            ),
             'match_state_matched' => MatchState::Matched,
             'match_state_ambiguous' => MatchState::Ambiguous,
         ]);
@@ -138,11 +147,17 @@ class BatchController extends AbstractController
     }
 
     /**
-     * POST /admin/attestations/{id}/valider — commit the selection.
+     * POST /admin/attestations/{id}/publier — commit the selection and put
+     * the kept certificates on their members' pages.
+     *
+     * One gesture, because it is one decision. From here the batch is
+     * read-only to its own staff: `owner_member_id` makes every certificate
+     * unreadable by whoever published it, so there is nothing left to check
+     * and nothing left to correct — only to take back in full.
      *
      * @param array<string, string> $params
      */
-    public function commit(Request $request, array $params): Response
+    public function publish(Request $request, array $params): Response
     {
         $batchId = IntegerInput::id($params['id'] ?? null);
         if ($batchId === null) {
@@ -166,18 +181,77 @@ class BatchController extends AbstractController
         }
 
         try {
-            $discarded = $this->verification->commitSelection($batchId, $selected);
-            FlashMessage::set('success', $discarded === 0
-                ? 'Sélection validée.'
-                : sprintf('Sélection validée : %d attestation(s) écartée(s) et supprimée(s).', $discarded));
+            $result = $this->publication->publish($batchId, $selected, AuthSession::getUserAccountId());
+            FlashMessage::set('success', sprintf(
+                '%d attestation(s) publiée(s)%s.',
+                $result['published'],
+                $result['discarded'] === 0
+                    ? ''
+                    : sprintf(', %d écartée(s) et supprimée(s)', $result['discarded'])
+            ));
         } catch (\Throwable $e) {
             FlashMessage::set('error', UserFacingMessage::from(
                 $e,
-                'La validation a échoué. Rechargez la page et réessayez.'
+                'La publication a échoué. Rechargez la page et réessayez.'
             ));
         }
 
         return $this->redirect($path);
+    }
+
+    /**
+     * POST /admin/attestations/{id}/prevenir — send the batch out.
+     *
+     * Always a gesture, never automatic: a certificate has a short window
+     * of use, and a family that does not know theirs is there will ask for
+     * it in June, by e-mail, to the treasurer.
+     *
+     * @param array<string, string> $params
+     */
+    public function notify(Request $request, array $params): Response
+    {
+        $batchId = IntegerInput::id($params['id'] ?? null);
+        if ($batchId === null) {
+            return $this->notFound();
+        }
+
+        $path = AttestationsController::PATH . '/' . $batchId;
+        if (($guard = $this->guardCsrf($request, $path)) !== null) {
+            return $guard;
+        }
+
+        try {
+            $this->publication->startDistribution($batchId, AuthSession::getUserAccountId());
+            FlashMessage::set(
+                'success',
+                'Envoi lancé. Les messages partent par petits groupes ; revenez sur cette page pour suivre.'
+            );
+        } catch (\Throwable $e) {
+            FlashMessage::set('error', UserFacingMessage::from(
+                $e,
+                'L\'envoi n\'a pas pu être lancé. Rechargez la page et réessayez.'
+            ));
+        }
+
+        return $this->redirect($path);
+    }
+
+    /**
+     * How many certificates are in each delivery state, in the enum's own
+     * order so the screen reads the same every time.
+     *
+     * @return array<string, int>
+     */
+    private function deliveryCounts(int $batchId): array
+    {
+        $stored = $this->lines->countByDeliveryState($batchId);
+
+        $counts = [];
+        foreach (DeliveryState::cases() as $state) {
+            $counts[$state->value] = $stored[$state->value] ?? 0;
+        }
+
+        return $counts;
     }
 
     /**

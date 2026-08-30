@@ -20,6 +20,8 @@ use Modules\Attestations\Controller\BatchController;
 use Modules\Attestations\Repository\BatchLineRepository;
 use Modules\Attestations\Repository\BatchRepository;
 use Modules\Attestations\Repository\MemberNameRepository;
+use Core\Scheduler\SchedulerService;
+use Modules\Attestations\Service\BatchPublicationService;
 use Modules\Attestations\Service\BatchVerificationService;
 use Modules\Attestations\Service\DuplicateDetector;
 use Modules\Attestations\Value\AttestationCategory;
@@ -343,7 +345,7 @@ class BatchControllerTest extends TestCase
     {
         $response = $this->frontController()->handle(new Request(
             'POST',
-            '/admin/attestations/' . $this->batchId . '/valider',
+            '/admin/attestations/' . $this->batchId . '/publier',
             [],
             [
                 'line_ids' => [(string) $this->lineIds['margaux']],
@@ -373,7 +375,7 @@ class BatchControllerTest extends TestCase
     {
         $this->frontController()->handle(new Request(
             'POST',
-            '/admin/attestations/' . $this->batchId . '/valider',
+            '/admin/attestations/' . $this->batchId . '/publier',
             [],
             [
                 'line_ids' => [(string) $this->lineIds['margaux'], '2/2'],
@@ -390,7 +392,7 @@ class BatchControllerTest extends TestCase
     {
         $this->frontController()->handle(new Request(
             'POST',
-            '/admin/attestations/' . $this->batchId . '/valider',
+            '/admin/attestations/' . $this->batchId . '/publier',
             [],
             ['line_ids' => [(string) $this->lineIds['margaux']], '_csrf_token' => 'invalide'],
             [],
@@ -400,12 +402,171 @@ class BatchControllerTest extends TestCase
         $this->assertCount(4, $this->lines->findByBatch($this->batchId));
     }
 
+    // --- publication, and the send that follows it -----------------------
+
+    /** Publishing puts the document on the member's own page. */
+    public function testPublishingThroughTheRoutePutsTheDocumentOnTheMembersPage(): void
+    {
+        $this->publishMargaux();
+
+        $documents = (new \Core\Member\MemberDocumentRepository($this->pdo))
+            ->findByMemberAndYear($this->memberIds['margaux'], $this->scoutYearId);
+
+        $this->assertCount(1, $documents);
+        $this->assertSame('Attestation fiscale 2025', $documents[0]->title);
+    }
+
+    /**
+     * The state that has to shout: published is not sent, and a certificate
+     * nobody was told about is one the family asks for in June, by e-mail,
+     * to the treasurer.
+     */
+    public function testThePublishedScreenAsksForTheFamiliesToBeWarned(): void
+    {
+        $this->publishMargaux();
+
+        $body = $this->body();
+
+        $this->assertStringContainsString('Familles non prévenues', $body);
+        $this->assertStringContainsString('/admin/attestations/' . $this->batchId . '/prevenir', $body);
+        $this->assertStringContainsString('1 attestation publiée', $body);
+        $this->assertStringContainsString('3 lignes non retenues', $body);
+    }
+
+    /**
+     * Nothing on a published batch can be decided any more: no tick, no
+     * bulk command, no publish button — only the reading of what went
+     * where, and the sentence saying why nobody here can re-open it.
+     */
+    public function testThePublishedScreenOffersNoControls(): void
+    {
+        $this->publishMargaux();
+
+        $body = $this->body();
+
+        $this->assertStringNotContainsString('Les lignes non cochées seront supprimées', $body);
+        $this->assertStringNotContainsString('id="attestations-publish-count"', $body);
+        $this->assertStringNotContainsString('lignes affichées', $body);
+        $this->assertMatchesRegularExpression(
+            '#value="' . $this->lineIds['margaux'] . '"[^>]*disabled#',
+            $body
+        );
+        $this->assertStringContainsString('Vous ne pouvez pas rouvrir les documents publiés', $body);
+    }
+
+    /**
+     * The send is queued, never made inside the request: a batch of two
+     * hundred is two hundred SMTP round trips.
+     */
+    public function testAskingForTheSendQueuesTheTaskAndStopsAsking(): void
+    {
+        $this->publishMargaux();
+
+        $response = $this->notifyRequest(CsrfGuard::generateToken());
+
+        $this->assertSame(302, $response->getStatusCode());
+
+        $row = $this->pdo->query('SELECT module_id, task_key, payload FROM scheduled_actions')
+            ->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($row);
+        $this->assertSame('attestations', $row['module_id']);
+        $this->assertSame('send_batch', $row['task_key']);
+        $this->assertSame(['batch_id' => $this->batchId], json_decode((string) $row['payload'], true));
+
+        $body = $this->body();
+        $this->assertStringNotContainsString('Familles non prévenues', $body);
+        $this->assertStringContainsString('Envoi en cours', $body);
+    }
+
+    /**
+     * Pressing twice is how a family gets two copies of the same document,
+     * and an e-mail does not come back.
+     */
+    public function testAskingForTheSendTwiceQueuesNothingMore(): void
+    {
+        $this->publishMargaux();
+        $this->notifyRequest(CsrfGuard::generateToken());
+        $this->notifyRequest(CsrfGuard::generateToken());
+
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM scheduled_actions')->fetchColumn()
+        );
+    }
+
+    public function testABatchThatWasNeverPublishedCannotBeSent(): void
+    {
+        $this->notifyRequest(CsrfGuard::generateToken());
+
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM scheduled_actions')->fetchColumn()
+        );
+    }
+
+    public function testAskingForTheSendWithoutAValidCsrfTokenQueuesNothing(): void
+    {
+        $this->publishMargaux();
+        $this->notifyRequest('invalide');
+
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM scheduled_actions')->fetchColumn()
+        );
+    }
+
+    /**
+     * Two problems with two different remedies, said out loud: a list of
+     * « envoyées » read on its own looks complete.
+     */
+    public function testTheScreenCountsWhatCouldNotBeDeliveredAndSaysWhatItMeans(): void
+    {
+        $this->publishMargaux();
+        $this->notifyRequest(CsrfGuard::generateToken());
+        $this->pdo->prepare('UPDATE attestation_batch_lines SET delivery_state = ? WHERE batch_id = ?')
+            ->execute(['no_address', $this->batchId]);
+
+        $body = $this->body();
+
+        $this->assertStringContainsString('Aucune adresse connue', $body);
+        $this->assertStringContainsString('bien déposée sur la page du membre', $body);
+    }
+
+    /** Keeps only Margaux, which is what every published-state test needs. */
+    private function publishMargaux(): void
+    {
+        $this->frontController()->handle(new Request(
+            'POST',
+            '/admin/attestations/' . $this->batchId . '/publier',
+            [],
+            [
+                'line_ids' => [(string) $this->lineIds['margaux']],
+                '_csrf_token' => CsrfGuard::generateToken(),
+            ],
+            [],
+            []
+        ));
+    }
+
+    private function notifyRequest(string $token): \Core\Http\Response
+    {
+        return $this->frontController()->handle(new Request(
+            'POST',
+            '/admin/attestations/' . $this->batchId . '/prevenir',
+            [],
+            ['_csrf_token' => $token],
+            [],
+            []
+        ));
+    }
+
     private function frontController(): FrontController
     {
         $router = new Router();
         $router->addRoute('GET', '/admin/attestations/{id}', BatchController::class, 'show', 'admin');
         $router->addRoute('POST', '/admin/attestations/{id}/rattacher', BatchController::class, 'assign', 'admin');
-        $router->addRoute('POST', '/admin/attestations/{id}/valider', BatchController::class, 'commit', 'admin');
+        $router->addRoute('POST', '/admin/attestations/{id}/publier', BatchController::class, 'publish', 'admin');
+        $router->addRoute('POST', '/admin/attestations/{id}/prevenir', BatchController::class, 'notify', 'admin');
 
         $configFile = sys_get_temp_dir() . '/test_attestations_batch_' . uniqid() . '.php';
         file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
@@ -424,12 +585,21 @@ class BatchControllerTest extends TestCase
                 $this->batches,
                 $this->lines,
                 new MemberNameRepository($connection, $encryption),
-                new BatchVerificationService(
+                $verification = new BatchVerificationService(
                     $connection,
                     $this->batches,
                     $this->lines,
                     $files,
                     new EncryptedFileStorageService($files, $encryption, $this->storageRoot),
+                    $journal
+                ),
+                new BatchPublicationService(
+                    $connection,
+                    $this->batches,
+                    $this->lines,
+                    $verification,
+                    new \Core\Member\MemberDocumentRepository($this->pdo),
+                    SchedulerService::forPdo($this->pdo),
                     $journal
                 ),
                 new DuplicateDetector($this->lines),

@@ -5,7 +5,7 @@ summary: Relire l'appariement, trancher les homonymes et décider ce qui part.
 category: Espace chefs d'U
 role_min: admin
 paths: /admin/attestations/*
-related: attestations
+related: attestations, attestations-distribuer
 ---
 
 Après le découpage, le site vous montre une ligne par attestation : le nom
@@ -48,7 +48,11 @@ même année est signalé sous sa ligne, avec la date. C'est un
 avertissement, pas un blocage : le site ne peut pas savoir si le second
 document est une correction ou un complément légitime.
 
-> Les lignes non cochées sont supprimées à la validation, y compris celles
+> Les lignes non cochées sont supprimées à la publication, y compris celles
 > qui n'ont pas de membre. Le lot conserve leur nombre, pas leur contenu,
 > et le fichier d'origine n'existe plus : pour les récupérer, il faut
 > redéposer un fichier.
+
+Une fois tout tranché, « Publier » dépose les attestations sur les pages des
+membres. La suite — prévenir les familles, suivre les envois — est décrite
+dans **Distribuer un lot d'attestations**.

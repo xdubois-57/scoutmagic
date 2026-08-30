@@ -231,7 +231,10 @@ class BatchDepositServiceTest extends TestCase
         $this->assertNotNull($matched);
         $this->assertSame($this->memberIds['vandenbrande'], $matched->ownerMemberId);
         $this->assertTrue($matched->encrypted);
-        $this->assertSame('admin', $matched->roleMin);
+        // `identified`, not `admin`: the guard wants the role floor AND
+        // the ownership match, so an admin floor would lock out the family
+        // the certificate belongs to and grant the staff nothing.
+        $this->assertSame('identified', $matched->roleMin);
 
         $ambiguous = $this->files->findById($lines[3]->fileId);
         $this->assertNotNull($ambiguous);

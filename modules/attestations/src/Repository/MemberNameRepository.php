@@ -141,6 +141,62 @@ class MemberNameRepository
         return $summaries;
     }
 
+    /**
+     * Each member's most recent Desk e-mail address, across every year.
+     *
+     * **Across every year, for the same reason as everything else here.** A
+     * certificate names people who have left, and their last known address
+     * is the only one the site has — it is also the one that matters most,
+     * since they have no page to fetch the document from.
+     *
+     * **The Desk address, and only it.** A member's confirmed secondary
+     * addresses are login identities of their own (SECURITY.md §2), and
+     * `MemberAccountResolver` resolves both for a NOTIFICATION — a line in
+     * somebody's centre. This carries the document itself, so it goes to
+     * the one address the unit holds for the family and no other: a
+     * teenager who added their own address should not thereby receive a
+     * copy of their parents' tax paperwork. A family the Desk address no
+     * longer reaches is what the member sheet's « Renvoyer par e-mail » is
+     * for.
+     *
+     * @param list<int> $memberIds
+     * @return array<int, string> members.id => address
+     */
+    public function findMostRecentEmails(array $memberIds): array
+    {
+        if ($memberIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(', ', array_fill(0, count($memberIds), '?'));
+        $stmt = $this->connection->getPdo()->prepare(
+            'SELECT my.member_id, my.email_encrypted
+             FROM member_years my
+             JOIN scout_years sy ON sy.id = my.scout_year_id
+             WHERE my.member_id IN (' . $placeholders . ')
+               AND my.email_encrypted IS NOT NULL
+             ORDER BY my.member_id ASC, sy.start_date ASC'
+        );
+        $stmt->execute($memberIds);
+
+        $emails = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $address = $this->decrypt($row['email_encrypted'], 'member_years.email');
+            if ($address === null) {
+                continue;
+            }
+
+            $address = trim($address);
+            if ($address !== '') {
+                // Later rows overwrite earlier ones, so the last one
+                // standing is the most recent season.
+                $emails[(int) $row['member_id']] = $address;
+            }
+        }
+
+        return $emails;
+    }
+
     private function decrypt(mixed $value, string $context): ?string
     {
         if ($value === null || $value === '') {

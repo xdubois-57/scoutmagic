@@ -30,6 +30,8 @@ final class AttestationsTestHelper
             discarded_count INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             published_at TEXT NULL,
+            distribution_started_at TEXT NULL,
+            notified_at TEXT NULL,
             created_by INTEGER NULL,
             FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
             FOREIGN KEY (created_by) REFERENCES user_accounts(id)
@@ -46,6 +48,9 @@ final class AttestationsTestHelper
             state TEXT NOT NULL,
             file_id INTEGER NOT NULL,
             is_selected INTEGER NOT NULL DEFAULT 1,
+            member_document_id INTEGER NULL,
+            delivery_state TEXT NOT NULL DEFAULT \'pending\',
+            sent_at TEXT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(batch_id, position),
             FOREIGN KEY (batch_id) REFERENCES attestation_batches(id),

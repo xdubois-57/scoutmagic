@@ -40,14 +40,31 @@ class BatchDepositService
     public const STORAGE_SUBDIRECTORY = 'attestations/documents';
 
     /**
-     * The floor on the split certificate's own `files` row. It is only a
-     * floor: `owner_member_id` is what actually decides, and it is checked
-     * on top of this (ARCHITECTURE.md §8.3). A file with no member yet —
-     * an unresolved line — is therefore reachable by nobody below admin
-     * AND by nobody at all through owner scoping, which is the safe
-     * direction while a decision is pending.
+     * The floor on a certificate that HAS a member, and only a floor:
+     * `owner_member_id` is what actually decides, checked on top of this
+     * and independently (ARCHITECTURE.md §8.3).
+     *
+     * `identified`, because the family reads the certificate and a family
+     * is `identified`. `FileAccessGuard::check()` wants the role floor AND
+     * the ownership match, so an `admin` floor here would lock out exactly
+     * the people the document is for while granting staff nothing — they
+     * are not linked to the member, so the owner check refuses them
+     * anyway.
      */
-    public const FILE_ROLE_MIN = 'admin';
+    public const FILE_ROLE_MIN_OWNED = 'identified';
+
+    /**
+     * The floor on a certificate that has NO member yet.
+     *
+     * An unowned file skips the ownership check entirely — there is no
+     * owner to compare against — so the role floor is the only thing left,
+     * and it has to be the strict one. Otherwise a certificate waiting for
+     * a human decision would be readable by any identified account that
+     * guessed its id, which is the one thing the unresolved state exists to
+     * prevent. It drops to `FILE_ROLE_MIN_OWNED` the moment somebody
+     * resolves the line (`BatchVerificationService::assignMember()`).
+     */
+    public const FILE_ROLE_MIN_UNOWNED = 'admin';
 
     public function __construct(
         private Connection $connection,
@@ -98,7 +115,9 @@ class BatchDepositService
                     'application/pdf',
                     $this->fileNameFor($label, $index + 1),
                     self::STORAGE_SUBDIRECTORY,
-                    self::FILE_ROLE_MIN,
+                    $attestation->matchedMemberId() === null
+                        ? self::FILE_ROLE_MIN_UNOWNED
+                        : self::FILE_ROLE_MIN_OWNED,
                     'attestations',
                     $createdBy,
                     $attestation->matchedMemberId()

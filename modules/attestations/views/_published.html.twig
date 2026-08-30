@@ -1,0 +1,109 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  The published state of a batch: what it produced, whether the families
+  have been told, and the sentence explaining why nobody here can re-open
+  what was published.
+
+  Included from batch.html.twig, which keeps rendering the lines below it in
+  read-only form — a published batch is still an accounting of what went
+  where, minus every control.
+#}
+<div class="card border-success mb-3">
+    <div class="card-header bg-success-subtle text-success-emphasis d-flex align-items-center gap-2">
+        <i class="bi bi-check-circle" aria-hidden="true"></i>
+        <span class="fw-semibold">{{ batch.documentCount }} attestation{{ batch.documentCount > 1 ? 's' : '' }} publiée{{ batch.documentCount > 1 ? 's' : '' }}</span>
+    </div>
+    <dl class="list-group list-group-flush mb-0">
+        <div class="list-group-item d-flex justify-content-between gap-3">
+            <dt class="fw-normal text-body-secondary">Publié le</dt>
+            <dd class="mb-0 text-end">{{ batch.publishedAt|datetime_fr }}</dd>
+        </div>
+        {% if batch.discardedCount > 0 %}
+            <div class="list-group-item d-flex justify-content-between gap-3">
+                <dt class="fw-normal text-body-secondary">Écartées</dt>
+                {# A count, never names: the discarded lines were deleted,
+                   and keeping who they were would be keeping personal data
+                   for a question that does not need it. #}
+                <dd class="mb-0 text-end">{{ batch.discardedCount }} ligne{{ batch.discardedCount > 1 ? 's' : '' }} non retenue{{ batch.discardedCount > 1 ? 's' : '' }}</dd>
+            </div>
+        {% endif %}
+        <div class="list-group-item d-flex justify-content-between gap-3">
+            <dt class="fw-normal text-body-secondary">Fichier d'origine</dt>
+            <dd class="mb-0 text-end">supprimé après découpage</dd>
+        </div>
+    </dl>
+</div>
+
+{% if batch.awaitsDistribution() %}
+    {#
+      The state that has to shout. A certificate has a short window of use:
+      without a message, a family will ask for it in June, by e-mail, to the
+      treasurer.
+    #}
+    <div class="card border-warning mb-3">
+        <div class="card-header bg-warning-subtle text-warning-emphasis d-flex align-items-center gap-2">
+            <i class="bi bi-bell" aria-hidden="true"></i>
+            <span class="fw-semibold">Familles non prévenues</span>
+        </div>
+        <div class="card-body">
+            <p class="small text-body-secondary">
+                Une attestation sert au moment où la famille en a besoin. Sans avertissement, elle la
+                réclamera des mois plus tard, par e-mail. Chaque famille reçoit son document en pièce
+                jointe — c'est ce qui atteint aussi celles qui ont quitté l'unité et n'ont plus accès
+                au site.
+            </p>
+            <form method="post" action="/admin/attestations/{{ batch.id }}/prevenir"
+                  data-confirm="Prévenir les familles ? Chaque famille recevra son attestation par e-mail : un envoi ne se rattrape pas.">
+                {{ csrf_field()|raw }}
+                <button type="submit" class="btn btn-primary w-100 w-sm-auto">
+                    <i class="bi bi-bell" aria-hidden="true"></i> Prévenir les familles
+                </button>
+            </form>
+        </div>
+    </div>
+{% elseif batch.isDistributing() %}
+    <div class="alert alert-info" role="status">
+        <i class="bi bi-hourglass-split" aria-hidden="true"></i>
+        Envoi en cours depuis le {{ batch.distributionStartedAt|datetime_fr }}. Les messages partent
+        par petits groupes ; rechargez la page pour suivre.
+    </div>
+{% else %}
+    <div class="alert alert-success" role="status">
+        <i class="bi bi-bell" aria-hidden="true"></i>
+        Les familles ont été prévenues le {{ batch.notifiedAt|datetime_fr }}. Une notification par
+        compte, pas une par enfant.
+    </div>
+{% endif %}
+
+{% if batch.distributionStartedAt %}
+    <div class="row row-cols-2 row-cols-sm-4 g-2 mb-3">
+        {% for state, count in delivery_counts %}
+            <div class="col">
+                <div class="card h-100"><div class="card-body py-2">
+                    <div class="fs-5 fw-semibold lh-1">{{ count }}</div>
+                    <div class="small text-body-secondary">{{ delivery_labels[state] }}</div>
+                </div></div>
+            </div>
+        {% endfor %}
+    </div>
+    {% if delivery_counts['no_address']|default(0) > 0 or delivery_counts['failed']|default(0) > 0 %}
+        <p class="small text-body-secondary">
+            {# Said out loud, because a list of « envoyées » read alone looks
+               complete. Two different problems, two different remedies. #}
+            Une famille sans adresse connue n'a rien reçu par e-mail ; un envoi refusé a une adresse
+            qui n'a pas fonctionné cette fois. Dans les deux cas, l'attestation est bien déposée sur
+            la page du membre — une famille qui a un accès au site l'y trouve. Corrigez l'adresse
+            dans Desk pour les prochains envois.
+        </p>
+    {% endif %}
+{% endif %}
+
+<div class="alert alert-secondary small" role="note">
+    <i class="bi bi-lock" aria-hidden="true"></i>
+    Vous ne pouvez pas rouvrir les documents publiés : une attestation n'est lisible que par la
+    famille concernée. C'est aussi ce qui protège vos propres enfants du regard des autres membres du
+    staff.
+</div>

@@ -27,6 +27,8 @@ use Modules\Attestations\Repository\MemberNameRepository;
 use Modules\Attestations\Service\AttestationPdfReader;
 use Modules\Attestations\Service\AttestationPdfSplitter;
 use Modules\Attestations\Service\BatchDepositService;
+use Core\Scheduler\SchedulerService;
+use Modules\Attestations\Service\BatchPublicationService;
 use Modules\Attestations\Service\BatchVerificationService;
 use Modules\Attestations\Service\DuplicateDetector;
 use Modules\Attestations\Value\AttestationCategory;
@@ -91,7 +93,8 @@ class AttestationsRbacTest extends TestCase
             'deposit' => ['POST', '/admin/attestations'],
             'batch' => ['GET', '/admin/attestations/1'],
             'assign' => ['POST', '/admin/attestations/1/rattacher'],
-            'commit' => ['POST', '/admin/attestations/1/valider'],
+            'publish' => ['POST', '/admin/attestations/1/publier'],
+            'notify' => ['POST', '/admin/attestations/1/prevenir'],
         ];
     }
 
@@ -329,7 +332,8 @@ class AttestationsRbacTest extends TestCase
         $router->addRoute('POST', '/admin/attestations', AttestationsController::class, 'store', 'admin');
         $router->addRoute('GET', '/admin/attestations/{id}', BatchController::class, 'show', 'admin');
         $router->addRoute('POST', '/admin/attestations/{id}/rattacher', BatchController::class, 'assign', 'admin');
-        $router->addRoute('POST', '/admin/attestations/{id}/valider', BatchController::class, 'commit', 'admin');
+        $router->addRoute('POST', '/admin/attestations/{id}/publier', BatchController::class, 'publish', 'admin');
+        $router->addRoute('POST', '/admin/attestations/{id}/prevenir', BatchController::class, 'notify', 'admin');
 
         $configFile = sys_get_temp_dir() . '/test_attestations_config_' . uniqid() . '.php';
         file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
@@ -380,7 +384,18 @@ class AttestationsRbacTest extends TestCase
                 $batches,
                 $lines,
                 $members,
-                new BatchVerificationService($connection, $batches, $lines, $files, $fileStorage, $journal),
+                $attestationVerification = new BatchVerificationService(
+                    $connection, $batches, $lines, $files, $fileStorage, $journal
+                ),
+                new BatchPublicationService(
+                    $connection,
+                    $batches,
+                    $lines,
+                    $attestationVerification,
+                    new \Core\Member\MemberDocumentRepository($this->pdo),
+                    SchedulerService::forPdo($this->pdo),
+                    $journal
+                ),
                 new DuplicateDetector($lines),
                 $scoutYears
             )

@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Attestations\Repository;
 
+use Modules\Attestations\Value\DeliveryState;
 use Modules\Attestations\Value\MatchState;
 
 /**
@@ -37,8 +38,17 @@ final class BatchLine
         public readonly MatchState $state,
         public readonly int $fileId,
         public readonly bool $isSelected,
-        public readonly array $candidateMemberIds = []
+        public readonly array $candidateMemberIds = [],
+        public readonly ?int $memberDocumentId = null,
+        public readonly DeliveryState $deliveryState = DeliveryState::Pending,
+        public readonly ?string $sentAt = null
     ) {
+    }
+
+    /** True once this certificate is on its member's page. */
+    public function isPublished(): bool
+    {
+        return $this->memberDocumentId !== null;
     }
 
     /**

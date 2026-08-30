@@ -47,7 +47,23 @@ class ModuleManifestTest extends TestCase
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.1.0', $this->manifest->version);
+        $this->assertSame('1.3.0', $this->manifest->version);
+    }
+
+    /**
+     * The floor on the certificates themselves is `identified`, not the
+     * module's own `admin`, and that is not a slip: `FileAccessGuard` wants
+     * the floor AND the ownership match, so an `admin` floor would lock out
+     * the family the document belongs to while granting staff nothing. See
+     * Tests\Modules\Attestations\Service\CertificateAccessTest for the
+     * behaviour this declaration describes.
+     */
+    public function testTheStoredCertificatesDeclareTheFloorAFamilyCanReach(): void
+    {
+        $this->assertSame(
+            'identified',
+            $this->manifest->storage['attestations/documents']['role_min'] ?? null
+        );
     }
 
     /**
@@ -76,13 +92,14 @@ class ModuleManifestTest extends TestCase
      * an `offline` entry would be a privacy decision, not a config change.
      */
     /**
-     * Five routes, and the two that write are POSTs. A GET that deletes a
-     * certificate would be followed by a link prefetcher, a mail scanner or
-     * a browser's own speculative fetch.
+     * Every write is a POST. A GET that publishes a batch, or that sends a
+     * document to every family in the unit, would be followed by a link
+     * prefetcher, a mail scanner or a browser's own speculative fetch —
+     * and an envoi ne se rattrape pas.
      */
     public function testEveryWriteIsAPost(): void
     {
-        $writes = ['store', 'assign', 'commit'];
+        $writes = ['store', 'assign', 'publish', 'notify'];
 
         foreach ($this->manifest->routes as $route) {
             $expected = in_array($route['action'], $writes, true) ? 'POST' : 'GET';
@@ -104,6 +121,33 @@ class ModuleManifestTest extends TestCase
 
         $this->assertCount(1, $labelled);
         $this->assertSame('/admin/attestations', array_values($labelled)[0]['path']);
+    }
+
+    /**
+     * One type, and it is not an e-mail type: the certificate itself
+     * already arrives by e-mail, with the document attached. A second
+     * message saying a document has arrived would be one message too many,
+     * so the channel is locked off rather than merely defaulted off.
+     */
+    public function testTheOneNotificationTypeNeverGoesOutByEmail(): void
+    {
+        $this->assertCount(1, $this->manifest->notifications);
+
+        $type = $this->manifest->notifications[0];
+        $this->assertSame('attestations.published', $type['id']);
+        $this->assertSame('identified', $type['role_min']);
+        $this->assertSame('off', $type['channels']['email']);
+    }
+
+    /** The send runs through the scheduler, never inside a request. */
+    public function testTheDistributionIsAScheduledTask(): void
+    {
+        $this->assertCount(1, $this->manifest->scheduledTasks);
+        $this->assertSame('send_batch', $this->manifest->scheduledTasks[0]['key']);
+        $this->assertSame(
+            'Modules\\Attestations\\Task\\SendCertificatesHandler',
+            $this->manifest->scheduledTasks[0]['handler']
+        );
     }
 
     public function testNoPageIsOfferedOffline(): void

@@ -68,7 +68,11 @@
             </div>
         {% endif %}
 
-        <form method="post" action="/admin/attestations/{{ batch.id }}/valider" id="attestations-verification">
+        {% if not is_editable %}
+            {% include '@attestations/_published.html.twig' %}
+        {% endif %}
+
+        <form method="post" action="/admin/attestations/{{ batch.id }}/publier" id="attestations-verification">
             {{ csrf_field()|raw }}
 
             <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
@@ -201,7 +205,8 @@
                 </p>
                 <div class="d-flex flex-column flex-sm-row gap-2">
                     <button type="submit" class="btn btn-primary w-100 w-sm-auto">
-                        <i class="bi bi-check2-square" aria-hidden="true"></i> Valider la sélection
+                        <i class="bi bi-send" aria-hidden="true"></i>
+                        Publier <span id="attestations-publish-count">{{ selected_count }}</span> attestations
                     </button>
                     <a href="/admin/attestations" class="btn btn-outline-secondary w-100 w-sm-auto">Annuler</a>
                 </div>
