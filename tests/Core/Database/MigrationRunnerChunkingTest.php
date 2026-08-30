@@ -319,6 +319,61 @@ class MigrationRunnerChunkingTest extends TestCase
         $this->assertSame(1.0, $result->progressFraction);
     }
 
+    /**
+     * The same file, spelled two ways, must be one migration.
+     *
+     * The cache key and the resume key are derived from the schema file
+     * PATHS, and the callers do not spell the path the same way:
+     * public/index.php passes `<root>/public/../schema/core.sql` while
+     * Task\InstallUpdateHandler passes `<root>/schema/core.sql`
+     * (dirname of the storage path). Two strings, two `schema_hash_` rows,
+     * two `schema_migration_progress_` rows — for one file.
+     *
+     * What that costs in production: the update finishes migrating and
+     * caches its hash, then the very next page load asks the OTHER key,
+     * still finds the old hash there, and serves the migration-in-progress
+     * page — re-running through the browser the work the update just did.
+     * The resumable state is split the same way, so neither ever picks up
+     * where the other stopped.
+     */
+    public function testTheSameFileSpelledTwoWaysIsOneMigrationNotTwo(): void
+    {
+        $pdo = DatabaseTestHelper::createTestDatabase();
+        $connection = Connection::withPdo($pdo);
+
+        // Two spellings of $this->schemaPath: the plain one, and one that
+        // detours through a directory and back out again — exactly the
+        // shape of `public/..`.
+        $detour = $this->tmpDir . '/./' . basename($this->schemaPath);
+        $this->assertFileExists($detour, 'both spellings must name the same existing file');
+
+        $direct = new MigrationRunner(
+            $connection,
+            $this->introspectorMirroring($this->schemaPath),
+            new SchemaComparator(),
+            new SqlParser(),
+            20
+        );
+        $this->assertTrue($direct->isPending([$this->schemaPath]));
+        $this->assertTrue($direct->migrate([$this->schemaPath])->complete);
+        $this->assertFalse($direct->isPending([$this->schemaPath]));
+
+        // A second runner asking about the same file by its other name
+        // must see the migration that already happened.
+        $viaDetour = new MigrationRunner(
+            $connection,
+            $this->introspectorMirroring($this->schemaPath),
+            new SchemaComparator(),
+            new SqlParser(),
+            20
+        );
+
+        $this->assertFalse(
+            $viaDetour->isPending([$detour]),
+            'a migration already done must not be pending again under another spelling of the same path'
+        );
+    }
+
     public function testIsPendingReflectsWhetherAMigrationIsOutstanding(): void
     {
         $pdo = DatabaseTestHelper::createTestDatabase();

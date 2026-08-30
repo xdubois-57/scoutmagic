@@ -217,7 +217,6 @@ $moduleManager = new ModuleManager(
     new CookieConsentService(),
     new MenuBuilder(Role::SUPERADMIN),
     new ModuleRegistryRepository($pdo),
-    $migrationRunner,
     $journalService,
     new Router(),
     $notificationService,

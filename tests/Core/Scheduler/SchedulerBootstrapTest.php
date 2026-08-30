@@ -140,7 +140,6 @@ class SchedulerBootstrapTest extends TestCase
             new CookieConsentService(),
             new MenuBuilder(Role::SUPERADMIN),
             $registryRepo,
-            $migrationRunner,
             $journalService,
             new Router()
         );
