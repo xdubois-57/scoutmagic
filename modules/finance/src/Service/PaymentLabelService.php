@@ -271,7 +271,8 @@ class PaymentLabelService
         $account = $this->accountRepository->findById($campaign->accountId);
         if ($account === null || $account->iban === null || $account->iban === '') {
             throw new FinanceException(
-                "Le compte de cette campagne n'a pas d'IBAN configuré : les étiquettes n'auraient aucun moyen de paiement à imprimer."
+                "Le compte de cette campagne n'a pas d'IBAN configuré : les étiquettes"
+                . " n'auraient aucun moyen de paiement à imprimer."
             );
         }
 
@@ -285,15 +286,18 @@ class PaymentLabelService
         $beneficiary = $account->holderName ?? $account->name;
         $iban = IbanNormalizer::normalize($account->iban);
 
-        $withQr = array_map(fn(PaymentLabel $label): PaymentLabel => $label->withQrDataUri(
-            'data:image/png;base64,' . base64_encode($this->sepaQrCode->generatePrintPng(
-                $beneficiary,
-                $iban,
-                null,
-                $label->amountCents,
-                $label->communication
-            ))
-        ), $labels);
+        $withQr = array_map(
+            fn(PaymentLabel $label): PaymentLabel => $label->withQrDataUri(
+                'data:image/png;base64,' . base64_encode($this->sepaQrCode->generatePrintPng(
+                    $beneficiary,
+                    $iban,
+                    null,
+                    $label->amountCents,
+                    $label->communication
+                ))
+            ),
+            $labels
+        );
 
         $body = $this->twig->render('@finance/pdf/payment_labels.html.twig', [
             // Grouped for READING only — this one is typed by hand off a

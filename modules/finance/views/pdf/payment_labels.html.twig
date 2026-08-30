@@ -20,6 +20,14 @@
   disagree with the pagination, and the first symptom of that is a blank
   page between every two sheets.
 
+  **Why a table and not CSS.** dompdf lays this out, and its grid and
+  flexbox support is not something a print sheet can rely on; a table is
+  the one construct it paginates predictably across nine rows. Sonar asks
+  first for <th> headers (S5256) and, once the table is declared
+  presentational, for CSS layout instead (S5257) — the two are mutually
+  exclusive, and neither survives contact with the renderer. The table
+  stays, declared honestly as presentation.
+
   The payment details are repeated in text beside the QR, exactly as
   receivable_qr.html.twig does: a code that refuses to scan must never
   leave somebody with no way to pay. The beneficiary is not repeated —
