@@ -47,7 +47,7 @@ class ModuleManifestTest extends TestCase
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.0.0', $this->manifest->version);
+        $this->assertSame('1.1.0', $this->manifest->version);
     }
 
     /**
@@ -75,6 +75,37 @@ class ModuleManifestTest extends TestCase
      * and the page that lists batches is an administration page. Declaring
      * an `offline` entry would be a privacy decision, not a config change.
      */
+    /**
+     * Five routes, and the two that write are POSTs. A GET that deletes a
+     * certificate would be followed by a link prefetcher, a mail scanner or
+     * a browser's own speculative fetch.
+     */
+    public function testEveryWriteIsAPost(): void
+    {
+        $writes = ['store', 'assign', 'commit'];
+
+        foreach ($this->manifest->routes as $route) {
+            $expected = in_array($route['action'], $writes, true) ? 'POST' : 'GET';
+            $this->assertSame($expected, $route['method'] ?? 'GET', $route['path'] . ' ' . $route['action']);
+        }
+    }
+
+    /**
+     * One labelled route — the module's own page. Its sub-pages and its
+     * two write endpoints carry no label, so the menu holds one entry
+     * rather than five.
+     */
+    public function testOnlyTheLandingPageCarriesAMenuLabel(): void
+    {
+        $labelled = array_filter(
+            $this->manifest->routes,
+            static fn(array $route): bool => ($route['label'] ?? '') !== ''
+        );
+
+        $this->assertCount(1, $labelled);
+        $this->assertSame('/admin/attestations', array_values($labelled)[0]['path']);
+    }
+
     public function testNoPageIsOfferedOffline(): void
     {
         $this->assertSame([], $this->manifest->offline);

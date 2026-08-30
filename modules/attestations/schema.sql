@@ -19,8 +19,8 @@
 --
 -- Nothing here is personal data. A batch names a scout year, a category, a
 -- label the chef d'unité typed, and counts — never a member. The people are
--- in attestation_batch_lines (added in the iteration that introduces the
--- verification screen) and, once published, in core's member_documents.
+-- in attestation_batch_lines below and, once published, in core's
+-- member_documents.
 CREATE TABLE IF NOT EXISTS attestation_batches (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
 
@@ -73,4 +73,87 @@ CREATE TABLE IF NOT EXISTS attestation_batches (
     INDEX idx_ab_year_category (scout_year_id, category),
     CONSTRAINT fk_ab_year FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
     CONSTRAINT fk_ab_created_by FOREIGN KEY (created_by) REFERENCES user_accounts(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- attestation_batch_lines: ONE CERTIFICATE, as read out of the deposited
+-- file and already cut out of it.
+--
+-- The cut happens at deposit, not at publication, which is what makes the
+-- verification screen a decision about documents that exist rather than a
+-- promise about documents that do not. The lines a chef d'unité unchecks
+-- are deleted at validation — row and bytes both — and the batch keeps
+-- their COUNT and nothing else.
+--
+-- `read_name_encrypted` is a natural person's name and is therefore a BLOB
+-- encrypted through Core\Security\EncryptionService, decrypted only in the
+-- repository (SECURITY.md §5). It is the name as PRINTED, which is not
+-- always the name the site holds — that is the whole reason the screen
+-- shows it beside the member it was matched to.
+--
+-- No scout_year_id here: the batch carries it, and a line belongs to
+-- exactly one batch (AGENTS.md § Database — "unless the data itself
+-- genuinely isn't scout-year-scoped").
+CREATE TABLE IF NOT EXISTS attestation_batch_lines (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    batch_id INT UNSIGNED NOT NULL,
+
+    -- Position in the deposited file, 1-based. What orders the screen, so
+    -- the rows read in the same order as the pages they came from.
+    position INT UNSIGNED NOT NULL,
+    first_page INT UNSIGNED NOT NULL,
+    last_page INT UNSIGNED NOT NULL,
+
+    read_name_encrypted BLOB NULL,
+
+    -- The resolved member, NULL while the line is unmatched or ambiguous.
+    -- members.id, the persistent identity — a certificate covers a year
+    -- that is over and often names somebody who has left, so member_years
+    -- would be the wrong end of the relation (same reason as
+    -- files.owner_member_id, ARCHITECTURE.md §8.3).
+    member_id INT UNSIGNED NULL,
+
+    -- 'matched' | 'unmatched' | 'ambiguous' (Value\MatchState). Kept
+    -- alongside member_id rather than derived from it, because "resolved by
+    -- a human out of two homonyms" and "matched outright" are the same
+    -- member_id and not the same fact.
+    state VARCHAR(20) NOT NULL,
+
+    -- The certificate itself, already cut and stored encrypted at rest.
+    file_id INT UNSIGNED NOT NULL,
+
+    -- Checked by default: everything is distributed unless somebody says
+    -- otherwise, which is the ordinary case. The inverse would mean ticking
+    -- forty boxes for a normal batch.
+    is_selected BOOLEAN NOT NULL DEFAULT TRUE,
+
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    UNIQUE INDEX idx_abl_batch_position (batch_id, position),
+    INDEX idx_abl_member (member_id),
+    CONSTRAINT fk_abl_batch FOREIGN KEY (batch_id) REFERENCES attestation_batches(id) ON DELETE CASCADE,
+    CONSTRAINT fk_abl_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE,
+    CONSTRAINT fk_abl_file FOREIGN KEY (file_id) REFERENCES files(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- attestation_line_candidates: the members an AMBIGUOUS line could belong
+-- to. One row per candidate, never a list in a column.
+--
+-- It exists so the screen can offer the choice AND so the server can check
+-- the answer: a member id arriving in a request body is a request, never an
+-- authority (SECURITY.md §3). Resolving a line to somebody who was never a
+-- candidate is exactly the wrong-family outcome the ambiguous state exists
+-- to prevent, so the check is a join rather than a comparison somebody has
+-- to remember to write.
+--
+-- Rows are deleted the moment the line is resolved: a resolved line has no
+-- candidates, only a member.
+CREATE TABLE IF NOT EXISTS attestation_line_candidates (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    line_id INT UNSIGNED NOT NULL,
+    member_id INT UNSIGNED NOT NULL,
+    UNIQUE INDEX idx_alc_line_member (line_id, member_id),
+    CONSTRAINT fk_alc_line FOREIGN KEY (line_id) REFERENCES attestation_batch_lines(id) ON DELETE CASCADE,
+    CONSTRAINT fk_alc_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

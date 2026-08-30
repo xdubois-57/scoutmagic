@@ -1,0 +1,232 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{% extends 'base.html.twig' %}
+{% block title %}{{ batch.label }} — {{ site_name }}{% endblock %}
+{% block content %}
+    <div class="page-wide">
+        {% include 'partials/page_header.html.twig' with {
+            title: batch.label,
+            subtitle: batch.category.label() ~ ' — ' ~ batch.pageCount ~ ' pages, ' ~ batch.pagesPerDocument ~ ' page(s) par attestation.',
+            badge: scout_year_label,
+        } only %}
+
+        {% if is_editable %}
+            <div class="alert alert-warning" role="alert">
+                <strong>C'est votre seule occasion de vérifier.</strong>
+                Les lignes décochées sont supprimées à la validation, et une attestation publiée ne
+                peut plus être rouverte par vous — seule la famille concernée y accède.
+            </div>
+        {% endif %}
+
+        <div class="row row-cols-2 row-cols-sm-3 g-2 mb-3">
+            <div class="col">
+                <div class="card h-100"><div class="card-body py-2">
+                    <div class="fs-4 fw-semibold lh-1">{{ lines|length }}</div>
+                    <div class="small text-body-secondary">attestations lues</div>
+                </div></div>
+            </div>
+            <div class="col">
+                <div class="card h-100"><div class="card-body py-2">
+                    <div class="fs-4 fw-semibold lh-1 {{ pending_count > 0 ? 'text-warning-emphasis' : '' }}"
+                         id="attestations-pending-count">{{ pending_count }}</div>
+                    <div class="small text-body-secondary">à traiter</div>
+                </div></div>
+            </div>
+            <div class="col">
+                <div class="card h-100"><div class="card-body py-2">
+                    {#
+                      TWO counters, and this is the one that decides. « 12
+                      affichées sur 55 » sits on the filter below; this is
+                      what the batch will actually hold.
+                    #}
+                    <div class="fs-4 fw-semibold lh-1 text-primary" id="attestations-selected-count">{{ selected_count }}</div>
+                    <div class="small text-body-secondary">à distribuer</div>
+                </div></div>
+            </div>
+        </div>
+
+        {% if functions is not empty %}
+            {#
+              The filter is a select bar in `multi` mode, not a row of chips:
+              the functions come from Desk, vary from one unit to the next and
+              carry long labels (design.md §1.4's "open-ended set, coming from
+              the database" side). It persists nothing itself — the page
+              listens for `select-bar:change` and hides rows.
+            #}
+            <div class="mb-3">
+                {% include 'partials/select_bar.html.twig' with {
+                    picker_id: 'attestations-function-filter',
+                    label: 'Fonction principale',
+                    items: functions,
+                    mode: 'multi',
+                    none_selected_text: 'Toutes les fonctions',
+                    count_label: 'fonctions',
+                    empty_text: 'Aucune fonction à filtrer.',
+                } only %}
+            </div>
+        {% endif %}
+
+        <form method="post" action="/admin/attestations/{{ batch.id }}/valider" id="attestations-verification">
+            {{ csrf_field()|raw }}
+
+            <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+                <p class="small text-body-secondary mb-0" id="attestations-visible-count"
+                   data-total="{{ lines|length }}">
+                    {{ lines|length }} affichée{{ lines|length > 1 ? 's' : '' }} sur {{ lines|length }}
+                </p>
+                {% if is_editable %}
+                    {#
+                      The label carries the number of rows the command will
+                      touch, always. « Tout désélectionner » on a filtered
+                      screen is the classic trap: it reads as the whole batch
+                      and acts on part of it, or the reverse — and a batch
+                      published short is undetectable afterwards.
+                    #}
+                    <button type="button" class="btn btn-sm btn-outline-secondary"
+                            id="attestations-toggle-visible"
+                            data-select-label="Sélectionner les {n} lignes affichées"
+                            data-deselect-label="Désélectionner les {n} lignes affichées">
+                        Désélectionner les {{ lines|length }} lignes affichées
+                    </button>
+                {% endif %}
+            </div>
+
+            {% if lines is empty %}
+                {% include 'partials/empty_state.html.twig' with {
+                    message: 'Ce lot ne contient aucune attestation.',
+                    icon: 'bi-file-earmark-text',
+                } only %}
+            {% else %}
+                <div class="list-group mb-3" id="attestations-lines">
+                    {% for line in lines %}
+                        {% set summary = line.memberId ? summaries[line.memberId]|default(null) : null %}
+                        {% set warning = warnings[line.id]|default(null) %}
+                        <div class="list-group-item attestations-line{{ line.needsAttention() ? ' border-warning' : '' }}"
+                             data-line-id="{{ line.id }}"
+                             {# A row with no member has no function, so it is
+                                never hidden by the filter: masking it at the
+                                first sort would make it vanish without ever
+                                being dealt with. #}
+                             data-function="{{ summary and summary.functionLabel ? summary.functionLabel : '' }}"
+                             data-always-visible="{{ line.needsAttention() ? '1' : '0' }}">
+                            <div class="d-flex flex-column flex-md-row gap-2 align-items-md-center">
+                                <div class="d-flex align-items-center gap-3 flex-grow-1 min-w-0">
+                                    <div class="form-check mb-0">
+                                        <input type="checkbox"
+                                               class="form-check-input attestations-line-check"
+                                               id="attestations-line-{{ line.id }}"
+                                               name="line_ids[]"
+                                               value="{{ line.id }}"
+                                               {{ line.isSelected ? 'checked' : '' }}
+                                               {{ line.isDistributable() and is_editable ? '' : 'disabled' }}>
+                                        <label class="form-check-label visually-hidden"
+                                               for="attestations-line-{{ line.id }}">
+                                            Distribuer l'attestation lue « {{ line.readName|default('sans nom lisible') }} »
+                                        </label>
+                                    </div>
+                                    <span class="small text-body-secondary flex-shrink-0">p. {{ line.pageRangeLabel() }}</span>
+                                    <div class="min-w-0">
+                                        <div class="fw-medium text-truncate">{{ line.readName|default('Aucun nom lisible') }}</div>
+                                        <div class="small text-body-secondary">nom lu dans le PDF</div>
+                                    </div>
+                                </div>
+
+                                <div class="ms-md-auto" style="min-width:16rem;">
+                                    {% if summary %}
+                                        <div class="d-flex align-items-center gap-2">
+                                            <i class="bi bi-check-circle text-success" aria-hidden="true"></i>
+                                            <div class="min-w-0">
+                                                <div class="text-truncate">{{ summary.fullName }}</div>
+                                                <div class="small text-body-secondary text-truncate">
+                                                    {{ summary.functionLabel|default('sans fonction') }} — {{ summary.scoutYearLabel }}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    {% elseif is_editable and line.candidateMemberIds is not empty %}
+                                        {#
+                                          Its own form, submitted on its own:
+                                          resolving an ambiguity is a decision
+                                          about ONE line, and nesting it in the
+                                          validation form would make one gesture
+                                          out of two.
+                                        #}
+                                        <div class="d-flex gap-2">
+                                            <select class="form-select form-select-sm"
+                                                    form="attestations-assign-{{ line.id }}"
+                                                    name="member_id"
+                                                    aria-label="Choisir le membre de l'attestation lue « {{ line.readName|default('sans nom lisible') }} »">
+                                                <option value="">Choisir un membre…</option>
+                                                {% for candidateId in line.candidateMemberIds %}
+                                                    <option value="{{ candidateId }}">
+                                                        {{ summaries[candidateId] ? summaries[candidateId].fullName : 'Membre ' ~ candidateId }}
+                                                        {% if summaries[candidateId] %}({{ summaries[candidateId].scoutYearLabel }}){% endif %}
+                                                    </option>
+                                                {% endfor %}
+                                            </select>
+                                            <button type="submit" class="btn btn-sm btn-outline-secondary flex-shrink-0"
+                                                    form="attestations-assign-{{ line.id }}">Rattacher</button>
+                                        </div>
+                                    {% else %}
+                                        <span class="small text-body-secondary">Aucun membre correspondant</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+
+                            {% if line.needsAttention() %}
+                                <p class="small text-warning-emphasis mb-0 mt-2">
+                                    {% if line.candidateMemberIds is not empty %}
+                                        Homonymie — plusieurs membres portent ce nom.
+                                    {% else %}
+                                        Non apparié — aucun membre de ce nom.
+                                    {% endif %}
+                                    Sans membre, cette ligne ne peut pas être distribuée.
+                                </p>
+                            {% endif %}
+
+                            {% if warning %}
+                                <p class="small text-body-secondary mb-0 mt-2">
+                                    <i class="bi bi-exclamation-triangle" aria-hidden="true"></i> {{ warning }}
+                                </p>
+                            {% endif %}
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+
+            {% if is_editable %}
+                <p class="small text-body-secondary" id="attestations-discard-note">
+                    Les lignes non cochées seront supprimées. Le lot conservera leur nombre, pas leur contenu.
+                </p>
+                <div class="d-flex flex-column flex-sm-row gap-2">
+                    <button type="submit" class="btn btn-primary w-100 w-sm-auto">
+                        <i class="bi bi-check2-square" aria-hidden="true"></i> Valider la sélection
+                    </button>
+                    <a href="/admin/attestations" class="btn btn-outline-secondary w-100 w-sm-auto">Annuler</a>
+                </div>
+            {% endif %}
+        </form>
+
+        {#
+          One tiny form per ambiguous line, OUTSIDE the validation form: HTML
+          forbids nesting them, and the `form=` attribute on each control is
+          what lets the select and its button live inside the row.
+        #}
+        {% if is_editable %}
+            {% for line in lines %}
+                {% if line.memberId is null and line.candidateMemberIds is not empty %}
+                    <form method="post" action="/admin/attestations/{{ batch.id }}/rattacher"
+                          id="attestations-assign-{{ line.id }}" class="d-none">
+                        {{ csrf_field()|raw }}
+                        <input type="hidden" name="line_id" value="{{ line.id }}">
+                    </form>
+                {% endif %}
+            {% endfor %}
+        {% endif %}
+    </div>
+{% endblock %}
+
+{% block scripts %}
+    <script src="{{ asset('/assets/js/attestations-verification.js') }}" defer></script>
+{% endblock %}

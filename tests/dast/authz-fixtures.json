@@ -21,6 +21,9 @@
     "less and less."
   ],
   "groups": {
+    "/admin/attestations/{id}": {
+      "id": "1"
+    },
     "/admin/doublons/{id}": {
       "id": "1"
     },

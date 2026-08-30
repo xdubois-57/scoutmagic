@@ -2,7 +2,7 @@
   "id": "attestations",
   "name": "Attestations",
   "description": "Découpe le PDF d'attestations envoyé par la fédération et dépose l'attestation de chaque membre sur sa page, visible par lui seul.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "routes": [
     {
       "path": "/admin/attestations",
@@ -18,10 +18,55 @@
         "label": "Attestations",
         "parents": ["Espace chefs d'U"]
       }
+    },
+    {
+      "path": "/admin/attestations",
+      "method": "POST",
+      "controller": "Modules\\Attestations\\Controller\\AttestationsController",
+      "action": "store",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/attestations/{id}",
+      "method": "GET",
+      "controller": "Modules\\Attestations\\Controller\\BatchController",
+      "action": "show",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": "",
+      "breadcrumb": {
+        "label": "Lot d'attestations",
+        "parents": ["Espace chefs d'U"],
+        "ancestors": [{ "label": "Attestations", "path": "/admin/attestations" }]
+      }
+    },
+    {
+      "path": "/admin/attestations/{id}/rattacher",
+      "method": "POST",
+      "controller": "Modules\\Attestations\\Controller\\BatchController",
+      "action": "assign",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/attestations/{id}/valider",
+      "method": "POST",
+      "controller": "Modules\\Attestations\\Controller\\BatchController",
+      "action": "commit",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
     }
   ],
   "settings": [],
   "cookies": [],
   "scheduled_tasks": [],
-  "storage": {}
+  "storage": {
+    "documents": {
+      "role_min": "admin"
+    }
+  }
 }

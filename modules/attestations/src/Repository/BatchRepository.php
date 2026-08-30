@@ -14,7 +14,8 @@ use Modules\Attestations\Value\AttestationCategory;
 use Modules\Attestations\Value\BatchStatus;
 
 /**
- * `attestation_batches`, the only table this module owns so far.
+ * `attestation_batches` — the deposited files themselves. Their lines live
+ * in BatchLineRepository.
  *
  * Timestamps are written from PHP and bound as parameters rather than left
  * to the column default: the test suite runs on SQLite, whose
@@ -90,6 +91,22 @@ class BatchRepository
         $stmt->execute();
 
         return array_map(self::mapRow(...), $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Record what the reader kept and what they left aside.
+     *
+     * `discarded_count` is the answer to « pourquoi 43 attestations pour 55
+     * membres ? » six months later. A counter, never a list of names: the
+     * discarded lines are deleted, and keeping who they were would be
+     * keeping personal data for a question that does not need it.
+     */
+    public function recordSelection(int $batchId, int $documentCount, int $discardedCount): void
+    {
+        $stmt = $this->connection->getPdo()->prepare(
+            'UPDATE attestation_batches SET document_count = ?, discarded_count = ? WHERE id = ?'
+        );
+        $stmt->execute([$documentCount, $discardedCount, $batchId]);
     }
 
     /**

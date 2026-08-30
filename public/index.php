@@ -2672,11 +2672,54 @@ if ($isEnabled('sos_staff')) {
 }
 
 if ($isEnabled('attestations')) {
+    $attestationBatchRepository = new \Modules\Attestations\Repository\BatchRepository($connection);
+    $attestationLineRepository = new \Modules\Attestations\Repository\BatchLineRepository(
+        $connection,
+        $encryptionService
+    );
+    $attestationMemberRepository = new \Modules\Attestations\Repository\MemberNameRepository(
+        $connection,
+        $encryptionService
+    );
+
     $frontController->registerController(
         \Modules\Attestations\Controller\AttestationsController::class,
         new \Modules\Attestations\Controller\AttestationsController(
             $twig,
-            new \Modules\Attestations\Repository\BatchRepository($connection),
+            $attestationBatchRepository,
+            $scoutYearService,
+            $scoutYearResolver,
+            new \Modules\Attestations\Service\BatchDepositService(
+                $connection,
+                $attestationBatchRepository,
+                $attestationLineRepository,
+                $attestationMemberRepository,
+                new \Modules\Attestations\Service\AttestationPdfReader(),
+                new \Modules\Attestations\Service\AttestationPdfSplitter(),
+                $encryptedFileStorageService,
+                $journalService
+            ),
+            $journalService,
+            $storagePath
+        )
+    );
+
+    $frontController->registerController(
+        \Modules\Attestations\Controller\BatchController::class,
+        new \Modules\Attestations\Controller\BatchController(
+            $twig,
+            $attestationBatchRepository,
+            $attestationLineRepository,
+            $attestationMemberRepository,
+            new \Modules\Attestations\Service\BatchVerificationService(
+                $connection,
+                $attestationBatchRepository,
+                $attestationLineRepository,
+                $fileRepository,
+                $encryptedFileStorageService,
+                $journalService
+            ),
+            new \Modules\Attestations\Service\DuplicateDetector($attestationLineRepository),
             $scoutYearService
         )
     );

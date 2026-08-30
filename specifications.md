@@ -1778,7 +1778,66 @@ puisse commettre.
 Un nom présent dans le PDF mais inconnu du site reste non apparié et n'est pas distribuable : sans
 membre, il n'y a ni page où déposer le document, ni vérification d'identité.
 
-### 41.3 Hors périmètre
+### 41.3 L'écran de vérification
+
+**Rien n'est distribué avant confirmation humaine.** L'appariement par nom échoue de façon
+prévisible : accents, noms composés, nom d'épouse, inversion nom/prénom, membre parti en cours
+d'année, personne étrangère à l'unité présente dans le PDF.
+
+Après le découpage, l'écran présente une ligne par attestation : le nom **lu dans le PDF**, le membre
+apparié, sa fonction principale, et l'état — apparié, non apparié, ou ambigu. Le nom lu est affiché
+parce que c'est lui que le lecteur doit comparer : deux orthographes de la même personne, celle que
+la fédération a imprimée et celle que Desk détient.
+
+**Chaque ligne porte une case, cochée par défaut.** Tout est distribué sauf décision contraire :
+c'est le cas courant, et l'inverse obligerait à cocher quarante lignes pour un lot normal. **Une
+ligne sans membre ne peut pas être cochée** : elle n'a pas de destinataire.
+
+**Un filtre par fonction principale** permet de n'afficher qu'un groupe et de le traiter d'un geste.
+C'est ainsi qu'on écarte les animateurs d'un lot fiscal : filtrer, tout décocher. Le composant est
+la select bar en mode multi — les fonctions viennent de Desk, varient d'une unité à l'autre et
+portent des libellés longs.
+
+Trois pièges, et ce sont les vrais risques de l'écran.
+
+**Masquer, jamais retirer.** Une ligne filtrée garde l'état de sa case. Si le filtre supprimait les
+lignes, décocher les animateurs puis filtrer sur « Scout » effacerait silencieusement les décisions
+prises, et le lot partirait amputé.
+
+**La commande d'ensemble n'agit que sur les lignes affichées, et son libellé porte leur nombre** :
+« Désélectionner les 12 lignes affichées », jamais « tout désélectionner ». Agir en silence sur des
+lignes masquées amputerait le lot sans que personne ne le voie.
+
+**Les lignes non appariées et ambiguës restent visibles quel que soit le filtre.** Elles n'ont pas de
+fonction ; les masquer au premier tri les ferait disparaître sans jamais être traitées.
+
+**Deux compteurs distincts** : « 12 affichées sur 55 » parle du filtre, « 43 à distribuer » parle du
+lot. C'est le second qui décide.
+
+### 41.4 Les doublons
+
+Un membre présent dans deux PDF reçoit **deux documents ; ils coexistent**. Le site ne devine pas si
+le second est une correction de la fédération ou un complément légitime, et remplacer
+automatiquement ferait disparaître un document que personne n'a demandé de supprimer.
+
+L'écran **signale** la ligne — « a déjà reçu une attestation fiscale pour cette année scoute, le
+11/02 » — et laisse décocher. C'est un avertissement, pas un blocage. Le rapprochement se fait sur
+membre + catégorie + année scoute, et ne regarde que les lots déjà publiés : un lot que personne n'a
+validé n'a rien donné à personne.
+
+**Un membre qui apparaît deux fois dans un même lot** est signalé de la même façon, sur les deux
+lignes : c'est le même fait, et le lecteur choisit laquelle garder.
+
+### 41.5 À la validation
+
+Les lignes non cochées sont **supprimées** — leur découpe n'est pas conservée, aucun document n'est
+créé. Une ligne sans membre part avec elles plutôt que de bloquer tout le lot : un chef d'unité ne
+doit pas rester coincé sur un nom que Desk ne contient pas, et l'écran l'annonce avant qu'il valide.
+
+Le lot garde en revanche **le compte de ce qui a été écarté**, pour qu'on puisse répondre six mois
+plus tard à « pourquoi 43 attestations pour 55 membres ? ». Un compteur, pas des noms.
+
+### 41.6 Hors périmètre
 
 La **génération** d'attestations par l'unité elle-même. Le site ne produit aucun document : il découpe
 un PDF qu'on lui fournit. Une attestation de présence après camp entre donc dans le périmètre si elle

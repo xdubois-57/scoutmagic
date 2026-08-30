@@ -6,14 +6,31 @@ namespace Tests\Modules\Attestations\Controller;
 
 use Core\Config\AppConfig;
 use Core\Config\ScoutYearService;
+use Core\Config\SettingRepository;
+use Core\Config\SettingService;
 use Core\Database\Connection;
+use Core\File\EncryptedFileStorageService;
+use Core\File\FileRepository;
 use Core\Http\FrontController;
 use Core\Http\Request;
 use Core\Http\Router;
+use Core\Import\MemberYearRepository;
+use Core\Journal\JournalRepository;
+use Core\Journal\JournalService;
+use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\AuthSession;
 use Modules\Attestations\Controller\AttestationsController;
+use Modules\Attestations\Controller\BatchController;
+use Modules\Attestations\Repository\BatchLineRepository;
 use Modules\Attestations\Repository\BatchRepository;
+use Modules\Attestations\Repository\MemberNameRepository;
+use Modules\Attestations\Service\AttestationPdfReader;
+use Modules\Attestations\Service\AttestationPdfSplitter;
+use Modules\Attestations\Service\BatchDepositService;
+use Modules\Attestations\Service\BatchVerificationService;
+use Modules\Attestations\Service\DuplicateDetector;
 use Modules\Attestations\Value\AttestationCategory;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -29,20 +46,23 @@ use Twig\TwigFunction;
  * template that fails to compile fails here rather than in production.
  *
  * Every route is `role_min: admin`, the floor of the Espace chefs d'U menu.
- * A `chief`, one level below, is refused: an animateur de section has no
- * business opening a file holding the whole unit's nominative paperwork.
+ * A `chief`, one level below, is refused on every one of them: an animateur
+ * de section has no business opening a file holding the whole unit's
+ * nominative paperwork.
  */
 #[Group('database')]
 class AttestationsRbacTest extends TestCase
 {
     private \PDO $pdo;
     private Environment $twig;
+    private string $storageRoot;
     private int $scoutYearId;
 
     protected function setUp(): void
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         AttestationsTestHelper::createTables($this->pdo);
+        $this->storageRoot = AttestationsTestHelper::createStorageRoot();
         $this->scoutYearId = AttestationsTestHelper::createScoutYear($this->pdo);
         $this->twig = $this->buildTwig();
 
@@ -50,15 +70,51 @@ class AttestationsRbacTest extends TestCase
             session_start();
         }
         $_SESSION = [];
+        $_FILES = [];
     }
 
     protected function tearDown(): void
     {
         AuthSession::logout();
         $_SESSION = [];
+        $_FILES = [];
+        AttestationsTestHelper::removeDirectory($this->storageRoot);
     }
 
-    public function testTheUnitStaffReachesThePage(): void
+    /**
+     * @return array<string, array{string, string}>
+     */
+    public static function routeProvider(): array
+    {
+        return [
+            'deposit page' => ['GET', '/admin/attestations'],
+            'deposit' => ['POST', '/admin/attestations'],
+            'batch' => ['GET', '/admin/attestations/1'],
+            'assign' => ['POST', '/admin/attestations/1/rattacher'],
+            'commit' => ['POST', '/admin/attestations/1/valider'],
+        ];
+    }
+
+    #[DataProvider('routeProvider')]
+    public function testASectionChiefIsRefusedOnEveryRoute(string $method, string $path): void
+    {
+        AuthSession::login(2, 'animateur@test.be', 'chief');
+
+        $response = $this->frontController()->handle(new Request($method, $path, [], [], [], []));
+
+        $this->assertSame(403, $response->getStatusCode(), $method . ' ' . $path);
+    }
+
+    #[DataProvider('routeProvider')]
+    public function testAnAnonymousVisitorIsSentToTheLoginPage(string $method, string $path): void
+    {
+        $response = $this->frontController()->handle(new Request($method, $path, [], [], [], []));
+
+        $this->assertSame(302, $response->getStatusCode(), $method . ' ' . $path);
+        $this->assertStringStartsWith('/login', (string) $response->getHeaders()['Location']);
+    }
+
+    public function testTheUnitStaffReachesTheDepositPage(): void
     {
         AuthSession::login(1, 'chef-unite@test.be', 'admin');
 
@@ -67,29 +123,7 @@ class AttestationsRbacTest extends TestCase
         $this->assertSame(200, $response->getStatusCode(), (string) $response->getBody());
     }
 
-    public function testASectionChiefIsRefused(): void
-    {
-        AuthSession::login(2, 'animateur@test.be', 'chief');
-
-        $response = $this->frontController()->handle(new Request('GET', '/admin/attestations', [], [], [], []));
-
-        $this->assertSame(403, $response->getStatusCode());
-    }
-
-    public function testAnAnonymousVisitorIsSentToTheLoginPage(): void
-    {
-        $response = $this->frontController()->handle(new Request('GET', '/admin/attestations', [], [], [], []));
-
-        $this->assertSame(302, $response->getStatusCode());
-        $this->assertStringStartsWith('/login', (string) $response->getHeaders()['Location']);
-    }
-
-    /**
-     * A unit that has deposited nothing sees a state, not a rendering
-     * defect — the shared empty_state partial (design.md §7.7), and no
-     * creation action, because depositing is not offered by this route yet.
-     */
-    public function testAUnitWithNoBatchSeesAnEmptyState(): void
+    public function testAUnitWithNoBatchSeesAnEmptyStateAndTheDepositForm(): void
     {
         AuthSession::login(1, 'chef-unite@test.be', 'admin');
 
@@ -97,18 +131,19 @@ class AttestationsRbacTest extends TestCase
             ->handle(new Request('GET', '/admin/attestations', [], [], [], []))
             ->getBody();
 
-        // The message travels through the partial's `{{ message }}`, so
-        // Twig escapes the apostrophe — asserting the raw form would fail
-        // on correctly-escaped output.
         $this->assertStringContainsString('Aucun lot n&#039;a encore été déposé.', $body);
-        $this->assertStringContainsString('empty-state', $body);
+        $this->assertStringContainsString('name="pdf_file"', $body);
+        $this->assertStringContainsString('name="scout_year_id"', $body);
+        $this->assertStringContainsString('name="category"', $body);
+        $this->assertStringContainsString('name="label"', $body);
+        $this->assertStringContainsString('_csrf_token', $body);
     }
 
-    public function testADepositedBatchIsListedWithItsYearCategoryAndState(): void
+    public function testADepositedBatchIsListedAndLinksToItsVerificationScreen(): void
     {
         AuthSession::login(1, 'chef-unite@test.be', 'admin');
 
-        (new BatchRepository(Connection::withPdo($this->pdo)))->create(
+        $batchId = (new BatchRepository(Connection::withPdo($this->pdo)))->create(
             $this->scoutYearId,
             AttestationCategory::Tax,
             'Attestation fiscale 2025',
@@ -123,62 +158,231 @@ class AttestationsRbacTest extends TestCase
             ->getBody());
 
         $this->assertStringContainsString('Attestation fiscale 2025', $body);
-        $this->assertStringContainsString('Attestation fiscale —', $body);
-        $this->assertStringContainsString('2025-2026', $body);
-        $this->assertStringContainsString('5 attestations', $body);
+        $this->assertStringContainsString('href="/admin/attestations/' . $batchId . '"', $body);
         $this->assertStringContainsString('À vérifier', $body);
     }
 
-    /**
-     * The page must never name a member. Nothing it reads carries one — a
-     * batch holds counts and a label — and this pins that the day a later
-     * iteration is tempted to add « et 2 écartées : Dupont, Martin ».
-     */
-    public function testThePageNamesNoMember(): void
+    // --- depositing -----------------------------------------------------
+
+    public function testDepositingTheGoldenFixtureRedirectsToItsVerificationScreen(): void
     {
         AuthSession::login(1, 'chef-unite@test.be', 'admin');
         AttestationsTestHelper::createMember($this->pdo, $this->scoutYearId, 'Margaux', 'Vandenbrande');
 
-        (new BatchRepository(Connection::withPdo($this->pdo)))->create(
-            $this->scoutYearId,
-            AttestationCategory::Tax,
-            'Attestation fiscale 2025',
-            2,
-            2,
-            1,
-            1
+        $response = $this->post(AttestationsTestHelper::goldenFixturePath(), [
+            'scout_year_id' => (string) $this->scoutYearId,
+            'category' => AttestationCategory::Tax->value,
+            'label' => 'Attestation fiscale 2025',
+        ]);
+
+        $this->assertSame(302, $response->getStatusCode(), (string) $response->getBody());
+        $this->assertMatchesRegularExpression(
+            '#^/admin/attestations/\d+$#',
+            (string) $response->getHeaders()['Location']
+        );
+    }
+
+    /**
+     * The deposited file holds every family's certificate in one document
+     * and has no use once the pieces are out of it. It goes in a `finally`,
+     * so neither a success nor a crash can leave it on disk.
+     */
+    public function testTheDepositedFileIsNotKept(): void
+    {
+        AuthSession::login(1, 'chef-unite@test.be', 'admin');
+
+        $this->post(AttestationsTestHelper::goldenFixturePath(), [
+            'scout_year_id' => (string) $this->scoutYearId,
+            'category' => AttestationCategory::Tax->value,
+            'label' => 'Attestation fiscale 2025',
+        ]);
+
+        $this->assertSame([], glob($this->storageRoot . '/temp/*') ?: []);
+    }
+
+    /**
+     * The refusal is a state on the page, not a flash: it has three numbers
+     * and a subtraction to show. A reader who only sees « le découpage a
+     * échoué » redeposits the same file.
+     */
+    public function testAPageCountThatIsNotAMultipleRendersTheRefusalWithItsNumbers(): void
+    {
+        AuthSession::login(1, 'chef-unite@test.be', 'admin');
+
+        $pages = [];
+        for ($i = 0; $i < 3; $i++) {
+            $pages[] = ['ATTESTATION FISCALE', 'Personne ' . $i];
+            $pages[] = ['ANNEXE', 'suite'];
+        }
+        $pages[] = ['ATTESTATION FISCALE', 'orpheline'];
+        $path = AttestationsTestHelper::writeTemporaryPdf($pages);
+
+        try {
+            $response = $this->post($path, [
+                'scout_year_id' => (string) $this->scoutYearId,
+                'category' => AttestationCategory::Tax->value,
+                'label' => 'Attestation fiscale 2025',
+            ]);
+
+            $body = (string) preg_replace('/\s+/', ' ', (string) $response->getBody());
+
+            $this->assertSame(200, $response->getStatusCode());
+            $this->assertStringContainsString('Découpage impossible', $body);
+            // Static template text, so it is not escaped — the numbers are
+            // what matter, and a reader who sees the remainder goes back to
+            // the federation instead of redepositing the same file.
+            $this->assertStringContainsString("7 n'est pas un multiple de 2", $body);
+            $this->assertStringContainsString('reste 1', $body);
+            // And nothing was produced.
+            $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM attestation_batches')->fetchColumn());
+        } finally {
+            @unlink($path);
+        }
+    }
+
+    public function testAFileThatIsNotAPdfIsRefused(): void
+    {
+        AuthSession::login(1, 'chef-unite@test.be', 'admin');
+
+        $path = sys_get_temp_dir() . '/attestations_not_pdf_' . bin2hex(random_bytes(4)) . '.pdf';
+        file_put_contents($path, 'Ceci n\'est pas un PDF.');
+
+        try {
+            $response = $this->post($path, [
+                'scout_year_id' => (string) $this->scoutYearId,
+                'category' => AttestationCategory::Tax->value,
+                'label' => 'Attestation fiscale 2025',
+            ]);
+
+            $this->assertSame(200, $response->getStatusCode());
+            $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM attestation_batches')->fetchColumn());
+        } finally {
+            @unlink($path);
+        }
+    }
+
+    public function testADepositWithNoLabelIsRefusedBeforeTheFileIsEvenRead(): void
+    {
+        AuthSession::login(1, 'chef-unite@test.be', 'admin');
+
+        $response = $this->post(AttestationsTestHelper::goldenFixturePath(), [
+            'scout_year_id' => (string) $this->scoutYearId,
+            'category' => AttestationCategory::Tax->value,
+            'label' => '   ',
+        ]);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM attestation_batches')->fetchColumn());
+    }
+
+    public function testADepositWithoutAValidCsrfTokenIsRefused(): void
+    {
+        AuthSession::login(1, 'chef-unite@test.be', 'admin');
+
+        $response = $this->post(
+            AttestationsTestHelper::goldenFixturePath(),
+            [
+                'scout_year_id' => (string) $this->scoutYearId,
+                'category' => AttestationCategory::Tax->value,
+                'label' => 'Attestation fiscale 2025',
+            ],
+            false
         );
 
-        $body = (string) $this->frontController()
-            ->handle(new Request('GET', '/admin/attestations', [], [], [], []))
-            ->getBody();
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM attestation_batches')->fetchColumn());
+    }
 
-        $this->assertStringNotContainsString('Vandenbrande', $body);
-        $this->assertStringNotContainsString('Margaux', $body);
+    // --- harness --------------------------------------------------------
+
+    /**
+     * @param array<string, string> $body
+     */
+    private function post(string $pdfPath, array $body, bool $validCsrf = true): \Core\Http\Response
+    {
+        $copy = sys_get_temp_dir() . '/attestations_upload_' . bin2hex(random_bytes(6)) . '.pdf';
+        copy($pdfPath, $copy);
+
+        $_FILES['pdf_file'] = [
+            'name' => 'attestations.pdf',
+            'type' => 'application/pdf',
+            'tmp_name' => $copy,
+            'error' => UPLOAD_ERR_OK,
+            'size' => (int) filesize($copy),
+        ];
+
+        $body['_csrf_token'] = $validCsrf ? \Core\Security\CsrfGuard::generateToken() : 'invalide';
+
+        try {
+            return $this->frontController()->handle(
+                new Request('POST', '/admin/attestations', [], $body, [], [])
+            );
+        } finally {
+            @unlink($copy);
+        }
     }
 
     private function frontController(): FrontController
     {
         $router = new Router();
-        $router->addRoute(
-            'GET',
-            '/admin/attestations',
-            AttestationsController::class,
-            'index',
-            'admin',
-            ['label' => 'Attestations', 'parents' => ["Espace chefs d'U"]]
-        );
+        $router->addRoute('GET', '/admin/attestations', AttestationsController::class, 'index', 'admin');
+        $router->addRoute('POST', '/admin/attestations', AttestationsController::class, 'store', 'admin');
+        $router->addRoute('GET', '/admin/attestations/{id}', BatchController::class, 'show', 'admin');
+        $router->addRoute('POST', '/admin/attestations/{id}/rattacher', BatchController::class, 'assign', 'admin');
+        $router->addRoute('POST', '/admin/attestations/{id}/valider', BatchController::class, 'commit', 'admin');
 
         $configFile = sys_get_temp_dir() . '/test_attestations_config_' . uniqid() . '.php';
         file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
 
         $frontController = new FrontController($router, $this->twig, new AppConfig($configFile));
+
+        $connection = Connection::withPdo($this->pdo);
+        $encryption = AttestationsTestHelper::encryption();
+        $files = new FileRepository($this->pdo);
+        $fileStorage = new EncryptedFileStorageService($files, $encryption, $this->storageRoot);
+        $batches = new BatchRepository($connection);
+        $lines = new BatchLineRepository($connection, $encryption);
+        $members = new MemberNameRepository($connection, $encryption);
+        $journal = new JournalService(new JournalRepository($this->pdo));
+        $scoutYears = new ScoutYearService($this->pdo);
+        $resolver = new ScoutYearResolver(
+            $scoutYears,
+            new SettingService(new SettingRepository($this->pdo)),
+            new MemberYearRepository($this->pdo)
+        );
+
         $frontController->registerController(
             AttestationsController::class,
             new AttestationsController(
                 $this->twig,
-                new BatchRepository(Connection::withPdo($this->pdo)),
-                new ScoutYearService($this->pdo)
+                $batches,
+                $scoutYears,
+                $resolver,
+                new BatchDepositService(
+                    $connection,
+                    $batches,
+                    $lines,
+                    $members,
+                    new AttestationPdfReader(),
+                    new AttestationPdfSplitter(),
+                    $fileStorage,
+                    $journal
+                ),
+                $journal,
+                $this->storageRoot
+            )
+        );
+
+        $frontController->registerController(
+            BatchController::class,
+            new BatchController(
+                $this->twig,
+                $batches,
+                $lines,
+                $members,
+                new BatchVerificationService($connection, $batches, $lines, $files, $fileStorage, $journal),
+                new DuplicateDetector($lines),
+                $scoutYears
             )
         );
 
