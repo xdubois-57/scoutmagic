@@ -19,6 +19,7 @@ use Tests\Fixtures\ReferenceDataset\DeskImportReplay;
 use Tests\Fixtures\ReferenceDataset\ExtrasApplier;
 use Tests\Fixtures\ReferenceDataset\ExtrasBlueprint;
 use Tests\Fixtures\ReferenceDataset\PhotoLot;
+use Tests\Fixtures\ReferenceDataset\StaffBlueprint;
 use Tests\Fixtures\ReferenceDataset\FinanceSeeder;
 use Tests\Fixtures\ReferenceDataset\InstanceReset;
 use Tests\Fixtures\ReferenceDataset\UnitBlueprint;
@@ -203,9 +204,74 @@ final class ReferenceDatasetBuilderTest extends TestCase
 
         self::assertSame(2, $counts['décalages d\'année']);
         self::assertSame(count(ExtrasBlueprint::DEPARTURES), $counts['départs marqués']);
-        self::assertSame(count(ExtrasBlueprint::BADGES), $counts['badges attribués']);
         self::assertGreaterThan(30, $counts['photos de membres'], 'Les portraits ne sont plus attribués.');
         self::assertSame(count(PhotoLot::GROUP_PHOTOS, COUNT_RECURSIVE) - count(PhotoLot::GROUP_PHOTOS), $counts['photos de groupe']);
+    }
+
+    public function testEverySectionCarriesTheAddressItsBlueprintDeclares(): void
+    {
+        // `sections.email` is the one section column no Desk export carries,
+        // and it was empty in every earlier version of this dataset — which
+        // made every "écrire à la section" surface look broken rather than
+        // unconfigured.
+        $this->applyExtras();
+
+        $statement = $this->pdo->query('SELECT desk_code, email FROM sections');
+        $emails = [];
+        foreach ($statement !== false ? $statement->fetchAll(\PDO::FETCH_ASSOC) : [] as $row) {
+            $emails[(string) $row['desk_code']] = $row['email'];
+        }
+
+        foreach (UnitBlueprint::SECTIONS as $section) {
+            self::assertSame(
+                $section['email'],
+                $emails[$section['name']] ?? null,
+                "La section « {$section['name']} » n'a pas l'adresse déclarée.",
+            );
+        }
+    }
+
+    public function testEverySectionOfEveryYearCarriesItsTwoBadges(): void
+    {
+        // The rule, not the list: "every section has a treasurer and a
+        // first-aider" is a sentence about a unit, and StaffSeeder is what
+        // turns it into rows. Before it existed the dataset held five badge
+        // assignments concentrated on two people, and the badge column of
+        // every section list was empty.
+        $this->applyExtras();
+
+        foreach (UnitBlueprint::YEARS as $year) {
+            foreach (UnitBlueprint::sectionsIn($year) as $handle) {
+                foreach (StaffBlueprint::SECTION_BADGES as $badgeName) {
+                    self::assertGreaterThan(
+                        0,
+                        $this->badgeHoldersIn($handle, $year, $badgeName),
+                        "Personne ne porte « {$badgeName} » dans {$handle} en {$year}.",
+                    );
+                }
+            }
+        }
+    }
+
+    private function badgeHoldersIn(string $handle, string $year, string $badgeName): int
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT COUNT(*) AS n
+             FROM member_badges mb
+             JOIN badges b ON b.id = mb.badge_id
+             JOIN member_years my ON my.id = mb.member_year_id
+             JOIN member_functions mf ON mf.member_year_id = my.id
+             JOIN sections s ON s.id = mf.section_id
+             WHERE b.name = ? AND s.desk_code = ? AND my.scout_year_id = ?'
+        );
+        $statement->execute([
+            $badgeName,
+            UnitBlueprint::SECTIONS[$handle]['name'],
+            $this->yearIds[$year] ?? 0,
+        ]);
+        $row = $statement->fetch(\PDO::FETCH_ASSOC);
+
+        return $row === false ? 0 : (int) $row['n'];
     }
 
     public function testEveryPhotoGoesThroughTheRealUploadPipeline(): void
@@ -267,12 +333,20 @@ final class ReferenceDatasetBuilderTest extends TestCase
             $result['skipped']['évènements de calendrier'] ?? null,
             'Un extra ignoré doit être signalé, pas se contenter d\'un compteur à zéro.',
         );
+
+        // Et la même chose pour les domaines ajoutés en IT-18 : chacun a sa
+        // table témoin, et un nom de table faux se lirait comme un module
+        // absent si le saut n'était pas nommé.
+        foreach (['articles d\'actualité' => 'news', 'séjours' => 'camps', 'réservations' => 'rental'] as $label => $module) {
+            self::assertSame(0, $result['counts'][$label] ?? null, "Le compteur « {$label} » devrait être à zéro.");
+            self::assertSame($module, $result['skipped'][$label] ?? null, "Le saut de « {$label} » n'est pas signalé.");
+        }
         self::assertGreaterThan(0, $result['counts']['créances attendues'], 'Les modules présents doivent, eux, être traités.');
         self::assertArrayNotHasKey('créances attendues', $result['skipped']);
     }
 
     /**
-     * @return array{counts: array<string, int>, skipped: array<string, string>}
+     * @return array{counts: array<string, int>, skipped: array<string, string>, notes: list<string>}
      */
     private function applyExtras(): array
     {
