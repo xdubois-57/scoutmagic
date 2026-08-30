@@ -38,13 +38,37 @@
 // logic is Tests\Modules\Retro territory. The points-budget vote mode is
 // SummaryService/vote-repository logic with the same wire shape as
 // unlimited mode; the like mode drives the shared path.
+//
+// The rest of the chief's surface stays out of the browser for the same
+// reason, and each of it is covered where it can be exercised honestly:
+//
+//   - closing with an email notification, reopening, archiving,
+//     unarchiving → Tests\Modules\Retro\Service\BoardServiceTest (seven
+//     tests on the notification alone: sent, not sent when disabled, not
+//     sent with no address, and still closing when the mail service
+//     throws) plus RetroChiefControllerTest for each route's RBAC
+//     boundary. Nothing about any of them is decided by the browser;
+//   - the points budget → VoteServiceTest (a budget respected, refunded on
+//     an unvote, unaffected by another voter's spend) and
+//     RetroBoardControllerTest::testAddPointAndRemovePointForBudgetMode;
+//   - anti-duplicate by login rather than by cookie → RetroBoardController
+//     Test::testToggleLikeRequiresLoginWhenAntiDuplicateModeIsAuth. Its
+//     twin — the SESSION standing in for the cookie when consent is
+//     refused — is the one half that needs a real cookie jar, and the
+//     scenario above already drives it.
+//
+// The second scenario in this file is the one chief-side behaviour none of
+// that can reach, because it is the browser itself that decides what the
+// server receives.
 import { expect, test } from '@playwright/test';
 
 import { answerConfirmation } from '../support/confirm-dialog.js';
+import { answerCookieBanner } from '../support/cookie-banner.js';
 import { loginAsAdmin } from '../support/admin-login.js';
 import { scaled } from '../support/timeouts.js';
 
 const BOARD_TITLE = `Rétro camp E2E ${Date.now()}`;
+const EVENT_TITLE = `Hike E2E ${Date.now()}`;
 const WORD_FROM_FIRST = 'Le feu de camp du samedi soir était magique';
 const WORD_FROM_SECOND = 'Prévoir plus de temps pour le rangement';
 
@@ -250,6 +274,145 @@ test('two anonymous visitors write and vote on a live board, a chief moderates, 
         await firstVisitor.close();
         await secondVisitor.close();
     }
+
+    expect(serverErrors, 'the application returned a server error').toEqual([]);
+    expect(pageErrors, 'uncaught JavaScript error in the browser').toEqual([]);
+});
+
+// A second scenario, and the one piece of the chief's side that genuinely
+// needs a browser: linking a retrospective to a calendar event.
+//
+// `BoardService::resolveTitle()` carries the reasoning in full. Picking an
+// event makes retro-config.js fill the title and the date and then DISABLE
+// both fields — "generated automatically … and cannot be modified here" —
+// and a disabled control is omitted from the submission by the browser
+// itself. Trust the client here and every event-linked board is saved with
+// an empty title and dies on « Le titre est obligatoire ». The server
+// therefore re-derives both from the event, exactly as
+// resolveBoardDate() already did for the date.
+//
+// That failure lives entirely in the gap the other two stacks cannot see:
+// PHPUnit posts a body a test wrote itself, so a test that omits the title
+// only proves the server copes with a body somebody chose to write that way
+// — never that this is the body a browser actually sends. Vitest has a
+// jsdom form and no server. Only a real browser, with the real script and
+// the real form, can say the field is missing BECAUSE the page disabled it.
+//
+// The scenario is therefore built around that one assertion: the form's own
+// FormData is read the moment before submission and must not carry `title`
+// at all, and the board that comes back must nevertheless carry the title
+// the SCRIPT computed — two independent derivations of the same string, one
+// in JavaScript and one in PHP, compared against each other rather than
+// against a literal written here.
+//
+// It leaves the calendar event it creates behind: the board links to it, so
+// deleting it would be deleting one half of what was just asserted. No
+// later spec reads the calendar.
+test('a board linked to a calendar event derives its title server-side, from a field the browser never submits', async ({ page }) => {
+    test.setTimeout(scaled(120_000));
+
+    /** @type {string[]} */
+    const pageErrors = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+    /** @type {string[]} */
+    const serverErrors = [];
+    page.on('response', (response) => {
+        if (response.status() >= 500) {
+            serverErrors.push(`HTTP ${response.status()} on ${response.url()}`);
+        }
+    });
+
+    await loginAsAdmin(page);
+    // The banner is `fixed-bottom`; the day cell clicked below sits well
+    // down a month grid. See ../support/cookie-banner.js.
+    await answerCookieBanner(page);
+
+    // ---------------------------------------------------------------
+    // An event for the retrospective to hang off. On TODAY's cell,
+    // identified by the grid's own `is-today` class rather than by a date
+    // this file computes: the picker's window is ±days around the
+    // SERVER's today (BoardService::EVENT_WINDOW_DAYS_*), and a date built
+    // in Node would be asserting that the two machines agree about
+    // midnight.
+    // ---------------------------------------------------------------
+    await page.goto('/chefs/calendar', { waitUntil: 'load' });
+
+    // Through the keyboard, as calendar-events.spec.js explains: the cell
+    // is a real <button> and the day-number overlay drawn over its centre
+    // makes a pointer click ambiguous where Enter is not.
+    const todayCell = page.locator('.calendar-day-cell--clickable.is-today').first();
+    await expect(todayCell).toBeVisible();
+    await todayCell.focus();
+    await page.keyboard.press('Enter');
+
+    const modal = page.locator('#eventModal');
+    await expect(modal).toBeVisible();
+    await modal.getByLabel('Titre').fill(EVENT_TITLE);
+    await modal.getByLabel('Calendrier').selectOption({ label: 'Meute E2E' });
+    await modal.getByLabel('Heure de début').fill('09:00');
+    await modal.getByLabel('Heure de fin').fill('17:00');
+    await modal.getByRole('button', { name: 'Ajouter' }).click();
+
+    await expect(page.locator('.calendar-event-bar', { hasText: EVENT_TITLE })).toBeVisible();
+    await page.waitForLoadState('load');
+
+    // ---------------------------------------------------------------
+    // The create form, with that event picked.
+    // ---------------------------------------------------------------
+    await page.goto('/retro/create', { waitUntil: 'load' });
+
+    const option = page.locator('#retro-event option').filter({ hasText: EVENT_TITLE });
+    await expect(option, 'the event must be inside the picker\'s window').toHaveCount(1);
+    const eventValue = await option.getAttribute('value');
+    const eventEndDate = await option.getAttribute('data-end-date');
+    await page.locator('#retro-event').selectOption(eventValue);
+
+    // retro-config.js fills both fields from the option's data-* payload
+    // and locks them.
+    const title = page.locator('#retro-title');
+    const boardDate = page.locator('#retro-date');
+    await expect(title).toBeDisabled();
+    await expect(boardDate).toBeDisabled();
+    await expect(boardDate).toHaveValue(eventEndDate);
+
+    const derivedTitle = await title.inputValue();
+    expect(derivedTitle).toContain(EVENT_TITLE);
+
+    // ── The trap itself ─────────────────────────────────────────────
+    // Asked of the real form, in the real browser, the moment before it is
+    // sent: a disabled control is not merely read-only, it is not part of
+    // the submission at all.
+    const submitted = await page.evaluate(() => {
+        const field = /** @type {HTMLInputElement} */ (document.getElementById('retro-title'));
+
+        return Array.from(new FormData(field.form).keys());
+    });
+    expect(submitted, 'the browser must not submit the disabled title').not.toContain('title');
+    expect(submitted, 'nor the disabled date').not.toContain('board_date');
+    expect(submitted, 'the link is the one thing it does send').toContain('calendar_event_id');
+
+    await page.getByRole('button', { name: 'Créer la rétrospective' }).click();
+    await page.waitForURL('**/retro', { waitUntil: 'domcontentloaded' });
+
+    // ---------------------------------------------------------------
+    // The board exists, and carries the title the SCRIPT computed —
+    // which the server never received and rebuilt from the event on its
+    // own. Comparing the two derivations is the whole point: a literal
+    // written in this file would only ever agree with itself.
+    // ---------------------------------------------------------------
+    const boardCard = page.locator('.card', { hasText: derivedTitle });
+    await expect(boardCard, 'the event-linked board must not have failed on an empty title').toBeVisible();
+
+    await boardCard.getByRole('link', { name: 'Configurer' }).click();
+    await page.waitForURL(/\/retro\/\d+\/edit$/, { waitUntil: 'load' });
+
+    // And the lock is the SERVER's, not the script's: config.html.twig
+    // renders both fields disabled from the stored link, so the board
+    // cannot be retitled by hand while an event owns its title.
+    await expect(page.locator('#retro-title')).toHaveValue(derivedTitle);
+    await expect(page.locator('#retro-title')).toBeDisabled();
+    await expect(page.locator('#retro-date')).toHaveValue(eventEndDate);
+    await expect(page.locator('#retro-date')).toBeDisabled();
 
     expect(serverErrors, 'the application returned a server error').toEqual([]);
     expect(pageErrors, 'uncaught JavaScript error in the browser').toEqual([]);

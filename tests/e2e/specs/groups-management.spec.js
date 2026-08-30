@@ -54,7 +54,7 @@ import { answerCookieBanner } from '../support/cookie-banner.js';
 import { autoConfirm } from '../support/confirm-dialog.js';
 import { loginAsAdmin, loginAsMember } from '../support/admin-login.js';
 // Shared with specs/groups-discussion.spec.js — see support/groups.js.
-import { openCreateGroupForm, waitForGroupsJsReady } from '../support/groups.js';
+import { openComposer, openCreateGroupForm, waitForGroupsJsReady } from '../support/groups.js';
 
 // Unique per run, so a re-run against a database that somehow survived
 // still matches its own group rather than an older one by name.
@@ -234,6 +234,11 @@ test('a moderator opens a group, invites somebody, promotes, closes, reopens and
         await memberPage.goto(groupUrl, { waitUntil: 'domcontentloaded' });
         await waitForGroupsJsReady(memberPage);
 
+        // Folded down to one line until it is asked for (show.html.twig,
+        // public/assets/js/groups.js) — being offered the bar at all is
+        // what "they may write in it" looks like on the page.
+        await openComposer(memberPage);
+
         const composer = memberPage.locator('#groups-post-form');
         await expect(composer).toBeVisible();
         await composer.getByLabel('Écrire un message').fill(MEMBER_MESSAGE);
@@ -311,6 +316,8 @@ test('a moderator opens a group, invites somebody, promotes, closes, reopens and
         await submitAndReload(page, page.getByRole('button', { name: 'Rouvrir' }), '/reopen');
 
         await memberPage.goto(groupUrl, { waitUntil: 'domcontentloaded' });
+        await waitForGroupsJsReady(memberPage);
+        await openComposer(memberPage);
         await expect(memberPage.locator('#groups-post-form')).toBeVisible();
 
         // ---------------------------------------------------------------
