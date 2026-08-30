@@ -184,3 +184,75 @@ nulle part.
   attente, sur un plafond d'environ vingt Entry Processes.
 - **Un worker résident.** C'est exactement la silhouette que
   `kill_orphaned_php` cible.
+
+## IT-03 — Introspection en bloc mémoïsée
+
+### Fait
+
+- `SchemaIntrospector::getTableDefinitions(array $tables)` : trois requêtes
+  (`COLUMNS`, `STATISTICS`, `KEY_COLUMN_USAGE` joint à
+  `REFERENTIAL_CONSTRAINTS`), filtrées sur `TABLE_SCHEMA = DATABASE()` et
+  `TABLE_NAME IN (...)`, regroupées en PHP. Sans `CARDINALITY`.
+- `MigrationRunner` mémoïse le résultat sur l'instance, au-delà d'un seul
+  appel à `migrate()`, invalidé dès qu'un DDL s'exécute.
+- `getTableDefinition()` par table est conservée : `SchemaComparator`,
+  `BackupService` et les tests s'en servent. `getAllTableDefinitions()`
+  passe par la version en bloc.
+
+### Mesures
+
+Environnement local : **MariaDB 10.11.14** — même version majeure que la
+production (10.11.18), donc la mesure est directement représentative, ce qui
+n'allait pas de soi.
+
+| | Requêtes | Temps |
+|---|---:|---:|
+| Lecture en bloc (44 tables) | **3** | 0,014 s |
+| Lecture table par table (44 tables) | **132** | 0,187 s |
+
+Soit exactement le « 3 au lieu de 132 » visé, et un facteur 13 sur le temps.
+La crainte exprimée dans la roadmap — que MariaDB, sans dictionnaire de
+données derrière `INFORMATION_SCHEMA`, rende le gain illusoire — ne se
+vérifie pas : trois requêtes larges y battent largement 132 étroites.
+
+Un re-diff complet de `core.sql` coûte encore 196 requêtes au total, dont
+seulement 3 d'introspection. Le reste, ce sont les écritures de checkpoint —
+c'est le sujet d'IT-05.
+
+### Ce qui a surpris
+
+**Un test qui ne testait rien.** Le premier test d'invalidation du cache
+passait aussi bien avec l'invalidation qu'avec l'invalidation désactivée. La
+raison : contre une base vide, le memo n'est jamais peuplé — la boucle de
+diff ne le consulte que pour les tables qui existent déjà, et s'il n'y en a
+aucune elle court-circuite. La péremption ne mord que si la première passe
+*lit* le schéma puis le *modifie*, d'où une table préexistante dans la
+version corrigée. Vérifié dans les deux sens : le test passe avec
+l'invalidation et échoue sans.
+
+**139 `MODIFY COLUMN` cosmétiques sur MariaDB.** Une base déjà exactement
+conforme à `schema/core.sql` produit malgré tout 139 `ALTER TABLE ... MODIFY
+COLUMN` à chaque re-diff complet. Deux causes, indépendantes :
+
+1. MariaDB rapporte `int(10) unsigned` là où le schéma déclare
+   `int unsigned` — elle conserve les largeurs d'affichage que MySQL 8 a
+   supprimées.
+2. `COLUMN_DEFAULT` revient comme la **chaîne** `'NULL'` pour une colonne
+   nullable dont le défaut déclaré est le `null` de PHP. Celle-ci touche
+   *toutes* les colonnes nullables sans défaut explicite, c'est-à-dire la
+   plupart — et c'est elle qui explique le gros des 139.
+
+Mesuré **identique avant et après** ce changement : ce n'est pas une
+régression, et c'est au passage une bonne validation que la lecture en bloc
+se comporte exactement comme l'ancienne sur le schéma réel. Signalé et non
+corrigé, comme la roadmap le demande — mais à ne pas laisser dormir : ces
+139 ALTER s'exécutent réellement à chaque migration, et un `ALTER TABLE` sur
+une table peuplée d'un mutualisé n'est pas gratuit. C'est un candidat
+sérieux pour expliquer une partie des p90 à 119 s et du maximum à 831 s
+observés en production.
+
+### Écarté
+
+- Faire passer `applyExplicitDrops()` par le cache. Les drops doivent voir
+  l'état d'après-DDL, et `drops.sql` est petit et rare (c'est écrit dans son
+  propre docblock) : la correction prime sur trois requêtes.

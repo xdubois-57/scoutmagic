@@ -71,6 +71,27 @@ class MigrationRunnerChunkingTest extends TestCase
         $introspector->method('getTableDefinition')->willReturnCallback(
             static fn(string $name): TableDefinition => $declaredByName[$name]
         );
+        // MigrationRunner reads the schema in bulk now, so this is the
+        // method it actually calls. A mock that stubs only the two above
+        // returns an empty array here, every table then looks brand new,
+        // and the failure is a confusing pile of CREATE TABLE statements
+        // rather than an obvious "you forgot to stub something".
+        $introspector->method('getTableDefinitions')->willReturnCallback(
+            /**
+             * @param array<string> $names
+             * @return array<string, TableDefinition>
+             */
+            static function (array $names) use ($declaredByName): array {
+                $result = [];
+                foreach ($names as $name) {
+                    if (isset($declaredByName[$name])) {
+                        $result[$name] = $declaredByName[$name];
+                    }
+                }
+
+                return $result;
+            }
+        );
 
         return $introspector;
     }
@@ -143,6 +164,7 @@ class MigrationRunnerChunkingTest extends TestCase
         $introspector = $this->createMock(SchemaIntrospector::class);
         $introspector->expects($this->never())->method('getTables');
         $introspector->expects($this->never())->method('getTableDefinition');
+        $introspector->expects($this->never())->method('getTableDefinitions');
 
         $cachedRunner = new MigrationRunner($connection, $introspector, new SchemaComparator(), new SqlParser());
         $result = $cachedRunner->migrate([$this->schemaPath]);
@@ -223,5 +245,100 @@ class MigrationRunnerChunkingTest extends TestCase
         $key = 'schema_hash_' . substr(hash('sha256', $this->schemaPath), 0, 16);
         $currentHash = hash('sha256', file_get_contents($this->schemaPath) . "\x00\x00");
         $this->assertSame($currentHash, $this->settingValue($pdo, $key));
+    }
+
+    /**
+     * A counting introspector: mirrors the declared schema like
+     * introspectorMirroring(), but records how many times the bulk read
+     * was actually performed.
+     *
+     * @param array{count: int} $calls
+     */
+    private function countingIntrospector(string $schemaPath, array &$calls): SchemaIntrospector
+    {
+        $declaredByName = [];
+        foreach ((new SqlParser())->parseFile($schemaPath) as $table) {
+            $declaredByName[$table->name] = $table;
+        }
+
+        $introspector = $this->createMock(SchemaIntrospector::class);
+        $introspector->method('getTables')->willReturn(array_keys($declaredByName));
+        $introspector->expects($this->never())->method('getTableDefinition');
+        $introspector->method('getTableDefinitions')->willReturnCallback(
+            /**
+             * @param array<string> $names
+             * @return array<string, TableDefinition>
+             */
+            function (array $names) use ($declaredByName, &$calls): array {
+                $calls['count']++;
+                $result = [];
+                foreach ($names as $name) {
+                    if (isset($declaredByName[$name])) {
+                        $result[$name] = $declaredByName[$name];
+                    }
+                }
+
+                return $result;
+            }
+        );
+
+        return $introspector;
+    }
+
+    /**
+     * Three declared tables, one bulk read — not one read per table, and
+     * never the per-table method. This is the whole point of the change:
+     * the diff loop used to cost 3 INFORMATION_SCHEMA round trips per
+     * table, about 500 of them on the reference installation.
+     */
+    public function testTheDiffReadsTheSchemaInBulkOnceNotOncePerTable(): void
+    {
+        $pdo = DatabaseTestHelper::createTestDatabase();
+        $connection = Connection::withPdo($pdo);
+        $calls = ['count' => 0];
+
+        $runner = new MigrationRunner(
+            $connection,
+            $this->countingIntrospector($this->schemaPath, $calls),
+            new SchemaComparator(),
+            new SqlParser()
+        );
+        $result = $runner->migrate([$this->schemaPath]);
+
+        $this->assertTrue($result->complete);
+        $this->assertSame(1, $calls['count'], 'three declared tables must cost one bulk read');
+    }
+
+    /**
+     * The memo deliberately outlives a single migrate() call: ModuleManager
+     * shares one MigrationRunner across the core schema and every module's,
+     * and re-reading the live schema for each was most of the cost of a
+     * release that touched several modules. With no DDL in between, the
+     * second schema file is diffed against the same cached read.
+     */
+    public function testTheMemoSurvivesAcrossMigrateCallsOnTheSameInstance(): void
+    {
+        $pdo = DatabaseTestHelper::createTestDatabase();
+        $connection = Connection::withPdo($pdo);
+
+        $second = $this->tmpDir . '/other.sql';
+        file_put_contents($second, "CREATE TABLE t1 (id INT PRIMARY KEY);");
+
+        try {
+            $calls = ['count' => 0];
+            $runner = new MigrationRunner(
+                $connection,
+                $this->countingIntrospector($this->schemaPath, $calls),
+                new SchemaComparator(),
+                new SqlParser()
+            );
+
+            $runner->migrate([$this->schemaPath]);
+            $runner->migrate([$second]);
+
+            $this->assertSame(1, $calls['count'], 'the second migrate() must reuse the first read');
+        } finally {
+            @unlink($second);
+        }
     }
 }

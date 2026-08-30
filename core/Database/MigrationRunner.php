@@ -21,6 +21,19 @@ class MigrationRunner
      *   fresh install, whose `event_log` table is created by the very
      *   migration being run.
      */
+    /**
+     * Every table's introspected definition, read in bulk and kept on the
+     * instance — deliberately BEYOND a single migrate() call, because
+     * Core\Module\ModuleManager shares one MigrationRunner across the
+     * core schema and every module's, and re-reading the live schema for
+     * each was most of the cost of a migration. Null means "not read
+     * yet"; invalidated the moment any DDL executes, since the schema it
+     * describes has just changed.
+     *
+     * @var array<string, TableDefinition>|null
+     */
+    private ?array $introspectionCache = null;
+
     public function __construct(
         private Connection $connection,
         private SchemaIntrospector $introspector,
@@ -166,8 +179,12 @@ class MigrationRunner
             $tableName = array_shift($progress->remainingTableNames);
             $declared = $declaredByName[$tableName];
 
+            // Not getTableDefinition($tableName): that is 3
+            // INFORMATION_SCHEMA round trips per table, and this loop runs
+            // once per declared table. The bulk read below answers for
+            // every table at once, in three queries total.
             $actual = in_array($tableName, $progress->actualTableNames, true)
-                ? $this->introspector->getTableDefinition($tableName)
+                ? ($this->introspectedTables()[$tableName] ?? null)
                 : null;
 
             // compareOneDeclaredTable() accumulates onto the comparator's
@@ -205,6 +222,9 @@ class MigrationRunner
             try {
                 $pdo->exec($statement);
                 $progress->executedStatements[] = $statement;
+                // The live schema just changed; anything cached about it
+                // is now a description of the past.
+                $this->introspectionCache = null;
             } catch (\PDOException $e) {
                 $progress->failedCount++;
                 $progress->warnings[] = "Failed to execute: {$statement} — Error: {$e->getMessage()}";
@@ -578,6 +598,7 @@ class MigrationRunner
                 try {
                     $pdo->exec($statement);
                     $executed[] = $statement;
+                    $this->introspectionCache = null;
                     $this->journalDrop($drop);
                 } catch (\PDOException $e) {
                     $warnings[] = "Failed to execute: {$statement} — Error: {$e->getMessage()}";
@@ -586,6 +607,28 @@ class MigrationRunner
         }
 
         return $executed;
+    }
+
+    /**
+     * Every table in the database, introspected once and reused until a
+     * DDL statement invalidates it.
+     *
+     * Reads the whole schema rather than only the tables one caller asked
+     * about, so a later call for a different set — the next module's
+     * schema, on the shared instance — is answered from the same cache
+     * instead of paying for another round.
+     *
+     * @return array<string, TableDefinition>
+     */
+    private function introspectedTables(): array
+    {
+        if ($this->introspectionCache === null) {
+            $this->introspectionCache = $this->introspector->getTableDefinitions(
+                $this->introspector->getTables()
+            );
+        }
+
+        return $this->introspectionCache;
     }
 
     /**

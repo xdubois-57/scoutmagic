@@ -211,6 +211,80 @@ class MigrationRunnerTest extends TestCase
     }
 
     /**
+     * The introspection memo describes the live schema, so executing DDL
+     * makes it a description of the past.
+     *
+     * Getting this test to actually fail without the invalidation took two
+     * attempts, and the first one is worth recording: against an EMPTY
+     * database the memo is never even populated — the diff loop only
+     * consults it for tables that already exist, so with none existing it
+     * short-circuits and the cache stays null. The staleness only bites
+     * when the first pass both READS the schema and then CHANGES it, which
+     * is why `memo_existing` is created up front.
+     *
+     * Two different schema files on purpose too: a second migrate() for the
+     * same file short-circuits on the cached hash and never introspects at
+     * all, so the obvious "migrate twice" shape cannot cover this either.
+     */
+    public function testExecutingDdlInvalidatesTheIntrospectionMemo(): void
+    {
+        $pdo = $this->connection->getPdo();
+        // Exists before the first pass, so the diff loop consults — and
+        // therefore populates — the memo while `memo_created` still does
+        // not exist.
+        $pdo->exec('CREATE TABLE memo_existing (id INT PRIMARY KEY)');
+
+        $tmpDir = sys_get_temp_dir() . '/migration_memo_test_' . uniqid();
+        mkdir($tmpDir);
+        $first = $tmpDir . '/first.sql';
+        $second = $tmpDir . '/second.sql';
+        file_put_contents(
+            $first,
+            "CREATE TABLE memo_existing (\n    id INT PRIMARY KEY\n);\n"
+            . "CREATE TABLE memo_created (\n    id INT PRIMARY KEY\n);"
+        );
+        // A runner still holding the pre-CREATE memo believes memo_created
+        // absent and emits CREATE TABLE for it, which fails with "table
+        // already exists" and lands in warnings.
+        file_put_contents(
+            $second,
+            "CREATE TABLE memo_created (\n    id INT PRIMARY KEY,\n    label VARCHAR(20) NULL\n);"
+        );
+
+        try {
+            $runner = new MigrationRunner($this->connection, $this->introspector, new SchemaComparator(), new SqlParser());
+
+            $runner->migrate([$first]);
+            $result = $runner->migrate([$second]);
+
+            // Not assertSame([], warnings): the second file declares only
+            // memo_created, so memo_existing legitimately produces the
+            // "exists in database but not in declared schema" notice — the
+            // structurally-false warning a later iteration removes. What
+            // must not appear is an execution failure.
+            $failures = array_values(array_filter(
+                $result->warnings,
+                static fn(string $w): bool => str_contains($w, 'Failed to execute')
+            ));
+            $this->assertSame([], $failures, 'a stale memo shows up here as "table already exists"');
+            $this->assertTrue($result->complete);
+            $this->assertNotEmpty(array_filter(
+                $result->executedStatements,
+                static fn(string $st): bool => str_contains($st, 'ADD COLUMN')
+            ), 'the second pass must ALTER the existing table, not try to create it');
+
+            $columns = array_map(fn($c) => $c->name, $this->introspector->getColumns('memo_created'));
+            $this->assertContains('label', $columns);
+        } finally {
+            $pdo->exec('DROP TABLE IF EXISTS memo_created');
+            $pdo->exec('DROP TABLE IF EXISTS memo_existing');
+            @unlink($first);
+            @unlink($second);
+            @rmdir($tmpDir);
+        }
+    }
+
+    /**
      * The advisory lock is deliberately non-blocking (timeout 0): on the
      * shared host this targets, ten visitors waiting on a lock are ten FPM
      * workers immobilised against a ceiling of about twenty, so the site
