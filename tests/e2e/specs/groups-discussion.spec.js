@@ -195,7 +195,11 @@ test('a member writes in a discussion group: a message, a link, a poll, a reply 
     await expect(page.getByLabel('Écrire un message')).toHaveValue(UNSENT_DRAFT);
 
     // Emptied again, so what follows starts from a composer holding
-    // nothing of its own.
+    // nothing of its own. It stays OPEN through the rest of this scenario:
+    // the fold is decided once, when the page loads, and the draft above
+    // is what decided it for this load — which is why steps 2 and 3 below
+    // need no openComposer() of their own even though a reload sits
+    // between them and step 0's click.
     await page.getByLabel('Écrire un message').fill('');
     await page.waitForFunction((key) => localStorage.getItem(key) === null, draftKey);
 
@@ -416,6 +420,34 @@ test('a member writes in a discussion group: a message, a link, a poll, a reply 
 // both members are in it the moment it exists — which is also how most
 // real groups in a unit come to be.
 // ============================================================================
+/**
+ * One row of the notification CENTRE, and nothing else on the page.
+ *
+ * The same title is drawn four times over: partials/
+ * notification_dropdown.html.twig repeats it in each of the three nav
+ * surfaces (mobile header, mobile offcanvas, desktop bar), and
+ * notifications/index.html.twig renders the real row. A page-wide
+ * getByText() therefore resolves to four nodes and dies on strict mode.
+ *
+ * Scoping matters more for the ABSENCE assertion below than for the
+ * presence ones: that dropdown shows only the FIVE most recent UNREAD
+ * notifications, so "zero page-wide" could mean "never sent" or merely
+ * "pushed out of a five-row preview" — two very different facts, and only
+ * one of them is the rule being tested. base.html.twig's <main
+ * id="main-content"> holds the centre's list and none of the chrome.
+ *
+ * The row itself is a submit button (each row is its own tiny POST form,
+ * so marking it read can carry a CSRF token), whose accessible name is
+ * its title, its body and its time — the same shape
+ * specs/groups-mentions.spec.js already reads a notification with.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} name substring of the row's accessible name
+ */
+function notificationRow(page, name) {
+    return page.getByRole('main').getByRole('button', { name });
+}
+
 const SECTION_NAME = 'Meute E2E';
 const SECTION_GROUP_NAME = `Meute E2E ${Date.now()}`;
 const ANNOUNCEMENT = 'Le camp est confirmé du 1er au 10 juillet.';
@@ -467,7 +499,7 @@ test('a message notifies the group but never its own author, and a comment from 
     const announcementNotice = `Nouveau message — ${SECTION_GROUP_NAME}`;
     await page.goto('/notifications', { waitUntil: 'domcontentloaded' });
     await expect(
-        page.getByText(announcementNotice),
+        notificationRow(page, announcementNotice),
         'the author of a message must never be notified about their own message',
     ).toHaveCount(0);
 
@@ -479,8 +511,11 @@ test('a message notifies the group but never its own author, and a comment from 
     // Same message, same group, the other side of the rule: everybody else
     // in the group IS told.
     await page.goto('/notifications', { waitUntil: 'domcontentloaded' });
-    await expect(page.getByText(announcementNotice)).toBeVisible();
-    await expect(page.getByText(ANNOUNCEMENT)).toBeVisible();
+    const theirNotice = notificationRow(page, announcementNotice);
+    await expect(theirNotice).toBeVisible();
+    // Title and body on the SAME row, rather than each found somewhere on
+    // the page: the excerpt belongs to this notification or to none.
+    await expect(theirNotice).toContainText(ANNOUNCEMENT);
 
     await page.goto(groupUrl, { waitUntil: 'domcontentloaded' });
     await expect(page.locator('#groups-feed').getByRole('article')).toHaveCount(1);
@@ -521,8 +556,8 @@ test('a message notifies the group but never its own author, and a comment from 
     // asserted above into a rule rather than a broken page: the comment
     // somebody ELSE wrote is in it, and their own message still is not.
     await page.goto('/notifications', { waitUntil: 'domcontentloaded' });
-    await expect(page.getByText(`Réponse à votre message — ${SECTION_GROUP_NAME}`)).toBeVisible();
-    await expect(page.getByText(announcementNotice)).toHaveCount(0);
+    await expect(notificationRow(page, `Réponse à votre message — ${SECTION_GROUP_NAME}`)).toBeVisible();
+    await expect(notificationRow(page, announcementNotice)).toHaveCount(0);
 
     await page.goto(groupUrl, { waitUntil: 'domcontentloaded' });
 

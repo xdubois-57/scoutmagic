@@ -213,13 +213,26 @@
     }
 
     // Shows/hides the mail-merge zone vs the scout-year block depending on
-    // the selected list type — a mail-merge email's recipients come from the
-    // file, never from a scout year.
+    // the selected list type. Two types answer the "which year?" question
+    // themselves, so the year checkboxes make no sense for either — and
+    // each puts a note in their place, since a block that comes and goes
+    // with nothing said reads as a bug rather than as a rule:
+    //   - mail_merge: the recipients come from the uploaded file, never
+    //     from a scout year;
+    //   - external: a list contributed by another module always targets
+    //     its own fixed year (Modules\Registration\Api\
+    //     ExternalMailingListProvider::targetScoutYearId()). Service\
+    //     MailingListService::resolveMembersForYears() ignores whatever is
+    //     checked here for it, so offering the choice advertises one that
+    //     does not exist.
     function updateListTypeUi() {
-        const isMerge = currentListType() === 'mail_merge';
+        const listType = currentListType();
+        const isMerge = listType === 'mail_merge';
+        const isExternal = listType === 'external';
         el('mm-merge-zone').classList.toggle('d-none', !isMerge);
         el('mm-merge-list-note').classList.toggle('d-none', !isMerge);
-        el('mm-scout-year-zone').classList.toggle('d-none', isMerge);
+        el('mm-external-list-note').classList.toggle('d-none', !isExternal);
+        el('mm-scout-year-zone').classList.toggle('d-none', isMerge || isExternal);
         updateVariableDropdown();
     }
 

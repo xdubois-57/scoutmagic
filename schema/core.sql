@@ -662,7 +662,11 @@ CREATE TABLE event_log (
     ip_address VARCHAR(45),
     category VARCHAR(50) NOT NULL,
     event_type VARCHAR(100) NOT NULL,
-    level ENUM('info', 'security') NOT NULL DEFAULT 'info',
+    -- 'error' is written by Core\Http\ErrorHandler for an uncaught
+    -- throwable, so a crash is consultable from /admin/journal and not
+    -- only from whatever file error_log() happens to write to on a
+    -- shared host (ARCHITECTURE.md §8.6).
+    level ENUM('info', 'security', 'error') NOT NULL DEFAULT 'info',
     description VARCHAR(500) NOT NULL,
     context JSON,
     INDEX idx_logged_at (logged_at),

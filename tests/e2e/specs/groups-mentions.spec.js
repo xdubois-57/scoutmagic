@@ -176,6 +176,13 @@ test('a mention travels to a notification, a pin asks its duration, "Vu par" nam
         // A photo post, and the group's gallery serving it through the
         // delegated-album access check — for the member too.
         // ---------------------------------------------------------------
+        // Reopen the composer first: the « Vu par » check above navigated
+        // back to the group, and every arrival on a group page folds it
+        // down to its one-line bar again (show.html.twig,
+        // public/assets/js/groups.js). Opening it is part of writing a
+        // second message, exactly as it was part of writing the first.
+        await openComposer(page);
+
         await editor.fill(PHOTO_MESSAGE);
         await page.locator('#groups-media-input').setInputFiles({
             name: 'terrain.png',
