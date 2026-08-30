@@ -24,7 +24,18 @@
 // Assertions are semantic (roles, accessible names, the document title) —
 // never CSS/structural selectors, which would break on any Bootstrap
 // markup reshuffle without a single user-visible thing having changed.
+//
+// A second scenario lives in this file, below the first: the home page's
+// three module-provided bands are ONE band chosen by priority, and that
+// rule is only observable when several of them can speak at once. It
+// carries its own header where it starts.
 import { expect, test } from '@playwright/test';
+
+import { answerCookieBanner } from '../support/cookie-banner.js';
+import { autoConfirm } from '../support/confirm-dialog.js';
+import { loginAsAdmin, loginAsMember } from '../support/admin-login.js';
+import { openCreateGroupForm, waitForGroupsJsReady } from '../support/groups.js';
+import { xlsxBuffer } from '../support/xlsx.js';
 
 test('the public home page boots through public/index.php and renders in a browser', async ({ page }) => {
     // Anything the application itself got wrong in the browser: an
@@ -82,6 +93,255 @@ test('the public home page boots through public/index.php and renders in a brows
     await expect(
         page.getByRole('contentinfo').getByRole('link', { name: 'Protection des données' }),
     ).toBeVisible();
+
+    expect(serverErrors, 'the application returned a server error').toEqual([]);
+    expect(pageErrors, 'uncaught JavaScript error in the browser').toEqual([]);
+});
+
+// End-to-end: the home page carries ONE band, and priority decides which.
+//
+// WHY THIS SCENARIO EXISTS
+// ----------------------------------------------------------------------------
+// Three independent modules can each put a band above the welcome text —
+// finance's "reste à payer", groups' "du nouveau dans vos groupes", and
+// the Banners module's editorial message — and the page renders exactly
+// one of them, the highest-priority one that has something to say
+// (pages/home.html.twig's if/elseif chain, and the matching
+// short-circuit in Core\Http\Controller\PageController::home()).
+//
+// That rule is only observable when SEVERAL of them can speak at once,
+// and no other suite can put them in that state:
+//
+//   - PHPUnit wires the providers by hand. It proves the chain picks the
+//     right one from the summaries a test wrote itself, never that a real
+//     finance campaign and a real unread group produce those summaries at
+//     the same moment for the same visitor.
+//   - Vitest sees no PHP at all.
+//
+// The rule is also a rule about a REGRESSION that is invisible per-band:
+// each band renders perfectly on its own, and the failure mode is a page
+// that stacks two or three of them — exactly what a browser sees and a
+// unit test of either module does not.
+//
+// It runs against the real modules end to end: a real bank account, a
+// real campaign created from a real .xlsx upload (the only thing in the
+// codebase that produces a receivable attached to a MEMBER, which is what
+// the band reads), a real group, a real invitation and a real message
+// posted by somebody else — because "there is money due AND unread
+// activity" is a state assembled by two modules that know nothing about
+// each other.
+//
+// LOCATORS
+// ----------------------------------------------------------------------------
+// Visible text and roles throughout — each band is identified by the
+// French sentence a family actually reads. Three places fall back to a
+// handle, each of them a contract rather than incidental structure:
+// `#home-payment-due`, the id the payment band carries for exactly this
+// purpose (Tests\Core\Http\Controller\PageControllerTest asserts on the
+// same one); the ids public/assets/js/groups.js itself binds to, borrowed
+// from specs/groups-management.spec.js along with the steps that use
+// them; and the count of `.alert` blocks inside the page's own grid,
+// which is how "exactly one band" is expressed at all — no role or name
+// can say "and nothing else".
+//
+// HOUSEKEEPING
+// ----------------------------------------------------------------------------
+// The scenario ends by abandoning the receivable and opening the group,
+// so it leaves the instance's home page as it found it rather than
+// showing a leftover band to every scenario that runs after it.
+const ACCOUNT_NAME = `Compte accueil E2E ${Date.now()}`;
+const ACCOUNT_IBAN = 'BE68 5390 0754 7034';
+const CAMPAIGN_LABEL = `Cotisation accueil ${Date.now()}`;
+const GROUP_NAME = `Accueil E2E ${Date.now()}`;
+const MEMBER_MESSAGE = "Le local est libre samedi si quelqu'un veut préparer le matériel.";
+/** A post's own rendered body — never a reply's, never an edit textarea. */
+const POST_BODY = '[id^="post-body-"]';
+/** The .xlsx MIME type, as a browser sends it for a real spreadsheet. */
+const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+/**
+ * The home page's own bands — the alerts inside the page's grid, which is
+ * where all three render. Deliberately not "every alert on the page":
+ * base.html.twig puts a flash message directly under <main> and its own
+ * strips above it, and neither is a band this rule talks about.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+function homeBands(page) {
+    return page.locator('main .row .alert');
+}
+
+test('with money due and unread group activity at once, the home page shows one band and it is the payment one', async ({ page, browser }) => {
+    /** @type {string[]} */
+    const pageErrors = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+
+    /** @type {string[]} */
+    const serverErrors = [];
+    page.on('response', (response) => {
+        if (response.status() >= 500) {
+            serverErrors.push(`HTTP ${response.status()} on ${response.url()}`);
+        }
+    });
+
+    // Abandoning a receivable asks first, through the site's own modal
+    // (design.md §7.5), which Playwright never sees as a dialog.
+    // Installed before the first navigation: it is an init script.
+    await autoConfirm(page);
+
+    await loginAsAdmin(page);
+    // The banner is fixed to the bottom of the viewport and would sit over
+    // the controls at the foot of the pages below.
+    await answerCookieBanner(page);
+
+    // ---------------------------------------------------------------
+    // MONEY DUE. An account, then a campaign billing the administrator's
+    // own member — the same member their address is linked to, which is
+    // what Modules\Finance\Service\FamilyPaymentService resolves the band
+    // from.
+    // ---------------------------------------------------------------
+    await page.goto('/config/finance/accounts', { waitUntil: 'domcontentloaded' });
+    await page.getByRole('button', { name: 'Nouveau compte' }).click();
+    await page.getByLabel(/^Nom \*$/).fill(ACCOUNT_NAME);
+    await page.getByLabel('IBAN').fill(ACCOUNT_IBAN);
+    await page.getByLabel('Nom du titulaire').fill('Unité de test E2E');
+    await page.getByRole('button', { name: 'Enregistrer' }).click();
+    await expect(page.getByRole('row', { name: new RegExp(ACCOUNT_NAME) })).toBeVisible();
+
+    await page.goto('/finance/campaigns/new', { waitUntil: 'load' });
+    await page.getByLabel(/^Nom de la campagne/).fill(CAMPAIGN_LABEL);
+    await page.getByLabel(/^Compte destinataire/).selectOption({ label: ACCOUNT_NAME });
+    // "Identifiant Desk" is one of the two identifier columns the importer
+    // accepts, and 'E2E-ADMIN' is the desk id scripts/e2e-support.php gives
+    // the administrator's member. There is deliberately no matching on a
+    // name anywhere in that importer, so the identifier is what ties this
+    // amount to the visitor whose home page is checked below.
+    await page.getByLabel(/^Fichier Excel/).setInputFiles({
+        name: 'campagne.xlsx',
+        mimeType: XLSX_MIME,
+        buffer: xlsxBuffer([
+            ['Identifiant Desk', 'Nom', 'Montant'],
+            ['E2E-ADMIN', 'Powell Baden', '42,50'],
+        ]),
+    });
+    await page.getByRole('button', { name: 'Créer la campagne' }).click();
+
+    await page.waitForURL(/\/finance\/campaigns\/\d+$/, { waitUntil: 'domcontentloaded' });
+    const campaignUrl = new URL(page.url()).pathname;
+    await expect(page.getByRole('heading', { level: 1, name: CAMPAIGN_LABEL })).toBeVisible();
+
+    // ---------------------------------------------------------------
+    // UNREAD GROUP ACTIVITY. A group of their own, somebody else in it,
+    // and a message from that somebody — a message is never new to
+    // whoever wrote it, so the second browser is the point rather than a
+    // convenience.
+    // ---------------------------------------------------------------
+    await page.goto('/groups', { waitUntil: 'domcontentloaded' });
+    await openCreateGroupForm(page);
+    const creation = page.locator('form[action="/groups"]');
+    await creation.getByLabel('Nom du groupe').fill(GROUP_NAME);
+    // "Sur invitation" rather than a section's: a section group's
+    // membership follows the Desk import and cannot be granted here.
+    await creation.getByLabel('Section').selectOption({ label: 'Sur invitation (sans section)' });
+    await creation.getByRole('button', { name: 'Créer' }).click();
+
+    await page.waitForURL(/\/groups\/\d+$/, { waitUntil: 'domcontentloaded' });
+    const groupUrl = new URL(page.url()).pathname;
+    await expect(page.getByRole('heading', { level: 1, name: GROUP_NAME })).toBeVisible();
+    await waitForGroupsJsReady(page);
+
+    await page.goto(`${groupUrl}/members`, { waitUntil: 'domcontentloaded' });
+    await waitForGroupsJsReady(page);
+    const search = page.locator('#invite-member-search');
+    await expect(search, 'groups.js must reveal its own search box').toBeVisible();
+    await search.fill('Kaa');
+    const results = page.locator('#invite-member-results');
+    await expect(results.getByText('Kaa', { exact: false }).first()).toBeVisible();
+    await results.getByText('Kaa', { exact: false }).first().click();
+    await Promise.all([
+        page.waitForResponse((response) =>
+            response.url().includes('/invite-member') && response.request().method() === 'POST'),
+        page.getByRole('button', { name: 'Inviter' }).click(),
+    ]);
+    await page.waitForLoadState('domcontentloaded');
+
+    const memberContext = await browser.newContext();
+    try {
+        const memberPage = await memberContext.newPage();
+        await loginAsMember(memberPage);
+        await answerCookieBanner(memberPage);
+
+        await memberPage.goto(groupUrl, { waitUntil: 'domcontentloaded' });
+        await waitForGroupsJsReady(memberPage);
+        const composer = memberPage.locator('#groups-post-form');
+        await expect(composer).toBeVisible();
+        await composer.getByLabel('Écrire un message').fill(MEMBER_MESSAGE);
+        await composer.getByRole('button', { name: 'Publier' }).click();
+        // The post's own rendered body, never the edit textarea that
+        // carries the same text (same handle as specs/
+        // groups-management.spec.js, and for the same reason).
+        await expect(memberPage.locator(POST_BODY, { hasText: MEMBER_MESSAGE })).toBeVisible();
+    } finally {
+        await memberContext.close();
+    }
+
+    // ---------------------------------------------------------------
+    // THE RULE. Both providers now have something to say, and the home
+    // page says exactly one of the two things — the money.
+    // ---------------------------------------------------------------
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+
+    const paymentBand = page.locator('#home-payment-due');
+    await expect(paymentBand, 'the payment band must be the one shown').toBeVisible();
+    await expect(paymentBand).toContainText('reste à payer');
+    await expect(paymentBand).toContainText('42,50');
+    // Its own campaign, not a leftover from another scenario.
+    await expect(paymentBand).toContainText(CAMPAIGN_LABEL);
+    // One style for all three bands (design.md §7.8 / plain Bootstrap):
+    // the band is informative, not a warning.
+    await expect(paymentBand).toHaveClass(/alert-info/);
+
+    // Scoped to the bands rather than to the whole document: the page's
+    // contextual help panel (rendered after <main>, folded away) explains
+    // the group band to a reader in those very words, so a document-wide
+    // search for the sentence finds the help topic and never fails.
+    await expect(
+        homeBands(page).filter({ hasText: 'Du nouveau dans vos groupes' }),
+        'the group band must give way to the payment band, not stack under it',
+    ).toHaveCount(0);
+    await expect(homeBands(page), 'the home page carries ONE band, never a stack').toHaveCount(1);
+
+    // ---------------------------------------------------------------
+    // AND THE NEXT ONE DOWN. Abandon the receivable — a real treasurer's
+    // gesture, and the only way to make the top of the chain fall silent
+    // without inventing state — and the group band takes the same slot.
+    // ---------------------------------------------------------------
+    await page.goto(`${campaignUrl}`, { waitUntil: 'domcontentloaded' });
+    // The line's controls live in a Bootstrap collapse, rendered twice
+    // (desktop table + phone cards); only the copy this viewport shows can
+    // be clicked.
+    await page.getByRole('button', { name: 'Détail de la créance' }).filter({ visible: true }).first().click();
+    const waive = page.getByRole('button', { name: 'Abandonner la créance' }).filter({ visible: true }).first();
+    // Waiting on the redirect the POST causes, not on the POST itself: the
+    // response resolves while the browser is still navigating, and the
+    // next goto() would then race it.
+    await Promise.all([
+        page.waitForURL(/\/finance\/campaigns\/\d+\?filter=/, { waitUntil: 'domcontentloaded' }),
+        waive.click(),
+    ]);
+    // The gesture landed, in the campaign's own count of abandoned lines.
+    await expect(page.getByRole('link', { name: 'Abandonnées (1)' })).toBeVisible();
+
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#home-payment-due'), 'an abandoned receivable owes nothing').toHaveCount(0);
+    const groupBand = homeBands(page).filter({ hasText: 'Du nouveau dans vos groupes' });
+    await expect(groupBand, 'with nothing due, the group band takes the slot').toBeVisible();
+    await expect(groupBand).toHaveClass(/alert-info/);
+    await expect(homeBands(page), 'still ONE band, never two').toHaveCount(1);
+
+    // Housekeeping: opening the group is what clears its unread state, so
+    // the scenarios that run after this one find the home page as it was.
+    await page.goto(groupUrl, { waitUntil: 'domcontentloaded' });
 
     expect(serverErrors, 'the application returned a server error').toEqual([]);
     expect(pageErrors, 'uncaught JavaScript error in the browser').toEqual([]);
