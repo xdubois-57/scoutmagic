@@ -27,7 +27,7 @@ import { expect, test } from '@playwright/test';
 
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { loginAsAdmin, loginAsMember } from '../support/admin-login.js';
-import { openCreateGroupForm, waitForGroupsJsReady } from '../support/groups.js';
+import { openComposer, openCreateGroupForm, waitForGroupsJsReady } from '../support/groups.js';
 import { pngBuffer } from '../support/png.js';
 import { scaled } from '../support/timeouts.js';
 
@@ -81,6 +81,11 @@ test('a mention travels to a notification, a pin asks its duration, "Vu par" nam
     // ---------------------------------------------------------------
     await page.goto(groupUrl, { waitUntil: 'domcontentloaded' });
     await waitForGroupsJsReady(page);
+
+    // The composer is folded down to one line until it is asked for
+    // (show.html.twig, public/assets/js/groups.js) — the same click a
+    // member makes before typing anything.
+    await openComposer(page);
 
     const composer = page.locator('#groups-post-form');
     const editor = page.getByLabel('Écrire un message');
@@ -171,6 +176,13 @@ test('a mention travels to a notification, a pin asks its duration, "Vu par" nam
         // A photo post, and the group's gallery serving it through the
         // delegated-album access check — for the member too.
         // ---------------------------------------------------------------
+        // Reopen the composer first: the « Vu par » check above navigated
+        // back to the group, and every arrival on a group page folds it
+        // down to its one-line bar again (show.html.twig,
+        // public/assets/js/groups.js). Opening it is part of writing a
+        // second message, exactly as it was part of writing the first.
+        await openComposer(page);
+
         await editor.fill(PHOTO_MESSAGE);
         await page.locator('#groups-media-input').setInputFiles({
             name: 'terrain.png',
