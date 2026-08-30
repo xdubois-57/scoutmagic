@@ -122,6 +122,45 @@ class GroupNotificationServiceTest extends TestCase
     }
 
     /**
+     * The author of a message is never told about their own message.
+     *
+     * NotificationService::dispatch() only suppresses the actor's push and
+     * email — the in-app row is still written, and that row is what feeds
+     * the unread badge and the home page's « Du nouveau dans vos groupes ».
+     * So the exclusion has to happen here, in the module, before dispatch()
+     * ever sees the list: core's own behaviour is shared with the calendar,
+     * the gallery, the camps and the finances and must not move.
+     */
+    public function testTheAuthorIsNotNotifiedAboutTheirOwnPost(): void
+    {
+        $post = $this->post('Je publie chez moi.');
+
+        $this->service([
+            ['userAccountId' => self::AUTHOR_ACCOUNT, 'memberId' => self::AUTHOR_MEMBER],
+        ])->postPublished($this->group(), $post, 1);
+
+        $this->assertSame([], $this->rows());
+    }
+
+    public function testTheOtherMembersStillReceiveThePostTheAuthorIsExcludedFrom(): void
+    {
+        $post = $this->post('On part au camp samedi !');
+
+        $this->service([
+            ['userAccountId' => 10, 'memberId' => 1],
+            ['userAccountId' => self::AUTHOR_ACCOUNT, 'memberId' => self::AUTHOR_MEMBER],
+            ['userAccountId' => 11, 'memberId' => 2],
+        ])->postPublished($this->group(), $post, 1);
+
+        $rows = $this->rows();
+        $this->assertSame([10, 11], array_map(
+            static fn(array $row): int => (int) $row['user_account_id'],
+            $rows
+        ));
+        $this->assertSame('Nouveau message — Louveteaux', $rows[0]['title']);
+    }
+
+    /**
      * The rule that matters most here: a hidden item's text must never
      * leave through a notification. A push lands on a lock screen and
      * outlives the message it quotes, so the excerpt an already-hidden
@@ -555,6 +594,20 @@ class GroupNotificationServiceTest extends TestCase
     {
         $resolver = $this->createStub(GroupRecipientResolver::class);
         $resolver->method('forGroup')->willReturn($recipients);
+        // The real forGroupExcluding() is forGroup() piped through
+        // excluding(); stubbed the same way here, so a test that puts the
+        // post's own author inside $recipients sees them dropped exactly
+        // as the resolver would drop them.
+        $resolver->method('forGroupExcluding')->willReturnCallback(
+            static function (DiscussionGroup $group, int $scoutYearId, array $excludedAccountIds) use ($recipients): array {
+                $flip = array_flip($excludedAccountIds);
+
+                return array_values(array_filter(
+                    $recipients,
+                    static fn(array $r): bool => !isset($flip[$r['userAccountId']])
+                ));
+            }
+        );
         $resolver->method('moderatorsFor')->willReturn($recipients);
         $resolver->method('isCurrentMember')->willReturn(true);
         $resolver->method('accountIdForMember')->willReturnCallback(

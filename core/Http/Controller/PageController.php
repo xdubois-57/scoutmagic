@@ -61,14 +61,39 @@ class PageController extends AbstractController
      */
     public function home(Request $request, array $params): Response
     {
+        // The home page shows ONE band, and this is the order that
+        // decides which: what the family still owes, then what happened
+        // in their groups, then the unit's editorial banner as a
+        // fallback. That order is a BUSINESS RULE, not an optimisation —
+        // pages/home.html.twig renders the same three candidates as an
+        // if/elseif chain in exactly this sequence, and the two must stay
+        // in step.
+        //
+        // Asking only until one of them answers is what that rule buys:
+        // each provider resolves the caller from the session itself and
+        // goes to the database to do it, so a band that could no longer
+        // be rendered costs nothing. A provider is also free to have
+        // side effects the visitor would not understand (marking
+        // something seen, for instance), which is a second reason not to
+        // ask one whose answer is already unusable.
+        $paymentDue = $this->hooks?->getOptional(HomePaymentDueProvider::class)?->getHomePaymentSummaryForCurrentUser();
+
+        // Each provider answers null for a visitor it has nothing to say
+        // to — an anonymous one included — so there is nothing to gate on
+        // here beyond the priority order itself.
+        $groupActivity = $paymentDue !== null
+            ? null
+            : $this->hooks?->getOptional(HomeGroupActivityProvider::class)?->getHomeActivitySummaryForCurrentUser();
+
+        $bannerHtml = ($paymentDue !== null || $groupActivity !== null)
+            ? null
+            : $this->hooks?->getOptional(HomeBannerProvider::class)?->getRandomBannerHtml(AuthSession::getRole());
+
         return $this->render('pages/home.html.twig', [
-            'banner_html' => $this->hooks?->getOptional(HomeBannerProvider::class)?->getRandomBannerHtml(AuthSession::getRole()),
+            'banner_html' => $bannerHtml,
             'news_articles' => $this->hooks?->getOptional(HomeNewsProvider::class)?->getLatestVisibleArticles(self::HOME_NEWS_LIMIT, AuthSession::getRole()) ?? [],
-            // The provider resolves the caller from the session itself and
-            // answers null for a visitor with no unread groups (and for
-            // an anonymous one), so there is nothing to gate on here.
-            'group_activity' => $this->hooks?->getOptional(HomeGroupActivityProvider::class)?->getHomeActivitySummaryForCurrentUser(),
-            'payment_due' => $this->hooks?->getOptional(HomePaymentDueProvider::class)?->getHomePaymentSummaryForCurrentUser(),
+            'group_activity' => $groupActivity,
+            'payment_due' => $paymentDue,
         ]);
     }
 
