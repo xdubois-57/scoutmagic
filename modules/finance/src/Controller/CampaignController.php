@@ -24,6 +24,7 @@ use Modules\Finance\Service\CampaignOverviewService;
 use Modules\Finance\Service\CampaignService;
 use Modules\Finance\Api\FinanceException;
 use Modules\Finance\Service\FinanceService;
+use Modules\Finance\Service\PaymentLabelService;
 use Modules\Finance\Service\ReceivableAllocationService;
 use Twig\Environment;
 
@@ -51,6 +52,7 @@ class CampaignController extends AbstractController
         private CampaignNotificationService $notificationService,
         private FinanceService $financeService,
         private ReceivableAllocationService $allocationService,
+        private PaymentLabelService $paymentLabelService,
         private ScoutYearService $scoutYears
     ) {
     }
@@ -186,6 +188,51 @@ class CampaignController extends AbstractController
             $this->exportService->buildSpreadsheet($campaign, $detail['rows']),
             'campagne-' . $campaign->id . '.xlsx'
         );
+    }
+
+    /**
+     * GET /finance/campaigns/{id}/labels — the sheet of labels to cut out.
+     *
+     * **Deliberately not filtered like the export.** The export follows
+     * what is on screen, because a treasurer exports what they are
+     * looking at; a sheet of labels is handed out at a meeting, and the
+     * only sensible content is every family that still owes something —
+     * which is also the only thing that produces a label at all
+     * (Service\PaymentLabelService). Printing the « Payées » filter would
+     * produce an empty sheet, and printing « Toutes » would hand a label
+     * to a family that has already paid.
+     *
+     * @param array<string, string> $params
+     */
+    public function labels(Request $request, array $params): Response
+    {
+        $campaignId = (int) ($params['id'] ?? 0);
+
+        try {
+            $campaign = $this->campaignService->requireCampaign(
+                $campaignId,
+                Role::fromString(AuthSession::getRole())
+            );
+        } catch (FinanceException) {
+            return $this->notFound();
+        }
+
+        try {
+            $pdf = $this->paymentLabelService->renderPdf($campaign);
+        } catch (FinanceException $e) {
+            // A campaign with nothing left to claim, or an account with no
+            // IBAN: the refusal belongs on the campaign's own page, where
+            // the treasurer can see why, rather than as a downloaded PDF
+            // saying it is empty.
+            FlashMessage::set('error', $e->getMessage());
+
+            return $this->redirect('/finance/campaigns/' . $campaignId);
+        }
+
+        return (new Response($pdf))
+            ->setHeader('Content-Type', 'application/pdf')
+            ->setHeader('Content-Disposition', 'attachment; filename="etiquettes-campagne-' . $campaign->id . '.pdf"')
+            ->setHeader('Content-Length', (string) strlen($pdf));
     }
 
     /**

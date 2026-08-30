@@ -47,12 +47,61 @@ class DocumentPdfService
         array $metaLines = [],
         ?string $footerNote = null
     ): string {
+        return $this->renderPdf($this->renderHtml($title, $bodyHtml, $unitName, $metaLines, $footerNote));
+    }
+
+    /**
+     * The same A4 sheet with none of the furniture: no header, no title,
+     * no footer, no page number, and the margin the caller asks for.
+     *
+     * `generate()` above frames a body inside a document somebody reads —
+     * a contract, an invoice — and that frame is exactly what a sheet of
+     * labels to cut out cannot have: the grid IS the page, up to its
+     * margins, and a header would push the last row off the sheet while
+     * a footer would print inside the bottom row of labels. Same dompdf,
+     * same DejaVu Sans, same `isRemoteEnabled = false` — only the
+     * furniture is gone.
+     *
+     * **The caller owns the sanitizing here too**, and more so: what is
+     * handed over is the whole of `<body>`, so every substituted value
+     * must already be escaped (see the class docblock).
+     *
+     * @param string $bodyHtml Already sanitized, with every substituted value already escaped.
+     * @param string $pageMargin CSS `@page` margin, e.g. `6mm`.
+     * @param string $extraCss The caller's own stylesheet, placed in `<head>`.
+     * @return string raw PDF bytes
+     */
+    public function generateBare(string $bodyHtml, string $pageMargin, string $extraCss = ''): string
+    {
+        return $this->renderPdf(<<<HTML
+            <!DOCTYPE html>
+            <html lang="fr">
+            <head>
+                <meta charset="UTF-8">
+                <style>
+                    @page { margin: {$pageMargin}; }
+                    body { font-family: "DejaVu Sans", sans-serif; margin: 0; padding: 0; color: #000; }
+                    {$extraCss}
+                </style>
+            </head>
+            <body>{$bodyHtml}</body>
+            </html>
+            HTML);
+    }
+
+    /**
+     * The one place dompdf is configured and run, so a second kind of
+     * document cannot quietly acquire remote loading or a different
+     * default font.
+     */
+    private function renderPdf(string $html): string
+    {
         $options = new Options();
         $options->set('isRemoteEnabled', false);
         $options->set('defaultFont', 'DejaVu Sans');
 
         $dompdf = new Dompdf($options);
-        $dompdf->loadHtml($this->renderHtml($title, $bodyHtml, $unitName, $metaLines, $footerNote));
+        $dompdf->loadHtml($html);
         $dompdf->setPaper('A4', 'portrait');
         $dompdf->render();
 
