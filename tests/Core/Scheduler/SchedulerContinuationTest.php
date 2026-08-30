@@ -22,12 +22,21 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 
 /**
- * No test here emits a real hop: `base_url` is deliberately left unset, so
- * SchedulerContinuation::baseUrl() answers null and emitHop() returns
- * before touching a socket. What is under test is the decision — the three
- * cumulative conditions and the ceiling — and the slice mechanics around
- * it, which is where the damage would be. A test that opened a socket
- * would be testing the network.
+ * Almost no test here emits a real hop: `base_url` is deliberately left
+ * unset, so SchedulerContinuation::baseUrl() answers null and emitHop()
+ * returns before touching a socket. What is under test is the decision —
+ * the three cumulative conditions and the ceiling — and the slice
+ * mechanics around it, which is where the damage would be. A test that
+ * reached out to the network would be testing the network.
+ *
+ * The two exceptions at the end of this class are about whether a hop was
+ * SENT, which is a different question and became a load-bearing one when
+ * `Task\InstallUpdateHandler` stopped migrating in its own process: the
+ * answer decides whether the schema migration starts now or waits for a
+ * visitor. Both point `base_url` at a socket on 127.0.0.1 that the test
+ * itself owns — one listening, one that nothing is listening on. That is
+ * not the network; it is the two outcomes of a local connect, which is
+ * exactly what emitHop() has to tell apart.
  */
 class SchedulerContinuationTest extends TestCase
 {
@@ -291,6 +300,156 @@ class SchedulerContinuationTest extends TestCase
         $this->assertSame(2, $earned);
     }
 
+    /**
+     * The assumption the whole of IT-07 rests on, asserted rather than
+     * assumed: a task created WHILE a pass is running is never run by that
+     * pass.
+     *
+     * `Task\InstallUpdateHandler` replaces every file on disk and then
+     * schedules the schema migration instead of running it, precisely so
+     * that a different process — one where every class is loaded from the
+     * new files — does the migrating. If a pass could pick up a task its
+     * own handler had just created, that separation would be an illusion
+     * and the mixed-code bug class would be back.
+     *
+     * processOverdue() claims its task list once, up front
+     * (SchedulerRepository::claimOverdue()), and iterates that snapshot.
+     */
+    public function testATaskScheduledByARunningTaskIsNotRunByTheSamePass(): void
+    {
+        $ranInThisPass = [];
+        $scheduler = new \Core\Scheduler\SchedulerService($this->repo);
+
+        $spawner = new class ($scheduler, $ranInThisPass) implements TaskHandlerInterface {
+            /** @param array<string> $log */
+            public function __construct(
+                private \Core\Scheduler\SchedulerService $scheduler,
+                private array &$log
+            ) {
+            }
+
+            public function handle(array $payload, TaskContext $context): void
+            {
+                $this->log[] = 'spawner';
+                // Due immediately — the strongest form of the question.
+                $this->scheduler->scheduleAfter('core', 'spawned_task', 0, []);
+            }
+        };
+
+        $spawned = new class ($ranInThisPass) implements TaskHandlerInterface {
+            /** @param array<string> $log */
+            public function __construct(private array &$log)
+            {
+            }
+
+            public function handle(array $payload, TaskContext $context): void
+            {
+                $this->log[] = 'spawned';
+            }
+        };
+
+        $this->runner->registerHandler('core', 'test_task', $spawner);
+        $this->runner->registerHandler('core', 'spawned_task', $spawned);
+        $this->queue(1);
+
+        $this->runner->processOverdue();
+
+        $this->assertSame(['spawner'], $ranInThisPass, 'the spawned task must wait for a later pass');
+        $this->assertSame(1, $this->repo->countOverdue(), 'and it must still be queued, not lost');
+
+        // A later pass — a different process, in production — runs it.
+        $this->runner->processOverdue();
+        $this->assertSame(['spawner', 'spawned'], $ranInThisPass);
+    }
+
+    /**
+     * kick() is how Task\InstallUpdateHandler asks for a pass to start
+     * NOW, in a process of its own, having deliberately not migrated in
+     * the process that replaced the files. It starts a fresh chain: the
+     * update is not a continuation of whatever chain happened to be
+     * running, and must get the full hop budget.
+     */
+    public function testKickStartsAFreshChain(): void
+    {
+        $this->settings->setInternal(SchedulerContinuation::HOPS_SETTING, '27');
+
+        $this->continuation->kick();
+
+        $this->assertLessThan(
+            27,
+            $this->continuation->hopCount(),
+            'a kick must not inherit the hop count of an unrelated chain'
+        );
+    }
+
+    /**
+     * A ceiling of zero means chaining is OFF here, and a kick is a chain
+     * of one — so it has to honour it like any other hop.
+     *
+     * It did not, and the omission had a precise cost: kick() went
+     * straight to emitHop(), which only checks base_url, while the ceiling
+     * lives in shouldHop(). The end-to-end and dynamic-scan harnesses set
+     * the ceiling to zero because `php -S` serves one request per worker
+     * and defaults to one worker, so the kick queued behind the request
+     * that emitted it and held the only worker for a whole slice — a
+     * browser step timed out waiting on a navigation, intermittently, and
+     * only under the scan where every request already carries proxy
+     * latency.
+     */
+    public function testKickHonoursACeilingOfZeroLikeAnyOtherHop(): void
+    {
+        // A socket that really is listening, so a kick that ignored the
+        // ceiling would succeed — a dead port would make this pass for
+        // the wrong reason, which is exactly how the first version of
+        // this test managed to pass without the fix.
+        $server = @stream_socket_server('tcp://127.0.0.1:0', $errno, $errstr);
+        $this->assertNotFalse($server, "could not open a local listening socket: {$errstr}");
+        $name = (string) stream_socket_get_name($server, false);
+        $port = (int) substr($name, (int) strrpos($name, ':') + 1);
+
+        $this->settings->register('base_url', '', 'text', 'base', 'test', null, null, null, false, 900);
+        $this->settings->setInternal('base_url', 'http://127.0.0.1:' . $port);
+        $this->settings->setInternal(SchedulerContinuation::MAX_HOPS_SETTING, '0');
+        $this->settings->setInternal(SchedulerContinuation::HOPS_SETTING, '7');
+
+        try {
+            $this->assertFalse($this->continuation->kick(), 'chaining is off: nothing may be emitted');
+            $this->assertSame(7, $this->continuation->hopCount(), 'and no chain may be begun either');
+        } finally {
+            fclose($server);
+        }
+    }
+
+    /**
+     * The counterpart: an unset ceiling must not be read as zero, or a
+     * fresh installation would silently never kick — and the migration an
+     * update just scheduled would wait for the next visitor, which is
+     * exactly what the kick exists to prevent.
+     */
+    public function testKickStillFiresWhenTheCeilingIsSimplyUnset(): void
+    {
+        $this->pdo->exec("DELETE FROM settings WHERE setting_key = '" . SchedulerContinuation::MAX_HOPS_SETTING . "'");
+
+        // No base_url, so nothing is written either way — what is asserted
+        // is that it got PAST the ceiling and began a chain.
+        $this->settings->setInternal(SchedulerContinuation::HOPS_SETTING, '9');
+        $this->continuation->kick();
+
+        $this->assertSame(0, $this->continuation->hopCount(), 'a fresh chain was begun');
+    }
+
+    /**
+     * And it degrades exactly like a hop. No base_url means no request to
+     * write — which must be reported, not thrown: the update that calls
+     * this has already succeeded, and the migration is queued either way.
+     * A failed kick is a slower migration, never a failed update.
+     */
+    public function testKickReportsRatherThanThrowsWhenThereIsNowhereToSend(): void
+    {
+        $this->assertFalse($this->continuation->kick(), 'no base_url, nothing written');
+        $this->assertSame(0, $this->continuation->hopCount(), 'and no hop was consumed');
+    }
+
     public function testAMissingOrWrongSecretIsRefusedTheSameWay(): void
     {
         $this->assertTrue($this->continuation->verifySecret('the-shared-secret'));
@@ -318,6 +477,59 @@ class SchedulerContinuationTest extends TestCase
 
         $this->assertFalse($secretless->verifySecret(''));
         $this->assertFalse($secretless->verifySecret('anything'));
+    }
+
+    /**
+     * A configured base_url with nothing listening: the hop is attempted
+     * against every target and none of them takes it. Reported as not
+     * sent, and — the part that matters — not thrown. The caller here is
+     * an update that has already succeeded.
+     */
+    public function testAHopReportsFailureWhenNothingIsListening(): void
+    {
+        $port = $this->aPortNobodyIsUsing();
+        $this->settings->register('base_url', '', 'text', 'base', 'test', null, null, null, false, 900);
+        $this->settings->setInternal('base_url', 'http://127.0.0.1:' . $port);
+
+        $this->assertFalse($this->continuation->kick());
+    }
+
+    /**
+     * And the other outcome, which is the one the migration depends on: a
+     * listening socket takes the request, so the kick reports that it was
+     * sent. The socket is this test's own, accepted and dropped without
+     * ever being read — which is precisely what fire-and-forget means, and
+     * why the caller never waits for a response.
+     */
+    public function testAHopReportsSuccessWhenTheRequestIsAccepted(): void
+    {
+        $server = @stream_socket_server('tcp://127.0.0.1:0', $errno, $errstr);
+        $this->assertNotFalse($server, "could not open a local listening socket: {$errstr}");
+
+        $name = stream_socket_get_name($server, false);
+        $this->assertNotFalse($name);
+        $port = (int) substr((string) $name, (int) strrpos((string) $name, ':') + 1);
+
+        $this->settings->register('base_url', '', 'text', 'base', 'test', null, null, null, false, 900);
+        $this->settings->setInternal('base_url', 'http://127.0.0.1:' . $port);
+
+        try {
+            $this->assertTrue($this->continuation->kick());
+            $this->assertSame(1, $this->continuation->hopCount(), 'a sent hop consumes one of the chain budget');
+        } finally {
+            fclose($server);
+        }
+    }
+
+    private function aPortNobodyIsUsing(): int
+    {
+        $probe = @stream_socket_server('tcp://127.0.0.1:0', $errno, $errstr);
+        $this->assertNotFalse($probe, "could not reserve a local port: {$errstr}");
+        $name = (string) stream_socket_get_name($probe, false);
+        $port = (int) substr($name, (int) strrpos($name, ':') + 1);
+        fclose($probe);
+
+        return $port;
     }
 
     /**

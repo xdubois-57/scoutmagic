@@ -31,6 +31,88 @@ class SchemaIntrospector
     }
 
     /**
+     * Whether this server is MariaDB rather than MySQL, read once.
+     *
+     * Asked for one reason only, and it is not a preference: the two
+     * engines report column defaults in formats that are individually
+     * unambiguous and mutually contradictory. See decodeDefault().
+     */
+    private ?bool $isMariaDb = null;
+
+    private function isMariaDb(): bool
+    {
+        if ($this->isMariaDb === null) {
+            $version = '';
+            try {
+                $version = (string) $this->pdo->getAttribute(\PDO::ATTR_SERVER_VERSION);
+            } catch (\PDOException) {
+                // A driver that will not say is treated as MySQL: that
+                // branch changes nothing about what is reported, it only
+                // declines to reinterpret it.
+            }
+
+            $this->isMariaDb = stripos($version, 'mariadb') !== false;
+        }
+
+        return $this->isMariaDb;
+    }
+
+    /**
+     * What `INFORMATION_SCHEMA.COLUMNS.COLUMN_DEFAULT` reports, turned
+     * back into the value the column actually defaults to.
+     *
+     * On MariaDB 10.2+ that column holds a SQL **expression**, not a
+     * value, and the difference is not academic — it is 532 phantom
+     * `MODIFY COLUMN` statements on this codebase's schema, regenerated
+     * on every migration pass for ever:
+     *
+     * - a nullable column with no default reports the bare, unquoted text
+     *   `NULL`, where MySQL reports a real SQL NULL. Read literally, every
+     *   such column looks like it wants a default of the four-character
+     *   string "NULL" — 472 of them here;
+     * - a string default is reported quoted and escaped (`'public'`,
+     *   `'it''s'`), while a schema file declares `DEFAULT 'public'` and
+     *   the parser hands back `public` — 60 more.
+     *
+     * **The two engines are individually unambiguous and mutually
+     * contradictory, which is why this has to know which one it is
+     * talking to.** MySQL does not quote string literals, so an unquoted
+     * `NULL` there means a genuine default of the string "NULL" — the
+     * exact opposite of what it means on MariaDB — while "no default" is
+     * a real SQL NULL it has already reported as such. Applying MariaDB's
+     * reading to MySQL erases a real default; applying MySQL's to MariaDB
+     * invents 472 of them. CI runs MySQL 8 and production runs MariaDB
+     * 10.11, so both readings are live at once, and a test caught this
+     * with the assertion that matters most: `DEFAULT 'NULL'` must survive.
+     *
+     * Normalised here rather than in `SchemaComparator` — unlike
+     * `current_timestamp()` versus `CURRENT_TIMESTAMP`, which are two
+     * spellings of one real default and so only need reconciling when
+     * comparing, these are the introspector reporting something the
+     * column does not have. Every reader deserves the truth, not only the
+     * one that happens to diff.
+     */
+    private function decodeDefault(?string $reported): ?string
+    {
+        if ($reported === null) {
+            return null;
+        }
+
+        // Quoted: a string literal, and only MariaDB writes them this way.
+        // Checked first, so a MariaDB column that genuinely defaults to
+        // the string "NULL" — reported `'NULL'`, with quotes — keeps it.
+        if (strlen($reported) >= 2 && str_starts_with($reported, "'") && str_ends_with($reported, "'")) {
+            return str_replace(["''", '\\\\'], ["'", '\\'], substr($reported, 1, -1));
+        }
+
+        if ($reported === 'NULL' && $this->isMariaDb()) {
+            return null;
+        }
+
+        return $reported;
+    }
+
+    /**
      * Get the column definitions for a table.
      *
      * @return array<ColumnDefinition>
@@ -51,7 +133,7 @@ class SchemaIntrospector
                 name: $row['COLUMN_NAME'],
                 type: $row['COLUMN_TYPE'],
                 nullable: $row['IS_NULLABLE'] === 'YES',
-                default: $row['COLUMN_DEFAULT'],
+                default: $this->decodeDefault($row['COLUMN_DEFAULT']),
                 autoIncrement: str_contains($row['EXTRA'], 'auto_increment'),
                 extra: $row['EXTRA'] ?: null
             );
@@ -236,7 +318,7 @@ class SchemaIntrospector
                 name: $row['COLUMN_NAME'],
                 type: $row['COLUMN_TYPE'],
                 nullable: $row['IS_NULLABLE'] === 'YES',
-                default: $row['COLUMN_DEFAULT'],
+                default: $this->decodeDefault($row['COLUMN_DEFAULT']),
                 autoIncrement: str_contains($row['EXTRA'], 'auto_increment'),
                 extra: $row['EXTRA'] ?: null
             );

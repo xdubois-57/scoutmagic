@@ -370,3 +370,232 @@ Le warning « table exists in database but not in declared schema » que cette
 itération devait supprimer avait déjà disparu en IT-04, non par élargissement
 mais par disparition : le bloc qui l'émettait était la construction de la
 file de tables, que le re-diff a supprimée.
+
+## IT-07 — Migrer au déploiement, pas dans le processus qui déploie
+
+`InstallUpdateHandler` et `RestoreBackupHandler` remplacent tous deux
+l'arborescence de fichiers pendant qu'ils tournent, et migraient tous deux
+juste après — dans ce même processus, dont les classes chargées sont celles
+d'il y a un instant tandis que tout ce qui n'est pas encore chargé vient des
+nouveaux fichiers.
+
+C'est ce mélange qui a produit les six restaurations consécutives de
+production. Il ne suffisait pas d'ajouter des cales sur les deux objets
+concernés : tant que la migration tourne là, n'importe quel changement futur
+de leur signature rouvre exactement le même piège.
+
+Les deux passent désormais le statut à `migrating`, planifient la tâche de
+reprise qu'ils possédaient déjà pour le cas du budget dépassé, et rendent la
+main. La séparation est **garantie et non espérée** :
+`SchedulerRunner::processOverdue()` fige sa liste de tâches au début d'une
+passe, donc une tâche créée pendant une passe n'est jamais exécutée par
+elle — c'est ce qu'affirme le test ajouté ici.
+
+`SchedulerKick::now()` démarre cette passe immédiatement, par la même
+requête à soi-même sans lecture de réponse que l'ordonnanceur utilise pour
+prolonger une chaîne. Sans elle, la migration attendrait le prochain tic de
+cron ou le prochain visiteur — c'est-à-dire « migrer sur la requête de
+quelqu'un », qui est précisément ce qu'on supprime. La relance est
+opportuniste comme un saut : pas de `base_url`, pas de secret, pas de
+loopback, une socket refusée — chacun de ces cas laisse la file s'écouler
+comme avant. Quand elle s'exécute, l'opération a déjà réussi et la migration
+est déjà en file : une relance ratée est une migration plus lente, jamais
+une mise à jour ratée.
+
+### Ce que cela rend possible
+
+Les cales de compatibilité d'IT-04 sur `MigrationProgress` et
+`MigrationResult` deviennent supprimables une fois qu'aucune installation
+n'est antérieure à ce changement : plus aucune mise à jour ne peut exécuter
+le `MigrationRunner` d'une version contre le `MigrationResult` d'une autre.
+Elles restent en place jusque-là — leur retrait est une décision sur le parc
+installé, pas sur le code.
+
+## Annexe A — Additions au paquet de support
+
+### A1 — Cron réel et cadence
+
+`cron_last_run` et `scheduler_last_run` existaient depuis longtemps et
+n'étaient remontés nulle part. Ensemble ils répondent à la question qui
+oriente toute une conversation de support : est-ce que quelque chose
+d'autre que les visiteurs entraîne la file ?
+
+Aucun des deux ne répond à *à quelle fréquence*, parce que ce sont des
+horodatages uniques écrasés à chaque passage — un crontab configuré à
+l'heure sur un hôte qui le laisse tomber en silence ressemble exactement,
+à travers un seul horodatage, à un crontab qui part toutes les minutes.
+D'où `CronRunHistory`, tampon circulaire de vingt entrées écrit par
+`public/cron.php` seul, seule source possible d'un intervalle.
+
+**La latence d'ordonnancement est la raison d'être du fichier.** Six échecs
+de mise à jour en production disaient tous « bloquée à *migrating* depuis
+plus de 15 minutes », et la cause n'était pas la migration : c'étaient des
+tâches triviales exécutées six minutes après leur heure prévue, face à un
+chien de garde réglé à quinze. Cet écart n'était visible qu'en soustrayant
+deux colonnes de `scheduled-tasks.xlsx` à la main. C'est désormais une
+colonne, avec médiane et maximum.
+
+### A2 — Prouver plutôt qu'affirmer
+
+`commands.txt` écrivait « exécution de commandes disponible : oui » sur la
+seule foi de `disable_functions`. Ce n'est pas une mesure. `ShellExecutor::
+probe()` lance `echo` et compare la sortie à un marqueur ; les deux
+réponses — déclarée et vérifiée — sont imprimées et jamais fusionnées.
+C'est ce qui rend interprétables les cinq « non » qui suivent.
+
+`extensions.txt` liste `get_loaded_extensions()` en entier avec les
+versions, et la correspondance extension → fonctionnalité l'accompagne sans
+la remplacer. La liste des binaires n'est plus curée : à côté des cinq que
+le code appelle, un inventaire de l'hôte que rien ici n'appelle.
+
+### A3 — Réglages de fond
+
+Une tâche qui « n'a jamais tourné » et une tâche dont la planification est
+désactivée se ressemblent sur `scheduled-tasks.xlsx`. `scheduler-settings.
+txt` tranche : sauvegarde automatique, `auto_update_*`, `dev_update_*`,
+rétentions. Une clé non définie est imprimée comme telle plutôt qu'omise —
+une ligne absente est indistinguable d'une clé que personne n'a pensé à
+inclure.
+
+### A4 — Ce qui est possible sur cet hôte
+
+`background-execution.txt` est la sonde ponctuelle transformée en
+collecteur permanent : boucle HTTP testée **par cible** et les deux
+résultats conservés, `open_basedir`, `disable_functions` cité en entier,
+`fastcgi_finish_request`, `max_execution_time`, compteur de sauts.
+
+La cible est prise dans `base_url` et jamais dans `HTTP_HOST` : un
+collecteur qui se connecterait là où pointe un en-tête serait une SSRF
+déclenchable par quiconque peut faire générer un paquet de support à un
+superadmin. Et la sonde vise `/api/version`, publique et sans effet de
+bord — viser l'endpoint de continuation ferait tourner du travail
+d'ordonnanceur, ou écrirait une entrée de journal `security` à chaque
+génération de paquet.
+
+### Écarté
+
+- Le spawn CLI détaché, y compris en repli. Mesuré non fonctionnel sur
+  l'hébergement de référence, et de toute façon exposé au ramassage des
+  processus orphelins.
+- Un verdict unique fusionnant « déclaré » et « vérifié ». C'est
+  précisément la fusion qui rendait le fichier trompeur.
+
+## Après la roadmap — convergence réelle et retrait des cales
+
+### Les 534 MODIFY COLUMN fantômes
+
+Signalés en IT-03 comme un chantier à part, traités ici. Chaque passe de
+migration régénérait les mêmes 534 `ALTER`, ils réussissaient tous,
+l'introspection rapportait la même « différence » ensuite, et le schéma ne
+convergeait jamais. **Rien n'échouait** : c'est pourquoi cela a duré. Un
+coût permanent payé à chaque changement de schéma, sans une seule erreur
+pour le désigner.
+
+Quatre causes, toutes des divergences de report entre MariaDB et MySQL, et
+une seule correspondait à l'hypothèse initiale :
+
+| n | cause |
+|---|---|
+| 472 | `COLUMN_DEFAULT` contient une **expression** depuis MariaDB 10.2 : une colonne nullable sans défaut y porte le texte nu `NULL` |
+| 60 | les défauts chaîne reviennent cités et échappés (`'public'`, `'it''s'`) |
+| 9 | `JSON` est un alias de `LONGTEXT` sur MariaDB |
+| 2 | `decimal(12, 2)` déclaré contre `decimal(12,2)` rapporté |
+
+Les deux premières sont corrigées dans l'**introspecteur** et non dans le
+comparateur. La distinction n'est pas cosmétique : `current_timestamp()`
+face à `CURRENT_TIMESTAMP` sont deux orthographes d'un même défaut réel, à
+réconcilier au moment de comparer ; ici l'introspecteur rapporte quelque
+chose que la colonne **n'a pas**. Tout lecteur mérite la vérité, pas
+seulement celui qui diffe.
+
+Ce qui rend le premier cas décidable plutôt qu'ambigu : MariaDB **cite** les
+littéraux chaîne, donc une colonne qui a réellement `NULL` pour défaut le
+rapporte avec ses apostrophes, et la forme nue ne peut signifier que
+« aucun défaut ». C'est pourquoi le test du `NULL` passe en premier.
+
+Mesuré sur le schéma complet (165 tables) contre MariaDB 10.11 : **534 → 0**.
+
+### MySQL et MariaDB : ce que l'échec de CI a révélé
+
+Le correctif ci-dessus, écrit et mesuré contre MariaDB, a fait tomber en CI
+le test auquel je tenais le plus — celui qui vérifie qu'une colonne ayant
+réellement `NULL` pour défaut le conserve. La CI tourne sur MySQL 8.
+
+La règle « `NULL` non cité signifie pas de défaut » est **vraie sur MariaDB
+et fausse sur MySQL**, qui ne cite pas les littéraux : `DEFAULT 'NULL'` y
+revient aussi en `NULL` nu, et c'est « pas de défaut » qui s'y exprime par
+un vrai NULL SQL. Chaque moteur est cohérent avec lui-même ; les deux se
+contredisent. Appliquer la lecture MariaDB à MySQL **efface un défaut
+réel** ; appliquer celle de MySQL à MariaDB en **invente 472**.
+
+Vérifié contre les deux moteurs réels plutôt que contre la documentation :
+un MySQL 8.0.46 — la version exacte de la CI — a été démarré localement à
+côté du MariaDB 10.11.
+
+### Le trou de couverture, plus important que le correctif
+
+Les quatre jobs de CI tournaient sur `mysql:8.0`. **La production tourne
+sur le moteur que la CI ne testait jamais.**
+
+L'asymétrie était du mauvais côté. Ce qui vient de se passer était le cas
+favorable : du code juste sur MariaDB, attrapé par une CI MySQL. Le cas
+inverse — juste sur MySQL, faux sur MariaDB — passe la CI et casse la
+production, et il y a un précédent : `SchemaComparator` n'atteignant jamais
+son état stable sur un hébergement MariaDB, avec des requêtes qui
+paraissaient bloquées.
+
+Un job `database-mariadb` fait désormais tourner **toute** la suite contre
+MariaDB 10.11, sans couverture — le rapport Clover que SonarQube consomme
+reste produit une seule fois.
+
+Toute la suite plutôt que `--group=database`, délibérément. Les neuf
+fichiers qui lisent `TEST_DB_*` portent tous ce groupe aujourd'hui, donc la
+forme étroite couvrirait le même terrain — mais seulement jusqu'à ce que
+quelqu'un en ajoute un qui ne le porte pas, et le mode d'échec de cet oubli
+est le silencieux : il passe en CI et casse la production. Deux minutes de
+plus achètent la disparition complète de la question « quels tests sont
+sensibles au moteur ».
+
+**Convergence mesurée sur les deux : 534 → 0 sur MariaDB 10.11, 0 sur
+MySQL 8.0.46.**
+
+### Et en local : `npm run test:engines`
+
+Le trou de couverture avait une seconde moitié, moins visible : **en local
+on teste sur MariaDB, la CI teste sur MySQL, donc personne ne voit jamais
+les deux avant de pousser.** C'est exactement le piège dans lequel ce
+chantier est tombé — le correctif des défauts a été écrit et mesuré contre
+MariaDB, validé en local, poussé, et c'est la CI qui a révélé qu'il effaçait
+un défaut réel sur MySQL.
+
+`scripts/test-engines.sh` fait tourner la suite contre les deux : le
+MariaDB que le hook de session a déjà démarré, et un MySQL 8 jetable —
+conteneur Docker normalement, `mysqld` natif là où il en existe un.
+
+**Découvert en le construisant** : `mysql-server` et `mariadb-server` sont
+en **conflit** comme paquets Debian/Ubuntu — apt désinstalle l'un pour
+poser l'autre. Un conteneur est donc ce qui rend « les deux, en local »
+possible tout court, et c'est déjà le mécanisme que `scripts/e2e.sh`
+utilise pour la même raison.
+
+Un moteur que le script n'a pas pu démarrer est rapporté comme tel et fait
+sortir en échec. « Vert sur les deux moteurs » et « vert sur le seul moteur
+que j'ai trouvé » ne sont pas la même phrase — et c'est précisément la
+seconde qui se lisait comme la première.
+
+### Retrait des cales
+
+Supprimées : `MigrationResult::$backupCreated` et les six champs de file de
+`MigrationProgress`. Ce n'est pas le temps qui les rend supprimables, c'est
+IT-07 : plus aucune mise à jour ne peut exécuter le runner d'une version
+contre les objets d'une autre.
+
+`SelfUpdateCompatibilityTest` disparaît, mais son sujet n'a pas disparu — il
+a bougé. `Tests\Architecture\SelfUpdateMigrationBoundaryTest` tient
+désormais la condition qui a rendu le retrait sûr : la méthode qui appelle
+`installFiles()`/`restoreFiles()` ne migre jamais, et passe la main à
+`resumeMigration()`. Les deux moitiés comptent — n'affirmer que la première
+passerait tout aussi bien sur un handler qui aurait cessé de migrer, ce qui
+est un schéma silencieusement non migré et non un problème corrigé.
+
+Vérifié en échec : réintroduire un `migrate()` en ligne fait tomber le test.

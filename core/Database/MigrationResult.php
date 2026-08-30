@@ -26,6 +26,21 @@ class MigrationResult
      *   $complete is true. Drives the progress bar on the migration-in-
      *   progress page (Core\Http\Controller\SystemController) across
      *   repeated short migrate() calls.
+     * Nothing here may be removed or reordered in a release an
+     * installation could update *into*, and one removal already proved
+     * why: `$backupCreated` was dropped when migrate() stopped taking its
+     * own dump, and scoutmagic.be rolled back six consecutive times on
+     * `Error: Unknown named parameter $backupCreated` — the update ran the
+     * previous version's MigrationRunner against this class autoloaded
+     * from the new files, and every retry ran that same old code, so the
+     * site could never reach the version that would have fixed it.
+     *
+     * It is gone again now, and the rule has not softened: what changed is
+     * that the migration no longer runs in the process that replaces the
+     * files (ARCHITECTURE.md § schéma), so no update can mix two versions
+     * of this class any more. Until that stops being true, new fields go
+     * at the END with a default — which is why $converged sits last.
+     *
      * @param bool $converged False when the migration gave up: the same
      *   statements failed on several consecutive passes, so the attempt
      *   was abandoned rather than retried forever (MigrationRunner::
@@ -35,45 +50,12 @@ class MigrationResult
      *   declare. A caller for whom that is a failed operation rather than
      *   a degraded one (Core\Maintenance\Task\InstallUpdateHandler, which
      *   has a backup to roll back to) must check this, not just $complete.
-     * @param bool $backupCreated **Upgrade shim. Nothing reads it.**
-     *
-     * Removing this parameter took production down, and the mechanism is
-     * worth understanding because it will happen again otherwise. During a
-     * self-update, `Task\InstallUpdateHandler` replaces the files on disk
-     * and then runs the migration IN THE SAME PHP PROCESS. Classes already
-     * loaded are the old ones; a class not yet loaded is autoloaded from
-     * the NEW files. `MigrationResult` is only ever constructed by
-     * `MigrationRunner::migrate()`, which nothing calls on an ordinary
-     * request — so it is reliably *not* loaded when an update begins, and
-     * reliably loaded from the new files a moment later.
-     *
-     * The old runner, still in memory, calls
-     * `new MigrationResult(..., backupCreated: false)`. Against a class
-     * that no longer declared it, PHP threw
-     * `Error: Unknown named parameter $backupCreated`, the handler caught
-     * it, and the update rolled back. Every time, for good: the retry runs
-     * the same old code, so the site can never reach the version that
-     * would fix it. Six consecutive rollbacks on scoutmagic.be, all
-     * identical, all around 32 seconds.
-     *
-     * Kept as a real (if inert) property rather than a discarded argument
-     * so the compatibility promise is visible in the type rather than
-     * hidden in a signature nobody reads. Removable once no installation
-     * predates the version that reintroduced it — a decision about the
-     * field, not about the code.
-     *
-     * The same rule is why $converged was ADDED at the end with a default
-     * rather than inserted among the existing parameters, and why nothing
-     * here may ever be removed or reordered in a release an installation
-     * could update *into*: the code doing the constructing during that
-     * update is the code of the version being replaced.
      */
     public function __construct(
         public readonly array $executedStatements,
         public readonly array $warnings,
         public readonly bool $complete = true,
         public readonly float $progressFraction = 1.0,
-        public readonly bool $backupCreated = false,
         public readonly bool $converged = true
     ) {
     }
