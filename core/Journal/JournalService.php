@@ -19,8 +19,16 @@ class JournalService
      *
      * @param string      $category    'core' or module_id
      * @param string      $type        e.g. 'login_success', 'import_desk'
-     * @param string      $level       'info' or 'security'
-     * @param string      $description Human-readable short description (no personal data!)
+     * @param string      $level       'info', 'security' or 'error' —
+     *                                 the values of event_log.level.
+     *                                 'error' is what Core\Http\ErrorHandler
+     *                                 writes for an uncaught throwable.
+     * @param string      $description Human-readable short description (no personal data!).
+     *                                 Stored in a VARCHAR(500): a longer one is
+     *                                 refused by the database, so a caller whose
+     *                                 text is not bounded by construction must
+     *                                 shorten it itself (see
+     *                                 Core\Http\ErrorHandler::describe()).
      * @param array<string, mixed> $context Optional JSON context
      * @param int|null    $userId      User account ID, null for system actions
      */
