@@ -15,6 +15,36 @@
 {% block content %}
     {% include 'partials/page_header.html.twig' with { title: 'Maintenance' } only %}
 
+    {# ————— Migration de schéma non convergée —————
+       Affiché tant qu'une migration abandonnée est enregistrée. La
+       migration met son empreinte en cache même quand elle renonce, pour
+       que le site cesse de servir la page de progression — ce compromis
+       n'est acceptable que si quelqu'un est prévenu, et c'est ici. Le
+       bandeau disparaît de lui-même dès qu'une migration se termine sans
+       échec. #}
+    {% if abandoned_migration %}
+        <div class="alert alert-danger" role="alert">
+            <h2 class="h6 alert-heading">Migration de schéma incomplète</h2>
+            <p class="mb-2">
+                Le {{ abandoned_migration.at }}, une migration de la base de données a été abandonnée :
+                les mêmes instructions ont échoué à chaque tentative. La structure de la base ne
+                correspond donc pas à ce que cette version attend, et certaines pages peuvent
+                dysfonctionner. Le détail technique est dans le journal des événements
+                (Configuration &gt; Journal).
+            </p>
+            {% if abandoned_migration.failedStatements is not empty %}
+                <details>
+                    <summary class="small">Instructions concernées ({{ abandoned_migration.failedStatements|length }})</summary>
+                    <ul class="small mb-0 mt-2">
+                        {% for statement in abandoned_migration.failedStatements %}
+                            <li><code>{{ statement }}</code></li>
+                        {% endfor %}
+                    </ul>
+                </details>
+            {% endif %}
+        </div>
+    {% endif %}
+
     {# ————— Mise à jour ————— #}
     <div class="card mb-4" id="maintenance-update">
         <div class="card-body">

@@ -21,6 +21,15 @@ class MigrationResult
      *   left off). A caller that treats "the update/restore/module-load
      *   finished" as final (e.g. Core\Maintenance\Task\
      *   InstallUpdateHandler) must check this before doing so.
+     * @param bool $converged False when the migration gave up: the same
+     *   statements failed on several consecutive passes, so the attempt
+     *   was abandoned rather than retried forever (MigrationRunner::
+     *   CONVERGENCE_ATTEMPTS). $complete is still true — the runner is
+     *   done, and the schema hash is cached so the site stops serving the
+     *   progress page — but the schema did NOT reach what the files
+     *   declare. A caller for whom that is a failed operation rather than
+     *   a degraded one (Core\Maintenance\Task\InstallUpdateHandler, which
+     *   has a backup to roll back to) must check this, not just $complete.
      * @param float $progressFraction 0.0–1.0 estimate of how much of the
      *   in-progress attempt is done — meaningless (always 1.0) when
      *   $complete is true. Drives the progress bar on the migration-in-
@@ -31,7 +40,8 @@ class MigrationResult
         public readonly array $executedStatements,
         public readonly array $warnings,
         public readonly bool $complete = true,
-        public readonly float $progressFraction = 1.0
+        public readonly float $progressFraction = 1.0,
+        public readonly bool $converged = true
     ) {
     }
 

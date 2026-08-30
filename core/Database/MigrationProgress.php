@@ -11,58 +11,57 @@ namespace Core\Database;
 /**
  * Resumable state for one in-progress MigrationRunner::migrate() attempt
  * against one target schema hash — persisted (as JSON, via a raw `settings`
- * row, same mechanism as the schema hash cache) between invocations so a
- * migration that doesn't finish within its time budget picks up exactly
- * where it left off on the next call instead of starting over.
+ * row, same mechanism as the schema hash cache) between invocations.
  *
- * Deliberately lean: it never stores full introspected TableDefinitions
- * (potentially large — every column/index/FK of every table in the
- * database), only table NAMES and SQL statement STRINGS. `settings.
- * setting_value` is a plain TEXT column; a full-schema dump for a
- * database with many tables could plausibly approach its size limit,
- * while the queues here (table names, a handful of DDL statements) stay
- * small regardless of how large the database itself is.
+ * **What it deliberately no longer holds: the queue of statements still to
+ * run.** It used to, and that was a latent way to strand a site forever.
+ * `array_shift()` removed a statement from the persisted queue *before*
+ * executing it, so a process killed between the `ADD COLUMN` and its
+ * checkpoint came back, replayed the statement, collected "Duplicate column
+ * name", and — because any PDOException incremented the failure count, and
+ * the schema hash was only cached when that count was zero — never
+ * converged. The site stayed on the migration-progress page indefinitely.
+ *
+ * The fix is not a better queue, it is no queue. The real state of the
+ * database IS the checkpoint: every pass re-diffs the live schema (three
+ * INFORMATION_SCHEMA queries since the bulk read landed) and generates
+ * exactly the statements still missing. A statement that already ran is
+ * simply not generated again.
+ *
+ * What remains here is what cannot be re-derived from the database: which
+ * attempt this is (the target hash), what has been done so far for
+ * reporting, and how many passes in a row have failed the same way — the
+ * convergence counter that stops an unfixable migration from looping.
  */
 final class MigrationProgress
 {
     /**
-     * @param bool $tableQueueBuilt Whether $actualTableNames/
-     *   $remainingTableNames have been populated yet. Needed because an
-     *   empty $remainingTableNames is otherwise ambiguous: it means either
-     *   "queue not built yet" or "every table has been diffed" — the two
-     *   are reached at opposite ends of the diff phase and must be told
-     *   apart.
-     * @param array<string> $actualTableNames Every table that existed in
-     *   the database when this attempt started (snapshotted once) — used
-     *   to decide, for each remaining table name, whether it needs
-     *   introspecting (existing table) or not (brand new table, nothing
-     *   to introspect).
-     * @param array<string> $remainingTableNames Queue of declared table
-     *   names not yet diffed against the database.
-     * @param int $totalTableCount Snapshot of count($remainingTableNames)
-     *   taken once, the moment the queue is built — a stable denominator
-     *   for progress reporting (Core\Http\Controller's migration-step
-     *   endpoint), since $remainingTableNames itself keeps shrinking.
-     * @param array<string> $pendingStatements Queue of DDL statements not
-     *   yet executed.
-     * @param int $totalStatementCount Snapshot of count($pendingStatements)
-     *   taken once, the moment the diff phase finishes queueing every
-     *   statement — same stable-denominator rationale as $totalTableCount.
-     * @param array<string> $executedStatements Statements executed so far
-     *   in this attempt (accumulated for the final MigrationResult).
-     * @param array<string> $warnings Accumulated so far.
+     * @param int $totalStatementCount Snapshot of how many statements the
+     *   first pass of this attempt had to run — a stable denominator for
+     *   the progress bar, since each later pass legitimately generates
+     *   fewer. Display only; never a source of truth.
+     * @param int $remainingStatementCount How many the current pass had
+     *   left when it last checkpointed, for the same progress bar.
+     * @param array<string> $executedStatements Accumulated across the
+     *   passes of one attempt, for the final MigrationResult.
+     * @param array<string> $warnings Accumulated the same way.
+     * @param string $failureSignature Fingerprint of the set of statements
+     *   that failed on the last pass — empty when none did.
+     * @param int $sameFailureCount How many consecutive passes have failed
+     *   with exactly that signature. A migration that cannot converge is
+     *   abandoned at a ceiling rather than retried forever, because a site
+     *   stuck on the progress page is worse than a schema that is missing
+     *   a column (Core\Database\MigrationRunner::CONVERGENCE_ATTEMPTS).
+     * @param bool $dropsApplied Whether the explicit drops.sql pass ran.
      */
     public function __construct(
         public readonly string $targetHash,
-        public bool $tableQueueBuilt = false,
-        public array $actualTableNames = [],
-        public array $remainingTableNames = [],
-        public int $totalTableCount = 0,
-        public array $pendingStatements = [],
         public int $totalStatementCount = 0,
+        public int $remainingStatementCount = 0,
         public array $executedStatements = [],
         public array $warnings = [],
-        public int $failedCount = 0,
+        public string $failureSignature = '',
+        public int $sameFailureCount = 0,
         public bool $dropsApplied = false
     ) {
     }
@@ -79,15 +78,12 @@ final class MigrationProgress
     {
         return [
             'target_hash' => $this->targetHash,
-            'table_queue_built' => $this->tableQueueBuilt,
-            'actual_table_names' => $this->actualTableNames,
-            'remaining_table_names' => $this->remainingTableNames,
-            'total_table_count' => $this->totalTableCount,
-            'pending_statements' => $this->pendingStatements,
             'total_statement_count' => $this->totalStatementCount,
+            'remaining_statement_count' => $this->remainingStatementCount,
             'executed_statements' => $this->executedStatements,
             'warnings' => $this->warnings,
-            'failed_count' => $this->failedCount,
+            'failure_signature' => $this->failureSignature,
+            'same_failure_count' => $this->sameFailureCount,
             'drops_applied' => $this->dropsApplied,
         ];
     }
@@ -99,9 +95,10 @@ final class MigrationProgress
      *
      * Every field is read by name and anything else in $data is ignored,
      * which is what lets a row checkpointed by an older version — one
-     * still carrying the `backup_done`/`backup_created` keys from when
-     * migrate() took a dump of its own — resume on the new code instead of
-     * being thrown away mid-migration.
+     * still carrying `pending_statements`, `remaining_table_names` or the
+     * long-gone `backup_done` — resume on this code instead of being
+     * thrown away mid-migration. Dropping those keys costs nothing now
+     * that the statements are re-derived from the database anyway.
      *
      * @param array<string, mixed> $data
      */
@@ -113,15 +110,12 @@ final class MigrationProgress
 
         return new self(
             targetHash: $data['target_hash'],
-            tableQueueBuilt: (bool) ($data['table_queue_built'] ?? false),
-            actualTableNames: is_array($data['actual_table_names'] ?? null) ? $data['actual_table_names'] : [],
-            remainingTableNames: is_array($data['remaining_table_names'] ?? null) ? $data['remaining_table_names'] : [],
-            totalTableCount: (int) ($data['total_table_count'] ?? 0),
-            pendingStatements: is_array($data['pending_statements'] ?? null) ? $data['pending_statements'] : [],
             totalStatementCount: (int) ($data['total_statement_count'] ?? 0),
+            remainingStatementCount: (int) ($data['remaining_statement_count'] ?? 0),
             executedStatements: is_array($data['executed_statements'] ?? null) ? $data['executed_statements'] : [],
             warnings: is_array($data['warnings'] ?? null) ? $data['warnings'] : [],
-            failedCount: (int) ($data['failed_count'] ?? 0),
+            failureSignature: is_string($data['failure_signature'] ?? null) ? $data['failure_signature'] : '',
+            sameFailureCount: (int) ($data['same_failure_count'] ?? 0),
             dropsApplied: (bool) ($data['drops_applied'] ?? false)
         );
     }

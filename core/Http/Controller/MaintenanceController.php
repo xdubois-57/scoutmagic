@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Http\Controller;
 
+use Core\Database\AbandonedMigration;
+use Core\Database\MigrationRunner;
 use Core\Config\SettingService;
 use Core\Exception\UserFacingMessage;
 use Core\File\FileRepository;
@@ -115,7 +117,18 @@ class MaintenanceController extends AbstractController
         [$installedVersionDisplay, $installedVersionCommit] = self::splitInstalledVersion($installedVersion);
         $installedNotes = $this->installedVersionNotes($installedVersion, $installedVersionCommit);
 
+        // A migration that gave up caches its hash anyway, so the site
+        // keeps serving pages instead of sitting on the progress screen
+        // forever. That is only an acceptable trade if somebody is told —
+        // this is where they are told.
+        $abandonedMigration = AbandonedMigration::fromJson(
+            $this->settingService->get(MigrationRunner::ABANDONED_SETTING) !== null
+                ? (string) $this->settingService->get(MigrationRunner::ABANDONED_SETTING)
+                : null
+        );
+
         return $this->render('config/maintenance.html.twig', [
+            'abandoned_migration' => $abandonedMigration,
             'installed_version' => $installedVersionDisplay,
             'installed_version_commit' => $installedVersionCommit,
             'installed_version_notes' => $installedNotes['notes'],

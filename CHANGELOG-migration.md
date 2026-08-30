@@ -256,3 +256,60 @@ observés en production.
 - Faire passer `applyExplicitDrops()` par le cache. Les drops doivent voir
   l'état d'après-DDL, et `drops.sql` est petit et rare (c'est écrit dans son
   propre docblock) : la correction prime sur trois requêtes.
+
+## IT-04 — Re-diff à la reprise et politique de convergence
+
+### Fait
+
+- **`pendingStatements` n'est plus persisté.** Chaque passe re-diffe le
+  schéma vivant et génère exactement ce qui manque encore. C'est le
+  correctif du défaut qui pouvait bloquer un site indéfiniment.
+- Les codes « déjà appliqué » (1050, 1060, 1061, 1826) sont des no-op
+  bénins, pas des échecs. Une erreur de syntaxe reste un échec.
+- `migrate()` qui n'obtient pas le verrou renvoie la progression réellement
+  enregistrée, plus 0.0.
+- Convergence bornée à 3 passes identiquement infructueuses : au-delà,
+  l'empreinte est mise en cache malgré tout, une entrée `security` est
+  journalisée, et un bandeau apparaît sur la page Maintenance.
+- `MigrationResult::$converged` porte la distinction jusqu'aux appelants ;
+  `InstallUpdateHandler` traite une migration non convergée comme une mise
+  à jour échouée et repart sur son backup.
+
+### Ce qui a surpris
+
+**Le test de la roadmap est devenu trivial, et c'est le bon signe.** Elle
+demandait un test simulant une interruption entre un `ADD COLUMN` et son
+checkpoint, vérifiant que la reprise se termine proprement. Avec le re-diff,
+ce scénario ne peut plus produire d'échec : la colonne existe, donc le
+statement n'est plus généré. Le test est écrit et il passe — mais il ne
+teste plus un rattrapage, il atteste que le chemin de panne a disparu. J'ai
+donc ajouté séparément un test du classement bénin (introspecteur mocké qui
+ment sur l'état de la base, pour que le `ADD COLUMN` soit réellement émis
+contre une colonne existante), parce que ce chemin-là, lui, reste
+atteignable par une course entre deux processus.
+
+**Deux tests rouges pour une raison qui n'était pas dans mon code.**
+`MigrationRunnerTest::setUp()` supprime *toutes* les tables — `settings`
+comprise, c'est-à-dire là où vivent l'empreinte de schéma et le compteur de
+convergence. Mes deux tests dépendaient de cette persistance et échouaient
+donc pour une raison de harnais. Corrigé par un helper qui recrée `settings`
+depuis `schema/core.sql` via le parseur et le comparateur de l'application,
+plutôt que par un `CREATE TABLE` littéral qui aurait dérivé.
+
+**Un effet de bord qui appartenait à IT-05.** La suppression du warning
+« table exists in database but not in declared schema » était prévue pour
+l'itération suivante. Elle est arrivée ici, non par élargissement mais par
+disparition : le bloc qui l'émettait était la construction de la file de
+tables, que le re-diff supprime. IT-05 n'aura donc plus que l'espacement des
+checkpoints à traiter.
+
+### Écarté
+
+- Faire échouer la mise à jour dès le premier échec de migration. Le
+  plafond existe pour le visiteur qui arrive sur un site que personne ne met
+  à jour ; l'appelant qui dispose d'un backup, lui, doit échouer et
+  restaurer. D'où `converged` plutôt qu'une politique unique.
+- Réutiliser l'ancien `failedCount` comme compteur de convergence. Les deux
+  ne mesurent pas la même chose — l'un compte des statements, l'autre des
+  passes — et hériter de l'un pour l'autre raccourcirait le budget de
+  reprises de la toute première tentative.
