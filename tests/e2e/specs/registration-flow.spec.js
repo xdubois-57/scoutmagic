@@ -28,6 +28,19 @@
 //   4. The in-year code is the only way into a CLOSED form, and it is
 //      session-scoped: the code an admin generates on the config page
 //      must open the form for the visitor who typed it.
+//   5. An empty capacity box means "pas de limite", NEVER zero — and the
+//      two must not look alike anywhere. A branch with no recorded
+//      capacity is never announced full; a branch explicitly set to 0 is.
+//      This is the one rule of the change whose failure mode is silent:
+//      a NULL read as a number is 0, and PHP will not say a word. It
+//      needs a browser because the two states have to be compared on the
+//      SAME rendered page, chief side and family side, after a real
+//      round trip through the form that stores them.
+//   6. The page's three configuration boxes (formulaire, états d'une
+//      demande, capacités) open on demand. A collapsed panel is not
+//      cosmetics for a test: every control inside one is unreachable
+//      until it is opened, which is precisely what a browser checks and
+//      a PHPUnit assertion on the rendered HTML cannot.
 //
 // ORDERING
 // ----------------------------------------------------------------------------
@@ -43,6 +56,24 @@ import { answerCookieBanner } from '../support/cookie-banner.js';
 import { loginAsAdmin } from '../support/admin-login.js';
 import { linkFromMail, waitForMail } from '../support/maildrop.js';
 import { waitOutHumanCheckDelay } from '../support/human-check.js';
+
+/**
+ * Opens one of /config/inscriptions' collapsible boxes, asserting on the
+ * way that it really was closed. The check and the action belong together:
+ * a box that silently starts open would otherwise make every later step
+ * pass without anyone noticing the default had changed.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} name accessible name of the box's toggle
+ * @param {string} panelId id of the panel it controls
+ */
+async function openConfigBox(page, name, panelId) {
+    const toggle = page.getByRole('button', { name, exact: true });
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator(`#${panelId}`)).toBeHidden();
+    await toggle.click();
+    await expect(page.locator(`#${panelId}`)).toBeVisible();
+}
 
 const PARENT_NAME = 'Camille Verstraeten';
 const FAMILY_EMAIL = 'famille-inscription@example.invalid';
@@ -70,14 +101,77 @@ test('a family registers a child, follows the mailed tracking link, and the admi
     await loginAsAdmin(page);
     await answerCookieBanner(page);
     await page.goto('/config/inscriptions', { waitUntil: 'domcontentloaded' });
+
+    // The three configuration boxes are folded away on arrival — what this
+    // page serves first is the request list, not its settings.
+    for (const [name, panelId] of [
+        ["Formulaire d'inscription", 'registration-form-box'],
+        ["États d'une demande", 'registration-states-box'],
+        ['Capacités par branche', 'registration-capacities-box'],
+    ]) {
+        await expect(page.getByRole('button', { name, exact: true })).toHaveAttribute('aria-expanded', 'false');
+        await expect(page.locator(`#${panelId}`)).toBeHidden();
+    }
+
+    await openConfigBox(page, "Formulaire d'inscription", 'registration-form-box');
     // The toggle is one button whose label IS the current state — waiting
     // on either label first keeps this step honest about which state the
     // page really rendered before acting on it.
     await expect(page.getByRole('button', { name: /^(Ouvrir|Fermer) maintenant$/ })).toBeVisible();
     if (await page.getByRole('button', { name: 'Ouvrir maintenant' }).isVisible()) {
         await page.getByRole('button', { name: 'Ouvrir maintenant' }).click();
+        // The POST redirects back to a freshly rendered page, so the box
+        // is folded again: every step below has to open it for itself.
+        await page.waitForURL('**/config/inscriptions', { waitUntil: 'domcontentloaded' });
+        await openConfigBox(page, "Formulaire d'inscription", 'registration-form-box');
     }
     await expect(page.getByRole('button', { name: 'Fermer maintenant' })).toBeVisible();
+
+    // ---------------------------------------------------------------
+    // Capacities: the default really is in the database, and an empty
+    // box is "pas de limite" — never a zero.
+    //
+    // The two states are driven through the real form and read back off
+    // the « Vérification des capacités » table, because that table is
+    // where a chief would first see an unconfigured branch mislabelled as
+    // a full one. « Attente importante » is the exact badge that must
+    // appear for a 0 and must NOT appear for an empty box.
+    // ---------------------------------------------------------------
+    await openConfigBox(page, 'Capacités par branche', 'registration-capacities-box');
+
+    await expect(
+        page.getByRole('switch', { name: "Gérer les listes d'attente" }),
+        'the waitlist switch lives in the capacity box it governs, and is on by default',
+    ).toBeChecked();
+
+    const capacityBoxes = page.locator('#registration-capacities-box input[name^="capacity["]');
+    await expect(capacityBoxes.first(), 'the default capacity is stored, so the box comes back filled').toHaveValue('15');
+    const capacityCount = await capacityBoxes.count();
+    expect(capacityCount, 'the fixture branch must give the grid at least one slot').toBeGreaterThan(0);
+
+    // 0 — the branch is deliberately closed, and says so.
+    await capacityBoxes.first().fill('0');
+    // Scoped to the panel: the rich-text editor's own modal carries an
+    // « Enregistrer » of its own, and this box's button is the one meant.
+    await page.locator('#registration-capacities-box').getByRole('button', { name: 'Enregistrer', exact: true }).click();
+    await page.waitForURL('**/config/inscriptions', { waitUntil: 'domcontentloaded' });
+    await expect(
+        page.getByText('Attente importante', { exact: true }),
+        'a capacity of zero is a branch closed on purpose — it must still read as full',
+    ).toBeVisible();
+
+    // Empty — no limit at all. Same page, same table, opposite reading.
+    await openConfigBox(page, 'Capacités par branche', 'registration-capacities-box');
+    for (let i = 0; i < capacityCount; i++) {
+        await page.locator('#registration-capacities-box input[name^="capacity["]').nth(i).fill('');
+    }
+    await page.locator('#registration-capacities-box').getByRole('button', { name: 'Enregistrer', exact: true }).click();
+    await page.waitForURL('**/config/inscriptions', { waitUntil: 'domcontentloaded' });
+    await expect(
+        page.getByText('Attente importante', { exact: true }),
+        'a branch with NO recorded capacity must never be announced full',
+    ).toHaveCount(0);
+    await expect(page.getByText('Sans limite', { exact: true }).first()).toBeVisible();
 
     // ---------------------------------------------------------------
     // The family fills the public form — anonymous, own cookie jar,
@@ -94,6 +188,16 @@ test('a family registers a child, follows the mailed tracking link, and the admi
         await familyPage.goto('/inscriptions', { waitUntil: 'domcontentloaded' });
         await familyPage.getByRole('button', { name: 'Tout refuser' }).click();
         await expect(familyPage.locator('#cookie-banner')).toBeHidden();
+
+        // The other half of the same rule, on the side that matters most:
+        // every capacity was just cleared, so no birth year may be
+        // announced « Complet » to a family. The badges are still shown —
+        // the waitlist switch is on — they just all read « Disponible ».
+        await expect(
+            familyPage.getByText('Complet', { exact: true }),
+            'no capacity recorded anywhere: nothing may be announced full to a family',
+        ).toHaveCount(0);
+        await expect(familyPage.getByText('Disponible', { exact: true }).first()).toBeVisible();
 
         // Every mandatory label ends in the required-marker asterisk, so
         // each is addressed by an anchored prefix — "Téléphone *" and
@@ -202,7 +306,10 @@ test('a family registers a child, follows the mailed tracking link, and the admi
         // whoever types it — and only through their own session.
         // ---------------------------------------------------------------
         await page.goto('/config/inscriptions', { waitUntil: 'domcontentloaded' });
+        await openConfigBox(page, "Formulaire d'inscription", 'registration-form-box');
         await page.getByRole('button', { name: 'Fermer maintenant' }).click();
+        await page.waitForURL('**/config/inscriptions', { waitUntil: 'domcontentloaded' });
+        await openConfigBox(page, "Formulaire d'inscription", 'registration-form-box');
         await expect(page.getByRole('button', { name: 'Ouvrir maintenant' })).toBeVisible();
 
         await page.getByRole('button', { name: 'Générer un nouveau code' }).click();
@@ -224,6 +331,7 @@ test('a family registers a child, follows the mailed tracking link, and the admi
         // The code is a door, not a switch: the admin-side state stays
         // closed, and the code dies with its deactivation.
         await page.goto('/config/inscriptions', { waitUntil: 'domcontentloaded' });
+        await openConfigBox(page, "Formulaire d'inscription", 'registration-form-box');
         await expect(page.getByRole('button', { name: 'Ouvrir maintenant' })).toBeVisible();
         await page.getByRole('button', { name: 'Désactiver' }).click();
         await expect(page.getByText('Dernier code (désactivé)')).toBeVisible();
