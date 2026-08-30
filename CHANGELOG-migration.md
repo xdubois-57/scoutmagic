@@ -480,6 +480,41 @@ génération de paquet.
 - Un verdict unique fusionnant « déclaré » et « vérifié ». C'est
   précisément la fusion qui rendait le fichier trompeur.
 
+## Après la roadmap — convergence réelle
+
+### Les 534 MODIFY COLUMN fantômes
+
+Signalés en IT-03 comme un chantier à part, traités ici. Chaque passe de
+migration régénérait les mêmes 534 `ALTER`, ils réussissaient tous,
+l'introspection rapportait la même « différence » ensuite, et le schéma ne
+convergeait jamais. **Rien n'échouait** : c'est pourquoi cela a duré. Un
+coût permanent payé à chaque changement de schéma, sans une seule erreur
+pour le désigner.
+
+Quatre causes, toutes des divergences de report entre MariaDB et MySQL, et
+une seule correspondait à l'hypothèse initiale :
+
+| n | cause |
+|---|---|
+| 472 | `COLUMN_DEFAULT` contient une **expression** depuis MariaDB 10.2 : une colonne nullable sans défaut y porte le texte nu `NULL` |
+| 60 | les défauts chaîne reviennent cités et échappés (`'public'`, `'it''s'`) |
+| 9 | `JSON` est un alias de `LONGTEXT` sur MariaDB |
+| 2 | `decimal(12, 2)` déclaré contre `decimal(12,2)` rapporté |
+
+Les deux premières sont corrigées dans l'**introspecteur** et non dans le
+comparateur. La distinction n'est pas cosmétique : `current_timestamp()`
+face à `CURRENT_TIMESTAMP` sont deux orthographes d'un même défaut réel, à
+réconcilier au moment de comparer ; ici l'introspecteur rapporte quelque
+chose que la colonne **n'a pas**. Tout lecteur mérite la vérité, pas
+seulement celui qui diffe.
+
+Ce qui rend le premier cas décidable plutôt qu'ambigu : MariaDB **cite** les
+littéraux chaîne, donc une colonne qui a réellement `NULL` pour défaut le
+rapporte avec ses apostrophes, et la forme nue ne peut signifier que
+« aucun défaut ». C'est pourquoi le test du `NULL` passe en premier.
+
+Mesuré sur le schéma complet (165 tables) contre MariaDB 10.11 : **534 → 0**.
+
 ### MySQL et MariaDB : ce que l'échec de CI a révélé
 
 Le correctif ci-dessus, écrit et mesuré contre MariaDB, a fait tomber en CI
