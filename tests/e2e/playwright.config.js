@@ -28,6 +28,12 @@
 // and fails loudly rather than silently testing something else.
 import { defineConfig, devices } from '@playwright/test';
 
+// Scaled ceilings (E2E_TIMEOUT_FACTOR, set by scripts/dast.sh). Moved out
+// of this file so specs needing a ceiling of their own use the same
+// definition instead of writing a bare number that cannot scale — see
+// support/timeouts.js for what that cost.
+import { scaled } from './support/timeouts.js';
+
 const baseURL = process.env.E2E_BASE_URL;
 
 if (!baseURL) {
@@ -35,30 +41,6 @@ if (!baseURL) {
         'E2E_BASE_URL is not set. Run the end-to-end tests via `npm run e2e` '
         + '(scripts/e2e.sh), which provisions the application instance and sets it.',
     );
-}
-
-/**
- * How much slower than a plain `npm run e2e` this run is expected to be.
- *
- * scripts/dast.sh sets E2E_TIMEOUT_FACTOR because a security scan drives
- * every request through OWASP ZAP and a TLS terminator, and serves it
- * from a single-worker PHP built-in server: the same scenarios do the
- * same work, they just take a few times longer to do it (about 12
- * minutes against about 8). Scaling the ceilings is the honest response
- * — leaving them would report the harness's own latency as application
- * failures.
- *
- * Unset, which is every other caller, this is 1 and every timeout below
- * is the value it has always been.
- *
- * @param {number} milliseconds
- * @returns {number}
- */
-function scaled(milliseconds) {
-    const raw = Number(process.env.E2E_TIMEOUT_FACTOR);
-    const factor = Number.isFinite(raw) && raw >= 1 ? raw : 1;
-
-    return Math.round(milliseconds * factor);
 }
 
 /**
