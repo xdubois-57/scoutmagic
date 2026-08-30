@@ -340,3 +340,33 @@ runner et échoue avec la `TypeError` exacte si les cales disparaissent.
 La correction de fond reste IT-07 : migrer depuis un autre processus que
 celui qu'on met à jour supprime toute cette classe de bug, et rendra ces
 cales supprimables.
+
+## IT-05 — Espacer les écritures de checkpoint
+
+`checkpoint()` est appelé après chaque statement, et écrivait à chaque fois.
+Sur l'installation de référence cela fait **139 UPSERT dans `settings` par
+passe** — MariaDB rapporte les mêmes `MODIFY COLUMN` cosmétiques comme
+nécessaires à chaque exécution — pour persister une valeur que personne ne
+lit avant la fin de la passe.
+
+L'écriture est désormais limitée à une par `CHECKPOINT_MIN_INTERVAL_SECONDS`
+(0,5 s). Ce n'est défendable que grâce à IT-04 : depuis le re-diff, le
+checkpoint ne porte plus de file. Ce qu'une écriture sautée perd, c'est la
+liste des statements exécutés et le dénominateur de la barre de
+progression — du rapport, pas de la correction. Une passe interrompue
+reprend depuis la base, pas depuis cette ligne.
+
+**L'écriture qui n'est jamais sautée est celle du départ.** Une passe qui
+s'arrête parce que son budget est épuisé persiste avant de partir, quelle
+que soit la date de sa dernière écriture. Sans cela, l'état lu par la passe
+suivante serait périmé d'un intervalle entier de travail. Les deux tests
+tiennent les deux bords : celui du bas échoue avec 500 écritures là où 3
+sont permises si l'espacement disparaît, celui du haut échoue si le départ
+cesse d'écrire.
+
+### Sans objet
+
+Le warning « table exists in database but not in declared schema » que cette
+itération devait supprimer avait déjà disparu en IT-04, non par élargissement
+mais par disparition : le bloc qui l'émettait était la construction de la
+file de tables, que le re-diff a supprimée.

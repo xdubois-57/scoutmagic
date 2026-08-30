@@ -147,6 +147,144 @@ class MigrationRunnerChunkingTest extends TestCase
         $this->assertNotNull($this->settingValue($pdo, 'schema_hash_' . substr(hash('sha256', $this->schemaPath), 0, 16)));
     }
 
+    /**
+     * A counting PDO: how many times the progress row was actually
+     * WRITTEN. checkpoint() is called after every statement, and the
+     * question this pins is how many of those calls reach the database.
+     */
+    private function countingPdo(\PDO $inner): \PDO
+    {
+        return new class ($inner) extends \PDO {
+            public int $progressWrites = 0;
+
+            public function __construct(private \PDO $inner)
+            {
+            }
+
+            #[\ReturnTypeWillChange]
+            public function prepare(string $query, array $options = []): \PDOStatement|false
+            {
+                if (str_contains($query, 'UPDATE settings SET setting_value')
+                    || str_contains($query, 'INSERT INTO settings')) {
+                    $this->progressWrites++;
+                }
+
+                return $this->inner->prepare($query, $options);
+            }
+
+            #[\ReturnTypeWillChange]
+            public function exec(string $statement): int|false
+            {
+                return $this->inner->exec($statement);
+            }
+
+            #[\ReturnTypeWillChange]
+            public function query(string $query, ?int $fetchMode = null, mixed ...$fetchModeArgs): \PDOStatement|false
+            {
+                return $this->inner->query($query);
+            }
+
+            #[\ReturnTypeWillChange]
+            public function getAttribute(int $attribute): mixed
+            {
+                return $this->inner->getAttribute($attribute);
+            }
+        };
+    }
+
+    private function runnerOver(\PDO $pdo, int $budget): MigrationRunner
+    {
+        return new MigrationRunner(
+            Connection::withPdo($pdo),
+            $this->introspectorMirroring($this->schemaPath),
+            new SchemaComparator(),
+            new SqlParser(),
+            $budget
+        );
+    }
+
+    /**
+     * One UPSERT per statement was the old cost of checkpointing. On the
+     * reference installation that is 139 writes per pass — MariaDB reports
+     * the same cosmetic MODIFY COLUMNs as needed on every run — to persist
+     * a value nothing reads until the pass ends.
+     *
+     * Spacing them is only safe because of what a checkpoint carries since
+     * the re-diff landed: no queue, just accumulated reporting state. This
+     * drives checkpoint() as fast as the machine allows and asserts the
+     * writes are bounded by elapsed time rather than by call count.
+     */
+    public function testRapidCheckpointsDoNotWriteOncePerCall(): void
+    {
+        $counting = $this->countingPdo(DatabaseTestHelper::createTestDatabase());
+        $runner = $this->runnerOver($counting, 20);
+
+        $method = new \ReflectionMethod(MigrationRunner::class, 'checkpoint');
+        $method->setAccessible(true);
+        $progress = \Core\Database\MigrationProgress::start('target-hash');
+        $deadline = microtime(true) + 3600;
+
+        $calls = 500;
+        $started = microtime(true);
+        for ($i = 0; $i < $calls; $i++) {
+            $this->assertNull(
+                $method->invoke($runner, 'schema_migration_progress_test', $progress, $deadline),
+                'an ample budget must never end the pass'
+            );
+        }
+        $elapsed = microtime(true) - $started;
+
+        // The ceiling is what the interval allows over the time the loop
+        // actually took, plus the first write (which is always taken) and
+        // one for rounding. Expressed against elapsed time rather than a
+        // fixed number, so a slow CI machine cannot make it flaky.
+        $allowed = (int) ceil($elapsed / 0.5) + 2;
+
+        $this->assertGreaterThan(0, $counting->progressWrites, 'the first checkpoint must still be written');
+        $this->assertLessThanOrEqual($allowed, $counting->progressWrites);
+        $this->assertLessThan(
+            $calls,
+            $counting->progressWrites,
+            'spacing the writes is the entire point: one per call is the behaviour being replaced'
+        );
+    }
+
+    /**
+     * The counterpart, and the one that must never be skipped: a pass
+     * leaving because its budget is spent writes before it goes, however
+     * recently it last wrote. Otherwise the state the next pass reads
+     * would be stale by up to a whole interval of work.
+     */
+    public function testThePassAlwaysWritesBeforeLeavingOnItsBudget(): void
+    {
+        $counting = $this->countingPdo(DatabaseTestHelper::createTestDatabase());
+        $runner = $this->runnerOver($counting, 20);
+
+        $method = new \ReflectionMethod(MigrationRunner::class, 'checkpoint');
+        $method->setAccessible(true);
+        $progress = \Core\Database\MigrationProgress::start('target-hash');
+
+        // A first call with budget left: writes, and sets the clock.
+        $this->assertNull($method->invoke($runner, 'schema_migration_progress_test', $progress, microtime(true) + 3600));
+        $writesAfterFirst = $counting->progressWrites;
+
+        // Immediately after — well inside the interval that would
+        // otherwise skip the write — but out of budget.
+        $progress->executedStatements[] = 'ALTER TABLE t1 ADD COLUMN late INT';
+        $result = $method->invoke($runner, 'schema_migration_progress_test', $progress, microtime(true) - 1);
+
+        $this->assertNotNull($result, 'a spent budget must end the pass');
+        $this->assertFalse($result->complete);
+        $this->assertGreaterThan($writesAfterFirst, $counting->progressWrites, 'the departing pass must write');
+
+        $stored = json_decode((string) $this->settingValue($counting, 'schema_migration_progress_test'), true);
+        $this->assertSame(
+            ['ALTER TABLE t1 ADD COLUMN late INT'],
+            $stored['executed_statements'],
+            'and it must write the state as of leaving, not as of the last spaced write'
+        );
+    }
+
     public function testFullyCachedRunAfterCompletionSkipsAllWork(): void
     {
         $pdo = DatabaseTestHelper::createTestDatabase();
