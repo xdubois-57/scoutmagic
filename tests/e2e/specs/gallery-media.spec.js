@@ -30,6 +30,7 @@ import { answerCookieBanner } from '../support/cookie-banner.js';
 import { autoConfirm, collectToasts } from '../support/confirm-dialog.js';
 import { loginAsAdmin, loginAsMember } from '../support/admin-login.js';
 import { noisePngBuffer, pngBuffer } from '../support/png.js';
+import { scaled } from '../support/timeouts.js';
 
 const ALBUM_TITLE = `Camp d'été E2E ${Date.now()}`;
 
@@ -37,7 +38,7 @@ test('a chief uploads plain and chunked, reorders by drag, and a member browses 
     // Chunked upload of 25 MB + background thumbnail processing driven by
     // a once-a-minute scheduler: this scenario is structurally slower
     // than the default budget.
-    test.setTimeout(300_000);
+    test.setTimeout(scaled(300_000));
 
     /** @type {string[]} */
     const pageErrors = [];
@@ -82,7 +83,7 @@ test('a chief uploads plain and chunked, reorders by drag, and a member browses 
         { name: 'grand-jeu.png', mimeType: 'image/png', buffer: pngBuffer(640, 480, [40, 120, 60, 255]) },
     ]);
     const items = page.locator('#gallery-existing-media .gallery-media-item');
-    await expect(items).toHaveCount(2, { timeout: 30_000 });
+    await expect(items).toHaveCount(2, { timeout: scaled(30_000) });
     // The batch ended in the page's own reload — wait it fully out, or
     // the next setInputFiles fires its change event before gallery.js
     // has re-attached to the input.
@@ -100,8 +101,8 @@ test('a chief uploads plain and chunked, reorders by drag, and a member browses 
     // signature of a transfer budget, not of the page.
     await page.locator('#gallery-upload-input').setInputFiles([
         { name: 'panorama.png', mimeType: 'image/png', buffer: noisePngBuffer(2500, 2500) },
-    ], { timeout: 120_000 });
-    await expect(items, 'the chunked upload must reassemble into a third media').toHaveCount(3, { timeout: 90_000 });
+    ], { timeout: scaled(120_000) });
+    await expect(items, 'the chunked upload must reassemble into a third media').toHaveCount(3, { timeout: scaled(90_000) });
     await page.waitForLoadState('load');
 
     /** @returns {Promise<string[]>} the grid's media ids, in DOM order */
@@ -167,7 +168,7 @@ test('a chief uploads plain and chunked, reorders by drag, and a member browses 
     await expect(
         page.locator(`.gallery-media-item[data-media-id="${newCoverId}"]`).getByText('Couverture'),
         'the badge must land on the tile that was clicked, not merely somewhere',
-    ).toBeVisible({ timeout: 15_000 });
+    ).toBeVisible({ timeout: scaled(15_000) });
 
     // ---------------------------------------------------------------
     // Delete one media (its own confirm) — down to two. Setting the
@@ -201,7 +202,7 @@ test('a chief uploads plain and chunked, reorders by drag, and a member browses 
             return memberPage.locator('.gallery-lightbox-trigger img').count();
         }, {
             message: 'both thumbnails must appear once the processing task ran',
-            timeout: 120_000,
+            timeout: scaled(120_000),
             intervals: [3_000],
         }).toBe(2);
 

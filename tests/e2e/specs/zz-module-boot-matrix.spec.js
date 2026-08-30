@@ -66,6 +66,7 @@ import { expect, test } from '@playwright/test';
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { loginAsAdmin } from '../support/admin-login.js';
 import { moduleToggle, toggleModule } from '../support/modules.js';
+import { scaled } from '../support/timeouts.js';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const modulesDir = path.join(repoRoot, 'modules');
@@ -155,7 +156,7 @@ async function ensureAllModulesEnabled(page) {
 // Twenty boots, each visiting every remaining module's pages, cannot fit
 // the suite's ordinary 60 s ceiling and should not stretch it for
 // everyone else.
-test.describe.configure({ timeout: 240_000 });
+test.describe.configure({ timeout: scaled(240_000) });
 
 test.afterEach(async ({ page }) => {
     await ensureAllModulesEnabled(page);
