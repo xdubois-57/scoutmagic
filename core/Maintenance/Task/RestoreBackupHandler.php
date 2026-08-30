@@ -17,6 +17,7 @@ use Core\File\FileRepository;
 use Core\Maintenance\BackupException;
 use Core\Maintenance\BackupRepository;
 use Core\Maintenance\BackupService;
+use Core\Scheduler\SchedulerKick;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
@@ -129,21 +130,24 @@ class RestoreBackupHandler implements TaskHandlerInterface
                     $backupService->restoreFiles($restoreZipPath, $password);
                 }
 
-                $migrationRunner = new MigrationRunner(
-                    $context->connection,
-                    new SchemaIntrospector($pdo),
-                    new SchemaComparator(),
-                    new SqlParser()
-                );
-                $migrationResult = $migrationRunner->migrate(SchemaFiles::all($basePath));
+                // Not migrated here, for the same reason
+                // Task\InstallUpdateHandler does not: restoreFiles() has
+                // just replaced the file tree under a running process, so
+                // its loaded classes are the ones that were on disk a
+                // moment ago while anything it loads next comes from the
+                // restored files. Migrating from here would run one
+                // version's MigrationRunner against another version's
+                // MigrationResult and MigrationProgress — the mixture
+                // that cost six consecutive rollbacks in production.
+                //
+                // The resume path below already does exactly the right
+                // thing, on a later scheduler pass where nothing is mixed;
+                // it is now the only path that migrates.
                 $source = (string) ($payload['source'] ?? 'server');
+                $this->scheduleMigrationResume($context, $safetyBackupId, $source, $requestedBy);
+                SchedulerKick::now($context);
 
-                if (!$migrationResult->complete) {
-                    $this->scheduleMigrationResume($context, $safetyBackupId, $source, $requestedBy);
-                    return;
-                }
-
-                $this->finishRestore($context, $backupRepository, $fileRepository, $source, $requestedBy);
+                return;
             } catch (\Throwable $restoreError) {
                 $this->rollbackToSafetyBackup($context, $backupService, (string) $safetyDbDump, (string) $safetyZip, $requestedBy, $restoreError);
             }

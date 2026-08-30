@@ -179,6 +179,33 @@ final class SchedulerContinuation
     }
 
     /**
+     * Start a fresh chain NOW, from a process that is not going to run the
+     * work itself.
+     *
+     * The caller is `Task\InstallUpdateHandler`, which has just replaced
+     * every file on disk and must not be the process that migrates the
+     * schema: its own classes are the old ones, still in memory, while
+     * anything it loads from here on comes from the new files. Scheduling
+     * the migration and returning already guarantees a different process
+     * runs it — `SchedulerRunner::processOverdue()` claims its task list
+     * once, at the start of a pass, so a task created during that pass is
+     * never run by it. What this adds is *when*: without it the update
+     * would sit in the queue until the next cron tick or the next
+     * visitor, which is exactly the "migrate on somebody's page load" this
+     * is meant to end.
+     *
+     * Returns whether a request was actually written. False is not a
+     * failure the caller should act on — the queue still drains the usual
+     * way — but it is worth journalling.
+     */
+    public function kick(): bool
+    {
+        $this->beginChain();
+
+        return $this->emitHop();
+    }
+
+    /**
      * Fire-and-forget HTTP request to this site's own continuation
      * endpoint: write the request onto the socket, then close without
      * reading a byte of the response. Reading would mean waiting for the
@@ -189,11 +216,11 @@ final class SchedulerContinuation
      * and none of them is allowed to become a new way for the site to
      * break.
      */
-    private function emitHop(): void
+    private function emitHop(): bool
     {
         $base = $this->baseUrl();
         if ($base === null) {
-            return;
+            return false;
         }
 
         // Counted before the attempt, not after: a hop that is emitted but
@@ -213,11 +240,13 @@ final class SchedulerContinuation
             if ($this->writeAndForget($target, $base['host'], $request)) {
                 RequestTimeline::mark('scheduler_hop_emitted', ['hops' => $this->hopCount()]);
 
-                return;
+                return true;
             }
         }
 
         RequestTimeline::mark('scheduler_hop_failed');
+
+        return false;
     }
 
     /**
