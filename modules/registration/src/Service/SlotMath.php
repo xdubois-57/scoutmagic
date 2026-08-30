@@ -130,11 +130,28 @@ final class SlotMath
      * Ratio-based tier — the module spec is explicit that a fixed number
      * of remaining spots means nothing without the slot's own capacity as
      * context (a 40-member unit and a 200-member unit shouldn't read the
-     * same absolute number the same way). $capacity 0 is always "heavy":
-     * an unconfigured or intentionally-zero slot has no room to offer.
+     * same absolute number the same way).
+     *
+     * **A null capacity is NOT a zero one**, and this signature is where
+     * that rule is enforced for the whole module:
+     *
+     * - `null` — no limit recorded for this slot. There is no tier to
+     *   compute: `null` comes back, and every caller must render that as
+     *   "no limit" rather than as a level. A slot like this is never
+     *   announced full and never feeds a waitlist.
+     * - `0` — the slot is deliberately CLOSED. That genuinely is "heavy":
+     *   there is no room, on purpose.
+     *
+     * Taking `int` here used to be enough because the column was
+     * `NOT NULL DEFAULT 0`; now that an empty box means "pas de limite",
+     * an `int` parameter would let PHP coerce the null to 0 at the call
+     * site and quietly announce an unconfigured branch as complete.
      */
-    public static function tierForRemaining(int $capacity, int $remainingEstimate, float $availableThreshold, float $limitedThreshold): string
+    public static function tierForRemaining(?int $capacity, int $remainingEstimate, float $availableThreshold, float $limitedThreshold): ?string
     {
+        if ($capacity === null) {
+            return null;
+        }
         if ($capacity <= 0) {
             return self::TIER_HEAVY;
         }

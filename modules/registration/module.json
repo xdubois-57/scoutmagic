@@ -1,8 +1,8 @@
 {
   "id": "registration",
   "name": "Inscriptions",
-  "description": "Parcours d'inscription complet : page publique avec places disponibles, formulaire de demande, accusés de réception par email, page de suivi pour les familles, gestion des demandes côté staff (acceptation, refus, rapprochement automatique à l'import Desk, rétention), préparation de l'année suivante (départs, passage entre sections, prévisions d'effectifs), veto sur la bascule d'année scoute tant que des demandes restent ouvertes, et liste de diffusion pour le module d'envoi de mails.",
-  "version": "6.2.0",
+  "description": "Parcours d'inscription complet : page publique avec disponibilité des places et gestion des listes d'attente, formulaire de demande, accusés de réception par email, page de suivi pour les familles, gestion des demandes côté staff (acceptation, refus, rapprochement automatique à l'import Desk, rétention), préparation de l'année suivante (départs, passage entre sections, prévisions d'effectifs), veto sur la bascule d'année scoute tant que des demandes restent ouvertes, et liste de diffusion pour le module d'envoi de mails.",
+  "version": "6.3.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -432,8 +432,8 @@
       "key": "registration_waitlist_enabled",
       "default_value": "1",
       "type": "boolean",
-      "label": "Afficher la disponibilité des places",
-      "description": "Quand actif, la page publique affiche à côté de chaque année de naissance sa disponibilité (places disponibles / attente limitée / attente importante). Quand inactif, cette information n'apparaît pas du tout."
+      "label": "Gérer les listes d'attente",
+      "description": "Quand actif, la page publique annonce à côté de chaque année de naissance si les places sont disponibles, l'attente limitée ou l'attente importante, et la page Inscriptions de l'Espace chefs d'U affiche le restant et le niveau vu par le public. Quand inactif, rien de tout cela n'apparaît nulle part et les deux seuils ci-dessous ne servent à rien. Se règle aussi depuis l'encart « Capacités par branche » de Configuration > Inscriptions."
     },
     {
       "key": "registration_reference_date",
@@ -454,7 +454,7 @@
       "default_value": "0.1",
       "type": "text",
       "label": "Seuil « attente limitée »",
-      "description": "Ratio (0 à 1) de la capacité d'un créneau restant estimé au-delà duquel ce créneau est annoncé comme « attente limitée » plutôt que « attente importante ». Doit être inférieur au seuil « places disponibles »."
+      "description": "Ratio (0 à 1) de la capacité d'un créneau restant estimé au-delà duquel ce créneau est annoncé comme « attente limitée » plutôt que « attente importante ». Doit être inférieur au seuil « places disponibles ». Ne sert que si « Gérer les listes d'attente » est actif ; se règle alors dans l'encart « Capacités par branche » de Configuration > Inscriptions."
     },
     {
       "key": "registration_unit_alert_email",
