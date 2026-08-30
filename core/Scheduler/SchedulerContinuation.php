@@ -324,11 +324,29 @@ final class SchedulerContinuation
         return $configured > 0 ? $configured : self::DEFAULT_BUDGET_SECONDS;
     }
 
+    /**
+     * Zero is a real answer, not a missing one: it turns self-continuation
+     * off entirely, and an environment that cannot host it needs to be
+     * able to say so.
+     *
+     * A `php -S` server is the case that matters. It serves exactly one
+     * request per worker at a time and defaults to one worker, so a hop
+     * does not run *alongside* the request that emitted it — it queues
+     * behind it and then occupies the only worker for a whole slice.
+     * Everything else waits, which is fine for a background queue and
+     * fatal for a browser test driving the same server. FPM with a pool
+     * of workers, which is what this mechanism is built for, has no such
+     * problem: one busy worker out of twenty is exactly the intent.
+     */
     private function maxHops(): int
     {
-        $configured = (int) ($this->settings->get(self::MAX_HOPS_SETTING) ?? 0);
+        $configured = $this->settings->get(self::MAX_HOPS_SETTING);
 
-        return $configured > 0 ? $configured : self::DEFAULT_MAX_HOPS;
+        if (is_numeric($configured)) {
+            return max(0, (int) $configured);
+        }
+
+        return self::DEFAULT_MAX_HOPS;
     }
 
     public function hopCount(): int

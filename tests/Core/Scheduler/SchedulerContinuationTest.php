@@ -218,6 +218,46 @@ class SchedulerContinuationTest extends TestCase
         ));
     }
 
+    /**
+     * Zero must mean "off", not "unset". An environment that cannot host
+     * self-continuation needs a way to say so — and the case that matters
+     * is a `php -S` server, which serves one request per worker at a time
+     * and defaults to one worker: a hop there does not run alongside the
+     * request that emitted it, it queues behind it and then holds the only
+     * worker for a whole slice. That is how two unrelated browser specs
+     * came to time out at 40 s under the dynamic-security scan while the
+     * same commit passed the plain browser suite.
+     */
+    public function testAMaxHopsOfZeroTurnsChainingOffRatherThanFallingBackToTheDefault(): void
+    {
+        $this->settings->setInternal(SchedulerContinuation::MAX_HOPS_SETTING, '0');
+
+        $this->assertFalse($this->continuation->shouldHop(
+            new SliceOutcome(heldLock: true, processed: 5, workRemains: true)
+        ));
+    }
+
+    /**
+     * The counterpart: a missing or unreadable setting must NOT be read as
+     * zero, or a fresh installation would silently never chain.
+     */
+    public function testAnUnsetCeilingFallsBackToTheDefaultRatherThanToZero(): void
+    {
+        $settingless = new SchedulerContinuation(
+            $this->runner,
+            $this->repo,
+            new SettingService(new SettingRepository($this->pdo)),
+            new JournalService(new JournalRepository($this->pdo)),
+            $this->pdo,
+            'secret'
+        );
+        $this->pdo->exec("DELETE FROM settings WHERE setting_key = '" . SchedulerContinuation::MAX_HOPS_SETTING . "'");
+
+        $this->assertTrue($settingless->shouldHop(
+            new SliceOutcome(heldLock: true, processed: 5, workRemains: true)
+        ));
+    }
+
     public function testBeginChainResetsTheHopCounter(): void
     {
         $this->settings->setInternal(SchedulerContinuation::HOPS_SETTING, '12');
