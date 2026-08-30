@@ -115,15 +115,17 @@ test('a mention travels to a notification, a pin asks its duration, "Vu par" nam
     // Twig (partials/post_card.html.twig), so it is in the document the
     // moment the new page arrives and waits on nothing else.
     //
-    // There used to be a `waitForURL` for that redirect here. It waited
-    // for nothing: the page is ALREADY on groupUrl when the form posts, so
-    // the pattern matched the current URL and returned at once — the
-    // assertion below then had to cover the whole POST-redirect-render on
-    // its own, from a ceiling written as a bare 15_000. Under the security
-    // scan that number is worse than none at all: everything is four times
-    // slower AND 15 s is below the 40 s the config would otherwise have
-    // given this assertion. Hence the flake, on a spec nothing had
-    // changed.
+    // This assertion was flaky under the security scan, and the ceiling
+    // was NOT the reason — it failed with 60 s to spend, polling 122 times
+    // and finding nothing. The cause was in the application: the duration
+    // dialog resolved its promise from Bootstrap's 'hidden.bs.modal', so
+    // the form was submitted only after the fade-out finished, and
+    // Bootstrap's hide() does nothing at all when the modal is still
+    // transitioning IN. A click landing in that window left the promise
+    // unsettled forever and the message simply never pinned — for a quick
+    // human on a loaded server exactly as for this test. Fixed in
+    // public/assets/js/groups.js (askPinDuration now resolves on the
+    // choice); tests/js/groups-pin-duration.test.js pins the behaviour.
     //
     // The locator re-resolves across the navigation, so waiting on it is
     // the whole wait — it just needs a ceiling that scales.

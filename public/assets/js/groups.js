@@ -2015,24 +2015,53 @@
         var modal = bootstrap.Modal.getOrCreateInstance(modalEl);
 
         return new Promise(function (resolve) {
-            var chosen = false;
+            var settled = false;
 
+            function cleanup() {
+                list.removeEventListener('click', onPick);
+                modalEl.removeEventListener('hidden.bs.modal', onHidden);
+            }
+
+            // Resolved on the CHOICE, never on the closing animation.
+            //
+            // This used to set a flag, call modal.hide(), and resolve from
+            // 'hidden.bs.modal' — so the form was submitted only once the
+            // fade-out had finished. Bootstrap's hide() returns early and
+            // fires nothing while the modal is still transitioning IN
+            // (`_isShown`/`_isTransitioning`), and a click can land inside
+            // that window: the dialog is already at its final position
+            // while its opacity is still animating. The promise then never
+            // settled, the form was never submitted, and the message was
+            // simply never pinned — with no error and no feedback. Rare by
+            // hand, reliable under load: it is how the end-to-end suite
+            // came to poll for « Désépingler » 122 times over a full
+            // minute and never see it.
             function onPick(event) {
                 var button = /** @type {HTMLElement|null} */ (
                     /** @type {HTMLElement} */ (event.target).closest('[data-duration]')
                 );
-                if (!button) {
+                if (!button || settled) {
                     return;
                 }
-                chosen = true;
+                settled = true;
                 field.value = button.dataset.duration || '';
+                cleanup();
+                // Best-effort tidying: the form submit below navigates
+                // away, so whether the fade-out completes is immaterial.
                 modal.hide();
+                resolve(true);
             }
 
+            // Dismissal keeps hanging off 'hidden.bs.modal', which is the
+            // right signal for it: closing without choosing must do
+            // nothing, so an event that never arrives costs nothing.
             function onHidden() {
-                list.removeEventListener('click', onPick);
-                modalEl.removeEventListener('hidden.bs.modal', onHidden);
-                resolve(chosen);
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                cleanup();
+                resolve(false);
             }
 
             list.addEventListener('click', onPick);

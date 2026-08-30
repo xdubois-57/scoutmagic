@@ -208,6 +208,31 @@ class MaintenanceControllerTest extends TestCase
     }
 
     /**
+     * Five rows was roughly one evening of dev-mode auto-updates, so the
+     * six consecutive rollbacks that wedged production did not fit on the
+     * page at once — and a run of failures all stopping at the same point
+     * is exactly what this table exists to make obvious.
+     */
+    public function testTheMaintenancePageListsTwentyPastInstallationsNotFive(): void
+    {
+        for ($i = 1; $i <= 25; $i++) {
+            $id = $this->updateHistoryRepository->create('dev-from' . $i, 'dev-vers' . $i, false, null);
+            $this->updateHistoryRepository->markCompleted($id);
+        }
+
+        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+
+        // Counted on the "version de départ" column, which only the
+        // history table renders — the newest target version also appears
+        // in the auto-update health line above it, and counting that one
+        // would silently make 20 look like 21.
+        $this->assertStringContainsString('dev-from25', $body);
+        $this->assertStringContainsString('dev-from6', $body);
+        $this->assertStringNotContainsString('dev-from5<', $body);
+        $this->assertSame(20, substr_count($body, 'dev-from'));
+    }
+
+    /**
      * The auto-update health signal. It exists because everything else
      * about that channel stays green when it stops working — a push
      * webhook answers 200 whether it installed or ignored the push — so a
