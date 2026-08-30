@@ -77,6 +77,26 @@ class UpdateHistoryRepository
     }
 
     /**
+     * Every row still merely queued, oldest first — for
+     * AbandonedInstallSweeper, the only thing that ever closes a 'pending'
+     * row that nothing is going to start. Deliberately not folded into
+     * findInProgress(): that query must keep excluding 'pending', or a
+     * queued install would gate every visitor behind the
+     * update-in-progress page before it has touched anything.
+     *
+     * @return UpdateHistory[]
+     */
+    public function findPending(): array
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT * FROM update_history WHERE status = 'pending' ORDER BY started_at ASC, id ASC"
+        );
+        $stmt->execute();
+
+        return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
      * The most recent update that actually finished and stuck — the health
      * signal behind Configuration > Maintenance's "dernière mise à jour
      * automatique".

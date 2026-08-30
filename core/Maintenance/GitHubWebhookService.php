@@ -206,7 +206,10 @@ class GitHubWebhookService
         // A later release arriving before the previous one's slot fires
         // replaces it — only the newest known release should ever be
         // pending for the weekly slot.
-        $this->schedulerService->cancelPending('core', 'install_update', self::SCHEDULED_INSTALL_REFERENCE);
+        $this->supersedeQueuedInstall(
+            self::SCHEDULED_INSTALL_REFERENCE,
+            'Installation planifiée remplacée : une release plus récente est arrivée avant son créneau.'
+        );
         $this->schedulerService->schedule(
             'core',
             'install_update',
@@ -318,8 +321,8 @@ class GitHubWebhookService
 
         // Never start a second automatic install while one is already
         // running — two pushes close together used to both schedule an
-        // immediate install (cancelPending() below only dedupes a still-
-        // *queued* one, never one already claimed and executing), and
+        // immediate install (supersedeQueuedInstall() below only dedupes a
+        // still-*queued* one, never one already claimed and executing), and
         // running two installs at once has, in practice, corrupted an
         // in-progress one. Only a manual "Installer maintenant"
         // (MaintenanceController::installUpdate()/installDevBranchUpdate())
@@ -347,8 +350,8 @@ class GitHubWebhookService
         $historyId = $this->updateHistoryRepository->create($installedVersion, $versionTo, false, null);
 
         // A push arriving while a previous push's install is still merely
-        // *queued* (not yet claimed/running — cancelPending() only ever
-        // touches a still-'pending' row, never one already 'processing')
+        // *queued* (not yet claimed/running — supersedeQueuedInstall()
+        // only ever touches a still-'pending' row, never a 'processing' one)
         // replaces it, exactly like processRelease()'s own dedup above:
         // only the newest commit should ever be waiting to install. Without
         // this, two pushes seconds apart queue two separate install_update
@@ -360,7 +363,10 @@ class GitHubWebhookService
         // extracted archive over the live install directory around the
         // same time. This dedup avoids ever creating that situation in the
         // first place.
-        $this->schedulerService->cancelPending('core', 'install_update', self::PUSH_INSTALL_REFERENCE);
+        $this->supersedeQueuedInstall(
+            self::PUSH_INSTALL_REFERENCE,
+            'Installation remplacée : un push plus récent est arrivé avant qu\'elle ne démarre.'
+        );
         $this->schedulerService->scheduleAfter(
             'core',
             'install_update',
@@ -378,6 +384,48 @@ class GitHubWebhookService
         );
 
         return ['status' => 'ok'];
+    }
+
+    /**
+     * Cancel the install still merely queued under $reference AND close the
+     * update_history row it was going to install.
+     *
+     * Cancelling the scheduled action alone — which is all this used to do —
+     * leaves that row at 'pending' with nothing left that could ever move
+     * it: `markOtherInProgressAsFailed()` and `findInProgress()` both
+     * deliberately exclude 'pending' (a queued install has not touched the
+     * site, so it must not gate visitors), and the 15-minute staleness net
+     * only looks at rows already running. The row therefore reads "En cours
+     * (pending)" in the update history forever — observed on scoutmagic.be
+     * with two pushes two minutes apart, where it looked exactly like two
+     * updates migrating in parallel from the same version.
+     *
+     * Controller\MaintenanceController::reconcilePendingScheduledInstall()
+     * already does this on the "save preferences" path, for the same stated
+     * reason; the webhook's own two supersede points did not.
+     */
+    private function supersedeQueuedInstall(string $reference, string $reason): void
+    {
+        $queued = $this->schedulerService->find('core', 'install_update', $reference);
+        if ($queued === null) {
+            return;
+        }
+
+        $this->schedulerService->cancel((int) $queued['id']);
+
+        $payload = json_decode((string) ($queued['payload'] ?? ''), true);
+        $historyId = is_array($payload) ? (int) ($payload['history_id'] ?? 0) : 0;
+        if ($historyId <= 0) {
+            return;
+        }
+
+        $history = $this->updateHistoryRepository->findById($historyId);
+        // Only 'pending': a row that already started is the business of
+        // markOtherInProgressAsFailed(), which has the rollback semantics
+        // this does not.
+        if ($history !== null && $history->status === 'pending') {
+            $this->updateHistoryRepository->markFailed($historyId, $reason);
+        }
     }
 
     /**
