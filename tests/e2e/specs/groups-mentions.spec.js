@@ -29,6 +29,7 @@ import { answerCookieBanner } from '../support/cookie-banner.js';
 import { loginAsAdmin, loginAsMember } from '../support/admin-login.js';
 import { openCreateGroupForm, waitForGroupsJsReady } from '../support/groups.js';
 import { pngBuffer } from '../support/png.js';
+import { scaled } from '../support/timeouts.js';
 
 const GROUP_NAME = `Intendance camp ${Date.now()}`;
 const MESSAGE_PREFIX = 'Bienvenue dans le groupe ';
@@ -37,7 +38,7 @@ const PHOTO_MESSAGE = 'La photo du terrain pour le camp.';
 test('a mention travels to a notification, a pin asks its duration, "Vu par" names the reader, and the group gallery serves the photo', async ({ page, browser }) => {
     // Two sessions, a media-processing pipeline, and the once-a-minute
     // scheduler behind it.
-    test.setTimeout(240_000);
+    test.setTimeout(scaled(240_000));
 
     /** @type {string[]} */
     const pageErrors = [];
@@ -109,9 +110,24 @@ test('a mention travels to a notification, a pin asks its duration, "Vu par" nam
     await expect(durationDialog.getByText('Pendant combien de temps ?')).toBeVisible();
     await durationDialog.getByRole('button', { name: '1 semaine' }).click();
 
-    // Pinning reloads the page; the pinned block sits above the feed.
-    await page.waitForURL(`**${groupUrl}`, { waitUntil: 'domcontentloaded' });
-    await expect(page.getByText('Désépingler')).toHaveCount(1, { timeout: 15_000 });
+    // Pinning posts the form and the server redirects back to this same
+    // page, where the card's menu now offers « Désépingler » — rendered by
+    // Twig (partials/post_card.html.twig), so it is in the document the
+    // moment the new page arrives and waits on nothing else.
+    //
+    // There used to be a `waitForURL` for that redirect here. It waited
+    // for nothing: the page is ALREADY on groupUrl when the form posts, so
+    // the pattern matched the current URL and returned at once — the
+    // assertion below then had to cover the whole POST-redirect-render on
+    // its own, from a ceiling written as a bare 15_000. Under the security
+    // scan that number is worse than none at all: everything is four times
+    // slower AND 15 s is below the 40 s the config would otherwise have
+    // given this assertion. Hence the flake, on a spec nothing had
+    // changed.
+    //
+    // The locator re-resolves across the navigation, so waiting on it is
+    // the whole wait — it just needs a ceiling that scales.
+    await expect(page.getByText('Désépingler')).toHaveCount(1, { timeout: scaled(15_000) });
 
     // ---------------------------------------------------------------
     // The other person: notified of the mention, and their visit to the
@@ -170,7 +186,7 @@ test('a mention travels to a notification, a pin asks its duration, "Vu par" nam
             return memberPage.locator('.gallery-lightbox-trigger img').count();
         }, {
             message: 'the group gallery must serve the post\'s photo once processed',
-            timeout: 120_000,
+            timeout: scaled(120_000),
             intervals: [3_000],
         }).toBeGreaterThan(0);
     } finally {
