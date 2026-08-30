@@ -1071,6 +1071,66 @@
         )).map(function (el) { return /** @type {HTMLElement} */ (el).dataset.mediaId; });
     }
 
+    /**
+     * Fill a media cell that has just finished processing, from DATA.
+     *
+     * This used to be `cell.innerHTML = item.html`, with the server
+     * sending the rendered `media_thumb.html.twig`. Nothing user-supplied
+     * ever travelled through it — that partial holds an integer id and an
+     * enum — but an innerHTML sink fed by a fetch response is a DOM-XSS
+     * sink regardless of what flows through it today, and it would have
+     * become a real one the first time somebody put a caption in that
+     * template. The server now sends {id, status, media_type} and nothing
+     * here ever parses HTML.
+     *
+     * Deliberately mirrors media_thumb.html.twig's `done`/`failed`
+     * branches, which stay the source for the FIRST render — the two are
+     * only ever seen one after the other on the same cell, so a
+     * divergence would show up immediately as a thumbnail that changes
+     * appearance the moment it loads.
+     *
+     * @param {HTMLElement} cell
+     * @param {{id: number|string, status: string, media_type?: string}} item
+     */
+    function renderResolvedMedia(cell, item) {
+        cell.textContent = '';
+
+        if (item.status === 'failed') {
+            var failed = document.createElement('span');
+            failed.className = 'd-flex align-items-center justify-content-center h-100 text-danger';
+            failed.title = 'Échec du traitement de ce média';
+            var warning = document.createElement('i');
+            warning.className = 'bi bi-exclamation-triangle';
+            warning.setAttribute('aria-hidden', 'true');
+            failed.appendChild(warning);
+            cell.appendChild(failed);
+
+            return;
+        }
+
+        var image = document.createElement('img');
+        // Built from the id the server just sent back, never from a URL
+        // it sent: a path this file assembles cannot be pointed elsewhere.
+        image.src = '/gallery/media/' + encodeURIComponent(String(item.id)) + '/thumb';
+        image.alt = '';
+        image.className = 'w-100 h-100';
+        image.style.objectFit = 'cover';
+        image.loading = 'lazy';
+        cell.appendChild(image);
+
+        if (item.media_type === 'video') {
+            var badge = document.createElement('span');
+            badge.className = 'position-absolute top-50 start-50 translate-middle text-white';
+            badge.style.fontSize = '1.75rem';
+            badge.style.textShadow = '0 0 6px rgba(0,0,0,.6)';
+            var play = document.createElement('i');
+            play.className = 'bi bi-play-circle-fill';
+            play.setAttribute('aria-hidden', 'true');
+            badge.appendChild(play);
+            cell.appendChild(badge);
+        }
+    }
+
     function pollMediaStatus() {
         var feed = document.getElementById('groups-feed');
         var ids = pendingMediaIds();
@@ -1085,13 +1145,13 @@
             return response.ok ? response.json() : [];
         }).then(function (items) {
             items.forEach(function (item) {
-                if (item.status === 'pending' || item.status === 'processing' || typeof item.html !== 'string') {
+                if (item.status === 'pending' || item.status === 'processing') {
                     return;
                 }
                 var cell = /** @type {HTMLElement} */ (document.querySelector('[data-media-id="' + item.id + '"]'));
                 if (cell) {
                     cell.dataset.status = item.status;
-                    cell.innerHTML = item.html;
+                    renderResolvedMedia(cell, item);
                 }
             });
         }).catch(function () {

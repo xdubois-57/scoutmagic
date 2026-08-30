@@ -86,6 +86,74 @@ jobs:
             phpunit-report.xml
           retention-days: 1
 
+  # The same suite, against the engine production actually runs.
+  #
+  # `test` above runs everything on MySQL 8 with coverage, and until this
+  # job existed that was the only engine CI ever saw — while the reference
+  # installation is MariaDB 10.11 on shared hosting. The asymmetry pointed
+  # the wrong way: code correct on MySQL and wrong on MariaDB passed CI and
+  # reached production. Not hypothetical — SchemaComparator once never
+  # reached a "nothing to do" steady state there, and the site's requests
+  # appeared to hang (ARCHITECTURE.md § early session lock release).
+  #
+  # The WHOLE suite rather than `--group=database`, deliberately. Every
+  # file reading TEST_DB_* happens to carry that group today, so the narrow
+  # form would cover the same ground — but only until someone adds one that
+  # does not, and the failure mode of that omission is the silent one: it
+  # passes here and breaks production. Two extra minutes buys away the
+  # entire question of which tests are engine-sensitive.
+  #
+  # No coverage: the `test` job stays the single source of the Clover
+  # report SonarQube consumes, and duplicating it would double the cost of
+  # the slowest job here for nothing.
+  database-mariadb:
+    runs-on: ubuntu-latest
+
+    services:
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: test_password
+          MARIADB_DATABASE: test_db
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Same dependency as the `test` job, and its absence is not a subtle
+      # failure: PdfRasterizer, the two file-serving tests behind it and
+      # the receipt-extraction handler all go red, which reads exactly
+      # like four MariaDB divergences until you look at the names. This
+      # job's whole value is telling engine differences apart from
+      # everything else, so it has to run on the same footing.
+      - name: Install Ghostscript (PDF rasterization for Core\File\PdfRasterizer)
+        run: sudo apt-get update && sudo apt-get install -y ghostscript
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
+        with:
+          php-version: '8.4'
+          extensions: mbstring, pdo, pdo_mysql, openssl, imagick
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress
+
+      - name: Run the full suite against MariaDB
+        env:
+          TEST_DB_HOST: 127.0.0.1
+          TEST_DB_PORT: 3306
+          TEST_DB_NAME: test_db
+          TEST_DB_USER: root
+          TEST_DB_PASSWORD: test_password
+        run: vendor/bin/phpunit
+
   javascript-tests:
     runs-on: ubuntu-latest
 
