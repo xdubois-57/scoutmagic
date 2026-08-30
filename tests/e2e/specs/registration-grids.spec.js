@@ -54,6 +54,16 @@ const DEPARTURE_COMMENT = 'Déménage à Namur cet été.';
  * @param {import('@playwright/test').Page} page
  */
 async function openCapacitiesBox(page) {
+    // The toggle is a data-bs-toggle="collapse" button, so it does nothing
+    // at all until Bootstrap's delegated handler exists. base.html.twig
+    // loads bootstrap.bundle.min.js well after the toggle's own markup, and
+    // that markup already carries aria-expanded="false" — so every barrier
+    // written against the static HTML can be satisfied mid-parse, before the
+    // bundle has run. A click that lands then is silently swallowed: the box
+    // stays `.collapse` and no retry follows, because the click itself
+    // succeeded. Waiting for the global is the one barrier the parser cannot
+    // fake.
+    await page.waitForFunction(() => typeof window.bootstrap !== 'undefined');
     await page.getByRole('button', { name: 'Capacités par branche', exact: true }).click();
     await expect(page.locator('#registration-capacities-box')).toBeVisible();
 }
