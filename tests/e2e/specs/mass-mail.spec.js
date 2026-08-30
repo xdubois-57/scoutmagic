@@ -182,3 +182,80 @@ test('a mass mail walks draft → test → sending, and really lands in the memb
     expect(serverErrors, 'the application returned a server error').toEqual([]);
     expect(pageErrors, 'uncaught JavaScript error in the browser').toEqual([]);
 });
+
+// The compose dialog's scout-year block, for a list whose year is not the
+// chief's to choose.
+//
+// WHY THIS SCENARIO EXISTS
+// ----------------------------------------------------------------------------
+// The registration module contributes its own mailing list to mass_mail
+// (Modules\Registration\Api\ExternalMailingListProvider), and that list is
+// always its own fixed target year: Modules\MassMail\Service\
+// MailingListService::resolveMembersForYears() resolves it once, tagged
+// with targetScoutYearId(), and never re-scopes it against whatever the
+// dialog's year checkboxes say. The server has always ignored them for it;
+// only the interface kept offering them, advertising a choice that does not
+// exist.
+//
+// The rule is worth a browser precisely because both halves of it are
+// cross-module and only exist together at runtime: the option is only in
+// the picker because the registration module is enabled and its provider
+// reached mass_mail through the composition root (public/index.php
+// re-registers the list service with it), and the block only disappears
+// because mass-mail-list.js's updateListTypeUi() ran against the real
+// options the server rendered. Vitest sees the script with a fixture it
+// wrote itself; PHPUnit sees the list service with no browser. Neither can
+// see the two meet.
+//
+// Locators are the dialog's own ids where the module's JavaScript binds to
+// them (a contract, per ARCHITECTURE.md § 15) and visible French text
+// everywhere else — including the list option itself, which is named after
+// a scout year and so cannot be written down here.
+test('the registration list hides the scout-year choice it never had, and says why', async ({ page }) => {
+    /** @type {string[]} */
+    const pageErrors = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+
+    await loginAsAdmin(page);
+    await answerCookieBanner(page);
+    await page.goto('/mass-mail', { waitUntil: 'load' });
+
+    await page.locator('#mm-new-btn').click();
+    const dialog = page.locator('#mm-modal');
+    await expect(dialog).toBeVisible();
+
+    const yearZone = dialog.locator('#mm-scout-year-zone');
+    const note = dialog.getByText("Cette liste vise toujours l'année d'inscription.");
+
+    // An ordinary list first: the years are a real question there, and the
+    // note has nothing to say.
+    await dialog.locator('#mm-list').selectOption({ label: 'Section - Meute E2E' });
+    await expect(yearZone).toBeVisible();
+    await expect(dialog.getByText('Année(s) scoute(s)')).toBeVisible();
+    await expect(note).toBeHidden();
+
+    // The registration list is labelled after its target year
+    // (ExternalMailingListService::describeMailingList()), so the label is
+    // read off the page rather than written down — the same reason
+    // scout-year-transition.spec.js reads its steps.
+    const optionLabels = (await dialog.locator('#mm-list option').allTextContents())
+        .map((label) => label.trim());
+    const registrationLabels = optionLabels.filter((label) => /^Inscriptions \d{4}-\d{4}$/.test(label));
+    expect(
+        registrationLabels,
+        `exactly one registration list must be offered — the picker holds ${optionLabels.join(' | ')}`,
+    ).toHaveLength(1);
+
+    await dialog.locator('#mm-list').selectOption({ label: registrationLabels[0] });
+
+    await expect(yearZone).toBeHidden();
+    await expect(note).toBeVisible();
+
+    // And back: the block returns, the note goes away. A rule, not a
+    // one-way glitch.
+    await dialog.locator('#mm-list').selectOption({ label: 'Section - Meute E2E' });
+    await expect(yearZone).toBeVisible();
+    await expect(note).toBeHidden();
+
+    expect(pageErrors, 'uncaught JavaScript error in the browser').toEqual([]);
+});
