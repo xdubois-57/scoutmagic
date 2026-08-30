@@ -23,6 +23,7 @@ use Core\Maintenance\UpdateException;
 use Core\Maintenance\UpdateHistory;
 use Core\Maintenance\UpdateHistoryRepository;
 use Core\Maintenance\VersionFile;
+use Core\Scheduler\SchedulerKick;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
@@ -172,23 +173,43 @@ class InstallUpdateHandler implements TaskHandlerInterface
                 $this->clearCompiledTemplateCache($context->storagePath);
                 $this->dropStaleCompiledCode();
 
+                // The migration does NOT run here, and that is the whole
+                // point of this line.
+                //
+                // installFiles() has just replaced every file on disk
+                // while this process keeps running. Its own classes are
+                // the OLD ones, already loaded; anything it has not
+                // loaded yet is autoloaded from the NEW files. Migrating
+                // from here therefore means running the previous
+                // version's MigrationRunner against the next version's
+                // MigrationResult and MigrationProgress — and removing so
+                // much as a constructor parameter from either of those is
+                // then enough to make the update throw, roll back, and
+                // roll back identically on every retry, because the retry
+                // runs the same old code. That is not hypothetical: it is
+                // six consecutive rollbacks on scoutmagic.be over
+                // `Unknown named parameter $backupCreated`, and it would
+                // have been six more over `array_push(): Argument #1 must
+                // be of type array, null given` if the queue fields had
+                // simply been dropped.
+                //
+                // So the migration is handed to a different process. The
+                // resume task below re-enters this handler on a later
+                // scheduler pass, where every class is loaded from the
+                // new files and no mixture is possible.
+                // SchedulerRunner::processOverdue() claims its task list
+                // once, at the start of a pass, so a task created during
+                // a pass is never run by that same pass — the different
+                // process is guaranteed, not hoped for.
                 $updateHistoryRepository->setStatus($historyId, 'migrating');
-                $migrationRunner = new MigrationRunner(
-                    $context->connection,
-                    new SchemaIntrospector($pdo),
-                    new SchemaComparator(),
-                    new SqlParser()
-                );
-                $migrationResult = $migrationRunner->migrate(SchemaFiles::all($basePath));
+                $this->scheduleMigrationResume($context, $historyId, $downloadUrl, $sourceType);
 
-                if (!$migrationResult->complete) {
-                    $this->scheduleMigrationResume($context, $historyId, $downloadUrl, $sourceType);
-                    return;
-                }
+                // ...and started now rather than at the next cron tick or
+                // the next visitor's page load, which would just be
+                // "migrate on somebody's request" wearing a different hat.
+                SchedulerKick::now($context);
 
-                $this->refuseUnconvergedMigration($migrationResult);
-
-                $this->finishInstall($historyId, $history, $context, $updateHistoryRepository, $backupRepository, $fileRepository);
+                return;
             } catch (\Throwable $installError) {
                 $this->rollbackToSafetyBackup(
                     $historyId,

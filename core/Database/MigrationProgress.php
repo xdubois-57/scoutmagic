@@ -32,11 +32,6 @@ namespace Core\Database;
  * attempt this is (the target hash), what has been done so far for
  * reporting, and how many passes in a row have failed the same way — the
  * convergence counter that stops an unfixable migration from looping.
- *
- * The old queue fields are still *declared* and still round-tripped, but
- * only as upgrade shims for the runner of the previous version, which is
- * the code that actually executes during the update that installs this
- * one. Nothing here reads them. See the constructor.
  */
 final class MigrationProgress
 {
@@ -58,48 +53,7 @@ final class MigrationProgress
      *   stuck on the progress page is worse than a schema that is missing
      *   a column (Core\Database\MigrationRunner::CONVERGENCE_ATTEMPTS).
      * @param bool $dropsApplied Whether the explicit drops.sql pass ran.
-     *
-     * The six parameters after that one are **upgrade shims. Nothing in
-     * this version reads them.** They are the state the PREVIOUS runner
-     * kept, and they have to stay declared because of how a self-update
-     * actually executes: `Task\InstallUpdateHandler` replaces the files on
-     * disk and then runs the migration IN THE SAME PHP PROCESS.
-     * `MigrationRunner` is already loaded, so the code that runs the
-     * migration during an update is the OLD runner — but
-     * `MigrationProgress`, which nothing constructs on an ordinary
-     * request, is not loaded yet and is autoloaded from the NEW files.
-     *
-     * The old runner does `array_push($progress->pendingStatements, ...)`
-     * and `array_shift($progress->remainingTableNames)`. Against a class
-     * that no longer declared them those reads answer null, `array_push()`
-     * raises a TypeError, the handler catches it and rolls the update
-     * back — and every retry runs the same old code, so the site can never
-     * reach the version that would fix it. That is exactly how
-     * scoutmagic.be rolled back six times in a row over a removed
-     * `MigrationResult` parameter; this class would have done it again for
-     * the same reason.
-     *
-     * They are round-tripped through toArray()/fromArray() as well as
-     * declared, so a migration the old runner checkpoints mid-way resumes
-     * on the old runner losslessly. In particular $failedCount gates the
-     * old runner's schema-hash caching: silently resetting it to 0 across
-     * a checkpoint would let it cache a hash for a schema that did not
-     * converge. The new runner ignores every one of these keys — it
-     * re-derives the statements from the live schema — so a checkpoint
-     * written by the old runner and picked up by the new one simply starts
-     * a fresh pass, which is the safe direction.
-     *
-     * Removable once no installation predates the version that introduced
-     * the queueless runner — a decision about the field, not about the
-     * code. IT-07 (migrating from a separate process rather than the one
-     * being updated) removes the whole hazard class and is the real fix.
-     *
-     * @param bool $tableQueueBuilt Upgrade shim, see above.
-     * @param array<string> $actualTableNames Upgrade shim, see above.
-     * @param array<string> $remainingTableNames Upgrade shim, see above.
-     * @param int $totalTableCount Upgrade shim, see above.
-     * @param array<string> $pendingStatements Upgrade shim, see above.
-     * @param int $failedCount Upgrade shim, see above.
+
      */
     public function __construct(
         public readonly string $targetHash,
@@ -109,13 +63,7 @@ final class MigrationProgress
         public array $warnings = [],
         public string $failureSignature = '',
         public int $sameFailureCount = 0,
-        public bool $dropsApplied = false,
-        public bool $tableQueueBuilt = false,
-        public array $actualTableNames = [],
-        public array $remainingTableNames = [],
-        public int $totalTableCount = 0,
-        public array $pendingStatements = [],
-        public int $failedCount = 0
+        public bool $dropsApplied = false
     ) {
     }
 
@@ -138,12 +86,6 @@ final class MigrationProgress
             'failure_signature' => $this->failureSignature,
             'same_failure_count' => $this->sameFailureCount,
             'drops_applied' => $this->dropsApplied,
-            'table_queue_built' => $this->tableQueueBuilt,
-            'actual_table_names' => $this->actualTableNames,
-            'remaining_table_names' => $this->remainingTableNames,
-            'total_table_count' => $this->totalTableCount,
-            'pending_statements' => $this->pendingStatements,
-            'failed_count' => $this->failedCount,
         ];
     }
 
@@ -152,16 +94,13 @@ final class MigrationProgress
      * as "no progress yet" and starts a fresh attempt, never a fatal error
      * over a corrupted cache row.
      *
-     * Every field is read by name and anything else in $data is ignored,
-     * which is what lets a row checkpointed by an older version — one
-     * still carrying the long-gone `backup_done` — resume on this code
-     * instead of being thrown away mid-migration.
+     * Every field is read by name and anything else in $data is ignored.
      *
-     * `pending_statements`, `remaining_table_names` and the rest of the
-     * old queue are read back into their (unused) properties rather than
-     * dropped, so the same row still round-trips for the OLD runner: it is
-     * the one running while an update installs this version, and it does
-     * depend on them.
+     * That tolerance is the whole reason this reads by name: a row left
+     * behind by any earlier version — one still carrying
+     * `pending_statements`, `remaining_table_names` or the long-gone
+     * `backup_done` — resumes on this code instead of being thrown away
+     * mid-migration.
      *
      * @param array<string, mixed> $data
      */
@@ -179,13 +118,7 @@ final class MigrationProgress
             warnings: is_array($data['warnings'] ?? null) ? $data['warnings'] : [],
             failureSignature: is_string($data['failure_signature'] ?? null) ? $data['failure_signature'] : '',
             sameFailureCount: (int) ($data['same_failure_count'] ?? 0),
-            dropsApplied: (bool) ($data['drops_applied'] ?? false),
-            tableQueueBuilt: (bool) ($data['table_queue_built'] ?? false),
-            actualTableNames: is_array($data['actual_table_names'] ?? null) ? $data['actual_table_names'] : [],
-            remainingTableNames: is_array($data['remaining_table_names'] ?? null) ? $data['remaining_table_names'] : [],
-            totalTableCount: (int) ($data['total_table_count'] ?? 0),
-            pendingStatements: is_array($data['pending_statements'] ?? null) ? $data['pending_statements'] : [],
-            failedCount: (int) ($data['failed_count'] ?? 0)
+            dropsApplied: (bool) ($data['drops_applied'] ?? false)
         );
     }
 }
