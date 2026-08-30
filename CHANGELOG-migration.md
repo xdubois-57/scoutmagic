@@ -480,6 +480,41 @@ génération de paquet.
 - Un verdict unique fusionnant « déclaré » et « vérifié ». C'est
   précisément la fusion qui rendait le fichier trompeur.
 
+## Après la roadmap — convergence réelle et retrait des cales
+
+### Les 534 MODIFY COLUMN fantômes
+
+Signalés en IT-03 comme un chantier à part, traités ici. Chaque passe de
+migration régénérait les mêmes 534 `ALTER`, ils réussissaient tous,
+l'introspection rapportait la même « différence » ensuite, et le schéma ne
+convergeait jamais. **Rien n'échouait** : c'est pourquoi cela a duré. Un
+coût permanent payé à chaque changement de schéma, sans une seule erreur
+pour le désigner.
+
+Quatre causes, toutes des divergences de report entre MariaDB et MySQL, et
+une seule correspondait à l'hypothèse initiale :
+
+| n | cause |
+|---|---|
+| 472 | `COLUMN_DEFAULT` contient une **expression** depuis MariaDB 10.2 : une colonne nullable sans défaut y porte le texte nu `NULL` |
+| 60 | les défauts chaîne reviennent cités et échappés (`'public'`, `'it''s'`) |
+| 9 | `JSON` est un alias de `LONGTEXT` sur MariaDB |
+| 2 | `decimal(12, 2)` déclaré contre `decimal(12,2)` rapporté |
+
+Les deux premières sont corrigées dans l'**introspecteur** et non dans le
+comparateur. La distinction n'est pas cosmétique : `current_timestamp()`
+face à `CURRENT_TIMESTAMP` sont deux orthographes d'un même défaut réel, à
+réconcilier au moment de comparer ; ici l'introspecteur rapporte quelque
+chose que la colonne **n'a pas**. Tout lecteur mérite la vérité, pas
+seulement celui qui diffe.
+
+Ce qui rend le premier cas décidable plutôt qu'ambigu : MariaDB **cite** les
+littéraux chaîne, donc une colonne qui a réellement `NULL` pour défaut le
+rapporte avec ses apostrophes, et la forme nue ne peut signifier que
+« aucun défaut ». C'est pourquoi le test du `NULL` passe en premier.
+
+Mesuré sur le schéma complet (165 tables) contre MariaDB 10.11 : **534 → 0**.
+
 ### MySQL et MariaDB : ce que l'échec de CI a révélé
 
 Le correctif ci-dessus, écrit et mesuré contre MariaDB, a fait tomber en CI
@@ -547,3 +582,20 @@ Un moteur que le script n'a pas pu démarrer est rapporté comme tel et fait
 sortir en échec. « Vert sur les deux moteurs » et « vert sur le seul moteur
 que j'ai trouvé » ne sont pas la même phrase — et c'est précisément la
 seconde qui se lisait comme la première.
+
+### Retrait des cales
+
+Supprimées : `MigrationResult::$backupCreated` et les six champs de file de
+`MigrationProgress`. Ce n'est pas le temps qui les rend supprimables, c'est
+IT-07 : plus aucune mise à jour ne peut exécuter le runner d'une version
+contre les objets d'une autre.
+
+`SelfUpdateCompatibilityTest` disparaît, mais son sujet n'a pas disparu — il
+a bougé. `Tests\Architecture\SelfUpdateMigrationBoundaryTest` tient
+désormais la condition qui a rendu le retrait sûr : la méthode qui appelle
+`installFiles()`/`restoreFiles()` ne migre jamais, et passe la main à
+`resumeMigration()`. Les deux moitiés comptent — n'affirmer que la première
+passerait tout aussi bien sur un handler qui aurait cessé de migrer, ce qui
+est un schéma silencieusement non migré et non un problème corrigé.
+
+Vérifié en échec : réintroduire un `migrate()` en ligne fait tomber le test.
