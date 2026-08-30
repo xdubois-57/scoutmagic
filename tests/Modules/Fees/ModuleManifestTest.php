@@ -38,7 +38,7 @@ class ModuleManifestTest extends TestCase
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.3.0', $this->manifest->version);
+        $this->assertSame('1.4.0', $this->manifest->version);
     }
 
     /**
@@ -67,6 +67,28 @@ class ModuleManifestTest extends TestCase
         $this->assertSame('/admin/fees', $labelled[0]['path']);
         $this->assertSame('Cotisations', $labelled[0]['label']);
         $this->assertSame('suivi', $labelled[0]['menu_group']);
+    }
+
+    /**
+     * The one setting the module has: the federal page the barème's
+     * « Chercher les montants » button reads. Declared with a description
+     * (AGENTS.md § Module creation checklist) and defaulting to the real
+     * page, so a unit that never touches Configuration > Réglages still
+     * gets a working button the day it configures an AI connector.
+     */
+    public function testTheFederalScalePageIsADeclaredSetting(): void
+    {
+        $keys = array_column($this->manifest->settings, 'key');
+        $this->assertSame(['fees_federal_scale_url'], $keys);
+
+        $setting = $this->manifest->settings[0];
+        $this->assertSame('url', $setting['type']);
+        $this->assertNotSame('', $setting['description']);
+        $this->assertSame(
+            \Modules\Fees\Service\FederalScaleLookupService::DEFAULT_URL,
+            $setting['default_value'],
+            'the manifest default and the service constant must not drift'
+        );
     }
 
     /**
