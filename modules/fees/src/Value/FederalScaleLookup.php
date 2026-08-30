@@ -56,7 +56,13 @@ final class FederalScaleLookup
     /** @param array<string, int> $amountCents */
     public static function found(string $url, string $year, array $amountCents): self
     {
-        return new self(self::FOUND, $url, $year, $amountCents, 'Montants trouvés. Vérifiez-les, puis enregistrez le barème.');
+        return new self(
+            self::FOUND,
+            $url,
+            $year,
+            $amountCents,
+            'Montants trouvés. Vérifiez-les, puis enregistrez le barème.'
+        );
     }
 
     public static function unavailable(string $url): self
@@ -77,7 +83,8 @@ final class FederalScaleLookup
             $url,
             null,
             [],
-            "La page de la fédération n'a pas pu être consultée. Vérifiez son adresse dans les réglages, puis réessayez."
+            "La page de la fédération n'a pas pu être consultée. "
+            . "Vérifiez son adresse dans les réglages, puis réessayez."
         );
     }
 
@@ -88,7 +95,8 @@ final class FederalScaleLookup
             $url,
             null,
             [],
-            "Le connecteur IA n'a pas pu répondre. Réessayez dans quelques instants, ou saisissez les montants à la main."
+            "Le connecteur IA n'a pas pu répondre. "
+            . "Réessayez dans quelques instants, ou saisissez les montants à la main."
         );
     }
 

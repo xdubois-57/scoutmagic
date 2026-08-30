@@ -266,7 +266,10 @@ class FeeAccuracyController extends AbstractController
         // a POST is a POST: the route answers the same way whether it was
         // reached from a stale page or by hand.
         if (!$this->federalScale->isAvailable()) {
-            FlashMessage::set('error', "Aucun connecteur IA n'est configuré : les montants ne peuvent pas être cherchés.");
+            FlashMessage::set(
+                'error',
+                "Aucun connecteur IA n'est configuré : les montants ne peuvent pas être cherchés."
+            );
 
             return $this->redirect(self::PATH);
         }

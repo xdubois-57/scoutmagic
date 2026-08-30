@@ -43,11 +43,19 @@
                 trompé en la devinant.
             </p>
             {% if _suggested %}
-                <div class="alert alert-info py-2 small" role="status">
+                {#
+                  An <output>, not a div with role="status": this IS the
+                  result of an action the visitor just triggered, which is
+                  the element's own definition, and it carries the live-region
+                  semantics natively instead of borrowing them from a role
+                  (Sonar Web:S6819). `d-block` because <output> is inline by
+                  default and `.alert` does not set a display of its own.
+                #}
+                <output class="alert alert-info py-2 small d-block">
                     Montants proposés pour l'année <strong>{{ _suggested.year }}</strong>, lus sur
                     <a href="{{ _suggested.url }}" target="_blank" rel="noopener noreferrer">{{ _suggested.url }}</a>.
                     Rien n'est enregistré tant que vous n'avez pas cliqué sur « Enregistrer le barème ».
-                </div>
+                </output>
             {% endif %}
             <form method="post" action="/admin/fees/tarifs/bareme">
                 {{ csrf_field()|raw }}

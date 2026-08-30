@@ -249,8 +249,12 @@ class FederalScaleLookupService
      * The whole validation, separated from the network and from the model
      * so it can be exercised on a fixed string.
      */
-    public function interpret(string $rawAnswer, string $url, string $expectedYear, ?int $actorId = null): FederalScaleLookup
-    {
+    public function interpret(
+        string $rawAnswer,
+        string $url,
+        string $expectedYear,
+        ?int $actorId = null
+    ): FederalScaleLookup {
         $answer = self::decodeJsonObject($rawAnswer);
         if ($answer === null) {
             $this->log('fees_federal_scale_unreadable', 'Recherche des montants : réponse illisible', $url, $actorId);
@@ -262,14 +266,24 @@ class FederalScaleLookupService
             ? self::normalizeYear((string) $answer['annee'])
             : null;
         if ($foundYear === null) {
-            $this->log('fees_federal_scale_year_missing', 'Recherche des montants : aucune année lisible', $url, $actorId);
+            $this->log(
+                'fees_federal_scale_year_missing',
+                'Recherche des montants : aucune année lisible',
+                $url,
+                $actorId
+            );
 
             return FederalScaleLookup::yearMissing($url);
         }
 
         $expected = self::normalizeYear($expectedYear);
         if ($expected === null || $foundYear !== $expected) {
-            $this->log('fees_federal_scale_year_mismatch', "Recherche des montants : année trouvée {$foundYear}", $url, $actorId);
+            $this->log(
+                'fees_federal_scale_year_mismatch',
+                "Recherche des montants : année trouvée {$foundYear}",
+                $url,
+                $actorId
+            );
 
             return FederalScaleLookup::yearMismatch($url, $foundYear, $expected ?? $expectedYear);
         }
@@ -278,7 +292,12 @@ class FederalScaleLookupService
         foreach (HouseholdFeeCategory::cases() as $category) {
             $cents = self::amountCentsOrNull($answer[self::FIELD_BY_CATEGORY[$category->value]] ?? null);
             if ($cents === null) {
-                $this->log('fees_federal_scale_unreadable', 'Recherche des montants : montant manquant', $url, $actorId);
+                $this->log(
+                    'fees_federal_scale_unreadable',
+                    'Recherche des montants : montant manquant',
+                    $url,
+                    $actorId
+                );
 
                 return FederalScaleLookup::unreadable($url);
             }
