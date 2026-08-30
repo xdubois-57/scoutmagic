@@ -34,7 +34,7 @@ import { expect, test } from '@playwright/test';
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { autoConfirm } from '../support/confirm-dialog.js';
 import { loginAsAdmin, loginAsMember } from '../support/admin-login.js';
-import { openCreateGroupForm, waitForGroupsJsReady } from '../support/groups.js';
+import { openComposer, openCreateGroupForm, waitForGroupsJsReady } from '../support/groups.js';
 import { xlsxBuffer } from '../support/xlsx.js';
 
 test('the public home page boots through public/index.php and renders in a browser', async ({ page }) => {
@@ -355,8 +355,12 @@ test('with money due and unread group activity at once, the home page shows one 
 
         await memberPage.goto(groupUrl, { waitUntil: 'domcontentloaded' });
         await waitForGroupsJsReady(memberPage);
+        // groups.js folds the composer away behind a one-line bar as soon
+        // as it runs (modules/groups/views/show.html.twig), so writing a
+        // message starts by asking for the form — the same click a member
+        // makes. Without it the form below stays `d-none`.
+        await openComposer(memberPage);
         const composer = memberPage.locator('#groups-post-form');
-        await expect(composer).toBeVisible();
         await composer.getByLabel('Écrire un message').fill(MEMBER_MESSAGE);
         await composer.getByRole('button', { name: 'Publier' }).click();
         // The post's own rendered body, never the edit textarea that
