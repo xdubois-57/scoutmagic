@@ -313,3 +313,30 @@ checkpoints à traiter.
   ne mesurent pas la même chose — l'un compte des statements, l'autre des
   passes — et hériter de l'un pour l'autre raccourcirait le budget de
   reprises de la toute première tentative.
+
+### Ajouté après coup : les cales de compatibilité
+
+L'incident de production du 30 août (`dev-8e3b6c1` → `dev-63afd86`, six
+restaurations identiques) a montré ce qui manquait à cette itération. Une
+mise à jour remplace les fichiers puis migre **dans le même processus PHP** :
+`MigrationRunner` est déjà chargé, donc c'est l'**ancien** runner qui
+exécute la migration, tandis que `MigrationProgress` et `MigrationResult` —
+que rien ne construit sur une requête ordinaire — sont chargés depuis les
+**nouveaux** fichiers. Retirer un paramètre de l'un de ces deux objets casse
+donc la mise à jour elle-même, et chaque nouvelle tentative rejoue le même
+ancien code : le site ne peut plus jamais atteindre la version qui
+corrigerait le problème.
+
+IT-04 aurait reproduit exactement cela. Il supprime six propriétés de
+`MigrationProgress`, dont `pendingStatements`, sur laquelle l'ancien runner
+fait `array_push()` — `TypeError` fatale, mise à jour restaurée, en boucle.
+
+Ces six propriétés sont donc **re-déclarées et re-sérialisées**, inertes,
+avec la raison écrite dans le constructeur. `MigrationResult::$converged` a
+été ajouté **en fin de signature**, après la cale `$backupCreated`, pour la
+même raison. `SelfUpdateCompatibilityTest` rejoue la boucle de l'ancien
+runner et échoue avec la `TypeError` exacte si les cales disparaissent.
+
+La correction de fond reste IT-07 : migrer depuis un autre processus que
+celui qu'on met à jour supprime toute cette classe de bug, et rendra ces
+cales supprimables.
