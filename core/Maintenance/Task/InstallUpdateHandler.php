@@ -18,6 +18,7 @@ use Core\File\FileRepository;
 use Core\Http\StreamResponseHeaders;
 use Core\Maintenance\BackupRepository;
 use Core\Maintenance\BackupService;
+use Core\Maintenance\InstallLock;
 use Core\Maintenance\OpcodeCache;
 use Core\Maintenance\UpdateException;
 use Core\Maintenance\UpdateHistory;
@@ -102,6 +103,31 @@ class InstallUpdateHandler implements TaskHandlerInterface
         }
 
         if ($history->status !== 'pending') {
+            return;
+        }
+
+        // Nothing below this point may run twice at once: it overwrites the
+        // live install directory. The guards upstream cannot prevent that on
+        // their own — findInProgress() cannot see a queued install and
+        // cancelPending() dedupes only within one reference — so two rows
+        // with different references can both be due. See InstallLock.
+        if (!InstallLock::acquire($pdo)) {
+            // Terminal, not silent and not left 'pending': the install that
+            // holds the lock is about to call markOtherInProgressAsFailed()
+            // on every non-terminal row anyway, and a row abandoned in
+            // 'pending' shows as "En cours" in the update history forever.
+            $updateHistoryRepository->markFailed(
+                $historyId,
+                'Installation abandonnée : une autre installation était déjà en cours au même moment.'
+            );
+            $context->journal->log(
+                'core',
+                'update_skipped',
+                'info',
+                'Installation ignorée : une autre installation détenait déjà le verrou',
+                ['history_id' => $historyId, 'version_to' => $history->versionTo],
+                $history->requestedBy
+            );
             return;
         }
 
@@ -254,6 +280,13 @@ class InstallUpdateHandler implements TaskHandlerInterface
             );
         } finally {
             $this->removeDirectory($tempDir);
+            // Released here and not at the end of the whole update: an
+            // out-of-budget migration returns from handle() with the status
+            // still 'migrating' and resumes in a LATER invocation, which
+            // re-enters through resumeMigration() and replaces no files at
+            // all. Holding the lock across that gap would mean holding it
+            // across a connection that has already gone away.
+            InstallLock::release($pdo);
         }
     }
 

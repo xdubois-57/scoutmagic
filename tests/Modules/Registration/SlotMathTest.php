@@ -120,9 +120,43 @@ class SlotMathTest extends TestCase
         $this->assertSame(SlotMath::TIER_HEAVY, SlotMath::tierForRemaining(10, -3, 0.5, 0.1));
     }
 
+    /**
+     * Zero is a real, deliberate value — "cette branche est fermée" — and
+     * it keeps meaning exactly what it always meant.
+     */
     public function testTierForRemainingIsHeavyWhenCapacityIsZero(): void
     {
         $this->assertSame(SlotMath::TIER_HEAVY, SlotMath::tierForRemaining(0, 0, 0.5, 0.1));
+    }
+
+    /**
+     * The heart of the NULL/0 distinction, at the one place it is decided
+     * for the whole module: NO recorded capacity is NOT a capacity of
+     * zero. It has no tier at all — not "heavy", not "available" — so a
+     * caller has to make its own explicit decision about what "pas de
+     * limite" looks like on its own screen instead of inheriting "complet"
+     * by accident.
+     */
+    public function testTierForRemainingHasNoTierAtAllWhenCapacityIsNull(): void
+    {
+        $this->assertNull(SlotMath::tierForRemaining(null, 0, 0.5, 0.1));
+        $this->assertNull(SlotMath::tierForRemaining(null, -50, 0.5, 0.1));
+    }
+
+    /**
+     * The regression this whole change exists to prevent: an unconfigured
+     * branch reading exactly like a full one. Same remaining estimate,
+     * same thresholds — only the capacity differs, and the two answers
+     * must not be the same.
+     */
+    public function testAnUnlimitedSlotIsNeverTheSameAnswerAsAClosedOne(): void
+    {
+        $unlimited = SlotMath::tierForRemaining(null, 0, 0.5, 0.1);
+        $closed = SlotMath::tierForRemaining(0, 0, 0.5, 0.1);
+
+        $this->assertNotSame($closed, $unlimited);
+        $this->assertSame(SlotMath::TIER_HEAVY, $closed);
+        $this->assertNull($unlimited);
     }
 
     public function testAgeForSlotAddsYearInBranchOffsetToEntryAge(): void

@@ -132,6 +132,167 @@ class SlotServiceTest extends TestCase
         $this->assertSame(2, $row2['year_in_branch']);
     }
 
+    /**
+     * The rule this whole change exists for, at the service level: a
+     * branch with NO recorded capacity is unlimited, so it is never
+     * announced full — whatever the projected headcount or the accepted
+     * requests happen to be. Two accepted requests against no capacity at
+     * all used to give a "remaining" of -2 and land the birth year in
+     * TIER_HEAVY.
+     */
+    public function testASlotWithNoRecordedCapacityIsNeverAnnouncedFull(): void
+    {
+        $currentYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
+        $targetYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2027-2028', '2027-09-01', '2028-08-31');
+
+        $bracket = $this->bracketRepository->findForBranch($this->baladinsId);
+        $birthYear1 = SlotMath::birthYearForSlot($bracket, 1, 2027);
+
+        // No capacity row at all for this slot, and accepted requests
+        // piling up against it.
+        $this->acceptRequests($targetYearId, $birthYear1, 5);
+
+        $tiers = $this->service->waitlistTiersByBirthYear($targetYearId, '2027-2028', $currentYearId);
+
+        $this->assertNotContains($birthYear1, $tiers[SlotMath::TIER_HEAVY]);
+        $this->assertNotContains($birthYear1, $tiers[SlotMath::TIER_LIMITED]);
+        $this->assertContains($birthYear1, $tiers[SlotMath::TIER_AVAILABLE]);
+    }
+
+    /**
+     * Same thing for a capacity a chief explicitly CLEARED (a NULL row,
+     * not a missing one) — the state "j'ai vidé la case" must behave
+     * exactly like "je n'y ai jamais touché", and not like a 0.
+     */
+    public function testAnExplicitlyClearedCapacityBehavesAsNoLimitNotAsZero(): void
+    {
+        $currentYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
+        $targetYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2027-2028', '2027-09-01', '2028-08-31');
+
+        $bracket = $this->bracketRepository->findForBranch($this->baladinsId);
+        $birthYear1 = SlotMath::birthYearForSlot($bracket, 1, 2027);
+
+        $this->capacityRepository->upsert($this->baladinsId, 1, null);
+        $this->acceptRequests($targetYearId, $birthYear1, 3);
+
+        $tiers = $this->service->waitlistTiersByBirthYear($targetYearId, '2027-2028', $currentYearId);
+        $this->assertContains($birthYear1, $tiers[SlotMath::TIER_AVAILABLE]);
+        $this->assertNotContains($birthYear1, $tiers[SlotMath::TIER_HEAVY]);
+    }
+
+    /**
+     * And the other half of the distinction: 0 still closes a branch. If
+     * this ever passes for the same reason as the two tests above, the
+     * NULL/0 separation has collapsed.
+     */
+    public function testACapacityOfZeroStillClosesTheSlot(): void
+    {
+        $currentYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
+        $targetYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2027-2028', '2027-09-01', '2028-08-31');
+
+        $bracket = $this->bracketRepository->findForBranch($this->baladinsId);
+        $birthYear1 = SlotMath::birthYearForSlot($bracket, 1, 2027);
+
+        $this->capacityRepository->upsert($this->baladinsId, 1, 0);
+
+        $tiers = $this->service->waitlistTiersByBirthYear($targetYearId, '2027-2028', $currentYearId);
+
+        $this->assertContains($birthYear1, $tiers[SlotMath::TIER_HEAVY]);
+        $this->assertNotContains($birthYear1, $tiers[SlotMath::TIER_AVAILABLE]);
+    }
+
+    /**
+     * The chief-facing table reports "pas de limite" as an absence, not as
+     * a number: no capacity, no remaining count, no public level — three
+     * nulls rather than three zeroes a reader would take for "complet".
+     */
+    public function testCapacityBreakdownReportsNoLimitAsNullNeverAsZero(): void
+    {
+        $currentYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
+        $targetYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2027-2028', '2027-09-01', '2028-08-31');
+
+        $this->capacityRepository->upsert($this->baladinsId, 2, 0);
+
+        $rows = $this->service->capacityBreakdownForYear($targetYearId, '2027-2028', $currentYearId);
+
+        $unlimited = current(array_filter($rows, fn(array $r) => $r['year_in_branch'] === 1));
+        $this->assertNotFalse($unlimited);
+        $this->assertNull($unlimited['capacity']);
+        $this->assertNull($unlimited['remaining']);
+        $this->assertNull($unlimited['tier']);
+
+        $closed = current(array_filter($rows, fn(array $r) => $r['year_in_branch'] === 2));
+        $this->assertNotFalse($closed);
+        $this->assertSame(0, $closed['capacity']);
+        $this->assertSame(0, $closed['remaining']);
+        $this->assertSame(SlotMath::TIER_HEAVY, $closed['tier']);
+    }
+
+    public function testSeedMissingCapacitiesWritesTheDefaultToTheDatabase(): void
+    {
+        $seeded = $this->service->seedMissingCapacities();
+
+        $bracket = $this->bracketRepository->findForBranch($this->baladinsId);
+        $this->assertSame($bracket->durationYears, $seeded);
+
+        for ($yearInBranch = 1; $yearInBranch <= $bracket->durationYears; $yearInBranch++) {
+            $this->assertSame(
+                SlotService::DEFAULT_CAPACITY,
+                $this->capacityRepository->capacityFor($this->baladinsId, $yearInBranch),
+                'the default must be stored, not merely displayed'
+            );
+        }
+    }
+
+    public function testSeedMissingCapacitiesIsIdempotentAndNeverOverwrites(): void
+    {
+        $this->capacityRepository->upsert($this->baladinsId, 1, 7);
+        $this->capacityRepository->upsert($this->baladinsId, 2, null);
+
+        $this->assertSame(0, $this->service->seedMissingCapacities());
+        $this->assertSame(7, $this->capacityRepository->capacityFor($this->baladinsId, 1));
+        $this->assertNull(
+            $this->capacityRepository->capacityFor($this->baladinsId, 2),
+            'a box the chief emptied on purpose must not be re-seeded'
+        );
+    }
+
+    /**
+     * Seeded slots behave like any other from then on: the number is real,
+     * so the tier is computed from it rather than from an absence.
+     */
+    public function testASeededSlotThenBehavesLikeAnOrdinaryCapacity(): void
+    {
+        $currentYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
+        $targetYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2027-2028', '2027-09-01', '2028-08-31');
+        $this->service->seedMissingCapacities();
+
+        $bracket = $this->bracketRepository->findForBranch($this->baladinsId);
+        $birthYear1 = SlotMath::birthYearForSlot($bracket, 1, 2027);
+        $this->acceptRequests($targetYearId, $birthYear1, SlotService::DEFAULT_CAPACITY);
+
+        $tiers = $this->service->waitlistTiersByBirthYear($targetYearId, '2027-2028', $currentYearId);
+        $this->assertContains($birthYear1, $tiers[SlotMath::TIER_HEAVY]);
+    }
+
+    /**
+     * Creates $count ACCEPTED requests whose birth date falls in $birthYear.
+     */
+    private function acceptRequests(int $targetYearId, int $birthYear, int $count): void
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $requestRepository = new RegistrationRequestRepository($this->pdo, $encryption);
+        for ($i = 0; $i < $count; $i++) {
+            $created = $requestRepository->create($targetYearId, [
+                'parent_name' => 'P', 'child_last_name' => 'L', 'child_first_name' => 'F' . $i,
+                'gender' => 'F', 'birth_date' => $birthYear . '-06-01', 'street' => 'S', 'number' => '1',
+                'postal_code' => '1000', 'city' => 'V', 'email' => 'p' . $i . '@example.com',
+                'phone1' => '000', 'phone2' => null, 'remarks' => null,
+            ], null, []);
+            $requestRepository->updateStatus($created['id'], 'accepted', null);
+        }
+    }
+
     public function testBirthYearSlotsForPublicIncludesTierWhenWaitlistEnabled(): void
     {
         $this->capacityRepository->upsert($this->baladinsId, 1, 2);
