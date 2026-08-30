@@ -392,8 +392,47 @@ class FinanceRbacTest extends TestCase
             ),
             $this->financeService,
             FinanceTestHelper::allocationService($this->pdo, $encryption, $this->expectedReceivableRepository),
+            new \Modules\Finance\Service\PaymentLabelService(
+                $campaignRowRepository,
+                $this->expectedReceivableRepository,
+                FinanceTestHelper::allocationService($this->pdo, $encryption, $this->expectedReceivableRepository),
+                $this->accountRepository,
+                $this->memberServiceForCampaigns(),
+                new \Modules\Finance\Service\SepaQrCodeService(),
+                new \Core\Pdf\DocumentPdfService(),
+                $this->twig
+            ),
             $scoutYearService
         );
+    }
+
+    /**
+     * The sheet of payment labels is a download rather than a page, so it
+     * cannot join routeProvider — which asserts a 200 and would get the
+     * 404 of a campaign that does not exist. Its boundary is asserted by
+     * the two tests below instead, and their two answers are deliberately
+     * different: the denied role is stopped by the guard BEFORE the
+     * controller runs, while the allowed one reaches it and is told the
+     * campaign does not exist. A 404 on both sides would prove nothing.
+     */
+    public function testThePaymentLabelSheetIsRefusedOneRoleBelowIntendant(): void
+    {
+        AuthSession::login(1, 'denied@test.be', 'identified');
+
+        $response = $this->buildFrontController('/finance/campaigns/{id}/labels', 'CampaignController', 'labels', 'intendant')
+            ->handle(new Request('GET', '/finance/campaigns/9999/labels', [], [], [], []));
+
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    public function testThePaymentLabelSheetLetsAnIntendantThrough(): void
+    {
+        AuthSession::login(1, 'allowed@test.be', 'intendant');
+
+        $response = $this->buildFrontController('/finance/campaigns/{id}/labels', 'CampaignController', 'labels', 'intendant')
+            ->handle(new Request('GET', '/finance/campaigns/9999/labels', [], [], [], []));
+
+        $this->assertSame(404, $response->getStatusCode(), 'a 403 here would mean the guard stopped the intendant');
     }
 
     /**

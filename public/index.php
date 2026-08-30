@@ -2965,6 +2965,16 @@ if ($isEnabled('finance')) {
             ),
             $financeService,
             $financeAllocationService,
+            new \Modules\Finance\Service\PaymentLabelService(
+                $financeCampaignRowRepo,
+                $financeExpectedReceivableRepo,
+                $financeAllocationService,
+                $financeAccountRepo,
+                $memberService,
+                $financeSepaQrCodeForOthers,
+                new \Core\Pdf\DocumentPdfService(),
+                $twig
+            ),
             $scoutYearService
         );
 

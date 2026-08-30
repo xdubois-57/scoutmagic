@@ -1,0 +1,63 @@
+{#
+  The sheet of payment labels to cut out — see
+  Service\PaymentLabelService, which owns every millimetre of this and
+  hands the page its stylesheet.
+
+  This template renders no `base.html.twig`, no header and no footer: it
+  is the whole of a PDF document's body (Core\Pdf\DocumentPdfService::
+  generateBare()), and the labels occupy the sheet up to its margins.
+  Anything printed above or beside them would push the ninth row off the
+  page.
+
+  **The borders are the cutting lines**, which is why the table is drawn
+  even where a row is short: the three cells of a row are always there,
+  the empty ones simply carry nothing. A row that drew only two cells
+  would leave its third label with no line to cut along.
+
+  **No length is written here.** Widths, heights, paddings and the
+  descent of the name's font size all arrive computed from the service —
+  a template free to write its own millimetres is a template free to
+  disagree with the pagination, and the first symptom of that is a blank
+  page between every two sheets.
+
+  The payment details are repeated in text beside the QR, exactly as
+  receivable_qr.html.twig does: a code that refuses to scan must never
+  leave somebody with no way to pay. The beneficiary is not repeated —
+  it is identical on all twenty-seven labels and the IBAN identifies it.
+#}
+{% for page in pages %}
+    <table class="sheet">
+        {# batch() is padded with nulls so a short last row still draws its
+           three cells: the missing labels have no content, but the lines
+           to cut along are exactly as needed. #}
+        {% for line in page|batch(columns, null) %}
+            <tr>
+                {% for label in line %}
+                    <td class="label">
+                        {% if label %}
+                        <div class="inner">
+                            {# The QR is FIRST in source order and floated right: a
+                               float only shares a line with what follows it. #}
+                            <div class="qr">
+                                {%- if label.qrDataUri -%}
+                                    <img src="{{ label.qrDataUri }}" alt="Code QR de paiement SEPA">
+                                {%- endif -%}
+                            </div>
+                            <div class="text">
+                                <p class="name {{ label.nameLines == 1 ? 'one-line' : 'two-lines' }}"
+                                   style="font-size: {{ label.nameFontSizePt }}pt;">{{ label.memberName }}</p>
+                                <p class="amount">{{ label.amountCents|money_cents }}</p>
+                                <p class="pay">
+                                    <span class="key">IBAN</span> {{ iban_display }}<br>
+                                    <span class="key">Communication</span> {{ label.communication }}
+                                </p>
+                            </div>
+                        </div>
+                        {% endif %}
+                    </td>
+                {% endfor %}
+            </tr>
+        {% endfor %}
+    </table>
+    {% if not loop.last %}<div class="page-break"></div>{% endif %}
+{% endfor %}
