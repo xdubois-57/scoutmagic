@@ -1,0 +1,6 @@
+export TEST_DB_HOST=127.0.0.1
+export TEST_DB_PORT=3306
+export TEST_DB_USER=root
+export TEST_DB_PASSWORD=test_password
+export TEST_DB_NAME=test_db_g
+export E2E_DB_NAME=e2e_g

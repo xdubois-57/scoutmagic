@@ -26,7 +26,11 @@
   it is identical on all twenty-seven labels and the IBAN identifies it.
 #}
 {% for page in pages %}
-    <table class="sheet">
+    {# The table lays the sheet out; it carries no data and so has no
+       headers. `presentation` says exactly that, rather than inventing
+       a header row that would print above the labels and cost the sheet
+       its ninth row. #}
+    <table class="sheet" role="presentation">
         {# batch() is padded with nulls so a short last row still draws its
            three cells: the missing labels have no content, but the lines
            to cut along are exactly as needed. #}
