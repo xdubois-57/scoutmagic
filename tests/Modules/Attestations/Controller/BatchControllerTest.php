@@ -532,6 +532,82 @@ class BatchControllerTest extends TestCase
         $this->assertStringContainsString('bien déposée sur la page du membre', $body);
     }
 
+    // --- taking the batch back -------------------------------------------
+
+    private function resetRequest(string $token): \Core\Http\Response
+    {
+        return $this->frontController()->handle(new Request(
+            'POST',
+            '/admin/attestations/' . $this->batchId . '/reprendre',
+            [],
+            ['_csrf_token' => $token],
+            [],
+            []
+        ));
+    }
+
+    /**
+     * The way out of a shifted split, and it has to be one gesture: nobody
+     * deletes forty documents by hand from forty member sheets.
+     */
+    public function testTakingTheBatchBackRemovesEverythingAndReturnsToTheDeposit(): void
+    {
+        $this->publishMargaux();
+
+        $response = $this->resetRequest(CsrfGuard::generateToken());
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/admin/attestations', (string) $response->getHeaders()['Location']);
+        $this->assertNull($this->batches->findById($this->batchId));
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM member_documents')->fetchColumn()
+        );
+    }
+
+    public function testTakingTheBatchBackWithoutAValidCsrfTokenChangesNothing(): void
+    {
+        $this->publishMargaux();
+
+        $this->resetRequest('invalide');
+
+        $this->assertNotNull($this->batches->findById($this->batchId));
+    }
+
+    /**
+     * The sentence the confirmation has to lead with. A reader who believes
+     * the reset recalls the messages will not send the correction the
+     * families actually need.
+     */
+    public function testThePublishedScreenSaysWhatTakingTheBatchBackCannotUndo(): void
+    {
+        $this->publishMargaux();
+        $this->notifyRequest(CsrfGuard::generateToken());
+
+        $body = $this->body();
+
+        $this->assertStringContainsString("En cas d'erreur", $body);
+        $this->assertStringContainsString('Reprendre le lot', $body);
+        $this->assertStringContainsString('un e-mail parti ne se rattrape pas', $body);
+        $this->assertStringContainsString(
+            '/admin/attestations/' . $this->batchId . '/reprendre',
+            $body
+        );
+    }
+
+    /**
+     * A batch deposited and never published still has cut certificates, and
+     * without this there is no way to be rid of them at all. It reads as
+     * abandoning rather than taking back: nothing has left yet.
+     */
+    public function testADraftOffersToBeAbandonedRatherThanTakenBack(): void
+    {
+        $body = $this->body();
+
+        $this->assertStringContainsString('Abandonner ce lot', $body);
+        $this->assertStringNotContainsString('Reprendre le lot', $body);
+    }
+
     /** Keeps only Margaux, which is what every published-state test needs. */
     private function publishMargaux(): void
     {
@@ -567,6 +643,7 @@ class BatchControllerTest extends TestCase
         $router->addRoute('POST', '/admin/attestations/{id}/rattacher', BatchController::class, 'assign', 'admin');
         $router->addRoute('POST', '/admin/attestations/{id}/publier', BatchController::class, 'publish', 'admin');
         $router->addRoute('POST', '/admin/attestations/{id}/prevenir', BatchController::class, 'notify', 'admin');
+        $router->addRoute('POST', '/admin/attestations/{id}/reprendre', BatchController::class, 'resetBatch', 'admin');
 
         $configFile = sys_get_temp_dir() . '/test_attestations_batch_' . uniqid() . '.php';
         file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
@@ -600,6 +677,14 @@ class BatchControllerTest extends TestCase
                     $verification,
                     new \Core\Member\MemberDocumentRepository($this->pdo),
                     SchedulerService::forPdo($this->pdo),
+                    $journal
+                ),
+                new \Modules\Attestations\Service\BatchResetService(
+                    $connection,
+                    $this->batches,
+                    $this->lines,
+                    new \Core\Member\MemberDocumentRepository($this->pdo),
+                    new EncryptedFileStorageService($files, $encryption, $this->storageRoot),
                     $journal
                 ),
                 new DuplicateDetector($this->lines),

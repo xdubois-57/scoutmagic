@@ -94,6 +94,19 @@ class MemberDocumentRepository
     }
 
     /**
+     * Remove one document's metadata row. The file itself is the caller's
+     * to dispose of, in that order — the row first, the bytes second, so an
+     * interruption leaves a stored file nothing points at (recoverable,
+     * invisible) rather than a page still offering a download that is gone
+     * (`Core\File\AttachedFileRemover`'s rule, ARCHITECTURE.md §8.3).
+     */
+    public function delete(int $id): void
+    {
+        $stmt = $this->pdo->prepare('DELETE FROM member_documents WHERE id = ?');
+        $stmt->execute([$id]);
+    }
+
+    /**
      * @param array<string, mixed> $row
      */
     private static function mapRow(array $row): MemberDocument

@@ -2735,8 +2735,28 @@ if ($isEnabled('attestations')) {
                 $schedulerService,
                 $journalService
             ),
+            new \Modules\Attestations\Service\BatchResetService(
+                $connection,
+                $attestationBatchRepository,
+                $attestationLineRepository,
+                $memberDocumentRepository,
+                $encryptedFileStorageService,
+                $journalService
+            ),
             new \Modules\Attestations\Service\DuplicateDetector($attestationLineRepository),
             $scoutYearService
+        )
+    );
+
+    $frontController->registerController(
+        \Modules\Attestations\Controller\CoverageController::class,
+        new \Modules\Attestations\Controller\CoverageController(
+            $twig,
+            new \Modules\Attestations\Service\CoverageService(
+                $attestationMemberRepository,
+                $attestationLineRepository
+            ),
+            $scoutYearResolver
         )
     );
 }

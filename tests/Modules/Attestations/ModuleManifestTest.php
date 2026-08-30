@@ -47,7 +47,7 @@ class ModuleManifestTest extends TestCase
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.3.0', $this->manifest->version);
+        $this->assertSame('1.4.0', $this->manifest->version);
     }
 
     /**
@@ -99,7 +99,7 @@ class ModuleManifestTest extends TestCase
      */
     public function testEveryWriteIsAPost(): void
     {
-        $writes = ['store', 'assign', 'publish', 'notify'];
+        $writes = ['store', 'assign', 'publish', 'notify', 'resetBatch'];
 
         foreach ($this->manifest->routes as $route) {
             $expected = in_array($route['action'], $writes, true) ? 'POST' : 'GET';

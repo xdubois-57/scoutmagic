@@ -154,7 +154,7 @@ Two photos, never mixed. A **member's** photo belongs to a scout year and is the
 | Passage (module registration) | admin | Split arriving families and promoted animés between sections ahead of next scout year — see §18.2. Chef d'unité only (not a per-section chief), since spreading arrivals across sections needs the whole unit at once |
 | Encadrement (module leadership) | admin | Three lists of people to contact, read out of the Desk import — training paths, age-related legal deadlines, steward registrations. See §25 |
 | Locations (module rental) | admin | Which assets exist and who runs each one — creating an asset, its general description, its managers, archiving it, and the accounting account its money is expected on. Everything that is a property of one asset is set in that asset's own managed space instead. See §22 |
-| Attestations (module attestations) | admin | Découper le PDF d'attestations reçu de la fédération et déposer l'attestation de chaque membre sur sa page, visible par lui seul. Un lot = un fichier déposé, avec son année scoute, sa catégorie et son libellé. Voir §41 |
+| Attestations (module attestations) | admin | Découper le PDF d'attestations reçu de la fédération et déposer l'attestation de chaque membre sur sa page. Un lot = un fichier déposé, avec son année scoute, sa catégorie et son libellé. Écran de vérification avant publication, envoi aux familles en pièce jointe, écran de couverture (qui n'a pas encore reçu la sienne) et reprise complète d'un lot. Voir §41 |
 | Cotisations (module fees) | admin | Checking what the federation bills against the unit's own roster: the season's snapshot, tariff accuracy per household, and the report of an imported invoice. See §31 |
 
 #### The page of one member (`/admin/members/{id}`)
@@ -1906,7 +1906,45 @@ un propriétaire. Trois bornes l'encadrent :
   sous forme d'identifiants uniquement — jamais un nom, jamais une adresse. C'est cette trace qui
   remplace la barrière retirée, et la page le dit à celui qui la consulte.
 
-### 41.8 Hors périmètre
+### 41.8 Qui n'a pas encore reçu la sienne
+
+Les fichiers partiels rendent la question urgente : après un premier envoi en février, un complément
+en mars et parfois une correction, personne ne recoupe trois lots à la main.
+
+Un écran (`/admin/attestations/couverture`) répond, pour une **catégorie** et une **année scoute** :
+qui détient son attestation et qui ne l'a pas. La liste des manquants passe en premier — c'est elle
+qu'on transmet à la fédération pour réclamer le complément ; les autres sont repliés en dessous.
+
+Deux règles décident si la réponse est juste. La population est le **listing de cette année-là**, pas
+celui d'aujourd'hui : un membre parti était là quand l'attestation a été gagnée, et sa famille n'a
+plus de page sur le site pour s'apercevoir qu'elle n'a rien reçu. Et le rapprochement se fait sur la
+**personne**, pas sur sa fiche annuelle — sinon la même personne réapparaîtrait comme manquante dès
+l'année suivante. Seuls les lots publiés comptent : un lot que personne n'a validé n'a rien donné à
+personne.
+
+### 41.9 Reprendre un lot
+
+Un lot doit pouvoir être **repris en entier** : les documents déposés sur les pages des membres sont
+retirés, les attestations découpées supprimées, le lot disparaît et l'on revient au dépôt d'un
+nouveau fichier.
+
+C'est indispensable parce que la seule erreur vraiment coûteuse — une découpe décalée d'une page —
+n'est visible qu'après coup, et qu'elle donne à chaque famille l'attestation d'une autre. La reprise
+doit être **une action franche** : supprimer quarante documents à la main sur quarante fiches, c'est
+ainsi qu'une moitié de lot erroné survit.
+
+La reprise ne retire que ce que **ce lot** a produit : un membre qui détient aussi une attestation
+d'un autre lot la conserve.
+
+**Ce qu'elle ne défait pas, c'est l'e-mail.** Les attestations déjà envoyées sont dans des boîtes
+mail et rien ici ne les rattrape. C'est la phrase par laquelle commence la confirmation, pas une note
+en bas de page : un lecteur qui croit que la reprise rappelle les messages n'enverra pas la
+correction dont les familles ont besoin.
+
+Un lot encore en brouillon s'abandonne de la même façon — c'est aussi la seule manière de se
+débarrasser des attestations découpées d'un fichier qui n'aurait jamais dû être déposé.
+
+### 41.10 Hors périmètre
 
 La **génération** d'attestations par l'unité elle-même. Le site ne produit aucun document : il découpe
 un PDF qu'on lui fournit. Une attestation de présence après camp entre donc dans le périmètre si elle

@@ -20,6 +20,7 @@ use Modules\Attestations\Repository\BatchLineRepository;
 use Modules\Attestations\Repository\BatchRepository;
 use Modules\Attestations\Repository\MemberNameRepository;
 use Modules\Attestations\Service\BatchPublicationService;
+use Modules\Attestations\Service\BatchResetService;
 use Modules\Attestations\Service\BatchVerificationService;
 use Modules\Attestations\Service\DuplicateDetector;
 use Modules\Attestations\Value\DeliveryState;
@@ -47,6 +48,7 @@ class BatchController extends AbstractController
         private MemberNameRepository $members,
         private BatchVerificationService $verification,
         private BatchPublicationService $publication,
+        private BatchResetService $reset,
         private DuplicateDetector $duplicates,
         private ScoutYearService $scoutYears
     ) {
@@ -237,6 +239,51 @@ class BatchController extends AbstractController
         }
 
         return $this->redirect($path);
+    }
+
+    /**
+     * POST /admin/attestations/{id}/reprendre — take the whole batch back.
+     *
+     * The remedy for the one mistake that is only visible afterwards: a
+     * split one page out of step gives every family the next family's
+     * certificate, and nothing downstream ever compares the two again. It
+     * has to be one frank gesture — deleting forty documents by hand from
+     * forty member sheets is how half a wrong batch survives.
+     *
+     * Back to the deposit page rather than to a batch that no longer
+     * exists: the next thing to do is deposit a corrected file, and the
+     * screen should already be there.
+     *
+     * @param array<string, string> $params
+     */
+    public function resetBatch(Request $request, array $params): Response
+    {
+        $batchId = IntegerInput::id($params['id'] ?? null);
+        if ($batchId === null) {
+            return $this->notFound();
+        }
+
+        if (($guard = $this->guardCsrf($request, AttestationsController::PATH . '/' . $batchId)) !== null) {
+            return $guard;
+        }
+
+        try {
+            $result = $this->reset->reset($batchId, AuthSession::getUserAccountId());
+            FlashMessage::set('success', sprintf(
+                'Lot repris : %d document(s) retiré(s) des pages des membres. '
+                . 'Les e-mails déjà partis, eux, ne reviennent pas.',
+                $result['documents']
+            ));
+        } catch (\Throwable $e) {
+            FlashMessage::set('error', UserFacingMessage::from(
+                $e,
+                'La reprise a échoué. Rechargez la page et réessayez.'
+            ));
+
+            return $this->redirect(AttestationsController::PATH . '/' . $batchId);
+        }
+
+        return $this->redirect(AttestationsController::PATH);
     }
 
     /**

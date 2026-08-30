@@ -95,6 +95,8 @@ class AttestationsRbacTest extends TestCase
             'assign' => ['POST', '/admin/attestations/1/rattacher'],
             'publish' => ['POST', '/admin/attestations/1/publier'],
             'notify' => ['POST', '/admin/attestations/1/prevenir'],
+            'reset' => ['POST', '/admin/attestations/1/reprendre'],
+            'coverage' => ['GET', '/admin/attestations/couverture'],
         ];
     }
 
@@ -334,6 +336,11 @@ class AttestationsRbacTest extends TestCase
         $router->addRoute('POST', '/admin/attestations/{id}/rattacher', BatchController::class, 'assign', 'admin');
         $router->addRoute('POST', '/admin/attestations/{id}/publier', BatchController::class, 'publish', 'admin');
         $router->addRoute('POST', '/admin/attestations/{id}/prevenir', BatchController::class, 'notify', 'admin');
+        $router->addRoute('POST', '/admin/attestations/{id}/reprendre', BatchController::class, 'resetBatch', 'admin');
+        // Before the {id} route, as the manifest declares it — {id} matches
+        // digits only, so the two could not collide, but the reader checks
+        // the order first.
+        $router->addRoute('GET', '/admin/attestations/couverture', \Modules\Attestations\Controller\CoverageController::class, 'index', 'admin');
 
         $configFile = sys_get_temp_dir() . '/test_attestations_config_' . uniqid() . '.php';
         file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
@@ -378,6 +385,15 @@ class AttestationsRbacTest extends TestCase
         );
 
         $frontController->registerController(
+            \Modules\Attestations\Controller\CoverageController::class,
+            new \Modules\Attestations\Controller\CoverageController(
+                $this->twig,
+                new \Modules\Attestations\Service\CoverageService($members, $lines),
+                $resolver
+            )
+        );
+
+        $frontController->registerController(
             BatchController::class,
             new BatchController(
                 $this->twig,
@@ -394,6 +410,14 @@ class AttestationsRbacTest extends TestCase
                     $attestationVerification,
                     new \Core\Member\MemberDocumentRepository($this->pdo),
                     SchedulerService::forPdo($this->pdo),
+                    $journal
+                ),
+                new \Modules\Attestations\Service\BatchResetService(
+                    $connection,
+                    $batches,
+                    $lines,
+                    new \Core\Member\MemberDocumentRepository($this->pdo),
+                    $fileStorage,
                     $journal
                 ),
                 new DuplicateDetector($lines),

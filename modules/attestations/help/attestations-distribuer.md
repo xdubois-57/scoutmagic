@@ -5,7 +5,7 @@ summary: Publier sur les pages des membres, prévenir les familles, lire les com
 category: Espace chefs d'U
 role_min: admin
 paths: /admin/attestations/*
-related: attestations, attestations-verifier
+related: attestations, attestations-verifier, attestations-couverture
 ---
 
 Publier et prévenir sont deux gestes, et c'est voulu.
@@ -37,6 +37,21 @@ enfant.
 
 > Le bouton disparaît dès que l'envoi est lancé : un envoi ne se rattrape
 > pas, et deux exemplaires du même document valent moins qu'un.
+
+## Reprendre un lot
+
+Si un découpage s'est révélé décalé — chaque famille a reçu l'attestation
+d'une autre — **reprenez le lot en entier**. Les documents déposés sur les
+pages des membres sont retirés, les attestations découpées supprimées, et
+vous revenez au dépôt d'un nouveau fichier. Un membre qui détient aussi une
+attestation d'un autre lot la conserve.
+
+Ce que la reprise ne défait pas, c'est l'e-mail : les attestations déjà
+envoyées sont dans des boîtes mail, et rien ne les rattrape. Prévenez les
+familles concernées vous-même.
+
+Un lot encore en brouillon s'abandonne de la même façon, depuis le même
+endroit.
 
 ## Les compteurs d'envoi
 

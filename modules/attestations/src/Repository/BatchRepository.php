@@ -138,6 +138,21 @@ class BatchRepository
     }
 
     /** Every line settled and the one notification sent. */
+    /**
+     * Take the batch off the list entirely.
+     *
+     * A reset leaves no husk behind: a batch row with no lines and no
+     * documents would sit on the deposit page saying « 0 attestations »,
+     * and the only thing anybody could do with it is wonder. What the unit
+     * is accountable for — how many went out, when, and that they were
+     * taken back — lives in the journal, which nothing here deletes.
+     */
+    public function delete(int $batchId): void
+    {
+        $stmt = $this->connection->getPdo()->prepare('DELETE FROM attestation_batches WHERE id = ?');
+        $stmt->execute([$batchId]);
+    }
+
     public function markNotified(int $batchId): void
     {
         $stmt = $this->connection->getPdo()->prepare(

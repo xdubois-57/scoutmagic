@@ -10,6 +10,7 @@ namespace Modules\Attestations\Repository;
 
 use Core\Database\Connection;
 use Core\Security\EncryptionService;
+use Core\Service\TextNormalizerService;
 use Modules\Attestations\Service\MemberNameDirectory;
 use Modules\Attestations\Value\MemberSummary;
 
@@ -139,6 +140,66 @@ class MemberNameRepository
         }
 
         return $summaries;
+    }
+
+    /**
+     * The roster of one scout year: who the unit had that season, named.
+     *
+     * This is the population the coverage screen measures against, and the
+     * year matters rather than "today": a certificate covers the season it
+     * covers, and a member who has since left was there when it was earned.
+     * Reading today's roster instead would drop exactly the families who
+     * most need somebody to notice they received nothing.
+     *
+     * Keyed on `members.id` for the same reason the whole module is: the
+     * coverage question is about a person, not about an annual row.
+     *
+     * @return array<int, MemberSummary> keyed by members.id, by name
+     */
+    public function findRoster(int $scoutYearId): array
+    {
+        $stmt = $this->connection->getPdo()->prepare(
+            'SELECT my.member_id,
+                    my.first_name_encrypted,
+                    my.last_name_encrypted,
+                    sy.label AS scout_year_label,
+                    f.label  AS function_label
+             FROM member_years my
+             JOIN scout_years sy ON sy.id = my.scout_year_id
+             LEFT JOIN member_functions mf ON mf.member_year_id = my.id AND mf.is_main_function = 1
+             LEFT JOIN functions f ON f.id = mf.function_id
+             WHERE my.scout_year_id = ?
+             ORDER BY my.member_id ASC'
+        );
+        $stmt->execute([$scoutYearId]);
+
+        $roster = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $firstName = $this->decrypt($row['first_name_encrypted'], 'member_years.first_name');
+            $lastName = $this->decrypt($row['last_name_encrypted'], 'member_years.last_name');
+
+            $roster[(int) $row['member_id']] = new MemberSummary(
+                memberId: (int) $row['member_id'],
+                fullName: trim(($firstName ?? '') . ' ' . ($lastName ?? '')),
+                functionLabel: $row['function_label'] !== null ? (string) $row['function_label'] : null,
+                scoutYearLabel: (string) $row['scout_year_label']
+            );
+        }
+
+        // Sorted here, which SQL cannot do: the column is a ciphertext
+        // blob, so ORDER BY on it would sort by encryption. On the FOLDED
+        // name (this project's single case- and accent-insensitive form,
+        // §8.0) rather than through strcoll(), whose answer depends on the
+        // process locale — « Émile » would sort after « Zoé » under the C
+        // locale, which is exactly the kind of thing nobody notices until a
+        // reader cannot find a name in the list.
+        uasort(
+            $roster,
+            static fn(MemberSummary $a, MemberSummary $b): int => TextNormalizerService::fold($a->fullName)
+                <=> TextNormalizerService::fold($b->fullName)
+        );
+
+        return $roster;
     }
 
     /**

@@ -393,6 +393,94 @@ class BatchLineRepository
     }
 
     /**
+     * Every member who already holds a published certificate of this
+     * category for this scout year.
+     *
+     * **Keyed on `members.id`, never on the annual row**, which is the
+     * whole point of the coverage screen: somebody who has left the unit
+     * received a certificate for the season they were there, and matching
+     * on `member_years.id` would count them as missing every year
+     * afterwards.
+     *
+     * Published only, for `findPublishedOccurrences()`'s reason: a batch
+     * nobody validated has given nobody anything, so counting it would
+     * report a coverage the families do not have.
+     *
+     * @return list<int> members.id, ascending
+     */
+    public function findCoveredMemberIds(string $category, int $scoutYearId): array
+    {
+        $stmt = $this->connection->getPdo()->prepare(
+            'SELECT DISTINCT l.member_id
+             FROM attestation_batch_lines l
+             JOIN attestation_batches b ON b.id = l.batch_id
+             WHERE l.member_id IS NOT NULL
+               AND b.category = ?
+               AND b.scout_year_id = ?
+               AND b.status = ?
+             ORDER BY l.member_id ASC'
+        );
+        $stmt->execute([$category, $scoutYearId, BatchStatus::Published->value]);
+
+        return array_map(
+            static fn(array $row): int => (int) $row['member_id'],
+            $stmt->fetchAll(\PDO::FETCH_ASSOC)
+        );
+    }
+
+    /**
+     * The `member_documents` rows a batch's lines produced — what taking
+     * the batch back has to delete, and nothing else.
+     *
+     * @return list<int> member_documents.id
+     */
+    public function findMemberDocumentIds(int $batchId): array
+    {
+        $stmt = $this->connection->getPdo()->prepare(
+            'SELECT member_document_id FROM attestation_batch_lines
+             WHERE batch_id = ? AND member_document_id IS NOT NULL'
+        );
+        $stmt->execute([$batchId]);
+
+        return array_map(
+            static fn(array $row): int => (int) $row['member_document_id'],
+            $stmt->fetchAll(\PDO::FETCH_ASSOC)
+        );
+    }
+
+    /**
+     * Every stored certificate of a batch, published or not — the bytes a
+     * reset has to remove once its rows are gone.
+     *
+     * @return list<int> files.id
+     */
+    public function findFileIds(int $batchId): array
+    {
+        $stmt = $this->connection->getPdo()->prepare(
+            'SELECT file_id FROM attestation_batch_lines WHERE batch_id = ?'
+        );
+        $stmt->execute([$batchId]);
+
+        return array_map(
+            static fn(array $row): int => (int) $row['file_id'],
+            $stmt->fetchAll(\PDO::FETCH_ASSOC)
+        );
+    }
+
+    public function deleteByBatch(int $batchId): void
+    {
+        $pdo = $this->connection->getPdo();
+        $stmt = $pdo->prepare(
+            'DELETE FROM attestation_line_candidates
+             WHERE line_id IN (SELECT id FROM attestation_batch_lines WHERE batch_id = ?)'
+        );
+        $stmt->execute([$batchId]);
+
+        $stmt = $pdo->prepare('DELETE FROM attestation_batch_lines WHERE batch_id = ?');
+        $stmt->execute([$batchId]);
+    }
+
+    /**
      * @param list<int> $lineIds
      * @return array<int, list<int>> line id => member ids
      */

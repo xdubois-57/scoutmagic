@@ -229,6 +229,49 @@
                 {% endif %}
             {% endfor %}
         {% endif %}
+
+        {#
+          « En cas d'erreur » — the way out of the one mistake that is only
+          visible afterwards. Last on the page and understated on purpose: it
+          is the right answer to a rare question, never a button to reach for
+          while hesitating.
+
+          The confirmation leads with what the reset CANNOT do, because a
+          reader who believes it recalls the messages will not send the
+          correction the families actually need.
+        #}
+        <h2 class="h6 mt-5 mb-2 text-body-secondary">En cas d'erreur</h2>
+        <div class="card">
+            <div class="card-body">
+                <p class="small text-body-secondary">
+                    {% if is_editable %}
+                        Abandonner ce lot supprime {{ lines|length }} attestation{{ lines|length > 1 ? 's' : '' }}
+                        découpée{{ lines|length > 1 ? 's' : '' }} et vous ramène au dépôt d'un nouveau fichier.
+                        Rien n'a encore été publié ni envoyé.
+                    {% else %}
+                        Reprendre le lot retire {{ batch.documentCount }} document{{ batch.documentCount > 1 ? 's' : '' }}
+                        {{ batch.documentCount > 1 ? 'des pages des membres' : 'de la page de son membre' }},
+                        supprime les attestations découpées et vous ramène au dépôt d'un nouveau fichier.
+                        À faire si un découpage s'est révélé décalé.
+                    {% endif %}
+                </p>
+                {% if not is_editable and batch.distributionStartedAt %}
+                    <p class="small text-warning-emphasis">
+                        <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+                        Les attestations déjà envoyées sont dans des boîtes mail : un e-mail parti ne se
+                        rattrape pas. Prévenez les familles concernées vous-même.
+                    </p>
+                {% endif %}
+                <form method="post" action="/admin/attestations/{{ batch.id }}/reprendre"
+                      data-confirm="{% if is_editable %}Abandonner ce lot ? Les attestations découpées seront supprimées.{% else %}Reprendre le lot ? {{ batch.documentCount }} document{{ batch.documentCount > 1 ? 's publiés seront supprimés' : ' publié sera supprimé' }}. Les e-mails déjà envoyés, eux, ne reviennent pas.{% endif %}">
+                    {{ csrf_field()|raw }}
+                    <button type="submit" class="btn btn-outline-danger w-100 w-sm-auto">
+                        <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i>
+                        {{ is_editable ? 'Abandonner ce lot' : 'Reprendre le lot' }}
+                    </button>
+                </form>
+            </div>
+        </div>
     </div>
 {% endblock %}
 
