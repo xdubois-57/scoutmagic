@@ -17,8 +17,27 @@
 // would be no refusal at all — which is why the row the visitor cannot
 // act on is rendered without a switch server-side, rather than with a
 // disabled one this script could re-enable.
+//
+// The « Actif » control is a role="switch" checkbox. Bootstrap's switch is
+// purely visual, so the aria-checked a screen reader announces is the
+// page's own responsibility: Twig renders it once at load, nav.js's
+// delegated listener keeps it in step with real user interaction, and a
+// revert done in code here fires no 'change' event at all — which is
+// exactly the case a refusal produces. So this file syncs it itself on
+// that path, or a screen reader would keep announcing the state the
+// server just refused (same reason config-badges.js does).
 (function () {
     var api = window.ScoutMagicApi;
+
+    /**
+     * @param {HTMLInputElement} control
+     * @returns {void}
+     */
+    function syncAriaChecked(control) {
+        if (window.ScoutMagicNav && window.ScoutMagicNav.syncSwitchAriaChecked) {
+            window.ScoutMagicNav.syncSwitchAriaChecked(control);
+        }
+    }
 
     /** @type {NodeListOf<HTMLInputElement>} */
     var switches = document.querySelectorAll('.super-admin-active-toggle');
@@ -62,10 +81,10 @@
                     is_active: wanted
                 });
             }).then(function (res) {
-                if (res.data && res.data.success) {
+                if (res.data?.success) {
                     paintRow(control, wanted);
                     window.ScoutMagicToast.show(
-                        (res.data && res.data.message) || 'Modification enregistrée.',
+                        res.data?.message || 'Modification enregistrée.',
                         { variant: 'success' }
                     );
                     return;
@@ -75,11 +94,12 @@
                 // switch goes back to what it was, because the screen
                 // must not keep claiming a change that did not happen.
                 control.checked = !wanted;
+                syncAriaChecked(control);
                 paintRow(control, !wanted);
                 window.ScoutMagicToast.show(
                     res.status === 0
                         ? 'Erreur réseau.'
-                        : (res.data && res.data.error) || "Le compte n'a pas pu être modifié.",
+                        : res.data?.error || "Le compte n'a pas pu être modifié.",
                     { variant: 'error' }
                 );
             });

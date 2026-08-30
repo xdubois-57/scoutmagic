@@ -13,7 +13,8 @@ const PAGE = `
             <td>sept@example.com</td>
             <td>
                 <input class="form-check-input super-admin-active-toggle" type="checkbox"
-                       role="switch" id="super-admin-active-7" data-account-id="7" checked>
+                       role="switch" id="super-admin-active-7" data-account-id="7" checked
+                       aria-checked="true">
                 <span class="badge super-admin-state-badge text-bg-success">Actif</span>
             </td>
         </tr>
@@ -21,7 +22,8 @@ const PAGE = `
             <td>neuf@example.com</td>
             <td>
                 <input class="form-check-input super-admin-active-toggle" type="checkbox"
-                       role="switch" id="super-admin-active-9" data-account-id="9">
+                       role="switch" id="super-admin-active-9" data-account-id="9"
+                       aria-checked="false">
                 <span class="badge super-admin-state-badge text-bg-secondary">Désactivé</span>
             </td>
         </tr>
@@ -38,6 +40,24 @@ describe('config-super-admins.js', () => {
         document.body.innerHTML = PAGE;
         global.fetch = vi.fn(() => jsonResponse({ success: true, message: 'Le compte a été désactivé.' }));
         window.ScoutMagicToast = { show: vi.fn() };
+        // nav.js, reproduced: the same delegated listener that keeps every
+        // role="switch" on the site in step on a REAL user change, plus the
+        // helper it exposes for the programmatic case that fires no event.
+        // Without the listener here the fixture's aria-checked would never
+        // move at all, and these assertions would pass no matter what the
+        // production file does.
+        const syncSwitchAriaChecked = (input) => {
+            input.setAttribute('aria-checked', input.checked ? 'true' : 'false');
+        };
+        window.ScoutMagicNav = { syncSwitchAriaChecked };
+        document.addEventListener('change', (e) => {
+            const target = e.target;
+            if (target instanceof window.HTMLInputElement
+                && target.type === 'checkbox'
+                && target.getAttribute('role') === 'switch') {
+                syncSwitchAriaChecked(target);
+            }
+        });
     });
 
     async function boot() {
@@ -49,9 +69,11 @@ describe('config-super-admins.js', () => {
     const row = (id) => document.getElementById('row-' + id);
     const badge = (id) => row(id).querySelector('.super-admin-state-badge');
 
+    // `bubbles: true` because a real user change does bubble — that is how
+    // nav.js's delegated aria-checked listener ever sees it at all.
     function flip(id, to) {
         control(id).checked = to;
-        control(id).dispatchEvent(new Event('change'));
+        control(id).dispatchEvent(new Event('change', { bubbles: true }));
     }
 
     const lastBody = () => JSON.parse(fetch.mock.calls[0][1].body);
@@ -92,6 +114,7 @@ describe('config-super-admins.js', () => {
             flip(7, false);
 
             await vi.waitFor(() => expect(badge(7).textContent).toBe('Désactivé'));
+            expect(control(7).getAttribute('aria-checked')).toBe('false');
             expect(row(7).classList.contains('opacity-50')).toBe(true);
             expect(badge(7).classList.contains('text-bg-secondary')).toBe(true);
             expect(badge(7).classList.contains('text-bg-success')).toBe(false);
@@ -125,6 +148,10 @@ describe('config-super-admins.js', () => {
             await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalled());
             expect(control(7).checked).toBe(true);
             expect(badge(7).textContent).toBe('Actif');
+            // A revert done in code fires no 'change', so nav.js's delegated
+            // listener never runs — without an explicit sync a screen reader
+            // would keep announcing the state the server just refused.
+            expect(control(7).getAttribute('aria-checked')).toBe('true');
             expect(window.ScoutMagicToast.show).toHaveBeenCalledWith(
                 'Ce compte est le dernier accès superadmin actif du site.',
                 { variant: 'error' }
@@ -152,6 +179,7 @@ describe('config-super-admins.js', () => {
 
             await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalled());
             expect(control(7).checked).toBe(true);
+            expect(control(7).getAttribute('aria-checked')).toBe('true');
             expect(window.ScoutMagicToast.show).toHaveBeenCalledWith(
                 'Erreur réseau.',
                 { variant: 'error' }

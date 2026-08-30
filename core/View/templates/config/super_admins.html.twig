@@ -89,7 +89,8 @@
                                                    class="form-check-input super-admin-active-toggle"
                                                    id="super-admin-active-{{ account.id }}"
                                                    data-account-id="{{ account.id }}"
-                                                   {{ account.isActive ? 'checked' : '' }}>
+                                                   {{ account.isActive ? 'checked' : '' }}
+                                                   aria-checked="{{ account.isActive ? 'true' : 'false' }}">
                                             <label class="form-check-label visually-hidden" for="super-admin-active-{{ account.id }}">
                                                 Compte actif
                                             </label>
