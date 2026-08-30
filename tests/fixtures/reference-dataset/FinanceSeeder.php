@@ -179,6 +179,95 @@ final class FinanceSeeder
     }
 
     /**
+     * Imports one further statement file into an account that already exists
+     * — the campaign's payments (CampaignSeeder), which cannot be committed
+     * with the other six because the communications they carry only exist
+     * once the campaign has raised its receivables.
+     *
+     * Exposed rather than duplicated: rebuilding ImportService a second time
+     * somewhere else is exactly how two callers start disagreeing about how
+     * a line is categorised. No opening balance is passed — the account's
+     * first import already set one, and a second checkpoint for the same
+     * account would make every balance after it wrong.
+     *
+     * @return array{imported: int, duplicates: int}
+     */
+    public function importExtraStatement(string $handle, string $path, string $originalName): array
+    {
+        $accountRepository = new AccountRepository($this->pdo, $this->encryption);
+        $account = $accountRepository->findById($this->accountIds[$handle] ?? 0);
+        if ($account === null) {
+            throw new \RuntimeException("Le compte {$handle} est introuvable : les relevés ont-ils été importés ?");
+        }
+
+        $copy = (string) tempnam(sys_get_temp_dir(), 'refdataset-extra-bank');
+        copy($path, $copy);
+
+        try {
+            $result = $this->buildImportService()->import(
+                $account,
+                BankBlueprint::BANK_CODE,
+                $copy,
+                $originalName,
+                null,
+                $this->importedBy,
+            );
+        } finally {
+            if (is_file($copy)) {
+                @unlink($copy);
+            }
+        }
+
+        return [
+            'imported' => $result->statementImport->linesNew,
+            'duplicates' => $result->statementImport->linesDuplicate,
+        ];
+    }
+
+    /**
+     * Gives every section account the IBAN and the holder it was created
+     * without.
+     *
+     * ensureDefaultAccountsForSections() creates one account per section with
+     * no IBAN at all, which is right — it cannot invent one — and leaves the
+     * account inactive and without its own "Virement <compte>" category, since
+     * an account with no IBAN has nothing a transfer could be recognised by.
+     * A dataset that stopped there would show eight accounts no statement can
+     * ever reach. The update goes through FinanceService::updateAccount(),
+     * which normalises the IBAN before the blind index is computed and syncs
+     * the transfer category — both of which writing the column by hand would
+     * skip.
+     *
+     * @return int the number of section accounts completed
+     */
+    public function completeSectionAccounts(): int
+    {
+        $repository = new AccountRepository($this->pdo, $this->encryption);
+        $service = $this->buildFinanceService();
+        $completed = 0;
+
+        foreach ($repository->findAllOrdered() as $account) {
+            if ($account->sectionId === null || $account->iban !== null) {
+                continue;
+            }
+
+            $iban = BankBlueprint::sectionIban($completed);
+            $service->updateAccount(
+                $account->id,
+                $account->name,
+                $account->accountType,
+                $account->sectionId,
+                $iban,
+                'Unité ' . UnitBlueprint::UNIT_GROUP . ' — ' . $account->name,
+                $account->roleMinView,
+            );
+            $completed++;
+        }
+
+        return $completed;
+    }
+
+    /**
      * Seeds the default categories and the per-section accounts, exactly as a
      * chief's first visits to the Finances configuration pages would.
      *
