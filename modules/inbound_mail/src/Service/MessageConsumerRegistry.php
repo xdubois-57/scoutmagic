@@ -8,12 +8,13 @@ declare(strict_types=1);
 
 namespace Modules\InboundMail\Service;
 
+use Modules\InboundMail\Api\AnalysisResult;
 use Modules\InboundMail\Api\CandidateMessage;
-use Modules\InboundMail\Api\MessageClaim;
+use Modules\InboundMail\Api\InboundMessage;
 use Modules\InboundMail\Api\MessageConsumerInterface;
 
 /**
- * Who gets asked whether an incoming message is theirs.
+ * Who gets asked what an incoming message means to them.
  *
  * Mutable and owned by this module — the ARCHITECTURE.md §7.6 pattern, the
  * same shape as `Calendar\Service\VirtualEventRegistry`. The composition
@@ -100,33 +101,64 @@ class MessageConsumerRegistry
     }
 
     /**
-     * The first consumer that recognises this message, with its claim.
+     * What **every** consumer makes of this message.
      *
-     * **First, not best.** Two modules claiming the same message would mean
-     * storing it twice under two references, and there is no rule that says
-     * which is right — registration order is at least a decision somebody
-     * made in the composition root, and in practice a message belongs to
-     * one workflow.
+     * This replaced `firstClaim()`, which asked them in registration order
+     * and stopped at the first that said yes. That made "one email is both
+     * a booking's correspondence and an invoice" unrepresentable — the
+     * second module was never even asked — and it made registration order
+     * load-bearing in a way nobody could see from the modules themselves.
      *
-     * @return array{consumer: MessageConsumerInterface, claim: MessageClaim}|null
+     * **A consumer that throws is skipped, never fatal.** One module's
+     * analysis failing must not stop a synchronisation and leave every
+     * other consumer's mail unread behind a stuck cursor. Nothing about the
+     * failure is logged with any part of the message: a log line naming the
+     * sender would be personal data in the journal (§7.9).
+     *
+     * @return array<string, AnalysisResult> keyed by consumer id, empty
+     *   results left out
      */
-    public function firstClaim(CandidateMessage $message): ?array
+    public function analyzeAll(CandidateMessage $message): array
     {
-        foreach ($this->consumers as $consumer) {
+        $results = [];
+
+        foreach ($this->all() as $consumer) {
             try {
-                $claim = $consumer->claim($message);
+                $result = $consumer->analyze($message);
             } catch (\Throwable) {
-                // Deliberately swallowed and deliberately not logged with
-                // any part of the message: a log line naming the sender
-                // would be personal data in the journal (§7.9).
                 continue;
             }
 
-            if ($claim !== null) {
-                return ['consumer' => $consumer, 'claim' => $claim];
+            if (!$result->isEmpty()) {
+                $results[$consumer->consumerId()] = $result;
             }
         }
 
-        return null;
+        return $results;
+    }
+
+    /**
+     * The same question, on a message already written down, for the
+     * deferred pass that may read an attachment's content.
+     *
+     * @return array<string, AnalysisResult> keyed by consumer id
+     */
+    public function analyzeAllStored(InboundMessage $message): array
+    {
+        $results = [];
+
+        foreach ($this->all() as $consumer) {
+            try {
+                $result = $consumer->analyzeStored($message);
+            } catch (\Throwable) {
+                continue;
+            }
+
+            if (!$result->isEmpty()) {
+                $results[$consumer->consumerId()] = $result;
+            }
+        }
+
+        return $results;
     }
 }

@@ -2799,10 +2799,18 @@ if ($isEnabled('inbound_mail')) {
     $inboundMailboxRepository = new \Modules\InboundMail\Repository\InboundMailboxRepository($pdo, $encryptionService);
     $inboundMessageRepository = new \Modules\InboundMail\Repository\InboundMessageRepository($pdo, $encryptionService);
 
+    // Built before the service: it is both the file-access checker's source
+    // of consumers and the service's way of telling a consumer one of its
+    // associations has gone (`onUnlinked()`). Empty here and filled by each
+    // consumer module's block below with a FACTORY, so an ordinary page
+    // view builds none of them — §7.6's mutable-registry pattern.
+    $inboundReadConsumers = new \Modules\InboundMail\Service\MessageConsumerRegistry();
+
     $inboundMailForOthers = new \Modules\InboundMail\Service\InboundMailService(
         $inboundMessageRepository,
         $inboundMailboxRepository,
-        new \Core\File\FileRepository($pdo)
+        new \Core\File\FileRepository($pdo),
+        $inboundReadConsumers
     );
 
     // One-time reprise for installs that stored a message's consumer and
@@ -2844,7 +2852,6 @@ if ($isEnabled('inbound_mail')) {
     // ordinary page view — which never asks — builds none. The eager graph
     // stays where it belongs, in the sync task's own lazy factory
     // (public/scheduler-bootstrap.php).
-    $inboundReadConsumers = new \Modules\InboundMail\Service\MessageConsumerRegistry();
     $fileOwnershipCheckers[] = new \Modules\InboundMail\Service\InboundMessageAccessRegistry(
         $inboundMessageRepository,
         $inboundReadConsumers

@@ -66,6 +66,7 @@ class InboundMailTestHelper
             body_html_encrypted BLOB NOT NULL,
             sent_at TEXT NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            stored_analysis_at TEXT,
             UNIQUE (mailbox_id, message_id_blind_index)
         )');
 
@@ -77,6 +78,20 @@ class InboundMailTestHelper
             attachment_id INTEGER NOT NULL DEFAULT 0,
             link_origin TEXT NOT NULL,
             created_by_user_account_id INTEGER,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (message_id, consumer_id, business_reference, attachment_id)
+        )');
+
+        $pdo->exec('CREATE TABLE inbound_message_candidates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            message_id INTEGER NOT NULL,
+            attachment_id INTEGER NOT NULL DEFAULT 0,
+            consumer_id TEXT NOT NULL,
+            business_reference TEXT NOT NULL,
+            evidence_type TEXT NOT NULL,
+            evidence_label_encrypted BLOB NOT NULL,
+            evidence_explanation_encrypted BLOB NOT NULL,
+            dismissed_at TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE (message_id, consumer_id, business_reference, attachment_id)
         )');

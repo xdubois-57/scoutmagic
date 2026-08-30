@@ -17,6 +17,7 @@ use Core\Scheduler\TaskHandlerInterface;
 use Core\Security\HtmlSanitizer;
 use Modules\InboundMail\Repository\InboundMailboxRepository;
 use Modules\InboundMail\Repository\InboundMessageRepository;
+use Modules\InboundMail\Service\AnalysisResultApplier;
 use Modules\InboundMail\Service\AttachmentPolicy;
 use Modules\InboundMail\Service\MailboxClientFactory;
 use Modules\InboundMail\Service\MailboxErrorFormatter;
@@ -70,14 +71,16 @@ class SyncMailboxesHandler implements TaskHandlerInterface
         $pdo = $context->connection->getPdo();
 
         if ($this->consumerRegistry !== null && $this->consumerRegistry->hasConsumers()) {
+            $messageRepository = new InboundMessageRepository($pdo, $context->encryption);
             $service = new MailboxSyncService(
                 new InboundMailboxRepository($pdo, $context->encryption),
-                new InboundMessageRepository($pdo, $context->encryption),
+                $messageRepository,
                 $this->consumerRegistry,
                 new MessageContentSanitizer(new HtmlSanitizer()),
                 new AttachmentPolicy(),
                 new MailboxErrorFormatter(),
                 new MailboxClientFactory(),
+                new AnalysisResultApplier($messageRepository),
                 new UploadHandler(new FileRepository($pdo), $context->storagePath)
             );
 

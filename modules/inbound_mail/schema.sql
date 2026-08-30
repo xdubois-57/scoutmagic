@@ -119,6 +119,15 @@ CREATE TABLE IF NOT EXISTS inbound_messages (
 
     sent_at DATETIME NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- When the deferred, content-level pass last ran over this message
+    -- (Task\AnalyzeStoredMessagesHandler). NULL means never.
+    --
+    -- Analysis happens ONCE, on arrival, plus this one pass afterwards.
+    -- Nothing re-analyses a stored message on its own, ever: propositions
+    -- appearing and disappearing as modules are updated, with nobody able
+    -- to say why, is worse than none. A superadmin who enables a module on
+    -- a box that has been collecting for months asks for it explicitly.
+    stored_analysis_at DATETIME NULL,
 
     -- A message exists **once per mailbox**, whatever UID it now carries
     -- after a renumbering and however many objects it ends up associated
@@ -165,6 +174,41 @@ CREATE TABLE IF NOT EXISTS inbound_message_links (
     INDEX idx_link_reference (consumer_id, business_reference),
     CONSTRAINT fk_link_message FOREIGN KEY (message_id) REFERENCES inbound_messages(id) ON DELETE CASCADE,
     CONSTRAINT fk_link_author FOREIGN KEY (created_by_user_account_id) REFERENCES user_accounts(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- inbound_message_candidates: what a consumer suspects but will not act on.
+--
+-- A **proposition** — « proposition » at the screen, never « candidat ».
+-- The difference from a link is who decides: a link is a certainty the
+-- consumer creates unattended, a proposition is a guess it hands to
+-- somebody. That is why the label and the explanation are stored at all,
+-- and why they are French sentences rather than internal codes.
+--
+-- Both may quote the message, so both are encrypted like everything else a
+-- sender wrote.
+--
+-- **dismissed_at is final.** A proposition somebody set aside never comes
+-- back, not on the next synchronisation and not on a manual re-analysis:
+-- setting one aside is a human decision, and contradicting it with a
+-- technical job is the surest way to make people stop using the screen.
+CREATE TABLE IF NOT EXISTS inbound_message_candidates (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    message_id INT UNSIGNED NOT NULL,
+    -- 0 = the whole message, never NULL. Same convention, same reason, as
+    -- inbound_message_links.
+    attachment_id INT UNSIGNED NOT NULL DEFAULT 0,
+    consumer_id VARCHAR(50) NOT NULL,
+    business_reference VARCHAR(100) NOT NULL,
+    -- The kind of signal ('sender_window', 'amount_and_date', …), stable
+    -- and machine-readable so a screen can group by it. Never shown raw.
+    evidence_type VARCHAR(50) NOT NULL,
+    evidence_label_encrypted BLOB NOT NULL,
+    evidence_explanation_encrypted BLOB NOT NULL,
+    dismissed_at DATETIME NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE INDEX idx_candidate_unique (message_id, consumer_id, business_reference, attachment_id),
+    INDEX idx_candidate_reference (consumer_id, business_reference),
+    CONSTRAINT fk_candidate_message FOREIGN KEY (message_id) REFERENCES inbound_messages(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- inbound_message_attachments: metadata only.
