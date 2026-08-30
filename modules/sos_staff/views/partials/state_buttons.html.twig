@@ -1,0 +1,59 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  The three duty states of one member on one day, as three full-width
+  buttons labelled in words.
+
+  It replaced a single button cycling ✓ → ✗ → — with no legend anywhere:
+  three glyphs, three meanings, and no way to reach a state except by
+  pressing through the others. Naming them is also what lets the phone
+  layout drop the colour-only coding the desktop grid uses.
+
+  Used twice, and the second use is why `date` may be empty: the day sheet
+  renders ONE copy of the roster for the whole month and
+  public/assets/js/sos-admin.js stamps `data-date` on it when a day is
+  opened. `.sos-state-button[data-member-id][data-date][data-state]` is
+  the contract that file grips (the desktop grid keeps its own
+  `.sos-oncall-cell` cells, and both are repainted from one place).
+
+  Usage:
+  {% include '@sos_staff/partials/state_buttons.html.twig' with {
+      member_id: 42,
+      date: '2026-06-15',        -- '' in the day sheet, stamped by JS
+      state: 'oncall',           -- 'oncall' | 'unavailable' | null
+      group_label: 'État de Akela',
+  } only %}
+
+  Height comes from `.tap-target` in app.css's `pointer: coarse` block
+  (design.md §7.2), never from an inline min-height.
+
+  The three buttons are grouped by a real <fieldset> rather than by a
+  generic element carrying role="group": the <legend> names the group for
+  screen readers exactly as the former aria-label did, and Bootstrap's
+  reboot strips the fieldset's border, padding and margin, so the visible
+  rendering is the .btn-group row alone. The row keeps `mt-2` itself
+  rather than handing it to the fieldset — a block-level margin there
+  would collapse with the preceding heading's and close the gap. The
+  legend is `.visually-hidden` because the group is already named on
+  screen by the day heading (phone list) or the member's name (day
+  sheet).
+#}
+<fieldset>
+    <legend class="visually-hidden">{{ group_label }}</legend>
+    <div class="btn-group w-100 mt-2">
+        <button type="button"
+                class="btn btn-sm tap-target sos-state-button {{ state == 'oncall' ? 'btn-success' : 'btn-outline-secondary' }}"
+                data-member-id="{{ member_id }}" data-date="{{ date }}" data-state="oncall"
+                aria-pressed="{{ state == 'oncall' ? 'true' : 'false' }}">Garde</button>
+        <button type="button"
+                class="btn btn-sm tap-target sos-state-button {{ state == 'unavailable' ? 'btn-danger' : 'btn-outline-secondary' }}"
+                data-member-id="{{ member_id }}" data-date="{{ date }}" data-state="unavailable"
+                aria-pressed="{{ state == 'unavailable' ? 'true' : 'false' }}">Indispo</button>
+        <button type="button"
+                class="btn btn-sm tap-target sos-state-button {{ state ? 'btn-outline-secondary' : 'btn-secondary' }}"
+                data-member-id="{{ member_id }}" data-date="{{ date }}" data-state=""
+                aria-pressed="{{ state ? 'false' : 'true' }}">Rien</button>
+    </div>
+</fieldset>

@@ -553,6 +553,24 @@ that loses focus loses its range), a bare host becomes `https://…` rather
 than a relative link that 404s, and a `javascript:` URL is refused with a
 reason rather than silently stripped later by the server-side sanitiser.
 
+**Images inside rich text are bounded once, by `.rich-text`.** Everything
+written through a rich-text editor is stored as HTML and printed with
+`|raw`, and nothing in this site's CSS or in Bootstrap constrains an
+`<img>` in it — `.img-fluid` is opt-in and no editor here adds it. A
+4000px photo pasted into a news article therefore came out at 4000px and
+pushed the page sideways. Every rich-text container carries `.rich-text`
+(a news article's body, `editable()` and `rich_text_field`, the help
+pages, the RGPD page, a rental's conditions, a camp's note); `app.css`
+gives `.rich-text img` `max-width: 100%; height: auto`, and from 992px up
+caps it at **420px** — the same value `components.css` caps a group's
+media grid at, because an image slightly too small is a much smaller
+problem than one too large. `editable()` wraps its own output
+(`Core\View\TwigFactory`) so a new call site gets the rule without
+knowing it exists. **The bodies of RECEIVED emails are deliberately
+excluded** (the rentals and camps modules): that HTML arrives with its own
+hard-coded widths and the rule would degrade a rendering nobody here
+controls. `tests/Core/View/RichTextImageRuleTest.php` holds both halves.
+
 ### 7.13 Saving: a button, or on change
 
 Two shapes, and which one a control gets is not a preference:

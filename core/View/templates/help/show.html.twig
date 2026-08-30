@@ -16,7 +16,7 @@
        escaped there, safe to print raw. .help-content scopes the heading
        sizes (app.css): the Markdown's <h2>/<h3> must read as section
        titles under this page's real <h1>, not compete with it. #}
-    <div class="help-content">{{ content_html|raw }}</div>
+    <div class="help-content rich-text">{{ content_html|raw }}</div>
 
     {% if related_topics is not empty %}
         <section class="mt-4 pt-3 border-top">

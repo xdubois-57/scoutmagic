@@ -122,7 +122,20 @@ class TwigFactory
             return '/files/' . (int) $id . $suffix;
         }));
 
-        // Register editable() function — renders editable content
+        // Register editable() function — renders editable content.
+        //
+        // A rich-text block always comes out inside a `.rich-text`
+        // element, in configuration mode and outside it alike. That
+        // class is what bounds an image nobody sized (app.css § Rich
+        // text): the stored HTML is printed with `|raw`, so a 4000px
+        // photo pasted into an editable block would otherwise push the
+        // page sideways exactly as it did on a news article. Wrapping
+        // here rather than at the ten call sites is deliberate — a
+        // future template calling editable() gets the rule without
+        // having to know it exists. An empty block still renders
+        // nothing at all: several call sites (a section's text, the
+        // federation blurb) are empty on most installs, and an empty
+        // <div> would be a box in a layout for no reason.
         $environment->addFunction(new TwigFunction('editable', function (string $key, string $default = '', string $type = 'rich_text') use ($environment): string {
             /** @var EditableContentService|null $service */
             $service = $environment->getGlobals()['_editable_content_service'] ?? null;
@@ -131,14 +144,23 @@ class TwigFactory
             $value = $service !== null ? $service->get($key, $default) : $default;
             $value = $value ?? $default;
 
+            $richTextClass = $type === 'rich_text' ? ' rich-text' : '';
+
             if ($configMode) {
-                return '<div class="editable-content" data-key="' . htmlspecialchars($key, ENT_QUOTES) . '" data-type="' . htmlspecialchars($type, ENT_QUOTES) . '">'
+                return '<div class="editable-content' . $richTextClass . '"'
+                    . ' data-key="' . htmlspecialchars($key, ENT_QUOTES) . '"'
+                    . ' data-type="' . htmlspecialchars($type, ENT_QUOTES) . '">'
                     . '<div class="editable-overlay"><button class="btn btn-sm btn-outline-primary editable-edit-btn"><i class="bi bi-pencil"></i> Modifier</button></div>'
                     . $value
                     . '</div>';
             }
 
-            return (string) $value;
+            $value = (string) $value;
+            if ($richTextClass === '' || trim($value) === '') {
+                return $value;
+            }
+
+            return '<div class="rich-text">' . $value . '</div>';
         }, ['is_safe' => ['html']]));
 
         // Register editable_image() function — renders editable image.

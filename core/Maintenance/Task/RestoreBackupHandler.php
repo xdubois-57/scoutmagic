@@ -17,6 +17,7 @@ use Core\File\FileRepository;
 use Core\Maintenance\BackupException;
 use Core\Maintenance\BackupRepository;
 use Core\Maintenance\BackupService;
+use Core\Maintenance\RequesterNotice;
 use Core\Scheduler\SchedulerKick;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
@@ -57,6 +58,9 @@ use Core\Security\EncryptionService;
 class RestoreBackupHandler implements TaskHandlerInterface
 {
     private const KEEP_BACKUPS = 5;
+
+    private const TYPE_COMPLETED = 'core.restore_completed';
+    private const TYPE_FAILED = 'core.restore_failed';
 
     /** @var string[] */
     private const ENCRYPTED_BACKUP_TYPES = ['full_config', 'full_no_gallery', 'full_with_gallery'];
@@ -161,14 +165,13 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 $requestedBy
             );
 
-            if ($requestedBy !== null) {
-                $context->notifications?->notify(
-                    $requestedBy,
-                    'Échec de la restauration',
-                    'La sauvegarde de sécurité préalable a échoué — aucune modification n\'a été effectuée.',
-                    '/config/maintenance'
-                );
-            }
+            RequesterNotice::send(
+                $context,
+                $requestedBy,
+                self::TYPE_FAILED,
+                'Échec de la restauration',
+                'La sauvegarde de sécurité préalable a échoué — aucune modification n\'a été effectuée.'
+            );
         } finally {
             if ($uploadedTempPath !== null) {
                 @unlink($uploadedTempPath);
@@ -233,14 +236,14 @@ class RestoreBackupHandler implements TaskHandlerInterface
                     ['error' => $migrationError->getMessage()],
                     $requestedBy
                 );
-                if ($requestedBy !== null) {
-                    $context->notifications?->notify(
-                        $requestedBy,
-                        'Échec critique de la restauration',
-                        'La migration a échoué et aucune sauvegarde de sécurité n\'a pu être restaurée automatiquement. Une intervention manuelle est nécessaire.',
-                        '/config/maintenance'
-                    );
-                }
+                RequesterNotice::send(
+                    $context,
+                    $requestedBy,
+                    self::TYPE_FAILED,
+                    'Échec critique de la restauration',
+                    'La migration a échoué et aucune sauvegarde de sécurité n\'a pu être '
+                    . 'restaurée automatiquement. Une intervention manuelle est nécessaire.'
+                );
                 return;
             }
 
@@ -294,14 +297,13 @@ class RestoreBackupHandler implements TaskHandlerInterface
 
         $this->purgeBeyondLimit($backupRepository, $fileRepository, $context->storagePath);
 
-        if ($requestedBy !== null) {
-            $context->notifications?->notify(
-                $requestedBy,
-                'Restauration terminée',
-                'La restauration de la sauvegarde est terminée.',
-                '/config/maintenance'
-            );
-        }
+        RequesterNotice::send(
+            $context,
+            $requestedBy,
+            self::TYPE_COMPLETED,
+            'Restauration terminée',
+            'La restauration de la sauvegarde est terminée.'
+        );
     }
 
     /**
@@ -354,9 +356,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
             $notifyBody = 'La restauration a échoué et la restauration automatique de l\'état précédent a également échoué. Une intervention manuelle est nécessaire.';
         }
 
-        if ($requestedBy !== null) {
-            $context->notifications?->notify($requestedBy, $notifyTitle, $notifyBody, '/config/maintenance');
-        }
+        RequesterNotice::send($context, $requestedBy, self::TYPE_FAILED, $notifyTitle, $notifyBody);
     }
 
     /**

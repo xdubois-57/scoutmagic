@@ -17,6 +17,15 @@
 //     news editor must simply stop offering payment — not error, not
 //     render a picker with nothing in it, and not stop working.
 //
+// An optional dependency has a third shape worth its own assertion: the
+// provider module ENABLED but not CONFIGURED. llm_connector ships on this
+// instance with no AI provider, which is the ordinary state of a fresh
+// install, and a consumer gating only on "is the module installed" would
+// render a button that fails when pressed. fees' « Chercher les montants »
+// asks the connector whether a model is really reachable, so the button is
+// absent here — see the note at that block for what that does and does not
+// prove.
+//
 // A module's absence is exactly what PHPUnit cannot stage: it constructs
 // each controller itself and passes whatever it likes, including null.
 // What it cannot construct is public/index.php, which decides at BOOT,
@@ -191,6 +200,35 @@ test('a hard dependency is refused both ways, and an optional one degrades and c
     await page.goto('/news/create', { waitUntil: 'domcontentloaded' });
     const restored = await addField(page, 'Nombre', 1);
     await expect(restored.getByLabel('Prix unitaire (€)')).toBeVisible();
+
+    // ---------------------------------------------------------------
+    // OPTIONAL, third shape: the provider module is ENABLED but not
+    // CONFIGURED. llm_connector ships on this instance with no AI
+    // provider, and « Chercher les montants » on the cotisations barème
+    // is gated on a model really being reachable on the cheap tier — not
+    // on the module being installed. So the button must be absent, while
+    // the barème itself, which has always been three fields typed by
+    // hand, must be untouched.
+    //
+    // NOTE ON WHAT THIS PROVES, AND WHAT IT DOES NOT. On an instance with
+    // no provider this proves the absence and nothing else: the fetch,
+    // the prompt, the JSON parsing and the scout-year check are covered
+    // by Tests\Modules\Fees\Service\FederalScaleLookupServiceTest, and
+    // no end-to-end run can exercise them without a real API key. Do not
+    // read a green run here as "the AI lookup works".
+    // ---------------------------------------------------------------
+    await page.goto('/admin/fees/tarifs', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+
+    // The block is collapsed by default; opening it is what makes the
+    // absence assertion mean something rather than pass on a hidden DOM.
+    await page.getByRole('button', { name: 'Barème des cotisations' }).click();
+    await expect(page.getByRole('button', { name: 'Enregistrer le barème' })).toBeVisible();
+    await expect(
+        page.getByRole('button', { name: 'Chercher les montants' }),
+        'no AI provider is configured, so the button must not exist at all',
+    ).toHaveCount(0);
+    await expect(page.getByLabel('Montant par personne (€)').first()).toBeVisible();
 
     // ---------------------------------------------------------------
     // Every module this instance ships is on again, which the specs that

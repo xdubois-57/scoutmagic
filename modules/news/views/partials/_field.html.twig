@@ -105,6 +105,6 @@
     {% elseif field.fieldType == 'text' %}
         {# Rich HTML, sanitized at save time (Service\FormService) — not a
            confirmation-style alert box, just plain formatted content. #}
-        <div class="news-article-body">{{ field.confirmationText|raw }}</div>
+        <div class="news-article-body rich-text">{{ field.confirmationText|raw }}</div>
     {% endif %}
 </div>
