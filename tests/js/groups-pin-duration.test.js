@@ -126,4 +126,33 @@ describe('pinning a message: the duration dialog', () => {
 
         expect(form.submit).toHaveBeenCalledTimes(1);
     });
+
+    /**
+     * The list is a click target in its own right — its padding, and the
+     * gaps between the buttons. A click that missed must be ignored, not
+     * read as a choice with an empty duration: `duration=""` is what the
+     * server takes to mean "pin indefinitely", so a mis-click landing one
+     * pixel off would silently pin forever.
+     */
+    it('ignores a click that landed on the list but not on a duration', async () => {
+        stubBootstrapWithADeadHide();
+        const form = buildPinDom();
+        await loadGroups();
+
+        form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+        await Promise.resolve();
+
+        document.querySelector('#groups-detail-modal-body .list-group').click();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(form.submit).not.toHaveBeenCalled();
+
+        // And the dialog is still live: the real choice that follows works.
+        document.querySelector('#groups-detail-modal-body [data-duration="week"]').click();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(form.submit).toHaveBeenCalledTimes(1);
+    });
 });
