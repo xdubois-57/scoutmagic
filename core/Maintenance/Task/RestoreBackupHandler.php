@@ -17,6 +17,7 @@ use Core\File\FileRepository;
 use Core\Maintenance\BackupException;
 use Core\Maintenance\BackupRepository;
 use Core\Maintenance\BackupService;
+use Core\Maintenance\RequesterNotice;
 use Core\Scheduler\SchedulerKick;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
@@ -164,7 +165,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 $requestedBy
             );
 
-            $this->notifyRequester(
+            RequesterNotice::send(
                 $context,
                 $requestedBy,
                 self::TYPE_FAILED,
@@ -235,7 +236,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
                     ['error' => $migrationError->getMessage()],
                     $requestedBy
                 );
-                $this->notifyRequester(
+                RequesterNotice::send(
                     $context,
                     $requestedBy,
                     self::TYPE_FAILED,
@@ -295,7 +296,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
 
         $this->purgeBeyondLimit($backupRepository, $fileRepository, $context->storagePath);
 
-        $this->notifyRequester(
+        RequesterNotice::send(
             $context,
             $requestedBy,
             self::TYPE_COMPLETED,
@@ -354,7 +355,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
             $notifyBody = 'La restauration a échoué et la restauration automatique de l\'état précédent a également échoué. Une intervention manuelle est nécessaire.';
         }
 
-        $this->notifyRequester($context, $requestedBy, self::TYPE_FAILED, $notifyTitle, $notifyBody);
+        RequesterNotice::send($context, $requestedBy, self::TYPE_FAILED, $notifyTitle, $notifyBody);
     }
 
     /**
@@ -446,34 +447,6 @@ class RestoreBackupHandler implements TaskHandlerInterface
             }
             $backupRepository->delete($old->id);
         }
-    }
-
-    /**
-     * Tells whoever asked for this operation how it went — a declared type
-     * through NotificationService::dispatch(), never the type-less
-     * notify(). Backup CREATION already worked this way; restoration and
-     * the settings reset did not, which is exactly why neither of them had
-     * a row on /notifications/preferences to switch off.
-     *
-     * Nobody to tell (an automatic run, or a scheduler built without the
-     * notification stack) is a no-op, as it was before.
-     */
-    private function notifyRequester(
-        TaskContext $context,
-        ?int $requestedBy,
-        string $typeId,
-        string $title,
-        string $body
-    ): void {
-        if ($requestedBy === null) {
-            return;
-        }
-
-        $context->notifications?->dispatch(
-            $typeId,
-            [['userAccountId' => $requestedBy, 'memberId' => null]],
-            ['title' => $title, 'body' => $body, 'url' => '/config/maintenance']
-        );
     }
 
     private function relativePath(string $storagePath, string $absolutePath): string

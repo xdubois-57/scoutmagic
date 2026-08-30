@@ -11,6 +11,7 @@ namespace Core\Maintenance\Task;
 use Core\File\FileRepository;
 use Core\Maintenance\BackupRepository;
 use Core\Maintenance\BackupService;
+use Core\Maintenance\RequesterNotice;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 
@@ -83,7 +84,7 @@ class ResetSettingsHandler implements TaskHandlerInterface
 
             $this->purgeBeyondLimit($backupRepository, $fileRepository, $context->storagePath);
 
-            $this->notifyRequester(
+            RequesterNotice::send(
                 $context,
                 $requestedBy,
                 self::TYPE_COMPLETED,
@@ -100,7 +101,7 @@ class ResetSettingsHandler implements TaskHandlerInterface
                 $requestedBy
             );
 
-            $this->notifyRequester(
+            RequesterNotice::send(
                 $context,
                 $requestedBy,
                 self::TYPE_FAILED,
@@ -129,34 +130,6 @@ class ResetSettingsHandler implements TaskHandlerInterface
             }
             $backupRepository->delete($old->id);
         }
-    }
-
-    /**
-     * Tells whoever asked for this operation how it went — a declared type
-     * through NotificationService::dispatch(), never the type-less
-     * notify(). Backup CREATION already worked this way; restoration and
-     * the settings reset did not, which is exactly why neither of them had
-     * a row on /notifications/preferences to switch off.
-     *
-     * Nobody to tell (an automatic run, or a scheduler built without the
-     * notification stack) is a no-op, as it was before.
-     */
-    private function notifyRequester(
-        TaskContext $context,
-        ?int $requestedBy,
-        string $typeId,
-        string $title,
-        string $body
-    ): void {
-        if ($requestedBy === null) {
-            return;
-        }
-
-        $context->notifications?->dispatch(
-            $typeId,
-            [['userAccountId' => $requestedBy, 'memberId' => null]],
-            ['title' => $title, 'body' => $body, 'url' => '/config/maintenance']
-        );
     }
 
     private function relativePath(string $storagePath, string $absolutePath): string
