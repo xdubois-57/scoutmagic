@@ -27,7 +27,7 @@ import { expect, test } from '@playwright/test';
 
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { loginAsAdmin, loginAsMember } from '../support/admin-login.js';
-import { openCreateGroupForm, waitForGroupsJsReady } from '../support/groups.js';
+import { openComposer, openCreateGroupForm, waitForGroupsJsReady } from '../support/groups.js';
 import { pngBuffer } from '../support/png.js';
 import { scaled } from '../support/timeouts.js';
 
@@ -81,6 +81,11 @@ test('a mention travels to a notification, a pin asks its duration, "Vu par" nam
     // ---------------------------------------------------------------
     await page.goto(groupUrl, { waitUntil: 'domcontentloaded' });
     await waitForGroupsJsReady(page);
+
+    // The composer is folded down to one line until it is asked for
+    // (show.html.twig, public/assets/js/groups.js) — the same click a
+    // member makes before typing anything.
+    await openComposer(page);
 
     const composer = page.locator('#groups-post-form');
     const editor = page.getByLabel('Écrire un message');

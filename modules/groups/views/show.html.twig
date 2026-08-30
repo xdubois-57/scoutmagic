@@ -39,8 +39,60 @@
     {% endif %}
 
     {% if post_permission.allowed %}
+        {#
+          The composer, folded down to a single line.
+
+          A group is a place you come to READ far more often than you come
+          to write in, and the open form — a three-row textarea, its two
+          attach controls, its media counter and its Publier button — used
+          the whole of a phone's first screen before the first message of
+          the feed. So the default is this bar: the avatar of whoever is
+          looking, the invitation, and the two things you can attach to a
+          message. One click opens the real form, unchanged.
+
+          Tinted (bg-primary-subtle / border-primary-subtle) rather than
+          drawn as one more bordered card: folded away, it has to keep
+          reading as the way in, not as the first item of the feed.
+
+          Rendered HIDDEN and revealed by public/assets/js/groups.js,
+          never the other way round. With no JavaScript at all — this
+          module's standing promise, checked by specs/
+          groups-discussion.spec.js — nothing folds, this line never
+          appears, and the form is exactly where it has always been.
+
+          The two icons repeat the vocabulary of the controls they stand
+          for below (bi-image for the photos, bi-bar-chart for the poll)
+          and are decoration: the bar is ONE target, and a click anywhere
+          on it opens the form both of those controls live in.
+        #}
+        <button type="button" id="groups-composer-open"
+                class="btn w-100 mb-3 d-none align-items-center gap-2 text-start tap-target bg-primary-subtle border-primary-subtle groups-composer-collapsed">
+            {#
+              Decoration too: what is written beside it is not this
+              person's name but an invitation to write, so announcing
+              their name first would name the wrong thing.
+            #}
+            <span class="d-inline-flex" aria-hidden="true">
+                {% include 'partials/account_avatar.html.twig' with { size: 32 } only %}
+            </span>
+            <span class="text-body-secondary text-truncate groups-composer-collapsed-label">Écrire un message…</span>
+            <i class="bi bi-image text-body-secondary" aria-hidden="true"></i>
+            <i class="bi bi-bar-chart text-body-secondary" aria-hidden="true"></i>
+        </button>
+
+        {#
+          data-rejected-draft says "the textarea below already holds a
+          message the moderation just refused, handed back to its own
+          author". groups.js keeps the composer OPEN in that case: the
+          panel above has just told this member their text was preserved
+          in the form, and folding the form away would hide the very
+          thing they were told to look for. Only the no-post_id shape
+          fills this composer — the other one goes back into a reply box
+          on the message concerned (see the panel above).
+        #}
         <form method="post" action="/groups/{{ group.id }}/posts" enctype="multipart/form-data" class="card mb-3" id="groups-post-form"
-              data-max-media="{{ max_media_per_post|default(4) }}" data-group-id="{{ group.id }}" data-draft-ttl-minutes="{{ draft_ttl_minutes|default(60) }}">
+              data-max-media="{{ max_media_per_post|default(4) }}" data-group-id="{{ group.id }}" data-draft-ttl-minutes="{{ draft_ttl_minutes|default(60) }}"
+              {%- if rejected_draft|default(null) and not rejected_draft.post_id %} data-rejected-draft="1"{% endif %}>
             <div class="card-body">
                 <label class="form-label small mb-1" for="post-body">Écrire un message</label>
                 {{ csrf_field()|raw }}
