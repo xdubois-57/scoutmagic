@@ -1,0 +1,27 @@
+{
+  "id": "attestations",
+  "name": "Attestations",
+  "description": "Découpe le PDF d'attestations envoyé par la fédération et dépose l'attestation de chaque membre sur sa page, visible par lui seul.",
+  "version": "1.0.0",
+  "routes": [
+    {
+      "path": "/admin/attestations",
+      "method": "GET",
+      "controller": "Modules\\Attestations\\Controller\\AttestationsController",
+      "action": "index",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": "Attestations",
+      "menu_icon": "bi-file-earmark-text",
+      "menu_group": "membres_annee",
+      "breadcrumb": {
+        "label": "Attestations",
+        "parents": ["Espace chefs d'U"]
+      }
+    }
+  ],
+  "settings": [],
+  "cookies": [],
+  "scheduled_tasks": [],
+  "storage": {}
+}

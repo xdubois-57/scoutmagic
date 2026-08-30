@@ -10,6 +10,7 @@ Everything beyond the core site is a module (`modules/<id>/`, ARCHITECTURE.md §
 
 | Module | Name in the interface | Specified in |
 |---|---|---|
+| `attestations` | Attestations | §41 |
 | `banner` | Bannière | §36 |
 | `calendar` | Calendrier | §27 |
 | `camps` | Camps | §26 |
@@ -153,6 +154,7 @@ Two photos, never mixed. A **member's** photo belongs to a scout year and is the
 | Passage (module registration) | admin | Split arriving families and promoted animés between sections ahead of next scout year — see §18.2. Chef d'unité only (not a per-section chief), since spreading arrivals across sections needs the whole unit at once |
 | Encadrement (module leadership) | admin | Three lists of people to contact, read out of the Desk import — training paths, age-related legal deadlines, steward registrations. See §25 |
 | Locations (module rental) | admin | Which assets exist and who runs each one — creating an asset, its general description, its managers, archiving it, and the accounting account its money is expected on. Everything that is a property of one asset is set in that asset's own managed space instead. See §22 |
+| Attestations (module attestations) | admin | Découper le PDF d'attestations reçu de la fédération et déposer l'attestation de chaque membre sur sa page, visible par lui seul. Un lot = un fichier déposé, avec son année scoute, sa catégorie et son libellé. Voir §41 |
 | Cotisations (module fees) | admin | Checking what the federation bills against the unit's own roster: the season's snapshot, tariff accuracy per household, and the report of an imported invoice. See §31 |
 
 #### The page of one member (`/admin/members/{id}`)
@@ -1702,3 +1704,82 @@ The raw message, each body half and each attachment are stored **encrypted at re
 ### 40.4 RGPD
 
 **Deliberately unchanged.** The module cannot load on a deploying unit's installation, so it processes no data any unit is controller for. The absence of an RGPD entry for it is the correct outcome, not an oversight.
+
+---
+
+## 41. Attestations — découper et distribuer (module attestations)
+
+L'unité distribue plusieurs sortes d'attestations nominatives. Les **attestations fiscales**, que la
+fédération transmet en un **PDF unique** contenant celles de tous les membres — le document qu'une
+famille joint à sa déclaration pour déduire les frais de garde. Et les **attestations de présence**,
+remises juste après un camp. D'autres peuvent apparaître.
+
+Ce n'est donc pas une fonctionnalité « fiscale » : c'est un mécanisme de **découpe et de distribution
+d'attestations nominatives**, dont le fiscal est le cas le plus lourd. Aujourd'hui, le chef d'unité
+découpe le PDF à la main et le distribue par e-mail, un par un.
+
+Le site sait déjà stocker un document privé rattaché à une personne (`member_documents` +
+`files.owner_member_id`) : ce qui manquait, c'est ce qui alimente ce stockage.
+
+Espace chefs d'U, `role_min: admin` sur toutes les routes sans exception. Le module n'est pas activé
+par défaut : une unité qui n'en distribue pas ne doit pas voir la page apparaître dans son menu.
+
+### 41.1 Un lot, c'est un fichier déposé
+
+Plusieurs PDF arrivent chaque année, souvent partiels : un premier envoi en février, un complément en
+mars pour les inscriptions tardives, parfois une correction. Un lot correspond donc à **un fichier
+déposé**, pas à une année ni à une campagne.
+
+Chaque lot porte trois choses. Une **année scoute**, choisie au dépôt et valable pour tout le lot :
+le site ne déduit aucune date. Une attestation fiscale portant sur l'année civile 2025 se traite en
+général pendant l'année scoute 2025-2026, mais un rattrapage tombe ailleurs, et une attestation de
+présence ne se rattache à aucune année civile.
+
+Une **catégorie** — fiscale, présence, autre. Étiquette courte choisie dans une liste fermée, qui ne
+configure rien : elle sert uniquement à rapprocher les lots entre eux. Sans elle, deux questions que
+les fichiers partiels posent inévitablement deviennent impossibles à répondre. *Ce membre a-t-il déjà
+reçu la sienne ?* — un rapprochement sur le seul libellé confondrait une attestation fiscale et une
+attestation de présence, deux documents parfaitement légitimes pour la même personne la même année.
+*Qui n'en a toujours pas ?* — après trois fichiers partiels, seul le site peut le dire.
+
+Un **libellé libre** — « Attestation fiscale 2025 », « Attestation présence camp Éclaireurs 2026 ».
+C'est lui qui s'affiche sur la page du membre et qui distingue deux lots de la même catégorie.
+
+### 41.2 Le découpage
+
+Repris de l'ancien site, où il fonctionnait en production depuis plusieurs années.
+
+**La taille d'un document est détectée, pas saisie.** Le site lit le premier champ texte de chaque
+page ; dès qu'il retrouve celui de la première page, il en déduit le nombre de pages par attestation.
+Aucun paramètre à régler, aucune hypothèse sur le format fédéral, et le mécanisme survit à une
+attestation qui passerait d'une à deux pages.
+
+**Un garde-fou arithmétique.** Si le nombre total de pages n'est pas un multiple de la taille
+détectée, le traitement s'arrête et rien n'est produit. Une découpe décalée d'une page attribuerait
+l'attestation de chaque famille à la suivante — c'est le pire résultat possible, et il doit être
+impossible. L'écran nomme les deux nombres et le reste, pour qu'un lecteur sache qu'il faut retourner
+vers la fédération plutôt que redéposer le même fichier.
+
+**L'appariement se fait sur le nom**, indexé dans les deux sens (« Nom Prénom » et « Prénom Nom »),
+en minuscules et sans accents. C'est la seule information dont le PDF dispose : il ne porte ni
+identifiant Desk, ni date de naissance.
+
+**La table couvre toutes les années, pas seulement l'année en cours.** Une attestation fiscale porte
+sur l'année écoulée : elle concerne souvent un membre parti entre-temps, absent du roster actuel et
+sans page sur le site. Ne restreindre l'appariement qu'à l'année effective priverait précisément ceux
+qui en ont besoin.
+
+**Les homonymes sont traités comme une ambiguïté, jamais résolus d'office.** Deux membres peuvent
+porter le même nom. L'ancien site gardait le premier appariement trouvé : un choix silencieux, sur un
+document nominatif que le staff ne peut pas relire après coup, qui envoie l'attestation d'une famille
+à une autre sans que personne ne s'en aperçoive. C'est l'erreur la plus grave que cette fonctionnalité
+puisse commettre.
+
+Un nom présent dans le PDF mais inconnu du site reste non apparié et n'est pas distribuable : sans
+membre, il n'y a ni page où déposer le document, ni vérification d'identité.
+
+### 41.3 Hors périmètre
+
+La **génération** d'attestations par l'unité elle-même. Le site ne produit aucun document : il découpe
+un PDF qu'on lui fournit. Une attestation de présence après camp entre donc dans le périmètre si elle
+arrive sous forme de PDF groupé, pas si elle doit être composée par le site.

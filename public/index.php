@@ -2671,6 +2671,17 @@ if ($isEnabled('sos_staff')) {
     }
 }
 
+if ($isEnabled('attestations')) {
+    $frontController->registerController(
+        \Modules\Attestations\Controller\AttestationsController::class,
+        new \Modules\Attestations\Controller\AttestationsController(
+            $twig,
+            new \Modules\Attestations\Repository\BatchRepository($connection),
+            $scoutYearService
+        )
+    );
+}
+
 if ($isEnabled('banner')) {
     $bannerRepo = new \Modules\Banner\Repository\BannerRepository($pdo);
     $bannerService = new \Modules\Banner\Service\BannerService($bannerRepo, $editableContentService);

@@ -1,0 +1,118 @@
+<?php
+/**
+ * ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+ */
+
+declare(strict_types=1);
+
+namespace Modules\Attestations\Repository;
+
+use Core\Config\AppClock;
+use Core\Database\Connection;
+use Modules\Attestations\Value\AttestationCategory;
+use Modules\Attestations\Value\BatchStatus;
+
+/**
+ * `attestation_batches`, the only table this module owns so far.
+ *
+ * Timestamps are written from PHP and bound as parameters rather than left
+ * to the column default: the test suite runs on SQLite, whose
+ * CURRENT_TIMESTAMP is UTC while everything else here is Europe/Brussels
+ * (docs/module-development.md § Timestamps). The DEFAULT stays in
+ * schema.sql as a safety net for hand-written SQL; nothing relies on it.
+ */
+class BatchRepository
+{
+    public function __construct(private Connection $connection)
+    {
+    }
+
+    /**
+     * A batch as deposited: split, counted, and waiting for the human
+     * check. It is created in `draft` — there is no way to insert one that
+     * is already published, because publishing is what creates the
+     * documents and that is a second step by design.
+     */
+    public function create(
+        int $scoutYearId,
+        AttestationCategory $category,
+        string $label,
+        int $pageCount,
+        int $pagesPerDocument,
+        int $documentCount,
+        ?int $createdBy
+    ): int {
+        $stmt = $this->connection->getPdo()->prepare(
+            'INSERT INTO attestation_batches
+                 (scout_year_id, category, label, status, page_count, pages_per_document,
+                  document_count, discarded_count, created_at, created_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)'
+        );
+        $stmt->execute([
+            $scoutYearId,
+            $category->value,
+            $label,
+            BatchStatus::Draft->value,
+            $pageCount,
+            $pagesPerDocument,
+            $documentCount,
+            AppClock::now()->format('Y-m-d H:i:s'),
+            $createdBy,
+        ]);
+
+        return (int) $this->connection->getPdo()->lastInsertId();
+    }
+
+    public function findById(int $id): ?Batch
+    {
+        $stmt = $this->connection->getPdo()->prepare(
+            'SELECT * FROM attestation_batches WHERE id = ?'
+        );
+        $stmt->execute([$id]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        return $row === false ? null : self::mapRow($row);
+    }
+
+    /**
+     * Most recently deposited first — which is what the page is for: the
+     * batch somebody is working on is the one they just deposited.
+     *
+     * @return list<Batch>
+     */
+    public function findRecent(int $limit = 20): array
+    {
+        $stmt = $this->connection->getPdo()->prepare(
+            'SELECT * FROM attestation_batches ORDER BY created_at DESC, id DESC LIMIT ?'
+        );
+        $stmt->bindValue(1, max(1, $limit), \PDO::PARAM_INT);
+        $stmt->execute();
+
+        return array_map(self::mapRow(...), $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     */
+    private static function mapRow(array $row): Batch
+    {
+        return new Batch(
+            id: (int) $row['id'],
+            scoutYearId: (int) $row['scout_year_id'],
+            // A stored value naming no known category would be a row this
+            // code never wrote; reading it as Other keeps the page
+            // rendering rather than fataling on somebody else's data.
+            category: AttestationCategory::tryFromValue((string) $row['category']) ?? AttestationCategory::Other,
+            label: (string) $row['label'],
+            status: BatchStatus::tryFromValue((string) $row['status']) ?? BatchStatus::Draft,
+            pageCount: (int) $row['page_count'],
+            pagesPerDocument: (int) $row['pages_per_document'],
+            documentCount: (int) $row['document_count'],
+            discardedCount: (int) $row['discarded_count'],
+            createdAt: (string) $row['created_at'],
+            publishedAt: $row['published_at'] !== null ? (string) $row['published_at'] : null,
+            createdBy: $row['created_by'] !== null ? (int) $row['created_by'] : null
+        );
+    }
+}
