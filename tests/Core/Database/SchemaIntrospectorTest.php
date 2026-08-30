@@ -124,4 +124,106 @@ class SchemaIntrospectorTest extends TestCase
         $this->assertSame('id', $foreignKeys[0]->referencedColumn);
         $this->assertSame('CASCADE', $foreignKeys[0]->onDelete);
     }
+
+    /**
+     * The bulk read must describe the schema exactly as the per-table
+     * methods do — it replaces them on the hot path, so any divergence
+     * would show up as spurious ALTER statements on every migration.
+     */
+    public function testBulkDefinitionsMatchThePerTableOnes(): void
+    {
+        $this->pdo->exec(
+            'CREATE TABLE test_introspect_table (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(50) NOT NULL,
+                slug VARCHAR(50) NULL,
+                UNIQUE KEY uniq_slug (slug),
+                KEY idx_name (name)
+            ) ENGINE=InnoDB'
+        );
+        $this->pdo->exec(
+            'CREATE TABLE test_introspect_child (
+                id INT PRIMARY KEY,
+                parent_id INT NOT NULL,
+                CONSTRAINT fk_introspect_parent FOREIGN KEY (parent_id)
+                    REFERENCES test_introspect_table(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB'
+        );
+
+        $bulk = $this->introspector->getTableDefinitions(
+            ['test_introspect_table', 'test_introspect_child']
+        );
+
+        foreach (['test_introspect_table', 'test_introspect_child'] as $table) {
+            $one = $this->introspector->getTableDefinition($table);
+            $this->assertEquals($one->columns, $bulk[$table]->columns, "columns differ for {$table}");
+            $this->assertEquals($one->indexes, $bulk[$table]->indexes, "indexes differ for {$table}");
+            $this->assertEquals($one->foreignKeys, $bulk[$table]->foreignKeys, "foreign keys differ for {$table}");
+        }
+    }
+
+    /**
+     * A name that is not a table is simply absent — the caller learns the
+     * same thing getTables() would have told it, without an exception and
+     * without an empty TableDefinition that would read as "a table with no
+     * columns" and provoke a CREATE.
+     */
+    public function testATableThatDoesNotExistIsAbsentRatherThanEmpty(): void
+    {
+        $this->pdo->exec('CREATE TABLE test_introspect_table (id INT PRIMARY KEY) ENGINE=InnoDB');
+
+        $bulk = $this->introspector->getTableDefinitions(
+            ['test_introspect_table', 'a_table_that_was_never_created']
+        );
+
+        $this->assertArrayHasKey('test_introspect_table', $bulk);
+        $this->assertArrayNotHasKey('a_table_that_was_never_created', $bulk);
+    }
+
+    public function testNoTablesAskedForCostsNoQuery(): void
+    {
+        $this->assertSame([], $this->introspector->getTableDefinitions([]));
+    }
+
+    /**
+     * The measurement the whole iteration exists for: reading N tables
+     * costs three INFORMATION_SCHEMA queries, not three per table.
+     * Counted through the server's own Com_select rather than by
+     * instrumenting the code, so it measures what actually reached MySQL.
+     */
+    public function testReadingManyTablesCostsThreeQueriesNotThreePerTable(): void
+    {
+        for ($i = 0; $i < 8; $i++) {
+            $this->pdo->exec("CREATE TABLE test_bulk_count_{$i} (id INT PRIMARY KEY, name VARCHAR(20)) ENGINE=InnoDB");
+        }
+        $names = array_map(static fn(int $i): string => "test_bulk_count_{$i}", range(0, 7));
+
+        try {
+            $before = $this->comSelect();
+            $this->introspector->getTableDefinitions($names);
+            // No adjustment for the probe: SHOW SESSION STATUS increments
+            // Com_show_status, not Com_select.
+            $bulk = $this->comSelect() - $before;
+
+            $before = $this->comSelect();
+            foreach ($names as $name) {
+                $this->introspector->getTableDefinition($name);
+            }
+            $perTable = $this->comSelect() - $before;
+
+            $this->assertSame(3, $bulk, 'the bulk read must be exactly three queries');
+            $this->assertSame(24, $perTable, 'eight tables, three queries each');
+        } finally {
+            for ($i = 0; $i < 8; $i++) {
+                $this->pdo->exec("DROP TABLE IF EXISTS test_bulk_count_{$i}");
+            }
+        }
+    }
+
+    private function comSelect(): int
+    {
+        $row = $this->pdo->query("SHOW SESSION STATUS LIKE 'Com_select'")->fetch(\PDO::FETCH_ASSOC);
+
+        return (int) $row['Value'];
+    }
 }
