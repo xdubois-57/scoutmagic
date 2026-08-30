@@ -61,17 +61,7 @@ class FileController extends AbstractController
             return (new Response('Forbidden', 403));
         }
 
-        // Owner-scoped files (member page private documents, §8.3) are the
-        // only ones journaled on successful access — every other /files/{id}
-        // hit (public assets, ordinary role-gated content) would be pure
-        // noise here. member_id reference only, never personal data.
-        if ($file->ownerMemberId !== null) {
-            $this->journalService?->log(
-                'core', 'owner_scoped_file_accessed', 'info', 'Document privé d\'un membre consulté',
-                ['file_id' => $id, 'owner_member_id' => $file->ownerMemberId],
-                AuthSession::getUserAccountId()
-            );
-        }
+        $this->journalOwnerScopedAccess($file);
 
         // A kept Desk CSV is the second, and only other, successful access
         // this journals — a deliberate extension of the owner-scoped rule
@@ -164,6 +154,42 @@ class FileController extends AbstractController
             ->setHeader('Cache-Control', $cacheControl)
             ->setHeader('ETag', $etag)
             ->setHeader('Content-Length', (string) filesize($filePath));
+    }
+
+    /**
+     * Owner-scoped files (member page private documents, §8.3) are the only
+     * ones journaled on successful access — every other `/files/{id}` hit
+     * (public assets, ordinary role-gated content) would be pure noise here.
+     * Identifiers only, never personal data.
+     *
+     * **Two entries, at two levels, and the distinction is the point.** A
+     * family reading its own document is ordinary traffic (`info`). A member
+     * of the Staff d'Unité opening a document that belongs to somebody else
+     * is the bypass `FileAccessGuard::check()` grants them
+     * (`FileAccessGuard::STAFF_BYPASS_ROLE`), and it is the whole
+     * compensation for the ownership wall that was withdrawn to allow it:
+     * `security` level, so it surfaces in the journal's own filtering rather
+     * than sitting among a thousand ordinary reads. A staff opening logged
+     * as `info` would be a bypass with no trace anybody looks at.
+     */
+    private function journalOwnerScopedAccess(\Core\File\FileRecord $file): void
+    {
+        if ($file->ownerMemberId === null) {
+            return;
+        }
+
+        $isStaffBypass = $this->fileAccessGuard->isStaffBypass($file);
+
+        $this->journalService?->log(
+            'core',
+            $isStaffBypass ? 'member_document_opened_by_staff' : 'owner_scoped_file_accessed',
+            $isStaffBypass ? 'security' : 'info',
+            $isStaffBypass
+                ? 'Document privé d\'un membre ouvert par le Staff d\'Unité'
+                : 'Document privé d\'un membre consulté',
+            ['file_id' => $file->id, 'owner_member_id' => $file->ownerMemberId],
+            AuthSession::getUserAccountId()
+        );
     }
 
     /**
@@ -307,13 +333,7 @@ class FileController extends AbstractController
             return (new Response('Forbidden', 403));
         }
 
-        if ($file->ownerMemberId !== null) {
-            $this->journalService?->log(
-                'core', 'owner_scoped_file_accessed', 'info', 'Document privé d\'un membre consulté',
-                ['file_id' => $id, 'owner_member_id' => $file->ownerMemberId],
-                AuthSession::getUserAccountId()
-            );
-        }
+        $this->journalOwnerScopedAccess($file);
 
         $path = $this->imageVariantService->resolvePath($file->relativePath, $variant);
         if ($path === null) {

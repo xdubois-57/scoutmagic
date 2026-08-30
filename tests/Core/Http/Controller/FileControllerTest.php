@@ -133,6 +133,50 @@ class FileControllerTest extends TestCase
         $this->assertSame($id, $context['file_id']);
     }
 
+    /**
+     * The Staff d'Unité opening somebody else's private document writes a
+     * DIFFERENT entry, at `security` level.
+     *
+     * This is the whole compensation for the ownership wall that was
+     * withdrawn to let them in (ARCHITECTURE.md §8.3, SECURITY.md §6):
+     * logged as `info`, a staff opening would sit among a thousand ordinary
+     * family reads and nobody would ever pick it out. Identifiers only,
+     * exactly like the ordinary entry.
+     */
+    public function testServeJournalsAStaffOpeningAsASecurityEvent(): void
+    {
+        // Admin, and linked to nobody: the bypass, not ownership.
+        $guard = new FileAccessGuard($this->fileRepository, Role::ADMIN, []);
+        $controller = new FileController(new Environment(new ArrayLoader([])), $guard, $this->storagePath, new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath), $this->imageVariantService);
+        $controller->setJournalService(new JournalService(new JournalRepository($this->pdo)));
+
+        mkdir($this->storagePath, 0755, true);
+        file_put_contents($this->storagePath . '/doc.pdf', 'content');
+        $stmt = $this->pdo->prepare('INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min, owner_member_id) VALUES (?, ?, ?, ?, ?, ?)');
+        $stmt->execute(['doc.pdf', 'doc.pdf', 'application/pdf', 7, 'identified', 42]);
+        $id = (int) $this->pdo->lastInsertId();
+
+        $response = $controller->serve(new Request('GET', "/files/{$id}", [], [], [], []), ['id' => (string) $id]);
+
+        $this->assertSame(200, $response->getStatusCode());
+
+        $entries = $this->pdo
+            ->query("SELECT * FROM event_log WHERE event_type = 'member_document_opened_by_staff'")
+            ->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertCount(1, $entries);
+        $this->assertSame('security', $entries[0]['level']);
+
+        $context = json_decode((string) $entries[0]['context'], true);
+        $this->assertSame(42, $context['owner_member_id']);
+        $this->assertSame($id, $context['file_id']);
+
+        // And not ALSO as the ordinary entry: one access, one line.
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'owner_scoped_file_accessed'")->fetchColumn()
+        );
+    }
+
     public function testServeDoesNotJournalAccessToAnOrdinaryFile(): void
     {
         $guard = new FileAccessGuard($this->fileRepository, Role::PUBLIC);

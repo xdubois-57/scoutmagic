@@ -115,6 +115,31 @@ class FileRepository
     }
 
     /**
+     * Sets (or clears) the owner-scoping `owner_member_id` after the fact —
+     * needed when the file exists before its owner is known.
+     *
+     * `Modules\Attestations` is the case it was added for: a batch of
+     * certificates is cut and stored at deposit, but a line the parser
+     * could not resolve — a homonym, a name Desk spells differently — gets
+     * its member from a human minutes later. Storing the file unowned until
+     * then is deliberate and is the safe direction: an unowned file is
+     * reachable by NOBODY through owner scoping (§8.3's fail-closed rule),
+     * so a certificate waiting for a decision is not a certificate anybody
+     * can read by guessing its id.
+     *
+     * Narrowing only, in practice: `role_min` is still checked first and
+     * independently, so this can never widen what a role already reaches.
+     * Passing null clears the scoping, which is what a caller undoing an
+     * assignment needs; it does not make the file public, it makes it
+     * `role_min`-gated again.
+     */
+    public function updateOwnerMember(int $id, ?int $memberId): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE files SET owner_member_id = ? WHERE id = ?');
+        $stmt->execute([$memberId, $id]);
+    }
+
+    /**
      * Reflects an in-place content swap (Core\File\EncryptedFileStorageService
      * ::replace(), used by the PDF compression background task — same
      * file id/relative_path, smaller content).
