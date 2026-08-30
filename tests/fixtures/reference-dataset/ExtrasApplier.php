@@ -8,10 +8,7 @@ declare(strict_types=1);
 
 namespace Tests\Fixtures\ReferenceDataset;
 
-use Core\Badge\BadgeRepository;
-use Core\Badge\BadgeService;
 use Core\Badge\MemberBadgeRepository;
-use Core\Config\ScoutYearService;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Database\Connection;
@@ -38,17 +35,9 @@ use Core\Photo\SectionPhotoRepository;
 use Core\Photo\SectionPhotoService;
 use Core\Photo\UnitLogoProcessor;
 use Core\Photo\UnitLogoService;
-use Core\Scheduler\SchedulerRepository;
-use Core\Scheduler\SchedulerService;
 use Core\Security\EncryptionService;
 use Core\View\EditableContentRepository;
 use Core\View\EditableContentService;
-use Modules\Calendar\Repository\CalendarEventRepository;
-use Modules\Calendar\Repository\CalendarRepository;
-use Modules\Calendar\Repository\CalendarUnitFeedTokenRepository;
-use Modules\Calendar\Service\CalendarEventService;
-use Modules\Calendar\Service\CalendarNotificationService;
-use Modules\Calendar\Service\CalendarService;
 use Modules\Finance\Repository\AccountRepository;
 use Modules\Finance\Repository\ExpectedReceivableRepository;
 use Modules\Finance\Repository\ReceivableAllocationRepository;
@@ -57,21 +46,32 @@ use Modules\Finance\Service\AccountVisibility;
 use Modules\Finance\Service\ExpectedReceivableService;
 use Modules\Finance\Service\ReceivableAllocationService;
 use Modules\Finance\Service\TreasurerScope;
+use Modules\Registration\Service\SlotService;
 
 /**
- * Applies the extras through the application's own services.
+ * Applies the extras through the application's own services, and orchestrates
+ * the per-domain seeders.
  *
  * Nothing here writes to a table directly — not `member_photos`, not
  * `member_badges`, not `finance_expected_receivables`. That is the difference
- * between a dataset that stays restorable and one that freezes today's schema:
- * a column added tomorrow is absorbed by the service, and a signature that
- * changes is caught by `vendor/bin/phpstan analyse` before anybody runs this.
+ * between a dataset that stays restorable and one that freezes today's
+ * schema: a column added tomorrow is absorbed by the service, and a signature
+ * that changes is caught by `vendor/bin/phpstan analyse` before anybody runs
+ * this.
  *
  * The photos in particular go through Core\Photo\PhotoIngestionService — the
  * same pipeline `/upload` uses — so every one of them is cropped for its
  * context, stripped of EXIF and given its derivative. Writing the rows by hand
  * would have skipped all three and produced photos the site cannot render
  * properly.
+ *
+ * **This class stayed the orchestrator when the extras were split up.** Each
+ * module-shaped domain — calendar, news, camps, registrations, rentals,
+ * banners, the gallery album, the section staffs — now lives in its own
+ * `*Blueprint`/`*Seeder` pair, and this file calls them, counts what they
+ * wrote and reports what it had to skip. What it still applies itself is the
+ * member-level half: section addresses, year offsets, departures, photos and
+ * the expected receivables, none of which belongs to a module.
  */
 final class ExtrasApplier
 {
@@ -87,25 +87,51 @@ final class ExtrasApplier
         private readonly string $storagePath,
         private readonly string $datasetRoot,
         private readonly ?int $actorId,
+        /**
+         * Whose "may I manage this?" the gallery is asked on the builder's
+         * behalf. The role handed with it is SUPERADMIN, which never consults
+         * the address — but the parameter is not optional in the module's
+         * API, and inventing one here would be a second identity nobody
+         * declared.
+         */
+        private readonly string $actorEmail = DemoAccounts::SUPERADMIN_EMAIL,
     ) {
     }
 
     /**
      * The extras that belong to an optional module, and the table whose
-     * presence says whether that module is enabled on the target.
+     * presence says whether that module can be written to on the target.
+     *
+     * Since the builder now switches every module on before it gets here
+     * (ModuleActivator, README §8.1), nothing should be skipped in practice.
+     * The map is kept all the same: the builder can be pointed at an
+     * installation whose schema predates a module, and a fixture that died
+     * halfway through would be worse than one that names the page it could
+     * not fill.
      *
      * @var array<string, array{table: string, module: string}>
      */
     private const MODULE_EXTRAS = [
-        'évènements de calendrier' => ['table' => 'calendar_calendars', 'module' => 'calendar'],
         'créances attendues' => ['table' => 'finance_expected_receivables', 'module' => 'finance'],
+        'évènements de calendrier' => ['table' => 'calendar_calendars', 'module' => 'calendar'],
+        'articles d\'actualité' => ['table' => 'news_articles', 'module' => 'news'],
+        'réponses de formulaire' => ['table' => 'news_form_responses', 'module' => 'news'],
+        'lieux de camp' => ['table' => 'camp_places', 'module' => 'camps'],
+        'séjours' => ['table' => 'camp_camps', 'module' => 'camps'],
+        'demandes d\'inscription' => ['table' => 'registration_requests', 'module' => 'registration'],
+        'bannières' => ['table' => 'banners', 'module' => 'banner'],
+        'albums photo' => ['table' => 'gallery_albums', 'module' => 'gallery'],
+        'biens en location' => ['table' => 'rental_assets', 'module' => 'rental'],
+        'réservations' => ['table' => 'rental_bookings', 'module' => 'rental'],
+        'responsables de section' => ['table' => 'trombinoscope_function_flags', 'module' => 'trombinoscope'],
     ];
 
     /**
      * @param array<string, int> $yearIds scout year label => id
-     * @return array{counts: array<string, int>, skipped: array<string, string>}
-     *         counters for the builder's report, and the extras that were
-     *         skipped mapped to the module that was not there
+     * @return array{counts: array<string, int>, skipped: array<string, string>, notes: list<string>}
+     *         counters for the builder's report, the extras that were skipped
+     *         mapped to the module that was not there, and anything a human
+     *         should read rather than count
      */
     public function apply(array $yearIds, int $unitAccountId): array
     {
@@ -113,14 +139,15 @@ final class ExtrasApplier
         $this->loadSections();
 
         $counts = [
+            'adresses de section' => $this->applySectionEmails(),
             'décalages d\'année' => $this->applyScoutYearOffsets($yearIds),
             'départs marqués' => $this->applyDepartures($yearIds),
-            'badges attribués' => $this->applyBadges($yearIds),
+            'badges attribués' => $this->staffSeeder($yearIds)->assignBadges(),
             'photos de membres' => $this->applyMemberPhotos($yearIds),
             'photos de groupe' => $this->applySectionPhotos($yearIds),
         ];
 
-        // A module can legitimately be disabled on the target instance, and
+        // A module can legitimately be absent from the target instance, and
         // its tables then do not exist. That is not a failure of the build —
         // it is the instance being configured differently — so those extras
         // are skipped rather than crashing halfway and leaving the dataset
@@ -132,26 +159,136 @@ final class ExtrasApplier
         // instead of `calendar_calendars`), which quietly dropped nine events
         // on an instance where the calendar was enabled the whole time.
         $skipped = [];
+        $notes = [];
+        $present = [];
+
         foreach (self::MODULE_EXTRAS as $label => $extra) {
-            if (!$this->tableExists($extra['table'])) {
-                $counts[$label] = 0;
-                $skipped[$label] = $extra['module'];
+            if ($this->tableExists($extra['table'])) {
+                $present[$label] = true;
                 continue;
             }
-
-            $counts[$label] = $label === 'évènements de calendrier'
-                ? $this->applyCalendarEvents($yearIds)
-                : $this->applyExpectedReceivables($unitAccountId);
+            $counts[$label] = 0;
+            $skipped[$label] = $extra['module'];
         }
 
-        return ['counts' => $counts, 'skipped' => $skipped];
+        if (isset($present['créances attendues'])) {
+            $counts['créances attendues'] = $this->applyExpectedReceivables($unitAccountId);
+        }
+
+        if (isset($present['évènements de calendrier'])) {
+            $counts['évènements de calendrier'] = (new CalendarSeeder(
+                $this->pdo,
+                $this->encryption,
+                $this->sectionService(),
+                $this->sectionIds,
+                $this->actorId,
+            ))->seed();
+        }
+
+        if (isset($present['articles d\'actualité']) && $this->actorId !== null) {
+            $news = (new NewsSeeder(
+                $this->pdo,
+                $this->encryption,
+                $this->storagePath,
+                $this->datasetRoot,
+                $this->actorId,
+            ))->seed();
+            $counts['articles d\'actualité'] = $news['articles'];
+            if (isset($present['réponses de formulaire'])) {
+                $counts['réponses de formulaire'] = $news['responses'];
+            }
+        }
+
+        if (isset($present['lieux de camp'])) {
+            $camps = (new CampsSeeder($this->pdo, $this->encryption, $this->sectionIds, $this->actorId))->seed();
+            $counts['lieux de camp'] = $camps['places'];
+            if (isset($present['séjours'])) {
+                $counts['séjours'] = $camps['camps'];
+            }
+        }
+
+        if (isset($present['demandes d\'inscription'])) {
+            $registrations = (new RegistrationSeeder($this->pdo, $this->encryption, $this->sectionIds))->seed();
+            $counts['demandes d\'inscription'] = $registrations['requests'];
+            $notes[] = sprintf(
+                'inscriptions : %d créneau(x) semé(s) à %d, %d capacité(s) réglée(s) à la main, '
+                . '%d demande(s) acceptée(s), formulaire %s',
+                $registrations['seededCapacities'],
+                SlotService::DEFAULT_CAPACITY,
+                $registrations['overrides'],
+                $registrations['accepted'],
+                $registrations['formOpen'] ? 'ouvert' : 'fermé',
+            );
+        }
+
+        if (isset($present['bannières']) && $this->actorId !== null) {
+            $counts['bannières'] = (new BannerSeeder($this->pdo, $this->actorId))->seed();
+        }
+
+        if (isset($present['albums photo']) && $this->actorId !== null) {
+            $gallery = (new GallerySeeder(
+                $this->pdo,
+                $this->encryption,
+                $this->sectionService(),
+                $this->storagePath,
+                $this->sectionIds,
+                $this->actorId,
+                $this->actorEmail,
+            ))->seed();
+            $counts['albums photo'] = $gallery['albums'];
+            foreach ($gallery['failures'] as $failure) {
+                $notes[] = 'album externe non créé — ' . $failure;
+            }
+        }
+
+        if (isset($present['biens en location'])) {
+            $rental = (new RentalSeeder($this->pdo, $this->encryption, $this->memberIds, $this->actorId))->seed();
+            $counts['biens en location'] = $rental['asset'] !== null ? 1 : 0;
+            if (isset($present['réservations'])) {
+                $counts['réservations'] = $rental['bookings'];
+            }
+            if (!$rental['manager']) {
+                $notes[] = 'le bien en location n\'a pas de gestionnaire : le Tiers '
+                    . RentalBlueprint::MANAGER_TIERS . ' est-il toujours membre ?';
+            }
+            foreach ($rental['refusals'] as $refusal) {
+                $notes[] = 'réservation refusée par le module — ' . $refusal;
+            }
+        }
+
+        if (isset($present['responsables de section'])) {
+            $lead = $this->staffSeeder($yearIds)->flagSectionLead();
+            $counts['responsables de section'] = $lead['ledSections'];
+            if (!$lead['flagged']) {
+                $notes[] = 'aucune fonction « ' . UnitBlueprint::SECTION_LEAD_FUNCTION
+                    . ' » en base : les sections n\'auront pas de responsable.';
+            }
+            foreach ($lead['headless'] as $headless) {
+                $notes[] = 'section sans responsable — ' . $headless;
+            }
+        }
+
+        return ['counts' => $counts, 'skipped' => $skipped, 'notes' => $notes];
     }
 
     /**
-     * Whether a table is present, used to tell "this module is disabled here"
-     * from "something is broken". A disabled module's tables are simply
-     * absent: ModuleManager only runs a module's schema.sql when it is
-     * activated.
+     * The Tiers-to-member-id map this applier built, for whoever runs after
+     * it — the payment campaign needs one row per member and would otherwise
+     * read the same table a second time.
+     *
+     * Empty until apply() has run: it is filled from the database, not
+     * declared.
+     *
+     * @return array<string, int> Tiers => members.id
+     */
+    public function memberIds(): array
+    {
+        return $this->memberIds;
+    }
+
+    /**
+     * Whether a table is present, used to tell "this module is not installed
+     * here" from "something is broken".
      */
     private function tableExists(string $table): bool
     {
@@ -165,6 +302,39 @@ final class ExtrasApplier
     }
 
     // ------------------------------------------------------------- membres
+
+    /**
+     * Every section's email address, through SectionService::
+     * updateSectionInfo() — the Config Desk call, which is also the one that
+     * trims the value and nulls an empty one.
+     */
+    private function applySectionEmails(): int
+    {
+        $service = $this->sectionService();
+        $applied = 0;
+
+        foreach (ExtrasBlueprint::sectionEmails() as $handle => $email) {
+            $sectionId = $this->sectionIds[$handle] ?? null;
+            if ($sectionId === null) {
+                continue;
+            }
+            $service->updateSectionInfo($sectionId, UnitBlueprint::SECTIONS[$handle]['name'], $email);
+            $applied++;
+        }
+
+        // Staff d'U is a section like any other on that page, and the only one
+        // no export ever names — UnitStaffSectionService synthesises it, and
+        // the name it gave it is read back rather than restated here: the
+        // service owns that string, and a copy of it in this directory is a
+        // copy that would drift.
+        $unitStaff = $service->findByDeskCode(UnitStaffSectionService::DESK_CODE);
+        if ($unitStaff !== null) {
+            $service->updateSectionInfo($unitStaff['id'], $unitStaff['name'], UnitBlueprint::UNIT_STAFF_EMAIL);
+            $applied++;
+        }
+
+        return $applied;
+    }
 
     /** @param array<string, int> $yearIds */
     private function applyScoutYearOffsets(array $yearIds): int
@@ -208,29 +378,16 @@ final class ExtrasApplier
     }
 
     /** @param array<string, int> $yearIds */
-    private function applyBadges(array $yearIds): int
+    private function staffSeeder(array $yearIds): StaffSeeder
     {
-        $badgeRepository = new BadgeRepository($this->pdo);
-        $memberBadgeRepository = new MemberBadgeRepository($this->pdo);
-
-        $service = new BadgeService($badgeRepository, $memberBadgeRepository, $this->sectionService());
-        // Seeds "Infirmier" and "Trésorier", then creates one referent badge
-        // per section — both idempotent, both what a first page load does.
-        $service->ensureDefaults();
-        $service->syncSectionReferentBadges();
-
-        $applied = 0;
-        foreach (ExtrasBlueprint::BADGES as $assignment) {
-            $badge = $badgeRepository->findByName($assignment['badge']);
-            $memberYearId = $this->memberYearIdOf($assignment['tiers'], $yearIds[$assignment['year']] ?? 0);
-            if ($badge === null || $memberYearId === null) {
-                continue;
-            }
-            $memberBadgeRepository->assign($memberYearId, $badge->id, $this->actorId);
-            $applied++;
-        }
-
-        return $applied;
+        return new StaffSeeder(
+            $this->pdo,
+            $this->sectionService(),
+            $this->sectionIds,
+            $yearIds,
+            $this->memberIds,
+            $this->actorId,
+        );
     }
 
     // -------------------------------------------------------------- photos
@@ -337,73 +494,7 @@ final class ExtrasApplier
         ];
     }
 
-    // ------------------------------------------------------------- modules
-
-    /** @param array<string, int> $yearIds */
-    private function applyCalendarEvents(array $yearIds): int
-    {
-        $calendarRepository = new CalendarRepository($this->pdo, $this->encryption);
-        $eventRepository = new CalendarEventRepository($this->pdo);
-        $settingService = new SettingService(new SettingRepository($this->pdo));
-
-        $calendarService = new CalendarService(
-            $calendarRepository,
-            $eventRepository,
-            $this->sectionService(),
-            new CalendarUnitFeedTokenRepository($this->pdo, $this->encryption),
-        );
-        // Both idempotent, and both what the calendar page does on first load.
-        $calendarService->ensureDefaultCalendar();
-        $calendarService->ensureSectionCalendars();
-
-        $eventService = new CalendarEventService(
-            $eventRepository,
-            $calendarService,
-            // Notifications and account lookup are optional collaborators, and
-            // a build has nobody to notify: the same degradation the site
-            // applies when Web Push is not configured.
-            new CalendarNotificationService(
-                new SchedulerService(new SchedulerRepository($this->pdo)),
-                $settingService,
-                $calendarService,
-                $eventRepository,
-            ),
-        );
-
-        $applied = 0;
-        foreach (ExtrasBlueprint::CALENDAR_EVENTS as $event) {
-            $calendarId = $this->calendarIdFor($calendarRepository, $event['section']);
-            if ($calendarId === null || !isset($yearIds[$event['year']])) {
-                continue;
-            }
-
-            $start = ExtrasBlueprint::dateIn($event['year'], $event['day']);
-            $end = $event['duration'] > 0
-                ? ExtrasBlueprint::dateIn($event['year'], $event['day'] + $event['duration'])
-                : null;
-
-            $eventService->createEvent(
-                $calendarId,
-                $event['title'],
-                $start,
-                $end,
-                null,
-                null,
-                $event['location'],
-                null,
-                $this->actorId,
-                false,
-                // The seeder writes as the unit's chef d'unité across every
-                // seeded section — the write check has no role-less path
-                // anymore (there is no "system caller" bypass to lean on).
-                \Core\Security\Role::SUPERADMIN,
-                array_values($this->sectionIds),
-            );
-            $applied++;
-        }
-
-        return $applied;
-    }
+    // ------------------------------------------------------------- finances
 
     /**
      * One expected receivable per structured communication on the statements.
@@ -491,17 +582,6 @@ final class ExtrasApplier
     private function photoManifest(): array
     {
         return (new DatasetGenerator($this->datasetRoot))->photoRows();
-    }
-
-    private function calendarIdFor(CalendarRepository $repository, ?string $sectionHandle): ?int
-    {
-        if ($sectionHandle === null) {
-            return $repository->findDefaultCalendar()?->id;
-        }
-
-        $sectionId = $this->sectionIds[$sectionHandle] ?? null;
-
-        return $sectionId !== null ? $repository->findBySectionId($sectionId)?->id : null;
     }
 
     private function loadMembers(): void

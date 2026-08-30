@@ -410,7 +410,14 @@ $migrationIsPending = $migrationRunner->isPending($schemaFiles);
 \Core\Debug\RequestTimeline::mark('migration_pending_check_done', ['pending' => $migrationIsPending]);
 
 if ($migrationIsPending) {
-    $migrationStepPath = '/api/system/migration-step';
+    $migrationStepPath = \Core\Database\MigrationChain::STEP_PATH;
+
+    // The chain that finishes this migration when nobody is watching.
+    // Everything about it — the settings it steers on, the ordering of
+    // flush and hop — lives in the class: this branch runs before the
+    // application's SettingService exists, exits before reaching it, and
+    // is entered by no test and no browser. See MigrationChain.
+    $migrationChain = \Core\Database\MigrationChain::forPendingMigration($connection->getPdo());
 
     if ($request->getMethod() === 'POST' && $request->getPath() === $migrationStepPath) {
         // This endpoint runs live DDL and is reachable before any session,
@@ -454,6 +461,10 @@ if ($migrationIsPending) {
             'complete' => $stepResult->complete,
             'progress' => round($stepResult->progressFraction, 3),
         ]);
+
+        // What makes the chain a chain: the ignition below only ever emits
+        // one hop.
+        $migrationChain?->afterSlice($stepResult->complete);
         exit;
     }
 
@@ -527,6 +538,13 @@ if ($migrationIsPending) {
 </body>
 </html>
 HTML);
+
+    // Ignition. This request was going to show a progress page to whoever
+    // asked — which, when the asker is Scheduler\SchedulerKick's hop after
+    // an install, is nobody at all. Starting the chain here is what stops
+    // a pending migration from waiting on a human: see MigrationChain, and
+    // the thirty-minute production stall that class documents.
+    $migrationChain?->afterProgressPage();
     exit;
 }
 
