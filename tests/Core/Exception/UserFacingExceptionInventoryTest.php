@@ -57,6 +57,8 @@ final class UserFacingExceptionInventoryTest extends TestCase
         \Core\Security\SuperAdminException::class,
         \Core\Support\SupportPackageException::class,
         \Core\View\RgpdGenerationException::class,
+        \Modules\Attestations\Service\AttestationsException::class,
+        \Modules\Attestations\Service\PageCountMismatchException::class,
         \Modules\Banner\Service\BannerException::class,
         \Modules\Calendar\Service\CalendarException::class,
         \Modules\Finance\Service\CampaignImportException::class,

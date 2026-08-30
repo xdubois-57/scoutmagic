@@ -1,0 +1,132 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  Who is still missing a certificate, for one category and one season.
+
+  Two lists, and the order is the point: the missing ones first, because
+  they are the reason anybody opens this page — that list is what a chef
+  d'unité copies into an e-mail to the federation. The covered ones are
+  folded away underneath, as the answer to « en es-tu sûr ? ».
+
+  The population is the roster of the season shown, not today's: a member
+  who has since left was there when the certificate was earned, and is
+  exactly the family nobody else will notice received nothing.
+#}
+{% extends 'base.html.twig' %}
+{% block title %}Couverture des attestations — {{ site_name }}{% endblock %}
+{% block content %}
+    <div class="page-medium">
+        {% include 'partials/page_header.html.twig' with {
+            title: 'Qui a reçu son attestation',
+            subtitle: "Pour une catégorie et une année scoute, qui la détient et qui ne l'a pas encore.",
+        } only %}
+
+        {# A GET form: a reading has to survive being bookmarked and sent on. #}
+        <form method="get" action="/admin/attestations/couverture" class="row g-2 align-items-end mb-4">
+            <div class="col-12 col-sm-6">
+                {% include 'partials/form_field.html.twig' with {
+                    type: 'select',
+                    name: 'category',
+                    label: 'Catégorie',
+                    options: category_options,
+                } only %}
+            </div>
+            <div class="col-12 col-sm-4">
+                {% include 'partials/form_field.html.twig' with {
+                    type: 'select',
+                    name: 'scout_year_id',
+                    label: 'Année scoute',
+                    options: year_options,
+                } only %}
+            </div>
+            <div class="col-12 col-sm-2">
+                <button type="submit" class="btn btn-outline-secondary w-100">Afficher</button>
+            </div>
+        </form>
+
+        {% if coverage.total() == 0 %}
+            {% include 'partials/empty_state.html.twig' with {
+                icon: 'bi-people',
+                message: "Aucun membre inscrit cette année-là — choisissez une autre année scoute.",
+            } only %}
+        {% else %}
+            <div class="row row-cols-3 g-2 mb-4">
+                <div class="col">
+                    <div class="card h-100"><div class="card-body py-2">
+                        <div class="fs-4 fw-semibold lh-1">{{ coverage.total() }}</div>
+                        <div class="small text-body-secondary">membres cette année-là</div>
+                    </div></div>
+                </div>
+                <div class="col">
+                    <div class="card h-100"><div class="card-body py-2">
+                        <div class="fs-4 fw-semibold lh-1 text-success">{{ coverage.covered|length }}</div>
+                        <div class="small text-body-secondary">ont la leur</div>
+                    </div></div>
+                </div>
+                <div class="col">
+                    <div class="card h-100"><div class="card-body py-2">
+                        <div class="fs-4 fw-semibold lh-1 {{ coverage.isComplete() ? '' : 'text-warning-emphasis' }}"
+                             id="attestations-missing-count">{{ coverage.missing|length }}</div>
+                        <div class="small text-body-secondary">sans attestation</div>
+                    </div></div>
+                </div>
+            </div>
+
+            {% if coverage.isComplete() %}
+                <div class="alert alert-success" role="status">
+                    <i class="bi bi-check-circle" aria-hidden="true"></i>
+                    Tout le monde a la sienne — {{ coverage.covered|length }} membre(s) sur
+                    {{ coverage.total() }}.
+                </div>
+            {% else %}
+                <div class="card border-warning mb-4">
+                    <div class="card-header bg-warning-subtle text-warning-emphasis d-flex align-items-center gap-2">
+                        <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+                        <span class="fw-semibold">
+                            {{ coverage.missing|length }} membre(s) sans attestation
+                        </span>
+                    </div>
+                    <div class="card-body">
+                        <p class="small text-body-secondary mb-0">
+                            {# Said plainly, because the two causes call for two different actions. #}
+                            Soit la fédération ne l'a pas encore envoyée, soit son attestation était dans
+                            un fichier dont la ligne n'a pas trouvé de membre. Cette liste est ce que vous
+                            transmettez à la fédération pour réclamer le complément.
+                        </p>
+                    </div>
+                    <ul class="list-group list-group-flush" id="attestations-missing-list">
+                        {% for member in coverage.missing %}
+                            <li class="list-group-item d-flex justify-content-between align-items-center gap-2">
+                                <span class="min-w-0 text-truncate">{{ member.fullName }}</span>
+                                {% if member.functionLabel %}
+                                    <span class="badge text-bg-light border flex-shrink-0">{{ member.functionLabel }}</span>
+                                {% endif %}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            {% endif %}
+
+            {% if coverage.covered is not empty %}
+                <details class="card">
+                    <summary class="card-body d-flex align-items-center gap-2 mb-0">
+                        <i class="bi bi-check-circle text-success" aria-hidden="true"></i>
+                        <span class="flex-grow-1">{{ coverage.covered|length }} membre(s) ont déjà la leur</span>
+                    </summary>
+                    <ul class="list-group list-group-flush border-top">
+                        {% for member in coverage.covered %}
+                            <li class="list-group-item d-flex justify-content-between align-items-center gap-2">
+                                <span class="min-w-0 text-truncate">{{ member.fullName }}</span>
+                                {% if member.functionLabel %}
+                                    <span class="badge text-bg-light border flex-shrink-0">{{ member.functionLabel }}</span>
+                                {% endif %}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                </details>
+            {% endif %}
+        {% endif %}
+    </div>
+{% endblock %}

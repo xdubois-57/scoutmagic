@@ -187,6 +187,28 @@ interface Window {
         showDesktopMenu?: (menuId: string) => void;
         syncSwitchAriaChecked?: (input: HTMLInputElement) => void;
     };
+    // public/assets/js/attestations-deposit.js — the deposit form's file
+    // picker; exposed for the unit tests, which exercise the real file.
+    ScoutMagicAttestationsDeposit?: {
+        adoptFiles: (input: HTMLInputElement, files: FileList) => boolean;
+        showFileName: (target: HTMLElement, file: File | null) => void;
+    };
+    // public/assets/js/attestations-verification.js — the verification
+    // screen's filtering, counters and bulk command; exposed for the unit
+    // tests, which exercise the real file rather than a reimplementation.
+    ScoutMagicAttestationsVerification?: {
+        applyFilter: (rows: HTMLElement[], selectedFunctions: string[]) => number;
+        shouldShow: (row: HTMLElement, selectedFunctions: string[]) => boolean;
+        allVisibleChecked: (rows: HTMLElement[]) => boolean;
+        refreshToggleLabel: (button: HTMLElement, rows: HTMLElement[]) => void;
+        refreshCounters: (
+            rows: HTMLElement[],
+            visibleEl: HTMLElement | null,
+            selectedEl: HTMLElement | null
+        ) => void;
+        toggleVisible: (rows: HTMLElement[]) => void;
+        rowsOf: (list: HTMLElement) => HTMLElement[];
+    };
     // public/assets/js/select-bar.js — the escape hatch a mode:multi
     // caller uses to revert its own optimistic toggle after the server
     // rejects it, without re-dispatching select-bar:change.
