@@ -31,6 +31,14 @@
                                     <li class="mb-1">
                                         {{ year }}
                                         {% if waitlist_enabled %}
+                                            {# « Complet » ne s'affiche que pour une année de naissance
+                                               explicitement rangée dans le niveau `heavy` par
+                                               Service\SlotService. Une branche sans capacité enregistrée
+                                               (NULL en base — « pas de limite », jamais 0) n'y arrive
+                                               jamais : elle est annoncée « Disponible », comme une branche
+                                               qui a de la place. Ne jamais remplacer cette cascade par un
+                                               calcul sur un nombre : un NULL lu comme un nombre vaut 0, et
+                                               une branche non configurée basculerait en « Complet ». #}
                                             {% if year in waitlist_tiers.limited|default([]) %}
                                                 <span class="badge text-bg-warning ms-1">Limitée</span>
                                             {% elseif year in waitlist_tiers.heavy|default([]) %}

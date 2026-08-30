@@ -9,9 +9,9 @@ related: import-desk, import-historique, staffs
 ---
 
 Cette page dit ce qui ne va pas dans l'unité **maintenant** : un badge
-que plus personne ne porte, une section qui n'est plus encadrée en nombre
-suffisant, des départs annoncés que Desk ignore encore, une catégorie
-tarifaire devenue fausse.
+que plus personne ne porte, un intendant dont la fenêtre d'inscription
+gratuite s'épuise, des départs annoncés que Desk ignore encore, une
+catégorie tarifaire devenue fausse.
 
 Elle est permanente et ne dépend d'aucun import récent. Elle est aussi
 utile en juin que le lendemain d'un import.

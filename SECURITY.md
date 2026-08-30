@@ -151,7 +151,7 @@ There is no blind index on it: nothing searches these notes, and giving them one
 
 Every response: `Content-Security-Policy`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Strict-Transport-Security` (if HTTPS), `Referrer-Policy: strict-origin-when-cross-origin`.
 
-The fatal-error fallback page (`Core\Http\ErrorHandler`, §22) re-emits the same header set from its own hardcoded 500 response — an uncaught throwable must never be the one response that ships without them. The two other pages emitted outside the normal `Response` path do the same now: the 413 "payload too large" page and the pre-routing migration-progress page. The migration page carries an inline `<script>` **and** an inline `<style>`, so it builds a per-render **nonce**-based CSP and tags both with it, rather than shipping no CSP at all (which is the only reason that inline script used to run).
+The fatal-error fallback page (`Core\Http\ErrorHandler`, §22) re-emits the same header set from its own hardcoded 500 response — an uncaught throwable must never be the one response that ships without them. Its **CSP** is deliberately parallel to `Response::buildCsp()` rather than equal to it: that page loads no script, stylesheet, image or font of its own, so it grants no source and says `default-src 'self'` and nothing more. What it must never diverge on is the other half — the directives that do **not** fall back to `default-src` and are therefore unenforced unless spelled out: `frame-ancestors`, `base-uri` and `form-action` (`ErrorHandler::NO_FALLBACK_CSP_DIRECTIVES`, pinned against the real policy by `Tests\Core\Http\ErrorHandlerTest`). `form-action` was missing there from the day the handler was written, and no test saw it because no scenario had ever made a scanner visit an error page; the first end-to-end scenario that provokes a 500 on purpose is what made OWASP ZAP report it (rule 10055, Medium). A page nothing ever visits is a page nothing ever checks. The two other pages emitted outside the normal `Response` path do the same now: the 413 "payload too large" page and the pre-routing migration-progress page. The migration page carries an inline `<script>` **and** an inline `<style>`, so it builds a per-render **nonce**-based CSP and tags both with it, rather than shipping no CSP at all (which is the only reason that inline script used to run).
 
 ### `style-src`, split in three
 
@@ -223,6 +223,7 @@ No other proxy header is trusted — not `X-Forwarded-For`, not `Forwarded`, not
 
 - Every sensitive action logged. No personal data in entries — reference `member_id` only.
 - Journal accessible to `chief` role.
+- **An uncaught throwable is journalled too** (`Core\Http\ErrorHandler`, level `error`, ARCHITECTURE.md §8.6), and the same rule governs it: the stack in the entry's context is rebuilt frame by frame — class, method, file, line — and never taken from `getTraceAsString()`, which renders every frame's call ARGUMENTS. That is not a theoretical leak: the trace of the incident this was built for carried a member's email address that way. What the description carries beyond the class, the file and the line is the exception's own message, which is technical text this application writes; a message must not be constructed out of somebody's data any more than a journal description must.
 
 ## 12. Secrets management
 

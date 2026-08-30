@@ -547,6 +547,14 @@
       "description": "Si le connecteur IA est actif : un court résumé de ce que les séjours et les avis d'un lieu racontent, régénéré une fois par jour quand quelque chose a changé. Il ne reçoit que les avis, notes, prix, statuts, dates, nombres de participants et sections — jamais les contacts ni les e-mails reçus."
     }
   ],
+  "cookies": [
+    {
+      "name": "camps_map_collapsed",
+      "category": "functional",
+      "purpose": "Mémorisation du repli de la carte des lieux de camp, pour la retrouver telle que vous l'avez laissée à chaque visite.",
+      "duration": "Jusqu'au retrait (suppression manuelle ou réouverture de la carte)"
+    }
+  ],
   "notifications": [
     {
       "id": "camps.review_due",

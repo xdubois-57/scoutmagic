@@ -599,3 +599,92 @@ passerait tout aussi bien sur un handler qui aurait cessé de migrer, ce qui
 est un schéma silencieusement non migré et non un problème corrigé.
 
 Vérifié en échec : réintroduire un `migrate()` en ligne fait tomber le test.
+
+### IT-07, les deux points que j'avais omis
+
+Audit de la roadmap contre `main`, à la demande de Xavier : IT-07 en
+demandait quatre choses, j'en avais fait deux. J'avais construit
+l'itération autour de ma propre lecture — « ne plus migrer dans le
+processus qui remplace les fichiers » — juste et importante, mais qui
+n'épuisait pas la demande. On ne clôt pas une itération sans repasser sur
+ses points.
+
+**`public/cron.php` ne lançait pas la migration.** Il construisait un
+`MigrationRunner` et ne l'appelait jamais ; depuis IT-06 ce runner ne
+servait même plus à satisfaire le constructeur de `ModuleManager`, donc
+c'était du code mort que rien ne signalait. Il migre désormais le schéma
+déclaré entier avec un budget de 900 s : en CLI `max_execution_time` vaut
+0, donc une passe unique suffit quelle que soit la taille du changement,
+sans checkpoint à reprendre et sans personne qui attend. Quinze minutes
+plutôt qu'aucun budget — la plus lente des 133 mises à jour de production
+a pris 831 s au total, et un budget absurde échangerait un schéma à moitié
+migré contre une passe de cron tuée en plein DDL.
+
+La passe est dans `Database\DeploymentMigration` et non en ligne dans le
+script, parce que c'est précisément le point : aucun test et aucun
+navigateur n'exécute `cron.php`, donc un bloc en ligne y est un bloc que
+rien ne peut vérifier — c'est comme ça qu'un `MigrationRunner` jamais
+appelé y a survécu à une itération entière. `DeploymentMigrationTest`
+exécute la vraie passe contre la vraie base, budget compris.
+
+**Le sondage de la page Maintenance ne faisait que lire.** Il exécute
+maintenant une tranche courte à chaque passage, pendant l'étape
+`migrating` seulement. L'administrateur qui regarde refetche toutes les
+trois secondes de toute façon ; ces requêtes lisaient une ligne de statut
+et ne faisaient rien. Trois limites délibérées : uniquement pendant
+`migrating`, un budget de 5 s puisque quelqu'un attend la réponse, et
+jamais fatal — le métier de cet endpoint est de rapporter un statut, et la
+tâche de reprise possède le chemin d'échec, rollback compris.
+
+Aucun des trois moteurs n'est porteur à lui seul : une unité sans crontab
+et sans personne devant l'écran reste servie par le chemin de déploiement
+et, en dernier recours, par la page de progression.
+
+La réponse du sondage porte au passage la fraction de progression, et le
+formulaire d'installation l'affiche à côté de son spinner. C'est
+l'`installing`/`migrating` qui peut durer des minutes : sans ce chiffre,
+une migration qui avance et une mise à jour bloquée se ressemblent
+exactement. Le texte est posé en `textContent`, jamais en `innerHTML`.
+
+### Deux mises à jour « En cours » à partir de la même version
+
+Xavier a vu, sur la page Maintenance, deux lignes partant toutes deux de
+`dev-f2ca7af` : l'une à `pending`, l'autre à `migrating`. La question
+était juste : est-ce normal, est-ce dangereux ?
+
+**Ce n'était pas deux migrations en parallèle.** Une seule a tourné. Deux
+pushes à deux minutes d'écart : le second a annulé la tâche planifiée du
+premier — c'est le comportement voulu — mais rien n'a fermé sa ligne
+d'historique. `findInProgress()` et `markOtherInProgressAsFailed()`
+excluent `pending` délibérément (une install en file n'a touché à rien,
+elle ne doit pas mettre les visiteurs derrière la page de maintenance), et
+le filet des quinze minutes ne regarde que les lignes déjà en cours. La
+ligne restait donc « En cours (pending) » pour toujours. Pas dangereux,
+mais un historique qui ment en permanence — exactement le genre de
+mensonge qui a rendu l'incident de production difficile à voir.
+
+**Le danger réel était juste à côté.** Rien ne sérialisait deux
+installations. La protection tenait à deux choses qui ne se recouvrent
+pas : un garde qui ne voit pas une install en file, et une déduplication
+qui n'opère qu'à l'intérieur d'une même référence. Deux lignes de
+références différentes échappaient aux deux, et le commentaire du code
+notait déjà que ça avait corrompu une installation en pratique.
+
+Trois correctifs :
+
+- `Maintenance\InstallLock` — un `GET_LOCK` nommé, **timeout 0** comme
+  tous les verrous d'exclusion ici, pris avant
+  `markOtherInProgressAsFailed()` et tenu pendant sauvegarde, download et
+  `installFiles()`. Le perdant marque sa propre ligne `failed` et se
+  retire, au lieu de faire la queue derrière une copie de fichiers pour
+  démarrer la sienne à la seconde où elle finit.
+- `GitHubWebhookService::supersedeQueuedInstall()` — ferme la ligne
+  supplantée au lieu de l'abandonner à `pending`.
+- `Maintenance\AbandonedInstallSweeper` — le filet en dessous, lancé
+  depuis `public/cron.php`, qui ferme une ligne `pending` qu'aucune tâche
+  planifiée n'attend plus. Le prédicat est cette absence, jamais l'âge :
+  une install de release qui attend lundi 03:00 est légitimement en file
+  pendant des jours.
+
+Vérifiés en échec, les trois : neutraliser le verrou, la fermeture de la
+ligne supplantée ou le prédicat du balayeur fait tomber son test.

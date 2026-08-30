@@ -100,6 +100,7 @@ function buildDom() {
             </div>
 
             <div id="mm-merge-list-note" class="d-none"></div>
+            <div id="mm-external-list-note" class="d-none"></div>
             <div id="mm-merge-zone" class="d-none">
                 <div id="mm-merge-upload-state">
                     <input type="file" id="mm-merge-file">
@@ -178,6 +179,10 @@ function listData(overrides = {}) {
             { list_type: 'default_section', list_section_id: 2, label: 'Louveteaux', description: 'Section' },
             { list_type: 'default_section', list_section_id: 3, label: 'Éclaireurs', description: 'Section' },
             { list_type: 'default_all', list_section_id: null, label: 'Membres actifs', description: 'Tous' },
+            // Contributed by another module (Email::LIST_TYPE_EXTERNAL) — only
+            // present when that module is enabled, hence a plain fixture entry
+            // rather than a hardcoded option the script appends itself.
+            { list_type: 'external', list_section_id: null, label: 'Inscriptions 2026-2027', description: 'Demandes encodées' },
         ],
         customLists: [{ id: 9, name: 'Anciens', description: 'Liste maison' }],
         scoutYears: {
@@ -489,6 +494,81 @@ describe('mass-mail-list.js: the scout-year block', () => {
         await bootAndOpen();
         expect(document.getElementById('mm-previous-year-note').textContent)
             .toContain('généralement autour du 15/10');
+    });
+
+    // A list contributed by another module (Email::LIST_TYPE_EXTERNAL —
+    // today the registration module's) is resolved against its OWN fixed
+    // target year: Service\MailingListService::resolveMembersForYears()
+    // never re-scopes it, so whatever the checkboxes said was already being
+    // ignored server-side. Offering them advertised a choice that does not
+    // exist; hiding them without a word would look like a glitch, hence the
+    // note that replaces the block.
+    describe('a list whose year is not the chief\'s to choose', () => {
+        /** @param {string} value */
+        async function selectList(value) {
+            const select = /** @type {HTMLSelectElement} */ (document.getElementById('mm-list'));
+            select.value = value;
+            select.dispatchEvent(new Event('change'));
+            await settle();
+        }
+
+        /** @param {string} id */
+        function hidden(id) {
+            return document.getElementById(id).classList.contains('d-none');
+        }
+
+        it('hides the scout-year block and explains why, in French', async () => {
+            await bootAndOpen(listData(), email({ status: 'draft' }));
+
+            await selectList('external:');
+
+            expect(hidden('mm-scout-year-zone')).toBe(true);
+            // The note's French wording lives in the template, not here —
+            // it is asserted where it is written (Tests\Modules\MassMail\
+            // EmailListRenderingTest) and read off the real page by
+            // tests/e2e/specs/mass-mail.spec.js.
+            expect(hidden('mm-external-list-note')).toBe(false);
+            // The mail-merge note is the model, not a synonym: the file zone
+            // and its own note stay out of it.
+            expect(hidden('mm-merge-list-note')).toBe(true);
+            expect(hidden('mm-merge-zone')).toBe(true);
+        });
+
+        it('brings the years back, and drops the note, on any ordinary list', async () => {
+            await bootAndOpen(listData(), email({ status: 'draft' }));
+
+            await selectList('external:');
+            await selectList('default_section:2');
+
+            expect(hidden('mm-scout-year-zone')).toBe(false);
+            expect(hidden('mm-external-list-note')).toBe(true);
+        });
+
+        it('hides the years for a mail merge too, without borrowing the other note', async () => {
+            await bootAndOpen(listData(), email({ status: 'draft' }));
+
+            await selectList('mail_merge:');
+
+            expect(hidden('mm-scout-year-zone')).toBe(true);
+            expect(hidden('mm-merge-list-note')).toBe(false);
+            expect(hidden('mm-external-list-note')).toBe(true);
+        });
+
+        it('applies the rule when an existing email of that list type is opened', async () => {
+            // Not only on a change event: applyStatusUi() re-runs the same
+            // rule, which is the path the "Ouvrir" button takes.
+            await bootAndOpen(listData(), email({
+                status: 'draft',
+                list_type: 'external',
+                list_id: null,
+                list_section_id: null,
+            }));
+
+            expect(/** @type {HTMLSelectElement} */ (document.getElementById('mm-list')).value)
+                .toBe('external:');
+            expect(hidden('mm-scout-year-zone')).toBe(true);
+            expect(hidden('mm-external-list-note')).toBe(false);
+        });
     });
 });
 
