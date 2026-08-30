@@ -892,6 +892,57 @@ $schedulerRepo = new SchedulerRepository($pdo);
 $schedulerService = new SchedulerService($schedulerRepo, cachePendingRearms: true);
 $schedulerRunner = new SchedulerRunner($schedulerRepo, $journalService);
 
+// Scheduler self-continuation (ARCHITECTURE.md §8.5): the poor man's cron
+// below only ever advances the queue when somebody visits, which made every
+// task late and killed the one task long enough to need a second slice.
+// These three settings are what the mechanism is steered by — never a
+// hardcoded budget, since max_execution_time differs per host.
+$settingService->register(
+    \Core\Scheduler\SchedulerContinuation::BUDGET_SETTING, '75', 'number',
+    'Budget d\'une tranche d\'ordonnanceur (secondes)',
+    'Durée au-delà de laquelle une tranche de tâches de fond cesse d\'en démarrer de nouvelles et passe la main à la suivante. À garder nettement sous le max_execution_time du serveur.',
+    null, null, null, true, 900
+);
+$settingService->register(
+    \Core\Scheduler\SchedulerContinuation::MAX_HOPS_SETTING, '30', 'number',
+    'Nombre maximum de tranches enchaînées',
+    'Plafond dur du nombre de fois qu\'une même chaîne de tâches de fond peut se relancer elle-même. Une chaîne qui ne peut pas se terminer est pire qu\'une file qui se vide lentement.',
+    null, null, null, true, 901
+);
+$settingService->register(
+    \Core\Scheduler\SchedulerContinuation::HOPS_SETTING, '0', 'number',
+    'Tranches enchaînées de la chaîne en cours (interne)',
+    'Compteur interne remis à zéro au démarrage de chaque chaîne ; sert à faire respecter le plafond ci-dessus.',
+    null, null, null, false, 902
+);
+
+// The hop authenticates itself to its own site with a shared secret, kept
+// in secrets.enc alongside github_webhook_secret rather than in `settings`
+// (AGENTS.md § Setting types: a credential does not live in a table an
+// admin page renders). Generated once, on the first request that finds
+// none — there is no admin action to hang it off, unlike the webhook's.
+$schedulerSecret = (string) ($secrets['scheduler_continuation_secret'] ?? '');
+if ($schedulerSecret === '') {
+    try {
+        $schedulerSecret = \Core\Security\CapabilityToken::generate();
+        $secretManager->writeSecrets($secrets + ['scheduler_continuation_secret' => $schedulerSecret]);
+        $secrets['scheduler_continuation_secret'] = $schedulerSecret;
+    } catch (\Throwable) {
+        // No secret, no hops — the queue falls back to advancing on visits,
+        // exactly as it did before this existed. Never a fatal.
+        $schedulerSecret = '';
+    }
+}
+
+$schedulerContinuation = new \Core\Scheduler\SchedulerContinuation(
+    $schedulerRunner,
+    $schedulerRepo,
+    $settingService,
+    $journalService,
+    $pdo,
+    $schedulerSecret
+);
+
 // Register param() Twig function — reads from settings database
 $twig->addFunction(new TwigFunction('param', function (string $key, ?string $moduleId = null) use ($settingService): string {
     return (string) ($settingService->get($key, $moduleId) ?? '');
@@ -1957,6 +2008,18 @@ $router->addRoute('POST', '/api/maintenance/webhook-secret', MaintenanceControll
 // instead. See Core\Http\Controller\WebhookController's own docblock.
 $router->addRoute('POST', '/api/webhook/github', \Core\Http\Controller\WebhookController::class, 'github', 'public');
 
+// The second machine-to-machine route, and public for the same reason: the
+// caller is this installation's own PHP process, with no session for
+// RbacGuard to reason about. A shared secret is the whole authorisation.
+// See Core\Http\Controller\SchedulerContinuationController.
+// The path is written out as a literal, not as SchedulerContinuationRoute::
+// PATH, because tests/Security/AuthorizationMatrixInventoryTest parses this
+// file for route literals and refuses to audit a list it could not fully
+// parse — a route invisible to the authorization matrix is worse than a
+// duplicated string. Tests\Core\Scheduler\SchedulerContinuationRouteTest
+// pins the two to each other so they cannot drift apart in silence.
+$router->addRoute('POST', '/api/scheduler/continue', \Core\Http\Controller\SchedulerContinuationController::class, 'continue', 'public');
+
 // Édition du site — shrunk to just the configuration-mode toggle
 // (module registry and badges split out below); moved to "Espace chefs d'U"
 // in the menu (see addPage() above) and widened to admin, same as the
@@ -2288,6 +2351,10 @@ $githubWebhookService = new \Core\Maintenance\GitHubWebhookService(
 $frontController->registerController(\Core\Http\Controller\WebhookController::class, new \Core\Http\Controller\WebhookController(
     $twig, $githubWebhookService, $secretManager, $journalService
 ));
+$frontController->registerController(
+    \Core\Http\Controller\SchedulerContinuationController::class,
+    new \Core\Http\Controller\SchedulerContinuationController($twig, $schedulerContinuation)
+);
 $passwordResetController = new PasswordResetController($twig, $passwordResetService);
 $passwordResetController->setHumanCheck($humanCheckService);
 $frontController->registerController(PasswordResetController::class, $passwordResetController);
@@ -4945,7 +5012,16 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 }
 \Core\Debug\RequestTimeline::mark('session_write_close_done');
 
-// Poor man's cron — run scheduler max once per minute, after response is sent
+// Poor man's cron — the IGNITION, not the engine. It is still throttled to
+// once a minute, because that throttle protects against traffic triggering
+// the scheduler, and it is still keyed off a visit. What changed is what
+// happens next: instead of one pass that stops when this request ends, it
+// starts a CHAIN (Core\Scheduler\SchedulerContinuation) that carries on by
+// asking the site to continue, until the queue is empty or the chain hits
+// its ceiling. The throttle deliberately does NOT apply to those chained
+// hops — they arrive on their own route, never through this block — since
+// it exists to bound how often traffic starts work, not to interrupt work
+// already under way and already behind an exclusion lock.
 $lastRun = (int) $settingService->get('scheduler_last_run');
 $now = time();
 if (($now - $lastRun) > 60) {
@@ -4956,7 +5032,8 @@ if (($now - $lastRun) > 60) {
             fastcgi_finish_request();
         }
         \Core\Debug\RequestTimeline::mark('scheduler_process_overdue_begin');
-        $schedulerRunner->processOverdue();
+        $schedulerContinuation->beginChain();
+        $schedulerContinuation->runSliceAndContinue();
         \Core\Debug\RequestTimeline::mark('scheduler_process_overdue_done');
         $retentionDays = (int) ($settingService->get('journal_retention_days') ?: '730');
         \Core\Debug\RequestTimeline::mark('journal_cleanup_begin');

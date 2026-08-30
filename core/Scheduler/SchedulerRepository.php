@@ -161,6 +161,43 @@ class SchedulerRepository
         return $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
     }
 
+    /**
+     * Hand a claimed row back to the pending pool, untouched — the counter
+     * part of claimOverdue()'s claim.
+     *
+     * claimOverdue() flips every overdue row to 'processing' in one go,
+     * and nothing ever re-claims a 'processing' row (the claim filters on
+     * 'pending'). So a caller that stops early — SchedulerRunner running
+     * out of its time budget with tasks still queued — MUST release what
+     * it claimed and did not run, or those tasks are stranded in
+     * 'processing' forever, invisible to every later pass. Releasing is
+     * not a failure: attempts is not incremented and last_error is not
+     * written, because nothing was attempted.
+     */
+    public function release(int $id): void
+    {
+        $stmt = $this->pdo->prepare(
+            "UPDATE scheduled_actions SET status = 'pending' WHERE id = ? AND status = 'processing'"
+        );
+        $stmt->execute([$id]);
+    }
+
+    /**
+     * How many tasks are due right now — the cheap "is there still work?"
+     * question Core\Scheduler\SchedulerContinuation asks to decide whether
+     * a slice earned another hop. Counts only 'pending' rows, so a task
+     * another process is currently running is not work this one can do.
+     */
+    public function countOverdue(): int
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT COUNT(*) FROM scheduled_actions WHERE status = 'pending' AND run_at <= ?"
+        );
+        $stmt->execute([(new \DateTimeImmutable())->format('Y-m-d H:i:s')]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
     public function markDone(int $id): void
     {
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
