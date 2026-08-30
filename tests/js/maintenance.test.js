@@ -326,6 +326,51 @@ describe('maintenance.js: wireInstallForm() — wired for both update forms', ()
         await vi.waitFor(() => expect(document.getElementById('update-install-form-error').textContent).toBe('Erreur réseau.'));
     });
 
+    // While the schema migration runs, public/index.php short-circuits every
+    // request before routing and serves the progress page — HTML, with a 200.
+    // This poller used to sit on that for the whole window, on the one URL
+    // that could not answer it.
+    it('reloads onto the progress page when the poll gets a 200 that is not JSON', async () => {
+        buildDom('update-install-form');
+        global.fetch = vi.fn()
+            .mockResolvedValueOnce({ json: () => Promise.resolve({ success: true, history_id: 7 }) })
+            // What fetch does with an HTML body and Accept: application/json.
+            .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.reject(new SyntaxError('Unexpected token <')) });
+        Object.defineProperty(window, 'location', { configurable: true, value: { reload: vi.fn() } });
+        vi.useFakeTimers();
+        await boot();
+
+        document.getElementById('update-install-form').dispatchEvent(new Event('submit', { cancelable: true }));
+        await vi.advanceTimersByTimeAsync(3000);
+
+        expect(window.location.reload).toHaveBeenCalled();
+        // And it stopped: a reloading page must not keep firing requests.
+        const after = fetch.mock.calls.length;
+        await vi.advanceTimersByTimeAsync(6000);
+        expect(fetch.mock.calls.length).toBe(after);
+    });
+
+    // A real network failure is a different thing and must stay a hiccup:
+    // getJson answers status 0 there, never 200. Reloading on it would throw
+    // away a perfectly good page every time the wifi blinked.
+    it('keeps polling through a genuine network failure instead of reloading', async () => {
+        buildDom('update-install-form');
+        global.fetch = vi.fn()
+            .mockResolvedValueOnce({ json: () => Promise.resolve({ success: true, history_id: 7 }) })
+            .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+            .mockResolvedValue({ json: () => Promise.resolve({ status: 'installing' }) });
+        Object.defineProperty(window, 'location', { configurable: true, value: { reload: vi.fn() } });
+        vi.useFakeTimers();
+        await boot();
+
+        document.getElementById('update-install-form').dispatchEvent(new Event('submit', { cancelable: true }));
+        await vi.advanceTimersByTimeAsync(3000);
+        expect(window.location.reload).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(3000);
+        expect(fetch).toHaveBeenCalledTimes(3);
+    });
+
     // The `migrating` step is the one that runs for minutes, and each poll now
     // drives a slice of it server-side; without this readout the spinner is
     // indistinguishable from a stuck update.

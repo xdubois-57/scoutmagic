@@ -155,6 +155,16 @@ class CampaignControllerTest extends TestCase
             ),
             $financeService,
             $allocations,
+            new \Modules\Finance\Service\PaymentLabelService(
+                $this->rows,
+                $this->receivables,
+                $allocations,
+                $accountRepository,
+                new MemberService(new MemberYearRepository($this->pdo), $this->encryption, Connection::withPdo($this->pdo)),
+                new \Modules\Finance\Service\SepaQrCodeService(),
+                new \Core\Pdf\DocumentPdfService(),
+                $this->twig()
+            ),
             $scoutYearService
         );
 
@@ -412,6 +422,94 @@ class CampaignControllerTest extends TestCase
     }
 
     // ── helpers ─────────────────────────────────────────────────────────
+
+    // ── the sheet of labels to cut out ──────────────────────────────────
+
+    /**
+     * The download itself: a real PDF, named after the campaign, and
+     * carrying one QR per receivable that still asks for something.
+     */
+    public function testTheLabelSheetDownloadsAsAPdf(): void
+    {
+        $campaignId = $this->createCampaign();
+
+        $response = $this->controller->labels(
+            new Request('GET', '/finance/campaigns/' . $campaignId . '/labels', [], [], [], []),
+            ['id' => (string) $campaignId]
+        );
+
+        $headers = $response->getHeaders();
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('application/pdf', $headers['Content-Type'] ?? null);
+        $this->assertSame(
+            'attachment; filename="etiquettes-campagne-' . $campaignId . '.pdf"',
+            $headers['Content-Disposition'] ?? null
+        );
+        $this->assertStringStartsWith('%PDF-', $response->getBody());
+        $this->assertSame(2, preg_match_all('#/Subtype\s*/Image#', $response->getBody()));
+    }
+
+    /**
+     * **The sheet ignores the filter on screen**, unlike the export. A
+     * label only exists for a receivable that still owes something, so
+     * printing the « Payées » filter would hand out an empty sheet and
+     * printing « Toutes » would hand a label to a family that has paid.
+     */
+    public function testTheLabelSheetIgnoresTheFilterTheScreenIsOn(): void
+    {
+        $campaignId = $this->createCampaign();
+
+        $todo = $this->controller->labels(
+            new Request('GET', '/finance/campaigns/' . $campaignId . '/labels', ['filter' => 'todo'], [], [], []),
+            ['id' => (string) $campaignId]
+        );
+        $paid = $this->controller->labels(
+            new Request('GET', '/finance/campaigns/' . $campaignId . '/labels', ['filter' => 'paid'], [], [], []),
+            ['id' => (string) $campaignId]
+        );
+
+        $this->assertSame(200, $paid->getStatusCode());
+        $this->assertSame(
+            preg_match_all('#/Subtype\s*/Image#', $todo->getBody()),
+            preg_match_all('#/Subtype\s*/Image#', $paid->getBody()),
+            'the same two labels whichever filter the screen was on'
+        );
+    }
+
+    /**
+     * A campaign with nothing left to claim is a refusal on the campaign
+     * page, where the treasurer can read why — never a downloaded PDF
+     * that turns out to be blank.
+     */
+    public function testACampaignWithNothingLeftToClaimSaysSoOnThePage(): void
+    {
+        $campaignId = $this->createCampaign();
+        foreach ($this->rows->findByCampaignId($campaignId) as $index => $row) {
+            $receivable = $this->receivables->findBySource(CampaignService::SOURCE_MODULE, $row->id)[0];
+            (new TransactionRepository($this->pdo, $this->encryption))->create(
+                $this->accountId, $this->scoutYearId, 'PAID-' . $index, '2026-02-18',
+                'Virement ' . $receivable->communication, $receivable->amountDueCents / 100, null, null, 'import', null
+            );
+        }
+
+        $response = $this->controller->labels(
+            new Request('GET', '/finance/campaigns/' . $campaignId . '/labels', [], [], [], []),
+            ['id' => (string) $campaignId]
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/finance/campaigns/' . $campaignId, $response->getHeaders()['Location'] ?? null);
+    }
+
+    public function testAnUnknownCampaignHasNoLabelSheet(): void
+    {
+        $response = $this->controller->labels(
+            new Request('GET', '/finance/campaigns/999/labels', [], [], [], []),
+            ['id' => '999']
+        );
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
 
     private function createCampaign(): int
     {

@@ -760,3 +760,25 @@ cette fois : `dev-3000afc → dev-8f47824`, tâche d'installation terminée
 en 8 s à 20:07:36, puis rien jusqu'à 20:24:11 où la reprise s'exécute en
 1 ms sur une ligne déjà tuée. Le correctif n'était pas encore déployé.
 
+### L'onglet ouvert qui tournait à vide
+
+Suite du même incident. L'installation de 20:03 était manuelle : Xavier
+avait la page Maintenance ouverte, dont le sondage interroge
+`/api/maintenance/update-status/…`. Cette adresse est derrière le bloc
+« migration en attente » et renvoie donc, pendant toute la fenêtre, le
+HTML de la page de progression avec un code 200. Le `res.json()` échoue,
+`getJson()` répond `{ok: false, status: 200, data: null}`, et le sondeur
+traitait ça comme un accroc réseau : il continuait à interroger, toutes
+les trois secondes, la seule adresse structurellement incapable de lui
+répondre. Un onglet ouvert, actif, et parfaitement inutile.
+
+Un 200 qui n'est pas du JSON, à cette URL, ne veut dire qu'une chose. Le
+formulaire recharge donc, ce qui fait atterrir l'onglet sur la page de
+progression — celle dont le script fait réellement avancer la migration,
+et qui recharge en retour vers la page Maintenance une fois terminé.
+
+La distinction est nette et non heuristique : `getJson()` répond
+`status: 0` sur une vraie panne réseau, jamais 200. Recharger là-dessus
+jetterait une page valide à chaque clignotement du wifi — c'est le second
+test, et il tombe si l'on élargit la condition.
+

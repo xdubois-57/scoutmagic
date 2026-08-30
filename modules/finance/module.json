@@ -2,7 +2,7 @@
   "id": "finance",
   "name": "Finances",
   "description": "Gestion financière de l'unité : comptes, exercices, catégorisation, import de relevés bancaires, mouvements, reçus.",
-  "version": "1.15.1",
+  "version": "1.16.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -72,6 +72,15 @@
       "method": "GET",
       "controller": "Modules\\Finance\\Controller\\CampaignController",
       "action": "export",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
+      "path": "/finance/campaigns/{id}/labels",
+      "method": "GET",
+      "controller": "Modules\\Finance\\Controller\\CampaignController",
+      "action": "labels",
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": ""
