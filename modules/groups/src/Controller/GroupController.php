@@ -305,7 +305,10 @@ class GroupController extends AbstractController
      * "Alice Lambert (Akéla)" render as the initials "A(", first word
      * plus last word being exactly what Core\View\PersonAvatar takes.
      *
-     * @return array{members: list<array{member_id: int, identity: array{account_name: string, member_names: string[]}}>, total: int}
+     * @return array{
+     *     members: list<array{member_id: int, identity: array{account_name: string, member_names: string[]}}>,
+     *     total: int
+     * }
      */
     private function sideMembers(DiscussionGroup $group, GroupSessionContext $context): array
     {
@@ -333,10 +336,13 @@ class GroupController extends AbstractController
         // first. Sorted on the rendered label, which is what the reader
         // actually sees; case-insensitive byte order is good enough to be
         // predictable, and this is a glance, not an index.
-        usort($rows, static fn(array $a, array $b): int => strcasecmp(
-            MemberIdentityService::label($a['identity']),
-            MemberIdentityService::label($b['identity'])
-        ));
+        usort(
+            $rows,
+            static fn(array $a, array $b): int => strcasecmp(
+                MemberIdentityService::label($a['identity']),
+                MemberIdentityService::label($b['identity'])
+            )
+        );
 
         return [
             'members' => array_slice($rows, 0, self::SIDE_MEMBERS_SHOWN),

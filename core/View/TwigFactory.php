@@ -147,7 +147,9 @@ class TwigFactory
             $richTextClass = $type === 'rich_text' ? ' rich-text' : '';
 
             if ($configMode) {
-                return '<div class="editable-content' . $richTextClass . '" data-key="' . htmlspecialchars($key, ENT_QUOTES) . '" data-type="' . htmlspecialchars($type, ENT_QUOTES) . '">'
+                return '<div class="editable-content' . $richTextClass . '"'
+                    . ' data-key="' . htmlspecialchars($key, ENT_QUOTES) . '"'
+                    . ' data-type="' . htmlspecialchars($type, ENT_QUOTES) . '">'
                     . '<div class="editable-overlay"><button class="btn btn-sm btn-outline-primary editable-edit-btn"><i class="bi bi-pencil"></i> Modifier</button></div>'
                     . $value
                     . '</div>';
