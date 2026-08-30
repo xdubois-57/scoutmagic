@@ -30,14 +30,61 @@ class MessageConsumerRegistry
     /** @var MessageConsumerInterface[] */
     private array $consumers = [];
 
+    /** @var array<string, \Closure(): MessageConsumerInterface> */
+    private array $factories = [];
+
     public function register(MessageConsumerInterface $consumer): void
     {
         $this->consumers[] = $consumer;
     }
 
+    /**
+     * Register a consumer that is only built if something actually asks for
+     * it.
+     *
+     * The web path needs this. Answering "may this person download that
+     * attachment?" means asking one consumer — the one the association
+     * names — and building the whole three-module graph on every page view
+     * to have it ready would undo exactly what the sync task's own lazy
+     * factory was written to avoid. The download is rare; the page view is
+     * not.
+     *
+     * @param \Closure(): MessageConsumerInterface $factory
+     */
+    public function registerFactory(string $consumerId, \Closure $factory): void
+    {
+        $this->factories[$consumerId] = $factory;
+    }
+
     public function hasConsumers(): bool
     {
-        return $this->consumers !== [];
+        return $this->consumers !== [] || $this->factories !== [];
+    }
+
+    /**
+     * One consumer by its id, built on the spot if it was registered as a
+     * factory. Null when no module claims that id — most often because it
+     * has been disabled since the association was made.
+     */
+    public function find(string $consumerId): ?MessageConsumerInterface
+    {
+        foreach ($this->consumers as $consumer) {
+            if ($consumer->consumerId() === $consumerId) {
+                return $consumer;
+            }
+        }
+
+        if (!isset($this->factories[$consumerId])) {
+            return null;
+        }
+
+        $consumer = ($this->factories[$consumerId])();
+        // Built once per request: a second question about the same
+        // consumer must not rebuild its dependency graph.
+        $this->consumers[] = $consumer;
+        unset($this->factories[$consumerId]);
+
+        return $consumer;
     }
 
     /**
@@ -45,6 +92,10 @@ class MessageConsumerRegistry
      */
     public function all(): array
     {
+        foreach (array_keys($this->factories) as $consumerId) {
+            $this->find($consumerId);
+        }
+
         return $this->consumers;
     }
 

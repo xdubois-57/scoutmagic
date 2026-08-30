@@ -10,6 +10,7 @@ namespace Modules\Camps\Mail;
 
 use Core\Config\SettingService;
 use Core\Security\EncryptionService;
+use Core\Security\Role;
 use Core\Service\DateInput;
 use Modules\Camps\Repository\Camp;
 use Modules\Camps\Repository\CampRepository;
@@ -203,6 +204,22 @@ class CampsMessageConsumer implements MessageConsumerInterface
         }
 
         $this->completeFields($campId, $message);
+    }
+
+    /**
+     * Who may read an attachment of a message attached to a stay.
+     *
+     * Every stay is readable by every chief of the unit — this module has
+     * no per-camp visibility — so the answer is the role and nothing else,
+     * exactly as `Service\CampFileOwnershipChecker` already answers for a
+     * stay's own documents. Answering anything narrower here would make an
+     * emailed contract less reachable than the same file filed by hand.
+     *
+     * @param array<int, int> $linkedMemberIds
+     */
+    public function canRead(string $businessReference, array $linkedMemberIds, string $role): bool
+    {
+        return (Role::tryFrom($role) ?? Role::PUBLIC)->hasAccess(Role::CHIEF);
     }
 
     /**

@@ -151,8 +151,59 @@ class InboundMailService implements InboundMailInterface
 
             if ($this->messageRepository->countAttachmentsForFile($fileId) === 0) {
                 $this->fileRepository?->delete($fileId);
+                continue;
+            }
+
+            // The file survives because another message deduplicated onto
+            // the same bytes — and `files.owner_id` may still name the
+            // message that has just gone. Hand the ownership to a message
+            // that really holds it, or the access registry finds no
+            // associations to ask about and locks out the very people who
+            // may read it.
+            $holder = $this->messageRepository->findMessageHoldingFile($fileId);
+            if ($holder !== null) {
+                $this->fileRepository?->updateOwner(
+                    $fileId,
+                    InboundMessageAccessRegistry::OWNER_TYPE,
+                    $holder
+                );
             }
         }
+    }
+
+    /**
+     * One-time reprise: give every attachment stored before this existed
+     * the `inbound_message` ownership it should have had.
+     *
+     * Until it runs, those files carry no owner at all and are gated by
+     * their `role_min` floor alone — which is to say, readable by any
+     * intendant. Guarded by a setting in the composition root; idempotent
+     * regardless, since it rewrites the same owner to the same value.
+     *
+     * @return int the number of files given an owner
+     */
+    public function backfillAttachmentOwners(): int
+    {
+        if ($this->fileRepository === null) {
+            return 0;
+        }
+
+        $updated = 0;
+        foreach ($this->messageRepository->findAttachmentFileOwners() as $pair) {
+            $file = $this->fileRepository->findById($pair['file_id']);
+            if ($file === null || $file->ownerType !== null) {
+                continue;
+            }
+
+            $this->fileRepository->updateOwner(
+                $pair['file_id'],
+                InboundMessageAccessRegistry::OWNER_TYPE,
+                $pair['message_id']
+            );
+            $updated++;
+        }
+
+        return $updated;
     }
 
     /**
