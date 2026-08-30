@@ -7,7 +7,10 @@ namespace Tests\Core\Support;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Database\Connection;
+use Core\Support\Collector\BackgroundExecutionCollector;
 use Core\Support\Collector\CommandsCollector;
+use Core\Support\Collector\CronCadenceCollector;
+use Core\Support\Collector\ExtensionsCollector;
 use Core\Support\Collector\FilesystemCollector;
 use Core\Support\Collector\LogsCollector;
 use Core\Support\Collector\PhpInfoCollector;
@@ -212,15 +215,319 @@ class SystemCollectorsTest extends TestCase
         $this->assertMatchesRegularExpression('/disponible : (oui|non)/', $commands);
     }
 
-    public function testCommandsDoesNotProbeBinariesTheApplicationNoLongerUses(): void
+    /**
+     * `mysql` and `mysqldump` used to be absent from this file entirely:
+     * dumping and restoring became pure PHP over PDO (DatabaseDumper /
+     * DatabaseRestorer) when those binaries proved unusable on the
+     * production host, so probing them reported on something the
+     * application never calls.
+     *
+     * They are probed again, and the reason is a change of question
+     * rather than a reversal: the archive is read by something that
+     * cannot ask a follow-up, so what the HOST has is a fact worth
+     * recording even when nothing here calls it — and whether those two
+     * exist at all is the first thing anyone re-litigating that decision
+     * asks. What must not come back is the misreading the original
+     * removal prevented, so the separation is what this pins: they appear
+     * under the host inventory, never among the commands the code uses.
+     */
+    public function testTheMysqlBinariesAreInventoriedButNeverPresentedAsUsedByTheCode(): void
     {
-        // Dumping and restoring are pure PHP now (DatabaseDumper /
-        // DatabaseRestorer), so probing the MySQL CLI would report on
-        // something the application never calls.
         $commands = $this->runCollector(new CommandsCollector())['entries']['commands.txt'];
 
-        $this->assertStringNotContainsString('## mysqldump', $commands);
-        $this->assertStringNotContainsString('## mysql', $commands);
+        $this->assertStringContainsString('## mysqldump — inventaire seulement', $commands);
+        $this->assertStringContainsString('## mysql — inventaire seulement', $commands);
+
+        // Everything before the inventory heading is the code-derived
+        // list, and neither may appear in it.
+        $usedByCode = substr($commands, 0, (int) strpos($commands, "# Inventaire de l'hôte"));
+        $this->assertStringNotContainsString('mysqldump', $usedByCode);
+        $this->assertStringNotContainsString('## mysql', $usedByCode);
+    }
+
+    /**
+     * The verdict a support reader acts on is "does it WORK", not "does
+     * disable_functions mention it". On a shared host the two disagree
+     * often enough that merging them into one line is how five commands
+     * come to be reported absent when the real answer was that nothing
+     * could run at all.
+     */
+    public function testCommandsSeparatesDeclaredShellExecutionFromDemonstratedOne(): void
+    {
+        $commands = $this->runCollector(new CommandsCollector())['entries']['commands.txt'];
+
+        $this->assertStringContainsString('Exécution de commandes déclarée : ', $commands);
+        $this->assertStringContainsString('Exécution de commandes vérifiée : ', $commands);
+        $this->assertStringContainsString('Détail de la vérification : ', $commands);
+    }
+
+    // --- extensions.txt ---
+
+    public function testExtensionsNamesWhatEachOneIsNeededForAndVerdicts(): void
+    {
+        $result = $this->runCollector(new ExtensionsCollector());
+        $extensions = $result['entries']['extensions.txt'];
+
+        // Required entries carry their consequence, not just their name:
+        // "pdo_mysql ABSENTE" alone tells a reader nothing they can act on.
+        $this->assertMatchesRegularExpression('/pdo_mysql\s+(présente|ABSENTE)\s+\S/', $extensions);
+        $this->assertStringContainsString('## REQUISES', $extensions);
+        $this->assertStringContainsString('## OPTIONNELLES', $extensions);
+        $this->assertStringContainsString('## Verdict', $extensions);
+
+        // This test process necessarily has the ones it is running on.
+        $this->assertMatchesRegularExpression('/pdo\s+présente/', $extensions);
+        $this->assertStringContainsString('Toutes les extensions requises sont présentes.', $extensions);
+        $this->assertSame([], $result['notes']);
+    }
+
+    /**
+     * The list only earns its place if it is the one ScoutMagic needs. A
+     * generic roster would be phpinfo with extra steps — and phpinfo is
+     * already in the archive.
+     */
+    public function testExtensionsListsWhatTheCodeUsesRatherThanAGenericRoster(): void
+    {
+        $extensions = $this->runCollector(new ExtensionsCollector())['entries']['extensions.txt'];
+
+        foreach (['pdo_mysql', 'gd', 'zip', 'openssl', 'curl', 'xmlreader'] as $needed) {
+            $this->assertMatchesRegularExpression('/^' . $needed . '\s/m', $extensions);
+        }
+        // Optional ones are kept apart: their absence is a degraded
+        // feature, not an incident, and the two lead to different
+        // conversations.
+        $this->assertStringContainsString('imagick', $extensions);
+        $this->assertStringContainsString('PdfRasterizer', $extensions);
+    }
+
+    public function testAMissingRequiredExtensionWouldBeSurfacedAsANote(): void
+    {
+        // Rather than uninstall an extension, assert the mechanism the
+        // verdict uses: the note is raised from the same list the file
+        // prints, so a real absence reaches collection-status.json too.
+        $collector = new ExtensionsCollector();
+        $required = new \ReflectionClassConstant(ExtensionsCollector::class, 'REQUIRED');
+        /** @var array<string, string> $list */
+        $list = $required->getValue();
+
+        $this->assertNotSame([], $list);
+        foreach ($list as $extension => $usedBy) {
+            $this->assertNotSame('', trim($usedBy), "l'extension {$extension} doit dire ce qui en dépend");
+        }
+        $this->assertSame('extensions', $collector->name());
+    }
+
+    // --- background-execution.txt ---
+
+    public function testBackgroundExecutionReportsWhatIsPossibleOnThisHost(): void
+    {
+        $report = $this->runCollector(new BackgroundExecutionCollector())['entries']['background-execution.txt'];
+
+        $this->assertStringContainsString('fastcgi_finish_request : ', $report);
+        $this->assertStringContainsString('stream_socket_client : ', $report);
+        $this->assertStringContainsString('Exécution shell vérifiée : ', $report);
+        $this->assertStringContainsString('## Limites', $report);
+        $this->assertStringContainsString('open_basedir : ', $report);
+        $this->assertStringContainsString('disable_functions : ', $report);
+        $this->assertStringContainsString('## Boucle HTTP vers soi-même', $report);
+        $this->assertStringContainsString("## Réglages de l'ordonnanceur", $report);
+    }
+
+    /**
+     * With no base_url there is no target, and inventing one from
+     * HTTP_HOST would make a support collector connect wherever an
+     * attacker-supplied header pointed — an SSRF triggerable by anyone who
+     * can get a superadmin to generate a package.
+     */
+    public function testTheLoopbackTestRefusesToInventATargetWithoutABaseUrl(): void
+    {
+        $report = $this->runCollector(new BackgroundExecutionCollector())['entries']['background-execution.txt'];
+
+        $this->assertStringContainsString('base_url vide : aucune cible à tester', $report);
+    }
+
+    /**
+     * Both targets are reported, never just the first that answers:
+     * loopback and the public name fail for different reasons — one is
+     * firewalled off from PHP, the other goes out through a proxy or a WAF
+     * — and which of the two answers is what turns a report into a fix.
+     */
+    public function testTheLoopbackTestReportsEveryTargetSeparately(): void
+    {
+        $this->settings->register('base_url', '', 'text', 'base', 'test', null, null, null, false, 900);
+        // A port nothing is listening on: both targets must be attempted
+        // and both must be reported as having failed, rather than the file
+        // stopping at the first refusal.
+        $this->settings->setInternal('base_url', 'http://127.0.0.1:' . $this->aPortNobodyIsUsing());
+
+        $report = $this->runCollector(new BackgroundExecutionCollector())['entries']['background-execution.txt'];
+
+        $this->assertStringContainsString('loopback (127.0.0.1 avec en-tête Host)', $report);
+        $this->assertStringContainsString('nom public', $report);
+        $this->assertSame(2, substr_count($report, 'ÉCHEC de connexion'));
+    }
+
+    private function aPortNobodyIsUsing(): int
+    {
+        $probe = @stream_socket_server('tcp://127.0.0.1:0', $errno, $errstr);
+        $this->assertNotFalse($probe, "could not reserve a local port: {$errstr}");
+        $name = (string) stream_socket_get_name($probe, false);
+        $port = (int) substr($name, (int) strrpos($name, ':') + 1);
+        fclose($probe);
+
+        return $port;
+    }
+
+    /**
+     * The archive is emailed. The continuation secret authenticates a
+     * request to this site's own scheduler endpoint, so it is reported as
+     * present or absent and never printed — Core\Security\CapabilityToken,
+     * contract point 2.
+     */
+    public function testBackgroundExecutionNeverPrintsTheContinuationSecret(): void
+    {
+        mkdir($this->storagePath . '/keys', 0700, true);
+        mkdir($this->storagePath . '/config', 0700, true);
+        $secretManager = new \Core\Security\SecretManager(
+            $this->storagePath . '/keys/master.key',
+            $this->storagePath . '/config/secrets.enc'
+        );
+        $secretManager->generateMasterKey();
+        $secretManager->writeSecrets(['scheduler_continuation_secret' => 'the-secret-that-must-not-travel']);
+
+        $report = $this->runCollector(new BackgroundExecutionCollector())['entries']['background-execution.txt'];
+
+        $this->assertStringContainsString('Secret de continuation : présent', $report);
+        $this->assertStringNotContainsString('the-secret-that-must-not-travel', $report);
+    }
+
+    public function testAnInstallationWithNoContinuationSecretSaysSoRatherThanGuessing(): void
+    {
+        $report = $this->runCollector(new BackgroundExecutionCollector())['entries']['background-execution.txt'];
+
+        $this->assertStringContainsString('Secret de continuation : ABSENT', $report);
+    }
+
+    // --- cron-cadence.txt ---
+
+    private function registerCronSettings(): void
+    {
+        \Core\Scheduler\CronRunHistory::register($this->settings);
+        $this->settings->register('cron_last_run', '0', 'number', 'cron', 'test', null, null, null, false, 999);
+        $this->settings->register('scheduler_last_run', '0', 'number', 'pseudo', 'test', null, null, null, false, 999);
+    }
+
+    /**
+     * The verdict is the point of the file. One stamp cannot distinguish a
+     * crontab firing every minute from one the host silently dropped an
+     * hour ago, and support acts very differently on those two answers.
+     */
+    public function testAnInstallationThatHasNeverRunARealCronSaysSoPlainly(): void
+    {
+        $this->registerCronSettings();
+
+        $report = $this->runCollector(new CronCadenceCollector())['entries']['cron-cadence.txt'];
+
+        $this->assertStringContainsString('VRAI CRON : jamais détecté.', $report);
+        $this->assertStringContainsString('PSEUDO-CRON : jamais déclenché.', $report);
+    }
+
+    public function testARealCronThatHasStoppedIsDistinguishedFromOneThatNeverRan(): void
+    {
+        $this->registerCronSettings();
+        $this->settings->setInternal('cron_last_run', (string) (time() - 10800));
+
+        $result = $this->runCollector(new CronCadenceCollector());
+        $report = $result['entries']['cron-cadence.txt'];
+
+        $this->assertStringContainsString('VRAI CRON : configuré mais SILENCIEUX', $report);
+        // And it reaches collection-status.json too, not just the file.
+        $this->assertNotSame([], $result['notes']);
+    }
+
+    public function testAnActiveRealCronIsReportedWithItsMeasuredIntervals(): void
+    {
+        $this->registerCronSettings();
+        $now = time();
+        $this->settings->setInternal('cron_last_run', (string) $now);
+        // Five passes, five minutes apart — a crontab doing its job.
+        $history = [];
+        for ($i = 4; $i >= 0; $i--) {
+            $history[] = $now - ($i * 300);
+        }
+        $this->settings->setInternal(
+            \Core\Scheduler\CronRunHistory::SETTING,
+            (string) json_encode($history)
+        );
+
+        $report = $this->runCollector(new CronCadenceCollector())['entries']['cron-cadence.txt'];
+
+        $this->assertStringContainsString('VRAI CRON : détecté et actif', $report);
+        // Raw before derived, per the archive's format rule.
+        $this->assertStringContainsString('Intervalles bruts (s) : 300, 300, 300, 300', $report);
+        $this->assertStringContainsString('Médian : 5 min 0 s', $report);
+        $this->assertStringContainsString('Maximum : 5 min 0 s', $report);
+    }
+
+    /**
+     * The number that mattered. Six production update failures all read
+     * "stuck at migrating for more than 15 minutes", and the cause was
+     * trivial unrelated tasks running six minutes after their due time
+     * against a watchdog set at fifteen — a gap only visible by
+     * subtracting two columns of a spreadsheet by hand.
+     */
+    public function testTheSchedulingLatencyIsReportedPerTaskAndSummarised(): void
+    {
+        $this->registerCronSettings();
+
+        $insert = $this->pdo->prepare(
+            'INSERT INTO scheduled_actions (module_id, task_key, run_at, status, executed_at, attempts)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        );
+        $due = new \DateTimeImmutable('-2 hours');
+        foreach ([0, 360] as $lateBySeconds) {
+            $insert->execute([
+                'core',
+                'check_stable_update',
+                $due->format('Y-m-d H:i:s'),
+                'done',
+                $due->modify('+' . $lateBySeconds . ' seconds')->format('Y-m-d H:i:s'),
+                1,
+            ]);
+        }
+
+        $report = $this->runCollector(new CronCadenceCollector())['entries']['cron-cadence.txt'];
+
+        $this->assertStringContainsString("## Latence d'ordonnancement", $report);
+        $this->assertStringContainsString('check_stable_update', $report);
+        $this->assertStringContainsString('Retard maximum : 6 min 0 s', $report);
+        $this->assertStringContainsString('Exécutions considérées : 2', $report);
+    }
+
+    /**
+     * A reader who does not know a list was cut concludes wrongly: "no
+     * late task" and "no late task among the 200 shown" are different
+     * sentences. The archive's own rule is that every truncation is
+     * declared in the file AND in collection-status.json.
+     */
+    public function testATruncatedLatencyListSaysSoInTheFileAndInTheStatus(): void
+    {
+        $this->registerCronSettings();
+
+        $insert = $this->pdo->prepare(
+            'INSERT INTO scheduled_actions (module_id, task_key, run_at, status, executed_at, attempts)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        );
+        $due = new \DateTimeImmutable('-3 hours');
+        for ($i = 0; $i < 205; $i++) {
+            $moment = $due->modify('+' . $i . ' seconds')->format('Y-m-d H:i:s');
+            $insert->execute(['core', 'noisy_task', $moment, 'done', $moment, 1]);
+        }
+
+        $result = $this->runCollector(new CronCadenceCollector());
+
+        $this->assertStringContainsString('*** TRONQUÉ', $result['entries']['cron-cadence.txt']);
+        $this->assertNotSame([], $result['notes']);
     }
 
     // --- webserver/ ---
