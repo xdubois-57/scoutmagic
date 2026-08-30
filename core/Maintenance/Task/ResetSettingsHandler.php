@@ -11,6 +11,7 @@ namespace Core\Maintenance\Task;
 use Core\File\FileRepository;
 use Core\Maintenance\BackupRepository;
 use Core\Maintenance\BackupService;
+use Core\Maintenance\RequesterNotice;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 
@@ -26,6 +27,9 @@ use Core\Scheduler\TaskHandlerInterface;
 class ResetSettingsHandler implements TaskHandlerInterface
 {
     private const KEEP_BACKUPS = 5;
+
+    private const TYPE_COMPLETED = 'core.settings_reset_completed';
+    private const TYPE_FAILED = 'core.settings_reset_failed';
 
     /**
      * @param array<string, mixed> $payload
@@ -80,14 +84,13 @@ class ResetSettingsHandler implements TaskHandlerInterface
 
             $this->purgeBeyondLimit($backupRepository, $fileRepository, $context->storagePath);
 
-            if ($requestedBy !== null) {
-                $context->notifications?->notify(
-                    $requestedBy,
-                    'Réinitialisation terminée',
-                    'La réinitialisation des paramètres par défaut est terminée.',
-                    '/config/maintenance'
-                );
-            }
+            RequesterNotice::send(
+                $context,
+                $requestedBy,
+                self::TYPE_COMPLETED,
+                'Réinitialisation terminée',
+                'La réinitialisation des paramètres par défaut est terminée.'
+            );
         } catch (\Throwable $e) {
             $context->journal->log(
                 'core',
@@ -98,14 +101,13 @@ class ResetSettingsHandler implements TaskHandlerInterface
                 $requestedBy
             );
 
-            if ($requestedBy !== null) {
-                $context->notifications?->notify(
-                    $requestedBy,
-                    'Échec de la réinitialisation',
-                    'La réinitialisation des paramètres par défaut a échoué.',
-                    '/config/maintenance'
-                );
-            }
+            RequesterNotice::send(
+                $context,
+                $requestedBy,
+                self::TYPE_FAILED,
+                'Échec de la réinitialisation',
+                'La réinitialisation des paramètres par défaut a échoué.'
+            );
         }
     }
 

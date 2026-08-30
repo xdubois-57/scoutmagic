@@ -4,20 +4,50 @@
  */
 
 // SOS Staff d'U admin page (modules/sos_staff/views/admin.html.twig): the
-// default-number / transition-hour / email-notification settings, the
-// three-state duty grid (desktop table and mobile card list share the same
-// cells), and the AJAX pagination of the planned-redirections list.
-// Extracted from the template's inline <script> so the Vitest suite can
+// default-number / transition-hour / notification settings, the duty roster
+// in its two layouts, and the AJAX pagination of the planned-redirections
+// list. Extracted from the template's inline <script> so the Vitest suite can
 // exercise the production code directly (tests/js/sos-admin.test.js) — an
 // inline template script is invisible to both Vitest and `npm run typecheck`.
 //
-// The month being displayed and the duty states it starts from come from the
-// server through the `sos-admin-data` JSON island the template renders,
-// read with ScoutMagicApi.pageData() — the site-wide server-data-to-a-page
-// pattern. Nothing in that payload is a phone number: it is dates, member ids
-// and the two duty states (AGENTS.md § Security checklist, SECURITY.md — the
-// members' mobile numbers this page shows are rendered server-side and stay
-// there).
+// TWO LAYOUTS, ONE STATE
+// ----------------------------------------------------------------------------
+// The desktop grid is a table of one-glyph cells (`.sos-oncall-cell`, a <td>)
+// whose click CYCLES on call → indisponible → rien. The phone layout has no
+// grid at all: a list of days, and three named buttons per member
+// (`.sos-state-button`, carrying `data-state`) that SET a state outright. The
+// phone list used to render every member inside every day — roughly 250
+// stacked buttons for a month of eight people, first names truncated to one
+// word at 0.65rem, with ✓/✗/— and no legend. Moving the members into a single
+// day sheet is what fixed that; this file is the half of it that has to keep
+// both renderings of a member/day pair in step.
+//
+// Both shapes carry `data-member-id` and `data-date`, and both are repainted
+// from repaintCells(). The day sheet renders ONE copy of the roster for the
+// whole month, so its buttons start with an empty `data-date` that
+// openDaySheet() stamps — repainting is therefore naturally scoped to the day
+// currently open.
+//
+// The month being displayed, the duty states it starts from and the ROSTER
+// ORDER come from the server through the `sos-admin-data` JSON island the
+// template renders, read with ScoutMagicApi.pageData() — the site-wide
+// server-data-to-a-page pattern. Nothing in that payload is a phone number,
+// and nothing in it is a member's NAME either: it is dates, member ids and
+// the two duty states (AGENTS.md § Security checklist, SECURITY.md). The
+// names this file writes into a day row are read back out of the DOM, where
+// the template rendered them server-side.
+//
+// WHY THE ROSTER ORDER IS HERE AT ALL
+// ----------------------------------------------------------------------------
+// A day row names the person who ACTUALLY receives the calls, which is the
+// first roster member marked on call that day (module spec §2.6 — several
+// people can be marked, only the first is used). The server resolves it
+// through OnCallService::resolveTargetsForMonth() for the initial render;
+// this file re-resolves it after an edit, from the same ordered id list, so
+// the row stops being a lie the moment a state changes. Both implementations
+// read the same rule off the same order — and the browser's one never decides
+// anything: the month is posted whole and the server resolves it again for
+// the redirection itself.
 //
 // Fetches ride the site-wide ScoutMagicApi envelope ({ok, status, data}),
 // which also owns the CSRF token this file used to read through a local
@@ -28,13 +58,6 @@
 // fetch, because the toolbox has no HTML envelope: it now checks the HTTP
 // status before writing the response into the page, where an unchecked 500
 // error page used to be injected as the list itself.
-//
-// Note for whoever revisits this page: « Numéro par défaut » is a <select>
-// whose change event saves immediately, so moving through its options with a
-// keyboard rewrites who receives the unit's SOS calls on unassigned days.
-// That is the exact shape of the llm_connector bug where browsing the
-// provider list switched the active sub-processor. It is left as-is here on
-// purpose — changing it is a product decision, not a refactor.
 (function () {
     var data = window.ScoutMagicApi.pageData('sos-admin-data') || {};
 
@@ -43,6 +66,8 @@
     var emailToggle = /** @type {HTMLInputElement|null} */ (document.getElementById('email-notifications-toggle'));
     var transitionsList = document.getElementById('planned-transitions-list');
     var saveStatus = document.getElementById('oncall-save-status');
+    var sheet = document.getElementById('sos-day-sheet');
+    var dayList = document.getElementById('sos-day-list');
 
     // A no-op on every other page of the site: this file is a page script.
     if (!defaultNumberSelect && !transitionHourInput && !emailToggle && !transitionsList && !saveStatus) {
@@ -51,12 +76,15 @@
 
     var api = window.ScoutMagicApi;
 
-    /** The duty states of the displayed month, mutated as cells are clicked. */
+    /** The duty states of the displayed month, mutated as states are set. */
     /** @type {Object.<string, Object.<string, string>>} */
     var cellStates = data.states || {};
     var currentYear = data.year;
     var currentMonth = data.month;
     var monthParam = data.monthParam || '';
+    /** Roster order — decides who "wins" a day several people are marked on. */
+    /** @type {number[]} */
+    var orderedMemberIds = data.orderedMemberIds || [];
 
     /**
      * The business verdict of one envelope. HTTP `ok` is deliberately not
@@ -177,10 +205,12 @@
         });
     }
 
-    // --- Duty grid (3-state click-cycle, full-month auto-save) ---
+    // --- Duty roster (full-month auto-save on every change) ---
 
     /**
-     * The next state in the click cycle: on call → unavailable → nothing.
+     * The next state in the desktop grid's click cycle: on call →
+     * unavailable → nothing. The phone layout has no cycle — its three
+     * buttons each name the state they set.
      *
      * @param {string|null} state
      * @returns {string|null}
@@ -193,6 +223,24 @@
             return null;
         }
         return 'oncall';
+    }
+
+    /**
+     * @param {string} date
+     * @param {string} memberId
+     * @returns {string|null}
+     */
+    function stateOf(date, memberId) {
+        return cellStates[date]?.[memberId] || null;
+    }
+
+    /** @param {string} text */
+    function showSaveStatus(text) {
+        [saveStatus, document.getElementById('sos-day-sheet-status')].forEach(function (node) {
+            if (node) {
+                node.textContent = text;
+            }
+        });
     }
 
     /** Saves the whole displayed month — the endpoint replaces it wholesale. */
@@ -209,18 +257,14 @@
             });
         });
 
-        if (saveStatus) {
-            saveStatus.textContent = 'Enregistrement…';
-        }
+        showSaveStatus('Enregistrement…');
 
         var res = await api.postJson('/admin/sos/oncall', {
             year: currentYear,
             month: currentMonth,
             cells: cells
         });
-        if (saveStatus) {
-            saveStatus.textContent = succeeded(res) ? 'Enregistré.' : ('Erreur : ' + failureMessage(res));
-        }
+        showSaveStatus(succeeded(res) ? 'Enregistré.' : ('Erreur : ' + failureMessage(res)));
         if (!succeeded(res)) {
             toastFailure(res);
         }
@@ -228,54 +272,150 @@
 
     /**
      * Repaints every control standing for one member/day pair — the desktop
-     * table cell and the mobile button carry the same data attributes and the
-     * same class, so both are updated from one place.
+     * table cell and the phone layout's three named buttons carry the same
+     * data attributes, so both are updated from one place.
      *
      * @param {string} date       ISO date (YYYY-MM-DD)
      * @param {string} memberId
      * @param {string|null} state The new state, null for "nothing planned"
      */
     function repaintCells(date, memberId, state) {
-        var selector = '.sos-oncall-cell[data-date="' + date + '"][data-member-id="' + memberId + '"]';
-        document.querySelectorAll(selector).forEach(function (node) {
-            var el = /** @type {HTMLElement} */ (node);
-            el.classList.remove('state-oncall', 'state-unavailable', 'btn-success', 'btn-danger', 'btn-outline-secondary');
+        var pair = '[data-date="' + date + '"][data-member-id="' + memberId + '"]';
 
-            if (el.tagName === 'TD') {
-                el.textContent = '';
-                if (state === 'oncall') {
-                    el.classList.add('state-oncall');
-                    el.textContent = '✓';
-                } else if (state === 'unavailable') {
-                    el.classList.add('state-unavailable');
-                    el.textContent = '✗';
-                }
-                return;
-            }
-
-            // Mobile button: a first span holds the member's short name, the
-            // last one holds the state glyph.
-            var label = el.querySelector('.d-block');
-            var stateSpan = el.lastElementChild !== label ? el.lastElementChild : null;
+        document.querySelectorAll('.sos-oncall-cell' + pair).forEach(function (node) {
+            var cell = /** @type {HTMLElement} */ (node);
+            cell.classList.remove('state-oncall', 'state-unavailable');
+            cell.textContent = '';
             if (state === 'oncall') {
-                el.classList.add('btn-success');
-                if (stateSpan) {
-                    stateSpan.textContent = '✓';
-                }
+                cell.classList.add('state-oncall');
+                cell.textContent = '✓';
             } else if (state === 'unavailable') {
-                el.classList.add('btn-danger');
-                if (stateSpan) {
-                    stateSpan.textContent = '✗';
-                }
-            } else {
-                el.classList.add('btn-outline-secondary');
-                if (stateSpan) {
-                    stateSpan.textContent = '—';
-                }
+                cell.classList.add('state-unavailable');
+                cell.textContent = '✗';
             }
+        });
+
+        document.querySelectorAll('.sos-state-button' + pair).forEach(function (node) {
+            var button = /** @type {HTMLElement} */ (node);
+            // `data-state=""` is the "Rien" button; null is that same state.
+            var pressed = (button.dataset.state || null) === state;
+            button.classList.remove('btn-success', 'btn-danger', 'btn-secondary', 'btn-outline-secondary');
+            if (!pressed) {
+                button.classList.add('btn-outline-secondary');
+            } else if (state === 'oncall') {
+                button.classList.add('btn-success');
+            } else if (state === 'unavailable') {
+                button.classList.add('btn-danger');
+            } else {
+                button.classList.add('btn-secondary');
+            }
+            button.setAttribute('aria-pressed', pressed ? 'true' : 'false');
         });
     }
 
+    /**
+     * Who actually receives the calls on $date: the FIRST roster member
+     * marked on call (module spec §2.6). Null means nobody is, and the
+     * default number governs the day.
+     *
+     * @param {string} date
+     * @returns {number|null}
+     */
+    function targetForDate(date) {
+        for (const memberId of orderedMemberIds) {
+            if (stateOf(date, String(memberId)) === 'oncall') {
+                return memberId;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * How many people are marked on call on $date — one is the normal case,
+     * more than one is what the row flags, since the extra marks change
+     * nothing.
+     *
+     * @param {string} date
+     * @returns {number}
+     */
+    function onCallCountForDate(date) {
+        var states = cellStates[date] || {};
+        return Object.keys(states).filter(function (memberId) {
+            return states[memberId] === 'oncall';
+        }).length;
+    }
+
+    /**
+     * A member's display name, read back out of the day sheet where the
+     * template rendered it server-side. Never out of the JSON island: that
+     * payload carries ids only, deliberately.
+     *
+     * @param {number} memberId
+     * @returns {string|null}
+     */
+    function memberNameFor(memberId) {
+        if (!sheet) {
+            return null;
+        }
+        var block = sheet.querySelector('[data-sheet-member-id="' + memberId + '"] [data-member-name]');
+        return block ? block.textContent.trim() : null;
+    }
+
+    /**
+     * Re-labels one day row after its states changed: who receives the
+     * calls, and whether several people are marked for nothing.
+     *
+     * @param {string} date
+     */
+    function refreshDayRow(date) {
+        if (!dayList) {
+            return;
+        }
+        var row = dayList.querySelector('.sos-day-row[data-date="' + date + '"]');
+        if (!row) {
+            return;
+        }
+
+        var target = targetForDate(date);
+        var name = target === null ? null : memberNameFor(target);
+        var label = /** @type {HTMLElement|null} */ (row.querySelector('[data-day-target]'));
+        if (label) {
+            label.textContent = name === null ? (dayList.dataset.defaultTarget || '') : name;
+            label.classList.toggle('text-body-secondary', name === null);
+        }
+
+        var flag = /** @type {HTMLElement|null} */ (row.querySelector('[data-day-multiple]'));
+        if (flag) {
+            flag.classList.toggle('d-none', onCallCountForDate(date) <= 1);
+        }
+    }
+
+    /**
+     * Records one member/day state, repaints every rendering of it, keeps
+     * the day row honest, and saves the month. The endpoint replaces the
+     * whole month on every call (module spec §2.6) — there is no per-cell
+     * delta, and this is deliberately not batched.
+     *
+     * @param {string} date
+     * @param {string} memberId
+     * @param {string|null} state
+     */
+    function applyState(date, memberId, state) {
+        if (!cellStates[date]) {
+            cellStates[date] = {};
+        }
+        if (state === null) {
+            delete cellStates[date][memberId];
+        } else {
+            cellStates[date][memberId] = state;
+        }
+
+        repaintCells(date, memberId, state);
+        refreshDayRow(date);
+        saveOnCall();
+    }
+
+    // Desktop grid: one cell, three states, cycled by clicking.
     document.querySelectorAll('.sos-oncall-cell').forEach(function (node) {
         var cell = /** @type {HTMLElement} */ (node);
         cell.addEventListener('click', function () {
@@ -284,23 +424,93 @@
             if (!date || !memberId) {
                 return;
             }
-
-            var current = (cellStates[date] && cellStates[date][memberId]) || null;
-            var next = cycle(current);
-
-            if (!cellStates[date]) {
-                cellStates[date] = {};
-            }
-            if (next === null) {
-                delete cellStates[date][memberId];
-            } else {
-                cellStates[date][memberId] = next;
-            }
-
-            repaintCells(date, memberId, next);
-            saveOnCall();
+            applyState(date, memberId, cycle(stateOf(date, memberId)));
         });
     });
+
+    // Phone layout: three named buttons, each setting its own state. Bound
+    // directly rather than by delegation — every one of them is on the page
+    // at load (the sheet renders the roster once for the whole month, the
+    // « Ma disponibilité » rows are server-rendered), so nothing appears
+    // later that a delegated listener would be needed for.
+    document.querySelectorAll('.sos-state-button').forEach(function (node) {
+        var button = /** @type {HTMLElement} */ (node);
+        button.addEventListener('click', function () {
+            // Read at click time, never at bind time: the sheet's buttons
+            // are stamped with a new `data-date` each time a day is opened.
+            var date = button.dataset.date || '';
+            var memberId = button.dataset.memberId || '';
+            if (!date || !memberId) {
+                return;
+            }
+            applyState(date, memberId, button.dataset.state || null);
+        });
+    });
+
+    // --- The day sheet (one for the whole month) ---
+
+    /**
+     * Fills the sheet with one day and opens it. Stamping `data-date` on
+     * every state button is what scopes repaintCells() to the open day —
+     * the roster inside the sheet is rendered once, not once per day, which
+     * is the whole reason this screen stopped being ~250 buttons long.
+     *
+     * @param {HTMLElement} row the tapped day row
+     */
+    function openDaySheet(row) {
+        if (!sheet) {
+            return;
+        }
+        var date = row.dataset.date || '';
+        if (!date) {
+            return;
+        }
+
+        sheet.dataset.date = date;
+
+        var title = document.getElementById('sos-day-sheet-title');
+        if (title) {
+            title.textContent = row.dataset.dateLabel || date;
+        }
+
+        var activity = document.getElementById('sos-day-sheet-activity');
+        if (activity) {
+            var text = row.dataset.activity || '';
+            activity.textContent = text;
+            activity.classList.toggle('d-none', text === '');
+        }
+
+        var status = document.getElementById('sos-day-sheet-status');
+        if (status) {
+            status.textContent = '';
+        }
+
+        sheet.querySelectorAll('.sos-state-button').forEach(function (node) {
+            /** @type {HTMLElement} */ (node).dataset.date = date;
+        });
+        sheet.querySelectorAll('[data-sheet-member-id]').forEach(function (node) {
+            var memberId = /** @type {HTMLElement} */ (node).dataset.sheetMemberId || '';
+            repaintCells(date, memberId, stateOf(date, memberId));
+        });
+
+        // Guarded because Bootstrap's bundle is a separate <script>: with it
+        // absent (an isolated test, a blocked asset) the sheet's content is
+        // still correct and the page still saves — only the animation is
+        // missing.
+        if (typeof bootstrap !== 'undefined' && bootstrap.Offcanvas) {
+            bootstrap.Offcanvas.getOrCreateInstance(sheet).show();
+        }
+    }
+
+    if (dayList) {
+        dayList.addEventListener('click', function (e) {
+            var target = /** @type {HTMLElement|null} */ (e.target);
+            var row = target ? /** @type {HTMLElement|null} */ (target.closest('.sos-day-row')) : null;
+            if (row) {
+                openDaySheet(row);
+            }
+        });
+    }
 
     // --- Planned redirections list (AJAX pagination, no page reload) ---
 

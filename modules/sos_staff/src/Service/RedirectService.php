@@ -12,13 +12,14 @@ use Core\Journal\JournalService;
 use Core\Mail\MailService;
 use Core\Member\MemberProfile;
 use Core\Member\MemberService;
+use Core\Notification\NotificationService;
 use Core\Security\UserAccountRepository;
 use Modules\SosStaff\Provider\ProviderException;
 use Twig\Environment;
 
 /**
  * The redirect-change sequence (module spec §4): anti-duplicate check,
- * change, post-change verification, email notifications, journaling.
+ * change, post-change verification, handover notifications, journaling.
  * Used both by Task\ApplyRedirectHandler (scheduled transitions) and
  * directly by the admin controller for "application immédiate" (§3).
  *
@@ -28,9 +29,31 @@ use Twig\Environment;
  * surfaces (scheduled_actions.status = 'failed', an HTTP error, etc.); this
  * service never silently swallows a failure, since that would hide it from
  * the "Actions planifiées" status too.
+ *
+ * Two audiences, two mechanisms, deliberately:
+ *
+ *  - The handover pair (whoever takes the duty, whoever ends it) is a
+ *    PERSONAL notification about that one person, so it goes through
+ *    Core\Notification\NotificationService::dispatch() with the two types
+ *    module.json declares. That is what puts it in the notification
+ *    centre, in push, and on /notifications/preferences — none of which
+ *    it reached while it was a direct MailService::send(). The module's
+ *    `email_notifications_enabled` setting stays as the GLOBAL switch in
+ *    front of that dispatch; the per-channel choice is each member's.
+ *  - sendAdminAlert() stays a direct email. It is a technical alert
+ *    addressed to a ROLE (the first superadmin), not to a person, and it
+ *    must reach somebody precisely when the module is misconfigured.
+ *
+ * $notificationService is nullable for the same reason every optional
+ * dependency in this codebase is (ARCHITECTURE.md §7.5): a narrow unit
+ * test, or a caller with no notification stack, degrades to "no handover
+ * notification" rather than to a fatal.
  */
 class RedirectService
 {
+    private const TYPE_ONCALL_STARTED = 'sos_staff.oncall_started';
+    private const TYPE_ONCALL_ENDED = 'sos_staff.oncall_ended';
+
     public function __construct(
         private ProviderConfigService $providerConfigService,
         private SosSettingsService $settingsService,
@@ -38,7 +61,8 @@ class RedirectService
         private UserAccountRepository $userAccountRepository,
         private MailService $mailService,
         private JournalService $journalService,
-        private Environment $twig
+        private Environment $twig,
+        private ?NotificationService $notificationService = null
     ) {
     }
 
@@ -94,7 +118,7 @@ class RedirectService
         }
 
         $this->logOutcome('success', "Redirection changée vers {$targetNumber}.", $newMemberId);
-        $this->notifyHandover($newMemberId, $previousMemberId, $targetNumber, $scoutYearId);
+        $this->notifyHandover($newMemberId, $previousMemberId, $scoutYearId);
     }
 
     private function resolveNumber(?int $memberId, int $scoutYearId): ?string
@@ -107,55 +131,85 @@ class RedirectService
         return $profile?->mobile ?? $this->settingsService->getDefaultNumber($scoutYearId);
     }
 
-    private function notifyHandover(?int $newMemberId, ?int $previousMemberId, string $number, int $scoutYearId): void
+    /**
+     * The handover pair. Unchanged rule, changed output channel: nobody is
+     * told when the two are the same person, and a null side is nobody at
+     * all (the default number governs that day, and a number has no inbox).
+     */
+    private function notifyHandover(?int $newMemberId, ?int $previousMemberId, int $scoutYearId): void
     {
         if (!$this->settingsService->isEmailNotificationsEnabled()) {
             return;
         }
 
         if ($newMemberId !== null && $newMemberId !== $previousMemberId) {
-            $profile = $this->memberService->findProfileByMemberAndYear($newMemberId, $scoutYearId);
-            $this->sendHandoverEmail($profile, 'new_oncall', 'Numéro SOS redirigé vers vous', ['number' => $number]);
+            $this->dispatchHandover(
+                self::TYPE_ONCALL_STARTED,
+                $this->memberService->findProfileByMemberAndYear($newMemberId, $scoutYearId),
+                'Vous êtes de garde SOS',
+                "La redirection du numéro SOS de l'unité pointe vers vous."
+            );
         }
 
         if ($previousMemberId !== null && $previousMemberId !== $newMemberId) {
-            $profile = $this->memberService->findProfileByMemberAndYear($previousMemberId, $scoutYearId);
-            $this->sendHandoverEmail($profile, 'ended_oncall', "Fin de votre garde SOS", []);
+            $this->dispatchHandover(
+                self::TYPE_ONCALL_ENDED,
+                $this->memberService->findProfileByMemberAndYear($previousMemberId, $scoutYearId),
+                'Fin de votre garde SOS',
+                "Le numéro SOS de l'unité n'est plus redirigé vers votre téléphone."
+            );
         }
     }
 
     /**
-     * @param array<string, mixed> $extraContext
+     * One handover notification, for the member behind one profile.
+     *
+     * The payload deliberately carries NO phone number, where the emails
+     * this replaced named the target one. A push notification renders on a
+     * lock screen, outside the site's access control (SECURITY.md §19), and
+     * the number adds nothing the recipient does not already know: it is
+     * their own mobile, and the page names it anyway.
+     *
+     * A member with no account on this site is not a recipient — the honest
+     * outcome, and the same one the direct email had for a member with no
+     * address.
      */
-    private function sendHandoverEmail(?MemberProfile $profile, string $template, string $subject, array $extraContext): void
+    private function dispatchHandover(string $typeId, ?MemberProfile $profile, string $title, string $body): void
     {
-        if ($profile === null || $profile->email === null || $profile->email === '') {
+        if ($this->notificationService === null || $profile === null) {
             return;
         }
 
-        $context = array_merge(['display_name' => $profile->getDisplayName()], $extraContext);
+        $email = $profile->email;
+        if ($email === null || trim($email) === '') {
+            return;
+        }
 
         try {
-            $this->mailService->send(
-                to: $profile->email,
-                subject: $subject,
-                bodyHtml: $this->twig->render("@sos_staff/email/{$template}.html.twig", $context),
-                bodyText: $this->twig->render("@sos_staff/email/{$template}.text.twig", $context)
+            $account = $this->userAccountRepository->findByEmail($email);
+            if ($account === null) {
+                return;
+            }
+
+            $this->notificationService->dispatch(
+                $typeId,
+                [['userAccountId' => $account->id, 'memberId' => $profile->memberId]],
+                ['title' => $title, 'body' => $body, 'url' => '/admin/sos']
             );
         } catch (\Throwable $e) {
-            // A notification failing to send is not itself a redirect
-            // failure — the phone forwarding already succeeded — but it's
-            // worth a journal entry so it doesn't vanish silently. Scrub the
-            // recipient address out of the error first (PHPMailer's ErrorInfo
-            // often contains it): the journal must never carry personal data
-            // (SECURITY.md §11), same pattern as MemberEmailService/AuthService.
-            $reason = str_replace($profile->email, '[adresse]', $e->getMessage());
+            // A notification failing is not itself a redirect failure — the
+            // phone forwarding already succeeded — but it's worth a journal
+            // entry so it doesn't vanish silently. Scrub the recipient
+            // address out of the reason first: the journal must never carry
+            // personal data (SECURITY.md §11), same pattern as
+            // MemberEmailService/AuthService.
+            $reason = str_replace($email, '[adresse]', $e->getMessage());
             $this->journalService->log(
                 'sos_staff',
                 'notification_failed',
                 'info',
-                "Échec d'envoi de l'email de notification de garde : {$reason}",
-                ['member_id' => $profile->memberId]
+                "Échec de la notification de changement de garde : {$reason}",
+                ['member_id' => $profile->memberId, 'type_id' => $typeId]
             );
         }
     }
