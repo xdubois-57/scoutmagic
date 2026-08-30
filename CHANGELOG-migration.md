@@ -480,7 +480,7 @@ génération de paquet.
 - Un verdict unique fusionnant « déclaré » et « vérifié ». C'est
   précisément la fusion qui rendait le fichier trompeur.
 
-## Après la roadmap — convergence réelle
+## Après la roadmap — convergence réelle et retrait des cales
 
 ### Les 534 MODIFY COLUMN fantômes
 
@@ -582,3 +582,20 @@ Un moteur que le script n'a pas pu démarrer est rapporté comme tel et fait
 sortir en échec. « Vert sur les deux moteurs » et « vert sur le seul moteur
 que j'ai trouvé » ne sont pas la même phrase — et c'est précisément la
 seconde qui se lisait comme la première.
+
+### Retrait des cales
+
+Supprimées : `MigrationResult::$backupCreated` et les six champs de file de
+`MigrationProgress`. Ce n'est pas le temps qui les rend supprimables, c'est
+IT-07 : plus aucune mise à jour ne peut exécuter le runner d'une version
+contre les objets d'une autre.
+
+`SelfUpdateCompatibilityTest` disparaît, mais son sujet n'a pas disparu — il
+a bougé. `Tests\Architecture\SelfUpdateMigrationBoundaryTest` tient
+désormais la condition qui a rendu le retrait sûr : la méthode qui appelle
+`installFiles()`/`restoreFiles()` ne migre jamais, et passe la main à
+`resumeMigration()`. Les deux moitiés comptent — n'affirmer que la première
+passerait tout aussi bien sur un handler qui aurait cessé de migrer, ce qui
+est un schéma silencieusement non migré et non un problème corrigé.
+
+Vérifié en échec : réintroduire un `migrate()` en ligne fait tomber le test.
