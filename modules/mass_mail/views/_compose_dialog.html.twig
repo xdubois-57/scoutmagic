@@ -25,6 +25,14 @@
                     <p class="form-text small mb-0 d-none" id="mm-merge-list-note">
                         Un email par ligne du fichier, contrairement aux listes classiques (un email par adresse).
                     </p>
+                    {# Shown in place of the scout-year block for a list contributed by
+                       another module (Email::LIST_TYPE_EXTERNAL): its year is fixed by
+                       the module that owns it, and Service\MailingListService ignores
+                       the year checkboxes for it. Toggled by mass-mail-list.js's
+                       updateListTypeUi(), exactly like the mail-merge note above. #}
+                    <p class="form-text small mb-0 d-none" id="mm-external-list-note">
+                        Cette liste vise toujours l'année d'inscription.
+                    </p>
                 </div>
 
                 {# Mail-merge audience zone — shown only when the "Publipostage" list type is selected. #}
