@@ -254,13 +254,24 @@ class SchemaIntrospectorTest extends TestCase
     }
 
     /**
-     * The case that makes the rule above decidable rather than a guess: a
-     * column that genuinely defaults to the string "NULL" is reported
-     * WITH quotes, so the unquoted form can only ever mean "no default".
-     * Collapse the two and a real default silently disappears from the
-     * schema's description of itself.
+     * A column that genuinely defaults to the string "NULL" must keep it,
+     * on either engine — and this is where the two of them stop agreeing.
+     *
+     * MariaDB quotes string literals, so it reports `'NULL'` here and the
+     * bare `NULL` can only ever mean "no default". MySQL does not quote,
+     * so it reports `NULL` for this column — the exact opposite meaning —
+     * and says "no default" with a real SQL NULL instead, which it has
+     * already made unambiguous. Each engine is internally consistent;
+     * together they contradict each other, which is why the introspector
+     * has to know which one it is talking to.
+     *
+     * This is the assertion that caught it: CI runs MySQL 8, production
+     * runs MariaDB 10.11, and a first version of the fix applied MariaDB's
+     * reading everywhere — erasing this default on MySQL. Collapsing the
+     * two would make a real default silently vanish from the schema's
+     * description of itself.
      */
-    public function testAColumnWhoseDefaultIsTheStringNullKeepsIt(): void
+    public function testAColumnWhoseDefaultIsTheStringNullKeepsItOnEitherEngine(): void
     {
         $this->pdo->exec('DROP TABLE IF EXISTS default_probe');
         $this->pdo->exec("CREATE TABLE default_probe (odd VARCHAR(10) NULL DEFAULT 'NULL')");
@@ -268,6 +279,25 @@ class SchemaIntrospectorTest extends TestCase
         $columns = $this->indexByName((new SchemaIntrospector($this->pdo))->getColumns('default_probe'));
 
         $this->assertSame('NULL', $columns['odd']->default);
+    }
+
+    /**
+     * The counterpart on the same table, so the pair is read together: a
+     * column with no default at all, beside one defaulting to the string
+     * "NULL". Whatever the engine, these two must not come back the same.
+     */
+    public function testNoDefaultAndTheStringNullAreNeverConfused(): void
+    {
+        $this->pdo->exec('DROP TABLE IF EXISTS default_probe');
+        $this->pdo->exec(
+            "CREATE TABLE default_probe (nothing VARCHAR(10) NULL, literal VARCHAR(10) NULL DEFAULT 'NULL')"
+        );
+
+        $columns = $this->indexByName((new SchemaIntrospector($this->pdo))->getColumns('default_probe'));
+
+        $this->assertNull($columns['nothing']->default);
+        $this->assertSame('NULL', $columns['literal']->default);
+        $this->assertNotSame($columns['nothing']->default, $columns['literal']->default);
     }
 
     /**
