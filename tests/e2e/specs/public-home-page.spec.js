@@ -126,10 +126,14 @@ test('the public home page boots through public/index.php and renders in a brows
 // It runs against the real modules end to end: a real bank account, a
 // real campaign created from a real .xlsx upload (the only thing in the
 // codebase that produces a receivable attached to a MEMBER, which is what
-// the band reads), a real group, a real invitation and a real message
-// posted by somebody else — because "there is money due AND unread
-// activity" is a state assembled by two modules that know nothing about
-// each other.
+// the band reads), a real group, and a real message posted in it by
+// somebody else — because "there is money due AND unread activity" is a
+// state assembled by two modules that know nothing about each other.
+//
+// The group is the SEEDED SECTION's, not one opened on invitation. That
+// is a correctness requirement rather than a preference, and it is
+// explained where the group is created: the invitation-group creation
+// quota is already spent by the time this file runs in a full suite.
 //
 // LOCATORS
 // ----------------------------------------------------------------------------
@@ -138,21 +142,35 @@ test('the public home page boots through public/index.php and renders in a brows
 // handle, each of them a contract rather than incidental structure:
 // `#home-payment-due`, the id the payment band carries for exactly this
 // purpose (Tests\Core\Http\Controller\PageControllerTest asserts on the
-// same one); the ids public/assets/js/groups.js itself binds to, borrowed
-// from specs/groups-management.spec.js along with the steps that use
-// them; and the count of `.alert` blocks inside the page's own grid,
-// which is how "exactly one band" is expressed at all — no role or name
-// can say "and nothing else".
+// same one); `#groups-post-form` and `[id^="post-body-"]`, which
+// public/assets/js/groups.js itself binds to, borrowed from
+// specs/groups-management.spec.js along with the steps that use them; and
+// the count of `.alert` blocks inside the page's own grid, which is how
+// "exactly one band" is expressed at all — no role or name can say "and
+// nothing else". That count is also why the search for the group band's
+// sentence is scoped to those blocks: the page's contextual help panel
+// explains the band in the same words.
 //
 // HOUSEKEEPING
 // ----------------------------------------------------------------------------
 // The scenario ends by abandoning the receivable and opening the group,
 // so it leaves the instance's home page as it found it rather than
-// showing a leftover band to every scenario that runs after it.
+// showing a leftover band to every scenario that runs after it — and an
+// afterEach finishes the job when an assertion stops the scenario before
+// it gets there. Both bands appear on the administrator's home page, and
+// every later spec signs in as that same administrator, so one failure
+// here must not become a failure somewhere unrelated.
 const ACCOUNT_NAME = `Compte accueil E2E ${Date.now()}`;
 const ACCOUNT_IBAN = 'BE68 5390 0754 7034';
 const CAMPAIGN_LABEL = `Cotisation accueil ${Date.now()}`;
 const GROUP_NAME = `Accueil E2E ${Date.now()}`;
+/**
+ * The section scripts/e2e-support.php gives BOTH seeded people a period
+ * in (e2e_seed_section_with_both_members). Its group is therefore a group
+ * they are both in without anybody being invited — and, unlike an
+ * invitation group, one the creation quota does not count.
+ */
+const SECTION_NAME = 'Meute E2E';
 const MEMBER_MESSAGE = "Le local est libre samedi si quelqu'un veut préparer le matériel.";
 /** A post's own rendered body — never a reply's, never an edit textarea. */
 const POST_BODY = '[id^="post-body-"]';
@@ -170,6 +188,65 @@ const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.s
 function homeBands(page) {
     return page.locator('main .row .alert');
 }
+
+/**
+ * What the scenario has created and not yet cleared, for the teardown
+ * below. Each is set the moment the thing exists and cleared again by the
+ * scenario's own closing gestures, so the teardown only ever finishes
+ * what an early failure interrupted — and never abandons a receivable
+ * twice, which would toggle it back to due.
+ *
+ * @type {string|null}
+ */
+let createdCampaignPath = null;
+/** @type {string|null} */
+let createdGroupPath = null;
+
+/**
+ * Leave the instance's home page as this file found it, whether the
+ * scenario reached its own last line or died on an assertion half-way.
+ *
+ * This matters more than tidiness: an unpaid receivable and an unread
+ * group both put a band on the ADMINISTRATOR's home page, and every
+ * scenario that runs after this file signs in as that same
+ * administrator. A failure here used to leave those bands behind, so one
+ * broken assertion could go on to break specs that have nothing to do
+ * with it. Cleaning up in an afterEach rather than at the end of the test
+ * body is the whole point.
+ *
+ * Deliberately best-effort: a teardown that throws would replace the real
+ * failure with its own, which is exactly the report nobody can act on.
+ */
+test.afterEach(async ({ page }) => {
+    const campaignPath = createdCampaignPath;
+    const groupPath = createdGroupPath;
+    createdCampaignPath = null;
+    createdGroupPath = null;
+
+    if (campaignPath !== null) {
+        try {
+            await page.goto(campaignPath, { waitUntil: 'domcontentloaded' });
+            await page.getByRole('button', { name: 'Détail de la créance' })
+                .filter({ visible: true }).first().click();
+            await Promise.all([
+                page.waitForURL(/\/finance\/campaigns\/\d+\?filter=/, { waitUntil: 'domcontentloaded' }),
+                page.getByRole('button', { name: 'Abandonner la créance' })
+                    .filter({ visible: true }).first().click(),
+            ]);
+        } catch {
+            // Nothing to add: the scenario's own failure is the report.
+        }
+    }
+
+    if (groupPath !== null) {
+        try {
+            // Opening a group is what marks it read.
+            await page.goto(groupPath, { waitUntil: 'domcontentloaded' });
+        } catch {
+            // Same.
+        }
+    }
+});
 
 test('with money due and unread group activity at once, the home page shows one band and it is the payment one', async ({ page, browser }) => {
     /** @type {string[]} */
@@ -228,42 +305,47 @@ test('with money due and unread group activity at once, the home page shows one 
 
     await page.waitForURL(/\/finance\/campaigns\/\d+$/, { waitUntil: 'domcontentloaded' });
     const campaignUrl = new URL(page.url()).pathname;
+    // Recorded before the first assertion that could fail with money
+    // still owed: from here on the teardown can clear it.
+    createdCampaignPath = campaignUrl;
     await expect(page.getByRole('heading', { level: 1, name: CAMPAIGN_LABEL })).toBeVisible();
 
     // ---------------------------------------------------------------
-    // UNREAD GROUP ACTIVITY. A group of their own, somebody else in it,
-    // and a message from that somebody — a message is never new to
-    // whoever wrote it, so the second browser is the point rather than a
+    // UNREAD GROUP ACTIVITY. A group both seeded people are in, and a
+    // message from the other one — a message is never new to whoever
+    // wrote it, so the second browser is the point rather than a
     // convenience.
+    //
+    // The SECTION's group, not an invitation group, and that is not a
+    // detail: Modules\Groups\Controller\GroupController::create()
+    // enforces a per-creator quota of open INVITATION groups
+    // (GroupMembershipService::DEFAULT_CREATION_QUOTA, five), and by the
+    // time this file runs the administrator has already opened that many
+    // across specs/groups-discussion, groups-management and
+    // groups-mentions. The sixth is refused with a French flash and a
+    // redirect back to /groups — which is what happens in a FULL suite
+    // run and never when this spec runs alone. A section group is exempt
+    // (the controller says why: the scheduled task creates those anyway),
+    // and it also makes the other member a member without an invitation,
+    // because they have a period in that section — the same derivation
+    // specs/groups-discussion.spec.js leans on.
     // ---------------------------------------------------------------
     await page.goto('/groups', { waitUntil: 'domcontentloaded' });
     await openCreateGroupForm(page);
     const creation = page.locator('form[action="/groups"]');
     await creation.getByLabel('Nom du groupe').fill(GROUP_NAME);
-    // "Sur invitation" rather than a section's: a section group's
-    // membership follows the Desk import and cannot be granted here.
-    await creation.getByLabel('Section').selectOption({ label: 'Sur invitation (sans section)' });
-    await creation.getByRole('button', { name: 'Créer' }).click();
+    await creation.getByLabel('Section').selectOption({ label: SECTION_NAME });
+    await Promise.all([
+        page.waitForURL(/\/groups\/\d+$/, { waitUntil: 'domcontentloaded' }),
+        creation.getByRole('button', { name: 'Créer' }).click(),
+    ]);
 
-    await page.waitForURL(/\/groups\/\d+$/, { waitUntil: 'domcontentloaded' });
     const groupUrl = new URL(page.url()).pathname;
+    // Recorded for the teardown, which has to be able to clear this group
+    // even when an assertion below never lets the scenario finish.
+    createdGroupPath = groupUrl;
     await expect(page.getByRole('heading', { level: 1, name: GROUP_NAME })).toBeVisible();
     await waitForGroupsJsReady(page);
-
-    await page.goto(`${groupUrl}/members`, { waitUntil: 'domcontentloaded' });
-    await waitForGroupsJsReady(page);
-    const search = page.locator('#invite-member-search');
-    await expect(search, 'groups.js must reveal its own search box').toBeVisible();
-    await search.fill('Kaa');
-    const results = page.locator('#invite-member-results');
-    await expect(results.getByText('Kaa', { exact: false }).first()).toBeVisible();
-    await results.getByText('Kaa', { exact: false }).first().click();
-    await Promise.all([
-        page.waitForResponse((response) =>
-            response.url().includes('/invite-member') && response.request().method() === 'POST'),
-        page.getByRole('button', { name: 'Inviter' }).click(),
-    ]);
-    await page.waitForLoadState('domcontentloaded');
 
     const memberContext = await browser.newContext();
     try {
@@ -331,6 +413,9 @@ test('with money due and unread group activity at once, the home page shows one 
     ]);
     // The gesture landed, in the campaign's own count of abandoned lines.
     await expect(page.getByRole('link', { name: 'Abandonnées (1)' })).toBeVisible();
+    // Done by hand: the teardown must not abandon it a second time, which
+    // the same form would read as "annuler l'abandon".
+    createdCampaignPath = null;
 
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await expect(page.locator('#home-payment-due'), 'an abandoned receivable owes nothing').toHaveCount(0);
@@ -341,7 +426,9 @@ test('with money due and unread group activity at once, the home page shows one 
 
     // Housekeeping: opening the group is what clears its unread state, so
     // the scenarios that run after this one find the home page as it was.
+    // The teardown does the same for a run that never reaches this line.
     await page.goto(groupUrl, { waitUntil: 'domcontentloaded' });
+    createdGroupPath = null;
 
     expect(serverErrors, 'the application returned a server error').toEqual([]);
     expect(pageErrors, 'uncaught JavaScript error in the browser').toEqual([]);
