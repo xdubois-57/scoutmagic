@@ -153,6 +153,24 @@
         function pollStatus(historyId) {
             pollHandle = window.ScoutMagicApi.poll(function () {
                 return window.ScoutMagicApi.getJson('/api/maintenance/update-status/' + historyId).then(function (res) {
+                    // A 200 that is not JSON, at this URL, means one thing:
+                    // the schema migration is running, and public/index.php
+                    // short-circuits every request before routing to serve
+                    // the progress page instead. This poller would otherwise
+                    // spin here for the whole window, on the one address that
+                    // cannot answer it — observed on 2026-08-30, an admin
+                    // watching an install with the tab open and doing
+                    // nothing. Reload, so the tab lands on that progress
+                    // page, whose own script drives the migration and
+                    // reloads back here when it is done. (getJson answers
+                    // status 0 on a genuine network failure, so this cannot
+                    // be confused with one, and the reload ends this poller
+                    // rather than looping it.)
+                    if (res.data === null && res.status === 200) {
+                        stopPolling();
+                        window.location.reload();
+                        return false;
+                    }
                     if (!res.data) {
                         // Transient network hiccup — keep polling.
                         return undefined;
