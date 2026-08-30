@@ -258,6 +258,70 @@ class UserAccountRepository
     }
 
     /**
+     * Re-key, or create, the one super-admin account named by
+     * `secrets['admin_email']` — the repair `public/index.php` runs when
+     * that address can no longer be found in the database.
+     *
+     * It used to be `DELETE FROM user_accounts WHERE is_super_admin = TRUE`
+     * followed by a fresh create(). With a single super admin that was
+     * merely blunt; with several it is destructive, because the trigger is
+     * not "the admin row is broken" but "the lookup missed" — and the
+     * lookup misses for the whole table at once when the blind-index key
+     * changes. One key problem would therefore have wiped every other
+     * super admin, silently, on whatever request happened to run next.
+     *
+     * So: find the row that really is this address by decrypting the
+     * super-admin rows one by one (the blind index is exactly what cannot
+     * be trusted here), and rewrite that row's encrypted email and blind
+     * index with the current keys. A row that cannot be decrypted at all
+     * is skipped rather than deleted — it may be someone else's, and this
+     * code cannot tell. When no row matches, the account is created.
+     *
+     * Nothing is ever deleted: `user_accounts` carries passwords,
+     * passkeys and notification preferences, and is referenced by
+     * `event_log`, `scheduled_actions` and `files.created_by` among
+     * others. A chef d'unité who also holds a legitimate Desk access must
+     * not lose their credentials to a repair aimed at someone else.
+     */
+    public function repairSuperAdmin(string $email): UserAccount
+    {
+        // strtolower(), exactly as create() and findByEmail() spell it:
+        // a repair whose blind index disagrees with the lookup that
+        // triggered it would repair the same account on every request.
+        $normalizedEmail = strtolower($email);
+
+        $stmt = $this->pdo->query('SELECT * FROM user_accounts WHERE is_super_admin = 1 ORDER BY id ASC');
+        $rows = $stmt !== false ? $stmt->fetchAll(\PDO::FETCH_ASSOC) : [];
+
+        foreach ($rows as $row) {
+            try {
+                $decryptedEmail = $this->encryption->decrypt($row['email_encrypted'], 'user_accounts.email');
+            } catch (\Throwable) {
+                // Unreadable with the current key: it may belong to someone
+                // else entirely, so it is left exactly as it is.
+                continue;
+            }
+
+            if (strtolower($decryptedEmail) !== $normalizedEmail) {
+                continue;
+            }
+
+            $update = $this->pdo->prepare(
+                'UPDATE user_accounts SET email_encrypted = ?, email_blind_index = ?, is_super_admin = 1 WHERE id = ?'
+            );
+            $update->execute([
+                $this->encryption->encrypt($normalizedEmail, 'user_accounts.email'),
+                $this->encryption->blindIndex($normalizedEmail, 'email'),
+                (int) $row['id'],
+            ]);
+
+            return $this->hydrate($row, $normalizedEmail);
+        }
+
+        return $this->create($normalizedEmail, true);
+    }
+
+    /**
      * Update last_login_at for the given user.
      */
     public function updateLastLogin(int $id): void
