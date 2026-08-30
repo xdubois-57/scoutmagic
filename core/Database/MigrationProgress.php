@@ -54,8 +54,6 @@ final class MigrationProgress
      */
     public function __construct(
         public readonly string $targetHash,
-        public bool $backupDone = false,
-        public bool $backupCreated = false,
         public bool $tableQueueBuilt = false,
         public array $actualTableNames = [],
         public array $remainingTableNames = [],
@@ -81,8 +79,6 @@ final class MigrationProgress
     {
         return [
             'target_hash' => $this->targetHash,
-            'backup_done' => $this->backupDone,
-            'backup_created' => $this->backupCreated,
             'table_queue_built' => $this->tableQueueBuilt,
             'actual_table_names' => $this->actualTableNames,
             'remaining_table_names' => $this->remainingTableNames,
@@ -101,6 +97,12 @@ final class MigrationProgress
      * as "no progress yet" and starts a fresh attempt, never a fatal error
      * over a corrupted cache row.
      *
+     * Every field is read by name and anything else in $data is ignored,
+     * which is what lets a row checkpointed by an older version — one
+     * still carrying the `backup_done`/`backup_created` keys from when
+     * migrate() took a dump of its own — resume on the new code instead of
+     * being thrown away mid-migration.
+     *
      * @param array<string, mixed> $data
      */
     public static function fromArray(array $data): ?self
@@ -111,8 +113,6 @@ final class MigrationProgress
 
         return new self(
             targetHash: $data['target_hash'],
-            backupDone: (bool) ($data['backup_done'] ?? false),
-            backupCreated: (bool) ($data['backup_created'] ?? false),
             tableQueueBuilt: (bool) ($data['table_queue_built'] ?? false),
             actualTableNames: is_array($data['actual_table_names'] ?? null) ? $data['actual_table_names'] : [],
             remainingTableNames: is_array($data['remaining_table_names'] ?? null) ? $data['remaining_table_names'] : [],

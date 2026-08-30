@@ -8,14 +8,26 @@ declare(strict_types=1);
 
 namespace Core\Database;
 
+use Core\Journal\JournalService;
+
 class MigrationRunner
 {
+    /**
+     * @param JournalService|null $journal Used for the one thing this class
+     *   does that a `security`-level journal entry has to record: an
+     *   explicit drop from a drops.sql actually removing a column, a
+     *   foreign key or a table (see applyExplicitDrops()). Nullable
+     *   because migrate() also runs where no journal can exist yet — a
+     *   fresh install, whose `event_log` table is created by the very
+     *   migration being run.
+     */
     public function __construct(
         private Connection $connection,
         private SchemaIntrospector $introspector,
         private SchemaComparator $comparator,
         private SqlParser $parser,
-        private int $timeBudgetSeconds = 20
+        private int $timeBudgetSeconds = 20,
+        private ?JournalService $journal = null
     ) {
     }
 
@@ -27,19 +39,28 @@ class MigrationRunner
      *    the entire live schema (several INFORMATION_SCHEMA queries per
      *    table) to conclude "nothing to do" is pure waste on every request
      *    that isn't immediately after a real schema change.
-     * 1. Backup the database (Core\Database\DatabaseDumper, skip if it fails).
-     * 2. Build the queue of declared tables to diff (cheap: one
+     * 1. Build the queue of declared tables to diff (cheap: one
      *    INFORMATION_SCHEMA.TABLES query, no per-table introspection yet).
-     * 3. Diff one declared table at a time, introspecting it only as it's
+     * 2. Diff one declared table at a time, introspecting it only as it's
      *    dequeued — this is the expensive part (3 INFORMATION_SCHEMA
      *    queries per table) that used to run for the whole database in one
      *    uninterruptible pass.
-     * 4. Execute one generated DDL statement at a time.
-     * 5. Apply explicit, reviewed column/constraint drops (see
+     * 3. Execute one generated DDL statement at a time.
+     * 4. Apply explicit, reviewed column/constraint drops (see
      *    applyExplicitDrops()) — kept atomic, see that method's doc comment.
-     * 6. Return a MigrationResult.
+     * 5. Return a MigrationResult.
      *
-     * After every unit of work in steps 1–4, progress is checkpointed to
+     * This method does NOT back the database up first. It used to, on
+     * every call, before even knowing whether there was any DDL to apply —
+     * a full ifsnop/mysqldump-php dump of the whole database, repeated
+     * once per schema file set. Every path that can change a schema file
+     * on disk already takes its own safety backup first (Core\Maintenance\
+     * Task\InstallUpdateHandler, Core\Maintenance\Task\
+     * RestoreBackupHandler) or has nothing to save yet (bootstrap.php on a
+     * fresh install), so the dump here was a duplicate of one taken
+     * moments earlier — and the single largest cost of a migration.
+     *
+     * After every unit of work in steps 1–3, progress is checkpointed to
      * the `settings` table (Core\Database\MigrationProgress) and the
      * elapsed time is checked against $timeBudgetSeconds. If the budget is
      * exceeded, migrate() returns immediately with an incomplete
@@ -58,7 +79,7 @@ class MigrationRunner
         $currentHash = $this->computeSchemaHash($schemaFiles);
 
         if ($this->getStoredSetting($hashKey) === $currentHash) {
-            return new MigrationResult(executedStatements: [], warnings: [], backupCreated: false);
+            return new MigrationResult(executedStatements: [], warnings: []);
         }
 
         // Mutual exclusion: with the migration-in-progress page (Core\Http\
@@ -74,7 +95,7 @@ class MigrationRunner
         // against SQLite) — safe there since those tests never call
         // migrate() concurrently against the same connection.
         if (!$this->acquireMigrationLock()) {
-            return new MigrationResult(executedStatements: [], warnings: [], backupCreated: false, complete: false, progressFraction: 0.0);
+            return new MigrationResult(executedStatements: [], warnings: [], complete: false, progressFraction: 0.0);
         }
 
         try {
@@ -107,19 +128,6 @@ class MigrationRunner
         $progress = $this->loadOrStartProgress($progressKey, $currentHash);
         $pdo = $this->connection->getPdo();
 
-        // Step 1: attempt backup — once per attempt, not chunk-able (see
-        // attemptBackup()'s doc comment).
-        if (!$progress->backupDone) {
-            $warnings = $progress->warnings;
-            $progress->backupCreated = $this->attemptBackup($warnings);
-            $progress->warnings = $warnings;
-            $progress->backupDone = true;
-
-            if (($incomplete = $this->checkpoint($progressKey, $progress, $deadline)) !== null) {
-                return $incomplete;
-            }
-        }
-
         // Parsing schema files is cheap, local, and deterministic given
         // the same (unchanged, per the hash check above) file content — no
         // need to persist the parsed result, just reparse every call.
@@ -132,7 +140,7 @@ class MigrationRunner
             $declaredByName[$table->name] = $table;
         }
 
-        // Step 2: build the table queue — one cheap INFORMATION_SCHEMA
+        // Step 1: build the table queue — one cheap INFORMATION_SCHEMA
         // query (no per-table introspection), so this never needs to be
         // interrupted mid-way.
         if (!$progress->tableQueueBuilt) {
@@ -153,7 +161,7 @@ class MigrationRunner
             }
         }
 
-        // Step 3: diff one declared table at a time.
+        // Step 2: diff one declared table at a time.
         while (!empty($progress->remainingTableNames)) {
             $tableName = array_shift($progress->remainingTableNames);
             $declared = $declaredByName[$tableName];
@@ -190,7 +198,7 @@ class MigrationRunner
             $progress->totalStatementCount = count($progress->pendingStatements);
         }
 
-        // Step 4: execute one DDL statement at a time.
+        // Step 3: execute one DDL statement at a time.
         while (!empty($progress->pendingStatements)) {
             $statement = array_shift($progress->pendingStatements);
 
@@ -207,7 +215,7 @@ class MigrationRunner
             }
         }
 
-        // Step 5: apply explicit, reviewed column/constraint drops.
+        // Step 4: apply explicit, reviewed column/constraint drops.
         if (!$progress->dropsApplied) {
             $dropWarnings = [];
             $dropStatements = $this->applyExplicitDrops($schemaFiles, $pdo, $dropWarnings);
@@ -216,7 +224,7 @@ class MigrationRunner
             $progress->dropsApplied = true;
         }
 
-        // Step 6: return the result.
+        // Step 5: return the result.
         //
         // Hash caching: save the hash so the next request skips migration
         // entirely. The hash is saved when all generated DDL executed
@@ -243,7 +251,6 @@ class MigrationRunner
         return new MigrationResult(
             executedStatements: $progress->executedStatements,
             warnings: $progress->warnings,
-            backupCreated: $progress->backupCreated,
             complete: true,
             progressFraction: 1.0
         );
@@ -266,7 +273,6 @@ class MigrationRunner
         return new MigrationResult(
             executedStatements: $progress->executedStatements,
             warnings: $progress->warnings,
-            backupCreated: $progress->backupCreated,
             complete: false,
             progressFraction: $this->progressFraction($progress)
         );
@@ -274,7 +280,7 @@ class MigrationRunner
 
     /**
      * Rough 0.0–1.0 estimate for the migration-in-progress page's progress
-     * bar: four equally-weighted phases (backup, table diffing, statement
+     * bar: three equally-weighted phases (table diffing, statement
      * execution, explicit drops), each contributing its own completion
      * fraction. Deliberately approximate — table/statement counts vary
      * wildly in cost (a one-column ALTER vs. a big CREATE TABLE), so this
@@ -282,8 +288,6 @@ class MigrationRunner
      */
     private function progressFraction(MigrationProgress $progress): float
     {
-        $backupFraction = $progress->backupDone ? 1.0 : 0.0;
-
         $diffFraction = $progress->totalTableCount > 0
             ? ($progress->totalTableCount - count($progress->remainingTableNames)) / $progress->totalTableCount
             : ($progress->tableQueueBuilt ? 1.0 : 0.0);
@@ -297,7 +301,7 @@ class MigrationRunner
 
         $dropsFraction = $progress->dropsApplied ? 1.0 : 0.0;
 
-        return ($backupFraction + $diffFraction + $executeFraction + $dropsFraction) / 4;
+        return ($diffFraction + $executeFraction + $dropsFraction) / 3;
     }
 
     /**
@@ -574,6 +578,7 @@ class MigrationRunner
                 try {
                     $pdo->exec($statement);
                     $executed[] = $statement;
+                    $this->journalDrop($drop);
                 } catch (\PDOException $e) {
                     $warnings[] = "Failed to execute: {$statement} — Error: {$e->getMessage()}";
                 }
@@ -584,52 +589,43 @@ class MigrationRunner
     }
 
     /**
-     * Attempt to create a database backup via Core\Database\DatabaseDumper
-     * (ifsnop/mysqldump-php) — a pure-PHP dump over PDO, no `mysqldump`
-     * binary or shell-execution function required.
+     * Record an explicit drop that actually removed something. Only
+     * reached after the statement executed: a drop whose column/table is
+     * already gone is skipped before this point, so the journal shows
+     * what genuinely disappeared from this installation rather than
+     * repeating every line of drops.sql on every migration.
      *
-     * @param array<string> $warnings
+     * Table and column/constraint names only — never a value, never a row
+     * count (AGENTS.md § Security checklist: no personal data in the
+     * journal). `security` level: this is the one place in the whole
+     * migration path that destroys data.
+     *
+     * @param array<string, string> $drop
      */
-    private function attemptBackup(array &$warnings): bool
+    private function journalDrop(array $drop): void
     {
-        $backupDir = dirname(__DIR__, 2) . '/storage/temp';
-        if (!is_dir($backupDir)) {
-            mkdir($backupDir, 0755, true);
+        if ($this->journal === null) {
+            return;
         }
 
-        // A pre-migration dump is a one-time safety net for THIS migration —
-        // never read back programmatically — and used to pile up under fully
-        // predictable names (backup_<timestamp>.sql), leaving full-PII SQL
-        // dumps in storage/temp indefinitely (audit hardening). Purge any left
-        // by an earlier (now-completed) migration, and give the new one an
-        // unguessable name.
-        foreach (glob($backupDir . '/backup_*.sql') ?: [] as $stale) {
-            @unlink($stale);
+        if (isset($drop['drop_table'])) {
+            $description = 'Suppression de table appliquée depuis drops.sql';
+            $context = ['table' => $drop['table']];
+        } elseif (isset($drop['column'])) {
+            $description = 'Suppression de colonne appliquée depuis drops.sql';
+            $context = ['table' => $drop['table'], 'column' => $drop['column']];
+        } else {
+            $description = 'Suppression de clé étrangère appliquée depuis drops.sql';
+            $context = ['table' => $drop['table'], 'constraint' => $drop['constraint']];
         }
-        $backupFile = $backupDir . '/backup_' . date('Y-m-d_H-i-s') . '_' . bin2hex(random_bytes(8)) . '.sql';
-
-        // Get connection details via reflection (they are private)
-        $host = $this->getPrivateProperty('host');
-        $port = $this->getPrivateProperty('port');
-        $dbName = $this->getPrivateProperty('dbName');
-        $user = $this->getPrivateProperty('user');
-        $password = $this->getPrivateProperty('password');
 
         try {
-            DatabaseDumper::dump($host, $port, $dbName, $user, $password, $backupFile);
-        } catch (\Throwable $e) {
-            $warnings[] = 'Database backup failed — proceeding without backup. (' . $e->getMessage() . ')';
-            @unlink($backupFile);
-            return false;
+            $this->journal->log('core', 'schema_drop_executed', 'security', $description, $context);
+        } catch (\Throwable) {
+            // Best-effort, and deliberately so: `event_log` is itself one
+            // of the tables this migration may still be creating, and a
+            // drop that succeeded must never be turned into a failed
+            // migration by the attempt to record it.
         }
-
-        return true;
-    }
-
-    private function getPrivateProperty(string $property): mixed
-    {
-        $reflection = new \ReflectionClass($this->connection);
-        $prop = $reflection->getProperty($property);
-        return $prop->getValue($this->connection);
     }
 }
