@@ -10,6 +10,8 @@ use Modules\Finance\Service\StructuredCommunicationService;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Tests\Fixtures\ReferenceDataset\BankBlueprint;
+use Tests\Fixtures\ReferenceDataset\CalendarBlueprint;
+use Tests\Fixtures\ReferenceDataset\CalendarSeeder;
 use Tests\Fixtures\ReferenceDataset\DatasetGenerator;
 use Tests\Fixtures\ReferenceDataset\PhotoLot;
 use Tests\Fixtures\ReferenceDataset\ScenarioCatalog;
@@ -213,6 +215,77 @@ final class ReferenceDatasetFormatTest extends TestCase
                 array_intersect($roles, ['chief', 'admin']),
                 "Le Tiers {$row['target']} porte une photo individuelle sans jamais être cadre.",
             );
+        }
+    }
+
+    // ------------------------------------------------ responsables de section
+
+    public function testExactlyOneCadrePerSectionAndYearCarriesTheLeadFunction(): void
+    {
+        // The trombinoscope's "responsable" is whoever holds a function
+        // flagged `is_lead`. Flag a function two people hold and the
+        // responsable becomes whichever row the query returns first; flag one
+        // nobody holds and every section is headless. Both failures are
+        // silent on the page, so they are caught here instead.
+        $people = (new DatasetGenerator(self::datasetRoot()))->people();
+
+        foreach (UnitBlueprint::YEARS as $year) {
+            $holders = [];
+            foreach ($people as $tiers => $person) {
+                foreach (($person->years[$year] ?? null)?->functions ?? [] as $function) {
+                    if ($function->functionCode === UnitBlueprint::SECTION_LEAD_FUNCTION) {
+                        $holders[(string) $function->section][] = $tiers;
+                    }
+                }
+            }
+
+            foreach (UnitBlueprint::sectionsIn($year) as $handle) {
+                $name = UnitBlueprint::SECTIONS[$handle]['name'];
+                self::assertCount(
+                    1,
+                    $holders[$name] ?? [],
+                    "« " . UnitBlueprint::SECTION_LEAD_FUNCTION . " » doit être porté par exactement une personne "
+                    . "dans {$name} en {$year}.",
+                );
+            }
+
+            self::assertSame(
+                count(UnitBlueprint::sectionsIn($year)),
+                count($holders),
+                "Une section inexistante en {$year} porte un responsable.",
+            );
+        }
+    }
+
+    // ---------------------------------------------------- rythme hebdomadaire
+
+    public function testTheWeeklyRuleProducesAScoutYearOfSaturdaysWithHolesInIt(): void
+    {
+        // The rule is the declarative half of the calendar, and this is the
+        // arithmetic that turns it into dates: it runs without a database, so
+        // a rhythm that quietly slid onto a Sunday, or a season that lost its
+        // school holidays, fails here rather than on somebody's instance.
+        foreach (UnitBlueprint::YEARS as $year) {
+            $start = new \DateTimeImmutable(sprintf('%04d-09-01', UnitBlueprint::referenceYear($year)));
+
+            foreach (CalendarBlueprint::MEETING_RULE as $branch => $rule) {
+                $days = CalendarSeeder::occurrencesOf($year, $rule);
+
+                self::assertGreaterThan(20, count($days), "Le rythme de {$branch} en {$year} est trop maigre.");
+                self::assertLessThan(40, count($days), "Le rythme de {$branch} en {$year} n'a plus de trous.");
+
+                foreach ($days as $day) {
+                    self::assertSame(
+                        $rule['weekday'],
+                        (int) $start->modify('+' . $day . ' days')->format('N'),
+                        "Une réunion de {$branch} en {$year} ne tombe pas le bon jour.",
+                    );
+                    self::assertFalse(
+                        CalendarSeeder::isSchoolHoliday($day),
+                        "Une réunion de {$branch} en {$year} tombe en pleines vacances scolaires.",
+                    );
+                }
+            }
         }
     }
 

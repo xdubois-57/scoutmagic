@@ -18,12 +18,17 @@ namespace Tests\Fixtures\ReferenceDataset;
  * ScoutMagic's own, and all of it is declared here so the dataset can be
  * maintained by editing a table.
  *
- * **The covered subset is deliberate and named** (README.md §8.3). The chantier
- * asked for broad module coverage rather than exhaustiveness, and explicitly
- * allowed proposing a subset instead of shipping an undocumented partial one.
- * What is here — photos, offsets, departures, badges, expected receivables,
- * calendar events — is what the rest of the dataset already needs to make
- * sense. What is not is listed in that same README section, with the reason.
+ * **This file used to hold every extra there was, and no longer does.** Once
+ * the dataset grew a calendar rhythm, news articles, camps, registrations,
+ * rentals, banners and a payment campaign, one table describing all of them
+ * was a table nobody could read. Each domain now has its own `*Blueprint`
+ * next door, and its own `*Seeder` to apply it. What is left here is the
+ * MEMBER-level extras — the things Desk exports a member without: a year
+ * shifted, a departure announced, a photo, a cotisation still owed.
+ *
+ * **The covered subset is still deliberate and still named** (README.md §8.3):
+ * section documents and discussion groups are not seeded, and that section
+ * says so with the reason.
  */
 final class ExtrasBlueprint
 {
@@ -67,44 +72,6 @@ final class ExtrasBlueprint
     ];
 
     /**
-     * Badge assignments (Core\Badge). `Infirmier` and `Trésorier` are the two
-     * badges BadgeService::ensureDefaults() seeds; the referent badges are
-     * created per section by syncSectionReferentBadges() and are not assigned
-     * here.
-     *
-     * @var list<array{tiers: string, year: string, badge: string}>
-     */
-    public const BADGES = [
-        ['tiers' => 'T0017', 'year' => '2024-2025', 'badge' => 'Trésorier'],
-        ['tiers' => 'T0017', 'year' => '2025-2026', 'badge' => 'Trésorier'],
-        ['tiers' => 'T0017', 'year' => '2026-2027', 'badge' => 'Trésorier'],
-        ['tiers' => 'T0014', 'year' => '2025-2026', 'badge' => 'Infirmier'],
-        ['tiers' => 'T0018', 'year' => '2026-2027', 'badge' => 'Infirmier'],
-    ];
-
-    /**
-     * Calendar events, one per section calendar plus a couple of unit-wide
-     * ones. Dates are expressed as an offset in days from 1 September of the
-     * scout year's start year, so an event never wanders outside its year.
-     *
-     * `section` is a handle of UnitBlueprint::SECTIONS, or null for the
-     * default unit calendar.
-     *
-     * @var list<array{year: string, section: ?string, day: int, title: string, duration: int, location: ?string}>
-     */
-    public const CALENDAR_EVENTS = [
-        ['year' => '2024-2025', 'section' => null, 'day' => 20, 'title' => "Fête d'unité", 'duration' => 0, 'location' => 'Terrain du Sart'],
-        ['year' => '2024-2025', 'section' => 'lou1', 'day' => 34, 'title' => 'Réunion de rentrée', 'duration' => 0, 'location' => 'Local des Louveteaux'],
-        ['year' => '2024-2025', 'section' => 'ecl1', 'day' => 96, 'title' => 'Weekend de Toussaint', 'duration' => 2, 'location' => 'Gîte de la Sapinière'],
-        ['year' => '2024-2025', 'section' => 'pio1', 'day' => 280, 'title' => 'Camp d\'été', 'duration' => 9, 'location' => 'Ferme du Grand Pré'],
-        ['year' => '2025-2026', 'section' => null, 'day' => 18, 'title' => "Temps d'unité", 'duration' => 0, 'location' => null],
-        ['year' => '2025-2026', 'section' => 'bal2', 'day' => 40, 'title' => 'Première réunion de la Ribambelle Verte', 'duration' => 0, 'location' => 'Local des Baladins'],
-        ['year' => '2025-2026', 'section' => 'lou2', 'day' => 150, 'title' => 'Grande journée', 'duration' => 0, 'location' => 'Bois de Lauzelle'],
-        ['year' => '2026-2027', 'section' => null, 'day' => 25, 'title' => 'Passage des sections', 'duration' => 0, 'location' => 'Local d\'unité'],
-        ['year' => '2026-2027', 'section' => 'ecl1', 'day' => 285, 'title' => 'Camp d\'été', 'duration' => 9, 'location' => 'Ardenne'],
-    ];
-
-    /**
      * The label put on each expected receivable, by scout year. One receivable
      * per structured communication of BankBlueprint::COTISATION_BASES, on the
      * unit account — which is what turns the twenty uncategorised membership
@@ -128,6 +95,27 @@ final class ExtrasBlueprint
 
     /** The module name recorded as the source of these receivables. */
     public const RECEIVABLE_SOURCE_MODULE = 'reference_dataset';
+
+    /**
+     * The email address of every section, and of the synthesised Staff d'U.
+     *
+     * `sections.email` is the one section column no Desk export carries — it
+     * is typed on Config Desk — and it was empty in every earlier version of
+     * this dataset, which made the "écrire à la section" surfaces look broken
+     * rather than unconfigured. The addresses themselves live in
+     * UnitBlueprint, beside the sections they belong to.
+     *
+     * @return array<string, string> section handle => address
+     */
+    public static function sectionEmails(): array
+    {
+        $emails = [];
+        foreach (UnitBlueprint::SECTIONS as $handle => $section) {
+            $emails[$handle] = $section['email'];
+        }
+
+        return $emails;
+    }
 
     /** 1 September of the scout year's start year, plus $days. */
     public static function dateIn(string $yearLabel, int $days): string
