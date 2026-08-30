@@ -26,10 +26,15 @@ class MigrationResult
      *   $complete is true. Drives the progress bar on the migration-in-
      *   progress page (Core\Http\Controller\SystemController) across
      *   repeated short migrate() calls.
-     */
-    /**
-     * @param array<string> $executedStatements
-     * @param array<string> $warnings
+     * @param bool $converged False when the migration gave up: the same
+     *   statements failed on several consecutive passes, so the attempt
+     *   was abandoned rather than retried forever (MigrationRunner::
+     *   CONVERGENCE_ATTEMPTS). $complete is still true — the runner is
+     *   done, and the schema hash is cached so the site stops serving the
+     *   progress page — but the schema did NOT reach what the files
+     *   declare. A caller for whom that is a failed operation rather than
+     *   a degraded one (Core\Maintenance\Task\InstallUpdateHandler, which
+     *   has a backup to roll back to) must check this, not just $complete.
      * @param bool $backupCreated **Upgrade shim. Nothing reads it.**
      *
      * Removing this parameter took production down, and the mechanism is
@@ -56,13 +61,20 @@ class MigrationResult
      * hidden in a signature nobody reads. Removable once no installation
      * predates the version that reintroduced it — a decision about the
      * field, not about the code.
+     *
+     * The same rule is why $converged was ADDED at the end with a default
+     * rather than inserted among the existing parameters, and why nothing
+     * here may ever be removed or reordered in a release an installation
+     * could update *into*: the code doing the constructing during that
+     * update is the code of the version being replaced.
      */
     public function __construct(
         public readonly array $executedStatements,
         public readonly array $warnings,
         public readonly bool $complete = true,
         public readonly float $progressFraction = 1.0,
-        public readonly bool $backupCreated = false
+        public readonly bool $backupCreated = false,
+        public readonly bool $converged = true
     ) {
     }
 

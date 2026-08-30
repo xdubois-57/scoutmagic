@@ -185,6 +185,8 @@ class InstallUpdateHandler implements TaskHandlerInterface
                     return;
                 }
 
+                $this->refuseUnconvergedMigration($migrationResult);
+
                 $this->finishInstall($historyId, $history, $context, $updateHistoryRepository, $backupRepository, $fileRepository);
             } catch (\Throwable $installError) {
                 $this->rollbackToSafetyBackup(
@@ -269,6 +271,8 @@ class InstallUpdateHandler implements TaskHandlerInterface
                 return;
             }
 
+            $this->refuseUnconvergedMigration($migrationResult);
+
             $this->finishInstall($historyId, $history, $context, $updateHistoryRepository, $backupRepository, $fileRepository);
         } catch (\Throwable $migrationError) {
             // Unlike the initial attempt, this invocation never created its
@@ -330,6 +334,31 @@ class InstallUpdateHandler implements TaskHandlerInterface
      * the top-level guard in handle() checks to route back into
      * resumeMigration() next time.
      */
+    /**
+     * An abandoned migration is a failed update, not a degraded one.
+     *
+     * MigrationRunner gives up after several identically failing passes
+     * and caches the schema hash anyway, because a site held on the
+     * progress page forever is worse than a schema missing a column. That
+     * trade-off is right for a visitor arriving on a site nobody is
+     * updating; it is wrong here, where a safety backup exists and
+     * rolling back to it is both possible and correct. `complete` alone
+     * cannot tell the two apart, which is why MigrationResult carries
+     * `converged` — throwing here hands the case to the caller's existing
+     * rollback path (status `rolled_back`, not `failed`).
+     */
+    private function refuseUnconvergedMigration(\Core\Database\MigrationResult $result): void
+    {
+        if ($result->converged) {
+            return;
+        }
+
+        throw new \RuntimeException(
+            'Schema migration was abandoned without converging: '
+            . 'the same statements failed on every attempt.'
+        );
+    }
+
     private function scheduleMigrationResume(TaskContext $context, int $historyId, string $downloadUrl, string $sourceType): void
     {
         $schedulerService = new SchedulerService(new SchedulerRepository($context->connection->getPdo()));

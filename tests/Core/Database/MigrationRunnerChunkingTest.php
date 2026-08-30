@@ -105,6 +105,13 @@ class MigrationRunnerChunkingTest extends TestCase
         return $value === false ? null : (string) $value;
     }
 
+    /**
+     * A zero budget must still converge rather than spin. With nothing to
+     * execute — the mocked introspector mirrors the declared schema — the
+     * very first pass finishes, because the budget is only ever consulted
+     * between statements and there are none. What this pins is that the
+     * loop terminates and the progress bar never goes backwards.
+     */
     public function testZeroTimeBudgetForcesIncompleteResultsUntilEventualCompletion(): void
     {
         $pdo = DatabaseTestHelper::createTestDatabase();
@@ -198,50 +205,51 @@ class MigrationRunnerChunkingTest extends TestCase
         $this->assertFalse($freshRunner()->isPending([$this->schemaPath]));
     }
 
-    public function testStaleProgressIsDiscardedWhenSchemaContentChangesMidAttempt(): void
+    /**
+     * Progress checkpointed against a DIFFERENT target hash describes a
+     * path to a schema nothing will reach again — it must be discarded,
+     * not resumed. Seeded directly rather than produced by an interrupted
+     * run: since the statement queue stopped being persisted, a pass with
+     * nothing to execute has nothing to interrupt, and the only way to
+     * hold a stale row is to write one.
+     */
+    public function testProgressLeftBehindByAnotherTargetHashIsDiscardedNotResumed(): void
     {
         $pdo = DatabaseTestHelper::createTestDatabase();
         $connection = Connection::withPdo($pdo);
+        $progressKey = 'schema_migration_progress_' . substr(hash('sha256', $this->schemaPath), 0, 16);
 
-        // First call: only far enough to persist progress against the
-        // ORIGINAL (2-table) schema content, never completing it.
-        file_put_contents(
-            $this->schemaPath,
-            "CREATE TABLE t1 (id INT PRIMARY KEY);\nCREATE TABLE t2 (id INT PRIMARY KEY);"
-        );
-        $firstRunner = new MigrationRunner(
+        $pdo->prepare(
+            'INSERT INTO settings (module_id, setting_key, setting_value, default_value, setting_type, label, description, editable, sort_order)
+             VALUES (NULL, ?, ?, ?, \'text\', ?, ?, 0, 999)'
+        )->execute([
+            $progressKey,
+            (string) json_encode([
+                'target_hash' => 'a-hash-for-schema-content-that-no-longer-exists',
+                'executed_statements' => ['ALTER TABLE ghost ADD COLUMN gone INT'],
+                'warnings' => ['a warning from an attempt nothing will resume'],
+                'same_failure_count' => 2,
+                'failure_signature' => 'stale',
+            ]),
+            '',
+            'test',
+            'test',
+        ]);
+
+        $runner = new MigrationRunner(
             $connection,
             $this->introspectorMirroring($this->schemaPath),
             new SchemaComparator(),
-            new SqlParser(),
-            0
+            new SqlParser()
         );
-        $firstResult = $firstRunner->migrate([$this->schemaPath]);
-        $this->assertFalse($firstResult->complete);
+        $result = $runner->migrate([$this->schemaPath]);
 
-        // Schema content changes (a 3rd table added) before the attempt
-        // above ever finished — the stored progress now belongs to a
-        // target hash nothing will ever reach again.
-        file_put_contents(
-            $this->schemaPath,
-            "CREATE TABLE t1 (id INT PRIMARY KEY);\nCREATE TABLE t2 (id INT PRIMARY KEY);\nCREATE TABLE t3 (id INT PRIMARY KEY);"
-        );
+        $this->assertTrue($result->complete);
+        $this->assertTrue($result->converged);
+        $this->assertNotContains('ALTER TABLE ghost ADD COLUMN gone INT', $result->executedStatements);
+        $this->assertNotContains('a warning from an attempt nothing will resume', $result->warnings);
 
-        $complete = false;
-        for ($i = 0; $i < 20 && !$complete; $i++) {
-            $runner = new MigrationRunner(
-                $connection,
-                $this->introspectorMirroring($this->schemaPath),
-                new SchemaComparator(),
-                new SqlParser(),
-                0
-            );
-            $complete = $runner->migrate([$this->schemaPath])->complete;
-        }
-
-        $this->assertTrue($complete, 'migration against the NEW schema content never completed');
-
-        // The hash now cached is the new content's hash, not the stale one.
+        // And the hash now cached is this content's, not the stale one.
         $key = 'schema_hash_' . substr(hash('sha256', $this->schemaPath), 0, 16);
         $currentHash = hash('sha256', file_get_contents($this->schemaPath) . "\x00\x00");
         $this->assertSame($currentHash, $this->settingValue($pdo, $key));
