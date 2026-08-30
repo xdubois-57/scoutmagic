@@ -84,12 +84,6 @@ final class StatisticsServiceFactory
             new CookieConsentService(),
             new MenuBuilder(Role::SUPERADMIN),
             new ModuleRegistryRepository($pdo),
-            new MigrationRunner(
-                $context->connection,
-                new SchemaIntrospector($pdo),
-                new SchemaComparator(),
-                new SqlParser()
-            ),
             $context->journal,
             new Router()
         );

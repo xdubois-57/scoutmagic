@@ -573,7 +573,7 @@ class MigrationRunner
      */
     private function schemaHashSettingKey(array $schemaFiles): string
     {
-        return 'schema_hash_' . substr(hash('sha256', implode(',', $schemaFiles)), 0, 16);
+        return 'schema_hash_' . $this->schemaFilesIdentity($schemaFiles);
     }
 
     /**
@@ -581,7 +581,44 @@ class MigrationRunner
      */
     private function progressSettingKey(array $schemaFiles): string
     {
-        return 'schema_migration_progress_' . substr(hash('sha256', implode(',', $schemaFiles)), 0, 16);
+        return 'schema_migration_progress_' . $this->schemaFilesIdentity($schemaFiles);
+    }
+
+    /**
+     * Which schema files this is a migration OF — the identity both the
+     * hash cache and the resumable progress row are keyed on.
+     *
+     * Canonicalised, because the callers do not spell the same file the
+     * same way and one file must be one migration. `public/index.php`
+     * passes `<root>/public/../schema/core.sql`; `Task\
+     * InstallUpdateHandler` and `Task\RestoreBackupHandler` pass
+     * `<root>/schema/core.sql` (dirname of the storage path). Keyed on the
+     * raw strings, those are two `schema_hash_` rows and two
+     * `schema_migration_progress_` rows for one file — so an update would
+     * finish migrating, cache its hash, and then the very next page load
+     * would ask the other key, still find the old hash, and serve the
+     * migration-in-progress page: re-running through the browser the work
+     * the update had just done, and resuming neither side's checkpoint.
+     *
+     * realpath() answers false for a file that does not exist. That is not
+     * an error here — computeSchemaHash() already treats a missing schema
+     * file as empty content — so the raw string stands in, which keeps the
+     * key stable for a caller naming a file that is not there.
+     *
+     * @param array<string> $schemaFiles
+     */
+    private function schemaFilesIdentity(array $schemaFiles): string
+    {
+        $canonical = array_map(
+            static function (string $file): string {
+                $real = realpath($file);
+
+                return $real !== false ? $real : $file;
+            },
+            $schemaFiles
+        );
+
+        return substr(hash('sha256', implode(',', $canonical)), 0, 16);
     }
 
     private function loadOrStartProgress(string $key, string $targetHash): MigrationProgress

@@ -390,7 +390,15 @@ $migrationRunner = new MigrationRunner(
     new SqlParser(),
     journal: $migrationJournal
 );
-$migrationIsPending = $migrationRunner->isPending([$schemaPath]);
+// The WHOLE declared schema — core plus every module's — not just
+// core.sql. Module schemas used to be migrated separately and lazily by
+// Core\Module\ModuleManager, the first time a request noticed a module's
+// manifest version was newer than the registry's; a schema change with no
+// accompanying version bump therefore did nothing at all, silently, until
+// a query failed against a column that was never added. See
+// Core\Database\SchemaFiles.
+$schemaFiles = \Core\Database\SchemaFiles::all(dirname(__DIR__));
+$migrationIsPending = $migrationRunner->isPending($schemaFiles);
 \Core\Debug\RequestTimeline::mark('migration_pending_check_done', ['pending' => $migrationIsPending]);
 
 if ($migrationIsPending) {
@@ -425,7 +433,7 @@ if ($migrationIsPending) {
             5,
             $migrationJournal
         );
-        $stepResult = $stepRunner->migrate([$schemaPath]);
+        $stepResult = $stepRunner->migrate($schemaFiles);
         \Core\Debug\RequestTimeline::mark('migration_step_done', [
             'complete' => $stepResult->complete,
             'progress' => $stepResult->progressFraction,
@@ -1600,7 +1608,6 @@ $moduleManager = new ModuleManager(
     $cookieConsentService,
     $menuBuilder,
     $moduleRegistryRepo,
-    $migrationRunner,
     $journalService,
     $router,
     $notificationService,

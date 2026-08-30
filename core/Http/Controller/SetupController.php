@@ -10,6 +10,7 @@ namespace Core\Http\Controller;
 
 use Core\Database\Connection;
 use Core\Database\MigrationRunner;
+use Core\Database\SchemaFiles;
 use Core\Database\SchemaComparator;
 use Core\Database\SchemaIntrospector;
 use Core\Database\SqlParser;
@@ -245,7 +246,7 @@ class SetupController extends AbstractController
             new SchemaComparator(),
             new SqlParser()
         );
-        $migrationResult = $runner->migrate([$this->schemaPath]);
+        $migrationResult = $runner->migrate($this->schemaFileSet());
 
         $this->journalService?->log(
             'core',
@@ -384,6 +385,23 @@ class SetupController extends AbstractController
      * any reason (e.g. no ZipArchive support) rather than losing the dump
      * that did succeed.
      */
+    /**
+     * The whole declared schema — core plus every module's — which is what
+     * a fresh install must create. Anything left out here would instead be
+     * created on the first page load after setup, by the migration-in-
+     * progress page: correct, but a wizard that ends by handing the first
+     * visitor a progress bar has not really finished installing.
+     *
+     * $schemaPath is still the constructor parameter: it names core.sql,
+     * whose directory's parent is the installation root.
+     *
+     * @return array<string>
+     */
+    private function schemaFileSet(): array
+    {
+        return SchemaFiles::all(dirname(dirname($this->schemaPath)));
+    }
+
     private function bundleBackupWithEncryptionKey(string $dumpPath, string $masterKeyPath, string $secretsPath): string
     {
         $zipPath = dirname($dumpPath) . '/' . pathinfo($dumpPath, PATHINFO_FILENAME) . '.zip';
@@ -811,7 +829,7 @@ class SetupController extends AbstractController
                 new SchemaComparator(),
                 new SqlParser()
             );
-            $runner->migrate([$this->schemaPath]);
+            $runner->migrate($this->schemaFileSet());
 
             // Store admin email in secrets for auto-repair
             $secrets['admin_email'] = strtolower(trim($data['admin_email']));
@@ -929,7 +947,7 @@ class SetupController extends AbstractController
                     new SchemaComparator(),
                     new SqlParser()
                 );
-                $runner->migrate([$this->schemaPath]);
+                $runner->migrate($this->schemaFileSet());
             }
 
             // Create or update admin account if provided

@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Core\Maintenance\Task;
 
 use Core\Database\MigrationRunner;
+use Core\Database\SchemaFiles;
 use Core\Database\SchemaComparator;
 use Core\Database\SchemaIntrospector;
 use Core\Database\SqlParser;
@@ -178,7 +179,7 @@ class InstallUpdateHandler implements TaskHandlerInterface
                     new SchemaComparator(),
                     new SqlParser()
                 );
-                $migrationResult = $migrationRunner->migrate([$basePath . '/schema/core.sql']);
+                $migrationResult = $migrationRunner->migrate(SchemaFiles::all($basePath));
 
                 if (!$migrationResult->complete) {
                     $this->scheduleMigrationResume($context, $historyId, $downloadUrl, $sourceType);
@@ -264,7 +265,7 @@ class InstallUpdateHandler implements TaskHandlerInterface
                 new SchemaComparator(),
                 new SqlParser()
             );
-            $migrationResult = $migrationRunner->migrate([$basePath . '/schema/core.sql']);
+            $migrationResult = $migrationRunner->migrate(SchemaFiles::all($basePath));
 
             if (!$migrationResult->complete) {
                 $this->scheduleMigrationResume($context, $historyId, $downloadUrl, $sourceType);

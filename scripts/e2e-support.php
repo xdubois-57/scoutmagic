@@ -460,23 +460,28 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
 
     // --- Schema, through the application's own migration runner. ---
     //
-    // The schema path must be spelled EXACTLY the way public/index.php
-    // spells it, because MigrationRunner keys its "already migrated" flag
-    // on a hash of the schema file *paths* it was handed, not only of
-    // their contents. Hand it $repoRoot . '/schema/core.sql' and the flag
-    // lands under a different key than the one index.php looks up — so
-    // the very first browser request finds a migration pending, serves
-    // the migration-progress page instead of the requested route, and the
-    // test races that page's own JavaScript to a reload. index.php builds
-    // it as __DIR__ . '/../schema/core.sql' from its own directory, and
-    // PHP resolves __DIR__ through symlinks (which matters: mktemp -d
-    // returns a path under a symlinked /var on macOS), hence realpath().
-    $publicDir = realpath($instanceDir . '/public');
-    if ($publicDir === false) {
+    // The WHOLE declared schema — core plus every module's — exactly as a
+    // deploy does it (Core\Database\SchemaFiles). Provisioning used to
+    // migrate core.sql only and let each module's tables appear when the
+    // harness activated it; activation no longer runs any DDL, so this is
+    // now the only thing that creates them.
+    //
+    // MigrationRunner canonicalises the paths it is keyed on, so this no
+    // longer has to be spelled the way public/index.php spells it. It used
+    // to: index.php builds `__DIR__ . '/../schema/core.sql'` while this
+    // handed over `$repoRoot . '/schema/core.sql'`, the flag landed under
+    // a different key than the one index.php looked up, and the very first
+    // browser request found a migration pending, served the
+    // migration-progress page instead of the requested route, and the test
+    // raced that page's own JavaScript to a reload. realpath() here is now
+    // for the symlink case alone (mktemp -d returns a path under a
+    // symlinked /var on macOS).
+    $instanceRoot = realpath($instanceDir);
+    if ($instanceRoot === false || !is_dir($instanceRoot . '/public')) {
         fwrite(STDERR, "E2E provisioning failed: instance public/ directory not found.\n");
         exit(1);
     }
-    $schemaPath = $publicDir . '/../schema/core.sql';
+    $schemaFiles = Core\Database\SchemaFiles::all($instanceRoot);
 
     $connection = new Core\Database\Connection(
         $config['host'],
@@ -493,7 +498,7 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
         new Core\Database\SqlParser()
     );
 
-    $result = $migrationRunner()->migrate([$schemaPath]);
+    $result = $migrationRunner()->migrate($schemaFiles);
 
     if (!$result->complete) {
         fwrite(STDERR, "E2E provisioning failed: schema migration did not complete.\n");
@@ -504,11 +509,12 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
     // test discover it as an intermittent "wrong page" failure: after
     // provisioning, the application must see no pending migration for the
     // exact path it will use.
-    if ($migrationRunner()->isPending([$schemaPath])) {
+    if ($migrationRunner()->isPending($schemaFiles)) {
         fwrite(
             STDERR,
-            "E2E provisioning failed: a schema migration is still pending for {$schemaPath} — "
-            . "the first request would serve the migration-progress page instead of the application.\n"
+            'E2E provisioning failed: a schema migration is still pending for ' . count($schemaFiles)
+            . " schema file(s) — the first request would serve the migration-progress page instead "
+            . "of the application.\n"
         );
         exit(1);
     }
@@ -650,7 +656,6 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
     $activated = e2e_activate_all_modules(
         $repoRoot,
         $connection,
-        $migrationRunner(),
         $settingService,
         e2e_base_url($port)
     );
@@ -691,7 +696,6 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
 function e2e_activate_all_modules(
     string $repoRoot,
     Core\Database\Connection $connection,
-    Core\Database\MigrationRunner $migrationRunner,
     Core\Config\SettingService $settingService,
     string $baseUrl
 ): array {
@@ -715,7 +719,6 @@ function e2e_activate_all_modules(
         new Core\Cookie\CookieConsentService(),
         new Core\View\MenuBuilder(Core\Security\Role::SUPERADMIN),
         new Core\Module\ModuleRegistryRepository($pdo),
-        $migrationRunner,
         new Core\Journal\JournalService(new Core\Journal\JournalRepository($pdo)),
         new Core\Http\Router(),
         null,
