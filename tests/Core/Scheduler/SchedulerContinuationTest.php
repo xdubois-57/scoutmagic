@@ -291,6 +291,100 @@ class SchedulerContinuationTest extends TestCase
         $this->assertSame(2, $earned);
     }
 
+    /**
+     * The assumption the whole of IT-07 rests on, asserted rather than
+     * assumed: a task created WHILE a pass is running is never run by that
+     * pass.
+     *
+     * `Task\InstallUpdateHandler` replaces every file on disk and then
+     * schedules the schema migration instead of running it, precisely so
+     * that a different process — one where every class is loaded from the
+     * new files — does the migrating. If a pass could pick up a task its
+     * own handler had just created, that separation would be an illusion
+     * and the mixed-code bug class would be back.
+     *
+     * processOverdue() claims its task list once, up front
+     * (SchedulerRepository::claimOverdue()), and iterates that snapshot.
+     */
+    public function testATaskScheduledByARunningTaskIsNotRunByTheSamePass(): void
+    {
+        $ranInThisPass = [];
+        $scheduler = new \Core\Scheduler\SchedulerService($this->repo);
+
+        $spawner = new class ($scheduler, $ranInThisPass) implements TaskHandlerInterface {
+            /** @param array<string> $log */
+            public function __construct(
+                private \Core\Scheduler\SchedulerService $scheduler,
+                private array &$log
+            ) {
+            }
+
+            public function handle(array $payload, TaskContext $context): void
+            {
+                $this->log[] = 'spawner';
+                // Due immediately — the strongest form of the question.
+                $this->scheduler->scheduleAfter('core', 'spawned_task', 0, []);
+            }
+        };
+
+        $spawned = new class ($ranInThisPass) implements TaskHandlerInterface {
+            /** @param array<string> $log */
+            public function __construct(private array &$log)
+            {
+            }
+
+            public function handle(array $payload, TaskContext $context): void
+            {
+                $this->log[] = 'spawned';
+            }
+        };
+
+        $this->runner->registerHandler('core', 'test_task', $spawner);
+        $this->runner->registerHandler('core', 'spawned_task', $spawned);
+        $this->queue(1);
+
+        $this->runner->processOverdue();
+
+        $this->assertSame(['spawner'], $ranInThisPass, 'the spawned task must wait for a later pass');
+        $this->assertSame(1, $this->repo->countOverdue(), 'and it must still be queued, not lost');
+
+        // A later pass — a different process, in production — runs it.
+        $this->runner->processOverdue();
+        $this->assertSame(['spawner', 'spawned'], $ranInThisPass);
+    }
+
+    /**
+     * kick() is how Task\InstallUpdateHandler asks for a pass to start
+     * NOW, in a process of its own, having deliberately not migrated in
+     * the process that replaced the files. It starts a fresh chain: the
+     * update is not a continuation of whatever chain happened to be
+     * running, and must get the full hop budget.
+     */
+    public function testKickStartsAFreshChain(): void
+    {
+        $this->settings->setInternal(SchedulerContinuation::HOPS_SETTING, '27');
+
+        $this->continuation->kick();
+
+        $this->assertLessThan(
+            27,
+            $this->continuation->hopCount(),
+            'a kick must not inherit the hop count of an unrelated chain'
+        );
+    }
+
+    /**
+     * And it degrades exactly like a hop. No base_url means no request to
+     * write — which must be reported, not thrown: the update that calls
+     * this has already succeeded, and the migration is queued either way.
+     * A failed kick is a slower migration, never a failed update.
+     */
+    public function testKickReportsRatherThanThrowsWhenThereIsNowhereToSend(): void
+    {
+        $this->assertFalse($this->continuation->kick(), 'no base_url, nothing written');
+        $this->assertSame(0, $this->continuation->hopCount(), 'and no hop was consumed');
+    }
+
     public function testAMissingOrWrongSecretIsRefusedTheSameWay(): void
     {
         $this->assertTrue($this->continuation->verifySecret('the-shared-secret'));

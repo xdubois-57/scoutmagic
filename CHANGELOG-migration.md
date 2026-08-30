@@ -370,3 +370,43 @@ Le warning « table exists in database but not in declared schema » que cette
 itération devait supprimer avait déjà disparu en IT-04, non par élargissement
 mais par disparition : le bloc qui l'émettait était la construction de la
 file de tables, que le re-diff a supprimée.
+
+## IT-07 — Migrer au déploiement, pas dans le processus qui déploie
+
+`InstallUpdateHandler` et `RestoreBackupHandler` remplacent tous deux
+l'arborescence de fichiers pendant qu'ils tournent, et migraient tous deux
+juste après — dans ce même processus, dont les classes chargées sont celles
+d'il y a un instant tandis que tout ce qui n'est pas encore chargé vient des
+nouveaux fichiers.
+
+C'est ce mélange qui a produit les six restaurations consécutives de
+production. Il ne suffisait pas d'ajouter des cales sur les deux objets
+concernés : tant que la migration tourne là, n'importe quel changement futur
+de leur signature rouvre exactement le même piège.
+
+Les deux passent désormais le statut à `migrating`, planifient la tâche de
+reprise qu'ils possédaient déjà pour le cas du budget dépassé, et rendent la
+main. La séparation est **garantie et non espérée** :
+`SchedulerRunner::processOverdue()` fige sa liste de tâches au début d'une
+passe, donc une tâche créée pendant une passe n'est jamais exécutée par
+elle — c'est ce qu'affirme le test ajouté ici.
+
+`SchedulerKick::now()` démarre cette passe immédiatement, par la même
+requête à soi-même sans lecture de réponse que l'ordonnanceur utilise pour
+prolonger une chaîne. Sans elle, la migration attendrait le prochain tic de
+cron ou le prochain visiteur — c'est-à-dire « migrer sur la requête de
+quelqu'un », qui est précisément ce qu'on supprime. La relance est
+opportuniste comme un saut : pas de `base_url`, pas de secret, pas de
+loopback, une socket refusée — chacun de ces cas laisse la file s'écouler
+comme avant. Quand elle s'exécute, l'opération a déjà réussi et la migration
+est déjà en file : une relance ratée est une migration plus lente, jamais
+une mise à jour ratée.
+
+### Ce que cela rend possible
+
+Les cales de compatibilité d'IT-04 sur `MigrationProgress` et
+`MigrationResult` deviennent supprimables une fois qu'aucune installation
+n'est antérieure à ce changement : plus aucune mise à jour ne peut exécuter
+le `MigrationRunner` d'une version contre le `MigrationResult` d'une autre.
+Elles restent en place jusque-là — leur retrait est une décision sur le parc
+installé, pas sur le code.
