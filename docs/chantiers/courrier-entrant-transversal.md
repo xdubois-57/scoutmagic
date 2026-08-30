@@ -124,3 +124,58 @@ propriété à un message qui le détient encore. Sans ça le fichier
 désignerait un message disparu, le registre ne trouverait aucune
 association à interroger, et les personnes légitimes seraient enfermées
 dehors.
+
+---
+
+## IT-03 — Contrat consumer v2
+
+### `AnalysisResult` porte des `MessageLink`, dont le `consumerId` est ignoré
+
+Un consumer construit ses liens avec son propre identifiant, mais
+`AnalysisResultApplier` **réécrit** celui-ci avec l'id du consumer qui a
+répondu. Sans ça un module pourrait classer un message sous la référence
+d'un autre, et les règles d'accès d'IT-02 répondraient au sujet d'une
+association que le module concerné n'a jamais faite.
+
+### Un adaptateur de test, pas un adaptateur de production
+
+`Tests\Modules\Camps\Mail\CampsConsumerV1Adapter` rend `claim()` et
+`onMessageStored()` par-dessus le contrat v2. Le contrat a changé de forme
+dans le même changement, mais le **comportement** de `camps` non — et c'est
+précisément ce que la suite existante doit continuer de prouver. Réécrire
+quinze appels aurait signifié réécrire les assertions autour, et une
+assertion réécrite pendant un refactor ne prouve plus rien sur le refactor.
+Tout ce qui est propre à v2 (propositions, `onUnlinked()`, les
+déclarations d'audience) est testé contre le vrai contrat.
+
+### La tâche différée marque *avant* de travailler
+
+`AnalyzeStoredMessagesHandler` pose `stored_analysis_at` avant d'appeler
+les consumers. Un message dont l'analyse lève ne doit pas être rejoué
+indéfiniment en tête de file, bloquant tout ce qui est derrière — même
+raison que le curseur de synchronisation qui avance sur un message
+inutilisable.
+
+### `findAnyForAnalysis()` est la seule lecture non scopée
+
+Elle existe parce que la passe différée doit présenter un message à des
+consumers qui ne lui sont pas encore associés — c'est tout l'objet de la
+question. Elle reste sur le repository, hors de `Api\InboundMailInterface` :
+l'exposer publiquement annulerait la règle du §7.11 selon laquelle l'accès
+d'un gestionnaire à une location ne devient jamais une fenêtre sur la boîte
+de l'unité.
+
+### Le graphe de consumers est construit une fois pour les deux tâches
+
+`public/scheduler-bootstrap.php` extrait la construction dans une fermeture
+partagée par `SyncMailboxesHandler` et `AnalyzeStoredMessagesHandler`. Deux
+copies de ce câblage inter-modules seraient deux endroits où il peut
+diverger — et il diverge silencieusement : un consumer enregistré pour une
+passe et oublié pour l'autre ne propose simplement jamais rien.
+
+### `onUnlinked` de camps ne défait pas les complétions de champs
+
+Il retire les documents que `onLinked` avait déposés sur le séjour, mais
+laisse les valeurs de champs complétées depuis le message. Un chef a pu en
+valider une, et revenir en silence sur une valeur validée par quelqu'un est
+pire que laisser un champ rempli depuis un message qui a bougé.

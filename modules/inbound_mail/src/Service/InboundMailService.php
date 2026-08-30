@@ -11,6 +11,8 @@ namespace Modules\InboundMail\Service;
 use Core\File\FileRepository;
 use Modules\InboundMail\Api\InboundMailInterface;
 use Modules\InboundMail\Api\InboundMessage;
+use Modules\InboundMail\Api\LinkOrigin;
+use Modules\InboundMail\Api\MessageLink;
 use Modules\InboundMail\Repository\InboundMailboxRepository;
 use Modules\InboundMail\Repository\InboundMessageRepository;
 
@@ -33,7 +35,17 @@ class InboundMailService implements InboundMailInterface
     public function __construct(
         private InboundMessageRepository $messageRepository,
         private InboundMailboxRepository $mailboxRepository,
-        private ?FileRepository $fileRepository = null
+        private ?FileRepository $fileRepository = null,
+        /**
+         * Who to tell when an association goes.
+         *
+         * Optional so a caller that only reads never has to build it. When
+         * it is absent nothing is told — which is fine for a read, and
+         * which is why every write path that matters is wired with it: a
+         * message that leaves a booking has to take the documents it
+         * created there with it (`onUnlinked()`).
+         */
+        private ?MessageConsumerRegistry $consumerRegistry = null
     ) {
     }
 
@@ -67,7 +79,11 @@ class InboundMailService implements InboundMailInterface
         int $messageId,
         array $preserveFileIds = []
     ): bool {
-        if ($this->messageRepository->findOneForReference($consumerId, $businessReference, $messageId) === null) {
+        // Read once, before the association goes: the consumer is told
+        // about the message it filed things from, and after the removal
+        // this very query returns nothing.
+        $stored = $this->messageRepository->findOneForReference($consumerId, $businessReference, $messageId);
+        if ($stored === null) {
             return false;
         }
 
@@ -76,6 +92,8 @@ class InboundMailService implements InboundMailInterface
         if (!$this->messageRepository->removeLink($messageId, $consumerId, $businessReference)) {
             return false;
         }
+
+        $this->notifyUnlinked($stored, $consumerId, $businessReference);
 
         if ($this->messageRepository->countLinks($messageId) > 0) {
             // Somebody else still recognises this message. Neither it nor
@@ -95,7 +113,104 @@ class InboundMailService implements InboundMailInterface
             return false;
         }
 
-        return $this->messageRepository->moveToReference($messageId, $consumerId, $fromReference, $toReference);
+        $before = $this->messageRepository->findOneForReference($consumerId, $fromReference, $messageId);
+
+        if (!$this->messageRepository->moveToReference($messageId, $consumerId, $fromReference, $toReference)) {
+            return false;
+        }
+
+        // Both halves, in this order. The consumer has to take back what it
+        // filed on the old object before it files anything on the new one —
+        // leaving the first behind is the exact bug `onUnlinked()` exists
+        // for.
+        if ($before !== null) {
+            $this->notifyUnlinked($before, $consumerId, $fromReference);
+        }
+
+        $after = $this->messageRepository->findOneForReference($consumerId, $toReference, $messageId);
+        if ($after !== null) {
+            $this->notifyLinked($after, new MessageLink($consumerId, $toReference, LinkOrigin::MANUAL));
+        }
+
+        return true;
+    }
+
+    /**
+     * Associate a message with a business object by hand.
+     *
+     * The origin is always `manual` and the author is always named: a
+     * screen that says "association manuelle" without being able to say by
+     * whom helps nobody settle a disputed filing (D20).
+     *
+     * Idempotent, like every other association: two people orienting the
+     * same message towards the same object produce one, and the second is
+     * simply told nothing new happened.
+     */
+    public function link(
+        string $consumerId,
+        string $businessReference,
+        int $messageId,
+        ?int $createdByUserAccountId
+    ): bool {
+        $created = $this->messageRepository->addLink(
+            $messageId,
+            $consumerId,
+            $businessReference,
+            LinkOrigin::MANUAL,
+            0,
+            $createdByUserAccountId
+        );
+
+        if (!$created) {
+            return false;
+        }
+
+        $stored = $this->messageRepository->findOneForReference($consumerId, $businessReference, $messageId);
+        if ($stored !== null) {
+            $this->notifyLinked(
+                $stored,
+                new MessageLink($consumerId, $businessReference, LinkOrigin::MANUAL, 0, $createdByUserAccountId)
+            );
+        }
+
+        return true;
+    }
+
+    /**
+     * Tell a consumer one of its associations is gone.
+     *
+     * Swallowed like every other consumer callback: the association is
+     * already removed, and one module's bookkeeping throwing must not turn
+     * a filing correction into an error the user cannot act on. Nothing is
+     * logged, since anything identifying enough to be useful would be
+     * personal data in the journal (§7.9).
+     */
+    private function notifyUnlinked(InboundMessage $message, string $consumerId, string $businessReference): void
+    {
+        $consumer = $this->consumerRegistry?->find($consumerId);
+        if ($consumer === null) {
+            return;
+        }
+
+        try {
+            $consumer->onUnlinked($message, new MessageLink($consumerId, $businessReference, LinkOrigin::MANUAL));
+        } catch (\Throwable) {
+            // See the docblock.
+        }
+    }
+
+    private function notifyLinked(InboundMessage $message, MessageLink $link): void
+    {
+        $consumer = $this->consumerRegistry?->find($link->consumerId);
+        if ($consumer === null) {
+            return;
+        }
+
+        try {
+            $consumer->onLinked($message, $link);
+        } catch (\Throwable) {
+            // See notifyUnlinked()'s docblock.
+        }
     }
 
     /**

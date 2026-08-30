@@ -8,15 +8,17 @@ use Core\File\FileRepository;
 use Core\File\UploadHandler;
 use Core\Security\EncryptionService;
 use Core\Security\HtmlSanitizer;
+use Modules\InboundMail\Api\AnalysisResult;
 use Modules\InboundMail\Api\CandidateMessage;
+use Modules\InboundMail\Api\MessageCandidate;
 use Modules\InboundMail\Api\LinkOrigin;
-use Modules\InboundMail\Api\MessageClaim;
 use Modules\InboundMail\Api\InboundMessage;
 use Modules\InboundMail\Api\MessageConsumerInterface;
 use Modules\InboundMail\Client\FakeMailboxClient;
 use Modules\InboundMail\Mailbox\ProviderType;
 use Modules\InboundMail\Repository\InboundMailboxRepository;
 use Modules\InboundMail\Repository\InboundMessageRepository;
+use Modules\InboundMail\Service\AnalysisResultApplier;
 use Modules\InboundMail\Service\AttachmentPolicy;
 use Modules\InboundMail\Service\MailboxClientFactory;
 use Modules\InboundMail\Service\MailboxErrorFormatter;
@@ -25,6 +27,7 @@ use Modules\InboundMail\Service\MessageConsumerRegistry;
 use Modules\InboundMail\Service\MessageContentSanitizer;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Tests\Modules\InboundMail\FakeMessageConsumer;
 use Tests\Modules\InboundMail\InboundMailTestHelper;
 
 /**
@@ -80,6 +83,7 @@ class MailboxSyncServiceTest extends TestCase
             new AttachmentPolicy(),
             new MailboxErrorFormatter(),
             $factory,
+            new AnalysisResultApplier($this->messageRepository),
             new UploadHandler(new FileRepository($this->pdo), $this->storagePath)
         );
 
@@ -130,52 +134,26 @@ class MailboxSyncServiceTest extends TestCase
     }
 
     /**
-     * A consumer that claims whatever the closure says, and records every
+     * A consumer that answers whatever the closure says, and records every
      * candidate it was offered.
+     *
+     * @param \Closure(CandidateMessage): AnalysisResult $decide
      */
     private function consumer(
-        callable $decide,
+        \Closure $decide,
         string $id = 'rental'
-    ): MessageConsumerInterface {
-        return new class ($decide, $id) implements MessageConsumerInterface {
-            /** @var CandidateMessage[] */
-            public array $offered = [];
-
-            /** @var InboundMessage[] */
-            public array $stored = [];
-
-            public function __construct(private $decide, private string $id)
-            {
-            }
-
-            public function consumerId(): string
-            {
-                return $this->id;
-            }
-
-            public function claim(CandidateMessage $message): ?MessageClaim
-            {
-                $this->offered[] = $message;
-
-                return ($this->decide)($message);
-            }
-
-            public function onMessageStored(InboundMessage $message): void
-            {
-                $this->stored[] = $message;
-            }
-
-            public function canRead(string $businessReference, array $linkedMemberIds, string $role): bool
-            {
-                return true;
-            }
-        };
+    ): FakeMessageConsumer {
+        return new FakeMessageConsumer(id: $id, onAnalyze: $decide);
     }
 
-    private function claimEverything(string $reference = 'LOC-2027-0042'): MessageConsumerInterface
+    private function claimEverything(string $reference = 'LOC-2027-0042'): FakeMessageConsumer
     {
         return $this->consumer(
-            static fn(CandidateMessage $m) => new MessageClaim($reference, LinkOrigin::REFERENCE)
+            static fn(CandidateMessage $m): AnalysisResult => AnalysisResult::linkedTo(
+                'rental',
+                $reference,
+                LinkOrigin::REFERENCE
+            )
         );
     }
 
@@ -196,7 +174,7 @@ class MailboxSyncServiceTest extends TestCase
 
     public function testAMessageNobodyClaimsIsNotStored(): void
     {
-        $this->registry->register($this->consumer(static fn() => null));
+        $this->registry->register($this->consumer(static fn(): AnalysisResult => AnalysisResult::nothing()));
         $this->addMessage(10);
 
         $outcome = $this->sync();
@@ -212,7 +190,7 @@ class MailboxSyncServiceTest extends TestCase
         // Otherwise one unrecognised newsletter at the top of the box is
         // fetched, parsed and discarded on every run, forever, and nothing
         // behind it is ever read.
-        $this->registry->register($this->consumer(static fn() => null));
+        $this->registry->register($this->consumer(static fn(): AnalysisResult => AnalysisResult::nothing()));
         $this->addMessage(10);
 
         $this->sync();
@@ -250,7 +228,7 @@ class MailboxSyncServiceTest extends TestCase
     {
         // Looking for a reference in a body must not be where raw
         // attacker-supplied HTML is first handled (§7.9).
-        $consumer = $this->consumer(static fn() => null);
+        $consumer = $this->consumer(static fn(): AnalysisResult => AnalysisResult::nothing());
         $this->registry->register($consumer);
 
         $this->client->addRawMessage('INBOX', 10, InboundMailTestHelper::rawMessage([
@@ -316,13 +294,15 @@ class MailboxSyncServiceTest extends TestCase
         $this->assertSame(77, $cursor->uidValidity);
     }
 
-    public function testAMessageAlreadyHeldForAnotherObjectIsStillStored(): void
+    public function testAMessageRecognisedTwiceGainsASecondAssociationRatherThanASecondCopy(): void
     {
-        // Deduplication is per business object, not global: the same
-        // circular sent to two bookings really is two pieces of
-        // correspondence.
+        // Deduplication is per MAILBOX now: one Message-ID is one stored
+        // message, however many objects end up associated with it. Both
+        // bookings still find it from their own side — which is what the
+        // second copy used to buy, at the price of storing the body twice.
         $this->registry->register($this->consumer(
-            static fn(CandidateMessage $m) => new MessageClaim(
+            static fn(CandidateMessage $m): AnalysisResult => AnalysisResult::linkedTo(
+                'rental',
                 str_contains($m->subject, 'A') ? 'LOC-A' : 'LOC-B',
                 LinkOrigin::REFERENCE
             )
@@ -333,8 +313,103 @@ class MailboxSyncServiceTest extends TestCase
         $this->addMessage(11, subject: 'Dossier B', messageId: 'shared@example.be');
         $this->sync();
 
+        $fromA = $this->messageRepository->findForReference('rental', 'LOC-A');
+        $fromB = $this->messageRepository->findForReference('rental', 'LOC-B');
+
+        $this->assertCount(1, $fromA);
+        $this->assertCount(1, $fromB);
+        $this->assertSame($fromA[0]->id, $fromB[0]->id, 'One message, two associations.');
+        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM inbound_messages')->fetchColumn());
+    }
+
+    public function testTwoConsumersRecognisingOneMessageBothGetIt(): void
+    {
+        // The whole point of dropping first-claim-wins: under the old rule
+        // the second consumer was never even asked.
+        $this->registry->register($this->consumer(
+            static fn(CandidateMessage $m): AnalysisResult
+                => AnalysisResult::linkedTo('rental', 'LOC-A', LinkOrigin::REFERENCE),
+            'rental'
+        ));
+        $this->registry->register($this->consumer(
+            static fn(CandidateMessage $m): AnalysisResult
+                => AnalysisResult::linkedTo('finance', 'ACC-7', LinkOrigin::SENDER),
+            'finance'
+        ));
+
+        $this->addMessage(10, messageId: 'shared@example.be');
+        $this->sync();
+
         $this->assertCount(1, $this->messageRepository->findForReference('rental', 'LOC-A'));
-        $this->assertCount(1, $this->messageRepository->findForReference('rental', 'LOC-B'));
+        $this->assertCount(1, $this->messageRepository->findForReference('finance', 'ACC-7'));
+        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM inbound_messages')->fetchColumn());
+    }
+
+    public function testAConsumerThatThrowsDoesNotCostTheOthersTheirMail(): void
+    {
+        $this->registry->register(new FakeMessageConsumer(
+            id: 'broken',
+            onAnalyze: static function (CandidateMessage $m): AnalysisResult {
+                throw new \RuntimeException('bug');
+            }
+        ));
+        $this->registry->register($this->claimEverything());
+
+        $this->addMessage(10, messageId: 'msg@example.be');
+        $this->sync();
+
+        $this->assertCount(1, $this->messageRepository->findForReference('rental', 'LOC-2027-0042'));
+    }
+
+    public function testAPropositionIsRecordedWithoutCreatingAnAssociation(): void
+    {
+        $this->registry->register($this->consumer(
+            static fn(CandidateMessage $m): AnalysisResult => AnalysisResult::proposing(
+                new MessageCandidate(
+                    'LOC-2027-0099',
+                    'Location du 12 juillet',
+                    'sender_window',
+                    'L\'expéditeur est le locataire, et le message est arrivé pendant la fenêtre.'
+                )
+            )
+        ));
+
+        $this->addMessage(10, messageId: 'msg@example.be');
+        $this->sync();
+
+        // Stored, because somebody made something of it — but nobody
+        // asserted it belongs anywhere.
+        $messageId = $this->messageRepository->findIdByMessageId($this->mailboxId, 'msg@example.be');
+        $this->assertNotNull($messageId);
+        $this->assertSame(0, $this->messageRepository->countLinks($messageId));
+        $this->assertTrue($this->messageRepository->hasActiveCandidates($messageId));
+        $this->assertSame([], $this->messageRepository->findForReference('rental', 'LOC-2027-0099'));
+    }
+
+    public function testAPropositionSomebodySetAsideIsNotReemittedOnTheNextRun(): void
+    {
+        $this->registry->register($this->consumer(
+            static fn(CandidateMessage $m): AnalysisResult => AnalysisResult::proposing(
+                new MessageCandidate('LOC-1', 'Une location', 'sender_window', 'Parce que.')
+            )
+        ));
+
+        $this->addMessage(10, messageId: 'msg@example.be');
+        $this->sync();
+
+        $messageId = $this->messageRepository->findIdByMessageId($this->mailboxId, 'msg@example.be');
+        $this->assertNotNull($messageId);
+        $this->messageRepository->dismissCandidate($messageId, 'rental', 'LOC-1', 0, new \DateTimeImmutable());
+
+        // A re-read after a renumbering offers the same message again, and
+        // the consumer proposes the same thing again. Setting it aside was
+        // a human decision; a technical job must not undo it (A3/D10).
+        $this->mailboxRepository->saveCursor(
+            $this->mailboxRepository->findCursor($this->mailboxId, 'INBOX')->forUidValidity(99)
+        );
+        $this->sync();
+
+        $this->assertFalse($this->messageRepository->hasActiveCandidates($messageId));
     }
 
     // ── Batching and folders ────────────────────────────────────────────

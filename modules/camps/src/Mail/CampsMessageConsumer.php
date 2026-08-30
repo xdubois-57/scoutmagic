@@ -15,12 +15,13 @@ use Core\Service\DateInput;
 use Modules\Camps\Repository\Camp;
 use Modules\Camps\Repository\CampRepository;
 use Modules\Camps\Service\DocumentService;
+use Modules\InboundMail\Api\AnalysisResult;
 use Modules\InboundMail\Api\CandidateMessage;
 use Modules\InboundMail\Api\InboundMailInterface;
 use Modules\InboundMail\Api\InboundMessage;
 use Modules\InboundMail\Api\LinkOrigin;
-use Modules\InboundMail\Api\MessageClaim;
 use Modules\InboundMail\Api\MessageConsumerInterface;
+use Modules\InboundMail\Api\MessageLink;
 
 /**
  * Which stay an incoming message belongs to (§7.6).
@@ -107,7 +108,7 @@ class CampsMessageConsumer implements MessageConsumerInterface
         return $id > 0 ? $id : null;
     }
 
-    public function claim(CandidateMessage $message): ?MessageClaim
+    public function analyze(CandidateMessage $message): AnalysisResult
     {
         // 1. A reply in a thread already attached to a stay. The ids were
         //    minted by a client answering a specific message, so this is
@@ -124,7 +125,7 @@ class CampsMessageConsumer implements MessageConsumerInterface
                 $threadIds
             );
             if ($reference !== null) {
-                return new MessageClaim($reference, LinkOrigin::THREAD);
+                return AnalysisResult::linkedTo(self::CONSUMER_ID, $reference, LinkOrigin::THREAD);
             }
         }
 
@@ -132,17 +133,69 @@ class CampsMessageConsumer implements MessageConsumerInterface
         //    they are a contact of.
         $campId = $this->campIdForSender($message);
         if ($campId !== null) {
-            return new MessageClaim(self::referenceFor($campId), LinkOrigin::SENDER);
+            return AnalysisResult::linkedTo(self::CONSUMER_ID, self::referenceFor($campId), LinkOrigin::SENDER);
         }
 
         // 3. Dedicated mailbox only: keep everything else, unsorted. In a
-        //    shared mailbox this is where the consumer says "not mine" and
-        //    the message is offered to nobody else, then discarded.
+        //    shared mailbox this is where the consumer says "not mine".
         if ($this->isDedicatedMailbox($message->mailboxId)) {
-            return new MessageClaim(self::UNSORTED_REFERENCE, LinkOrigin::SENDER);
+            return AnalysisResult::linkedTo(self::CONSUMER_ID, self::UNSORTED_REFERENCE, LinkOrigin::SENDER);
         }
 
-        return null;
+        return AnalysisResult::nothing();
+    }
+
+    /**
+     * Nothing to add once the message is on disk.
+     *
+     * Everything this module recognises is in the headers and the body, and
+     * both were available on arrival. Reading a stay's attachments for more
+     * would be guesswork on a file a stranger sent.
+     */
+    public function analyzeStored(InboundMessage $message): AnalysisResult
+    {
+        return AnalysisResult::nothing();
+    }
+
+    /**
+     * @return string[]
+     */
+    public function describeEvidence(): array
+    {
+        return [
+            'réponse dans une conversation déjà rattachée à un séjour',
+            'adresse d\'un contact connu du séjour, pendant la fenêtre du camp',
+            'sur une boîte dédiée uniquement : tout le courrier, non classé par défaut',
+        ];
+    }
+
+    public function triageAudienceLabel(): string
+    {
+        return 'le staff d\'unité';
+    }
+
+    /**
+     * Every chief of the unit sees every stay — this module has no per-camp
+     * visibility — so the audience is the staff.
+     *
+     * Counted on the scout year actually in effect, never estimated and
+     * never frozen: opening a mailbox to this module is opening it to these
+     * people, and the warning that says so is the only guard-rail on that
+     * choice.
+     */
+    public function triageAudienceCount(): int
+    {
+        $stmt = $this->pdo->query(
+            'SELECT COUNT(DISTINCT my.member_id)
+               FROM member_years my
+               JOIN member_functions mf ON mf.member_year_id = my.id
+               JOIN functions f ON mf.function_id = f.id
+               JOIN scout_years sy ON sy.id = my.scout_year_id
+              WHERE sy.is_current = 1 AND my.is_active = 1
+                AND f.role IN (\'chief\', \'admin\', \'superadmin\')'
+        );
+
+        return $stmt === false ? 0 : (int) $stmt->fetchColumn();
     }
 
     /**
@@ -156,16 +209,16 @@ class CampsMessageConsumer implements MessageConsumerInterface
      * throw would already have cost nothing, since the message is stored
      * before this runs.
      */
-    public function onMessageStored(InboundMessage $message): void
+    public function onLinked(InboundMessage $message, MessageLink $link): void
     {
-        $campId = self::campIdFromReference($message->businessReference);
+        $campId = self::campIdFromReference($link->businessReference);
         if ($campId === null) {
             // Unsorted, in a dedicated mailbox. When the setting allows it
             // and the message states both its dates and a usable place, it
             // becomes a stay right here and stops being unsorted; when it
             // does not, it stays where it is and the screen offers the
             // same reading as a pre-filled form.
-            if ($message->businessReference === self::UNSORTED_REFERENCE && $this->stayFromMail !== null) {
+            if ($link->businessReference === self::UNSORTED_REFERENCE && $this->stayFromMail !== null) {
                 $created = $this->stayFromMail->createFrom($message);
                 if ($created !== null) {
                     $campId = $created;
@@ -204,6 +257,29 @@ class CampsMessageConsumer implements MessageConsumerInterface
         }
 
         $this->completeFields($campId, $message);
+    }
+
+    /**
+     * Take back what `onLinked()` filed on that stay.
+     *
+     * A message moved from one stay to another used to leave its documents
+     * behind on the first: invisible to whoever manages the second, and
+     * unexplainable to whoever manages the first. The bytes are never
+     * touched — a document sourced from an email points at the message's
+     * own file, which the message still owns.
+     *
+     * The field completions are deliberately NOT undone: a chief may have
+     * accepted one, and silently reverting a value somebody validated is
+     * worse than leaving a field filled from a message that has moved on.
+     */
+    public function onUnlinked(InboundMessage $message, MessageLink $link): void
+    {
+        $campId = self::campIdFromReference($link->businessReference);
+        if ($campId === null || $this->documents === null) {
+            return;
+        }
+
+        $this->documents->detachSourced($campId, 'inbound-message-' . $message->id, null);
     }
 
     /**

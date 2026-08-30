@@ -144,6 +144,7 @@ class RentalMessageConsumerTest extends TestCase
             new AttachmentPolicy(),
             new MailboxErrorFormatter(),
             $factory,
+            new \Modules\InboundMail\Service\AnalysisResultApplier($this->messageRepository),
             new UploadHandler($fileRepository, $this->storagePath)
         );
 
@@ -434,7 +435,7 @@ class RentalMessageConsumerTest extends TestCase
         );
 
         $this->createBooking();
-        $claim = $consumer->claim(new \Modules\InboundMail\Api\CandidateMessage(
+        $result = $consumer->analyze(new \Modules\InboundMail\Api\CandidateMessage(
             mailboxId: $this->mailboxId,
             subject: '[LOC-2027-0042]',
             fromEmail: 'jeanne@example.be',
@@ -448,7 +449,7 @@ class RentalMessageConsumerTest extends TestCase
             bodyHtml: ''
         ));
 
-        $this->assertNull($claim);
+        $this->assertSame([], $result->links);
     }
 
     public function testAnEmptySelectionMeansEveryMailbox(): void
@@ -461,7 +462,7 @@ class RentalMessageConsumerTest extends TestCase
         );
 
         $this->createBooking();
-        $claim = $consumer->claim(new \Modules\InboundMail\Api\CandidateMessage(
+        $result = $consumer->analyze(new \Modules\InboundMail\Api\CandidateMessage(
             mailboxId: 12345,
             subject: '[LOC-2027-0042]',
             fromEmail: 'jeanne@example.be',
@@ -475,7 +476,8 @@ class RentalMessageConsumerTest extends TestCase
             bodyHtml: ''
         ));
 
-        $this->assertNotNull($claim);
+        $this->assertCount(1, $result->links);
+        $this->assertSame('LOC-2027-0042', $result->links[0]->businessReference);
     }
 
     // ── Attachments become documents (§7.8) ─────────────────────────────

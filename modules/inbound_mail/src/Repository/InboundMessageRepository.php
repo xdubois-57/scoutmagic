@@ -13,6 +13,7 @@ use Core\Service\DateInput;
 use Modules\InboundMail\Api\InboundAttachment;
 use Modules\InboundMail\Api\InboundMessage;
 use Modules\InboundMail\Api\LinkOrigin;
+use Modules\InboundMail\Api\MessageCandidate;
 use Modules\InboundMail\Api\MessageLink;
 
 /**
@@ -247,6 +248,222 @@ class InboundMessageRepository
         return $stmt->rowCount() > 0;
     }
 
+    // ── Propositions ────────────────────────────────────────────────────
+
+    /**
+     * Record a proposition, unless the same one already exists **in any
+     * state**.
+     *
+     * A proposition somebody set aside is never re-created, and that is the
+     * whole subtlety here: `dismissed_at` is final (A3/D10). A consumer
+     * re-emitting the same guess after a manual re-analysis must not undo a
+     * human decision — so the existence check deliberately ignores whether
+     * the row is dismissed.
+     *
+     * @return bool whether a proposition was actually created
+     */
+    public function addCandidate(
+        int $messageId,
+        string $consumerId,
+        MessageCandidate $candidate
+    ): bool {
+        $stmt = $this->pdo->prepare(
+            'SELECT 1 FROM inbound_message_candidates
+              WHERE message_id = ? AND consumer_id = ? AND business_reference = ? AND attachment_id = ?
+              LIMIT 1'
+        );
+        $stmt->execute([$messageId, $consumerId, $candidate->businessReference, $candidate->attachmentId]);
+        if ($stmt->fetchColumn() !== false) {
+            return false;
+        }
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO inbound_message_candidates
+                (message_id, attachment_id, consumer_id, business_reference,
+                 evidence_type, evidence_label_encrypted, evidence_explanation_encrypted)
+             VALUES (?, ?, ?, ?, ?, ?, ?)'
+        );
+
+        try {
+            $stmt->execute([
+                $messageId,
+                $candidate->attachmentId,
+                $consumerId,
+                $candidate->businessReference,
+                $candidate->evidenceType,
+                $this->encryption->encrypt($candidate->label, 'inbound_message_candidates.evidence_label'),
+                $this->encryption->encrypt(
+                    $candidate->explanation,
+                    'inbound_message_candidates.evidence_explanation'
+                ),
+            ]);
+        } catch (\PDOException) {
+            // The unique index caught a concurrent insert of the same
+            // proposition. That is the state the caller asked for.
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Set a proposition aside, for good.
+     */
+    public function dismissCandidate(
+        int $messageId,
+        string $consumerId,
+        string $businessReference,
+        int $attachmentId,
+        \DateTimeImmutable $now
+    ): bool {
+        $stmt = $this->pdo->prepare(
+            'UPDATE inbound_message_candidates SET dismissed_at = ?
+              WHERE message_id = ? AND consumer_id = ? AND business_reference = ? AND attachment_id = ?
+                AND dismissed_at IS NULL'
+        );
+        $stmt->execute([
+            $now->format('Y-m-d H:i:s'),
+            $messageId,
+            $consumerId,
+            $businessReference,
+            $attachmentId,
+        ]);
+
+        return $stmt->rowCount() > 0;
+    }
+
+    /**
+     * The propositions still standing on a message — the ones set aside are
+     * not among them.
+     *
+     * @return MessageCandidate[]
+     */
+    public function findActiveCandidates(int $messageId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM inbound_message_candidates
+              WHERE message_id = ? AND dismissed_at IS NULL
+           ORDER BY id ASC'
+        );
+        $stmt->execute([$messageId]);
+
+        return array_map(
+            fn(array $row) => new MessageCandidate(
+                businessReference: (string) $row['business_reference'],
+                label: $this->encryption->decrypt(
+                    (string) $row['evidence_label_encrypted'],
+                    'inbound_message_candidates.evidence_label'
+                ),
+                evidenceType: (string) $row['evidence_type'],
+                explanation: $this->encryption->decrypt(
+                    (string) $row['evidence_explanation_encrypted'],
+                    'inbound_message_candidates.evidence_explanation'
+                ),
+                attachmentId: (int) $row['attachment_id']
+            ),
+            $stmt->fetchAll(\PDO::FETCH_ASSOC)
+        );
+    }
+
+    /**
+     * Whether a message still carries a proposition nobody has set aside —
+     * what keeps it out of the retention purge.
+     */
+    public function hasActiveCandidates(int $messageId): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT 1 FROM inbound_message_candidates
+              WHERE message_id = ? AND dismissed_at IS NULL LIMIT 1'
+        );
+        $stmt->execute([$messageId]);
+
+        return $stmt->fetchColumn() !== false;
+    }
+
+    // ── The deferred, content-level pass ────────────────────────────────
+
+    /**
+     * Message ids that have never been through the deferred pass, oldest
+     * first, bounded.
+     *
+     * Bounded because `poor_mans_cron` runs inside a page view on shared
+     * hosting: a pass that tried to extract the text of every PDF in a
+     * five-year-old mailbox would be killed by `max_execution_time`, and
+     * the task would come back to the same doomed batch on every tick.
+     *
+     * @return int[]
+     */
+    public function findMessagesAwaitingStoredAnalysis(int $limit): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT id FROM inbound_messages
+              WHERE stored_analysis_at IS NULL
+           ORDER BY id ASC
+              LIMIT ' . max(1, $limit)
+        );
+        $stmt->execute();
+
+        return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
+    /**
+     * One message with everything on it, unscoped.
+     *
+     * **The one read that is not scoped to a consumer, and it is not
+     * reachable from `Api\InboundMailInterface`.** It exists for the
+     * deferred analysis pass, which has to hand a message to consumers that
+     * are not associated with it yet — that being the whole point of asking
+     * them. Adding it to the public interface would undo §7.11's rule that
+     * a manager's access to one booking never becomes a window onto the
+     * unit's mailbox, so it stays here, on the repository, where only this
+     * module's own tasks reach it.
+     */
+    public function findAnyForAnalysis(int $messageId): ?InboundMessage
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM inbound_messages WHERE id = ?');
+        $stmt->execute([$messageId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        if (!is_array($row)) {
+            return null;
+        }
+
+        $links = $this->findLinksFor([$messageId])[$messageId] ?? [];
+
+        return $this->hydrate(
+            $row,
+            $this->findAttachmentsFor([$messageId])[$messageId] ?? [],
+            $links,
+            $links[0]->consumerId ?? '',
+            $links[0]->businessReference ?? ''
+        );
+    }
+
+    public function markStoredAnalysisDone(int $messageId, \DateTimeImmutable $now): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE inbound_messages SET stored_analysis_at = ? WHERE id = ?');
+        $stmt->execute([$now->format('Y-m-d H:i:s'), $messageId]);
+    }
+
+    /**
+     * Offer every stored message to the deferred pass again — the manual
+     * « Réanalyser le courrier conservé ».
+     *
+     * The indispensable corollary of analysing only once (§8.58): without
+     * it, enabling Finances on `tresorerie@` after three months of
+     * collecting would produce exactly nothing. It only clears the marker;
+     * propositions already set aside stay set aside, because `addCandidate()`
+     * refuses to re-create them.
+     *
+     * @return int the number of messages queued for re-analysis
+     */
+    public function queueAllForStoredAnalysis(): int
+    {
+        $stmt = $this->pdo->query('UPDATE inbound_messages SET stored_analysis_at = NULL');
+
+        return $stmt === false ? 0 : $stmt->rowCount();
+    }
+
     // ── Reads scoped to one consumer ────────────────────────────────────
 
     /**
@@ -407,6 +624,9 @@ class InboundMessageRepository
         }
 
         $stmt = $this->pdo->prepare('DELETE FROM inbound_message_links WHERE message_id = ?');
+        $stmt->execute([$messageId]);
+
+        $stmt = $this->pdo->prepare('DELETE FROM inbound_message_candidates WHERE message_id = ?');
         $stmt->execute([$messageId]);
 
         $stmt = $this->pdo->prepare('DELETE FROM inbound_message_attachments WHERE message_id = ?');

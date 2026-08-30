@@ -191,7 +191,7 @@ class CampsMessageConsumerTest extends TestCase
         // foreign key, so attaching would fail the whole synchronisation
         // pass over a row nobody can even see.
         $documents = $this->documentService();
-        $consumer = new CampsMessageConsumer(
+        $consumer = new CampsConsumerV1Adapter(
             $this->camps, $this->pdo, $this->encryption, $this->settings, null, $documents
         );
 
@@ -206,7 +206,7 @@ class CampsMessageConsumerTest extends TestCase
     public function testAMessageFiledUnderALiveStayStillAttachesItsFile(): void
     {
         $documents = $this->documentService();
-        $consumer = new CampsMessageConsumer(
+        $consumer = new CampsConsumerV1Adapter(
             $this->camps, $this->pdo, $this->encryption, $this->settings, null, $documents
         );
 
@@ -286,9 +286,9 @@ class CampsMessageConsumerTest extends TestCase
         $this->settings = new SettingService(new SettingRepository($this->pdo));
     }
 
-    private function consumer(?InboundMailInterface $inbound = null): CampsMessageConsumer
+    private function consumer(?InboundMailInterface $inbound = null): CampsConsumerV1Adapter
     {
-        return new CampsMessageConsumer(
+        return new CampsConsumerV1Adapter(
             $this->camps, $this->pdo, $this->encryption, $this->settings, $inbound, null
         );
     }
@@ -319,7 +319,7 @@ class CampsMessageConsumerTest extends TestCase
         $stayFromMail = $this->createMock(\Modules\Camps\Mail\StayFromMailService::class);
         $stayFromMail->expects($this->once())->method('createFrom')->willReturn($this->campId);
 
-        $consumer = new CampsMessageConsumer(
+        $consumer = new CampsConsumerV1Adapter(
             $this->camps, $this->pdo, $this->encryption, $this->settings,
             null, null, null, $stayFromMail
         );
@@ -334,7 +334,7 @@ class CampsMessageConsumerTest extends TestCase
         $stayFromMail = $this->createMock(\Modules\Camps\Mail\StayFromMailService::class);
         $stayFromMail->expects($this->never())->method('createFrom');
 
-        $consumer = new CampsMessageConsumer(
+        $consumer = new CampsConsumerV1Adapter(
             $this->camps, $this->pdo, $this->encryption, $this->settings,
             null, null, null, $stayFromMail
         );
@@ -347,7 +347,7 @@ class CampsMessageConsumerTest extends TestCase
         $stayFromMail = $this->createMock(\Modules\Camps\Mail\StayFromMailService::class);
         $stayFromMail->method('createFrom')->willReturn(null);
 
-        $consumer = new CampsMessageConsumer(
+        $consumer = new CampsConsumerV1Adapter(
             $this->camps, $this->pdo, $this->encryption, $this->settings,
             null, null, null, $stayFromMail
         );
