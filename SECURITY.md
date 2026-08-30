@@ -223,6 +223,7 @@ No other proxy header is trusted — not `X-Forwarded-For`, not `Forwarded`, not
 
 - Every sensitive action logged. No personal data in entries — reference `member_id` only.
 - Journal accessible to `chief` role.
+- **An uncaught throwable is journalled too** (`Core\Http\ErrorHandler`, level `error`, ARCHITECTURE.md §8.6), and the same rule governs it: the stack in the entry's context is rebuilt frame by frame — class, method, file, line — and never taken from `getTraceAsString()`, which renders every frame's call ARGUMENTS. That is not a theoretical leak: the trace of the incident this was built for carried a member's email address that way. What the description carries beyond the class, the file and the line is the exception's own message, which is technical text this application writes; a message must not be constructed out of somebody's data any more than a journal description must.
 
 ## 12. Secrets management
 

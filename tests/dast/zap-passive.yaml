@@ -44,12 +44,12 @@ jobs:
   # URL: any other endpoint missing a token is a real finding and must
   # still fail the run.
   #
-  # Nothing else is filtered. In particular the "Cookie Without Secure
-  # Flag" (10011) and "Strict-Transport-Security Header Not Set" (10035)
-  # rules are deliberately left armed: the instance is served over real
-  # TLS and told about it through X-Forwarded-Proto, so if either of
-  # those fires it is a defect in Core\Http\RequestScheme's wiring, not a
-  # false positive.
+  # Nothing beyond those two is filtered. In particular the "Cookie
+  # Without Secure Flag" (10011) and "Strict-Transport-Security Header
+  # Not Set" (10035) rules are deliberately left armed: the instance is
+  # served over real TLS and told about it through X-Forwarded-Proto, so
+  # if either of those fires it is a defect in Core\Http\RequestScheme's
+  # wiring, not a false positive.
   - type: alertFilter
     parameters:
       deleteGlobalAlerts: true
@@ -59,6 +59,22 @@ jobs:
         newRisk: 'False Positive'
         context: scoutmagic
         url: "\\Q${DAST_TARGET}\\E/api/webhook/github"
+        urlRegex: true
+
+      # The one URL in the whole application whose JOB is to answer 500:
+      # /test-tools/uncaught-error, the route
+      # specs/journal-uncaught-error.spec.js provokes to prove an uncaught
+      # throwable reaches the site journal (ARCHITECTURE.md §8.6). ZAP's
+      # "Application Error Disclosure" rule reports every 500 it sees, and
+      # it is right to — everywhere but here. Scoped to that exact URL:
+      # a 500 anywhere else stays a Medium finding and still fails the run.
+      # The route exists only where modules/test_tools does, i.e. never on
+      # a deploying unit's installation (§8.49).
+      - ruleId: 90022
+        ruleName: Application Error Disclosure
+        newRisk: 'False Positive'
+        context: scoutmagic
+        url: "\\Q${DAST_TARGET}\\E/test-tools/uncaught-error"
         urlRegex: true
 
   - type: passiveScan-config

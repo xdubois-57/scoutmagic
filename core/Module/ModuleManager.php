@@ -440,12 +440,15 @@ class ModuleManager
                 $this->journalService->log(
                     'core',
                     'module_requirements_unmet',
-                    // event_log.level is a MySQL ENUM('info', 'security') —
-                    // any other value makes the INSERT itself throw, which
-                    // would turn "this module is quietly skipped" into a
-                    // fatal on every request. Same reason every other
-                    // non-security failure log in the codebase uses 'info'
-                    // (see Core\Http\Controller\RgpdConfigController).
+                    // Deliberately 'info' even though event_log.level now
+                    // has an 'error' member (ARCHITECTURE.md §8.6). A
+                    // value the INSTALLED database does not know yet makes
+                    // the INSERT itself throw, and this is the one code
+                    // path whose entire purpose is that a module with an
+                    // unmet requirement is quietly skipped rather than
+                    // fatal — while public/cron.php, which calls
+                    // loadEnabledModules(), never migrates. So this stays
+                    // on the value every schema has always had.
                     'info',
                     "Module « {$module->manifest->id} » non chargé : un module requis est absent, invalide ou désactivé",
                     ['module_id' => $module->manifest->id, 'requires' => $module->manifest->requires]

@@ -118,6 +118,11 @@ $settingService->register('cron_last_run', '0', 'number', 'Dernier passage du cr
 (new SettingRepository($pdo))->updateValue(null, 'cron_last_run', (string) time());
 $journalRepo = new JournalRepository($pdo);
 $journalService = new JournalService($journalRepo);
+
+// An uncaught throwable in a scheduled task is exactly the kind of error
+// nobody is watching a terminal for — journal it too, now that there is a
+// database to journal it to (Core\Http\ErrorHandler class docblock).
+\Core\Http\ErrorHandler::setJournalService($journalService);
 $schedulerRepo = new SchedulerRepository($pdo);
 $runner = new SchedulerRunner($schedulerRepo, $journalService);
 $userAccountRepo = new UserAccountRepository($pdo, $encryptionService);

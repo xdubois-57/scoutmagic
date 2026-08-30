@@ -383,6 +383,14 @@ if (!$notificationsV2Migrated) {
 // Both instances wrap the same PDO, so this is a second handle on one
 // table, not a second log.
 $migrationJournal = new JournalService(new JournalRepository($connection->getPdo()));
+
+// The earliest point at which an uncaught throwable can be written
+// somewhere a chef d'unité can read: the database is open, and everything
+// below — the rest of this composition root included — is now covered.
+// Before this line, Core\Http\ErrorHandler has only error_log(), which is
+// exactly the documented consequence (see its class docblock).
+\Core\Http\ErrorHandler::setJournalService($migrationJournal);
+
 $migrationRunner = new MigrationRunner(
     $connection,
     new SchemaIntrospector($connection->getPdo()),
