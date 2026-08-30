@@ -33,6 +33,35 @@ class MemberDocumentRepository
         );
     }
 
+    /**
+     * Every private document this person holds, newest first, across all
+     * scout years — what the Staff d'Unité sees on the admin member sheet.
+     *
+     * Deliberately not year-scoped, unlike the member's own page: a tax
+     * certificate belongs to the season it covers, and the family asking
+     * « nous n'avons rien reçu » is asking about last year's. A page that
+     * showed only the effective year would answer « aucun document » to the
+     * one question it exists to answer.
+     *
+     * @return MemberDocument[] Most recent first.
+     */
+    public function findByMember(int $memberId, int $limit = 100): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT id, member_id, scout_year_id, title, file_id, created_at, created_by
+             FROM member_documents
+             WHERE member_id = ?
+             ORDER BY created_at DESC, id DESC
+             LIMIT ' . max(1, $limit)
+        );
+        $stmt->execute([$memberId]);
+
+        return array_map(
+            fn(array $row) => self::mapRow($row),
+            $stmt->fetchAll(\PDO::FETCH_ASSOC)
+        );
+    }
+
     public function findById(int $id): ?MemberDocument
     {
         $stmt = $this->pdo->prepare(
@@ -46,10 +75,12 @@ class MemberDocumentRepository
     }
 
     /**
-     * Storage-only for this iteration — no admin UI calls this yet (member
-     * page spec §5: "Build storage + display now; NO generation, NO admin
-     * upload UI this iteration"). Exists so the table isn't dead weight and
-     * future document-generation features have a ready write path.
+     * Written by whatever produces a private document. The attestations
+     * module is the first and, so far, only producer: it creates one row
+     * per certificate when a batch is published (ARCHITECTURE.md §8.86).
+     * There is still no manual upload UI — a document arrives because
+     * something generated or split it, never because somebody attached it
+     * by hand.
      */
     public function create(int $memberId, int $scoutYearId, string $title, int $fileId, ?int $createdBy): int
     {
@@ -60,6 +91,19 @@ class MemberDocumentRepository
         $stmt->execute([$memberId, $scoutYearId, $title, $fileId, $createdBy]);
 
         return (int) $this->pdo->lastInsertId();
+    }
+
+    /**
+     * Remove one document's metadata row. The file itself is the caller's
+     * to dispose of, in that order — the row first, the bytes second, so an
+     * interruption leaves a stored file nothing points at (recoverable,
+     * invisible) rather than a page still offering a download that is gone
+     * (`Core\File\AttachedFileRemover`'s rule, ARCHITECTURE.md §8.3).
+     */
+    public function delete(int $id): void
+    {
+        $stmt = $this->pdo->prepare('DELETE FROM member_documents WHERE id = ?');
+        $stmt->execute([$id]);
     }
 
     /**

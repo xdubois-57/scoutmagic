@@ -498,16 +498,65 @@
                 </section>
             {% endif %}
 
-            {# ARCHITECTURE.md §8.3: files scoped to their owner carry an
-               explicit no-chief-and-no-admin-bypass guarantee, and that is
-               where tax certificates will live. Saying so here is what
-               stops the next person from "completing" this page with a
-               documents card. #}
-            <div class="alert alert-light border small" role="note">
-                <i class="bi bi-info-circle" aria-hidden="true"></i>
-                Les documents privés du membre n'apparaissent pas ici : ils restent
-                accessibles au seul membre, sans contournement possible par le staff.
-            </div>
+            {# Documents privés — visibles ici depuis que le contournement
+               « Staff d'Unité » existe sur files.owner_member_id
+               (ARCHITECTURE.md §8.3, SECURITY.md §6). La carte existe pour
+               répondre à une famille qui n'a rien reçu ; toutes années
+               confondues, parce que la question porte presque toujours sur
+               une saison passée.
+
+               Chaque ouverture est consignée au journal au niveau
+               « sécurité » : c'est ce qui remplace la barrière retirée, et
+               la phrase ci-dessous le dit au lecteur plutôt que de le
+               laisser le découvrir. #}
+            <section class="card mb-3">
+                <div class="card-header d-flex align-items-center gap-2">
+                    <i class="bi bi-file-earmark-lock" aria-hidden="true"></i>
+                    <h2 class="h6 mb-0">Documents privés</h2>
+                </div>
+                {% if member_documents is not empty %}
+                    <ul class="list-group list-group-flush">
+                        {% for row in member_documents %}
+                            <li class="list-group-item">
+                                <div class="d-flex flex-wrap align-items-center gap-2">
+                                    <a href="{{ file_url(row.document.fileId) }}"
+                                       class="flex-grow-1 min-w-0 text-decoration-none">
+                                        <span class="d-block text-truncate">{{ row.document.title }}</span>
+                                        <span class="small text-body-secondary">
+                                            {{ row.year_label }}{% if row.year_label %} — {% endif %}{{ row.document.createdAt|date_fr }}
+                                        </span>
+                                    </a>
+                                    {% if member.email %}
+                                        <form method="post"
+                                              action="/admin/members/{{ member.memberYearId }}/documents/{{ row.document.id }}/renvoyer"
+                                              data-confirm="Renvoyer « {{ row.document.title }} » à {{ member.email }} ?">
+                                            {{ csrf_field()|raw }}
+                                            <button type="submit" class="btn btn-sm btn-outline-secondary">
+                                                <i class="bi bi-envelope" aria-hidden="true"></i> Renvoyer par e-mail
+                                            </button>
+                                        </form>
+                                    {% endif %}
+                                </div>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <div class="card-body">
+                        {% include 'partials/empty_state.html.twig' with {
+                            message: 'Aucun document privé pour ce membre.',
+                            compact: true,
+                        } only %}
+                    </div>
+                {% endif %}
+                <div class="card-footer small text-body-secondary d-flex align-items-start gap-2">
+                    <i class="bi bi-shield-lock mt-1" aria-hidden="true"></i>
+                    <span>
+                        Ces documents appartiennent au membre. Vous y avez accès pour répondre à sa
+                        famille : chaque ouverture est consignée au journal du site.
+                        Un animateur de section n'y a pas accès.
+                    </span>
+                </div>
+            </section>
         </div>
     </div>
 
