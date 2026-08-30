@@ -21,13 +21,19 @@
 // That fold is REMEMBERED from one visit to the next, and remembering it
 // is a functional preference — the same mechanism, for the same reasons,
 // as public/assets/js/theme.js's colour scheme: localStorage under
-// 'camps_map_collapsed' (declared in core/Cookie/CookieRegistry.php,
-// category "functional"), written ONLY once the visitor has given
-// functional cookie consent, which is read from the client-readable
-// `cookie_consent` JSON cookie. Without that consent the fold still works
-// for the page in front of the reader, nothing is stored, and the map is
-// expanded again on the next visit. Expanded being the default, it is
-// stored as an absence: unfolding REMOVES the key.
+// 'camps_map_collapsed', declared in modules/camps/module.json's
+// `cookies` section under category "functional" — in the MODULE's
+// manifest and not in core/Cookie/CookieRegistry.php, which holds the
+// core's own keys (AGENTS.md § Cookie consent);
+// Core\Cookie\CookieConsentService aggregates the two, so the consent
+// banner and the cookie preferences page list this one either way.
+//
+// It is written ONLY once the visitor has given functional cookie
+// consent, read from the client-readable `cookie_consent` JSON cookie.
+// Without that consent the fold still works for the page in front of the
+// reader, nothing is stored, and the map is expanded again on the next
+// visit. Expanded being the default, it is stored as an absence:
+// unfolding REMOVES the key.
 (function () {
     'use strict';
 

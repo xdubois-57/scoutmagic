@@ -50,11 +50,12 @@
 
                The fold is the reader's, and public/assets/js/camps-map.js
                remembers it from one visit to the next: in localStorage, and
-               only with functional cookie consent (see that file's header and
-               core/Cookie/CookieRegistry.php). Without consent nothing is
-               remembered and the map is expanded again on every visit — so
-               `show` is the one state the server can always render, the fold
-               being applied by the script afterwards or not at all. #}
+               only with functional cookie consent (see that file's header,
+               and this module's own `cookies` section in module.json).
+               Without consent nothing is remembered and the map is expanded
+               again on every visit — so `show` is the one state the server can
+               always render, the fold being applied by the script afterwards
+               or not at all. #}
             <div class="collapse show mb-4" id="camps-map-panel">
                 <div class="card">
                     <div id="camps-map" style="height: 20rem;"

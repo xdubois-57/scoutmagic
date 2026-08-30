@@ -76,26 +76,6 @@ class CookieRegistry
                 'duration' => 'Jusqu\'au retrait (suppression manuelle ou retour au thème automatique)',
             ],
             [
-                // Another localStorage entry written by a script under
-                // public/assets/js/ (camps-map.js), which is why it is
-                // declared here beside theme_preference rather than in a
-                // module manifest: every client-side storage key this
-                // repository ships is written by a file in that one
-                // directory, and one list of them is what makes the
-                // preferences page and the consent banner a complete
-                // picture. Functional, with the same client-side consent
-                // gate as theme_preference — camps-map.js reads the
-                // cookie_consent cookie before writing AND before
-                // trusting what it reads back, so withdrawing the
-                // category drops the entry on the next visit. Only ever
-                // holds '1' (the reader folded the map away); expanded,
-                // the default, is stored as an absence of the entry.
-                'name' => 'camps_map_collapsed',
-                'category' => 'functional',
-                'purpose' => 'Mémorisation du repli de la carte des lieux de camp, pour la retrouver telle que vous l\'avez laissée à chaque visite.',
-                'duration' => 'Jusqu\'au retrait (suppression manuelle ou réouverture de la carte)',
-            ],
-            [
                 // Also a Cache Storage API entry, not an HTTP cookie — the
                 // Lot 3 content cache the app-shell entry above's comment
                 // anticipated, widened in Lot 4 (ARCHITECTURE §8.25) to a

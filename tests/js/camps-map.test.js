@@ -14,7 +14,9 @@
 // slowly: the map is built on load rather than on a click, and the
 // reader's fold is remembered ONLY with functional cookie consent
 // (AGENTS.md § Cookie consent, key `camps_map_collapsed` declared in
-// core/Cookie/CookieRegistry.php).
+// modules/camps/module.json's `cookies` section — that the declaration
+// matches the key written here is checked by
+// Tests\Modules\Camps\Service\MapTilesTest).
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const KEY = 'camps_map_collapsed';

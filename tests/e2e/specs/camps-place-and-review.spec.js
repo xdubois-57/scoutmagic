@@ -175,10 +175,10 @@ test.describe('Camps', () => {
         // no real consent round trip and no second page load.
         //
         // It is also the browser half of AGENTS.md § Cookie consent for
-        // the `camps_map_collapsed` key (declared in
-        // core/Cookie/CookieRegistry.php, category "functional"): the
-        // refusal half first, where the fold must be forgotten, then the
-        // grant half, where it must not be.
+        // the `camps_map_collapsed` key (declared in this module's
+        // module.json, category "functional"): the refusal half first,
+        // where the fold must be forgotten, then the grant half, where it
+        // must not be.
         await loginAsAdmin(page);
 
         const panel = page.locator('#camps-map-panel');

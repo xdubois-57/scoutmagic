@@ -126,9 +126,9 @@ class CookieConsentServiceTest extends TestCase
 
         $groups = $service->getAllDeclaredCookies();
         // last_login_method + content-{accountScope}-{version} +
-        // theme_preference + camps_map_collapsed (core) + calendar_view
-        // (module) are all 'functional'.
-        $this->assertCount(5, $groups['functional']['cookies']);
+        // theme_preference (core) + calendar_view (module) are all
+        // 'functional'.
+        $this->assertCount(4, $groups['functional']['cookies']);
         $names = array_column($groups['functional']['cookies'], 'name');
         $this->assertContains('calendar_view', $names);
     }
