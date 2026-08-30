@@ -1604,7 +1604,16 @@ class RentalManagementController extends AbstractController
 
             $fileId = null;
             $uploaded = $request->getFile('photo');
-            if ($uploaded !== null && $this->uploadHandler !== null) {
+            // The photo is optional, and a browser posts an untouched file
+            // input all the same — as an UPLOAD_ERR_NO_FILE entry. That is
+            // "no photo", not a failed upload; without this guard the whole
+            // reading was refused and lost. Same test as
+            // uploadComplianceFile() above.
+            if (
+                $uploaded !== null
+                && $this->uploadHandler !== null
+                && ($uploaded['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE
+            ) {
                 try {
                     $fileId = $this->uploadHandler->handle(
                         $uploaded,
@@ -1676,7 +1685,13 @@ class RentalManagementController extends AbstractController
         return $this->stayAction($request, function (RentalBooking $booking) use ($request): void {
             $fileId = null;
             $uploaded = $request->getFile('photo');
-            if ($uploaded !== null && $this->uploadHandler !== null) {
+            // Optional here too — see the identical guard in
+            // recordReading() above.
+            if (
+                $uploaded !== null
+                && $this->uploadHandler !== null
+                && ($uploaded['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE
+            ) {
                 try {
                     $fileId = $this->uploadHandler->handle(
                         $uploaded,

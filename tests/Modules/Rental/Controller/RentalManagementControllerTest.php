@@ -308,6 +308,7 @@ class RentalManagementControllerTest extends TestCase
         AuthSession::logout();
         $_SESSION = [];
         $_POST = [];
+        $_FILES = [];
 
         // The document tests write real PDFs; leaving them behind would
         // fill the runner's temp directory over a full suite.
@@ -371,6 +372,22 @@ class RentalManagementControllerTest extends TestCase
 
         return $booking;
     }
+
+    /**
+     * What a browser really posts for an `<input type="file">` the visitor
+     * never touched: the part is still sent, as a $_FILES entry with an
+     * empty name and UPLOAD_ERR_NO_FILE. That is "no file", not a failed
+     * upload — verified against `php -S`.
+     *
+     * @var array{name: string, type: string, tmp_name: string, error: int, size: int}
+     */
+    private const EMPTY_FILE_INPUT = [
+        'name' => '',
+        'type' => '',
+        'tmp_name' => '',
+        'error' => UPLOAD_ERR_NO_FILE,
+        'size' => 0,
+    ];
 
     // ── Dispatch helpers ────────────────────────────────────────────────
 
@@ -1648,6 +1665,36 @@ class RentalManagementControllerTest extends TestCase
         );
     }
 
+    public function testAReadingIsSavedWhenThePhotoInputWasLeftEmpty(): void
+    {
+        // §6.22: the photo is optional. A browser nevertheless posts the
+        // untouched file input as an UPLOAD_ERR_NO_FILE entry, and handing
+        // that to UploadHandler refused the whole reading with « Erreur
+        // lors de l'envoi du fichier (code 4). » — losing what the manager
+        // had just typed in front of the meter.
+        $this->loginAsManager();
+        $meterId = $this->stayService->addMeter(
+            $this->assetId, 'Électricité', \Modules\Rental\Stay\MeterKind::ELECTRICITY, 'kWh', null
+        );
+        $booking = $this->createBooking();
+        $_FILES['photo'] = self::EMPTY_FILE_INPUT;
+
+        $this->post('/mes-locations/releve', 'recordReading', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'meter_id' => (string) $meterId,
+            'phase' => 'arrival',
+            'value' => '1234,567',
+        ]);
+
+        $this->assertSame(
+            1234567,
+            (int) $this->pdo->query('SELECT value_milli FROM rental_meter_readings')->fetchColumn()
+        );
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('success', $flash['type'] ?? null);
+    }
+
     public function testAReadingRedirectsBackToTheStayPageNotTheBookingFile(): void
     {
         // A manager recording eight readings should land where they were.
@@ -1716,6 +1763,26 @@ class RentalManagementControllerTest extends TestCase
         $decided = $this->stayService->incidentsFor($booking->id)[0];
         $this->assertSame(\Modules\Rental\Stay\IncidentDecision::WITHHOLD, $decided->decision);
         $this->assertSame(3000, $decided->decidedAmountCents);
+    }
+
+    public function testAnIncidentIsSavedWhenThePhotoInputWasLeftEmpty(): void
+    {
+        // Same untouched file input as the reading above (§6.23): a damage
+        // noticed without a camera to hand must still be recordable.
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $_FILES['photo'] = self::EMPTY_FILE_INPUT;
+
+        $this->post('/mes-locations/incident', 'reportIncident', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'description' => 'Vitre cassée',
+            'amount' => '50,00',
+        ]);
+
+        $this->assertCount(1, $this->stayService->incidentsFor($booking->id));
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('success', $flash['type'] ?? null);
     }
 
     public function testAnIncidentOfAnotherBookingCannotBeDecidedHere(): void
