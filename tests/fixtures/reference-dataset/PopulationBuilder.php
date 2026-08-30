@@ -51,6 +51,9 @@ final class PopulationBuilder
 
     private int $nextFillerNumber = ScenarioCatalog::FILLER_FIRST_ID;
 
+    /** @var array<string, true> Tiers of the hand-written scenario members */
+    private array $scenarioTiers = [];
+
     public function __construct(
         private readonly Rng $rng,
         private readonly PersonFactory $factory,
@@ -63,6 +66,9 @@ final class PopulationBuilder
     public function build(): array
     {
         (new ScenarioPeople($this->rng, $this->factory))->addTo($this->people);
+        // Whoever ScenarioPeople wrote by hand: designateSectionLeads() must
+        // never touch them, since their functions are what the scenarios are.
+        $this->scenarioTiers = array_fill_keys(array_keys($this->people), true);
 
         foreach (UnitBlueprint::YEARS as $index => $year) {
             if ($index > 0) {
@@ -72,8 +78,96 @@ final class PopulationBuilder
         }
 
         ksort($this->people);
+        $this->designateSectionLeads();
 
         return $this->people;
+    }
+
+    /**
+     * Promote exactly one cadre per section per year to `Chef de section`.
+     *
+     * The trombinoscope's "responsable" is whoever holds a function flagged
+     * `is_lead` (Modules\Trombinoscope\Repository\FunctionFlagsRepository).
+     * With every animateur carrying the same FONCTION there is nothing to
+     * flag that would not flag the whole staff, and TrombinoscopeService then
+     * promotes whichever row came back first — a "responsable" decided by the
+     * query planner. One designated holder per section per year is what makes
+     * that page mean something.
+     *
+     * Deliberately a POST-PASS over the finished population rather than a
+     * choice made while building it, and it draws nothing from the Rng: the
+     * generated files are compared byte for byte, so a new random call here
+     * would shift every subsequent draw and rewrite the whole dataset.
+     *
+     * Scenario members are skipped. `T0013` becoming an `Animateur` in A3 and
+     * `T0018` losing "candidat" are pinned by ReferenceDatasetImportTest —
+     * promoting one of them would be a silent change to a named behaviour.
+     * The filler cadres are numerous enough everywhere (three at the very
+     * least, per UnitBlueprint::HEADCOUNT) that one is always available, and
+     * the generator fails loudly rather than leaving a section headless.
+     */
+    private function designateSectionLeads(): void
+    {
+        foreach (UnitBlueprint::YEARS as $year) {
+            foreach (UnitBlueprint::sectionsIn($year) as $handle) {
+                if (UnitBlueprint::HEADCOUNT[$year][$handle][1] === 0) {
+                    continue;
+                }
+                if (!$this->promoteOneLead($year, $handle)) {
+                    throw new \RuntimeException(
+                        "Aucun cadre disponible pour porter « " . UnitBlueprint::SECTION_LEAD_FUNCTION
+                        . " » dans {$handle} en {$year}."
+                    );
+                }
+            }
+        }
+    }
+
+    /** @return bool whether a cadre was found and promoted */
+    private function promoteOneLead(string $year, string $handle): bool
+    {
+        $sectionName = UnitBlueprint::SECTIONS[$handle]['name'];
+
+        foreach ($this->people as $tiers => $person) {
+            if (isset($this->scenarioTiers[$tiers])) {
+                continue;
+            }
+            $personYear = $person->years[$year] ?? null;
+            if ($personYear === null) {
+                continue;
+            }
+
+            foreach ($personYear->functions as $index => $function) {
+                if ($function->functionCode !== 'Animateur' || $function->section !== $sectionName) {
+                    continue;
+                }
+
+                $functions = $personYear->functions;
+                $functions[$index] = new FunctionAssignment(
+                    functionCode: UnitBlueprint::SECTION_LEAD_FUNCTION,
+                    branch: $function->branch,
+                    section: $function->section,
+                    ignoredSectionCode: $function->ignoredSectionCode,
+                    startDate: $function->startDate,
+                    endDate: $function->endDate,
+                    mandateEnd: $function->mandateEnd,
+                    isMain: $function->isMain,
+                );
+
+                $person->years[$year] = new PersonYear(
+                    functions: $functions,
+                    feeCode: $personYear->feeCode,
+                    totem: $personYear->totem,
+                    quali: $personYear->quali,
+                    patrol: $personYear->patrol,
+                    formationLevel: $personYear->formationLevel,
+                );
+
+                return true;
+            }
+        }
+
+        return false;
     }
 
     // ------------------------------------------------------------ year loops
