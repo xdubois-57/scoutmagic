@@ -152,17 +152,23 @@ class RosterComparisonRepository
 
     /**
      * Whether this installation has at least one `is_super_admin`
-     * account.
+     * account that can actually still log in.
      *
      * That flag is the one administrative access no Desk import can
      * touch (SECURITY.md §3, `Core\Security\RoleResolver::resolve()`
      * consults it first), so its presence is what decides whether a
      * roster left without a single admin function is a recoverable
      * situation or a locked door.
+     *
+     * `is_active` is part of the question, not a detail: a deactivated
+     * super admin is refused by every login path (`RoleResolver::
+     * isEmailAuthorizedToLogin()`), so counting one here would report an
+     * escape hatch that nobody can open — and let through exactly the
+     * import that leaves the unit locked out.
      */
     public function hasSuperAdminAccount(): bool
     {
-        $stmt = $this->pdo->query('SELECT COUNT(*) FROM user_accounts WHERE is_super_admin = 1');
+        $stmt = $this->pdo->query('SELECT COUNT(*) FROM user_accounts WHERE is_super_admin = 1 AND is_active = 1');
 
         return $stmt !== false && (int) $stmt->fetchColumn() > 0;
     }

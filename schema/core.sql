@@ -53,6 +53,18 @@ CREATE TABLE user_accounts (
     -- never logs the whole unit out on deploy.
     sessions_valid_from DATETIME,
     is_super_admin BOOLEAN NOT NULL DEFAULT FALSE,
+    -- Whether this account may still log in at all. FALSE refuses every
+    -- authentication path at once (Core\Security\RoleResolver::
+    -- isEmailAuthorizedToLogin(), which magic link, password, passkey and
+    -- SessionRevalidator all go through), and the deactivation that sets it
+    -- also bumps sessions_valid_from so a session already open falls on its
+    -- next request rather than lingering for the cookie's 30 days. It is a
+    -- withdrawal of access, never a deletion: the row keeps the password,
+    -- the passkeys and the notification preferences, and every table
+    -- referencing it (event_log, scheduled_actions, files.created_by, …)
+    -- keeps pointing at something. DEFAULT TRUE, so existing rows are
+    -- unaffected when this column is added on deploy.
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
     -- Per-account overrides for Core\Notification\NotificationService's
     -- push dispatch (Configuration > Notifications preferences, "Mon
     -- compte"). NULL on both means "follow the global

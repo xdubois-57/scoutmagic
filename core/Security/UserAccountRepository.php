@@ -377,6 +377,47 @@ class UserAccountRepository
     }
 
     /**
+     * Withdraw an account's access: is_active goes to false AND
+     * sessions_valid_from is stamped to now, in one write.
+     *
+     * The flag alone would only close the door for the NEXT login. A
+     * session already open carries a 30-day cookie and would keep working
+     * until it expired, which is not what "deactivate" means to whoever
+     * clicked it. SessionRevalidator re-reads sessions_valid_from on every
+     * request, so the stamp drops that session on the very next click.
+     * (The revalidator also re-runs the login gate itself, so this is
+     * belt and braces — deliberately, since the two protect against
+     * different mistakes.)
+     *
+     * Stamped from PHP rather than CURRENT_TIMESTAMP, for the same reason
+     * updatePasswordHash() does: comparability with the PHP-side login
+     * timestamp held in the session, and identical behaviour on the SQLite
+     * test database.
+     *
+     * The row itself is never deleted — see the is_active column comment.
+     */
+    public function deactivate(int $id): void
+    {
+        $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
+        $stmt = $this->pdo->prepare(
+            'UPDATE user_accounts SET is_active = 0, sessions_valid_from = ? WHERE id = ?'
+        );
+        $stmt->execute([$now, $id]);
+    }
+
+    /**
+     * Give the access back. Deliberately does NOT touch
+     * sessions_valid_from: the sessions that stamp revoked are gone for
+     * good, and re-stamping it on the way back in would revoke sessions
+     * issued since, for no reason.
+     */
+    public function reactivate(int $id): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE user_accounts SET is_active = 1 WHERE id = ?');
+        $stmt->execute([$id]);
+    }
+
+    /**
      * Check if a user has a password set.
      */
     public function hasPassword(int $id): bool
@@ -429,6 +470,7 @@ class UserAccountRepository
             passwordHash: $row['password_hash'] ?? null,
             isSuperAdmin: (bool) $row['is_super_admin'],
             lastLoginAt: $lastLoginAt,
+            isActive: (bool) ($row['is_active'] ?? true),
             passwordChangedAt: $passwordChangedAt,
             sessionsValidFrom: $sessionsValidFrom,
             quietHoursStart: $row['quiet_hours_start'] ?? null,

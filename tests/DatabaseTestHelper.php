@@ -66,6 +66,7 @@ class DatabaseTestHelper
             password_changed_at TEXT,
             sessions_valid_from TEXT,
             is_super_admin INTEGER NOT NULL DEFAULT 0,
+            is_active INTEGER NOT NULL DEFAULT 1,
             quiet_hours_start TEXT,
             quiet_hours_end TEXT,
             notification_discretion INTEGER NOT NULL DEFAULT 0,

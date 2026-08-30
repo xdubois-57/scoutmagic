@@ -30,8 +30,10 @@ class UserAccountRepositoryTest extends TestCase
                 first_name_encrypted BLOB,
                 last_name_encrypted BLOB,
                 password_hash VARCHAR(255),
+                password_changed_at DATETIME,
                 sessions_valid_from DATETIME,
                 is_super_admin BOOLEAN NOT NULL DEFAULT 0,
+                is_active BOOLEAN NOT NULL DEFAULT 1,
                 created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 last_login_at DATETIME
             )
@@ -254,5 +256,57 @@ class UserAccountRepositoryTest extends TestCase
 
         $this->assertSame($admin->id, $repaired->id);
         $this->assertNotNull($this->repo->findByEmail('mixed@test.com'));
+    }
+
+    public function testDeactivateClearsIsActiveAndStampsSessionsValidFrom(): void
+    {
+        $account = $this->repo->create('admin@test.com', true);
+        $this->assertTrue($this->repo->findById($account->id)?->isActive);
+
+        $this->repo->deactivate($account->id);
+
+        $reloaded = $this->repo->findById($account->id);
+        $this->assertNotNull($reloaded);
+        $this->assertFalse($reloaded->isActive);
+        // The stamp is what drops a session already open, rather than
+        // waiting out the 30 days of its cookie.
+        $this->assertNotNull($reloaded->sessionsValidFrom);
+        $this->assertTrue($reloaded->isSuperAdmin, 'deactivation withdraws access, not the flag');
+    }
+
+    public function testDeactivateNeverRemovesTheRow(): void
+    {
+        $account = $this->repo->create('admin@test.com', true);
+        $this->repo->updatePasswordHash($account->id, password_hash('x', PASSWORD_DEFAULT));
+
+        $this->repo->deactivate($account->id);
+
+        $this->assertContains($account->id, $this->repo->findAllIds());
+        $this->assertTrue($this->repo->hasPassword($account->id), 'the password survives a deactivation');
+    }
+
+    public function testReactivateRestoresIsActiveAndLeavesTheStampAlone(): void
+    {
+        $account = $this->repo->create('admin@test.com', true);
+        $this->repo->deactivate($account->id);
+        $stamp = $this->repo->findById($account->id)?->sessionsValidFrom;
+        $this->assertNotNull($stamp);
+
+        $this->repo->reactivate($account->id);
+
+        $reloaded = $this->repo->findById($account->id);
+        $this->assertNotNull($reloaded);
+        $this->assertTrue($reloaded->isActive);
+        // Re-stamping on the way back in would revoke sessions issued
+        // since, for no reason.
+        $this->assertEquals($stamp, $reloaded->sessionsValidFrom);
+    }
+
+    public function testAccountsAreActiveByDefault(): void
+    {
+        $account = $this->repo->create('someone@test.com');
+
+        $this->assertTrue($account->isActive);
+        $this->assertTrue($this->repo->findByEmail('someone@test.com')?->isActive);
     }
 }
