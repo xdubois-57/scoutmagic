@@ -617,6 +617,36 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
         281
     );
 
+    // Self-continuation off for this instance, and not as a convenience:
+    // `php -S` serves one request per worker at a time and defaults to a
+    // single worker, so a scheduler hop does not run alongside the request
+    // that emitted it — it queues behind it and then holds the only worker
+    // for a whole slice (75 s by default). Every browser interaction in
+    // that window stalls, which is how two unrelated specs came to time out
+    // at 40 s under the dynamic-security scan while the same commit passed
+    // the plain browser suite. The mechanism is built for FPM with a pool
+    // of workers, where one busy worker out of twenty is the whole point;
+    // it has no business chaining against a single-worker test server.
+    //
+    // Every recurring task is armed with `new DateTimeImmutable()` in
+    // public/index.php, so a freshly provisioned instance has about a
+    // dozen tasks due on its very first request — this is not a rare path.
+    //
+    // Same register()-carries-the-value trick as above.
+    $settingService->register(
+        Core\Scheduler\SchedulerContinuation::MAX_HOPS_SETTING,
+        '0',
+        'number',
+        'Nombre maximum de tranches enchaînées',
+        "Plafond dur du nombre de fois qu'une même chaîne de tâches de fond peut se relancer elle-même. "
+        . "Mis à zéro sur cette instance de test : le serveur intégré de PHP ne sert qu'une requête à la fois.",
+        null,
+        null,
+        null,
+        true,
+        901
+    );
+
     $activated = e2e_activate_all_modules(
         $repoRoot,
         $connection,

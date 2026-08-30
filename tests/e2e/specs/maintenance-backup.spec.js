@@ -29,13 +29,14 @@ import { expect, test } from '@playwright/test';
 
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { loginAsAdmin } from '../support/admin-login.js';
+import { scaled } from '../support/timeouts.js';
 
 const ARCHIVE_PASSWORD = 'Archive-e2e-2024!';
 
 test('maintenance backups run to completion, the auto-save saves, and the danger zone stays locked behind its keywords', async ({ page }) => {
     // The encrypted backup zips core/, modules/ and public/ in the
     // background — well past the default budget on a loaded run.
-    test.setTimeout(300_000);
+    test.setTimeout(scaled(300_000));
 
     /** @type {string[]} */
     const pageErrors = [];
@@ -102,7 +103,7 @@ test('maintenance backups run to completion, the auto-save saves, and the danger
     await expect(
         backupsCard.getByRole('cell', { name: 'Configuration seule' }).first(),
         'the background backup must complete and its row appear',
-    ).toBeVisible({ timeout: 120_000 });
+    ).toBeVisible({ timeout: scaled(120_000) });
     await expect(page.locator('#full-backup-error')).toBeHidden();
 
     // ---------------------------------------------------------------

@@ -40,6 +40,7 @@ import { expect, test } from '@playwright/test';
 import { logoutControl } from '../support/admin-login.js';
 import { linkFromMail, readMailbox, waitForMail } from '../support/maildrop.js';
 import { waitOutHumanCheckDelay } from '../support/human-check.js';
+import { scaled } from '../support/timeouts.js';
 
 const UNKNOWN_EMAIL = 'personne@example.invalid';
 const TEMP_PASSWORD = 'Nouveau-mdp-E2E-42!';
@@ -124,7 +125,7 @@ test('a forgotten password is reset through the emailed link, which then stops w
     // Three reset requests, each sitting out the anti-bot minimum delay,
     // plus two mailed round trips — headroom for CI's slower,
     // coverage-instrumented runs.
-    test.setTimeout(120_000);
+    test.setTimeout(scaled(120_000));
 
     const memberEmail = process.env.E2E_MEMBER_EMAIL;
     const memberPassword = process.env.E2E_MEMBER_PASSWORD;
