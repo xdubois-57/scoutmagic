@@ -10,6 +10,7 @@ namespace Core\Scheduler;
 
 use Core\Config\SettingService;
 use Core\Debug\RequestTimeline;
+use Core\Http\SelfRequest;
 use Core\Journal\JournalService;
 
 /**
@@ -75,16 +76,9 @@ final class SchedulerContinuation
     private const DEFAULT_BUDGET_SECONDS = 75;
     private const DEFAULT_MAX_HOPS = 30;
 
-    /**
-     * A request without a User-Agent is a documented cause of WAF refusal
-     * on several hosts. The reference host does not do it; the next one
-     * might, and a hop that is silently swallowed is the hardest kind of
-     * failure to diagnose.
-     */
-    private const USER_AGENT = 'ScoutMagic-Scheduler/1.0 (+self-continuation)';
-
-    /** Connect timeout for the hop, in seconds. Short on purpose. */
-    private const HOP_CONNECT_TIMEOUT = 2.0;
+    // The User-Agent a hop carries and the connect timeout it uses now
+    // live on Http\SelfRequest, with every other caller that drives this
+    // installation from itself.
 
     public function __construct(
         private SchedulerRunner $runner,
@@ -249,12 +243,7 @@ final class SchedulerContinuation
         // the ceiling.
         $this->writeHopCount($this->hopCount() + 1);
 
-        $request = "POST {$base['path']} HTTP/1.1\r\n"
-            . "Host: {$base['host']}\r\n"
-            . 'User-Agent: ' . self::USER_AGENT . "\r\n"
-            . 'X-Scoutmagic-Scheduler: ' . $this->sharedSecret . "\r\n"
-            . "Content-Length: 0\r\n"
-            . "Connection: close\r\n\r\n";
+        $request = SelfRequest::buildPost($base, ['X-Scoutmagic-Scheduler' => $this->sharedSecret]);
 
         foreach ($this->hopTargets($base) as $target) {
             if ($this->writeAndForget($target, $base['host'], $request)) {
@@ -282,12 +271,7 @@ final class SchedulerContinuation
      */
     private function hopTargets(array $base): array
     {
-        $transport = $base['scheme'] === 'https' ? 'tls' : 'tcp';
-
-        return [
-            "{$transport}://127.0.0.1:{$base['port']}",
-            "{$transport}://{$base['host']}:{$base['port']}",
-        ];
+        return SelfRequest::targets($base);
     }
 
     /**
@@ -299,31 +283,7 @@ final class SchedulerContinuation
      */
     private function writeAndForget(string $target, string $host, string $request): bool
     {
-        $context = stream_context_create([
-            'ssl' => [
-                'peer_name' => $host,
-                'verify_peer' => true,
-                'verify_peer_name' => true,
-            ],
-        ]);
-
-        $socket = @stream_socket_client(
-            $target,
-            $errno,
-            $errstr,
-            self::HOP_CONNECT_TIMEOUT,
-            STREAM_CLIENT_CONNECT,
-            $context
-        );
-
-        if ($socket === false) {
-            return false;
-        }
-
-        $written = @fwrite($socket, $request);
-        @fclose($socket);
-
-        return $written !== false && $written > 0;
+        return SelfRequest::writeAndForget($target, $host, $request);
     }
 
     /**
@@ -345,25 +305,7 @@ final class SchedulerContinuation
      */
     private function baseUrl(): ?array
     {
-        $configured = trim((string) ($this->settings->get('base_url') ?? ''));
-        if ($configured === '') {
-            return null;
-        }
-
-        $parts = parse_url($configured);
-        if (!is_array($parts) || !isset($parts['host'])) {
-            return null;
-        }
-
-        $scheme = ($parts['scheme'] ?? 'https') === 'http' ? 'http' : 'https';
-        $prefix = rtrim($parts['path'] ?? '', '/');
-
-        return [
-            'scheme' => $scheme,
-            'host' => $parts['host'],
-            'port' => isset($parts['port']) ? (int) $parts['port'] : ($scheme === 'https' ? 443 : 80),
-            'path' => $prefix . SchedulerContinuationRoute::PATH,
-        ];
+        return SelfRequest::resolveBase($this->settings, SchedulerContinuationRoute::PATH);
     }
 
     private function budgetSeconds(): int
