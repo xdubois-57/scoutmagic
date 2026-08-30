@@ -40,6 +40,11 @@ import { expect, test } from '@playwright/test';
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { loginAsAdmin } from '../support/admin-login.js';
 
+// The message Modules\TestTools\Controller\TestToolsController::
+// provokeUncaughtError() throws. Distinctive on purpose: it is how this
+// scenario finds ITS entry in a journal that may hold others.
+const PROVOKED_MESSAGE = 'Erreur provoquée volontairement depuis les outils de test.';
+
 test('an uncaught error reaches the journal at level error, and the level filter finds it', async ({ page }) => {
     /** @type {number[]} */
     const provokedStatuses = [];
@@ -73,31 +78,53 @@ test('an uncaught error reaches the journal at level error, and the level filter
     await page.goto('/admin/journal', { waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('heading', { level: 1, name: 'Journal' })).toBeVisible();
 
-    await page.getByLabel('Niveau').selectOption('error');
-    await page.getByRole('button', { name: 'Filtrer' }).click();
-    await expect(page).toHaveURL(/level=error/);
+    await filterOnLevel(page, 'error');
 
     const table = page.locator('table tbody');
-    const entry = table.getByText('Erreur non interceptée', { exact: false }).first();
+    // Scoped to the row that carries OUR message, never to `.first()` of
+    // anything: the level filter is not a guarantee that this run wrote
+    // the only `error` entry, and an assertion that happens to read a
+    // different row is worse than no assertion.
+    const entry = table.locator('tr.journal-row').filter({ hasText: PROVOKED_MESSAGE }).first();
     await expect(entry, 'the uncaught error must be in the journal').toBeVisible();
+    await expect(entry).toContainText('Erreur non interceptée');
     await expect(entry).toContainText('RuntimeException');
-    await expect(entry).toContainText('Erreur provoquée volontairement depuis les outils de test.');
+    await expect(entry.getByText('erreur', { exact: true }), 'at level « Erreur »').toBeVisible();
 
     // The filter really filtered: at this level, nothing else is shown.
     await expect(table.getByText('info', { exact: true })).toHaveCount(0);
     await expect(table.getByText('sécurité', { exact: true })).toHaveCount(0);
-    await expect(table.getByText('erreur', { exact: true }).first()).toBeVisible();
 
     // ---------------------------------------------------------------
     // The stack is in the entry's context — with the frames, and
     // without the call arguments.
     // ---------------------------------------------------------------
-    await page.locator('tr.journal-row').first().click();
-    const context = page.locator('tr.context-row pre').first();
-    await expect(context).toBeVisible();
-    await expect(context).toContainText('provokeUncaughtError');
+    // What reveals it is public/assets/js/reveal-details.js: one delegated
+    // listener on the document that toggles the `d-none` class of
+    // `trigger.nextElementSibling` when it matches the selector the row's
+    // own `data-reveal="next:.context-row"` names. So the context of THIS
+    // entry is the sibling row immediately after it — the rows a journal
+    // page renders are not one-to-one (an entry without context has no
+    // context row at all), which is why nothing here counts positions.
+    const context = entry.locator('xpath=following-sibling::tr[1]');
+    await expect(context, 'the context row starts collapsed').toHaveClass(/context-row/);
+    await expect(context).toHaveClass(/d-none/);
 
-    const contextText = (await context.innerText()).trim();
+    await entry.click();
+
+    // The real post-condition is the class the script toggles. Waiting on
+    // visibility alone cannot tell "the listener ran" apart from "the
+    // listener was not attached yet" — and the second is a real risk here:
+    // reveal-details.js is `defer`, so a click landing before the fresh
+    // document finished parsing would do nothing at all, silently, for the
+    // whole timeout. filterOnLevel() below is what rules that out.
+    await expect(context, 'clicking the row must expand its context').not.toHaveClass(/d-none/);
+
+    const stack = context.locator('pre');
+    await expect(stack).toBeVisible();
+    await expect(stack).toContainText('provokeUncaughtError');
+
+    const contextText = (await stack.innerText()).trim();
     expect(contextText.length, 'the sanitized stack must not be empty').toBeGreaterThan(20);
     // getTraceAsString() would have carried every frame's arguments here.
     // The signed-in administrator's own address is the personal datum
@@ -107,8 +134,28 @@ test('an uncaught error reaches the journal at level error, and the level filter
     // ---------------------------------------------------------------
     // The converse: another level does not show it.
     // ---------------------------------------------------------------
-    await page.getByLabel('Niveau').selectOption('security');
-    await page.getByRole('button', { name: 'Filtrer' }).click();
-    await expect(page).toHaveURL(/level=security/);
-    await expect(page.locator('table tbody').getByText('Erreur non interceptée', { exact: false })).toHaveCount(0);
+    await filterOnLevel(page, 'security');
+    await expect(page.locator('table tbody').getByText(PROVOKED_MESSAGE, { exact: false })).toHaveCount(0);
 });
+
+/**
+ * Submit the journal's own filter bar on one level, and wait for the
+ * document that comes back to be READY, not merely committed.
+ *
+ * `expect(page).toHaveURL()` resolves as soon as the navigation commits,
+ * which can be before the page's `defer` scripts have run — and every
+ * interaction on this page is a delegated listener one of them attaches
+ * (public/assets/js/reveal-details.js). Clicking into that window does
+ * nothing and reports nothing; the assertion after it just times out on
+ * an element that will never move. maintenance-backup.spec.js carries the
+ * same note for the same reason, after the same kind of race.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} level the `level` query value the filter submits
+ */
+async function filterOnLevel(page, level) {
+    await page.getByLabel('Niveau').selectOption(level);
+    await page.getByRole('button', { name: 'Filtrer' }).click();
+    await expect(page).toHaveURL(new RegExp(`level=${level}`));
+    await page.waitForLoadState('load');
+}

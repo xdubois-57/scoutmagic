@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Core\Http;
 
 use Core\Http\ErrorHandler;
+use Core\Http\Response;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use PHPUnit\Framework\TestCase;
@@ -299,6 +300,54 @@ class ErrorHandlerTest extends TestCase
     {
         ini_set('zend.exception_ignore_args', '0');
         ini_set('zend.exception_string_param_max_len', '15');
+    }
+
+    /**
+     * The 500 page's CSP must define every directive that has no
+     * fallback, because those are exactly the ones `default-src` does not
+     * cover: leave one out and it is not enforced at all.
+     *
+     * `form-action` was missing here from the day this handler was
+     * written, and nothing caught it because no test had ever made a
+     * scanner visit an error page — the first end-to-end scenario that
+     * deliberately provokes a 500 is what made OWASP ZAP report it (rule
+     * 10055, Medium, blocking the dynamic security gate).
+     *
+     * Asserted against the value the handler sends rather than against
+     * the response, because headers_list() is empty under the CLI SAPI;
+     * and cross-checked against the real site policy, so the two can be
+     * knowingly parallel without silently drifting apart.
+     */
+    public function testTheErrorPageCspDefinesEveryDirectiveWithNoFallback(): void
+    {
+        $siteCsp = (new Response(''))->getSecurityHeaders()['Content-Security-Policy'];
+
+        $this->assertStringContainsString("form-action 'self'", ErrorHandler::CSP);
+
+        foreach (ErrorHandler::NO_FALLBACK_CSP_DIRECTIVES as $directive) {
+            $this->assertMatchesRegularExpression(
+                '/(^|; )' . preg_quote($directive, '/') . ' /',
+                $siteCsp,
+                "Core\\Http\\Response no longer defines {$directive}: decide whether the error page still should"
+            );
+            $this->assertMatchesRegularExpression(
+                '/(^|; )' . preg_quote($directive, '/') . ' /',
+                ErrorHandler::CSP,
+                "the 500 page's CSP leaves {$directive} undefined, and it does not fall back to default-src"
+            );
+        }
+    }
+
+    /**
+     * The other half of "parallel, not equal": the error page renders one
+     * hardcoded HTML string and must not grant a source to anything.
+     */
+    public function testTheErrorPageCspGrantsNothingBeyondItsOwnOrigin(): void
+    {
+        $this->assertStringStartsWith("default-src 'self';", ErrorHandler::CSP);
+        $this->assertStringNotContainsString('unsafe-inline', ErrorHandler::CSP);
+        $this->assertStringNotContainsString('data:', ErrorHandler::CSP);
+        $this->assertStringNotContainsString('blob:', ErrorHandler::CSP);
     }
 
     /**

@@ -83,6 +83,28 @@ final class ErrorHandler
      */
     public const TRACE_MAX_FRAMES = 50;
 
+    /**
+     * The Content-Security-Policy of the fixed 500 page.
+     *
+     * A constant rather than a literal inside emit500() so a test can read
+     * it: headers_list() is empty under the CLI SAPI, so the only way to
+     * assert on this header from PHPUnit is to assert on the value the
+     * handler sends. See emit500() for why this policy is parallel to
+     * Core\Http\Response::buildCsp() rather than equal to it, and which
+     * half of it must never drift.
+     */
+    public const CSP = "default-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
+
+    /**
+     * The CSP directives that do NOT fall back to `default-src`: absent,
+     * they are simply not enforced, whatever `default-src` says. They are
+     * the reason self::CSP above spells anything out at all, and the list
+     * OWASP ZAP rule 10055 checks.
+     *
+     * @var array<int, string>
+     */
+    public const NO_FALLBACK_CSP_DIRECTIVES = ['frame-ancestors', 'base-uri', 'form-action'];
+
     private static bool $debug = false;
     private static bool $registered = false;
 
@@ -325,7 +347,31 @@ final class ErrorHandler
         // Even the failure page carries the baseline security headers — a
         // 500 must not become the one response an attacker can frame or
         // MIME-sniff. Kept in sync with Core\Http\Response::getSecurityHeaders().
-        header("Content-Security-Policy: default-src 'self'; frame-ancestors 'none'; base-uri 'self'");
+        //
+        // This policy is deliberately parallel to Response::buildCsp()
+        // rather than a copy of it: this page loads no script, no
+        // stylesheet, no image and no font of its own, so everything that
+        // grants a source is unwanted here — `default-src 'self'` and
+        // nothing else is the strongest thing to say. What it MUST keep in
+        // step with is the other list: the three directives that do NOT
+        // fall back to `default-src` and therefore have to be spelled out
+        // or they are simply absent — `frame-ancestors`, `base-uri` and
+        // `form-action`. `form-action` was missing here for as long as
+        // this handler has existed, and nothing noticed because no test
+        // had ever made a scanner visit an error page: the first
+        // end-to-end scenario to provoke a 500 on purpose
+        // (specs/journal-uncaught-error.spec.js) is what surfaced it, as
+        // OWASP ZAP rule 10055, "CSP: Failure to Define Directive with No
+        // Fallback", Medium, blocking the dynamic security gate. Add a
+        // non-fallback directive to Response::buildCsp() and it belongs
+        // here too.
+        //
+        // `object-src 'none'` is deliberately NOT here: it falls back to
+        // `default-src 'self'`, so it is not part of that list, and
+        // Response::buildCsp() does not set it either. A directive on one
+        // side and not the other is the exact divergence this comment
+        // exists to prevent.
+        header('Content-Security-Policy: ' . self::CSP);
         header('X-Content-Type-Options: nosniff');
         header('X-Frame-Options: DENY');
         header('Referrer-Policy: strict-origin-when-cross-origin');
