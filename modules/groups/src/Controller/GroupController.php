@@ -19,6 +19,7 @@ use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\Role;
 use Core\Service\IntegerInput;
+use Modules\Gallery\Api\DelegatedMedia;
 use Modules\Groups\Repository\DiscussionGroup;
 use Modules\Groups\Repository\GroupRepository;
 use Modules\Groups\Repository\PostRepository;
@@ -27,6 +28,7 @@ use Modules\Groups\Service\GroupListItem;
 use Modules\Groups\Service\GroupFeedService;
 use Modules\Groups\Service\GroupListService;
 use Modules\Groups\Service\GroupReadStateService;
+use Modules\Groups\Service\GroupRecipientResolver;
 use Modules\Groups\Service\GroupService;
 use Modules\Groups\Service\GroupSessionContext;
 use Modules\Groups\Service\GroupMembershipService;
@@ -72,6 +74,20 @@ class GroupController extends AbstractController
      */
     public const MAX_DESCRIPTION_LENGTH = 300;
 
+    /**
+     * How many members and how many photos the group page's desktop side
+     * column shows (views/partials/side_column.html.twig, drawn only from
+     * 992px up — components.css).
+     *
+     * Both are teasers with a link to the real page underneath, so the
+     * numbers are chosen for the column's height rather than for
+     * completeness: eight names is about as far as a reader scans before
+     * the list stops being a glance, and six photos is two rows of three
+     * at any width that column ever has.
+     */
+    private const SIDE_MEMBERS_SHOWN = 8;
+    private const SIDE_PHOTOS_SHOWN = 6;
+
     public function __construct(
         protected Environment $twig,
         private GroupRepository $groupRepository,
@@ -96,7 +112,14 @@ class GroupController extends AbstractController
         // (Service\PostService::pinnedLabel()), which a page renders
         // without perfectly well — the confirmation then simply says
         // that a message will be unpinned without quoting it.
-        private ?PostService $postService = null
+        private ?PostService $postService = null,
+        // The group page's side column names who is in the group; this is
+        // the module's one group-first reading of that question
+        // (ARCHITECTURE.md §8.40, "two membership sources"), so the column
+        // cannot come to disagree with the members page about it. Optional
+        // and trailing like every other collaborator here: without it the
+        // column simply has no members block.
+        private ?GroupRecipientResolver $recipientResolver = null
     ) {
     }
 
@@ -173,6 +196,8 @@ class GroupController extends AbstractController
         // render, and never before, so a page that 404s marks nothing.
         $this->readStateService?->markRead($group, $context);
 
+        $sideMembers = $this->sideMembers($group, $context);
+
         return $this->render('@groups/show.html.twig', [
             'group' => $group,
             // The name the page shows: the group's own, plus the scout
@@ -237,9 +262,119 @@ class GroupController extends AbstractController
             // the module's list page ahead of it — partials/
             // breadcrumb_bar.html.twig's own docblock explains why a
             // direct link is safe here and not for an ordinary parent.
+            // The desktop side column (views/partials/side_column.html.twig,
+            // drawn only from 992px up). Both halves are resolved here
+            // rather than in the template: a view asks for nothing on its
+            // own (ARCHITECTURE.md §2), and both answers already have a
+            // single owner in this module — who is in the group, and which
+            // media the group's gallery holds.
+            'side_members' => $sideMembers['members'],
+            'side_members_total' => $sideMembers['total'],
+            'side_photos' => $this->sidePhotos($group, $canModerate),
             'breadcrumb_trail' => [['label' => 'Groupes', 'url' => '/groups']],
             'breadcrumb_current' => $this->label($group, $context),
         ]);
+    }
+
+    /**
+     * Who is in this group, named and sorted, for the desktop side
+     * column's members block — plus how many there are in total, since
+     * the column shows the first SIDE_MEMBERS_SHOWN and says how many it
+     * left out.
+     *
+     * Both sources go through the services that already own them:
+     * Service\GroupRecipientResolver::memberIdsFor() answers "who is in
+     * this group" (explicit invitations plus the group's sections,
+     * deduplicated, resolved against the group's own year for an
+     * archive), and Service\MemberIdentityService::forMembers() names
+     * them the one way this module names anybody — batched for the whole
+     * list, never a lookup per row.
+     *
+     * A membership nothing can name — no account, and no member_year for
+     * the group's year either — is left out of BOTH the list and the
+     * count: the members page can render it as "Membre #12" because it is
+     * a page about memberships, but a column of faces has nothing to put
+     * there, and counting rows it cannot show would make "+3 autres"
+     * point at names that do not exist.
+     *
+     * Each row carries the identity ITSELF rather than a flattened
+     * string, so the column can draw it through partials/
+     * identity.html.twig like every other surface with room for markup —
+     * and so the avatar gets the ACCOUNT's name to take its initials
+     * from. Handing `person_avatar()` the joined label instead made
+     * "Alice Lambert (Akéla)" render as the initials "A(", first word
+     * plus last word being exactly what Core\View\PersonAvatar takes.
+     *
+     * @return array{members: list<array{member_id: int, identity: array{account_name: string, member_names: string[]}}>, total: int}
+     */
+    private function sideMembers(DiscussionGroup $group, GroupSessionContext $context): array
+    {
+        if ($this->recipientResolver === null || $this->identityService === null) {
+            return ['members' => [], 'total' => 0];
+        }
+
+        // The same year rule as everywhere else in this module: a group
+        // tied to a year names the people who were in it THAT year.
+        $scoutYearId = $group->scoutYearId ?? $context->effectiveScoutYearId;
+        $memberIds = $this->recipientResolver->memberIdsFor($group, $context->effectiveScoutYearId);
+        $identities = $this->identityService->forMembers($memberIds, $scoutYearId);
+
+        $rows = [];
+        foreach ($memberIds as $memberId) {
+            $identity = $identities[$memberId] ?? ['account_name' => '', 'member_names' => []];
+            if ($identity['account_name'] === '') {
+                continue;
+            }
+            $rows[] = ['member_id' => $memberId, 'identity' => $identity];
+        }
+
+        // Alphabetical, so the eight shown are a stable set rather than
+        // whichever eight the two membership queries happened to return
+        // first. Sorted on the rendered label, which is what the reader
+        // actually sees; case-insensitive byte order is good enough to be
+        // predictable, and this is a glance, not an index.
+        usort($rows, static fn(array $a, array $b): int => strcasecmp(
+            MemberIdentityService::label($a['identity']),
+            MemberIdentityService::label($b['identity'])
+        ));
+
+        return [
+            'members' => array_slice($rows, 0, self::SIDE_MEMBERS_SHOWN),
+            'total' => count($rows),
+        ];
+    }
+
+    /**
+     * The newest photos of the group, for the side column's teaser.
+     *
+     * Service\PostMediaService::groupGalleryMedia() is the same source
+     * the « Galerie du groupe » page uses, and that matters for one
+     * reason: it is where the media of a report-hidden post are filtered
+     * out. A second, cheaper listing here would put the photo that got a
+     * message hidden back on the group's own page.
+     *
+     * Only finished PHOTOS — `mediaType !== 'video'`, the same test
+     * partials/media_thumb.html.twig makes rather than a literal 'photo'
+     * this module would be asserting about gallery's own enum. A video
+     * has no still to put in a 3-cell strip and no play affordance here
+     * to say it is one, and a media still processing has no rendition at
+     * all — and
+     * the cells here deliberately carry no `data-media-id`, so
+     * groups.js's polling (whose `querySelector` takes the first match on
+     * the page) can never resolve one of these instead of the feed cell
+     * it meant to fill.
+     *
+     * @return list<DelegatedMedia>
+     */
+    private function sidePhotos(DiscussionGroup $group, bool $canModerate): array
+    {
+        $photos = array_values(array_filter(
+            $this->postMediaService->groupGalleryMedia($group, $canModerate),
+            static fn(DelegatedMedia $media): bool
+                => $media->processingStatus === 'done' && $media->mediaType !== 'video'
+        ));
+
+        return array_slice($photos, 0, self::SIDE_PHOTOS_SHOWN);
     }
 
     /**

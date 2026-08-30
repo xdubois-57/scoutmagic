@@ -46,7 +46,7 @@
         {% endif %}
 
         {% for entry in route_help %}
-            <article class="help-content{% if route_help|length > 1 %} d-none{% endif %}" data-help-topic="{{ entry.id }}">
+            <article class="help-content rich-text{% if route_help|length > 1 %} d-none{% endif %}" data-help-topic="{{ entry.id }}">
                 {% if route_help|length > 1 %}
                     <button type="button" class="btn btn-link btn-sm p-0 mb-2 text-decoration-none" data-help-back>
                         <i class="bi bi-arrow-left" aria-hidden="true"></i> Tous les sujets de cette page

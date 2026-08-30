@@ -236,7 +236,38 @@ class GroupControllerTest extends TestCase
             // by the whole suite. The same instance the list and the feed
             // above got, so a mark written by one is seen by the others.
             $this->readStateService,
-            $groupsEventService
+            $groupsEventService,
+            // The last three the page's desktop side column needs: who is
+            // in the group (recipient resolver), how to name them
+            // (identity service). Production passes both, and passing
+            // null here would have left the whole block on its degraded
+            // "no members to show" path in every test of this file.
+            GroupsTestHelper::identityService($this->pdo),
+            null,
+            null,
+            $this->recipientResolver()
+        );
+    }
+
+    /**
+     * The group-first membership reading the side column is built on —
+     * the same object production wires, built the way
+     * Tests\Modules\Groups\Service\GroupRecipientResolverTest builds
+     * it. No RoleResolver/ScoutYearService: those two only serve the
+     * admin escalation path, which no test in this file exercises.
+     */
+    private function recipientResolver(): \Modules\Groups\Service\GroupRecipientResolver
+    {
+        $encryption = new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+
+        return new \Modules\Groups\Service\GroupRecipientResolver(
+            new GroupMemberRepository($this->pdo),
+            new GroupSectionRepository($this->pdo),
+            new SectionMembershipRepository($this->pdo),
+            new \Core\Import\MemberYearRepository($this->pdo),
+            new \Core\Member\MemberEmailRepository($this->pdo, $encryption),
+            new UserAccountRepository($this->pdo, $encryption),
+            $encryption
         );
     }
 
@@ -606,6 +637,100 @@ class GroupControllerTest extends TestCase
 
         $stmt = $this->pdo->query('SELECT COUNT(*) FROM discussion_group_reads');
         $this->assertSame(0, (int) ($stmt === false ? 1 : $stmt->fetchColumn()));
+    }
+
+    /**
+     * The group page's desktop side column (views/partials/
+     * side_column.html.twig, drawn from 992px up — components.css).
+     *
+     * It names the group's members through the same two services the rest
+     * of the module uses — Service\GroupRecipientResolver for WHO is in
+     * the group (a section period counts, no explicit row needed) and
+     * Service\MemberIdentityService for how they are written — so it can
+     * never come to disagree with the members page it links to.
+     */
+    public function testShowNamesTheGroupsMembersInTheSideColumn(): void
+    {
+        $creator = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'SC1', $this->sectionId, $this->currentYearId);
+        $other = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'SC2', $this->sectionId, $this->currentYearId);
+        GroupsTestHelper::giveMemberAnAccount(
+            $this->pdo, $creator, 'sidea@test.be', 'Alice', 'Lambert', 'Alice', 'Akéla', $this->currentYearId
+        );
+        GroupsTestHelper::giveMemberAnAccount(
+            $this->pdo, $other, 'sideb@test.be', 'Basile', 'Renard', 'Basile', 'Baloo', $this->currentYearId
+        );
+        $groupId = $this->groupService->createSectionGroup(
+            'Louveteaux', $this->sectionId, $this->currentYearId, $creator, 1
+        );
+
+        $body = $this->controller([$creator])
+            ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
+            ->getBody();
+
+        $this->assertStringContainsString('Alice Lambert', $body);
+        $this->assertStringContainsString('Basile Renard', $body);
+        // A teaser, not the members page: the way to the whole list is
+        // always offered under it.
+        $this->assertStringContainsString('Voir tous les membres', $body);
+    }
+
+    /**
+     * The side column's photo teaser. Same source as « Galerie du
+     * groupe » (Service\PostMediaService::groupGalleryMedia()), newest
+     * first, and only media that finished processing — a spinner has
+     * nothing to show in a three-cell strip, and these cells deliberately
+     * carry no `data-media-id` for groups.js's polling to find.
+     */
+    public function testShowTeasesTheGroupsLatestPhotosInTheSideColumn(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'SCP1');
+        $groupId = $this->groupService->createSectionGroup(
+            'Louveteaux', $this->sectionId, $this->currentYearId, $creator, 1
+        );
+        $this->groupRepo->setGalleryAlbumId($groupId, 42);
+        $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'SCP2', $this->sectionId, $this->currentYearId);
+
+        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager->method('listMedia')->willReturn([
+            new DelegatedMedia(7, 'photo', 'done', 0, 'a.jpg', '2026-01-01 10:00:00'),
+            new DelegatedMedia(8, 'photo', 'pending', 1, 'b.jpg', '2026-01-02 10:00:00'),
+            new DelegatedMedia(9, 'video', 'done', 2, 'c.mp4', '2026-01-03 10:00:00'),
+        ]);
+
+        $body = $this->controller([$member], 'identified', true, $manager)
+            ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
+            ->getBody();
+
+        $this->assertStringContainsString('Dernières photos', $body);
+        $this->assertStringContainsString('/gallery/media/7/thumb', $body);
+        $this->assertStringNotContainsString('/gallery/media/8/thumb', $body);
+        $this->assertStringNotContainsString('/gallery/media/9/thumb', $body);
+    }
+
+    /**
+     * The search box stays ABOVE the composer in the document — the
+     * desktop side column is built by placing that one element into the
+     * second grid track (components.css), never by rendering the form a
+     * second time. Two search forms would mean two elements sharing the
+     * id groups-post-form's own label points at.
+     */
+    public function testShowRendersTheGroupSearchBoxExactlyOnceAndBeforeTheComposer(): void
+    {
+        $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'SCQ1', $this->sectionId, $this->currentYearId);
+        $groupId = $this->groupService->createSectionGroup(
+            'Louveteaux', $this->sectionId, $this->currentYearId, $member, 1
+        );
+
+        $body = $this->controller([$member])
+            ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
+            ->getBody();
+
+        $this->assertSame(1, substr_count($body, 'id="group-search-q"'));
+        $this->assertLessThan(
+            strpos($body, 'id="groups-post-form"'),
+            strpos($body, 'id="group-search-q"'),
+            'the search box must stay above the composer in the document'
+        );
     }
 
     public function testShowRendersForAMember(): void

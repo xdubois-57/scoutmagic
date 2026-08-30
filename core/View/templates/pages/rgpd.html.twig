@@ -5,5 +5,8 @@
 {% block content %}
     {% include 'partials/page_header.html.twig' with { title: 'Protection des données' } only %}
 
-    {{ rgpd_content|raw }}
+    {# The page's whole body is one rich-text block (Core\View\
+       RgpdContentService), so it gets the shared `.rich-text` wrapper
+       that bounds an image nobody sized (app.css). #}
+    <div class="rich-text">{{ rgpd_content|raw }}</div>
 {% endblock %}
