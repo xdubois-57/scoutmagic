@@ -167,7 +167,7 @@ test.describe('Camps', () => {
     test('the map opens by itself, and remembers being folded only with functional consent', async ({ page }) => {
         // The map is EXPANDED by default and built as the page loads
         // (modules/camps/views/list.html.twig, public/assets/js/camps-map.js).
-        // What only a real browser can show is the pair of facts this
+        // What only a real browser can show is the pair of facts that
         // rests on: Leaflet really takes the container over with no click
         // anywhere, and the reader's fold really survives a visit —
         // through localStorage, which PHPUnit cannot see at all and which
@@ -185,24 +185,48 @@ test.describe('Camps', () => {
         // Leaflet stamps this class on the element it takes over, so it
         // is proof the map was BUILT — not merely that a div is on
         // screen. The module's own JavaScript binds to these two ids;
-        // neither the panel nor the container carries a role or an
+        // neither the panel nor the map container carries a role or an
         // accessible name a locator could use instead (README.md § Tests
         // de bout en bout).
         const built = page.locator('#camps-map.leaflet-container');
         const toggle = page.getByRole('button', { name: 'Carte', exact: true });
+        const stored = () => page.evaluate(() => localStorage.getItem('camps_map_collapsed'));
+
+        /**
+         * Click the toggle and wait for Bootstrap to have FINISHED, not
+         * merely started.
+         *
+         * `hidden.bs.collapse` / `shown.bs.collapse` fire at the END of
+         * the 0.35s transition, and that is where camps-map.js does its
+         * remembering — while Playwright already calls a mid-transition
+         * panel hidden the moment its height reaches zero. Navigating in
+         * between would destroy the document before the write, a race
+         * that passes on a slow machine and fails on a fast one. The
+         * settled state is "hidden (or visible) AND no longer
+         * `collapsing`", which is exactly when the event has fired.
+         *
+         * @param {boolean} expectVisible the state being clicked TOWARDS
+         */
+        async function toggleAndSettle(expectVisible) {
+            await toggle.click();
+            await (expectVisible ? expect(panel).toBeVisible() : expect(panel).toBeHidden());
+            await expect(panel).not.toHaveClass(/collapsing/);
+        }
 
         // --- Without functional consent. ---
         await page.goto('/chefs/camps', { waitUntil: 'domcontentloaded' });
-        await expect(panel).toBeVisible();
-        await expect(built).toHaveCount(1);
+        await expect(panel, 'the map panel must be open with no click anywhere').toBeVisible();
+        await expect(built, 'the map must be BUILT on load, not on first open').toHaveCount(1);
 
-        // Refusing is the "no functional consent" case, recorded rather
+        // Refusing IS the "no functional consent" case, recorded rather
         // than left implicit — and it also gets the fixed-bottom banner
         // out of the way of everything below (support/cookie-banner.js).
         await answerCookieBanner(page);
 
-        await toggle.click();
-        await expect(panel).toBeHidden();
+        await toggleAndSettle(false);
+        // The fold applies to the page in front of the reader either way;
+        // what consent decides is whether anything is written down.
+        expect(await stored(), 'nothing may be stored without functional consent').toBeNull();
 
         await page.goto('/chefs/camps', { waitUntil: 'domcontentloaded' });
         await expect(panel, 'a fold must not be remembered without functional consent').toBeVisible();
@@ -216,31 +240,28 @@ test.describe('Camps', () => {
 
         await page.goto('/chefs/camps', { waitUntil: 'domcontentloaded' });
         await expect(panel).toBeVisible();
-        await toggle.click();
-        await expect(panel).toBeHidden();
+        await toggleAndSettle(false);
+        await expect.poll(stored, { message: 'the fold must be written once consent covers it' }).toBe('1');
 
         await page.goto('/chefs/camps', { waitUntil: 'domcontentloaded' });
         await expect(panel, 'the fold must survive the visit once consent covers it').toBeHidden();
-        // Folded means the tile provider is not contacted at all, which is
-        // the only thing that made the old always-collapsed default worth
-        // its cost — the reader keeps that, they just choose it.
-        await expect(built).toHaveCount(0);
-        // The button must announce the state that is on screen: Bootstrap
-        // has no Collapse instance yet on a fresh load, so camps-map.js
-        // sets this itself.
+        // Folded means the tile provider is not contacted at all — the
+        // one thing that made the old always-collapsed default worth its
+        // cost. The reader keeps it; they just choose it now.
+        await expect(built, 'a folded map must request no tiles at all').toHaveCount(0);
+        // The button must announce the state that is on screen: on a
+        // fresh load Bootstrap has no Collapse instance yet, so
+        // camps-map.js sets this itself alongside the class.
         await expect(toggle).toHaveAttribute('aria-expanded', 'false');
 
-        await toggle.click();
-        await expect(panel).toBeVisible();
-        await expect(built).toHaveCount(1);
+        await toggleAndSettle(true);
+        await expect(built, 'opening a folded map builds it then, not never').toHaveCount(1);
 
-        // Expanded is the default, so it is stored as an absence: coming
-        // back finds the map open again with nothing left behind.
+        // Expanded is the default, so it is stored as an absence rather
+        // than as a second value: coming back finds the map open again
+        // with nothing left behind.
+        await expect.poll(stored, { message: 'unfolding must REMOVE the key' }).toBeNull();
         await page.goto('/chefs/camps', { waitUntil: 'domcontentloaded' });
         await expect(panel).toBeVisible();
-        await expect(
-            await page.evaluate(() => localStorage.getItem('camps_map_collapsed')),
-            'unfolding must REMOVE the key, never store a second value for the default',
-        ).toBeNull();
     });
 });
