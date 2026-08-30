@@ -46,10 +46,7 @@ use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Cookie\CookieConsentService;
 use Core\Database\Connection;
-use Core\Database\MigrationRunner;
-use Core\Database\SchemaComparator;
-use Core\Database\SchemaIntrospector;
-use Core\Database\SqlParser;
+use Core\Database\DeploymentMigration;
 use Core\Http\Router;
 use Core\Import\MemberYearRepository;
 use Core\Journal\JournalRepository;
@@ -214,12 +211,6 @@ if (VapidKeyPairFactory::isValid(
 // SchedulerRunner only knows about handlers a ModuleManager has loaded.
 // Router/MenuBuilder are only needed here to satisfy ModuleManager's
 // constructor; their route/menu output is never used in a CLI context.
-$migrationRunner = new MigrationRunner(
-    $connection,
-    new SchemaIntrospector($pdo),
-    new SchemaComparator(),
-    new SqlParser()
-);
 $moduleManager = new ModuleManager(
     __DIR__ . '/../modules',
     $settingService,
@@ -268,6 +259,22 @@ scoutmagic_bootstrap_scheduler(
     dirname(__DIR__) . '/storage',
     $notificationService
 );
+
+// Migrate the whole declared schema, before anything else runs.
+//
+// This entry point is the best place in the application to do it, and it
+// used to be the only one that built a MigrationRunner and never called
+// it. The reasoning about the budget, and the pass itself, live in
+// Database\DeploymentMigration — a seam a test can reach, which an inline
+// block in a cron script is not.
+$migrationResult = DeploymentMigration::run($connection, dirname(__DIR__));
+
+if (!$migrationResult->complete) {
+    // Not an error: the next cron pass resumes from the checkpoint. Said
+    // out loud because a silent partial migration is exactly what made
+    // the original incident hard to see.
+    echo "Schema migration incomplete, resuming on the next pass.\n";
+}
 
 // Process overdue tasks
 $processed = $runner->processOverdue();

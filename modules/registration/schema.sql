@@ -186,11 +186,28 @@ CREATE TABLE registration_secondary_emails (
 -- Capacity for one slot (branch × year-in-branch), all sections of that
 -- branch combined — the module's own unit of measure (see module docs),
 -- never a per-section or per-birth-year number.
+--
+-- `capacity` is NULLABLE on purpose, and NULL IS NOT ZERO. The two carry
+-- opposite meanings and nothing may conflate them:
+--   NULL — no limit recorded for this slot. It is never announced full,
+--          never feeds a waitlist, and gets no availability tier at all.
+--   0    — the slot is deliberately CLOSED to registrations, which is a
+--          real thing a chief may want to say and the only way to say it.
+-- An empty box on /config/inscriptions stores NULL; a typed 0 stores 0.
+-- The classic PHP trap is a NULL read as a number, silently becoming 0 and
+-- flipping an unconfigured branch to "complet" — which is why every read
+-- path stays `?int` all the way down to Service\SlotMath::
+-- tierForRemaining(), rather than casting on the way out of the database.
+-- A slot with no row at all is seeded with the module's default capacity
+-- the first time a chief opens the management page (Service\SlotService::
+-- seedMissingCapacities()); rows written before this column became
+-- nullable hold 0 and therefore now read as "fermé" until a chief clears
+-- them, which is exactly the behaviour those installs already had.
 CREATE TABLE registration_slot_capacities (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     age_branch_id INT UNSIGNED NOT NULL,
     year_in_branch TINYINT UNSIGNED NOT NULL,
-    capacity INT UNSIGNED NOT NULL DEFAULT 0,
+    capacity INT UNSIGNED NULL,
     UNIQUE INDEX idx_rsc_slot (age_branch_id, year_in_branch),
     CONSTRAINT fk_rsc_branch FOREIGN KEY (age_branch_id) REFERENCES age_branches(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

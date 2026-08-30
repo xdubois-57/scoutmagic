@@ -79,7 +79,12 @@
                             {% else %}{{ custom_lists_by_id[email.listId] ?? 'Liste personnalisée' }}
                             {% endif %}
                         </td>
-                        <td>{{ email.listType == 'mail_merge' ? '—' : email.scoutYearIds|map(yid => scout_years_by_id[yid] ?? '?')|join(', ') }}</td>
+                        {# Two list types are not scout-year-scoped, and showing a year for
+                           them would name one that was never used: a mail merge takes its
+                           recipients from the uploaded file, and an external list
+                           (Email::LIST_TYPE_EXTERNAL) always targets the fixed year of the
+                           module that contributes it. #}
+                        <td>{{ email.listType in ['mail_merge', 'external'] ? '—' : email.scoutYearIds|map(yid => scout_years_by_id[yid] ?? '?')|join(', ') }}</td>
                         <td>
                             {% include 'partials/status_badge.html.twig' with {
                                 status: email.status == 'draft' ? 'draft' : (email.status == 'test' ? 'pending' : (email.status == 'sending' ? 'in_progress' : 'done')),
