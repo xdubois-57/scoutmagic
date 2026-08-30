@@ -86,6 +86,7 @@ use Core\Http\Controller\ScheduledActionsController;
 use Core\Http\Controller\ScoutYearController;
 use Core\Http\Controller\SettingsController;
 use Core\Http\Controller\SetupController;
+use Core\Http\Controller\SuperAdminAccountsController;
 use Core\Http\Controller\SupportController;
 use Core\Http\Controller\ShortUrlController;
 use Core\Http\Controller\StaffsController;
@@ -146,6 +147,7 @@ use Core\Security\PasswordAuthMethod;
 use Core\Security\Role;
 use Core\Security\SecretManager;
 use Core\Security\SessionManager;
+use Core\Security\SuperAdminService;
 use Core\Security\UserAccountRepository;
 use Core\Security\WebAuthnCredentialRepository;
 use Core\Security\WebAuthnService;
@@ -1017,6 +1019,11 @@ $memberRepo = new MemberRepository($pdo);
 $memberYearRepo = new MemberYearRepository($pdo);
 $importJournalRepo = new ImportJournalRepository($pdo);
 $userAccountRepo = new UserAccountRepository($pdo, $encryptionService);
+
+// Configuration > Comptes superadmin (Core\Security\SuperAdminService):
+// granting/withdrawing the flag and deactivating/reactivating an account,
+// with the journal entries and the server-side refusals those changes owe.
+$superAdminService = new SuperAdminService($userAccountRepo, $journalService);
 $mappingResolver = new MappingResolver($functionRepo, $ageBranchRepo, $importSectionRepo, $feeCategoryRepo);
 $csvParser = new DeskCsvParser();
 $unitStaffSectionService = new UnitStaffSectionService($pdo);
@@ -1477,6 +1484,7 @@ $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Desk', '/config/function
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Réglages', '/config/settings', 'superadmin', 30, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-gear-wide-connected', null, 'site');
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'RGPD', '/config/rgpd', 'superadmin', 35, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-shield-lock', null, 'unite_donnees');
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Actions planifiées', '/config/scheduled', 'superadmin', 40, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-clock-history', null, 'exploitation');
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Comptes superadmin', '/config/superadmins', 'superadmin', 44, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-shield-lock', null, 'exploitation');
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Maintenance', '/config/maintenance', 'admin', 45, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-tools', null, 'exploitation');
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Notifications', '/config/notifications', 'superadmin', 46, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-bell', null, 'exploitation');
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Support', '/config/support', 'superadmin', 47, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-life-preserver', null, 'exploitation');
@@ -1950,6 +1958,12 @@ $router->addRoute('POST', '/config/badges/update', ConfigBadgesController::class
 $router->addRoute('POST', '/config/badges/toggle-active', ConfigBadgesController::class, 'toggleBadgeActive', 'superadmin');
 $router->addRoute('POST', '/config/badges/delete', ConfigBadgesController::class, 'deleteBadge', 'superadmin');
 
+// Configuration > Comptes superadmin — the accounts holding is_super_admin,
+// the one administrative access that exists outside the Desk roster.
+$router->addRoute('GET', '/config/superadmins', SuperAdminAccountsController::class, 'index', 'superadmin', ['label' => 'Comptes superadmin', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
+$router->addRoute('POST', '/config/superadmins/add', SuperAdminAccountsController::class, 'add', 'superadmin');
+$router->addRoute('POST', '/config/superadmins/revoke', SuperAdminAccountsController::class, 'revoke', 'superadmin');
+
 // RGPD configuration
 $router->addRoute('GET', '/config/rgpd', RgpdConfigController::class, 'index', 'superadmin', ['label' => 'RGPD', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
 $router->addRoute('POST', '/config/rgpd/save', RgpdConfigController::class, 'save', 'superadmin');
@@ -2322,6 +2336,7 @@ $frontController->registerController(ScheduledActionsController::class, new Sche
 $frontController->registerController(ConfigGeneralController::class, new ConfigGeneralController($twig));
 $frontController->registerController(ConfigModulesController::class, new ConfigModulesController($twig, $moduleManager, $journalService));
 $frontController->registerController(ConfigBadgesController::class, new ConfigBadgesController($twig, $badgeService, $journalService));
+$frontController->registerController(SuperAdminAccountsController::class, new SuperAdminAccountsController($twig, $userAccountRepo, $superAdminService));
 $frontController->registerController(FunctionsController::class, new FunctionsController($twig, $functionRepo, $journalService, $sectionService, $unitStaffSectionService, $scoutYearResolver, $badgeService, $ageBranchRepo, $moduleHooks));
 $frontController->registerController(PlaceholderController::class, new PlaceholderController($twig));
 

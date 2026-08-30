@@ -51,6 +51,7 @@ class SuperAdminServiceTest extends TestCase
     public function testReactivateRestoresAccessAndJournalsIt(): void
     {
         $account = $this->userRepo->create('admin@test.com', true);
+        $this->userRepo->create('other-admin@test.com', true);
         $this->service->deactivate($account->id, null);
 
         $this->service->reactivate($account->id, null);
@@ -70,6 +71,7 @@ class SuperAdminServiceTest extends TestCase
     public function testTheJournalEntryNamesTheAccountIdAndNeverTheAddress(): void
     {
         $account = $this->userRepo->create('admin@test.com', true);
+        $this->userRepo->create('other-admin@test.com', true);
 
         $this->service->deactivate($account->id, null);
         $entry = $this->lastJournalEntry();
