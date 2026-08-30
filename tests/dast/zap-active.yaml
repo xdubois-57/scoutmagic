@@ -108,9 +108,11 @@ env:
 
 jobs:
   # --------------------------------------------------------------------
-  # Same single alert filter as the passive profile, and the same reason:
-  # SECURITY.md § 4's documented anti-CSRF exception, authenticated by an
-  # HMAC signature ZAP cannot see. Applied before any traffic is scanned.
+  # The same two alert filters as the passive profile, for the same two
+  # reasons: SECURITY.md § 4's documented anti-CSRF exception,
+  # authenticated by an HMAC signature ZAP cannot see, and the one route
+  # whose job is to answer 500 (see the passive plan for both). Applied
+  # before any traffic is scanned.
   - type: alertFilter
     parameters:
       deleteGlobalAlerts: true
@@ -120,6 +122,13 @@ jobs:
         newRisk: 'False Positive'
         context: scoutmagic
         url: "\\Q${DAST_TARGET}\\E/api/webhook/github"
+        urlRegex: true
+
+      - ruleId: 90022
+        ruleName: Application Error Disclosure
+        newRisk: 'False Positive'
+        context: scoutmagic
+        url: "\\Q${DAST_TARGET}\\E/test-tools/uncaught-error"
         urlRegex: true
 
   - type: passiveScan-config

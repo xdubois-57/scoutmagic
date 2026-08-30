@@ -91,7 +91,7 @@ final class RgpdConfigControllerErrorMessagesTest extends TestCase
             ->with(
                 'core',
                 'rgpd_generation_failed',
-                'info',
+                'error',
                 self::anything(),
                 self::callback(static fn(array $context): bool
                     => str_contains((string) $context['error'], 'code fence début')),

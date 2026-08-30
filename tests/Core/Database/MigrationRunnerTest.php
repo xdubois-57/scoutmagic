@@ -101,6 +101,69 @@ class MigrationRunnerTest extends TestCase
         $this->fail('schema/core.sql no longer declares a `settings` table');
     }
 
+    /**
+     * Widening an ENUM on an ALREADY-INSTALLED site.
+     *
+     * The question this answers is not academic: `event_log.level` gained
+     * an `error` value (ARCHITECTURE.md §8.6), and the schema rules warn
+     * that some declared changes converge only on a fresh install — an
+     * index's column list is silently a no-op on an installed site, and a
+     * primary key is skipped entirely. A column TYPE is not one of those:
+     * `SchemaComparator` compares the normalized type and issues a
+     * `MODIFY COLUMN`. Pinned here against a real MySQL/MariaDB server,
+     * with the check that actually matters at the end — the widened value
+     * is accepted by the column afterwards, which on a strict-mode server
+     * it is not before.
+     */
+    public function testMigrateWidensAnEnumOnAnAlreadyInstalledTable(): void
+    {
+        $tmpDir = sys_get_temp_dir() . '/migration_enum_test_' . uniqid();
+        mkdir($tmpDir);
+        $schemaPath = $tmpDir . '/schema.sql';
+
+        $declare = static function (string $values) use ($schemaPath): void {
+            file_put_contents(
+                $schemaPath,
+                "CREATE TABLE enum_widening_test (\n"
+                . "    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,\n"
+                . "    level ENUM({$values}) NOT NULL DEFAULT 'info'\n"
+                . ');'
+            );
+        };
+
+        try {
+            $runner = new MigrationRunner($this->connection, $this->introspector, new SchemaComparator(), new SqlParser());
+            $pdo = $this->connection->getPdo();
+
+            $declare("'info', 'security'");
+            $runner->migrate([$schemaPath]);
+
+            $this->assertSame(
+                "enum('info','security')",
+                $pdo->query("SHOW COLUMNS FROM enum_widening_test LIKE 'level'")->fetch(\PDO::FETCH_ASSOC)['Type']
+            );
+
+            $declare("'info', 'security', 'error'");
+            $result = $runner->migrate([$schemaPath]);
+
+            $this->assertNotEmpty($result->executedStatements);
+            $this->assertStringContainsString('MODIFY COLUMN', $result->executedStatements[0]);
+            $this->assertSame(
+                "enum('info','security','error')",
+                $pdo->query("SHOW COLUMNS FROM enum_widening_test LIKE 'level'")->fetch(\PDO::FETCH_ASSOC)['Type']
+            );
+
+            $pdo->exec("INSERT INTO enum_widening_test (level) VALUES ('error')");
+            $this->assertSame(
+                'error',
+                $pdo->query('SELECT level FROM enum_widening_test ORDER BY id DESC LIMIT 1')->fetchColumn()
+            );
+        } finally {
+            @unlink($schemaPath);
+            @rmdir($tmpDir);
+        }
+    }
+
     public function testMigrateCreatesTablesFromCoreSql(): void
     {
         $runner = new MigrationRunner(
