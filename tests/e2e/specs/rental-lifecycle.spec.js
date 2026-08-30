@@ -178,7 +178,7 @@ test.describe('Rentals — the milestones after a confirmation', () => {
         await submitAndReload(
             page,
             '/mes-locations/compteur',
-            meterForm.getByRole('button', { name: 'Ajouter' }),
+            meterForm.getByRole('button', { name: 'Ajouter', exact: true }),
         );
 
         // TWO lines, not one: "every line has been looked at" is the rule
@@ -191,7 +191,7 @@ test.describe('Rentals — the milestones after a confirmation', () => {
             await submitAndReload(
                 page,
                 '/mes-locations/inventaire-modele',
-                template.getByRole('button', { name: 'Ajouter' }),
+                template.getByRole('button', { name: 'Ajouter', exact: true }),
             );
         }
 
@@ -264,7 +264,7 @@ test.describe('Rentals — the milestones after a confirmation', () => {
         await expect(milestone(page, 'Contrat envoyé')).toContainText(/\d{2}\/\d{2}\/\d{4}/);
         // The row now offers « Renvoyer » — the document knows it has gone
         // out, which is the same fact the milestone just read.
-        await expect(page.getByRole('button', { name: 'Renvoyer' })).toBeVisible();
+        await expect(page.getByRole('button', { name: 'Renvoyer', exact: true })).toBeVisible();
 
         // ── The signed copy coming back ──────────────────────────────────
         // A photograph of a signed contract, which is what a renter actually
@@ -278,7 +278,14 @@ test.describe('Rentals — the milestones after a confirmation', () => {
             buffer: pngBuffer(600, 800),
         });
         await page.locator('#document-type').selectOption('signed_contract');
-        await upload.getByRole('button', { name: 'Ajouter' }).click();
+        // `exact`, and not decoration: an `<input type="file">` is a BUTTON
+        // in the accessibility tree, and partials/drop_zone.html.twig gives
+        // this one the accessible name « Document à ajouter ». getByRole's
+        // name matching is a case-insensitive SUBSTRING by default, so a
+        // plain « Ajouter » names the drop zone as well as the submit and
+        // Playwright refuses the click. Scoping to the form does not help —
+        // both live inside it.
+        await upload.getByRole('button', { name: 'Ajouter', exact: true }).click();
 
         await expect(milestone(page, 'Conditions et contrat acceptés')).toContainText(DONE);
         // The detail is the signed copy's own date now — the acknowledgement
@@ -369,7 +376,12 @@ test.describe('Rentals — the milestones after a confirmation', () => {
         await expect(milestone(page, 'Location clôturée')).toContainText(DONE);
         // And there is nowhere left to go: closed is history, and the way
         // back is a new request (`Booking\BookingTransition`).
-        await expect(page.getByText('Cette réservation est dans un état définitif')).toBeVisible();
+        // Scoped to the panel that owns the sentence rather than asked of
+        // the whole document: a page-wide getByText is how a header, a
+        // drawer and the body all answer to one visible string.
+        await expect(
+            page.locator('[data-booking-panel="lifecycle"]'),
+        ).toContainText('Cette réservation est dans un état définitif');
 
         expect(serverErrors, 'the application returned a server error').toEqual([]);
         expect(pageErrors, 'uncaught JavaScript error in the browser').toEqual([]);
@@ -461,7 +473,15 @@ async function recordReading(page, phase, value) {
         mimeType: 'image/png',
         buffer: pngBuffer(320, 240),
     });
-    await submitAndReload(page, '/mes-locations/releve', form.getByRole('button', { name: 'Enregistrer' }));
+    // `exact` for the same reason as the document upload's « Ajouter »:
+    // « Enregistrer » is a substring of the settlement's « Enregistrer un
+    // décompte » further down the page, so only the form scoping keeps this
+    // to one element. Saying both is cheaper than relying on either.
+    await submitAndReload(
+        page,
+        '/mes-locations/releve',
+        form.getByRole('button', { name: 'Enregistrer', exact: true }),
+    );
 }
 
 /**
