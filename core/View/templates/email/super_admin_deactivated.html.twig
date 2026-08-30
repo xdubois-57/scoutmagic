@@ -1,0 +1,7 @@
+{% extends 'email/base.html.twig' %}
+{% block content %}
+    <h2 style="margin:0 0 16px;font-size:20px;">Votre accès au site a été suspendu</h2>
+    <p>Votre compte sur {{ site_name }} a été désactivé. Vous ne pouvez plus vous connecter, et la session que vous aviez éventuellement ouverte a pris fin.</p>
+    <p>Votre compte n'est pas supprimé : il est mis en pause. Tout est conservé, et un administrateur du site peut le réactiver à tout moment — vous retrouverez alors votre accès tel qu'il était.</p>
+    <p style="font-size:13px;color:#666;">Si cette suspension vous surprend, parlez-en à l'équipe de votre unité.</p>
+{% endblock %}

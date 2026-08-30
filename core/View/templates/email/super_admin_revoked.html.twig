@@ -1,0 +1,7 @@
+{% extends 'email/base.html.twig' %}
+{% block content %}
+    <h2 style="margin:0 0 16px;font-size:20px;">Votre accès administrateur a été retiré</h2>
+    <p>Le droit superadmin qui vous avait été accordé sur {{ site_name }} vous a été retiré. Les pages de configuration du site ne vous sont plus accessibles.</p>
+    <p>Votre compte, lui, est conservé : votre mot de passe, vos clés numériques et vos préférences de notification restent en place. Si vous êtes par ailleurs animateur ou chef d'unité, votre accès habituel n'est pas modifié.</p>
+    <p style="font-size:13px;color:#666;">Si ce retrait vous surprend, parlez-en à l'équipe de votre unité.</p>
+{% endblock %}

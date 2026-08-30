@@ -147,6 +147,7 @@ use Core\Security\PasswordAuthMethod;
 use Core\Security\Role;
 use Core\Security\SecretManager;
 use Core\Security\SessionManager;
+use Core\Security\SuperAdminMailer;
 use Core\Security\SuperAdminService;
 use Core\Security\UserAccountRepository;
 use Core\Security\WebAuthnCredentialRepository;
@@ -1023,7 +1024,16 @@ $userAccountRepo = new UserAccountRepository($pdo, $encryptionService);
 // Configuration > Comptes superadmin (Core\Security\SuperAdminService):
 // granting/withdrawing the flag and deactivating/reactivating an account,
 // with the journal entries and the server-side refusals those changes owe.
-$superAdminService = new SuperAdminService($userAccountRepo, $journalService);
+$superAdminService = new SuperAdminService(
+    $userAccountRepo,
+    $journalService,
+    new SuperAdminMailer(
+        $mailService,
+        $twig,
+        (string) $settingService->get('site_name'),
+        (string) $settingService->get('base_url')
+    )
+);
 $mappingResolver = new MappingResolver($functionRepo, $ageBranchRepo, $importSectionRepo, $feeCategoryRepo);
 $csvParser = new DeskCsvParser();
 $unitStaffSectionService = new UnitStaffSectionService($pdo);
@@ -1963,6 +1973,7 @@ $router->addRoute('POST', '/config/badges/delete', ConfigBadgesController::class
 $router->addRoute('GET', '/config/superadmins', SuperAdminAccountsController::class, 'index', 'superadmin', ['label' => 'Comptes superadmin', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
 $router->addRoute('POST', '/config/superadmins/add', SuperAdminAccountsController::class, 'add', 'superadmin');
 $router->addRoute('POST', '/config/superadmins/revoke', SuperAdminAccountsController::class, 'revoke', 'superadmin');
+$router->addRoute('POST', '/config/superadmins/toggle-active', SuperAdminAccountsController::class, 'toggleActive', 'superadmin');
 
 // RGPD configuration
 $router->addRoute('GET', '/config/rgpd', RgpdConfigController::class, 'index', 'superadmin', ['label' => 'RGPD', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
