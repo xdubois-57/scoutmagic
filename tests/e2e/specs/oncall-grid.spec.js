@@ -3,17 +3,19 @@
 //
 // WHY THIS SCENARIO EXISTS
 // ----------------------------------------------------------------------------
-// The grid's state lives in a JS object seeded from Twig
-// (`cellStates = {{ states|json_encode }}`), mutated in place on every
-// click, and saved by serialising the ENTIRE month back to
-// /admin/sos/oncall — there is no per-cell endpoint and no save button.
-// The same click also has to keep two renderings of the same cell in
-// step (a desktop <td> and a phone-layout <button> share one class and
-// are updated together). A serialization drift, a CSP regression or a
-// listener mishap silently turns the roster read-only, while PHPUnit —
-// posting its own arrays — stays green. The on-call roster is what the
-// unit's public emergency number redirects to, so "the grid still
-// saves" is worth its own scenario.
+// The grid's state lives in a JS object seeded from Twig (the
+// `sos-admin-data` island), mutated in place on every click, and saved by
+// serialising the ENTIRE month back to /admin/sos/oncall — there is no
+// per-cell endpoint and no save button. A serialization drift, a CSP
+// regression or a listener mishap silently turns the roster read-only,
+// while PHPUnit — posting its own arrays — stays green. The on-call
+// roster is what the unit's public emergency number redirects to, so
+// "the grid still saves" is worth its own scenario.
+//
+// This first scenario is the DESKTOP grid and nothing else. The phone
+// layout is no longer a second rendering of the same cells — it is a list
+// of days plus one edit sheet, at a viewport where the grid does not
+// exist at all — so it has a scenario of its own further down.
 //
 // WHAT IT DELIBERATELY LEAVES ALONE
 // ----------------------------------------------------------------------------
@@ -24,6 +26,74 @@ import { expect, test } from '@playwright/test';
 
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { loginAsAdmin } from '../support/admin-login.js';
+
+/**
+ * Puts the roster back the way the harness provisioned it — empty.
+ *
+ * Every scenario here writes to the SAME shared instance, and each one
+ * already clears up after itself on the happy path. This exists for the
+ * unhappy one: an assertion that stops a scenario half-way leaves a duty
+ * behind, and a duty is not local to this page — it decides who the SOS
+ * number rings, it schedules redirect transitions, and the calendar
+ * renders it as a virtual event for every later spec to trip over.
+ *
+ * It reuses the page's own endpoint rather than reaching into the
+ * database: /admin/sos/oncall replaces a whole month in one call (module
+ * spec §2.6), so posting an empty month IS the reset. Going through
+ * `window.ScoutMagicApi` means the real CSRF token and the real session,
+ * with no second copy of either.
+ *
+ * Silent when there is nothing to clean: a scenario that failed before
+ * signing in lands on /login, where the island does not exist.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+async function resetOnCallRoster(page) {
+    // Wrapped whole: clean-up must never be what turns a passing scenario
+    // red, nor add a second, confusing failure on top of a real one. A
+    // closed context, a session that expired, a page that never loaded —
+    // all of them mean "nothing to restore", not "something went wrong".
+    try {
+        await page.goto('/admin/sos', { waitUntil: 'domcontentloaded' });
+
+        // The two months these scenarios can have written to: the one the
+        // page opens on, and the next one. Read off the island rather than
+        // computed from this process's clock, which need not agree with
+        // the server's date.
+        const months = await page.evaluate(() => {
+            const island = window.ScoutMagicApi && window.ScoutMagicApi.pageData('sos-admin-data');
+            if (!island) {
+                return null;
+            }
+            return [
+                { year: island.year, month: island.month },
+                island.month === 12
+                    ? { year: island.year + 1, month: 1 }
+                    : { year: island.year, month: island.month + 1 },
+            ];
+        });
+        if (months === null) {
+            return;
+        }
+
+        for (const month of months) {
+            await page.evaluate(
+                (target) => window.ScoutMagicApi.postJson('/admin/sos/oncall', {
+                    year: target.year,
+                    month: target.month,
+                    cells: [],
+                }),
+                month,
+            );
+        }
+    } catch {
+        // Deliberately swallowed — see above.
+    }
+}
+
+test.afterEach(async ({ page }) => {
+    await resetOnCallRoster(page);
+});
 
 test('the duty grid cycles a cell through its three states, saving the month on every click', async ({ page }) => {
     /** @type {string[]} */
@@ -72,11 +142,13 @@ test('the duty grid cycles a cell through its three states, saving the month on 
     await page.reload({ waitUntil: 'load' });
     await expect(cellAgain(), 'the on-call mark must survive a reload').toHaveText('✓');
 
-    // The phone rendering of the same cell moved with it — one class,
-    // two layouts, updated together.
-    await expect(
-        page.locator(`#sos-mobile-grid .sos-oncall-cell[data-date="${cellDate}"][data-member-id="${cellMember}"]`),
-    ).toContainText('✓');
+    // There used to be an assertion here that the phone rendering of this
+    // same cell had moved with it (`#sos-mobile-grid .sos-oncall-cell`,
+    // one class shared by a <td> and a <button>). That markup is gone: the
+    // phone layout now lists days and edits them through a sheet, and for
+    // the CURRENT month it starts at today — so this mid-month day has no
+    // phone row at all after the 15th. Keeping the two in step is the next
+    // scenario's job, at the viewport where the phone layout exists.
 
     // ---------------------------------------------------------------
     // Second click: unavailable. Third: back to blank — which also
@@ -148,6 +220,12 @@ test('on a phone the month is a list of days, and one sheet edits any of them', 
     await page.goto('/admin/sos', { waitUntil: 'load' });
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
 
+    // Scoped to the page's own <main>: the navigation renders menu
+    // labels at three widths at once (drawer, bar, mega-menu), so a
+    // page-wide name lookup can match four nodes for one visible string
+    // and fail strict mode.
+    const main = page.getByRole('main');
+
     const dayList = page.locator('#sos-day-list');
     await expect(dayList).toBeVisible();
     // The desktop grid is the other half of the same page and must stay out
@@ -160,14 +238,14 @@ test('on a phone the month is a list of days, and one sheet edits any of them', 
     // ---------------------------------------------------------------
     const firstRow = dayList.locator('.sos-day-row').first();
     await expect(firstRow, 'the current month opens on today').toHaveClass(/list-group-item-warning/);
-    await expect(page.getByRole('link', { name: "Aller à aujourd'hui" })).toBeVisible();
+    await expect(main.getByRole('link', { name: "Aller à aujourd'hui" })).toBeVisible();
 
     // ---------------------------------------------------------------
     // Any other month is shown whole — and gives this scenario a day
     // that is not today, so editing it can never set off the
     // "apply the redirection immediately" path (module spec §3).
     // ---------------------------------------------------------------
-    await page.getByRole('link', { name: 'Mois suivant' }).click();
+    await main.getByRole('link', { name: 'Mois suivant' }).click();
     await expect(dayList).toBeVisible();
     await expect(
         dayList.locator('.sos-day-row.list-group-item-warning'),
@@ -237,7 +315,7 @@ test('on a phone the month is a list of days, and one sheet edits any of them', 
     // also the unit's chef d'unité (scripts/e2e-support.php), so they
     // are on the roster and the tab has rows.
     // ---------------------------------------------------------------
-    await page.getByRole('link', { name: 'Ma disponibilité' }).click();
+    await main.getByRole('link', { name: 'Ma disponibilité' }).click();
     const mine = page.locator('#sos-my-availability');
     await expect(mine).toBeVisible();
     const myRow = mine.locator('.list-group-item').first();
@@ -286,9 +364,17 @@ test('the default-number warning shows only when today has no on-call', async ({
 
     const warning = page.locator('#default-number-immediate-warning');
 
-    /** The settings block is collapsed at the bottom of the page. */
+    /**
+     * The settings block is collapsed at the bottom of the page, and it
+     * has to be re-opened after every reload.
+     *
+     * Scoped to <main>: « Réglages » is also the name of a Configuration
+     * page (design.md §7.1), which the navigation renders at three widths
+     * at once — a page-wide lookup is one nav change away from matching
+     * several nodes and failing strict mode.
+     */
     async function openSettings() {
-        await page.getByRole('button', { name: 'Réglages' }).click();
+        await page.getByRole('main').getByRole('button', { name: 'Réglages' }).click();
     }
 
     /** Click today's cell once and wait for the full-month save to answer. */
