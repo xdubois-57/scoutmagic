@@ -617,6 +617,58 @@ class GitHubWebhookServiceTest extends TestCase
         $this->assertSame('https://api.github.com/repos/owner/repo/zipball/bbbbbbbbbbbb', $payload['download_url']);
     }
 
+    /**
+     * Observed on scoutmagic.be: two pushes two minutes apart left the
+     * first push's update_history row at 'pending' forever, because
+     * cancelling the scheduled action was all that happened. Nothing else
+     * could ever move that row — findInProgress() and
+     * markOtherInProgressAsFailed() both deliberately exclude 'pending',
+     * and the staleness net only looks at rows already running — so the
+     * maintenance page showed two updates "En cours" from the same
+     * version, which reads exactly like two migrations in parallel.
+     */
+    public function testASupersededPushInstallDoesNotLeaveItsHistoryRowPendingForever(): void
+    {
+        $this->settings->set('auto_update_enabled', '1');
+        $this->settings->set('auto_update_level', 'dev');
+        $this->settings->set('dev_update_branch', 'main');
+        $this->settings->clearCache();
+
+        $this->service()->handlePushEvent($this->pushPayload('main', 'aaaaaaaaaaaa'));
+        $this->service()->handlePushEvent($this->pushPayload('main', 'bbbbbbbbbbbb'));
+
+        $rows = $this->updateHistoryRepository->findRecent(10);
+        $byVersion = [];
+        foreach ($rows as $row) {
+            $byVersion[$row->versionTo] = $row;
+        }
+
+        $this->assertSame('failed', $byVersion['dev-aaaaaaa']->status);
+        $this->assertStringContainsString('push plus récent', (string) $byVersion['dev-aaaaaaa']->errorMessage);
+        $this->assertSame('pending', $byVersion['dev-bbbbbbb']->status, 'the newest push is the one still to install');
+    }
+
+    public function testASupersededReleaseInstallDoesNotLeaveItsHistoryRowPendingForever(): void
+    {
+        $this->settings->set('auto_update_enabled', '1');
+        $this->settings->set('auto_update_level', 'major');
+        $this->settings->clearCache();
+
+        $this->service()->handleReleaseEvent($this->releasePayload('v2.5.0'));
+        $this->service()->handleReleaseEvent($this->releasePayload('v2.6.0'));
+
+        $rows = $this->updateHistoryRepository->findRecent(10);
+        $byVersion = [];
+        foreach ($rows as $row) {
+            $byVersion[$row->versionTo] = $row;
+        }
+
+        // The tag's leading "v" is stripped on the way into update_history.
+        $this->assertSame('failed', $byVersion['2.5.0']->status);
+        $this->assertStringContainsString('release plus récente', (string) $byVersion['2.5.0']->errorMessage);
+        $this->assertSame('pending', $byVersion['2.6.0']->status);
+    }
+
     public function testHandlePushEventIgnoresAPushWhileAnotherUpdateIsActivelyInstalling(): void
     {
         $this->settings->set('auto_update_enabled', '1');
