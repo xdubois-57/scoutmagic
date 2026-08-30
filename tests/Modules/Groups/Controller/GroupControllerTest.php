@@ -1247,7 +1247,7 @@ class GroupControllerTest extends TestCase
         $this->assertSame(404, $response->getStatusCode());
     }
 
-    public function testMediaStatusReportsPendingMediaWithNoHtml(): void
+    public function testMediaStatusReportsPendingMediaAsData(): void
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'CGM2');
         $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator, 1);
@@ -1266,10 +1266,19 @@ class GroupControllerTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode());
         $body = json_decode($response->getBody(), true);
-        $this->assertSame([['id' => 1, 'status' => 'processing', 'html' => null]], $body);
+        $this->assertSame([['id' => 1, 'status' => 'processing', 'media_type' => 'photo']], $body);
     }
 
-    public function testMediaStatusRendersTheThumbnailFragmentOnceDone(): void
+    /**
+     * Data, never markup. The endpoint used to return the rendered
+     * `media_thumb.html.twig` partial, which groups.js dropped into
+     * `innerHTML` — a DOM-XSS sink whatever flows through it, rated a
+     * blocker by SonarQube and the reason main's quality gate was red.
+     * Nothing user-supplied was travelling through it, and that was
+     * exactly the fragile part: the day a caption joined that template,
+     * it would have become a real one.
+     */
+    public function testMediaStatusReturnsDataAndNeverMarkup(): void
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'CGM3');
         $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator, 1);
@@ -1288,10 +1297,23 @@ class GroupControllerTest extends TestCase
         );
 
         $body = json_decode($response->getBody(), true);
-        $this->assertSame('done', $body[0]['status']);
-        $this->assertStringContainsString('/gallery/media/1/thumb', $body[0]['html']);
-        $this->assertSame('failed', $body[1]['status']);
-        $this->assertStringContainsString('Échec du traitement', $body[1]['html']);
+        $this->assertSame(
+            [
+                ['id' => 1, 'status' => 'done', 'media_type' => 'photo'],
+                ['id' => 2, 'status' => 'failed', 'media_type' => 'photo'],
+            ],
+            $body
+        );
+
+        // No key carries markup, on any row — asserted over the whole
+        // response rather than over the keys this test happens to know,
+        // so a field added later cannot quietly reopen the sink.
+        foreach ($body as $row) {
+            foreach ($row as $key => $value) {
+                $this->assertArrayNotHasKey('html', $row);
+                $this->assertStringNotContainsString('<', (string) $value, "'{$key}' must not carry markup");
+            }
+        }
     }
 
     public function testMediaStatusSilentlyOmitsAnIdNotInTheGroupsAlbum(): void

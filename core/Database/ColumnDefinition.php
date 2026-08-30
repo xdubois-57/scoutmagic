@@ -63,6 +63,26 @@ class ColumnDefinition
             return $m[1] . $m[3];
         }
 
+        // MariaDB has no JSON storage type of its own: `JSON` is an alias
+        // for `LONGTEXT` plus a validity CHECK, so a column declared JSON
+        // introspects back as `longtext` and looks changed on every single
+        // run. Normalising to the declared spelling rather than the
+        // reported one keeps `schema/core.sql` readable as intent — and a
+        // MODIFY between the two is a no-op on MariaDB anyway, which is
+        // exactly why it must not be generated.
+        if ($type === 'json' || $type === 'longtext') {
+            return 'json/longtext';
+        }
+
+        // `DECIMAL(12, 2)` in a schema file and `decimal(12,2)` from
+        // INFORMATION_SCHEMA are the same type written two ways. Only the
+        // space inside the parameter list is removed, and only there: a
+        // space elsewhere in a type (`int unsigned`, `double precision`)
+        // is part of the type, not formatting.
+        if (preg_match('/^([a-z]+)\s*\(([^)]*)\)(.*)$/', $type, $m) === 1) {
+            return $m[1] . '(' . str_replace(' ', '', $m[2]) . ')' . $m[3];
+        }
+
         return $type;
     }
 }

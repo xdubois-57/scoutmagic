@@ -24,12 +24,84 @@ namespace Core\System;
  */
 final class ShellExecutor
 {
+    /**
+     * A marker only probe() writes, so a host that answers something
+     * unexpected is not mistaken for a host that works.
+     */
+    private const PROBE_MARKER = 'scoutmagic_shell_probe_ok';
+
     /** @var array<string>|null */
     private static ?array $disabledFunctions = null;
 
     public static function isAvailable(): bool
     {
         return self::pickFunction() !== null;
+    }
+
+    /**
+     * Whether shell execution DEMONSTRABLY works, by running a command
+     * and checking what came back.
+     *
+     * isAvailable() answers a different, weaker question: whether one of
+     * the four functions exists and is absent from `disable_functions`.
+     * That is a declaration, and on a shared host it is regularly wrong in
+     * the optimistic direction — the function is callable and the call
+     * still gets nowhere, because a security module intercepts it, because
+     * the account's shell is `/sbin/nologin`, because the filesystem is
+     * mounted `noexec`, or because PATH is empty. Every one of those looks
+     * exactly like "available" from the ini alone, and looks like a
+     * missing binary from the outside.
+     *
+     * So this runs `echo`, a shell builtin needing no PATH and no
+     * executable, and compares the output against a marker only this
+     * method writes. Anything else — empty output, an error page, a
+     * non-zero code, a throw — is reported as it came back rather than
+     * summarised, because on a support question the exact refusal is the
+     * whole answer.
+     *
+     * @return array{declared: bool, works: bool, function: string|null, detail: string}
+     */
+    public static function probe(): array
+    {
+        $function = self::pickFunction();
+        if ($function === null) {
+            return [
+                'declared' => false,
+                'works' => false,
+                'function' => null,
+                'detail' => 'aucune des fonctions exec/shell_exec/system/passthru n\'est appelable',
+            ];
+        }
+
+        try {
+            $result = self::run('echo ' . escapeshellarg(self::PROBE_MARKER) . ' 2>&1');
+        } catch (\Throwable $e) {
+            return [
+                'declared' => true,
+                'works' => false,
+                'function' => $function,
+                'detail' => $e::class . ': ' . $e->getMessage(),
+            ];
+        }
+
+        $output = trim($result['output']);
+        if ($output === self::PROBE_MARKER) {
+            return [
+                'declared' => true,
+                'works' => true,
+                'function' => $function,
+                'detail' => 'code ' . $result['returnCode'],
+            ];
+        }
+
+        return [
+            'declared' => true,
+            'works' => false,
+            'function' => $function,
+            'detail' => $output === ''
+                ? 'aucune sortie, code ' . $result['returnCode']
+                : 'sortie inattendue (code ' . $result['returnCode'] . ') : ' . mb_substr($output, 0, 300),
+        ];
     }
 
     /**
