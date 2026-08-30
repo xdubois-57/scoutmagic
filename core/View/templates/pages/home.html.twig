@@ -5,66 +5,42 @@
 {% block content %}
     <div class="row g-4">
         <div class="col-12 col-lg-8">
-            {% if banner_html is not empty %}
-                <div class="alert alert-info mb-4">{{ banner_html|raw }}</div>
-            {% endif %}
-
             {#
-              "Something happened in your groups" — the one surface every
-              visitor passes through, for the member the notification bell
-              never reaches (no push permission granted, or simply never
-              looked at it). Only ever non-null for a signed-in member of
-              a group with unread activity: the provider
-              (Core\Module\HomeGroupActivityProvider, implemented by
-              Modules\Groups\Service\HomeActivityService) resolves the caller
-              itself and returns null for anyone else, so no membership
+              ONE band above the welcome text, never a stack of three.
+
+              The if/elseif chain below is the priority rule itself, and
+              it is a business rule rather than a layout accident: what
+              the family still owes comes first, what happened in their
+              groups second, and the editorial banner is the fallback for
+              a visitor the other two have nothing to say to.
+              Core\Http\Controller\PageController::home() short-circuits
+              on that same order — a provider whose answer could no
+              longer be rendered is not even asked — so the two must stay
+              in step: reordering here without reordering there yields a
+              page that silently shows nothing.
+
+              All three wear the same plain Bootstrap alert-info. Three
+              different colours in one slot read as a severity scale the
+              page never meant: "you owe money" is not a warning, it is
+              simply the most useful thing to say first.
+
+              Each provider resolves the caller from the session itself
+              and answers null for anyone it has nothing to say to (an
+              anonymous visitor included), so no membership or access
               check belongs in this template.
-
-              Banner-shaped on purpose — same visual weight as the banner
-              block above it, never a card taller than the welcome text it
-              introduces. Three counters, and one action: the single
-              unread group directly, or the list when there are several.
             #}
-            {% if group_activity|default(null) is not null %}
-                {% set activity_parts = [] %}
-                {% if group_activity.new_posts > 0 %}
-                    {% set activity_parts = activity_parts|merge([group_activity.new_posts ~ (group_activity.new_posts > 1 ? ' nouveaux messages' : ' nouveau message')]) %}
-                {% endif %}
-                {% if group_activity.new_replies_or_reactions > 0 %}
-                    {% set activity_parts = activity_parts|merge([group_activity.new_replies_or_reactions ~ (group_activity.new_replies_or_reactions > 1 ? ' réactions ou réponses' : ' réaction ou réponse')]) %}
-                {% endif %}
-                {% if group_activity.new_mentions > 0 %}
-                    {% set activity_parts = activity_parts|merge([group_activity.new_mentions ~ (group_activity.new_mentions > 1 ? ' mentions' : ' mention')]) %}
-                {% endif %}
-                <div class="alert alert-primary d-flex flex-wrap align-items-center gap-2 mb-4">
-                    <i class="bi bi-chat-dots" aria-hidden="true"></i>
-                    <div class="flex-grow-1">
-                        <strong>Du nouveau dans vos groupes</strong>
-                        {% if activity_parts is not empty %}
-                            <span class="d-block small">{{ activity_parts|join(' · ') }}</span>
-                        {% endif %}
-                    </div>
-                    {% if group_activity.single_group is not null %}
-                        <a href="/groups/{{ group_activity.single_group.id }}" class="btn btn-sm btn-primary">Ouvrir {{ group_activity.single_group.name }}</a>
-                    {% else %}
-                        <a href="/groups" class="btn btn-sm btn-primary">Voir mes groupes</a>
-                    {% endif %}
-                </div>
-            {% endif %}
             {#
-              "Il reste quelque chose à payer" — the third band, under the
-              editorial banner and the group activity, above the welcome
-              text. Only ever non-null for a signed-in visitor with
-              members linked to their address who still owe something:
-              the provider (Core\Module\HomePaymentDueProvider,
-              implemented by Modules\Finance\Service\FamilyPaymentService)
-              resolves the caller itself and returns null for everyone
-              else, so no access check belongs in this template.
+              "Il reste quelque chose à payer" — only ever non-null for a
+              signed-in visitor with members linked to their address who
+              still owe something: the provider
+              (Core\Module\HomePaymentDueProvider, implemented by
+              Modules\Finance\Service\FamilyPaymentService) resolves the
+              caller itself and returns null for everyone else.
 
               One band for the whole family, never one per child — a
               parent of three sees three lines, not three bands. Band-
-              shaped like the two above it, never a card taller than the
-              welcome text it introduces.
+              shaped, never a card taller than the welcome text it
+              introduces.
 
               The date is the last bank statement the unit imported,
               followed by a plain-prose delay. There is deliberately no
@@ -73,7 +49,7 @@
               sentence absorbs weekends and holidays without ever lying.
             #}
             {% if payment_due|default(null) is not null %}
-                <div id="home-payment-due" class="alert alert-warning d-flex gap-2 mb-4" role="alert">
+                <div id="home-payment-due" class="alert alert-info d-flex gap-2 mb-4" role="alert">
                     <i class="bi bi-exclamation-triangle mt-1 flex-shrink-0" aria-hidden="true"></i>
                     <div class="flex-grow-1" style="min-width:0;">
                         <strong>{{ payment_due.total_cents|money_cents }} {{ payment_due.demands|length > 1 ? 'restent' : 'reste' }} à payer</strong>
@@ -100,6 +76,54 @@
                         {% endif %}
                     </div>
                 </div>
+            {% elseif group_activity|default(null) is not null %}
+                {#
+                  "Something happened in your groups" — for the member the
+                  notification bell never reaches (no push permission
+                  granted, or simply never looked at it). Only ever
+                  non-null for a signed-in member of a group with unread
+                  activity: the provider
+                  (Core\Module\HomeGroupActivityProvider, implemented by
+                  Modules\Groups\Service\HomeActivityService) resolves the
+                  caller itself and returns null for anyone else.
+
+                  Three counters, and one action: the single unread group
+                  directly, or the list when there are several.
+                #}
+                {% set activity_parts = [] %}
+                {% if group_activity.new_posts > 0 %}
+                    {% set activity_parts = activity_parts|merge([group_activity.new_posts ~ (group_activity.new_posts > 1 ? ' nouveaux messages' : ' nouveau message')]) %}
+                {% endif %}
+                {% if group_activity.new_replies_or_reactions > 0 %}
+                    {% set activity_parts = activity_parts|merge([group_activity.new_replies_or_reactions ~ (group_activity.new_replies_or_reactions > 1 ? ' réactions ou réponses' : ' réaction ou réponse')]) %}
+                {% endif %}
+                {% if group_activity.new_mentions > 0 %}
+                    {% set activity_parts = activity_parts|merge([group_activity.new_mentions ~ (group_activity.new_mentions > 1 ? ' mentions' : ' mention')]) %}
+                {% endif %}
+                <div class="alert alert-info d-flex flex-wrap align-items-center gap-2 mb-4">
+                    <i class="bi bi-chat-dots" aria-hidden="true"></i>
+                    <div class="flex-grow-1">
+                        <strong>Du nouveau dans vos groupes</strong>
+                        {% if activity_parts is not empty %}
+                            <span class="d-block small">{{ activity_parts|join(' · ') }}</span>
+                        {% endif %}
+                    </div>
+                    {% if group_activity.single_group is not null %}
+                        <a href="/groups/{{ group_activity.single_group.id }}" class="btn btn-sm btn-primary">Ouvrir {{ group_activity.single_group.name }}</a>
+                    {% else %}
+                        <a href="/groups" class="btn btn-sm btn-primary">Voir mes groupes</a>
+                    {% endif %}
+                </div>
+            {% elseif banner_html is not empty %}
+                {#
+                  The editorial banner from the Banners module
+                  (Core\Module\HomeBannerProvider): the unit's own message
+                  to whoever walks in, and the fallback of the three —
+                  shown only when the two bands above stayed silent,
+                  because a message addressed to everybody must not push
+                  aside one addressed to this visitor.
+                #}
+                <div class="alert alert-info mb-4">{{ banner_html|raw }}</div>
             {% endif %}
 
             <div class="mb-4">
