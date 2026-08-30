@@ -102,7 +102,15 @@ final class ReferenceDatasetImportTest extends TestCase
                 );
                 self::assertSame(
                     $expectedCadres,
-                    $this->countInSection($label, $name, ['Animateur', 'Animateur candidat']),
+                    // « Chef de section » compte comme un cadre : c'est un
+                    // animateur à qui le staff a confié la section, pas une
+                    // personne de plus (PopulationBuilder::
+                    // designateSectionLeads() promeut, il n'ajoute pas).
+                    $this->countInSection($label, $name, [
+                        'Animateur',
+                        'Animateur candidat',
+                        UnitBlueprint::SECTION_LEAD_FUNCTION,
+                    ]),
                     "{$name} n'a pas le nombre de cadres déclaré en {$label}.",
                 );
             }

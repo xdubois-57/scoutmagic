@@ -57,6 +57,9 @@ use Tests\Fixtures\ReferenceDataset\ExtrasApplier;
 use Tests\Fixtures\ReferenceDataset\FinanceSeeder;
 use Tests\Fixtures\ReferenceDataset\InstanceContext;
 use Tests\Fixtures\ReferenceDataset\InstanceReset;
+use Tests\Fixtures\ReferenceDataset\CampaignBlueprint;
+use Tests\Fixtures\ReferenceDataset\CampaignSeeder;
+use Tests\Fixtures\ReferenceDataset\ModuleActivator;
 use Tests\Fixtures\ReferenceDataset\UnitBlueprint;
 
 $options = getopt('', ['yes', 'reset', 'no-backup', 'root::']);
@@ -176,7 +179,27 @@ $demoAccounts = new DemoAccounts($pdo, $encryption, $generator->people());
 $superadminId = $demoAccounts->ensureSuperadmin();
 printf("Superadministrateur : %s (id %d)\n\n", DemoAccounts::SUPERADMIN_EMAIL, $superadminId);
 
-// 2. Les trois années scoutes, puis les trois imports Desk dans l'ordre.
+// 2. Tous les modules, activés par le vrai service de modules.
+//
+//    AVANT tout le reste, et pas à la fin : un module éteint n'a ni réglages
+//    par défaut ni routes, et les extras qui en dépendent seraient sautés en
+//    silence — ce qui laissait exactement le genre de trou que ce jeu de
+//    données est censé rendre visible. L'état final demandé (tous les modules
+//    actifs) est le même ; c'est l'ordre qui change ce que le build peut
+//    écrire. Voir README.md §8.1.
+$moduleActivator = new ModuleActivator(
+    $pdo,
+    new \Core\Config\SettingService(new \Core\Config\SettingRepository($pdo)),
+    $instanceRoot . '/modules',
+);
+$moduleResult = $moduleActivator->activateAll();
+printf("Modules activés : %d\n", count($moduleResult['activated']));
+foreach ($moduleResult['failed'] as $moduleId => $reason) {
+    fwrite(STDERR, "  ! module « {$moduleId} » non activé : {$reason}\n");
+}
+echo "\n";
+
+// 3. Les trois années scoutes, puis les trois imports Desk dans l'ordre.
 $replay = new DeskImportReplay($pdo, $encryption, $datasetRoot, $context->storagePath());
 $yearIds = $replay->ensureYears();
 echo "Années scoutes créées : " . implode(', ', UnitBlueprint::YEARS) . "\n";
@@ -192,7 +215,7 @@ foreach ($importResults as $label => $result) {
     );
 }
 
-// 3. La confirmation des rôles — le seul endroit d'où Staff d'U peut naître.
+// 4. La confirmation des rôles — le seul endroit d'où Staff d'U peut naître.
 $unconfirmed = $replay->confirmFunctionRoles($yearIds);
 printf(
     "\nFonctions confirmées : %d ; laissées non confirmées : %d%s\n",
@@ -201,20 +224,26 @@ printf(
     $unconfirmed !== [] ? ' (' . implode(', ', $unconfirmed) . ')' : '',
 );
 
-// 4. Les finances : catégories et comptes par défaut, puis les six relevés.
+// 5. Les finances : catégories et comptes par défaut, les IBAN des comptes de
+//    section, puis les six relevés. L'ordre est porteur — voir README.md §8.1.
 $finance = new FinanceSeeder($pdo, $encryption, $datasetRoot, $superadminId);
 $finance->ensureModuleDefaults();
+$sectionAccounts = $finance->completeSectionAccounts();
 $financeCounts = $finance->seed();
 printf(
-    "\nFinances : %d comptes d'unité, %d mouvements importés, %d doublons reconnus\n",
+    "\nFinances : %d comptes d'unité, %d comptes de section complétés,\n"
+    . "           %d mouvements importés, %d doublons reconnus\n",
     $financeCounts['accounts'],
+    $sectionAccounts,
     $financeCounts['imported'],
     $financeCounts['duplicates'],
 );
 
-// 5. Les extras : tout ce que Desk ne connaît pas, appliqué par les vrais
+// 6. Les extras : tout ce que Desk ne connaît pas, appliqué par les vrais
 //    services — photos par le pipeline de téléversement, décalages d'année,
-//    départs, badges, évènements, créances attendues.
+//    départs, badges, adresses de section, créances attendues, et les
+//    semeurs par domaine (calendrier, actualités, camps, inscriptions,
+//    bannières, galerie, locations, responsables de section).
 $extras = new ExtrasApplier($pdo, $encryption, $context->storagePath(), $datasetRoot, $superadminId);
 $extraResult = $extras->apply($yearIds, $finance->accountIds()['unite'] ?? 0);
 echo "\nExtras appliqués :\n";
@@ -224,11 +253,43 @@ foreach ($extraResult['counts'] as $label => $count) {
         "  %-26s %3d%s\n",
         $label,
         $count,
-        $skippedModule !== null ? "   (ignoré : module « {$skippedModule} » désactivé)" : '',
+        $skippedModule !== null ? "   (ignoré : module « {$skippedModule} » absent)" : '',
+    );
+}
+foreach ($extraResult['notes'] as $note) {
+    echo '  → ' . $note . "\n";
+}
+
+// 7. La campagne de paiement, après les extras : elle a besoin des membres
+//    (une ligne par membre, member_id obligatoire) et du compte d'unité, et
+//    ses communications structurées — tirées au hasard à la création — ne
+//    peuvent donc pas être dans les relevés commités. Le semeur écrit un
+//    septième relevé et le fait entrer par le même ImportService.
+$unitAccountId = $finance->accountIds()['unite'] ?? 0;
+if ($unitAccountId > 0) {
+    $campaign = new CampaignSeeder(
+        $pdo,
+        $encryption,
+        $context->storagePath(),
+        $datasetRoot,
+        $extras->memberIds(),
+        $superadminId,
+    );
+    $campaignCounts = $campaign->seed(
+        $unitAccountId,
+        static fn (string $path, string $name): array => $finance->importExtraStatement('unite', $path, $name),
+    );
+    printf(
+        "\nCampagne « %s » : %d lignes, %d créances, %d paiements écrits, %d importés\n",
+        CampaignBlueprint::LABEL,
+        $campaignCounts['rows'],
+        $campaignCounts['receivables'],
+        $campaignCounts['payments'],
+        $campaignCounts['imported'],
     );
 }
 
-// 6. Les comptes de démonstration adossés à des membres — après les imports,
+// 8. Les comptes de démonstration adossés à des membres — après les imports,
 //    puisque c'est l'import Desk qui les crée.
 $accounts = $demoAccounts->seedMemberAccounts();
 echo "\nComptes de démonstration (mot de passe : " . DemoAccounts::PASSWORD . ")\n";
@@ -236,7 +297,7 @@ foreach ($accounts as $handle => $email) {
     printf("  %-12s %s\n", $handle, $email);
 }
 
-// 7. Le rapport final, par année et par section.
+// 9. Le rapport final, par année et par section.
 echo "\nEffectifs constatés en base :\n";
 foreach (UnitBlueprint::YEARS as $label) {
     $statement = $pdo->prepare(
@@ -257,8 +318,8 @@ foreach ($sections !== false ? $sections->fetchAll(\PDO::FETCH_ASSOC) : [] as $s
     );
 }
 
-echo "\nTerminé. Les extras non couverts — documents de section, articles avec\n";
-echo "formulaire, groupes de discussion, demandes d'inscription, locations —\n";
-echo "sont listés dans README.md §8.3 avec la raison.\n";
+echo "\nTerminé. Les deux extras non couverts — documents de section, groupes de\n";
+echo "discussion et leurs messages — sont listés dans README.md §8.3 avec la\n";
+echo "raison.\n";
 echo "\nPensez à prendre une sauvegarde Maintenance : elle sert de point de\n";
 echo "restauration jetable entre deux essais (README.md §11).\n";
