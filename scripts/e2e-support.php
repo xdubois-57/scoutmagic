@@ -1032,13 +1032,26 @@ function e2e_seed_ordinary_member(
  * Never a chief's, an admin's or an intendant's function: those are
  * exactly the roles getSectionStaff() selects on, and any of them would
  * also move the member's resolved role.
+ *
+ * The branch's `sort_order` is 10, not an arbitrary number: sort_order is
+ * how this codebase recognises a branch as one of the federation's four
+ * animés branches at all (Core\Member\MemberYearService::
+ * branchForSortOrder(), `intdiv(sort_order, 10) - 1`). It used to be 1,
+ * which resolves to NO branch — and a fixture with no recognised branch
+ * silently emptied every screen built on one: the registration module's
+ * capacity grid, its capacity-verification table and the public
+ * "nés en…" availability grid all render zero rows against it, so no
+ * browser ever exercised them. 10 makes it the first branch (Baladins,
+ * 6–7 ans). Nothing else moves: both seeded members have no birth date,
+ * so no age-derived count changes, and 10 still sorts ahead of the
+ * hidden roles branch at 90.
  */
 function e2e_seed_section_with_both_members(Core\Database\Connection $connection): void
 {
     $pdo = $connection->getPdo();
     $scoutYearId = (new Core\Config\ScoutYearService($pdo))->getCurrentYear()['id'];
 
-    $pdo->prepare('INSERT INTO age_branches (desk_code, label, sort_order) VALUES (?, ?, 1)')
+    $pdo->prepare('INSERT INTO age_branches (desk_code, label, sort_order) VALUES (?, ?, 10)')
         ->execute(['E2E-BR', 'Branche E2E']);
     $ageBranchId = (int) $pdo->lastInsertId();
 
