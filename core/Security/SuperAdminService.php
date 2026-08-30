@@ -30,7 +30,14 @@ class SuperAdminService
 {
     public function __construct(
         private UserAccountRepository $userAccountRepo,
-        private JournalService $journalService
+        private JournalService $journalService,
+        /**
+         * Optional so a caller with no mail transport to hand — a test,
+         * a CLI path — still gets the flag changes and the journal
+         * entries, which are the parts that must never depend on a mail
+         * server being reachable.
+         */
+        private ?SuperAdminMailer $mailer = null
     ) {
     }
 
@@ -83,6 +90,8 @@ class SuperAdminService
             $actorId
         );
 
+        $this->mailer?->sendGranted($account->email, $this->labelFor($actorId));
+
         return ['account' => $account, 'created' => $created, 'already' => false];
     }
 
@@ -100,6 +109,11 @@ class SuperAdminService
         $this->refuseSelf($userAccountId, $actorId, 'super_admin_revoke_refused');
         $this->refuseLastOne($userAccountId, $actorId, 'super_admin_revoke_refused');
 
+        // Read before the change: after it, this is still the same row,
+        // but reading first keeps "who was emailed" and "who was changed"
+        // provably the same account.
+        $target = $this->userAccountRepo->findById($userAccountId);
+
         $this->userAccountRepo->revokeSuperAdmin($userAccountId);
 
         $this->journalService->log(
@@ -110,6 +124,10 @@ class SuperAdminService
             ['user_account_id' => $userAccountId],
             $actorId
         );
+
+        if ($target !== null) {
+            $this->mailer?->sendRevoked($target->email);
+        }
     }
 
     /**
@@ -125,6 +143,8 @@ class SuperAdminService
         $this->refuseSelf($userAccountId, $actorId, 'super_admin_deactivate_refused');
         $this->refuseLastOne($userAccountId, $actorId, 'super_admin_deactivate_refused');
 
+        $target = $this->userAccountRepo->findById($userAccountId);
+
         $this->userAccountRepo->deactivate($userAccountId);
 
         $this->journalService->log(
@@ -135,6 +155,10 @@ class SuperAdminService
             ['user_account_id' => $userAccountId],
             $actorId
         );
+
+        if ($target !== null) {
+            $this->mailer?->sendDeactivated($target->email);
+        }
     }
 
     /**
@@ -153,6 +177,47 @@ class SuperAdminService
             ['user_account_id' => $userAccountId],
             $actorId
         );
+    }
+
+    /**
+     * Whether « Retirer le droit » may be offered for this account — the
+     * render-time twin of revoke()'s two refusals, for the same reason
+     * canToggleActive() is the switch's: offering an action the server
+     * will always refuse is not honest, and the POST re-checks anyway.
+     */
+    public function canRevoke(UserAccount $account, ?int $actorId): bool
+    {
+        if ($actorId !== null && $actorId === $account->id) {
+            return false;
+        }
+
+        return $this->userAccountRepo->countUsableSuperAdminsExcept($account->id) > 0;
+    }
+
+    /**
+     * Whether the actif/inactif switch may be offered for this account —
+     * the render-time twin of the two refusals below, and deliberately
+     * expressed in terms of the same rules rather than beside them.
+     *
+     * Not a substitute for them: deactivate() re-checks on every POST.
+     * This only decides whether drawing a control the server would refuse
+     * is honest, and it is not.
+     *
+     * Reactivation is always allowed — it can lock nobody out — so an
+     * account that is already inactive keeps its switch even when it is
+     * the only super admin left.
+     */
+    public function canToggleActive(UserAccount $account, ?int $actorId): bool
+    {
+        if ($actorId !== null && $actorId === $account->id) {
+            return false;
+        }
+
+        if (!$account->isActive) {
+            return true;
+        }
+
+        return $this->userAccountRepo->countUsableSuperAdminsExcept($account->id) > 0;
     }
 
     /**
@@ -208,5 +273,24 @@ class SuperAdminService
             ['user_account_id' => $userAccountId, 'reason' => $reason],
             $actorId
         );
+    }
+
+    /**
+     * How the promotion mail names whoever granted the right — their
+     * address, or null when nothing identified is behind the change, in
+     * which case the mail falls back to an impersonal wording.
+     *
+     * This address goes into an EMAIL, never into a journal entry: the
+     * journal bars personal data (SECURITY.md §11), a mail is by
+     * definition addressed to someone and telling them who gave them an
+     * administrative access is the one question they will actually have.
+     */
+    private function labelFor(?int $actorId): ?string
+    {
+        if ($actorId === null) {
+            return null;
+        }
+
+        return $this->userAccountRepo->findById($actorId)?->email;
     }
 }

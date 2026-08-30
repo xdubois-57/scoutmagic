@@ -266,6 +266,91 @@ class SuperAdminAccountsControllerTest extends TestCase
     // CSRF
     // ---------------------------------------------------------------
 
+    public function testAToggleWithoutACsrfTokenChangesNothing(): void
+    {
+        $me = $this->userRepo->create('moi@example.com', true);
+        $other = $this->userRepo->create('autre@example.com', true);
+        AuthSession::login($me->id, $me->email, 'superadmin');
+
+        $response = $this->controller->toggleActive(
+            $this->jsonRequest(['user_account_id' => $other->id, 'is_active' => false]),
+            []
+        );
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertTrue($this->userRepo->findById($other->id)?->isActive);
+    }
+
+    // ---------------------------------------------------------------
+    // The actif/inactif switch — same two refusals, same server
+    // ---------------------------------------------------------------
+
+    public function testTheSwitchDeactivatesAndReactivates(): void
+    {
+        $me = $this->userRepo->create('moi@example.com', true);
+        $other = $this->userRepo->create('autre@example.com', true);
+        AuthSession::login($me->id, $me->email, 'superadmin');
+
+        $this->controller->toggleActive($this->jsonRequest([
+            'user_account_id' => $other->id, 'is_active' => false, '_csrf_token' => $this->csrfToken,
+        ]), []);
+        $this->assertFalse($this->userRepo->findById($other->id)?->isActive);
+
+        $this->controller->toggleActive($this->jsonRequest([
+            'user_account_id' => $other->id, 'is_active' => true, '_csrf_token' => $this->csrfToken,
+        ]), []);
+        $this->assertTrue($this->userRepo->findById($other->id)?->isActive);
+    }
+
+    public function testYouCannotDeactivateYourself(): void
+    {
+        $me = $this->userRepo->create('moi@example.com', true);
+        $this->userRepo->create('autre@example.com', true);
+        AuthSession::login($me->id, $me->email, 'superadmin');
+
+        $response = $this->controller->toggleActive($this->jsonRequest([
+            'user_account_id' => $me->id, 'is_active' => false, '_csrf_token' => $this->csrfToken,
+        ]), []);
+
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertTrue($this->userRepo->findById($me->id)?->isActive, 'still active');
+        $this->assertRefusalJournaled('self', 'super_admin_deactivate_refused');
+    }
+
+    public function testTheLastUsableSuperAdminCannotBeDeactivated(): void
+    {
+        $alone = $this->userRepo->create('seul@example.com', true);
+        AuthSession::login(999, 'quelquun@example.com', 'superadmin');
+
+        $response = $this->controller->toggleActive($this->jsonRequest([
+            'user_account_id' => $alone->id, 'is_active' => false, '_csrf_token' => $this->csrfToken,
+        ]), []);
+
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertTrue($this->userRepo->findById($alone->id)?->isActive);
+        $this->assertRefusalJournaled('last_super_admin', 'super_admin_deactivate_refused');
+    }
+
+    /**
+     * Reactivation can lock nobody out, so it is allowed even when the
+     * account is the only super admin there is — otherwise a site whose
+     * single administrator got deactivated could never be recovered from
+     * this page.
+     */
+    public function testTheOnlySuperAdminCanStillBeReactivated(): void
+    {
+        $alone = $this->userRepo->create('seul@example.com', true);
+        $this->userRepo->deactivate($alone->id);
+        AuthSession::login(999, 'quelquun@example.com', 'superadmin');
+
+        $response = $this->controller->toggleActive($this->jsonRequest([
+            'user_account_id' => $alone->id, 'is_active' => true, '_csrf_token' => $this->csrfToken,
+        ]), []);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertTrue($this->userRepo->findById($alone->id)?->isActive);
+    }
+
     public function testARevokeWithoutACsrfTokenChangesNothing(): void
     {
         $me = $this->userRepo->create('moi@example.com', true);
@@ -303,10 +388,25 @@ class SuperAdminAccountsControllerTest extends TestCase
         );
     }
 
-    private function assertRefusalJournaled(string $reason): void
+    /**
+     * @param array<string, mixed> $body
+     */
+    private function jsonRequest(array $body): Request
+    {
+        $request = $this->getMockBuilder(Request::class)
+            ->setConstructorArgs(['POST', '/config/superadmins/toggle-active', [], [], [], []])
+            ->onlyMethods(['getRawBody'])
+            ->getMock();
+
+        $request->method('getRawBody')->willReturn(json_encode($body));
+
+        return $request;
+    }
+
+    private function assertRefusalJournaled(string $reason, string $type = 'super_admin_revoke_refused'): void
     {
         $stmt = $this->pdo->query(
-            "SELECT * FROM event_log WHERE event_type = 'super_admin_revoke_refused' ORDER BY id DESC LIMIT 1"
+            "SELECT * FROM event_log WHERE event_type = '{$type}' ORDER BY id DESC LIMIT 1"
         );
         $row = $stmt !== false ? $stmt->fetch(\PDO::FETCH_ASSOC) : false;
 

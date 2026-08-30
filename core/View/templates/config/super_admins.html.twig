@@ -38,6 +38,11 @@
         </div>
     </div>
 
+    <p class="text-body-secondary small mb-3">
+        L'enregistrement est automatique — il n'y a pas de bouton « Enregistrer » pour
+        l'état actif ou désactivé d'un compte.
+    </p>
+
     {% if accounts is empty %}
         {% include 'partials/empty_state.html.twig' with {
             message: 'Aucun compte superadmin.',
@@ -51,7 +56,7 @@
                         <th scope="col">Adresse e-mail</th>
                         <th scope="col">Créé le</th>
                         <th scope="col">Dernière connexion</th>
-                        <th scope="col">État</th>
+                        <th scope="col">Actif</th>
                         <th scope="col"><span class="visually-hidden">Actions</span></th>
                     </tr>
                 </thead>
@@ -59,7 +64,7 @@
                     {% for row in accounts %}
                         {% set account = row.account %}
                         {% set is_self = current_account_id is not null and account.id == current_account_id %}
-                        <tr>
+                        <tr class="{{ account.isActive ? '' : 'opacity-50' }}">
                             <td>
                                 {{ account.email }}
                                 {% if is_self %}
@@ -69,15 +74,44 @@
                             <td>{{ row.created_at ? row.created_at|date_fr : '—' }}</td>
                             <td>{{ account.lastLoginAt ? account.lastLoginAt|datetime_fr : 'Jamais' }}</td>
                             <td>
-                                {% if account.isActive %}
-                                    <span class="badge text-bg-success">Actif</span>
+                                {% if not can_toggle[account.id]|default(false) %}
+                                    {# No switch at all where the server would refuse the
+                                       change: a disabled control is something a script can
+                                       re-enable, and the refusal has to read as a refusal
+                                       rather than as a control that does not respond. #}
+                                    <span class="badge super-admin-state-badge {{ account.isActive ? 'text-bg-success' : 'text-bg-secondary' }}">
+                                        {{ account.isActive ? 'Actif' : 'Désactivé' }}
+                                    </span>
                                 {% else %}
-                                    <span class="badge text-bg-secondary">Désactivé</span>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <div class="form-check form-switch mb-0">
+                                            <input type="checkbox" role="switch"
+                                                   class="form-check-input super-admin-active-toggle"
+                                                   id="super-admin-active-{{ account.id }}"
+                                                   data-account-id="{{ account.id }}"
+                                                   {{ account.isActive ? 'checked' : '' }}>
+                                            <label class="form-check-label visually-hidden" for="super-admin-active-{{ account.id }}">
+                                                Compte actif
+                                            </label>
+                                        </div>
+                                        <span class="badge super-admin-state-badge {{ account.isActive ? 'text-bg-success' : 'text-bg-secondary' }}">
+                                            {{ account.isActive ? 'Actif' : 'Désactivé' }}
+                                        </span>
+                                    </div>
                                 {% endif %}
                             </td>
                             <td class="text-end">
-                                {% if is_self %}
-                                    <span class="text-body-secondary small">Vous ne pouvez pas retirer votre propre accès.</span>
+                                {% if not can_revoke[account.id]|default(false) %}
+                                    {# Same rule as the switch: an action the server would
+                                       refuse is not offered at all, and the reason is
+                                       written out instead. #}
+                                    <span class="text-body-secondary small">
+                                        {% if is_self %}
+                                            Vous ne pouvez pas retirer votre propre accès.
+                                        {% else %}
+                                            Dernier accès superadmin actif du site.
+                                        {% endif %}
+                                    </span>
                                 {% else %}
                                     <form method="post" action="/config/superadmins/revoke"
                                           data-confirm="Retirer le droit superadmin à {{ account.email }} ? Cette personne perdra l'accès à la configuration du site. Son compte, son mot de passe et ses clés numériques sont conservés.">
@@ -95,4 +129,8 @@
             </table>
         </div>
     {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ asset('/assets/js/config-super-admins.js') }}" defer nonce="{{ csp_nonce }}"></script>
 {% endblock %}

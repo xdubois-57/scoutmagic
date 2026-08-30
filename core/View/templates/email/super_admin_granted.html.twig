@@ -1,0 +1,14 @@
+{% extends 'email/base.html.twig' %}
+{% block content %}
+    <h2 style="margin:0 0 16px;font-size:20px;">Vous êtes administrateur du site</h2>
+    <p>{% if granted_by %}{{ granted_by }} vous a accordé{% else %}Le droit administrateur vous a été accordé{% endif %} un accès superadmin sur {{ site_name }}. Vous pouvez désormais ouvrir les pages de configuration du site.</p>
+    <p>Pour vous connecter, rendez-vous sur la page de connexion et demandez un lien magique : vous recevrez un e-mail contenant un lien à usage unique. Il n'y a pas de mot de passe à créer, et rien à accepter — ce message est une information, pas une demande.</p>
+    <p style="text-align:center;margin:24px 0;">
+        <a href="{{ login_url }}"
+           style="display:inline-block;padding:12px 32px;background-color:#0d6efd;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:bold;">
+            Aller à la page de connexion
+        </a>
+    </p>
+    <p style="font-size:13px;color:#666;">Un accès administrateur ouvre toute la configuration du site, y compris les données personnelles des membres. Si vous pensez que cet accès vous a été donné par erreur, signalez-le à l'équipe de votre unité.</p>
+    <p style="font-size:12px;color:#999;word-break:break-all;">{{ login_url }}</p>
+{% endblock %}

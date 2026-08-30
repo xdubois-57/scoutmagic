@@ -48,9 +48,26 @@ class SuperAdminAccountsController extends AbstractController
      */
     public function index(Request $request, array $params): Response
     {
+        $accounts = $this->userAccountRepo->findSuperAdmins();
+        $actorId = AuthSession::getUserAccountId();
+
+        // Whether each row may be offered a switch at all. Drawing one the
+        // server would refuse is dishonest, and a DISABLED one would be
+        // worse: a script can re-enable it, so a refusal has to be absent
+        // rather than merely greyed. The server re-checks on every POST
+        // regardless — this decides rendering, never permission.
+        $canToggle = [];
+        $canRevoke = [];
+        foreach ($accounts as $row) {
+            $canToggle[$row['account']->id] = $this->superAdminService->canToggleActive($row['account'], $actorId);
+            $canRevoke[$row['account']->id] = $this->superAdminService->canRevoke($row['account'], $actorId);
+        }
+
         return $this->render('config/super_admins.html.twig', [
-            'accounts' => $this->userAccountRepo->findSuperAdmins(),
-            'current_account_id' => AuthSession::getUserAccountId(),
+            'accounts' => $accounts,
+            'current_account_id' => $actorId,
+            'can_toggle' => $canToggle,
+            'can_revoke' => $canRevoke,
         ]);
     }
 
@@ -117,5 +134,57 @@ class SuperAdminAccountsController extends AbstractController
         FlashMessage::set('success', 'Le droit superadmin a été retiré.');
 
         return $this->redirect(self::PAGE_PATH);
+    }
+
+    /**
+     * POST /config/superadmins/toggle-active — activate or deactivate one
+     * account (AJAX, JSON).
+     *
+     * An independent control, so it saves on change with a toast and no
+     * button (design.md §7.13) — which is exactly why the two refusals
+     * cannot live in the switch's own JavaScript: it only greys a control
+     * out, and a POST that arrives anyway is decided here.
+     *
+     * @param array<string, string> $params
+     */
+    public function toggleActive(Request $request, array $params): Response
+    {
+        $data = $this->decodeJsonBody($request);
+        if ($data === null) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+
+        if (($guard = $this->guardCsrfJson($request, (string) ($data['_csrf_token'] ?? ''))) !== null) {
+            return $guard;
+        }
+
+        $accountId = isset($data['user_account_id']) ? (int) $data['user_account_id'] : 0;
+        $shouldBeActive = (bool) ($data['is_active'] ?? false);
+        $actorId = AuthSession::getUserAccountId();
+
+        try {
+            if ($shouldBeActive) {
+                $this->superAdminService->reactivate($accountId, $actorId);
+            } else {
+                $this->superAdminService->deactivate($accountId, $actorId);
+            }
+        } catch (SuperAdminException $e) {
+            return $this->json(['success' => false, 'error' => $e->getMessage()], 400);
+        }
+
+        return $this->json([
+            'success' => true,
+            'message' => $shouldBeActive ? 'Le compte a été réactivé.' : 'Le compte a été désactivé.',
+        ]);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function decodeJsonBody(Request $request): ?array
+    {
+        $data = json_decode($request->getRawBody(), true);
+
+        return is_array($data) ? $data : null;
     }
 }
