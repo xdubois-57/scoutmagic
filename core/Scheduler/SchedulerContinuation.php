@@ -200,6 +200,26 @@ final class SchedulerContinuation
      */
     public function kick(): bool
     {
+        // A ceiling of zero means chaining is OFF on this installation,
+        // and a kick is a chain of one — so it has to honour it like any
+        // other hop. It did not, and that is a defect this comment exists
+        // to stop coming back: kick() went straight to emitHop(), which
+        // only ever checked base_url, while the ceiling lives in
+        // shouldHop(). An instance that had explicitly switched chaining
+        // off still got a self-request.
+        //
+        // Where that bit: the end-to-end and dynamic-scan harnesses set it
+        // to zero precisely because `php -S` serves one request per worker
+        // and defaults to one worker (scripts/e2e-support.php says so at
+        // length). The kick queued behind the request that emitted it and
+        // then held the only worker for a whole slice, and a browser step
+        // waiting on a navigation timed out — intermittently, and only
+        // under the scan, where every request already carries proxy
+        // latency.
+        if ($this->maxHops() < 1) {
+            return false;
+        }
+
         $this->beginChain();
 
         return $this->emitHop();

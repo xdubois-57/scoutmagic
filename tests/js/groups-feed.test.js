@@ -208,7 +208,7 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
                 })
                 .mockResolvedValueOnce({
                     ok: true,
-                    json: () => Promise.resolve([{ id: 42, status: 'done', html: '<img alt="" src="/gallery/media/42/thumb">' }])
+                    json: () => Promise.resolve([{ id: 42, status: 'done', media_type: 'photo' }])
                 });
 
             document.querySelector('.groups-load-more').click();
@@ -227,7 +227,128 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
             );
             var cell = document.querySelector('[data-media-id="42"]');
             expect(cell.dataset.status).toBe('done');
-            expect(cell.innerHTML).toContain('/gallery/media/42/thumb');
+            // Built from the id, not from any markup the server sent:
+            // the media-status endpoint returns data only.
+            var thumb = cell.querySelector('img');
+            expect(thumb).not.toBeNull();
+            expect(thumb.getAttribute('src')).toBe('/gallery/media/42/thumb');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    /**
+     * The media-status poll used to drop server-rendered markup into
+     * `innerHTML`. Nothing user-supplied ever travelled through it — the
+     * partial holds an integer id and an enum — but the sink was real
+     * whatever flowed through it, and it would have become exploitable
+     * the first time somebody put a caption in that template. SonarQube
+     * rated it a blocker, and main's quality gate had been red on it.
+     *
+     * The endpoint returns data now. This asserts the property that
+     * matters: markup arriving in the response is never interpreted.
+     */
+    it('never interprets markup sent by the media-status endpoint', async () => {
+        vi.useFakeTimers();
+        try {
+            document.body.innerHTML = `
+                <div id="groups-feed" data-group-id="7">
+                    <div class="groups-load-more-wrapper">
+                        <button class="groups-load-more" data-url="/groups/7/feed?cursor=abc">Charger plus</button>
+                    </div>
+                </div>
+            `;
+            global.fetch = vi.fn()
+                .mockResolvedValueOnce({
+                    ok: true,
+                    text: () => Promise.resolve('<a class="groups-media-cell" data-media-id="42" data-status="pending"></a>')
+                })
+                .mockResolvedValue({
+                    ok: true,
+                    json: () => Promise.resolve([{
+                        id: 42,
+                        status: 'done',
+                        media_type: 'photo',
+                        // A server that started sending markup again, or
+                        // one that had been compromised, must change
+                        // nothing here.
+                        html: '<img src=x onerror="window.__xss = true">'
+                    }])
+                });
+
+            document.querySelector('.groups-load-more').click();
+            await vi.advanceTimersByTimeAsync(0);
+            await vi.advanceTimersByTimeAsync(2000);
+
+            var cell = document.querySelector('[data-media-id="42"]');
+            expect(cell.querySelector('img').getAttribute('src')).toBe('/gallery/media/42/thumb');
+            expect(cell.innerHTML).not.toContain('onerror');
+            expect(window.__xss).toBeUndefined();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('shows the failure notice rather than a broken thumbnail when processing failed', async () => {
+        vi.useFakeTimers();
+        try {
+            document.body.innerHTML = `
+                <div id="groups-feed" data-group-id="7">
+                    <div class="groups-load-more-wrapper">
+                        <button class="groups-load-more" data-url="/groups/7/feed?cursor=abc">Charger plus</button>
+                    </div>
+                </div>
+            `;
+            global.fetch = vi.fn()
+                .mockResolvedValueOnce({
+                    ok: true,
+                    text: () => Promise.resolve('<a class="groups-media-cell" data-media-id="9" data-status="processing"></a>')
+                })
+                .mockResolvedValue({
+                    ok: true,
+                    json: () => Promise.resolve([{ id: 9, status: 'failed' }])
+                });
+
+            document.querySelector('.groups-load-more').click();
+            await vi.advanceTimersByTimeAsync(0);
+            await vi.advanceTimersByTimeAsync(2000);
+
+            var cell = document.querySelector('[data-media-id="9"]');
+            expect(cell.dataset.status).toBe('failed');
+            expect(cell.querySelector('img')).toBeNull();
+            expect(cell.querySelector('.bi-exclamation-triangle')).not.toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('marks a finished video with its play badge', async () => {
+        vi.useFakeTimers();
+        try {
+            document.body.innerHTML = `
+                <div id="groups-feed" data-group-id="7">
+                    <div class="groups-load-more-wrapper">
+                        <button class="groups-load-more" data-url="/groups/7/feed?cursor=abc">Charger plus</button>
+                    </div>
+                </div>
+            `;
+            global.fetch = vi.fn()
+                .mockResolvedValueOnce({
+                    ok: true,
+                    text: () => Promise.resolve('<a class="groups-media-cell" data-media-id="11" data-status="processing"></a>')
+                })
+                .mockResolvedValue({
+                    ok: true,
+                    json: () => Promise.resolve([{ id: 11, status: 'done', media_type: 'video' }])
+                });
+
+            document.querySelector('.groups-load-more').click();
+            await vi.advanceTimersByTimeAsync(0);
+            await vi.advanceTimersByTimeAsync(2000);
+
+            var cell = document.querySelector('[data-media-id="11"]');
+            expect(cell.querySelector('img')).not.toBeNull();
+            expect(cell.querySelector('.bi-play-circle-fill')).not.toBeNull();
         } finally {
             vi.useRealTimers();
         }
