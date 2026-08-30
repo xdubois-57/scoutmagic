@@ -206,4 +206,66 @@ class MigrationChainTest extends TestCase
     {
         $this->assertFalse($this->chain->ensureRunning());
     }
+
+    // --- forPendingMigration(), the factory public/index.php calls ---
+
+    /**
+     * The settings live with the constants that name them because the
+     * branch that uses them runs before the application's own
+     * SettingService exists and exits before reaching it.
+     */
+    public function testTheFactoryRegistersItsOwnSettings(): void
+    {
+        $pdo = DatabaseTestHelper::createTestDatabase();
+        $chain = MigrationChain::forPendingMigration($pdo);
+
+        $this->assertInstanceOf(MigrationChain::class, $chain);
+        $settings = new SettingService(new SettingRepository($pdo));
+        $this->assertSame('800', (string) $settings->get(MigrationChain::MAX_HOPS_SETTING));
+        $this->assertSame(0, $chain->hopCount());
+        $this->assertSame(800, $chain->maxHops());
+    }
+
+    public function testTheFactoryIsIdempotentAndKeepsAnAlreadyChosenCeiling(): void
+    {
+        $pdo = DatabaseTestHelper::createTestDatabase();
+        MigrationChain::forPendingMigration($pdo);
+        (new SettingService(new SettingRepository($pdo)))
+            ->setInternal(MigrationChain::MAX_HOPS_SETTING, '12');
+
+        // Every blocked request calls the factory again; an admin who set a
+        // ceiling must not have it reset under them.
+        $chain = MigrationChain::forPendingMigration($pdo);
+
+        $this->assertNotNull($chain);
+        $this->assertSame(12, $chain->maxHops());
+    }
+
+    /**
+     * A brand-new installation, migrating for the very first time, has no
+     * `settings` table yet. That is not an error: the migration then
+     * advances on the progress page's polling, as it always did.
+     */
+    public function testTheFactoryReturnsNullWhenThereIsNoSettingsTableYet(): void
+    {
+        $bare = new \PDO('sqlite::memory:', null, null, [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]);
+
+        $this->assertNull(MigrationChain::forPendingMigration($bare));
+    }
+
+    /**
+     * `afterSlice()` closes the chain on a complete migration and extends
+     * it otherwise — the two are opposite and must not be swapped.
+     */
+    public function testAfterSliceClosesTheChainOnlyWhenTheMigrationIsDone(): void
+    {
+        $this->settings->setInternal(MigrationChain::HOPS_SETTING, '5');
+        $this->chain->afterSlice(true);
+        $this->assertSame(0, $this->chain->hopCount(), 'a finished migration closes its chain');
+
+        $this->settings->setInternal(MigrationChain::HOPS_SETTING, '5');
+        $this->settings->setInternal('base_url', 'http://127.0.0.1:1');
+        $this->chain->afterSlice(false);
+        $this->assertSame(6, $this->chain->hopCount(), 'work remaining extends it');
+    }
 }

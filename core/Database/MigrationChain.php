@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Core\Database;
 
+use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Debug\RequestTimeline;
 use Core\Http\SelfRequest;
@@ -95,6 +96,89 @@ final class MigrationChain
 
     public function __construct(private SettingService $settings)
     {
+    }
+
+    /**
+     * The chain a request short-circuited by a pending migration should
+     * use, or null if this installation cannot have one.
+     *
+     * Built here rather than in `public/index.php` for two reasons. The
+     * settings this steers on are declared next to the constants that name
+     * them, instead of two hundred lines away in a composition root that
+     * the pending-migration branch never reaches — that branch runs before
+     * the application's own SettingService exists and exits before
+     * reaching it. And no test and no browser ever enters that branch (the
+     * end-to-end harness provisions an install whose schema is already
+     * current), so anything left inline there is code nothing can check —
+     * the same lesson `DeploymentMigration` records about `public/cron.php`.
+     *
+     * Null on any failure, deliberately: on a brand-new installation
+     * migrating for the very first time there is no `settings` table yet,
+     * and the migration must then advance exactly the way it always did,
+     * on the progress page's own polling.
+     */
+    public static function forPendingMigration(\PDO $pdo): ?self
+    {
+        try {
+            $settings = new SettingService(new SettingRepository($pdo));
+            $settings->register(
+                self::MAX_HOPS_SETTING, (string) self::DEFAULT_MAX_HOPS, 'number',
+                'Nombre maximum de tranches enchaînées pour une migration',
+                'Plafond dur du nombre de fois qu\'une migration de schéma peut se relancer elle-même pendant '
+                    . 'qu\'aucun humain ne regarde. Zéro désactive le mécanisme : la migration n\'avance alors '
+                    . 'que sur la page de progression.',
+                null, null, null, true, 903
+            );
+            $settings->register(
+                self::HOPS_SETTING, '0', 'number',
+                'Tranches enchaînées de la migration en cours (interne)',
+                'Compteur interne remis à zéro au démarrage de chaque chaîne ; sert à faire respecter le plafond ci-dessus.',
+                null, null, null, false, 904
+            );
+            $settings->register(
+                self::LAST_HOP_SETTING, '0', 'number',
+                'Dernier saut de la migration en cours (interne)',
+                'Horodatage interne du dernier saut émis ; une chaîne sans saut récent est considérée morte et peut être relancée.',
+                null, null, null, false, 905
+            );
+
+            return new self($settings);
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * Called by the progress page, once its HTML is written.
+     *
+     * The flush comes first and is the whole point of the ordering: a hop
+     * is a socket write, and doing it before the response is out charges
+     * it to whoever asked — which, on this page, may be a real visitor.
+     */
+    public function afterProgressPage(): void
+    {
+        $this->flushResponse();
+        $this->ensureRunning();
+    }
+
+    /**
+     * Called by the migration-step endpoint, once its JSON is written.
+     *
+     * After the response for the reason above, and after `migrate()` has
+     * returned — so the next slice never arrives while this one still
+     * holds `MigrationRunner`'s lock and burns a hop doing nothing.
+     */
+    public function afterSlice(bool $complete): void
+    {
+        $this->flushResponse();
+        $complete ? $this->finished() : $this->continueChain();
+    }
+
+    private function flushResponse(): void
+    {
+        if (function_exists('fastcgi_finish_request')) {
+            @fastcgi_finish_request();
+        }
     }
 
     /**

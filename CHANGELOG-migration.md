@@ -745,3 +745,18 @@ pour que la règle « la destination vient de `base_url`, jamais de
 Vérifiés en échec : neutraliser le plafond, le garde « une chaîne tourne
 déjà » ou l'allumage dans `index.php` fait tomber les tests
 correspondants.
+
+Le Quality Gate a d'abord refusé la première version à 74,2 % : les
+32 lignes neuves étaient dans `public/index.php`, dans une branche que
+l'end-to-end n'entre jamais — il provisionne une installation dont le
+schéma est déjà à jour. Même leçon que `DeploymentMigration` pour
+`cron.php` : ce qui vit en ligne dans cette branche est du code que rien
+ne peut vérifier. La construction de la chaîne, l'enregistrement de ses
+réglages et l'ordre « on écrit la réponse, puis on émet le saut » sont
+donc dans la classe ; `index.php` ne garde que trois appels.
+
+Le même défaut a reparu à 20:03, à l'identique, sur une install manuelle
+cette fois : `dev-3000afc → dev-8f47824`, tâche d'installation terminée
+en 8 s à 20:07:36, puis rien jusqu'à 20:24:11 où la reprise s'exécute en
+1 ms sur une ligne déjà tuée. Le correctif n'était pas encore déployé.
+

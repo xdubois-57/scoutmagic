@@ -43,7 +43,7 @@ class PendingMigrationSelfDriveTest extends TestCase
     public function testTheBlockedRequestIgnitesTheMigrationChain(): void
     {
         $this->assertStringContainsString(
-            '->ensureRunning()',
+            '?->afterProgressPage()',
             $this->pendingMigrationBlock(),
             'a request short-circuited by a pending migration must start the chain that finishes it: '
                 . 'without this the migration waits for a human on the progress page, since the scheduler '
@@ -54,34 +54,43 @@ class PendingMigrationSelfDriveTest extends TestCase
     public function testASliceThatLeavesWorkBehindEmitsTheNextHop(): void
     {
         $this->assertStringContainsString(
-            '->continueChain()',
+            '?->afterSlice(',
             $this->pendingMigrationBlock(),
             'the ignition emits ONE hop; without this the chain is one slice long'
         );
     }
 
-    public function testACompletedMigrationClosesItsChain(): void
+    public function testTheBlockBuildsAChainAtAll(): void
     {
         $this->assertStringContainsString(
-            '->finished()',
+            'MigrationChain::forPendingMigration(',
             $this->pendingMigrationBlock(),
-            'the next migration must start from a clean hop counter, not inherit this one\'s'
+            'the block must build a chain at all; null from it is the supported "cannot chain here" answer'
         );
     }
 
     /**
-     * The hop is a socket write. Doing it before the response is flushed
-     * would charge it to whoever asked — including, on the progress page,
-     * a real visitor.
+     * The two call sites must come AFTER the response they follow has been
+     * written, since each ends by writing a socket: `afterSlice()` follows
+     * the JSON, `afterProgressPage()` follows the HTML. The flush itself
+     * lives inside those methods (MigrationChainTest covers the ordering);
+     * what cannot be asserted anywhere but here is that `public/index.php`
+     * calls them in the right place.
      */
-    public function testTheHopIsEmittedAfterTheResponseIsFlushed(): void
+    public function testEachCallFollowsTheResponseItBelongsTo(): void
     {
         $block = $this->pendingMigrationBlock();
-        $flush = strpos($block, 'fastcgi_finish_request');
-        $ignite = strpos($block, '->ensureRunning()');
 
-        $this->assertNotFalse($flush);
-        $this->assertNotFalse($ignite);
-        $this->assertLessThan($ignite, $flush, 'flush the page, then emit the hop');
+        $json = strpos($block, "'progress' => round(");
+        $afterSlice = strpos($block, '?->afterSlice(');
+        $this->assertNotFalse($json);
+        $this->assertNotFalse($afterSlice);
+        $this->assertLessThan($afterSlice, $json, 'write the JSON, then chain');
+
+        $html = strpos($block, 'HTML);');
+        $afterPage = strpos($block, '?->afterProgressPage()');
+        $this->assertNotFalse($html);
+        $this->assertNotFalse($afterPage);
+        $this->assertLessThan($afterPage, $html, 'write the page, then ignite');
     }
 }
