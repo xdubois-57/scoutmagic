@@ -379,8 +379,9 @@ class MigrationRunner
                 ))->toArray()
             ),
             'Migration de schéma non convergée (interne)',
-            'Renseigné quand une migration a été abandonnée après plusieurs tentatives identiquement infructueuses ; '
-            . 'la page Maintenance en affiche un bandeau. Vidé automatiquement dès qu\'une migration se termine sans échec.'
+            'Renseigné quand une migration a été abandonnée après plusieurs tentatives identiquement '
+            . 'infructueuses ; la page Maintenance en affiche un bandeau. Vidé automatiquement dès '
+            . 'qu\'une migration se termine sans échec.'
         );
     }
 
