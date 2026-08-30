@@ -443,6 +443,16 @@ Every failure path here is opportunistic by construction — no `base_url`, no s
 
 Central `JournalService::log()`. No personal data in entries. Modules never write their own log tables.
 
+**Uncaught errors are journal entries too, at level `error`.** `event_log.level` is `ENUM('info','security','error')`, and `Core\Http\ErrorHandler::handleThrowable()` writes a `core`/`uncaught_error` entry for every throwable that reaches it — so a crash is consultable from `/admin/journal` (the level filter is on the page) instead of only from a file. The file is the reason: on shared hosting the operator does not choose where `error_log()` writes, and in the incident that prompted this the whole trace went to `/var/www/.../log/error.log`, invisible from the site — it was found by generating a support package (§8.48).
+
+Three properties of that write, none of them incidental:
+
+- **`error_log()` remains the source of truth and runs first.** The journal write is a secondary attempt wrapped in a `catch (\Throwable)` that swallows everything, because `ErrorHandler` is otherwise self-contained on purpose — it touches neither Twig, nor the database, nor the session, nor the container, since any of them can be exactly what failed. It may never turn one error into two.
+- **The accepted consequence: an error raised before the database is available never appears in the journal.** A `PDOException` at connect time happens before `setJournalService()` is ever reached — and its trace carries the DSN and the database password. There is nothing to write to and nothing is attempted; the support package stays the recourse. The composition roots wire the journal at the earliest point a connection exists (`public/index.php`, right after the migration's own `JournalService`; `public/cron.php`, right after the scheduler's).
+- **The stack is sanitized, never `getTraceAsString()`.** That spelling includes each frame's call arguments, and the observed trace carried a member's email address through them. `ErrorHandler::sanitizeTrace()` keeps class, method, file and line per frame and nothing else, bounded to `TRACE_MAX_FRAMES`, and goes in the entry's JSON context; `describe()` puts the class, the message, the file and the line in the description, truncating the MESSAGE (never the location) to the column's 500 characters.
+
+An installation on which the error page can be provoked deliberately: `modules/test_tools` (§8.63) offers `/test-tools/uncaught-error`, which exists only where that module does.
+
 ### 8.7 Mail service
 
 Subject prefixed `[{short_name}]`. PHPMailer: SMTP or local, DKIM signed, multipart mandatory. DNS verification page for SPF/DKIM/DMARC.
@@ -1904,6 +1914,8 @@ The « Notes internes » block of `/admin/members/{id}`. `registration_requests.
 A toolbox that exists **only** on the project's reference installation and on a developer's machine: `"visible_when": ["reference_installation", "local_installation"]` (§8.49), `enabled_by_default: false`, every route `superadmin` under Configuration. No deploying unit's installation ever loads it, which is the condition that makes everything below admissible — read it as a condition, not as a claim.
 
 Its first tool is the **mail sandbox**: outgoing mail is assembled by the real mailing library, DKIM signature included, and stored in a browsable page instead of leaving the server.
+
+Its second is one line long and needs the same condition: `GET /test-tools/uncaught-error` throws a `RuntimeException`. It is the only way to exercise `Core\Http\ErrorHandler`'s whole chain against a running installation — the controller faults, `ErrorHandler::guard()` catches, `error_log()` runs, the journal row is written at level `error`, the generic 500 page is served — which is what `tests/e2e/specs/journal-uncaught-error.spec.js` walks and what no PHPUnit test can, since the `JournalService` reaches the handler from the composition root (§8.6). A route that crashes the request on demand may live nowhere but behind `visible_when`.
 
 **The seam is `Core\Mail\MailTransportInterface` (§8.7), and nothing else moves.** `MailService::send()` still builds the message — mode, From and envelope Sender, recipient, Reply-To, attachments, custom headers, the DKIM block, the prefixed subject, the multipart body — and hands the configured `PHPMailer` instance to a transport. `Modules\TestTools\Mail\CaptureTransport` is that transport when capture is on. None of `send()`'s ~95 call sites knows any of this exists.
 

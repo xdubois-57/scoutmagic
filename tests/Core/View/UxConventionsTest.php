@@ -260,6 +260,12 @@ final class UxConventionsTest extends TestCase
         // Dialog-body fragment fetched on click (views/partials/
         // detail.html.twig does not extend base) — never a full page.
         '/support-dashboard/installations/{id}',
+        // Throws, deliberately (Modules\TestTools\Controller\
+        // TestToolsController::provokeUncaughtError) — the one route that
+        // renders no page of its own by construction: what a visitor gets
+        // is Core\Http\ErrorHandler's fixed 500 page, which carries no
+        // breadcrumb because it carries no application chrome at all.
+        '/test-tools/uncaught-error',
     ];
 
     /**

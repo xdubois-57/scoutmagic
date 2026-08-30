@@ -21,7 +21,11 @@ La barre du haut combine plusieurs filtres :
   fonctions).
 - **Niveau** : « Info » pour le tout-venant, « Sécurité » pour les
   actions touchant aux droits et aux accès — filtrer sur ce niveau
-  donne l'historique des changements sensibles.
+  donne l'historique des changements sensibles — et « Erreur » pour
+  les erreurs techniques du site : filtrer sur ce niveau donne la
+  liste des pages qui ont planté, avec le détail technique à
+  déplier. C'est le premier endroit à regarder quand quelqu'un
+  signale « ça a affiché une erreur ».
 - **Recherche** : un mot du descriptif de l'action.
 - **Email** : l'adresse exacte du compte qui a agi. Le filtre porte
   sur l'auteur de l'action, pas sur la personne concernée par elle.
@@ -41,6 +45,13 @@ On y retrouve par exemple : chaque import Desk, chaque étape cochée du
 passage d'année et la bascule publique elle-même (y compris ses refus),
 les changements de rôle d'une fonction, les renommages de sections,
 les exports de membres, les accès temporaires « agir au nom de ».
+
+S'y ajoutent les erreurs techniques : chaque page qui plante y laisse
+une entrée « Erreur » avec le type de l'erreur, le fichier et la ligne,
+et la pile d'appels dans le détail dépliable. Une erreur survenue
+avant que la base de données ne réponde ne peut, elle, pas y figurer —
+il n'y a alors rien pour l'écrire ; c'est le paquet de support
+(Configuration > Maintenance) qui la contient.
 
 En revanche, le journal ne contient jamais de données personnelles :
 il référence les personnes par leur compte, pas par leurs
