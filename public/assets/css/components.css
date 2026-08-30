@@ -332,6 +332,33 @@
     .calendar-event-bar { font-size: 0.75rem; }
 }
 
+/* Modules\Groups\views\show.html.twig — the composer folded down to one
+   line, revealed by public/assets/js/groups.js.
+
+   The tint itself is Bootstrap's (the bg-primary-subtle /
+   border-primary-subtle utilities on the element), so only the two
+   things no utility supplies live here.
+
+   `.btn` with no variant defines none of the hover custom properties, and
+   the two utilities that tint the bar are `!important` anyway — so the
+   usual variant hover could neither have been used nor have won. A
+   shadow rather than a colour change: the bar keeps its fill, which is
+   what makes it read as "the same line, ready" instead of as a button
+   lighting up. */
+.groups-composer-collapsed:hover,
+.groups-composer-collapsed:focus-visible {
+    box-shadow: var(--bs-box-shadow-sm);
+}
+/* A flex item will not shrink below its own content's width without
+   this, so `text-truncate` alone cannot ellipsize here: the invitation
+   would push the two icons off a 360px screen instead of being cut.
+   There is no Bootstrap utility for it — `min-width-0` is written in a
+   few templates in this repository and has never existed. */
+.groups-composer-collapsed-label {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
 /* Modules\Groups\views\partials\post_media_grid.html.twig — a post's
    attached media (1 to 4), and the flat "Galerie du groupe" grid
    (gallery.html.twig) reuses the single-cell rule below on its own

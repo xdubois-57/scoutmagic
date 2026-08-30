@@ -22,10 +22,12 @@
 //
 // It stays one scenario rather than five (AGENTS.md § Tests: the E2E
 // suite is a release gate, not a coverage tool) and covers, in one pass
-// through one group, the four shapes a post can take — plain text, a
-// message carrying a link, a poll, and a reply — plus a reaction, then
-// reloads the page once and requires all of it to have survived the round
-// trip to the database.
+// through one group, the composer's own fold — one tinted line by
+// default, the whole form one click behind it, and open on arrival
+// whenever it already holds something nobody has published yet — then the
+// four shapes a post can take — plain text, a message carrying a link, a
+// poll, and a reply — plus a reaction, then reloads the page once and
+// requires all of it to have survived the round trip to the database.
 //
 // WHAT IT DELIBERATELY DOES NOT ASSERT
 // ----------------------------------------------------------------------------
@@ -67,7 +69,7 @@ import { expect, test } from '@playwright/test';
 import { autoConfirm } from '../support/confirm-dialog.js';
 import { loginAsAdmin, loginAsMember } from '../support/admin-login.js';
 // Shared with specs/groups-management.spec.js — see support/groups.js.
-import { openCreateGroupForm, waitForGroupsJsReady } from '../support/groups.js';
+import { openComposer, openCreateGroupForm, waitForGroupsJsReady } from '../support/groups.js';
 
 // Unique per run so a re-run against a database that somehow survived
 // (E2E_DB_NAME pointed elsewhere, a killed teardown) still starts from an
@@ -78,6 +80,7 @@ const MESSAGE = 'Rendez-vous samedi à 9h devant le local.';
 const LINK_MESSAGE_PREFIX = 'Le programme est ici : ';
 const LINK_URL = 'https://example.invalid/programme-du-camp';
 const POLL_QUESTION = 'Qui vient au week-end de novembre ?';
+const UNSENT_DRAFT = 'Brouillon jamais publié, à retrouver au retour.';
 
 // A post's own body, and never a reply's: reply_card.html.twig reuses the
 // same .groups-post-body class for a reply's text, and the inline edit
@@ -120,14 +123,26 @@ test('a member writes in a discussion group: a message, a link, a poll, a reply 
     expect(groupUrl, 'creating a group must land on that group').toMatch(/^\/groups\/\d+$/);
 
     const composer = page.locator('#groups-post-form');
+    const composerBar = page.getByRole('button', { name: 'Écrire un message…' });
     const composerError = page.locator('#groups-post-error');
     const feed = page.locator('#groups-feed');
 
+    // --- 0. The composer is one line until it is asked for.
+    //
+    // A group is read far more often than it is written in, and the open
+    // form used a phone's whole first screen before the first message.
+    // The bar is what a member of the group with a complete profile is
+    // offered; the form is one click behind it, unchanged.
     await expect(
-        composer,
+        composerBar,
         'a member of the group with a complete profile must be offered the composer',
     ).toBeVisible();
+    await expect(composer).toBeHidden();
     await expect(page.getByText('Aucun message dans ce groupe pour le moment.')).toBeVisible();
+
+    await openComposer(page);
+    await expect(composer).toBeVisible();
+    await expect(composerBar).toBeHidden();
 
     // --- 1. A plain text message.
     //
@@ -156,6 +171,37 @@ test('a member writes in a discussion group: a message, a link, a poll, a reply 
     // The composer is usable again, and emptied — not left greyed out.
     await expect(page.getByLabel('Écrire un message')).toHaveValue('');
     await expect(page.getByLabel('Écrire un message')).toBeEnabled();
+    // And still open: somebody who has just written is the likeliest
+    // person on the page to write again, so publishing never folds the
+    // form back away under them.
+    await expect(composerBar).toBeHidden();
+
+    // --- 1b. A message typed and not published brings the composer back
+    // OPEN on the next load.
+    //
+    // groups.js caches it in this browser and nowhere else (module
+    // setting groups_draft_ttl_minutes), and folding the composer away
+    // would hide the one thing that cache exists to give back. Waiting on
+    // the cache key rather than on a duration: the save is debounced, and
+    // a fixed wait would either be flaky or slow.
+    const draftKey = `groups-draft-${groupUrl.split('/').pop()}`;
+    await page.getByLabel('Écrire un message').fill(UNSENT_DRAFT);
+    await page.waitForFunction((key) => localStorage.getItem(key) !== null, draftKey);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await waitForGroupsJsReady(page);
+
+    await expect(composer, 'a draft must never be folded away out of sight').toBeVisible();
+    await expect(composerBar).toBeHidden();
+    await expect(page.getByLabel('Écrire un message')).toHaveValue(UNSENT_DRAFT);
+
+    // Emptied again, so what follows starts from a composer holding
+    // nothing of its own. It stays OPEN through the rest of this scenario:
+    // the fold is decided once, when the page loads, and the draft above
+    // is what decided it for this load — which is why steps 2 and 3 below
+    // need no openComposer() of their own even though a reload sits
+    // between them and step 0's click.
+    await page.getByLabel('Écrire un message').fill('');
+    await page.waitForFunction((key) => localStorage.getItem(key) === null, draftKey);
 
     // --- 2. A message carrying a link.
     //
@@ -358,11 +404,14 @@ test('a member writes in a discussion group: a message, a link, a poll, a reply 
 // ============================================================================
 // Two people in one conversation.
 //
-// Three of this module's behaviours only exist between two members, and no
+// Four of this module's behaviours only exist between two members, and no
 // amount of care makes them reachable with one: a comment is never new to
 // the person who wrote it, "Signaler" is never offered on your own message,
-// and the badge that says something arrived means nothing if you put it
-// there yourself. scripts/e2e-support.php provisions a second, ordinary
+// the badge that says something arrived means nothing if you put it there
+// yourself, and « Nouveau message » is a notification for everybody in the
+// group EXCEPT the person who just wrote it — a rule that reads as "no
+// notification at all" with a single account, and as the real rule with
+// two. scripts/e2e-support.php provisions a second, ordinary
 // member (no super-admin flag, no function, so RoleResolver puts them at
 // `identified`) and a section both of them belong to.
 //
@@ -371,12 +420,40 @@ test('a member writes in a discussion group: a message, a link, a poll, a reply 
 // both members are in it the moment it exists — which is also how most
 // real groups in a unit come to be.
 // ============================================================================
+/**
+ * One row of the notification CENTRE, and nothing else on the page.
+ *
+ * The same title is drawn four times over: partials/
+ * notification_dropdown.html.twig repeats it in each of the three nav
+ * surfaces (mobile header, mobile offcanvas, desktop bar), and
+ * notifications/index.html.twig renders the real row. A page-wide
+ * getByText() therefore resolves to four nodes and dies on strict mode.
+ *
+ * Scoping matters more for the ABSENCE assertion below than for the
+ * presence ones: that dropdown shows only the FIVE most recent UNREAD
+ * notifications, so "zero page-wide" could mean "never sent" or merely
+ * "pushed out of a five-row preview" — two very different facts, and only
+ * one of them is the rule being tested. base.html.twig's <main
+ * id="main-content"> holds the centre's list and none of the chrome.
+ *
+ * The row itself is a submit button (each row is its own tiny POST form,
+ * so marking it read can carry a CSRF token), whose accessible name is
+ * its title, its body and its time — the same shape
+ * specs/groups-mentions.spec.js already reads a notification with.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} name substring of the row's accessible name
+ */
+function notificationRow(page, name) {
+    return page.getByRole('main').getByRole('button', { name });
+}
+
 const SECTION_NAME = 'Meute E2E';
 const SECTION_GROUP_NAME = `Meute E2E ${Date.now()}`;
 const ANNOUNCEMENT = 'Le camp est confirmé du 1er au 10 juillet.';
 const COMMENT = 'Super, on peut aider au montage ?';
 
-test('a comment from somebody else is announced as new, and can be reported without a reload', async ({ page }) => {
+test('a message notifies the group but never its own author, and a comment from somebody else is announced as new and can be reported without a reload', async ({ page }) => {
     /** @type {string[]} */
     const serverErrors = [];
     page.on('response', (response) => {
@@ -401,14 +478,45 @@ test('a comment from somebody else is announced as new, and can be reported with
     await expect(page.getByRole('heading', { name: SECTION_GROUP_NAME })).toBeVisible();
     const groupUrl = new URL(page.url()).pathname;
 
+    await openComposer(page);
     await page.getByLabel('Écrire un message').fill(ANNOUNCEMENT);
     await page.locator('#groups-post-form').getByRole('button', { name: 'Publier' }).click();
     await expect(page.locator('#groups-feed').getByRole('article')).toHaveCount(1);
+
+    // --- And the author's own notification centre stays silent about it.
+    //
+    // Core\Notification\NotificationService::dispatch() only suppresses the
+    // actor's push and email — the in-app row is still written, and that row
+    // is what feeds the unread badge and the home page's « Du nouveau dans
+    // vos groupes ». So the actor is dropped from the audience in the module
+    // instead (Modules\Groups\Service\GroupNotificationService::
+    // postPublished()), and nothing below the browser sees the result of
+    // that on the page a member actually reads.
+    //
+    // On its own this assertion would also pass if no notification had been
+    // sent at all; the member's centre, checked immediately below, is what
+    // makes the pair mean something.
+    const announcementNotice = `Nouveau message — ${SECTION_GROUP_NAME}`;
+    await page.goto('/notifications', { waitUntil: 'domcontentloaded' });
+    await expect(
+        notificationRow(page, announcementNotice),
+        'the author of a message must never be notified about their own message',
+    ).toHaveCount(0);
 
     // --- The other member: in the group without ever being invited, because
     // they are in its section.
     await page.context().clearCookies();
     await loginAsMember(page);
+
+    // Same message, same group, the other side of the rule: everybody else
+    // in the group IS told.
+    await page.goto('/notifications', { waitUntil: 'domcontentloaded' });
+    const theirNotice = notificationRow(page, announcementNotice);
+    await expect(theirNotice).toBeVisible();
+    // Title and body on the SAME row, rather than each found somewhere on
+    // the page: the excerpt belongs to this notification or to none.
+    await expect(theirNotice).toContainText(ANNOUNCEMENT);
+
     await page.goto(groupUrl, { waitUntil: 'domcontentloaded' });
     await expect(page.locator('#groups-feed').getByRole('article')).toHaveCount(1);
 
@@ -443,6 +551,14 @@ test('a comment from somebody else is announced as new, and can be reported with
     // ignored.
     await page.context().clearCookies();
     await loginAsAdmin(page);
+
+    // Their centre is not simply empty, which is what turns the absence
+    // asserted above into a rule rather than a broken page: the comment
+    // somebody ELSE wrote is in it, and their own message still is not.
+    await page.goto('/notifications', { waitUntil: 'domcontentloaded' });
+    await expect(notificationRow(page, `Réponse à votre message — ${SECTION_GROUP_NAME}`)).toBeVisible();
+    await expect(notificationRow(page, announcementNotice)).toHaveCount(0);
+
     await page.goto(groupUrl, { waitUntil: 'domcontentloaded' });
 
     const thread = page.locator('details.groups-thread');
@@ -527,6 +643,7 @@ test('on a phone the reaction picker folds away — and comes back when the scri
     await waitForGroupsJsReady(page);
     const groupUrl = new URL(page.url()).pathname;
 
+    await openComposer(page);
     await page.getByLabel('Écrire un message').fill('Un message à réagir.');
     await page.locator('#groups-post-form').getByRole('button', { name: 'Publier' }).click();
     await expect(page.locator('#groups-feed').getByRole('article')).toHaveCount(1);
@@ -588,6 +705,11 @@ test('on a phone the reaction picker folds away — and comes back when the scri
     // native <details> and the composer a real form, so both still work.
     await expect(page.locator('details.groups-thread')).toHaveCount(1);
     await expect(page.locator('#groups-post-form')).toBeVisible();
+    // Including the composer's own fold, which is built the same way
+    // round: the bar is rendered hidden and only groups.js ever reveals
+    // it, so a browser that never runs the file keeps the whole form and
+    // is never shown a line it could not open.
+    await expect(page.getByRole('button', { name: 'Écrire un message…' })).toBeHidden();
 });
 
 // ============================================================================
@@ -630,6 +752,7 @@ test('a comment can be a photo and nothing else, and the photo is visible before
     await page.getByRole('button', { name: 'Créer' }).click();
     await waitForGroupsJsReady(page);
 
+    await openComposer(page);
     await page.getByLabel('Écrire un message').fill('Des photos du week-end ?');
     await page.locator('#groups-post-form').getByRole('button', { name: 'Publier' }).click();
     await expect(page.locator('#groups-feed').getByRole('article')).toHaveCount(1);
