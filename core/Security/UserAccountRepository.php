@@ -210,6 +210,85 @@ class UserAccountRepository
     }
 
     /**
+     * Every account carrying is_super_admin, oldest first — the list
+     * Configuration > Comptes superadmin shows.
+     *
+     * Returns UserAccount objects, so the address is decrypted here in
+     * the Repository like every other encrypted read (SECURITY.md §5),
+     * and the page gets created_at alongside because it is one of the
+     * four things it displays.
+     *
+     * @return array<int, array{account: UserAccount, created_at: ?string}>
+     */
+    public function findSuperAdmins(): array
+    {
+        $stmt = $this->pdo->query(
+            'SELECT * FROM user_accounts WHERE is_super_admin = 1 ORDER BY id ASC'
+        );
+        $rows = $stmt !== false ? $stmt->fetchAll(\PDO::FETCH_ASSOC) : [];
+
+        $accounts = [];
+        foreach ($rows as $row) {
+            $accounts[] = [
+                'account' => $this->hydrate(
+                    $row,
+                    $this->encryption->decrypt($row['email_encrypted'], 'user_accounts.email')
+                ),
+                'created_at' => isset($row['created_at']) ? (string) $row['created_at'] : null,
+            ];
+        }
+
+        return $accounts;
+    }
+
+    /**
+     * How many super admins can actually administer the site right now —
+     * `is_super_admin` AND `is_active` — ignoring $exceptId.
+     *
+     * This is the question behind "you cannot remove the last super
+     * admin": what matters is not how many rows carry the flag but how
+     * many of them can still get in. A deactivated super admin is refused
+     * by every login path, so counting one would let the site be left
+     * with no usable administrative access at all — which is precisely
+     * the situation the refusal exists to prevent.
+     */
+    public function countUsableSuperAdminsExcept(int $exceptId): int
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM user_accounts WHERE is_super_admin = 1 AND is_active = 1 AND id <> ?'
+        );
+        $stmt->execute([$exceptId]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * Set the flag on an existing account. Idempotent: an account that
+     * already carries it is simply left carrying it, which is what makes
+     * "add an address that is already a super admin" produce no duplicate
+     * rather than an error.
+     */
+    public function grantSuperAdmin(int $id): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE user_accounts SET is_super_admin = 1 WHERE id = ?');
+        $stmt->execute([$id]);
+    }
+
+    /**
+     * Clear the flag — the flag ONLY, never the row. user_accounts holds
+     * the password, the passkeys and the notification preferences, and is
+     * referenced by event_log, scheduled_actions and files.created_by
+     * among others: a chef d'unité who keeps a legitimate Desk access
+     * must not lose their credentials because someone withdrew a
+     * superadmin right they also happened to have.
+     */
+    public function revokeSuperAdmin(int $id): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE user_accounts SET is_super_admin = 0 WHERE id = ?');
+        $stmt->execute([$id]);
+    }
+
+    /**
      * Find a user account by email blind index.
      */
     public function findByBlindIndex(string $blindIndex): ?UserAccount
