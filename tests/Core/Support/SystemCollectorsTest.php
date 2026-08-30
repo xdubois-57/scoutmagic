@@ -7,7 +7,9 @@ namespace Tests\Core\Support;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Database\Connection;
+use Core\Support\Collector\BackgroundExecutionCollector;
 use Core\Support\Collector\CommandsCollector;
+use Core\Support\Collector\ExtensionsCollector;
 use Core\Support\Collector\FilesystemCollector;
 use Core\Support\Collector\LogsCollector;
 use Core\Support\Collector\PhpInfoCollector;
@@ -221,6 +223,158 @@ class SystemCollectorsTest extends TestCase
 
         $this->assertStringNotContainsString('## mysqldump', $commands);
         $this->assertStringNotContainsString('## mysql', $commands);
+    }
+
+    /**
+     * The verdict a support reader acts on is "does it WORK", not "does
+     * disable_functions mention it". On a shared host the two disagree
+     * often enough that merging them into one line is how five commands
+     * come to be reported absent when the real answer was that nothing
+     * could run at all.
+     */
+    public function testCommandsSeparatesDeclaredShellExecutionFromDemonstratedOne(): void
+    {
+        $commands = $this->runCollector(new CommandsCollector())['entries']['commands.txt'];
+
+        $this->assertStringContainsString('Exécution de commandes déclarée : ', $commands);
+        $this->assertStringContainsString('Exécution de commandes vérifiée : ', $commands);
+        $this->assertStringContainsString('Détail de la vérification : ', $commands);
+    }
+
+    // --- extensions.txt ---
+
+    public function testExtensionsNamesWhatEachOneIsNeededForAndVerdicts(): void
+    {
+        $result = $this->runCollector(new ExtensionsCollector());
+        $extensions = $result['entries']['extensions.txt'];
+
+        // Required entries carry their consequence, not just their name:
+        // "pdo_mysql ABSENTE" alone tells a reader nothing they can act on.
+        $this->assertMatchesRegularExpression('/pdo_mysql\s+(présente|ABSENTE)\s+\S/', $extensions);
+        $this->assertStringContainsString('## REQUISES', $extensions);
+        $this->assertStringContainsString('## OPTIONNELLES', $extensions);
+        $this->assertStringContainsString('## Verdict', $extensions);
+
+        // This test process necessarily has the ones it is running on.
+        $this->assertMatchesRegularExpression('/pdo\s+présente/', $extensions);
+        $this->assertStringContainsString('Toutes les extensions requises sont présentes.', $extensions);
+        $this->assertSame([], $result['notes']);
+    }
+
+    /**
+     * The list only earns its place if it is the one ScoutMagic needs. A
+     * generic roster would be phpinfo with extra steps — and phpinfo is
+     * already in the archive.
+     */
+    public function testExtensionsListsWhatTheCodeUsesRatherThanAGenericRoster(): void
+    {
+        $extensions = $this->runCollector(new ExtensionsCollector())['entries']['extensions.txt'];
+
+        foreach (['pdo_mysql', 'gd', 'zip', 'openssl', 'curl', 'xmlreader'] as $needed) {
+            $this->assertMatchesRegularExpression('/^' . $needed . '\s/m', $extensions);
+        }
+        // Optional ones are kept apart: their absence is a degraded
+        // feature, not an incident, and the two lead to different
+        // conversations.
+        $this->assertStringContainsString('imagick', $extensions);
+        $this->assertStringContainsString('PdfRasterizer', $extensions);
+    }
+
+    public function testAMissingRequiredExtensionWouldBeSurfacedAsANote(): void
+    {
+        // Rather than uninstall an extension, assert the mechanism the
+        // verdict uses: the note is raised from the same list the file
+        // prints, so a real absence reaches collection-status.json too.
+        $collector = new ExtensionsCollector();
+        $required = new \ReflectionClassConstant(ExtensionsCollector::class, 'REQUIRED');
+        /** @var array<string, string> $list */
+        $list = $required->getValue();
+
+        $this->assertNotSame([], $list);
+        foreach ($list as $extension => $usedBy) {
+            $this->assertNotSame('', trim($usedBy), "l'extension {$extension} doit dire ce qui en dépend");
+        }
+        $this->assertSame('extensions', $collector->name());
+    }
+
+    // --- background-execution.txt ---
+
+    public function testBackgroundExecutionReportsTheMechanismsAndTheMeasuredCadence(): void
+    {
+        $report = $this->runCollector(new BackgroundExecutionCollector())['entries']['background-execution.txt'];
+
+        $this->assertStringContainsString('fastcgi_finish_request : ', $report);
+        $this->assertStringContainsString('stream_socket_client : ', $report);
+        $this->assertStringContainsString('Exécution shell vérifiée : ', $report);
+        $this->assertStringContainsString('## Cadence réelle', $report);
+        $this->assertStringContainsString('## File en retard', $report);
+        $this->assertStringContainsString("## Réglages de l'ordonnanceur", $report);
+
+        // An empty queue is an answer, not a failure.
+        $this->assertStringContainsString("Aucune tâche n'a été exécutée dans la fenêtre.", $report);
+    }
+
+    /**
+     * The cadence is the whole point: it is the only observable answer to
+     * "is the cron actually firing", since a cron entry is invisible from
+     * inside PHP. Executions moments apart are one pass; what matters is
+     * the gap between passes.
+     */
+    public function testTheCadenceGroupsOneBurstIntoOnePassAndMeasuresTheGapBetweenThem(): void
+    {
+        $insert = $this->pdo->prepare(
+            'INSERT INTO scheduled_actions (module_id, task_key, run_at, status, executed_at)
+             VALUES (?, ?, ?, ?, ?)'
+        );
+        // Two passes an hour apart, three tasks each — the shape of a
+        // scheduler driven hourly.
+        foreach ([0, 3600] as $offset) {
+            foreach ([0, 1, 2] as $withinPass) {
+                $moment = (new \DateTimeImmutable('-4 hours'))->modify('+' . ($offset + $withinPass) . ' seconds');
+                $insert->execute([
+                    'core',
+                    'probe_task',
+                    $moment->format('Y-m-d H:i:s'),
+                    'done',
+                    $moment->format('Y-m-d H:i:s'),
+                ]);
+            }
+        }
+
+        $report = $this->runCollector(new BackgroundExecutionCollector())['entries']['background-execution.txt'];
+
+        $this->assertStringContainsString('Exécutions : 6 réparties sur 2 passe(s)', $report);
+        $this->assertStringContainsString('Intervalle médian entre deux passes : 1 h 0 min', $report);
+    }
+
+    /**
+     * The archive is emailed. The continuation secret authenticates a
+     * request to this site's own scheduler endpoint, so it is reported as
+     * present or absent and never printed — Core\Security\CapabilityToken,
+     * contract point 2.
+     */
+    public function testBackgroundExecutionNeverPrintsTheContinuationSecret(): void
+    {
+        mkdir($this->storagePath . '/keys', 0700, true);
+        mkdir($this->storagePath . '/config', 0700, true);
+        $secretManager = new \Core\Security\SecretManager(
+            $this->storagePath . '/keys/master.key',
+            $this->storagePath . '/config/secrets.enc'
+        );
+        $secretManager->generateMasterKey();
+        $secretManager->writeSecrets(['scheduler_continuation_secret' => 'the-secret-that-must-not-travel']);
+
+        $report = $this->runCollector(new BackgroundExecutionCollector())['entries']['background-execution.txt'];
+
+        $this->assertStringContainsString('Secret de continuation : présent', $report);
+        $this->assertStringNotContainsString('the-secret-that-must-not-travel', $report);
+    }
+
+    public function testAnInstallationWithNoContinuationSecretSaysSoRatherThanGuessing(): void
+    {
+        $report = $this->runCollector(new BackgroundExecutionCollector())['entries']['background-execution.txt'];
+
+        $this->assertStringContainsString('Secret de continuation : ABSENT', $report);
     }
 
     // --- webserver/ ---
