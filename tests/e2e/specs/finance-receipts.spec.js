@@ -96,6 +96,13 @@ test('a statement imports, a receipt uploads through the client-side resize, and
     await expect(page.getByText('2 ligne(s) lue(s), 2 nouvelle(s)', { exact: false })).toBeVisible({ timeout: scaled(15_000) });
     await page.getByRole('link', { name: 'Voir les mouvements' }).click();
     await page.waitForURL(/\/finance\/movements\?account_id=\d+/, { waitUntil: 'load' });
+    // Kept for the second visit at the end. A bare /finance/movements
+    // shows the first ACTIVE account BY NAME
+    // (FinanceService::resolveSelectedAccount() falls through to
+    // $accounts[0]), which is a global the whole suite shares: the moment
+    // another spec creates an account sorting ahead of this one, the last
+    // assertion below stops looking at this account's movements. It did.
+    const movementsUrl = page.url();
     // The list renders every row twice (desktop table + phone cards) —
     // only the visible copy proves anything.
     await expect(page.getByText('Colruyt Namur').filter({ visible: true }).first()).toBeVisible();
@@ -156,8 +163,9 @@ test('a statement imports, a receipt uploads through the client-side resize, and
     await expect(associateModal).toBeHidden();
     await expect(grid.getByText(/Associé|mouvement/i).first()).toBeVisible();
 
-    // And from the movement's side, the attachments panel counts it.
-    await page.goto('/finance/movements', { waitUntil: 'load' });
+    // And from the movement's side, the attachments panel counts it —
+    // asked for by account id, never by whatever the page defaults to.
+    await page.goto(movementsUrl, { waitUntil: 'load' });
     await expect(page.getByText('Colruyt Namur').filter({ visible: true }).first()).toBeVisible();
 
     expect(alerts, 'the page reported an error through window.alert()').toEqual([]);

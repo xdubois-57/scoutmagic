@@ -70,6 +70,56 @@ function labelCount(pdf) {
     return (pdf.toString('latin1').match(/\/Subtype\s*\/Image/g) || []).length;
 }
 
+/**
+ * Put the instance back the way this scenario found it, pass or fail.
+ *
+ * **This is not tidiness, it is a defect this spec already caused.** The
+ * movements page with no `account_id` shows the first ACTIVE account BY
+ * NAME (`FinanceService::resolveSelectedAccount()` falls through to
+ * `$accounts[0]`, and `AccountRepository::findAllOrdered()` sorts on
+ * `name`). MySQL's collation is accent-insensitive, so « Compte
+ * étiquettes E2E » sorts ahead of « Compte reçus E2E » — and the account
+ * created here silently became what finance-receipts.spec.js, the very
+ * next spec in alphabetical order, saw on its own bare
+ * `/finance/movements`. That spec was green until this one landed beside
+ * it, and then failed on a movement it had itself imported.
+ *
+ * Deactivating is what actually removes it from that list (the ACTIVE
+ * filter is what `getAccountsForUser()` applies), and it destroys
+ * nothing: the campaign, its receivables and the account itself stay for
+ * anyone reading the instance afterwards. It runs in an afterEach rather
+ * than at the end of the test so a failure half-way through does not
+ * leave the landmine armed for every spec that follows.
+ *
+ * It must never throw: a cleanup that fails on top of a real failure
+ * replaces the error somebody needs to read with one nobody does.
+ */
+test.afterEach(async ({ page }) => {
+    try {
+        await page.goto('/config/finance/accounts', { waitUntil: 'domcontentloaded' });
+        const row = page.getByRole('row', { name: new RegExp(ACCOUNT_NAME) });
+        if (await row.count() === 0) {
+            return; // the test failed before creating it
+        }
+
+        // Two buttons in the row — « Modifier » and this one — so the
+        // substring matching of `name` has nothing to collide with.
+        const toggle = row.getByRole('button', { name: 'Actif — cliquer pour désactiver' });
+        if (await toggle.count() === 0) {
+            return; // never activated, or already deactivated
+        }
+
+        await toggle.click();
+        // finance-accounts.js reloads the page once the POST resolves, so
+        // the toggle coming back under its OTHER label is the barrier —
+        // never a delay.
+        await expect(row.getByRole('button', { name: 'Inactif — cliquer pour activer' }))
+            .toBeVisible({ timeout: scaled(15_000) });
+    } catch {
+        // Deliberately swallowed — see the docblock.
+    }
+});
+
 test('a campaign prints a sheet of payment labels, and a receivable that stops owing stops being printed', async ({ page }) => {
     // Roomier than the default: a login, an account, a spreadsheet import
     // and TWO dompdf renders (each embedding freshly generated QR PNGs)
@@ -122,7 +172,9 @@ test('a campaign prints a sheet of payment labels, and a receivable that stops o
 
     // Two unpaid receivables, so two labels — and the button says so
     // before anybody prints anything.
-    await expect(page.getByRole('link', { name: 'Étiquettes (2)' })).toBeVisible();
+    // `exact`: the default is a case-insensitive SUBSTRING match, and
+    // « Étiquettes (1) » below would happily match « Étiquettes (12) ».
+    await expect(page.getByRole('link', { name: 'Étiquettes (2)', exact: true })).toBeVisible();
 
     // ---------------------------------------------------------------
     // The sheet itself. Fetched through the page's own session rather
@@ -147,8 +199,11 @@ test('a campaign prints a sheet of payment labels, and a receivable that stops o
     await page.getByRole('button', { name: 'Détail de la créance' }).filter({ visible: true }).first().click();
     await page.getByRole('button', { name: 'Abandonner la créance' }).filter({ visible: true }).first().click();
 
-    await expect(page.getByText('La créance a été abandonnée.')).toBeVisible({ timeout: scaled(15_000) });
-    await expect(page.getByRole('link', { name: 'Étiquettes (1)' })).toBeVisible();
+    // Scoped to <main>: the same string unscoped would be a strict-mode
+    // violation the day a toast or a nav badge repeats it.
+    await expect(page.getByRole('main').getByText('La créance a été abandonnée.'))
+        .toBeVisible({ timeout: scaled(15_000) });
+    await expect(page.getByRole('link', { name: 'Étiquettes (1)', exact: true })).toBeVisible();
 
     const afterWaiver = await page.request.get(`${campaignUrl}/labels`);
     expect(afterWaiver.status()).toBe(200);
