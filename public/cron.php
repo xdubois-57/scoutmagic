@@ -48,6 +48,7 @@ use Core\Cookie\CookieConsentService;
 use Core\Database\Connection;
 use Core\Database\MigrationRunner;
 use Core\Database\SchemaComparator;
+use Core\Database\SchemaFiles;
 use Core\Database\SchemaIntrospector;
 use Core\Database\SqlParser;
 use Core\Http\Router;
@@ -214,12 +215,6 @@ if (VapidKeyPairFactory::isValid(
 // SchedulerRunner only knows about handlers a ModuleManager has loaded.
 // Router/MenuBuilder are only needed here to satisfy ModuleManager's
 // constructor; their route/menu output is never used in a CLI context.
-$migrationRunner = new MigrationRunner(
-    $connection,
-    new SchemaIntrospector($pdo),
-    new SchemaComparator(),
-    new SqlParser()
-);
 $moduleManager = new ModuleManager(
     __DIR__ . '/../modules',
     $settingService,
@@ -268,6 +263,43 @@ scoutmagic_bootstrap_scheduler(
     dirname(__DIR__) . '/storage',
     $notificationService
 );
+
+// Migrate the whole declared schema, before anything else runs.
+//
+// This entry point is the best place in the application to do it, and it
+// used to be the only one that built a MigrationRunner and never called
+// it. A real crontab runs under the CLI SAPI, where max_execution_time is
+// 0 — so a single pass finishes however large the change, with no time
+// budget to hit, no checkpoint to resume from, and above all no visitor
+// waiting on it. Every other path has to chunk.
+//
+// Fifteen minutes rather than no budget at all: migrate() takes a number
+// of seconds, and passing something absurd would only trade one failure
+// mode (a half-migrated schema) for a worse one — a cron pass that never
+// returns and gets killed mid-DDL by whatever supervises it. Fifteen
+// minutes is far beyond the largest measured migration (the slowest of
+// 133 production updates took 831 s in total, migration included) while
+// still being a number a supervisor can outlive.
+//
+// Bonus, never a dependency: units with no real crontab — the reference
+// installation included — are served by the deploy path and the
+// migration-in-progress page exactly as before. Nothing here is allowed
+// to be the only thing that migrates.
+$migrationBudgetSeconds = 900;
+$migrationResult = (new MigrationRunner(
+    $connection,
+    new SchemaIntrospector($pdo),
+    new SchemaComparator(),
+    new SqlParser(),
+    $migrationBudgetSeconds
+))->migrate(SchemaFiles::all(dirname(__DIR__)));
+
+if (!$migrationResult->complete) {
+    // Not an error: the next cron pass resumes from the checkpoint. Said
+    // out loud because a silent partial migration is exactly what made
+    // the original incident hard to see.
+    echo "Schema migration incomplete, resuming on the next pass.\n";
+}
 
 // Process overdue tasks
 $processed = $runner->processOverdue();

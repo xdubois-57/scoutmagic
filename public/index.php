@@ -2349,7 +2349,21 @@ $frontController->registerController(
     )
 );
 $frontController->registerController(MaintenanceController::class, new MaintenanceController(
-    $twig, $backupService, $backupRepository, $fileRepository, $updateHistoryRepository, $schedulerService, $moduleManager, $encryptionService, $journalService, $settingService, $storagePath, $secretManager
+    $twig, $backupService, $backupRepository, $fileRepository, $updateHistoryRepository, $schedulerService, $moduleManager, $encryptionService, $journalService, $settingService, $storagePath, $secretManager,
+    null,
+    // A runner of its own, with a SHORT budget: updateStatus() runs one
+    // slice per poll while an update sits in `migrating`, inside a request
+    // an administrator is waiting on. Not $migrationRunner from the
+    // bootstrap above — that one carries the memoized introspection of a
+    // pass that ran before the update replaced anything on disk.
+    new MigrationRunner(
+        $connection,
+        new SchemaIntrospector($connection->getPdo()),
+        new SchemaComparator(),
+        new SqlParser(),
+        5,
+        $journalService
+    )
 ));
 $frontController->registerController(VersionController::class, new VersionController($twig, $storagePath));
 $githubWebhookService = new \Core\Maintenance\GitHubWebhookService(

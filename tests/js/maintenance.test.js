@@ -230,7 +230,7 @@ describe('maintenance.js: wireInstallForm() — wired for both update forms', ()
         appendAll(el(`<form id="${formId}">
             <button type="submit"></button>
             <input type="hidden" name="_csrf_token" value="form-tok">
-            <div id="${formId}-progress" class="d-none"></div>
+            <div id="${formId}-progress" class="d-none"><span data-role="migration-detail"></span></div>
             <div id="${formId}-error" class="d-none"></div>
         </form>`));
     }
@@ -324,6 +324,47 @@ describe('maintenance.js: wireInstallForm() — wired for both update forms', ()
         await boot();
         document.getElementById('update-install-form').dispatchEvent(new Event('submit', { cancelable: true }));
         await vi.waitFor(() => expect(document.getElementById('update-install-form-error').textContent).toBe('Erreur réseau.'));
+    });
+
+    // The `migrating` step is the one that runs for minutes, and each poll now
+    // drives a slice of it server-side; without this readout the spinner is
+    // indistinguishable from a stuck update.
+    it('reports the schema migration progress reported by the poll', async () => {
+        buildDom('update-install-form');
+        global.fetch = vi.fn()
+            .mockResolvedValueOnce({ json: () => Promise.resolve({ success: true, history_id: 7 }) })
+            .mockResolvedValueOnce({ json: () => Promise.resolve({ status: 'migrating', migration_progress: 0.42 }) });
+        vi.useFakeTimers();
+        await boot();
+
+        document.getElementById('update-install-form').dispatchEvent(new Event('submit', { cancelable: true }));
+        await vi.advanceTimersByTimeAsync(3000);
+
+        expect(document.querySelector('#update-install-form-progress [data-role="migration-detail"]').textContent)
+            .toBe(' Migration du schéma : 42 %.');
+    });
+
+    it('clears the readout on a step that is not migrating, and on a migrating poll that reports no progress', async () => {
+        buildDom('update-install-form');
+        global.fetch = vi.fn()
+            .mockResolvedValueOnce({ json: () => Promise.resolve({ success: true, history_id: 7 }) })
+            .mockResolvedValueOnce({ json: () => Promise.resolve({ status: 'migrating', migration_progress: 0.42 }) })
+            // A slice that threw reports a null progress rather than a 500.
+            .mockResolvedValueOnce({ json: () => Promise.resolve({ status: 'migrating', migration_progress: null }) })
+            .mockResolvedValueOnce({ json: () => Promise.resolve({ status: 'installing' }) });
+        vi.useFakeTimers();
+        await boot();
+        const detail = () => document.querySelector('#update-install-form-progress [data-role="migration-detail"]').textContent;
+
+        document.getElementById('update-install-form').dispatchEvent(new Event('submit', { cancelable: true }));
+        await vi.advanceTimersByTimeAsync(3000);
+        expect(detail()).toBe(' Migration du schéma : 42 %.');
+
+        await vi.advanceTimersByTimeAsync(3000);
+        expect(detail()).toBe('');
+
+        await vi.advanceTimersByTimeAsync(3000);
+        expect(detail()).toBe('');
     });
 });
 
