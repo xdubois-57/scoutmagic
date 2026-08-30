@@ -17,7 +17,7 @@ use Core\Support\SupportCollectorInterface;
  * **`INFO_VARIABLES` is excluded, and that is not negotiable.** It prints
  * `$_SERVER`, `$_ENV` and `$_COOKIE`, which on this page means the live
  * session cookie of the superadmin who just clicked "generate" — still
- * valid, and enough to become them. This archive is built to be emailed.
+ * valid, and enough to become them. This archive leaves the installation.
  *
  * **`INFO_ENVIRONMENT` is excluded for the same reason**, and this is worth
  * spelling out because it is easy to get wrong: `~INFO_VARIABLES` alone

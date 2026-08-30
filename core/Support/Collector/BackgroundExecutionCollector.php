@@ -35,9 +35,10 @@ use Core\System\ShellExecutor;
  *
  * **The continuation secret is reported as present or absent and never
  * printed.** It authenticates a request to this site's own scheduler
- * endpoint; a token in a support package is a token in every mailbox that
- * package passes through (`Core\Security\CapabilityToken`, contract point
- * 2). `base_url` is printed, because it is the site's public address and
+ * endpoint, and this archive leaves the installation — it is transmitted
+ * to support over an API. A token in a support package is a token in
+ * every hand and every store that package passes through
+ * (`Core\Security\CapabilityToken`, contract point 2). `base_url` is printed, because it is the site's public address and
  * the archive already carries it in a dozen places.
  */
 class BackgroundExecutionCollector implements SupportCollectorInterface
@@ -269,7 +270,8 @@ class BackgroundExecutionCollector implements SupportCollectorInterface
             . (string) ($settings->get(SchedulerContinuation::HOPS_SETTING) ?? '(non défini)');
 
         // Presence only, never the value: this authenticates a request to
-        // the site's own scheduler endpoint, and this archive is emailed.
+        // the site's own scheduler endpoint, and this archive leaves the
+        // installation.
         $lines[] = 'Secret de continuation : ' . ($this->hasContinuationSecret($context) ? 'présent' : 'ABSENT — aucun saut ne peut être authentifié');
         $lines[] = '';
     }
