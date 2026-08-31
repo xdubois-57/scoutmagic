@@ -21,10 +21,11 @@ lot.
 
 ## Ce que vous choisissez au dépôt
 
-**L'année scoute** vaut pour tout le lot. Le site ne déduit aucune date
-tout seul : une attestation fiscale portant sur 2025 se traite en général
-pendant 2025-2026, mais un rattrapage tombe ailleurs, et une attestation
-de présence ne se rattache à aucune année civile.
+**L'année scoute** vaut pour tout le lot. L'année en cours est
+préremplie, mais vérifiez-la : le site ne déduit rien du fichier lui-même.
+Une attestation fiscale portant sur 2025 se traite en général pendant
+2025-2026, mais un rattrapage tombe ailleurs, et une attestation de
+présence ne se rattache à aucune année civile.
 
 **La catégorie** — fiscale, présence, autre — sert à rapprocher les lots
 entre eux, et à rien d'autre. C'est elle qui permet de répondre plus tard

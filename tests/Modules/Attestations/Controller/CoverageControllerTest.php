@@ -173,6 +173,54 @@ class CoverageControllerTest extends TestCase
     }
 
     /**
+     * Without a query string, the screen answers about the season the
+     * reader is living in — the CURRENT year, not the public one, which
+     * lags behind during a transition.
+     */
+    public function testTheDefaultYearIsTheCurrentOne(): void
+    {
+        $currentYearId = (int) (new \Core\Config\ScoutYearService($this->pdo))->getCurrentYear()['id'];
+        $this->createMember('cette-annee', 'Margaux', 'Vandenbrande');
+        $this->moveMemberToYear('cette-annee', $currentYearId);
+
+        // Somebody registered only in a season nobody asked about — and
+        // that season is the PUBLIC one, so this fails if the screen reads
+        // the public year the way it used to. The public year lags behind
+        // during a transition; the question here is about the season the
+        // reader is living in.
+        $otherYearId = AttestationsTestHelper::createScoutYear($this->pdo, '2019-2020');
+        $this->createMember('autrefois', 'Camille', 'Delacroix');
+        $this->moveMemberToYear('autrefois', $otherYearId);
+        $this->setPublicYear($otherYearId);
+
+        $body = $this->body();
+
+        $this->assertStringContainsString('Margaux Vandenbrande', $body);
+        $this->assertStringNotContainsString('Camille Delacroix', $body);
+    }
+
+    private function moveMemberToYear(string $key, int $scoutYearId): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE member_years SET scout_year_id = ? WHERE member_id = ?');
+        $stmt->execute([$scoutYearId, $this->memberIds[$key]]);
+    }
+
+    private function setPublicYear(int $scoutYearId): void
+    {
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO settings (module_id, setting_key, setting_value, setting_type, label, description)
+             VALUES (NULL, ?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            \Core\ScoutYear\ScoutYearResolver::SETTING_PUBLIC_YEAR,
+            (string) $scoutYearId,
+            'text',
+            'Année scoute publique',
+            '',
+        ]);
+    }
+
+    /**
      * A reading, so it travels in a query string: this page gets bookmarked
      * and sent to the chef d'unité who writes to the federation.
      */
@@ -226,7 +274,8 @@ class CoverageControllerTest extends TestCase
                     new \Core\Config\ScoutYearService($this->pdo),
                     new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo)),
                     new \Core\Import\MemberYearRepository($this->pdo)
-                )
+                ),
+                new \Core\Config\ScoutYearService($this->pdo)
             )
         );
 

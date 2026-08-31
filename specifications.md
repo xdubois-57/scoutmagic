@@ -1850,9 +1850,14 @@ mars pour les inscriptions tardives, parfois une correction. Un lot correspond d
 déposé**, pas à une année ni à une campagne.
 
 Chaque lot porte trois choses. Une **année scoute**, choisie au dépôt et valable pour tout le lot :
-le site ne déduit aucune date. Une attestation fiscale portant sur l'année civile 2025 se traite en
-général pendant l'année scoute 2025-2026, mais un rattrapage tombe ailleurs, et une attestation de
-présence ne se rattache à aucune année civile.
+le site ne déduit rien du fichier lui-même. **L'année en cours est préremplie** — c'est le cas
+courant, et c'est aussi celle-là qu'affiche par défaut l'écran de couverture (§41.8) — mais elle
+reste un choix : une attestation fiscale portant sur l'année civile 2025 se traite en général pendant
+l'année scoute 2025-2026, un rattrapage tombe ailleurs, et une attestation de présence ne se rattache
+à aucune année civile.
+
+L'année **en cours**, pas l'année publique : celle-ci reste en arrière pendant une bascule d'année, et
+un chef d'unité qui dépose un fichier en février travaille dans la saison qu'il vit.
 
 Une **catégorie** — fiscale, présence, autre. Étiquette courte choisie dans une liste fermée, qui ne
 configure rien : elle sert uniquement à rapprocher les lots entre eux. Sans elle, deux questions que
