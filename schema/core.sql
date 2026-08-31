@@ -1071,6 +1071,14 @@ CREATE TABLE update_history (
     backup_id INT UNSIGNED,
     requested_by INT UNSIGNED,
     started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- Last sign of life, not last status change: every step of an install
+    -- stamps it, and so does every migration slice run for it. The
+    -- abandoned-update watchdog (Core\Maintenance\UpdateHistoryRepository
+    -- ::STALE_AFTER_MINUTES) measures from here rather than from
+    -- started_at, so an update that is genuinely still working is never
+    -- declared abandoned purely for having taken a while. NULL on rows
+    -- that predate the column; the watchdog falls back to started_at.
+    progress_at DATETIME,
     completed_at DATETIME,
     INDEX idx_update_history_started (started_at),
     CONSTRAINT fk_update_history_backup FOREIGN KEY (backup_id) REFERENCES backups(id) ON DELETE SET NULL,

@@ -312,6 +312,12 @@ class InstallUpdateHandler implements TaskHandlerInterface
         $pdo = $context->connection->getPdo();
         $backupService = new BackupService($context->connection, $context->storagePath, $basePath);
 
+        // This invocation changes no status — a resumed migration re-enters
+        // and leaves on 'migrating' — so without this the whole migration,
+        // however many slices it takes, would read as silence to the
+        // abandoned-update watchdog. See UpdateHistoryRepository::isStale().
+        $updateHistoryRepository->touch($historyId);
+
         try {
             $migrationRunner = new MigrationRunner(
                 $context->connection,
@@ -322,6 +328,7 @@ class InstallUpdateHandler implements TaskHandlerInterface
             $migrationResult = $migrationRunner->migrate(SchemaFiles::all($basePath));
 
             if (!$migrationResult->complete) {
+                $updateHistoryRepository->touch($historyId);
                 $this->scheduleMigrationResume($context, $historyId, $downloadUrl, $sourceType);
                 return;
             }

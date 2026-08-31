@@ -547,6 +547,7 @@ class DatabaseTestHelper
             backup_id INTEGER,
             requested_by INTEGER,
             started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            progress_at TEXT,
             completed_at TEXT
         )');
 

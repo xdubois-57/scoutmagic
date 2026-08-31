@@ -25,6 +25,19 @@ class UpdateHistoryRepository
      * well under a minute — while still being generous enough to never cut
      * off a genuinely still-progressing attempt (each MigrationRunner
      * invocation alone budgets only ~20s, see its own docblock).
+     *
+     * **It is counted from `progress_at`, not from `started_at`.** That
+     * distinction is the whole difference between "nothing has moved this
+     * for fifteen minutes" and "this has been going on for fifteen
+     * minutes", and measuring the second one is what killed six updates on
+     * scoutmagic.be in forty-eight hours. An update is several steps in
+     * several processes by design (Task\InstallUpdateHandler never
+     * migrates in the process that replaced the files), and a schema
+     * change large enough to need many migration slices is a normal, fully
+     * healthy update that simply takes longer than one threshold. Every
+     * step stamps `progress_at`, and so does every migration slice
+     * (public/index.php's migration-step endpoint calls
+     * touchInProgress()), so what this measures now is silence.
      */
     private const STALE_AFTER_MINUTES = 15;
 
@@ -41,16 +54,18 @@ class UpdateHistoryRepository
      */
     public function create(string $versionFrom, string $versionTo, bool $dependenciesChanged, ?int $requestedBy): int
     {
+        $now = self::now();
         $stmt = $this->pdo->prepare(
-            'INSERT INTO update_history (version_from, version_to, dependencies_changed, requested_by, started_at)
-             VALUES (?, ?, ?, ?, ?)'
+            'INSERT INTO update_history (version_from, version_to, dependencies_changed, requested_by, started_at, progress_at)
+             VALUES (?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $versionFrom,
             $versionTo,
             $dependenciesChanged ? 1 : 0,
             $requestedBy,
-            self::now(),
+            $now,
+            $now,
         ]);
 
         return (int) $this->pdo->lastInsertId();
@@ -163,13 +178,52 @@ class UpdateHistoryRepository
 
     private function isStale(UpdateHistory $history): bool
     {
-        $started = DateInput::fromStorage($history->startedAt);
-        if ($started === null) {
+        // progress_at when there is one, started_at otherwise — a row
+        // written before the column existed has no heartbeat, and the
+        // moment it began is the only thing left to measure from.
+        $since = DateInput::fromStorage($history->progressAt ?? $history->startedAt);
+        if ($since === null) {
             return false;
         }
 
-        $elapsedSeconds = (new \DateTimeImmutable())->getTimestamp() - $started->getTimestamp();
+        $elapsedSeconds = (new \DateTimeImmutable())->getTimestamp() - $since->getTimestamp();
         return $elapsedSeconds > self::STALE_AFTER_MINUTES * 60;
+    }
+
+    /**
+     * "This update is still alive." Stamped by every step that moves an
+     * update along, and by every migration slice run on its behalf, so the
+     * watchdog above measures silence rather than duration.
+     *
+     * Deliberately not merged into setStatus(): the longest stretch of a
+     * long update — a multi-slice schema migration — changes no status at
+     * all, and it is precisely the stretch that needs a heartbeat.
+     */
+    public function touch(int $id): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE update_history SET progress_at = ? WHERE id = ?');
+        $stmt->execute([self::now(), $id]);
+    }
+
+    /**
+     * The same heartbeat, for a caller that knows work is happening but
+     * not which row it belongs to.
+     *
+     * Its one user is public/index.php's migration-step endpoint, which
+     * runs before the application exists and has no update_history id in
+     * hand — only the fact that it just executed schema statements. The
+     * statuses match findInProgress()'s exactly: 'pending' is excluded
+     * there and must be excluded here too, or a queued install waiting for
+     * its weekly slot would have its start time quietly refreshed by an
+     * unrelated migration.
+     */
+    public function touchInProgress(): void
+    {
+        $stmt = $this->pdo->prepare(
+            "UPDATE update_history SET progress_at = ?
+             WHERE status IN ('backing_up', 'downloading', 'installing', 'migrating')"
+        );
+        $stmt->execute([self::now()]);
     }
 
     /**
@@ -196,16 +250,20 @@ class UpdateHistoryRepository
         $stmt->execute([self::now(), $exceptId]);
     }
 
+    /**
+     * A status change is a sign of life, so it carries the heartbeat with
+     * it — see touch() and isStale().
+     */
     public function setStatus(int $id, string $status): void
     {
-        $stmt = $this->pdo->prepare('UPDATE update_history SET status = ? WHERE id = ?');
-        $stmt->execute([$status, $id]);
+        $stmt = $this->pdo->prepare('UPDATE update_history SET status = ?, progress_at = ? WHERE id = ?');
+        $stmt->execute([$status, self::now(), $id]);
     }
 
     public function setBackupId(int $id, int $backupId): void
     {
-        $stmt = $this->pdo->prepare('UPDATE update_history SET backup_id = ? WHERE id = ?');
-        $stmt->execute([$backupId, $id]);
+        $stmt = $this->pdo->prepare('UPDATE update_history SET backup_id = ?, progress_at = ? WHERE id = ?');
+        $stmt->execute([$backupId, self::now(), $id]);
     }
 
     public function markCompleted(int $id): void
@@ -252,7 +310,12 @@ class UpdateHistoryRepository
             backupId: $row['backup_id'] !== null ? (int) $row['backup_id'] : null,
             requestedBy: $row['requested_by'] !== null ? (int) $row['requested_by'] : null,
             startedAt: (string) $row['started_at'],
-            completedAt: $row['completed_at'] !== null ? (string) $row['completed_at'] : null
+            completedAt: $row['completed_at'] !== null ? (string) $row['completed_at'] : null,
+            // Coalesced rather than indexed: `SELECT *` on a database whose
+            // schema migration has not landed yet has no such key at all,
+            // and the watchdog's fallback to started_at is the right answer
+            // there rather than a warning.
+            progressAt: ($row['progress_at'] ?? null) !== null ? (string) $row['progress_at'] : null
         );
     }
 }

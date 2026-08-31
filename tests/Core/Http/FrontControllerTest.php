@@ -13,6 +13,7 @@ use Core\Http\Router;
 use Core\Maintenance\MaintenanceGate;
 use Core\Maintenance\UpdateHistory;
 use Core\Maintenance\UpdateHistoryRepository;
+use Core\Scheduler\SchedulerContinuationRoute;
 use Core\Security\AuthSession;
 use PHPUnit\Framework\TestCase;
 use Twig\Environment;
@@ -484,6 +485,25 @@ class FrontControllerTest extends TestCase
         $response = $fc->handle(new Request('GET', '/this-route-does-not-exist', [], [], [], []));
 
         $this->assertSame(503, $response->getStatusCode());
+    }
+
+    /**
+     * The gate covers every path except one, and the exception has to hold
+     * end to end: FrontController is what hands the path over, and a
+     * FrontController that forgot to would reinstate the whole defect
+     * while MaintenanceGateTest stayed green.
+     */
+    public function testTheSchedulerContinuationRouteIsReachableDuringAnUpdate(): void
+    {
+        $router = new Router();
+        $router->addRoute('POST', SchedulerContinuationRoute::PATH, StubController::class, 'index', 'public');
+
+        $fc = new FrontController($router, $this->twig, $this->config, null, $this->gateReturning($this->inProgressHistory()));
+        $fc->registerController(StubController::class, new StubController($this->twig));
+
+        $response = $fc->handle(new Request('POST', SchedulerContinuationRoute::PATH, [], [], [], []));
+
+        $this->assertSame(200, $response->getStatusCode());
     }
 
     public function testTheBypassQueryParamServesTheNormalSiteDuringAnUpdate(): void

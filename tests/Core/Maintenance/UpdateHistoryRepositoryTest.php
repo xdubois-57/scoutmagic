@@ -153,7 +153,7 @@ class UpdateHistoryRepositoryTest extends TestCase
     {
         $id = $this->repository->create('1.0.0', '1.1.0', false, $this->userId);
         $this->repository->setStatus($id, 'downloading');
-        $this->ageStartedAt($id, 20);
+        $this->ageProgress($id, 20);
 
         $result = $this->repository->findInProgress();
 
@@ -168,12 +168,94 @@ class UpdateHistoryRepositoryTest extends TestCase
     {
         $id = $this->repository->create('1.0.0', '1.1.0', false, $this->userId);
         $this->repository->setStatus($id, 'downloading');
-        $this->ageStartedAt($id, 5);
+        $this->ageProgress($id, 5);
 
         $result = $this->repository->findInProgress();
 
         $this->assertNotNull($result);
         $this->assertSame($id, $result->id);
+    }
+
+    /**
+     * The watchdog measures silence, not duration.
+     *
+     * An update is several steps in several processes by design, and a
+     * schema change big enough to need many migration slices is a normal,
+     * healthy update that simply outlasts one threshold. Counting from
+     * started_at declared six of those abandoned on scoutmagic.be in
+     * forty-eight hours, every one of them mid-flight.
+     */
+    public function testAnUpdateStillMakingProgressSurvivesPastTheThreshold(): void
+    {
+        $id = $this->repository->create('1.0.0', '1.1.0', false, $this->userId);
+        $this->repository->setStatus($id, 'migrating');
+        $this->ageStartedAt($id, 40);
+        $this->ageProgress($id, 1);
+
+        $result = $this->repository->findInProgress();
+
+        $this->assertNotNull($result, 'an update that moved a minute ago is not abandoned');
+        $this->assertSame($id, $result->id);
+        $this->assertSame('migrating', $this->repository->findById($id)->status);
+    }
+
+    public function testAStatusChangeCountsAsProgress(): void
+    {
+        $id = $this->repository->create('1.0.0', '1.1.0', false, $this->userId);
+        $this->ageProgress($id, 40);
+        // The next step of the same update, arriving late but arriving.
+        $this->repository->setStatus($id, 'migrating');
+
+        $this->assertNotNull($this->repository->findInProgress());
+    }
+
+    public function testTouchKeepsALongMigrationAlive(): void
+    {
+        $id = $this->repository->create('1.0.0', '1.1.0', false, $this->userId);
+        $this->repository->setStatus($id, 'migrating');
+        $this->ageProgress($id, 40);
+
+        $this->repository->touch($id);
+
+        $this->assertNotNull($this->repository->findInProgress());
+    }
+
+    public function testTouchInProgressStampsEveryRunningUpdateAndLeavesQueuedOnesAlone(): void
+    {
+        $running = $this->repository->create('1.0.0', '1.1.0', false, $this->userId);
+        $this->repository->setStatus($running, 'migrating');
+        $this->ageProgress($running, 40);
+
+        // A weekly automatic install waiting days for its slot: 'pending'
+        // is not "in progress", and an unrelated migration must not
+        // refresh it.
+        $queued = $this->repository->create('1.1.0', '1.2.0', false, $this->userId);
+        $this->ageProgress($queued, 40);
+
+        $this->repository->touchInProgress();
+
+        $this->assertNotNull($this->repository->findInProgress());
+        $this->assertSame(
+            $this->progressAt($queued),
+            (new \DateTimeImmutable('-40 minutes'))->format('Y-m-d H:i:s')
+        );
+    }
+
+    /**
+     * A row written before the column existed has no heartbeat at all, and
+     * the moment it began is the only thing left to measure from —
+     * anything else would leave MaintenanceGate holding every visitor
+     * behind an install that died during the upgrade that added it.
+     */
+    public function testARowWithNoHeartbeatFallsBackToStartedAt(): void
+    {
+        $id = $this->repository->create('1.0.0', '1.1.0', false, $this->userId);
+        $this->repository->setStatus($id, 'installing');
+        $this->ageStartedAt($id, 40);
+        $this->clearProgressAt($id);
+
+        $this->assertNull($this->repository->findInProgress());
+        $this->assertSame('failed', $this->repository->findById($id)->status);
     }
 
     // --- markOtherInProgressAsFailed() ---
@@ -276,6 +358,27 @@ class UpdateHistoryRepositoryTest extends TestCase
     {
         $stmt = $this->pdo->prepare('UPDATE update_history SET started_at = ? WHERE id = ?');
         $stmt->execute([(new \DateTimeImmutable("-{$minutesAgo} minutes"))->format('Y-m-d H:i:s'), $id]);
+    }
+
+    private function ageProgress(int $id, int $minutesAgo): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE update_history SET progress_at = ? WHERE id = ?');
+        $stmt->execute([(new \DateTimeImmutable("-{$minutesAgo} minutes"))->format('Y-m-d H:i:s'), $id]);
+    }
+
+    private function clearProgressAt(int $id): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE update_history SET progress_at = NULL WHERE id = ?');
+        $stmt->execute([$id]);
+    }
+
+    private function progressAt(int $id): ?string
+    {
+        $stmt = $this->pdo->prepare('SELECT progress_at FROM update_history WHERE id = ?');
+        $stmt->execute([$id]);
+        $value = $stmt->fetchColumn();
+
+        return $value === false || $value === null ? null : (string) $value;
     }
 
     private function ageCompletedAt(int $id, int $minutesAgo): void

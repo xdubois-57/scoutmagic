@@ -465,6 +465,39 @@ if ($migrationIsPending) {
         // What makes the chain a chain: the ignition below only ever emits
         // one hop.
         $migrationChain?->afterSlice($stepResult->complete);
+
+        // Everything from here on is after the response, for the reason
+        // afterSlice() flushes it: none of it is the poller's to wait for.
+
+        // A slice that ran is proof the update that queued this migration
+        // is alive. The watchdog in Maintenance\UpdateHistoryRepository
+        // measures liveness rather than total elapsed time precisely so a
+        // schema change that legitimately takes a while is not declared
+        // abandoned halfway through; this is what feeds it.
+        try {
+            (new \Core\Maintenance\UpdateHistoryRepository($connection->getPdo()))->touchInProgress();
+        } catch (\Throwable) {
+            // The heartbeat is never allowed to break a migration slice —
+            // on a first install the table may not exist yet, and the
+            // watchdog degrades to what it measured before.
+        }
+
+        // The migration is only half of what the update still has to do.
+        // The other half — VERSION, update_history, backup purge,
+        // notification — is the `install_update` resume task sitting in
+        // the queue, and the chain that just finished the schema has no
+        // reason of its own to run it. Without this hand-back the update
+        // stays at 'migrating' until some unrelated request arrives, which
+        // is exactly the race the fifteen-minute watchdog kept winning.
+        // Opportunistic like every other self-request here: a failure
+        // leaves the queue to drain the way it always did.
+        if ($stepResult->complete) {
+            \Core\Scheduler\SchedulerKick::fromPdo(
+                $connection->getPdo(),
+                $migrationJournal,
+                (string) ($secrets['scheduler_continuation_secret'] ?? '')
+            );
+        }
         exit;
     }
 
