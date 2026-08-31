@@ -11,10 +11,12 @@ namespace Modules\InboundMail\Api;
 /**
  * A stored inbound message, as a consumer module sees it.
  *
- * Only messages a consumer claimed are ever stored (§7.6), so every
- * instance of this class belongs to exactly one business object. There is
- * no "all messages" view and no query that returns one — see
- * InboundMailInterface.
+ * A message is associated with zero, one or several business objects
+ * (`$links`). `$consumerId`, `$businessReference` and `$linkOrigin`
+ * describe the **association this instance was read through** — the
+ * consumer asked for one of its own references and gets the message
+ * presented from that angle. They are not a claim that the message belongs
+ * to that object alone, and a consumer must not read them as one.
  *
  * `$bodyHtml` is already sanitised and stripped of remote images by the
  * time it gets here (§7.9): a consumer never has to remember to do it, and
@@ -25,6 +27,8 @@ class InboundMessage
     /**
      * @param string[] $toEmails
      * @param InboundAttachment[] $attachments
+     * @param MessageLink[] $links every association the message carries,
+     *   this consumer's and everybody else's
      */
     public function __construct(
         public readonly int $id,
@@ -47,8 +51,23 @@ class InboundMessage
          * copied to the whole staff.
          */
         public readonly array $toEmails = [],
-        public readonly array $attachments = []
+        public readonly array $attachments = [],
+        public readonly array $links = []
     ) {
+    }
+
+    /**
+     * The associations belonging to one consumer, whatever else the message
+     * is associated with.
+     *
+     * @return MessageLink[]
+     */
+    public function linksFor(string $consumerId): array
+    {
+        return array_values(array_filter(
+            $this->links,
+            static fn(MessageLink $link) => $link->consumerId === $consumerId
+        ));
     }
 
     public function displayFrom(): string

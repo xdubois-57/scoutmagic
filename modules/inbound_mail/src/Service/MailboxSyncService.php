@@ -36,7 +36,13 @@ use Modules\InboundMail\Repository\InboundMessageRepository;
  * So the cursor moves on the UID actually seen, whatever was decided about
  * the message. That is also why a UIDVALIDITY change is safe to handle by
  * re-reading a folder from zero: the message-level deduplication is on
- * Message-ID, so a re-read recognises what it already has.
+ * Message-ID **within the mailbox**, so a re-read recognises what it
+ * already has whatever the message has since been associated with.
+ *
+ * A stored message and the business objects it belongs to are two separate
+ * writes: `create()` puts the message down, `addLink()` associates it. A
+ * message already in the box therefore never gets written twice — at most
+ * it gains an association it did not have.
  */
 class MailboxSyncService
 {
@@ -171,23 +177,36 @@ class MailboxSyncService
         $consumerId = $claimed['consumer']->consumerId();
         $reference = $claimed['claim']->businessReference;
 
-        // A message already held for this object — after a UIDVALIDITY
+        // The message may already be in this box — after a UIDVALIDITY
         // reset made the folder be re-read, or because it arrived in two
-        // watched folders.
-        if ($message->messageId !== ''
-            && $this->messageRepository->existsForReference($mailbox->id, $consumerId, $reference, $message->messageId)
-        ) {
+        // watched folders. The message is written once; only the
+        // association may be new, and `addLink()` is idempotent about it.
+        $existingId = $message->messageId !== ''
+            ? $this->messageRepository->findIdByMessageId($mailbox->id, $message->messageId)
+            : null;
+
+        if ($existingId !== null) {
+            $linked = $this->messageRepository->addLink(
+                $existingId,
+                $consumerId,
+                $reference,
+                $claimed['claim']->origin
+            );
+
+            if ($linked) {
+                $this->notifyConsumer($claimed['consumer'], $consumerId, $reference, $existingId);
+            }
+
+            // Nothing was *stored*: the message was already here, and its
+            // attachments with it.
             return false;
         }
 
-        $messageId = $this->messageRepository->create(
+        $storedId = $this->messageRepository->create(
             mailboxId: $mailbox->id,
             folder: $message->folder,
             uidValidity: 0,
             imapUid: $message->uid,
-            consumerId: $consumerId,
-            businessReference: $reference,
-            linkOrigin: $claimed['claim']->origin,
             messageId: $message->messageId,
             inReplyTo: $message->inReplyTo,
             subject: $message->subject,
@@ -199,9 +218,11 @@ class MailboxSyncService
             toEmails: $message->toEmails
         );
 
-        $this->storeAttachments($message, $messageId, $consumerId, $reference, $candidate->bodyHtml);
+        $this->messageRepository->addLink($storedId, $consumerId, $reference, $claimed['claim']->origin);
 
-        $this->notifyConsumer($claimed['consumer'], $consumerId, $reference, $messageId);
+        $this->storeAttachments($message, $storedId, $mailbox->id, $candidate->bodyHtml);
+
+        $this->notifyConsumer($claimed['consumer'], $consumerId, $reference, $storedId);
 
         return true;
     }
@@ -238,8 +259,7 @@ class MailboxSyncService
     private function storeAttachments(
         FetchedMessage $message,
         int $messageId,
-        string $consumerId,
-        string $reference,
+        int $mailboxId,
         string $sanitizedHtml
     ): void {
         if ($this->uploadHandler === null || $message->attachments === []) {
@@ -253,10 +273,11 @@ class MailboxSyncService
 
             $hash = $attachment->contentHash();
 
-            // The same bytes already stored for this object: record the
-            // second reference to the one file rather than writing it twice
-            // (§7.8).
-            $existingFileId = $this->messageRepository->findFileIdByHash($consumerId, $reference, $hash);
+            // The same bytes already stored in this box: record the second
+            // reference to the one file rather than writing it twice
+            // (§7.8). Per mailbox, since the business reference is no
+            // longer what a message is stored under.
+            $existingFileId = $this->messageRepository->findFileIdByHash($mailboxId, $hash);
             if ($existingFileId !== null) {
                 $this->messageRepository->addAttachment(
                     $messageId,
@@ -269,7 +290,7 @@ class MailboxSyncService
                 continue;
             }
 
-            $fileId = $this->writeAttachment($attachment->bytes, $attachment->filename);
+            $fileId = $this->writeAttachment($attachment->bytes, $attachment->filename, $messageId);
             if ($fileId === null) {
                 continue;
             }
@@ -295,8 +316,15 @@ class MailboxSyncService
      * GPS coordinates — the file lands outside `public/`, and the row it
      * creates is what `FileAccessGuard` later checks. Reimplementing that
      * here would mean maintaining a second copy of it (§7.9).
+     *
+     * **The file is owned by the message**, which is what actually
+     * partitions it. `role_min = 'intendant'` is a floor, not a lock: on
+     * its own it let any intendant read any attachment of any watched box
+     * by walking `/files/{id}`. The `inbound_message` ownership sends
+     * `FileAccessGuard` to `Service\InboundMessageAccessRegistry`, which
+     * asks the consumers actually associated with the message.
      */
-    private function writeAttachment(string $bytes, string $filename): ?int
+    private function writeAttachment(string $bytes, string $filename, int $messageId): ?int
     {
         $temporary = tempnam(sys_get_temp_dir(), 'inbound-mail-');
         if ($temporary === false) {
@@ -321,7 +349,11 @@ class MailboxSyncService
                 // Never public, and never the renter's: an attachment is
                 // internal until a consumer decides otherwise (§7.8).
                 'intendant',
-                'inbound_mail'
+                'inbound_mail',
+                // No author: a synchronisation is nobody's session.
+                null,
+                InboundMessageAccessRegistry::OWNER_TYPE,
+                $messageId
             );
         } catch (UploadException) {
             // A rejected attachment is a dropped attachment, never a failed

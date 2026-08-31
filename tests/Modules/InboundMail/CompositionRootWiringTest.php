@@ -59,17 +59,50 @@ class CompositionRootWiringTest extends TestCase
     }
 
     #[\PHPUnit\Framework\Attributes\DataProvider('entryPoints')]
-    public function testNoEntryPointBuildsItsOwnConsumerRegistryAnyMore(string $file): void
+    public function testNoEntryPointAssemblesTheSyncGraphItself(string $file): void
     {
-        // A private registry re-grown in one entry point is exactly the
-        // drift that once ran the real crontab's sync with an EMPTY
+        // A private SYNC registry re-grown in one entry point is exactly
+        // the drift that once ran the real crontab's sync with an EMPTY
         // registry: every message unclaimed, none stored, the cursor
-        // advancing past mail that was never coming back.
+        // advancing past mail that was never coming back. What that
+        // forbids is building the handler, or registering a consumer
+        // eagerly, anywhere but the shared bootstrap.
+        $source = self::source($file);
+
         $this->assertStringNotContainsString(
-            'new \\Modules\\InboundMail\\Service\\MessageConsumerRegistry()',
-            self::source($file),
-            $file . ' must leave the consumer registry to the shared scheduler bootstrap.'
+            'new \\Modules\\InboundMail\\Task\\SyncMailboxesHandler(',
+            $source,
+            $file . ' must leave the sync handler to the shared scheduler bootstrap.'
         );
+        $this->assertDoesNotMatchRegularExpression(
+            '/->register\(\s*new \\\\Modules\\\\[A-Za-z]+\\\\Mail\\\\/',
+            $source,
+            $file . ' must not register a message consumer eagerly — that is the shared bootstrap\'s job.'
+        );
+    }
+
+    /**
+     * The one registry the web path is allowed, and the shape it must keep.
+     *
+     * `/files/{id}` has to ask a consumer whether a requester may read an
+     * inbound attachment (§8.58, Service\InboundMessageAccessRegistry), and
+     * only a composition root can supply one. Registering the consumers
+     * EAGERLY there would rebuild the three-module graph on every page
+     * view — precisely what the sync task's own lazy factory exists to
+     * avoid — so they go in as factories and only the one an association
+     * names is ever built.
+     */
+    public function testTheWebPathsReadRegistryIsFactoryOnly(): void
+    {
+        $source = self::source('index.php');
+
+        $this->assertStringContainsString(
+            'new \\Modules\\InboundMail\\Service\\InboundMessageAccessRegistry(',
+            $source,
+            'Without the checker, an inbound attachment is gated by its role_min floor alone.'
+        );
+        $this->assertStringContainsString('$inboundReadConsumers->registerFactory(', $source);
+        $this->assertStringNotContainsString('$inboundReadConsumers->register(', $source);
     }
 
     public function testTheCampsConsumerIsRegisteredLast(): void

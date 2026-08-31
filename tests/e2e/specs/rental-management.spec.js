@@ -159,15 +159,15 @@ test.describe('Rentals — running an asset', () => {
 
         // ── A visitor asks for other dates, and is quoted the tariff the
         //    chief typed. ──────────────────────────────────────────────────
-        // `month` pinned to the arrival's own month, the same way the
-        // confirmed-stay check below does it. Without it the calendar opens
-        // on the CURRENT month, and on the last day of a month there is no
-        // `.daygrid-day--selectable` cell left for the calendar-tap
-        // assertion further down — a failure that depends on the date the
-        // suite happens to run, and that reproduces identically on `main`.
+        // `month` is explicit, and it has to be. Without it the grid renders
+        // the CURRENT month, and the rules saved above set a seven-day
+        // minimum notice: run this spec in the last week of any month and
+        // not one day of the month on screen is selectable, so the calendar
+        // tap below waits ten seconds for an element that cannot exist. The
+        // month the visitor asked about is also the honest one to show them.
         await page.goto(
             `/locations/${ASSET_SLUG}?arrival=${ARRIVAL}&departure=${DEPARTURE}&persons=40`
-            + `&month=${ARRIVAL.slice(0, 7)}`,
+                + `&month=${ARRIVAL.slice(0, 7)}`,
         );
 
         // 3 nights × 125,50 €. The estimate comes from the same engine

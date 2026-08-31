@@ -164,6 +164,11 @@ class MailboxSyncServiceTest extends TestCase
             {
                 $this->stored[] = $message;
             }
+
+            public function canRead(string $businessReference, array $linkedMemberIds, string $role): bool
+            {
+                return true;
+            }
         };
     }
 

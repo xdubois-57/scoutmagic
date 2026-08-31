@@ -64,4 +64,30 @@ interface MessageConsumerInterface
      * unit the rest of its mail. A no-op is a perfectly good implementation.
      */
     public function onMessageStored(InboundMessage $message): void;
+
+    /**
+     * Whether this requester may read what belongs to one of this
+     * consumer's business objects — an attachment of a message associated
+     * with it.
+     *
+     * **`inbound_mail` does not know who may read what, and must not learn.**
+     * Whether a given intendant manages the booking a contract arrived for
+     * is a `rental` question with a `rental` answer; asking it here is the
+     * only way to gate an attachment without this module acquiring a copy
+     * of every consumer's authorisation rules. Access is granted as soon as
+     * **one** consumer associated with the message says yes.
+     *
+     * `$role` is the requester's role name (`Core\Security\Role`'s value —
+     * 'intendant', 'chief', 'admin', …), passed as a string so this
+     * contract stays a plain value contract. `$linkedMemberIds` mirrors
+     * `Core\File\FileAccessGuard`'s own: the persistent `members.id` values
+     * the session is linked to.
+     *
+     * **A consumer that cannot answer says no.** Throwing is treated as a
+     * refusal, never as an error worth failing a download over — and never
+     * as a grant.
+     *
+     * @param array<int, int> $linkedMemberIds
+     */
+    public function canRead(string $businessReference, array $linkedMemberIds, string $role): bool;
 }

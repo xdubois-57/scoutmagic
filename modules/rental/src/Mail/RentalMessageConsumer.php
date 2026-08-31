@@ -19,6 +19,7 @@ use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Document\DocumentType;
 use Modules\Rental\Document\RentalDocument;
 use Modules\Rental\Repository\RentalBookingRepository;
+use Modules\Rental\Service\RentalAuthorizationService;
 use Modules\Rental\Service\RentalDocumentService;
 
 /**
@@ -75,7 +76,18 @@ class RentalMessageConsumer implements MessageConsumerInterface
          */
         private array $mailboxIds = [],
         private int $windowDaysAfter = self::DEFAULT_WINDOW_DAYS_AFTER,
-        private BookingReferenceMatcher $referenceMatcher = new BookingReferenceMatcher()
+        private BookingReferenceMatcher $referenceMatcher = new BookingReferenceMatcher(),
+        /**
+         * Everything `canRead()` needs, and nothing else does.
+         *
+         * Null on the scheduled path, where there is no session to answer
+         * about — a synchronisation downloads nothing. The web path
+         * supplies all three, which is why the consumer is registered
+         * there as a factory rather than built on every page view.
+         */
+        private ?RentalAuthorizationService $authorizationService = null,
+        private ?int $scoutYearId = null,
+        private ?string $requesterEmail = null
     ) {
     }
 
@@ -146,6 +158,43 @@ class RentalMessageConsumer implements MessageConsumerInterface
     }
 
     /**
+     * Who may read an attachment of a message attached to a booking:
+     * exactly who may manage that booking's asset, and nobody else.
+     *
+     * The same answer `File\RentalDocumentOwnershipChecker` gives for the
+     * booking's own documents — deliberately, because an attachment that
+     * arrived by email and the same file reclassified into a document must
+     * not have two different access rules. A renter is never allowed: their
+     * contract reaches them by email and only by email (§6.24, §6.26).
+     *
+     * @param array<int, int> $linkedMemberIds
+     */
+    public function canRead(string $businessReference, array $linkedMemberIds, string $role): bool
+    {
+        if ($this->authorizationService === null
+            || $this->scoutYearId === null
+            || $this->requesterEmail === null
+            || $this->requesterEmail === ''
+        ) {
+            return false;
+        }
+
+        $booking = $this->bookingRepository->findByReference($businessReference);
+        if ($booking === null) {
+            // The booking is gone but the association survived — a restored
+            // backup, a botched delete. Refusing is the only safe answer:
+            // there is nobody left to check the request against.
+            return false;
+        }
+
+        return $this->authorizationService->canManageAssetId(
+            $this->requesterEmail,
+            $this->scoutYearId,
+            $booking->assetId
+        );
+    }
+
+    /**
      * @param int[] $mailboxIds
      */
     public function withMailboxes(array $mailboxIds): self
@@ -156,7 +205,10 @@ class RentalMessageConsumer implements MessageConsumerInterface
             $this->documentService,
             $mailboxIds,
             $this->windowDaysAfter,
-            $this->referenceMatcher
+            $this->referenceMatcher,
+            $this->authorizationService,
+            $this->scoutYearId,
+            $this->requesterEmail
         );
     }
 

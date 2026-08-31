@@ -51,12 +51,14 @@ class InboundMailService implements InboundMailInterface
     }
 
     /**
-     * Detaching deletes (§7.6). There is no unattached queue for the
-     * message to fall into, so leaving the row behind with no reference
-     * would create exactly the invisible archive the module exists to
-     * avoid.
-     */
-    /**
+     * Detaching removes **one association**, not the message.
+     *
+     * The message itself only goes when nothing points at it any more —
+     * and its attachments with it, minus the ones a consumer re-classified
+     * and asked to keep. A message another module also recognised survives
+     * untouched, which is exactly what stopped being possible while the
+     * business reference was a column of the message itself.
+     *
      * @param int[] $preserveFileIds
      */
     public function detach(
@@ -71,10 +73,17 @@ class InboundMailService implements InboundMailInterface
 
         $fileIds = $this->messageRepository->findFileIdsForMessage($messageId);
 
-        if (!$this->messageRepository->delete($messageId, $consumerId, $businessReference)) {
+        if (!$this->messageRepository->removeLink($messageId, $consumerId, $businessReference)) {
             return false;
         }
 
+        if ($this->messageRepository->countLinks($messageId) > 0) {
+            // Somebody else still recognises this message. Neither it nor
+            // its files are anybody's to remove.
+            return true;
+        }
+
+        $this->messageRepository->deleteMessage($messageId);
         $this->deleteUnreferencedFiles($fileIds, $preserveFileIds);
 
         return true;
@@ -89,10 +98,32 @@ class InboundMailService implements InboundMailInterface
         return $this->messageRepository->moveToReference($messageId, $consumerId, $fromReference, $toReference);
     }
 
+    /**
+     * Everything held for a business object, association by association —
+     * and the messages that end up belonging to nobody.
+     *
+     * The count is of associations removed, not of messages destroyed: a
+     * message another module still recognises stays, and telling the caller
+     * "nothing was removed" when its own object no longer carries it would
+     * be the wrong answer to the question it asked.
+     */
     public function purgeReference(string $consumerId, string $businessReference): int
     {
         $fileIds = $this->messageRepository->findFileIdsForReference($consumerId, $businessReference);
-        $removed = $this->messageRepository->deleteForReference($consumerId, $businessReference);
+        $messageIds = $this->messageRepository->findMessageIdsForReference($consumerId, $businessReference);
+
+        $removed = 0;
+        foreach ($messageIds as $messageId) {
+            if (!$this->messageRepository->removeLink($messageId, $consumerId, $businessReference)) {
+                continue;
+            }
+
+            $removed++;
+
+            if ($this->messageRepository->countLinks($messageId) === 0) {
+                $this->messageRepository->deleteMessage($messageId);
+            }
+        }
 
         $this->deleteUnreferencedFiles($fileIds, []);
 
@@ -120,8 +151,59 @@ class InboundMailService implements InboundMailInterface
 
             if ($this->messageRepository->countAttachmentsForFile($fileId) === 0) {
                 $this->fileRepository?->delete($fileId);
+                continue;
+            }
+
+            // The file survives because another message deduplicated onto
+            // the same bytes — and `files.owner_id` may still name the
+            // message that has just gone. Hand the ownership to a message
+            // that really holds it, or the access registry finds no
+            // associations to ask about and locks out the very people who
+            // may read it.
+            $holder = $this->messageRepository->findMessageHoldingFile($fileId);
+            if ($holder !== null) {
+                $this->fileRepository?->updateOwner(
+                    $fileId,
+                    InboundMessageAccessRegistry::OWNER_TYPE,
+                    $holder
+                );
             }
         }
+    }
+
+    /**
+     * One-time reprise: give every attachment stored before this existed
+     * the `inbound_message` ownership it should have had.
+     *
+     * Until it runs, those files carry no owner at all and are gated by
+     * their `role_min` floor alone — which is to say, readable by any
+     * intendant. Guarded by a setting in the composition root; idempotent
+     * regardless, since it rewrites the same owner to the same value.
+     *
+     * @return int the number of files given an owner
+     */
+    public function backfillAttachmentOwners(): int
+    {
+        if ($this->fileRepository === null) {
+            return 0;
+        }
+
+        $updated = 0;
+        foreach ($this->messageRepository->findAttachmentFileOwners() as $pair) {
+            $file = $this->fileRepository->findById($pair['file_id']);
+            if ($file === null || $file->ownerType !== null) {
+                continue;
+            }
+
+            $this->fileRepository->updateOwner(
+                $pair['file_id'],
+                InboundMessageAccessRegistry::OWNER_TYPE,
+                $pair['message_id']
+            );
+            $updated++;
+        }
+
+        return $updated;
     }
 
     /**

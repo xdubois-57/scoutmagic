@@ -423,6 +423,88 @@ class RentalMessageConsumerTest extends TestCase
 
     // ── Mailbox selection (§7.4) ────────────────────────────────────────
 
+    // ── canRead(): who may open a message's attachment (§8.3, IT-02) ────
+
+    /**
+     * A consumer built without the three optional dependencies answers NO,
+     * and that is the whole design.
+     *
+     * The consumer registered by the SCHEDULED path has no requester —
+     * there is nobody making a request during a synchronisation — and a
+     * "not configured, so allow" answer there would open every inbound
+     * attachment to every intendant walking `/files/{id}`, which is the
+     * exact defect IT-02 exists to close.
+     */
+    public function testAConsumerWithNoRequesterRefusesEverything(): void
+    {
+        $booking = $this->createBooking();
+        $this->addManager('gestionnaire@unite.be');
+
+        $consumer = $this->consumerFor(null);
+
+        $this->assertFalse($consumer->canRead($booking->reference, [], 'admin'));
+    }
+
+    public function testAManagerOfTheAssetMayReadItsBookingsMail(): void
+    {
+        $booking = $this->createBooking();
+        $this->addManager('gestionnaire@unite.be');
+
+        $this->assertTrue(
+            $this->consumerFor('gestionnaire@unite.be')->canRead($booking->reference, [], 'intendant')
+        );
+    }
+
+    public function testSomebodyWhoManagesNothingIsRefused(): void
+    {
+        $booking = $this->createBooking();
+        $this->addManager('gestionnaire@unite.be');
+
+        $this->assertFalse(
+            $this->consumerFor('quelquun@unite.be')->canRead($booking->reference, [], 'intendant')
+        );
+    }
+
+    public function testAManagerOfANOTHERAssetIsRefused(): void
+    {
+        // The check is per asset, not per module: managing one hall does
+        // not open the mail of another.
+        $otherAsset = $this->createAsset('Le Terrain', 'le-terrain');
+        $booking = $this->createBooking(assetId: $otherAsset);
+        $this->addManager('gestionnaire@unite.be');
+
+        $this->assertFalse(
+            $this->consumerFor('gestionnaire@unite.be')->canRead($booking->reference, [], 'intendant')
+        );
+    }
+
+    public function testAnAssociationPointingAtABookingThatIsGoneIsRefused(): void
+    {
+        // A restored backup or a botched delete leaves the association
+        // behind. There is nobody left to check the request against, so the
+        // only safe answer is no.
+        $this->addManager('gestionnaire@unite.be');
+
+        $this->assertFalse(
+            $this->consumerFor('gestionnaire@unite.be')->canRead('LOC-2027-9999', [], 'admin')
+        );
+    }
+
+    private function consumerFor(?string $email): RentalMessageConsumer
+    {
+        return new RentalMessageConsumer(
+            $this->bookingRepository,
+            $this->inboundMail,
+            $this->documentService,
+            [],
+            30,
+            new \Modules\Rental\Mail\BookingReferenceMatcher(),
+            $email === null ? null : $this->authorizationService,
+            $email === null ? null : $this->scoutYearId,
+            $email
+        );
+    }
+
     public function testAModuleListeningToAnotherMailboxClaimsNothing(): void
     {
         $this->registry = new MessageConsumerRegistry();
