@@ -297,6 +297,61 @@ class InboundMessageLinkTest extends TestCase
         $this->assertSame(1, $this->messages->countLinks($id));
     }
 
+    // ── The reprise of the attachments' ownership ───────────────────────
+
+    public function testTheOwnerBackfillGivesEveryOrphanedAttachmentItsMessage(): void
+    {
+        $id = $this->storeMessage('a@example.be');
+        $files = new FileRepository($this->pdo);
+        $fileId = $this->storeFile();
+        $this->messages->addAttachment($id, $fileId, 'contrat.pdf', 'application/pdf', 1024, 'hash-a');
+
+        // Written before the ownership existed: gated by its role_min
+        // floor alone, which is to say readable by any intendant.
+        $this->assertNull($files->findById($fileId)?->ownerType);
+
+        $this->assertSame(1, $this->service->backfillAttachmentOwners());
+
+        $file = $files->findById($fileId);
+        $this->assertNotNull($file);
+        $this->assertSame('inbound_message', $file->ownerType);
+        $this->assertSame($id, $file->ownerId);
+    }
+
+    public function testTheOwnerBackfillIsIdempotent(): void
+    {
+        $id = $this->storeMessage('a@example.be');
+        $this->messages->addAttachment($id, $this->storeFile(), 'contrat.pdf', 'application/pdf', 1024, 'hash-a');
+
+        $this->assertSame(1, $this->service->backfillAttachmentOwners());
+        $this->assertSame(0, $this->service->backfillAttachmentOwners());
+    }
+
+    public function testASharedFileKeepsAnOwnerThatStillHoldsItAfterTheFirstOneGoes(): void
+    {
+        // Deduplication: two messages, one stored file, and `files.owner_id`
+        // naming only one of them. Destroying that one must hand the
+        // ownership over — otherwise the file points at a message that no
+        // longer exists, the access registry finds no associations to ask
+        // about, and the people who may read it are locked out.
+        $first = $this->storeMessage('a@example.be');
+        $second = $this->storeMessage('b@example.be');
+        $this->messages->addLink($first, 'rental', 'LOC-1', LinkOrigin::REFERENCE);
+        $this->messages->addLink($second, 'rental', 'LOC-2', LinkOrigin::REFERENCE);
+
+        $files = new FileRepository($this->pdo);
+        $fileId = $this->storeFile();
+        $files->updateOwner($fileId, 'inbound_message', $first);
+        $this->messages->addAttachment($first, $fileId, 'logo.png', 'image/png', 512, 'shared');
+        $this->messages->addAttachment($second, $fileId, 'logo.png', 'image/png', 512, 'shared');
+
+        $this->assertTrue($this->service->detach('rental', 'LOC-1', $first));
+
+        $file = $files->findById($fileId);
+        $this->assertNotNull($file, 'The second message still holds these bytes.');
+        $this->assertSame($second, $file->ownerId);
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────
 
     private function storeMessage(string $messageId): int

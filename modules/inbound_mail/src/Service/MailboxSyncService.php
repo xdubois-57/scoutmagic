@@ -290,7 +290,7 @@ class MailboxSyncService
                 continue;
             }
 
-            $fileId = $this->writeAttachment($attachment->bytes, $attachment->filename);
+            $fileId = $this->writeAttachment($attachment->bytes, $attachment->filename, $messageId);
             if ($fileId === null) {
                 continue;
             }
@@ -316,8 +316,15 @@ class MailboxSyncService
      * GPS coordinates — the file lands outside `public/`, and the row it
      * creates is what `FileAccessGuard` later checks. Reimplementing that
      * here would mean maintaining a second copy of it (§7.9).
+     *
+     * **The file is owned by the message**, which is what actually
+     * partitions it. `role_min = 'intendant'` is a floor, not a lock: on
+     * its own it let any intendant read any attachment of any watched box
+     * by walking `/files/{id}`. The `inbound_message` ownership sends
+     * `FileAccessGuard` to `Service\InboundMessageAccessRegistry`, which
+     * asks the consumers actually associated with the message.
      */
-    private function writeAttachment(string $bytes, string $filename): ?int
+    private function writeAttachment(string $bytes, string $filename, int $messageId): ?int
     {
         $temporary = tempnam(sys_get_temp_dir(), 'inbound-mail-');
         if ($temporary === false) {
@@ -342,7 +349,11 @@ class MailboxSyncService
                 // Never public, and never the renter's: an attachment is
                 // internal until a consumer decides otherwise (§7.8).
                 'intendant',
-                'inbound_mail'
+                'inbound_mail',
+                // No author: a synchronisation is nobody's session.
+                null,
+                InboundMessageAccessRegistry::OWNER_TYPE,
+                $messageId
             );
         } catch (UploadException) {
             // A rejected attachment is a dropped attachment, never a failed

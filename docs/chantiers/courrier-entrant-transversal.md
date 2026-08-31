@@ -67,3 +67,60 @@ C'est un nombre d'**associations retirées**, pas de messages détruits. Un
 message qu'un autre module reconnaît encore reste en place ; répondre
 « rien n'a été retiré » à un appelant dont l'objet ne le porte plus serait
 la mauvaise réponse à la question posée.
+
+---
+
+## IT-02 — Propriété des pièces jointes et cloisonnement d'accès
+
+### Le registre de lecture du chemin web est un second registre, paresseux
+
+`Service\InboundMessageAccessRegistry` doit interroger un consumer pour
+répondre à « cette personne peut-elle télécharger cette pièce jointe ? ».
+Seule une racine de composition peut fournir des consumers — mais le
+graphe des consumers de synchronisation est délibérément construit en
+**fabrique paresseuse** dans `public/scheduler-bootstrap.php`, pour
+n'être assemblé que quand une tâche de synchronisation est réellement due,
+jamais sur une vue de page.
+
+Le construire à chaque affichage pour répondre à une question posée une
+fois sur mille annulerait exactement cette précaution. `MessageConsumerRegistry`
+gagne donc `registerFactory()` et `find()` : `public/index.php` enregistre
+des fermetures, et seule celle que nomme une association est instanciée —
+donc aucune sur une page ordinaire, et une seule sur un téléchargement.
+
+`Tests\Modules\InboundMail\CompositionRootWiringTest` a été **affiné**, pas
+affaibli : ce qu'il protégeait (le graphe de synchronisation reconstruit
+dans un point d'entrée, ce qui avait déjà fait tourner le cron avec un
+registre vide) est désormais exprimé comme « aucun point d'entrée ne
+construit `SyncMailboxesHandler` ni n'enregistre un consumer de manière
+empressée », et un nouveau test exige que le registre de lecture du chemin
+web soit exclusivement à fabriques.
+
+### Le Chef d'Unité passe toujours
+
+La feuille de route dit « aucun lien du tout : seul le rôle `admin`
+accède ». C'est un plancher, pas une interdiction ailleurs : le Chef
+d'Unité tient la boîte générale d'IT-06, où il voit **tout** le courrier,
+et D16 lui donne même le droit de suppression définitive. Une pièce jointe
+visible à l'écran mais refusant de s'ouvrir serait une page cassée, pas
+une protection. `admin` est donc accordé inconditionnellement, et c'est
+documenté dans `SECURITY.md` §6.
+
+### `canRead()` prend le rôle en `string`
+
+Signature reprise telle quelle de la feuille de route. Elle garde le
+contrat `Api\` libre d'une énumération du cœur ; les consumers convertissent
+par `Role::tryFrom()`. `rental` reçoit en plus trois dépendances optionnelles
+(service d'autorisation, année scoute, e-mail du demandeur) : nulles sur le
+chemin planifié — une synchronisation ne télécharge rien — et fournies sur
+le chemin web, ce qui est la raison même de l'enregistrement par fabrique.
+
+### La propriété d'un fichier partagé est transmise, pas laissée pendante
+
+La déduplication fait pointer plusieurs messages vers un même fichier
+stocké, alors que `files.owner_id` n'en nomme qu'un. Quand celui-là est
+détruit, `InboundMailService::deleteUnreferencedFiles()` transmet la
+propriété à un message qui le détient encore. Sans ça le fichier
+désignerait un message disparu, le registre ne trouverait aucune
+association à interroger, et les personnes légitimes seraient enfermées
+dehors.

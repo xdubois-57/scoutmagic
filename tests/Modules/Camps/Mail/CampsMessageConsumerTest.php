@@ -286,6 +286,47 @@ class CampsMessageConsumerTest extends TestCase
         $this->settings = new SettingService(new SettingRepository($this->pdo));
     }
 
+    // ── canRead(): who may open a stay's mail (§8.3, IT-02) ─────────────
+
+    /**
+     * The camps answer is a role floor, not a per-stay grant — a stay has
+     * no manager list of its own, and every chef is in the staff of the
+     * unit that runs it. What matters is where the floor sits: an
+     * intendant is NOT a chef, and an inbound attachment is not a
+     * quartermaster's business.
+     *
+     * @return array<string, array{0: string, 1: bool}>
+     */
+    public static function rolesAndAnswers(): array
+    {
+        return [
+            'public' => ['public', false],
+            'identified' => ['identified', false],
+            'intendant' => ['intendant', false],
+            'chief' => ['chief', true],
+            'admin' => ['admin', true],
+            'superadmin' => ['superadmin', true],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('rolesAndAnswers')]
+    public function testOnlyAChiefAndAboveMayReadAStaysMail(string $role, bool $expected): void
+    {
+        $this->assertSame(
+            $expected,
+            $this->consumer()->canRead(CampsMessageConsumer::referenceFor(1), [], $role)
+        );
+    }
+
+    public function testARoleNobodyRecognisesIsTreatedAsThePublicOne(): void
+    {
+        // Fail closed. A role string this build does not know is a build
+        // mismatch or a tampered session, and neither is a reason to open
+        // a stay's correspondence.
+        $this->assertFalse($this->consumer()->canRead(CampsMessageConsumer::referenceFor(1), [], 'inexistant'));
+        $this->assertFalse($this->consumer()->canRead(CampsMessageConsumer::referenceFor(1), [], ''));
+    }
+
     private function consumer(?InboundMailInterface $inbound = null): CampsMessageConsumer
     {
         return new CampsMessageConsumer(

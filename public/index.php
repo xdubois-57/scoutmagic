@@ -2823,6 +2823,33 @@ if ($isEnabled('inbound_mail')) {
         $settingService->clearCache();
     }
 
+    // One-time reprise of the attachments written before they had an
+    // owner. Until it runs they are gated by their `role_min` floor alone,
+    // which is to say readable by any intendant walking /files/{id}.
+    if ($settingService->get('inbound_mail_attachment_owners_migrated') !== '1') {
+        $settingService->register('inbound_mail_attachment_owners_migrated', '0', 'boolean',
+            'Propriété des pièces jointes reconstituée',
+            'Indique si les pièces jointes entrantes antérieures ont été rattachées à leur message pour le contrôle d\'accès.',
+            null, null, null, false, 999);
+
+        $inboundMailForOthers->backfillAttachmentOwners();
+
+        $settingRepo->updateValue(null, 'inbound_mail_attachment_owners_migrated', '1');
+        $settingService->clearCache();
+    }
+
+    // Who may download an inbound attachment (ARCHITECTURE.md §8.3's
+    // owner_type registry). The consumers are registered as FACTORIES:
+    // answering the question means building exactly one of them, and an
+    // ordinary page view — which never asks — builds none. The eager graph
+    // stays where it belongs, in the sync task's own lazy factory
+    // (public/scheduler-bootstrap.php).
+    $inboundReadConsumers = new \Modules\InboundMail\Service\MessageConsumerRegistry();
+    $fileOwnershipCheckers[] = new \Modules\InboundMail\Service\InboundMessageAccessRegistry(
+        $inboundMessageRepository,
+        $inboundReadConsumers
+    );
+
     $frontController->registerController(
         \Modules\InboundMail\Controller\InboundMailConfigController::class,
         new \Modules\InboundMail\Controller\InboundMailConfigController(
@@ -3991,6 +4018,22 @@ if ($isEnabled('camps')) {
     // the unit sees every stay.
     $fileOwnershipCheckers[] = new \Modules\Camps\Service\CampFileOwnershipChecker();
 
+    // And the same answer for an attachment of a message attached to a
+    // stay (§8.58). A factory, like rental's: nothing is built unless
+    // somebody asks to download one.
+    if (isset($inboundReadConsumers)) {
+        $inboundReadConsumers->registerFactory(
+            \Modules\Camps\Mail\CampsMessageConsumer::CONSUMER_ID,
+            static fn(): \Modules\InboundMail\Api\MessageConsumerInterface =>
+                new \Modules\Camps\Mail\CampsMessageConsumer(
+                    $campsCampRepo,
+                    $pdo,
+                    $encryptionService,
+                    $settingService
+                )
+        );
+    }
+
     // Read back at the very end of this file, when the response exists.
     $campsMapTileOrigin = \Modules\Camps\Service\MapTiles::ORIGIN;
 
@@ -4619,6 +4662,29 @@ if ($isEnabled('rental')) {
         $rentalCurrentYearId,
         AuthSession::isAuthenticated() ? AuthSession::getEmail() : null
     );
+
+    // The same answer, for the attachments of a message attached to a
+    // booking (§8.58): an emailed contract and the same file reclassified
+    // into a document must not have two different access rules. Registered
+    // as a factory — nothing here is built unless somebody actually asks
+    // to download one.
+    if (isset($inboundReadConsumers) && $inboundMailForOthers !== null) {
+        $inboundReadConsumers->registerFactory(
+            \Modules\Rental\Mail\RentalMessageConsumer::CONSUMER_ID,
+            static fn(): \Modules\InboundMail\Api\MessageConsumerInterface =>
+                new \Modules\Rental\Mail\RentalMessageConsumer(
+                    $rentalBookingRepository,
+                    $inboundMailForOthers,
+                    $rentalDocumentService,
+                    [],
+                    \Modules\Rental\Mail\RentalMessageConsumer::DEFAULT_WINDOW_DAYS_AFTER,
+                    new \Modules\Rental\Mail\BookingReferenceMatcher(),
+                    $rentalAuthorizationService,
+                    $rentalCurrentYearId,
+                    AuthSession::isAuthenticated() ? AuthSession::getEmail() : null
+                )
+        );
+    }
 
     // The stay itself (§6.21–§6.23): meters, inventory, incidents and the
     // versioned final settlement. Note what is NOT here: the module
