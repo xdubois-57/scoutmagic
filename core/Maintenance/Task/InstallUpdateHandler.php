@@ -835,8 +835,10 @@ class InstallUpdateHandler implements TaskHandlerInterface
      * @return array{0: bool, 1: int|null, 2: string} success, HTTP status
      *         (null if the connection itself never got a response), and a
      *         short human-readable reason for a failed attempt
+     * `protected` rather than `private` for the same reason as
+     * probeArtifactStatus(): a test seam, nothing else overrides it.
      */
-    private function attemptDownload(string $url, string $destPath): array
+    protected function attemptDownload(string $url, string $destPath): array
     {
         [$statusCode, $body, $reason] = $this->fetchFollowingAllowlistedRedirects($url, 'GET');
 
@@ -886,31 +888,11 @@ class InstallUpdateHandler implements TaskHandlerInterface
                 return [null, null, 'redirection hors GitHub refusée'];
             }
 
-            $context = stream_context_create([
-                'http' => [
-                    'method' => $method,
-                    'header' => "User-Agent: ScoutMagic-Updater\r\n",
-                    // A HEAD transfers no body, so it has no business
-                    // holding a scheduler pass for the five minutes a real
-                    // artifact download is allowed.
-                    'timeout' => $method === 'HEAD' ? 30 : 300,
-                    'follow_location' => 0,
-                    'ignore_errors' => true,
-                ],
-            ]);
-
-            // file_get_contents() rather than copy(): both reach the same
-            // stream wrapper, but only the former reliably records the
-            // response headers — same convention as Core\Maintenance\
-            // GitHubReleaseClient::httpGet(). Cleared first so that one hop
-            // of this redirect chain can never be read as the next one's.
-            StreamResponseHeaders::clear();
-            $body = @file_get_contents($currentUrl, false, $context);
+            [$body, $responseHeaders] = $this->performHttpRequest($currentUrl, $method);
             if ($body === false) {
                 return [null, null, 'connexion impossible'];
             }
 
-            $responseHeaders = StreamResponseHeaders::last();
             $statusCode = $this->parseHttpStatus($responseHeaders);
 
             if ($statusCode !== null && $statusCode >= 300 && $statusCode < 400) {
@@ -926,6 +908,44 @@ class InstallUpdateHandler implements TaskHandlerInterface
         }
 
         return [null, null, 'trop de redirections'];
+    }
+
+    /**
+     * One raw HTTP exchange — the only line of the redirect walk that
+     * actually touches the network, isolated so the walk itself (the
+     * per-hop allowlist check, the redirect parsing, the hop ceiling —
+     * the security-sensitive part) is testable without one. `protected`
+     * as a test seam, same convention as probeArtifactStatus(); nothing
+     * else overrides it.
+     *
+     * @return array{0: string|false, 1: array<int, string>} the response
+     *         body (false when no response was obtained at all) and the
+     *         raw response headers of this hop
+     */
+    protected function performHttpRequest(string $url, string $method): array
+    {
+        $context = stream_context_create([
+            'http' => [
+                'method' => $method,
+                'header' => "User-Agent: ScoutMagic-Updater\r\n",
+                // A HEAD transfers no body, so it has no business holding
+                // a scheduler pass for the five minutes a real artifact
+                // download is allowed.
+                'timeout' => $method === 'HEAD' ? 30 : 300,
+                'follow_location' => 0,
+                'ignore_errors' => true,
+            ],
+        ]);
+
+        // file_get_contents() rather than copy(): both reach the same
+        // stream wrapper, but only the former reliably records the
+        // response headers — same convention as Core\Maintenance\
+        // GitHubReleaseClient::httpGet(). Cleared first so that one hop
+        // of a redirect chain can never be read as the next one's.
+        StreamResponseHeaders::clear();
+        $body = @file_get_contents($url, false, $context);
+
+        return [$body, StreamResponseHeaders::last()];
     }
 
     /**
