@@ -1644,6 +1644,62 @@ class MaintenanceControllerTest extends TestCase
         $this->assertTrue($this->updateHistoryRepository->findById($decoded['history_id'])->dependenciesChanged);
     }
 
+    // --- update history: five rows, then the rest on demand ---
+
+    private function seedUpdateHistory(int $count): void
+    {
+        for ($i = 0; $i < $count; $i++) {
+            $this->updateHistoryRepository->markCompleted(
+                $this->updateHistoryRepository->create('1.0.' . $i, '1.0.' . ($i + 1), false, null)
+            );
+        }
+    }
+
+    public function testTheUpdateHistoryShowsFiveRowsAndHidesTheRestBehindAButton(): void
+    {
+        // The page exists to install an update; twenty rows of history
+        // pushed the install button below the fold.
+        $this->seedUpdateHistory(8);
+
+        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+
+        // The extra rows ARE rendered — the controller already fetched
+        // them, so opening the list must not cost a round trip — but they
+        // sit in a collapsed tbody.
+        $this->assertStringContainsString('id="update-history-more"', $body);
+        $this->assertStringContainsString('class="collapse"', $body);
+        $this->assertStringContainsString('Afficher les 3 précédentes', $body);
+        // Nine: the eight entries plus the table's own header row.
+        $this->assertSame(9, substr_count($body, '<tr>'), 'every entry is rendered, five of them visible');
+    }
+
+    public function testAShortUpdateHistoryGrowsNoButtonAtAll(): void
+    {
+        $this->seedUpdateHistory(4);
+
+        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+
+        $this->assertStringNotContainsString('id="update-history-more"', $body);
+        $this->assertStringNotContainsString('précédentes', $body);
+    }
+
+    public function testReleaseNotesAreClampedWithATogglePreparedButHidden(): void
+    {
+        // The button ships hidden: notes-clamp.js reveals it only for a
+        // block that really overflows, so a two-line note never grows a
+        // button that would reveal nothing.
+        $this->settingService->set('update_latest_version', '99.0.0');
+        $this->settingService->set('update_download_url', 'https://github.com/owner/repo/releases/download/v99.0.0/release.zip');
+        $this->settingService->set('update_release_notes', str_repeat("Une ligne de notes.\n\n", 40));
+        $this->settingService->clearCache();
+
+        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('data-notes-clamp="update-release-notes-toggle"', $body);
+        $this->assertStringContainsString('Voir la description complète', $body);
+        $this->assertStringContainsString('notes-clamp.js', $body);
+    }
+
     public function testIndexShowsTheWebhookWarningWhenDevLevelEnabledButWebhookNotConfigured(): void
     {
         $this->settingService->set('auto_update_enabled', '1');

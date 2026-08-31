@@ -844,3 +844,40 @@ body:has(> #cookie-banner) {
 .passage-stats-gender {
     height: 0.375rem;
 }
+
+/* ============================================================
+   Bornage des blocs qui grandissent tout seuls (§7.6)
+   ============================================================ */
+
+/* Notes de version : hauteur, pas nombre de lignes. Le contenu est du
+   Markdown rendu (titres, listes, blocs de code ont chacun leur propre
+   boîte de ligne), donc découper 20 lignes de source côté serveur
+   couperait au milieu d'un élément. 30em ≈ 20 lignes à la hauteur de
+   ligne Bootstrap (1.5). Bootstrap n'a pas d'équivalent multiligne de
+   .text-truncate : c'est la raison d'être de ces quelques lignes.
+   Le dégradé signale qu'il reste du texte ; public/assets/js/notes-clamp.js
+   retire la classe quand le contenu tient déjà. */
+.notes-clamp:not(.is-expanded) {
+    max-height: 30em;
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(to bottom, #000 82%, transparent 100%);
+            mask-image: linear-gradient(to bottom, #000 82%, transparent 100%);
+}
+
+/* Étiquette d'un déclencheur Bootstrap Collapse : c'est Bootstrap qui
+   pose et retire .collapsed sur le bouton, donc l'échange « Afficher /
+   Réduire » ne demande aucun JavaScript. */
+[data-bs-toggle="collapse"].collapsed .show-when-expanded,
+[data-bs-toggle="collapse"]:not(.collapsed) .show-when-collapsed {
+    display: none;
+}
+
+[data-bs-toggle="collapse"] .bi-chevron-down,
+[data-notes-clamp-toggle] .bi-chevron-down {
+    transition: transform 0.2s ease;
+}
+
+[data-bs-toggle="collapse"]:not(.collapsed) .bi-chevron-down,
+[data-notes-clamp-toggle][aria-expanded="true"] .bi-chevron-down {
+    transform: rotate(180deg);
+}
