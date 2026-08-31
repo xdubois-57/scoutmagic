@@ -237,6 +237,30 @@ function scoutmagic_bootstrap_scheduler(
                     ));
                 }
 
+                // Finance only ever PROPOSES, so it needs no place in any
+                // ordering: a proposition costs nobody else anything. On
+                // this path it also has no actor and no file reader, which
+                // is deliberate — a synchronisation has nobody making a
+                // request, and finance's account check is built from the
+                // actor. Nothing is ever filed as a receipt from here.
+                if ($inboundMail !== null && in_array('finance', $enabledModuleIds, true)) {
+                    $registry->register(new \Modules\Finance\Mail\FinanceMessageConsumer(
+                        new \Modules\Finance\Repository\AccountRepository($pdo, $encryptionService),
+                        new \Modules\Finance\Service\TreasurerScopeService(
+                            \Core\Database\Connection::withPdo($pdo),
+                            new \Core\Badge\BadgeRepository($pdo),
+                            new \Core\Badge\MemberBadgeRepository($pdo)
+                        ),
+                        $pdo,
+                        $encryptionService,
+                        // The current year, resolved here rather than
+                        // carried on the context: the scheduled path has no
+                        // session and no "effective" year, and the treasurer
+                        // rule is about who holds the badge THIS year.
+                        (new \Core\Config\ScoutYearService($pdo))->getCurrentYear()['id']
+                    ));
+                }
+
                 // The camps consumer is registered LAST, and that ordering
                 // is load-bearing: MessageConsumerRegistry is
                 // first-claim-wins in registration order, and a dedicated
