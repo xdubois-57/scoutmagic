@@ -138,6 +138,7 @@ class AdminMemberPageServiceTest extends TestCase
             $this->sectionService,
             $this->scoutYearService,
             $this->emailRepository,
+            new \Core\Member\MemberDocumentService(new \Core\Member\MemberDocumentRepository($this->pdo)),
             $hooks
         );
     }
@@ -288,17 +289,48 @@ class AdminMemberPageServiceTest extends TestCase
     }
 
     /**
-     * ARCHITECTURE.md §8.3 — owner-scoped files carry an explicit
-     * no-chief-and-no-admin-bypass guarantee. This page must never grow a
-     * documents block, and the service is where that would first appear.
+     * The private documents block — the reverse of what this test used to
+     * assert, and deliberately so: `files.owner_member_id`'s
+     * no-chief-and-no-admin-bypass guarantee was withdrawn (ARCHITECTURE.md
+     * §8.3, SECURITY.md §6) so a chef d'unité can answer « nous n'avons
+     * rien reçu » from the member's sheet. What is pinned here is the shape
+     * that makes the block useful: every year, not just the one on screen.
      */
-    public function testThePageDataCarriesNoDocumentBlockAtAll(): void
+    public function testThePrivateDocumentsSpanEveryYearNotJustTheOneOnScreen(): void
     {
-        $keys = array_keys($this->build());
+        $documents = new \Core\Member\MemberDocumentRepository($this->pdo);
+        $documents->create($this->memberId, $this->pastYearId, 'Attestation fiscale 2024', 11, null);
+        $documents->create($this->memberId, $this->currentYearId, 'Attestation fiscale 2025', 12, null);
 
-        foreach ($keys as $key) {
-            $this->assertStringNotContainsStringIgnoringCase('document', $key);
-        }
+        $rows = $this->build()['member_documents'];
+
+        $this->assertCount(2, $rows);
+        $this->assertSame(
+            // Newest first: the certificate somebody is asking about is
+            // usually the last one that went out.
+            ['Attestation fiscale 2025', 'Attestation fiscale 2024'],
+            array_values(array_map(
+                static fn(array $row): string => $row['document']->title,
+                $rows
+            ))
+        );
+    }
+
+    /** Each row carries the season it belongs to, resolved server-side. */
+    public function testEachPrivateDocumentCarriesItsScoutYearLabel(): void
+    {
+        (new \Core\Member\MemberDocumentRepository($this->pdo))
+            ->create($this->memberId, $this->currentYearId, 'Attestation fiscale 2025', 12, null);
+
+        $rows = $this->build()['member_documents'];
+
+        $this->assertNotSame('', $rows[0]['year_label']);
+    }
+
+    /** The ordinary case: nothing, and no error. */
+    public function testAMemberWithNoPrivateDocumentGetsAnEmptyList(): void
+    {
+        $this->assertSame([], $this->build()['member_documents']);
     }
 
     private function insertPeriod(int $scoutYearId, int $sectionId, string $start = '2025-09-01', ?string $end = null): void

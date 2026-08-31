@@ -66,17 +66,35 @@ class GroupNotificationService
     }
 
     /**
-     * Type 1 — a new post, to everyone who can currently read the group.
+     * Type 1 — a new post, to everyone who can currently read the group
+     * EXCEPT its author.
      *
-     * The actor stays in the recipient list on purpose: dispatch() already
-     * suppresses their push, and having your own post appear in your own
-     * centre is coherent for a "what happened in your groups" feed.
+     * This used to keep the actor in the list, on the reading that a
+     * "what happened in your groups" feed is coherent with your own post
+     * in it. It is not: NotificationService::dispatch() only suppresses
+     * the actor's push and email, so the in-app row was still written —
+     * and that row is what feeds the unread badge and the home page's
+     * « Du nouveau dans vos groupes ». A member publishing a message was
+     * therefore told, by the site, that there was something new for them
+     * to read, about the thing they had just written themselves.
+     *
+     * The exclusion belongs HERE and not in dispatch(): core's rule is
+     * shared with the calendar, the gallery, the camps and the finances,
+     * where an actor's own row can be exactly what is wanted. This is the
+     * only type of this module whose audience can contain its own actor —
+     * replyReceived(), the two reactions, mentioned() and memberInvited()
+     * each already drop the actor where they resolve their recipients,
+     * and itemReported() excludes both the reporter and the author.
      */
     public function postPublished(DiscussionGroup $group, Post $post, int $effectiveScoutYearId): void
     {
         $this->send(
             self::TYPE_POST_PUBLISHED,
-            fn(): array => $this->recipientResolver->forGroup($group, $effectiveScoutYearId),
+            fn(): array => $this->recipientResolver->forGroupExcluding(
+                $group,
+                $effectiveScoutYearId,
+                [$post->authorUserAccountId]
+            ),
             [
                 'title' => 'Nouveau message — ' . $group->name,
                 'body' => $this->excerptOf($post->body, $post->isHidden()),

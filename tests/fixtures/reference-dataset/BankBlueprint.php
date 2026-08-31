@@ -128,6 +128,50 @@ final class BankBlueprint
      */
     public const OVERLAP_LINES = 3;
 
+    /**
+     * The first BBAN handed to a section account. Section IBANs are computed
+     * rather than listed: there is one per section, the sections are declared
+     * next door in UnitBlueprint, and a second list to keep in step with that
+     * one is a second list to get wrong.
+     *
+     * The bank code `000` is allocated to no Belgian institution, exactly as
+     * for the two unit accounts above, so none of these belongs to anybody.
+     */
+    public const SECTION_IBAN_FIRST_BBAN = 1001;
+
+    /**
+     * A section account's IBAN, with correct ISO 13616 check digits.
+     *
+     * They have to be right: FinanceService::updateAccount() validates
+     * through IbanNormalizer::isValidFullIban() before the value is encrypted
+     * and blind-indexed, so a hand-invented IBAN would be refused by the very
+     * service this dataset insists on going through.
+     */
+    public static function sectionIban(int $index): string
+    {
+        $bban = sprintf('%012d', self::SECTION_IBAN_FIRST_BBAN + $index);
+        // "BE" as digits is 1114, and the two check digits stand in as "00"
+        // while they are being computed — the ISO rearrangement, exactly.
+        $check = 98 - self::mod97($bban . '111400');
+
+        return trim(chunk_split(sprintf('BE%02d%s', $check, $bban), 4, ' '));
+    }
+
+    /**
+     * Mod 97 of a decimal string, taken piecewise: a sixteen-digit IBAN does
+     * not fit in an int on every platform, and building the number first is
+     * how that stops being true silently.
+     */
+    private static function mod97(string $digits): int
+    {
+        $remainder = 0;
+        foreach (str_split($digits) as $digit) {
+            $remainder = ($remainder * 10 + (int) $digit) % 97;
+        }
+
+        return $remainder;
+    }
+
     /** @return list<string> the structured communications expected for a year */
     public static function communicationsFor(string $yearLabel): array
     {

@@ -4,15 +4,11 @@ declare(strict_types=1);
 
 namespace Tests\Integration;
 
-use Core\Badge\MemberBadgeRepository;
 use Core\Database\Connection;
 use Core\Maintenance\BackupService;
 use Core\Security\EncryptionService;
-use Core\Member\SectionService;
 use Core\Security\UserAccountRepository;
 use Modules\Finance\Repository\AccountRepository;
-use Modules\Trombinoscope\Repository\TrombinoscopeRepository;
-use Modules\Trombinoscope\Service\TrombinoscopeService;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -23,6 +19,7 @@ use Tests\Fixtures\ReferenceDataset\DeskImportReplay;
 use Tests\Fixtures\ReferenceDataset\ExtrasApplier;
 use Tests\Fixtures\ReferenceDataset\ExtrasBlueprint;
 use Tests\Fixtures\ReferenceDataset\PhotoLot;
+use Tests\Fixtures\ReferenceDataset\StaffBlueprint;
 use Tests\Fixtures\ReferenceDataset\FinanceSeeder;
 use Tests\Fixtures\ReferenceDataset\InstanceReset;
 use Tests\Fixtures\ReferenceDataset\UnitBlueprint;
@@ -207,9 +204,74 @@ final class ReferenceDatasetBuilderTest extends TestCase
 
         self::assertSame(2, $counts['décalages d\'année']);
         self::assertSame(count(ExtrasBlueprint::DEPARTURES), $counts['départs marqués']);
-        self::assertSame(count(ExtrasBlueprint::BADGES), $counts['badges attribués']);
         self::assertGreaterThan(30, $counts['photos de membres'], 'Les portraits ne sont plus attribués.');
         self::assertSame(count(PhotoLot::GROUP_PHOTOS, COUNT_RECURSIVE) - count(PhotoLot::GROUP_PHOTOS), $counts['photos de groupe']);
+    }
+
+    public function testEverySectionCarriesTheAddressItsBlueprintDeclares(): void
+    {
+        // `sections.email` is the one section column no Desk export carries,
+        // and it was empty in every earlier version of this dataset — which
+        // made every "écrire à la section" surface look broken rather than
+        // unconfigured.
+        $this->applyExtras();
+
+        $statement = $this->pdo->query('SELECT desk_code, email FROM sections');
+        $emails = [];
+        foreach ($statement !== false ? $statement->fetchAll(\PDO::FETCH_ASSOC) : [] as $row) {
+            $emails[(string) $row['desk_code']] = $row['email'];
+        }
+
+        foreach (UnitBlueprint::SECTIONS as $section) {
+            self::assertSame(
+                $section['email'],
+                $emails[$section['name']] ?? null,
+                "La section « {$section['name']} » n'a pas l'adresse déclarée.",
+            );
+        }
+    }
+
+    public function testEverySectionOfEveryYearCarriesItsTwoBadges(): void
+    {
+        // The rule, not the list: "every section has a treasurer and a
+        // first-aider" is a sentence about a unit, and StaffSeeder is what
+        // turns it into rows. Before it existed the dataset held five badge
+        // assignments concentrated on two people, and the badge column of
+        // every section list was empty.
+        $this->applyExtras();
+
+        foreach (UnitBlueprint::YEARS as $year) {
+            foreach (UnitBlueprint::sectionsIn($year) as $handle) {
+                foreach (StaffBlueprint::SECTION_BADGES as $badgeName) {
+                    self::assertGreaterThan(
+                        0,
+                        $this->badgeHoldersIn($handle, $year, $badgeName),
+                        "Personne ne porte « {$badgeName} » dans {$handle} en {$year}.",
+                    );
+                }
+            }
+        }
+    }
+
+    private function badgeHoldersIn(string $handle, string $year, string $badgeName): int
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT COUNT(*) AS n
+             FROM member_badges mb
+             JOIN badges b ON b.id = mb.badge_id
+             JOIN member_years my ON my.id = mb.member_year_id
+             JOIN member_functions mf ON mf.member_year_id = my.id
+             JOIN sections s ON s.id = mf.section_id
+             WHERE b.name = ? AND s.desk_code = ? AND my.scout_year_id = ?'
+        );
+        $statement->execute([
+            $badgeName,
+            UnitBlueprint::SECTIONS[$handle]['name'],
+            $this->yearIds[$year] ?? 0,
+        ]);
+        $row = $statement->fetch(\PDO::FETCH_ASSOC);
+
+        return $row === false ? 0 : (int) $row['n'];
     }
 
     public function testEveryPhotoGoesThroughTheRealUploadPipeline(): void
@@ -271,71 +333,20 @@ final class ReferenceDatasetBuilderTest extends TestCase
             $result['skipped']['évènements de calendrier'] ?? null,
             'Un extra ignoré doit être signalé, pas se contenter d\'un compteur à zéro.',
         );
+
+        // Et la même chose pour les domaines ajoutés en IT-18 : chacun a sa
+        // table témoin, et un nom de table faux se lirait comme un module
+        // absent si le saut n'était pas nommé.
+        foreach (['articles d\'actualité' => 'news', 'séjours' => 'camps', 'réservations' => 'rental'] as $label => $module) {
+            self::assertSame(0, $result['counts'][$label] ?? null, "Le compteur « {$label} » devrait être à zéro.");
+            self::assertSame($module, $result['skipped'][$label] ?? null, "Le saut de « {$label} » n'est pas signalé.");
+        }
         self::assertGreaterThan(0, $result['counts']['créances attendues'], 'Les modules présents doivent, eux, être traités.');
         self::assertArrayNotHasKey('créances attendues', $result['skipped']);
     }
 
     /**
-     * The section responsable, end to end: the vocabulary carries
-     * « Animateur responsable », the builder flags that function as the
-     * trombinoscope's lead, and Core\Module\SectionResponsableProvider then
-     * answers with a real person for every section.
-     *
-     * None of that existed before: no generated function carried the label,
-     * so the provider answered null for every section and three surfaces
-     * built on it — the public Sections page's responsable line, the member
-     * page's responsable-and-postal-address block, the trombinoscope's
-     * highlighted card — were exercised by nothing at all.
-     */
-    public function testTheSectionResponsableIsFlaggedAndResolves(): void
-    {
-        // The module's own table, absent from the shared test schema for the
-        // same reason the calendar's is: it belongs to a module, and
-        // ExtrasApplier reads its presence as "this module is enabled here".
-        $this->pdo->exec('CREATE TABLE trombinoscope_function_flags (
-            function_id INTEGER PRIMARY KEY,
-            is_lead INTEGER NOT NULL DEFAULT 0
-        )');
-
-        $result = $this->applyExtras();
-
-        self::assertSame(1, $result['counts']['drapeau responsable']);
-        self::assertArrayNotHasKey('drapeau responsable', $result['skipped']);
-
-        $flagged = $this->pdo->query(
-            "SELECT f.desk_code FROM trombinoscope_function_flags tff
-             JOIN functions f ON f.id = tff.function_id WHERE tff.is_lead = 1"
-        )?->fetchAll(\PDO::FETCH_COLUMN) ?: [];
-        self::assertSame(['Animateur responsable'], $flagged);
-
-        $connection = Connection::withPdo($this->pdo);
-        $sectionService = new SectionService(
-            $connection,
-            $this->encryption,
-            new MemberBadgeRepository($this->pdo),
-        );
-        $trombinoscope = new TrombinoscopeService(
-            new TrombinoscopeRepository($connection),
-            $sectionService,
-        );
-
-        $yearId = $this->yearIds['2025-2026'];
-        $resolved = 0;
-        foreach ($sectionService->getAllWithBranches() as $section) {
-            if ($trombinoscope->getResponsable((int) $section['id'], $yearId) !== null) {
-                $resolved++;
-            }
-        }
-
-        self::assertGreaterThan(
-            0,
-            $resolved,
-            'Aucune section n\'a de responsable résolu : le drapeau ou la fonction ne se rejoignent pas.',
-        );
-    }
-
-    /**
-     * @return array{counts: array<string, int>, skipped: array<string, string>}
+     * @return array{counts: array<string, int>, skipped: array<string, string>, notes: list<string>}
      */
     private function applyExtras(): array
     {

@@ -1,0 +1,183 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{% extends 'base.html.twig' %}
+{% block title %}Attestations — {{ site_name }}{% endblock %}
+{% block content %}
+    <div class="page-medium">
+        {% include 'partials/page_header.html.twig' with {
+            title: 'Attestations',
+            subtitle: "Découpe le PDF envoyé par la fédération et dépose l'attestation de chaque membre sur sa page, visible par lui seul.",
+        } only %}
+
+        {% if refusal %}
+            {#
+              A full state, not a flash: the refusal has three numbers and a
+              subtraction to show. A reader who only sees « le découpage a
+              échoué » redeposits the same file; one who sees the remainder
+              goes back to the federation.
+            #}
+            <div class="card border-danger mb-4">
+                <div class="card-header bg-danger-subtle text-danger-emphasis">
+                    <span class="fw-semibold">
+                        <i class="bi bi-x-octagon" aria-hidden="true"></i>
+                        Découpage impossible — le nombre de pages ne tombe pas juste
+                    </span>
+                </div>
+                <div class="card-body">
+                    <p>
+                        Rien n'a été produit. Un découpage décalé d'une seule page donnerait à chaque
+                        famille l'attestation d'une autre.
+                    </p>
+                    <dl class="row mb-3">
+                        <dt class="col-sm-7 fw-normal text-body-secondary">Pages dans le fichier</dt>
+                        <dd class="col-sm-5">{{ refusal.page_count }}</dd>
+                        <dt class="col-sm-7 fw-normal text-body-secondary">Pages par attestation, détectées</dt>
+                        <dd class="col-sm-5">{{ refusal.pages_per_document }}</dd>
+                        <dt class="col-sm-7 text-danger-emphasis">
+                            {{ refusal.page_count }} n'est pas un multiple de {{ refusal.pages_per_document }}
+                        </dt>
+                        <dd class="col-sm-5 text-danger-emphasis fw-semibold">reste {{ refusal.remainder }}</dd>
+                    </dl>
+                    <p class="small text-body-secondary mb-0">
+                        Le fichier est peut-être incomplet, ou une page de garde s'y est ajoutée.
+                        Vérifiez-le auprès de la fédération avant de réessayer.
+                    </p>
+                </div>
+            </div>
+        {% endif %}
+
+        <form method="post" action="/admin/attestations" enctype="multipart/form-data" class="card mb-4">
+            {{ csrf_field()|raw }}
+            <div class="card-body">
+                <h2 class="h6 mb-3">Déposer un fichier</h2>
+
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'attestations-scout-year',
+                    field_name: 'scout_year_id',
+                    label: 'Année scoute',
+                    type: 'select',
+                    options: year_options,
+                    required: true,
+                    help: "Le site ne déduit aucune date : une attestation fiscale portant sur 2025 se traite en général pendant 2025-2026, mais un rattrapage tombe ailleurs.",
+                } only %}
+
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'attestations-category',
+                    field_name: 'category',
+                    label: 'Catégorie',
+                    type: 'select',
+                    options: category_options,
+                    required: true,
+                    help: "Sert à rapprocher les lots entre eux — et à rien d'autre. C'est elle qui permet de répondre plus tard à « qui n'a toujours pas reçu la sienne ? ».",
+                } only %}
+
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'attestations-label',
+                    field_name: 'label',
+                    label: 'Libellé du lot',
+                    type: 'text',
+                    value: form.label,
+                    required: true,
+                    maxlength: 255,
+                    placeholder: 'Attestation fiscale 2025',
+                    help: "Ce libellé apparaît sur la page de chaque membre. C'est lui qui porte l'année couverte, le camp concerné, ou toute autre précision.",
+                } only %}
+
+                {% embed 'partials/drop_zone.html.twig' with {
+                    id: 'attestations-drop-zone',
+                    input_id: 'attestations-pdf',
+                    input_name: 'pdf_file',
+                    accept: '.pdf,application/pdf',
+                    message: 'Déposez ici le PDF reçu de la fédération, ou cliquez pour parcourir',
+                    input_label: 'Choisir le PDF reçu de la fédération',
+                    size: 'lg',
+                    class_extra: 'mb-3',
+                } only %}
+                    {% block extra %}
+                        <p class="small mt-2 mb-0">
+                            Le fichier contient toutes les attestations. Le site le découpe et détecte
+                            seul combien de pages compte chacune.
+                        </p>
+                        {# Named by the script once a file is chosen: a
+                           visually-hidden input tells a reader nothing about
+                           what they just picked. #}
+                        <p id="attestations-file-name" class="small fw-semibold mt-2 mb-0" hidden></p>
+                    {% endblock %}
+                {% endembed %}
+
+                <div class="alert alert-secondary small mb-3" role="note">
+                    <i class="bi bi-info-circle" aria-hidden="true"></i>
+                    Rien n'est distribué tant que vous n'avez pas vérifié l'appariement. Le fichier
+                    d'origine n'est pas conservé après découpage.
+                </div>
+
+                <button type="submit" class="btn btn-primary w-100 w-sm-auto">
+                    <i class="bi bi-scissors" aria-hidden="true"></i> Découper le fichier
+                </button>
+            </div>
+        </form>
+
+        {#
+          The other half of the question the partial files raise. Offered
+          from here rather than from a menu entry of its own: it is a reading
+          about what these deposits produced, and it only means anything once
+          at least one of them exists.
+        #}
+        <a href="/admin/attestations/couverture"
+           class="card mb-4 text-decoration-none text-body d-block">
+            <div class="card-body d-flex align-items-center gap-3">
+                <i class="bi bi-people fs-4 text-body-secondary" aria-hidden="true"></i>
+                <span class="flex-grow-1">
+                    <span class="fw-medium d-block">Qui n'a pas encore reçu son attestation</span>
+                    <span class="small text-body-secondary">
+                        Après plusieurs fichiers partiels, la seule façon de savoir de qui réclamer le
+                        complément à la fédération.
+                    </span>
+                </span>
+                <i class="bi bi-chevron-right text-body-secondary flex-shrink-0" aria-hidden="true"></i>
+            </div>
+        </a>
+
+        <h2 class="h6 text-body-secondary mb-2">Lots déposés</h2>
+
+        {% if batches is empty %}
+            {% include 'partials/empty_state.html.twig' with {
+                message: "Aucun lot n'a encore été déposé.",
+                icon: 'bi-file-earmark-text',
+            } only %}
+        {% else %}
+            <div class="list-group">
+                {% for batch in batches %}
+                    <a href="/admin/attestations/{{ batch.id }}" class="list-group-item list-group-item-action">
+                        <div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2">
+                            <div class="min-w-0">
+                                <div class="fw-semibold">{{ batch.label }}</div>
+                                <div class="small text-body-secondary">
+                                    {{ batch.category.label() }}
+                                    — {{ year_labels[batch.scoutYearId]|default('année inconnue') }}
+                                    — déposé le {{ batch.createdAt|date_fr }}
+                                </div>
+                            </div>
+                            <div class="d-flex align-items-center gap-2 flex-shrink-0">
+                                <span class="small text-body-secondary">
+                                    {{ batch.documentCount }} attestation{{ batch.documentCount > 1 ? 's' : '' }}
+                                </span>
+                                {% include 'partials/status_badge.html.twig' with {
+                                    status: batch.status.badgeKey(),
+                                    label: batch.status.label(),
+                                } only %}
+                            </div>
+                        </div>
+                    </a>
+                {% endfor %}
+            </div>
+        {% endif %}
+    </div>
+{% endblock %}
+
+{% block scripts %}
+    <script src="{{ asset('/assets/js/drop-zone.js') }}" defer></script>
+    <script src="{{ asset('/assets/js/attestations-deposit.js') }}" defer></script>
+{% endblock %}

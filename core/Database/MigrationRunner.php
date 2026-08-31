@@ -13,6 +13,51 @@ use Core\Journal\JournalService;
 class MigrationRunner
 {
     /**
+     * How many consecutive passes may fail in exactly the same way before
+     * the attempt is abandoned.
+     *
+     * Three, not one: a first failure can be a race with another process,
+     * and a second can be the same race. Three identical passes is not bad
+     * luck, it is a statement the database will not accept — and going
+     * round a fourth time only keeps the site on the progress page.
+     */
+    public const CONVERGENCE_ATTEMPTS = 3;
+
+    /**
+     * Internal setting recording an abandoned migration, so the failure is
+     * visible on the Maintenance page rather than only in the journal.
+     */
+    public const ABANDONED_SETTING = 'schema_migration_abandoned';
+
+    /**
+     * Shortest interval between two checkpoint WRITES, in seconds.
+     *
+     * checkpoint() is called after every statement, which used to mean one
+     * UPSERT into `settings` per DDL statement. On the reference
+     * installation that is 139 writes per pass, for the cosmetic MODIFY
+     * COLUMNs MariaDB reports as needed on every run — 139 round trips to
+     * persist a value nothing reads until the pass ends.
+     *
+     * Spacing them is only safe because of what a checkpoint now carries.
+     * Since the re-diff landed, it holds no queue: the live schema is the
+     * state, and every pass regenerates exactly the statements still
+     * missing. What a skipped write loses is the accumulated list of
+     * executed statements and the progress-bar denominator — reporting,
+     * not correctness. A pass killed mid-way still resumes correctly,
+     * because it resumes from the database, not from this row.
+     */
+    private const CHECKPOINT_MIN_INTERVAL_SECONDS = 0.5;
+
+    /**
+     * When saveProgress() last actually wrote, as a microtime(true).
+     * Kept on the instance rather than per-migrate() call, for the same
+     * reason as $introspectionCache: ModuleManager shares one runner
+     * across the core schema and every module's, so the write rate that
+     * matters is the one across all of them, not within each.
+     */
+    private float $lastCheckpointAt = 0.0;
+
+    /**
      * @param JournalService|null $journal Used for the one thing this class
      *   does that a `security`-level journal entry has to record: an
      *   explicit drop from a drops.sql actually removing a column, a
@@ -21,6 +66,19 @@ class MigrationRunner
      *   fresh install, whose `event_log` table is created by the very
      *   migration being run.
      */
+    /**
+     * Every table's introspected definition, read in bulk and kept on the
+     * instance — deliberately BEYOND a single migrate() call, because
+     * Core\Module\ModuleManager shares one MigrationRunner across the
+     * core schema and every module's, and re-reading the live schema for
+     * each was most of the cost of a migration. Null means "not read
+     * yet"; invalidated the moment any DDL executes, since the schema it
+     * describes has just changed.
+     *
+     * @var array<string, TableDefinition>|null
+     */
+    private ?array $introspectionCache = null;
+
     public function __construct(
         private Connection $connection,
         private SchemaIntrospector $introspector,
@@ -95,7 +153,18 @@ class MigrationRunner
         // against SQLite) — safe there since those tests never call
         // migrate() concurrently against the same connection.
         if (!$this->acquireMigrationLock()) {
-            return new MigrationResult(executedStatements: [], warnings: [], complete: false, progressFraction: 0.0);
+            // Not 0.0: another process is doing the work, and reporting
+            // zero would peg the progress bar at nothing for every visitor
+            // watching while it advances. Report what was actually
+            // checkpointed.
+            $stored = $this->getStoredProgress($this->progressSettingKey($schemaFiles));
+
+            return new MigrationResult(
+                executedStatements: [],
+                warnings: [],
+                complete: false,
+                progressFraction: $stored !== null ? $this->progressFraction($stored) : 0.0
+            );
         }
 
         try {
@@ -131,91 +200,64 @@ class MigrationRunner
         // Parsing schema files is cheap, local, and deterministic given
         // the same (unchanged, per the hash check above) file content — no
         // need to persist the parsed result, just reparse every call.
-        $declaredTables = [];
-        foreach ($schemaFiles as $file) {
-            array_push($declaredTables, ...$this->parser->parseFile($file));
-        }
         $declaredByName = [];
-        foreach ($declaredTables as $table) {
-            $declaredByName[$table->name] = $table;
-        }
-
-        // Step 1: build the table queue — one cheap INFORMATION_SCHEMA
-        // query (no per-table introspection), so this never needs to be
-        // interrupted mid-way.
-        if (!$progress->tableQueueBuilt) {
-            $progress->actualTableNames = $this->introspector->getTables();
-
-            foreach ($progress->actualTableNames as $name) {
-                if (!isset($declaredByName[$name])) {
-                    $progress->warnings[] = "Table '{$name}' exists in database but not in declared schema. Skipping (never auto-drop).";
-                }
-            }
-
-            $progress->remainingTableNames = array_keys($declaredByName);
-            $progress->totalTableCount = count($progress->remainingTableNames);
-            $progress->tableQueueBuilt = true;
-
-            if (($incomplete = $this->checkpoint($progressKey, $progress, $deadline)) !== null) {
-                return $incomplete;
+        foreach ($schemaFiles as $file) {
+            foreach ($this->parser->parseFile($file) as $table) {
+                $declaredByName[$table->name] = $table;
             }
         }
 
-        // Step 2: diff one declared table at a time.
-        while (!empty($progress->remainingTableNames)) {
-            $tableName = array_shift($progress->remainingTableNames);
-            $declared = $declaredByName[$tableName];
+        // Step 1: diff the whole declared schema against the live one,
+        // from scratch, on EVERY pass.
+        //
+        // This is what replaced a persisted queue of pending statements,
+        // and it is the fix for a defect that could strand a site forever:
+        // the queue was popped before the statement ran, so an interrupted
+        // pass replayed it, collected "Duplicate column name", and never
+        // converged. Re-diffing cannot have that problem — a statement
+        // that already ran is simply not generated again, because the
+        // column it adds is now there. The database is the checkpoint.
+        //
+        // Affordable precisely because introspection is now three
+        // INFORMATION_SCHEMA queries for the whole schema rather than
+        // three per table.
+        $pending = $this->diffAgainstLiveSchema($declaredByName, $progress);
 
-            $actual = in_array($tableName, $progress->actualTableNames, true)
-                ? $this->introspector->getTableDefinition($tableName)
-                : null;
-
-            // compareOneDeclaredTable() accumulates onto the comparator's
-            // internal warning list rather than resetting it (that reset
-            // only happens in compare(), the bulk entry point this class
-            // no longer calls) — take just the slice this table added.
-            $warningCountBefore = count($this->comparator->getWarnings());
-            $statements = $this->comparator->compareOneDeclaredTable($declared, $actual);
-            $newWarnings = array_slice($this->comparator->getWarnings(), $warningCountBefore);
-
-            array_push($progress->pendingStatements, ...$statements);
-            array_push($progress->warnings, ...$newWarnings);
-
-            if (($incomplete = $this->checkpoint($progressKey, $progress, $deadline)) !== null) {
-                return $incomplete;
-            }
-        }
-
-        // The diff phase (which just finished, whether just now or in a
-        // previous call) queued every statement this attempt will ever
-        // execute — a stable denominator for the execute phase's progress.
-        // Guarded so it's only ever captured once: on a resumed call where
-        // the diff phase already finished earlier, the while loop above
-        // does zero iterations (remainingTableNames is already empty), and
-        // this must NOT re-snapshot a shrunken pendingStatements as if it
-        // were the original total.
         if ($progress->totalStatementCount === 0) {
-            $progress->totalStatementCount = count($progress->pendingStatements);
+            $progress->totalStatementCount = count($pending);
         }
+        $progress->remainingStatementCount = count($pending);
 
-        // Step 3: execute one DDL statement at a time.
-        while (!empty($progress->pendingStatements)) {
-            $statement = array_shift($progress->pendingStatements);
-
+        // Step 2: execute, one statement at a time, within the budget.
+        $failures = [];
+        foreach ($pending as $index => $statement) {
             try {
                 $pdo->exec($statement);
                 $progress->executedStatements[] = $statement;
+                // The live schema just changed; anything cached about it
+                // is now a description of the past.
+                $this->introspectionCache = null;
             } catch (\PDOException $e) {
-                $progress->failedCount++;
-                $progress->warnings[] = "Failed to execute: {$statement} — Error: {$e->getMessage()}";
+                if (self::isAlreadyApplied($e)) {
+                    // Not a failure: the database already has what this
+                    // statement would have added. Reached when the memo
+                    // was stale, or when two processes raced — never a
+                    // reason to stop the schema converging.
+                    $this->introspectionCache = null;
+                } else {
+                    $failures[] = $statement;
+                    $progress->warnings[] = "Failed to execute: {$statement} — Error: {$e->getMessage()}";
+                }
             }
+
+            $progress->remainingStatementCount = count($pending) - $index - 1;
 
             if (($incomplete = $this->checkpoint($progressKey, $progress, $deadline)) !== null) {
                 return $incomplete;
             }
         }
 
-        // Step 4: apply explicit, reviewed column/constraint drops.
+        // Step 3: apply explicit, reviewed column/constraint drops.
         if (!$progress->dropsApplied) {
             $dropWarnings = [];
             $dropStatements = $this->applyExplicitDrops($schemaFiles, $pdo, $dropWarnings);
@@ -224,36 +266,194 @@ class MigrationRunner
             $progress->dropsApplied = true;
         }
 
-        // Step 5: return the result.
-        //
-        // Hash caching: save the hash so the next request skips migration
-        // entirely. The hash is saved when all generated DDL executed
-        // without error (no PDOException) — this is critical for MariaDB
-        // hosts where type-reporting differences (e.g. INT(11) vs INT,
-        // CURRENT_TIMESTAMP() vs CURRENT_TIMESTAMP) cause SchemaComparator
-        // to generate the same cosmetic MODIFY COLUMN statements on every
-        // single request. Those ALTERs succeed (no PDOException) but
-        // introspection still reports the same "different" type back,
-        // creating an infinite loop of DDL statements on every page load.
-        // By caching the hash after a successful run regardless of whether
-        // changes were applied, the next request short-circuits at the
-        // hash check.
-        //
-        // Informational warnings ("column exists in DB but not in schema")
-        // never block caching — they're expected when modules add columns
-        // not declared in core.sql. Only actual execution failures should
-        // prevent caching, since those mean the schema didn't converge.
-        if ($progress->failedCount === 0) {
-            $this->saveHash($hashKey, $currentHash);
+        // Step 4: decide whether this attempt is finished.
+        $converged = $failures === [];
+        $this->recordFailureSignature($progress, $failures);
+        $abandoned = !$converged && $progress->sameFailureCount >= self::CONVERGENCE_ATTEMPTS;
+
+        if (!$converged && !$abandoned) {
+            // Still failing, but the failures are new or the ceiling is not
+            // reached: keep the attempt open so the next pass retries. The
+            // hash stays uncached, so isPending() remains true.
+            $this->saveProgress($progressKey, $progress);
+
+            return new MigrationResult(
+                executedStatements: $progress->executedStatements,
+                warnings: $progress->warnings,
+                complete: false,
+                progressFraction: $this->progressFraction($progress),
+                converged: false
+            );
         }
+
+        // Hash caching: save it so the next request skips migration
+        // entirely. Critical on MariaDB hosts, where type-reporting
+        // differences (int(10) unsigned vs int unsigned, COLUMN_DEFAULT
+        // coming back as the string 'NULL') make the comparator generate
+        // the same cosmetic MODIFY COLUMN statements on every single pass.
+        // Those succeed, so they never block caching — but without the
+        // cache they would re-run on every page load forever.
+        //
+        // Saved on abandonment too, deliberately. A migration that cannot
+        // converge has to stop asking: a site held on the progress page
+        // indefinitely is a worse outcome than a schema missing a column,
+        // and the journal entry plus the persistent banner below are what
+        // make the second outcome visible instead of silent.
+        $this->saveHash($hashKey, $currentHash);
         $this->clearProgress($progressKey);
+
+        if ($abandoned) {
+            $this->recordAbandonedMigration($failures);
+        } else {
+            // A clean pass retires the banner a previous abandonment left
+            // behind: whatever was wrong has been fixed, and a warning
+            // nobody can clear is a warning everybody learns to ignore.
+            $this->clearAbandonedMigration();
+        }
 
         return new MigrationResult(
             executedStatements: $progress->executedStatements,
             warnings: $progress->warnings,
             complete: true,
-            progressFraction: 1.0
+            progressFraction: 1.0,
+            converged: $converged
         );
+    }
+
+    /**
+     * Every statement the live schema still needs, generated fresh.
+     *
+     * @param array<string, TableDefinition> $declaredByName
+     * @return array<string>
+     */
+    private function diffAgainstLiveSchema(array $declaredByName, MigrationProgress $progress): array
+    {
+        $live = $this->introspectedTables();
+        $pending = [];
+
+        foreach ($declaredByName as $name => $declared) {
+            // compareOneDeclaredTable() accumulates onto the comparator's
+            // internal warning list rather than resetting it (that reset
+            // only happens in compare(), the bulk entry point this class
+            // no longer calls) — take just the slice this table added.
+            $warningCountBefore = count($this->comparator->getWarnings());
+            $statements = $this->comparator->compareOneDeclaredTable($declared, $live[$name] ?? null);
+            $newWarnings = array_slice($this->comparator->getWarnings(), $warningCountBefore);
+
+            array_push($pending, ...$statements);
+            array_push($progress->warnings, ...$newWarnings);
+        }
+
+        return $pending;
+    }
+
+    /**
+     * Track how many consecutive passes have failed in exactly the same
+     * way. A different set of failures means progress of a kind — the
+     * previous ones were resolved — so the counter restarts.
+     *
+     * @param array<string> $failures
+     */
+    private function recordFailureSignature(MigrationProgress $progress, array $failures): void
+    {
+        if ($failures === []) {
+            $progress->failureSignature = '';
+            $progress->sameFailureCount = 0;
+
+            return;
+        }
+
+        sort($failures);
+        $signature = hash('sha256', implode("\n", $failures));
+
+        if ($signature === $progress->failureSignature) {
+            $progress->sameFailureCount++;
+
+            return;
+        }
+
+        $progress->failureSignature = $signature;
+        $progress->sameFailureCount = 1;
+    }
+
+    /**
+     * Make an abandoned migration loud rather than silent: a `security`
+     * journal entry, and a persistent setting the Maintenance page renders
+     * as a banner. Statement text only — a DDL statement names tables and
+     * columns, never a row's contents.
+     *
+     * @param array<string> $failures
+     */
+    private function recordAbandonedMigration(array $failures): void
+    {
+        $description = 'Migration de schéma abandonnée : les mêmes instructions échouent à chaque tentative';
+
+        try {
+            $this->journal?->log('core', 'schema_migration_abandoned', 'security', $description, [
+                'failed_statements' => count($failures),
+                'first_failure' => $failures[0] ?? '',
+            ]);
+        } catch (\Throwable) {
+            // Same reasoning as journalDrop(): never turn a bookkeeping
+            // problem into a migration failure.
+        }
+
+        $this->upsertInternalSetting(
+            self::ABANDONED_SETTING,
+            (string) json_encode(
+                (new AbandonedMigration(
+                    (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
+                    array_values($failures)
+                ))->toArray()
+            ),
+            'Migration de schéma non convergée (interne)',
+            'Renseigné quand une migration a été abandonnée après plusieurs tentatives identiquement '
+            . 'infructueuses ; la page Maintenance en affiche un bandeau. Vidé automatiquement dès '
+            . 'qu\'une migration se termine sans échec.'
+        );
+    }
+
+    private function clearAbandonedMigration(): void
+    {
+        try {
+            $stmt = $this->connection->getPdo()->prepare(
+                'DELETE FROM settings WHERE module_id IS NULL AND setting_key = ?'
+            );
+            $stmt->execute([self::ABANDONED_SETTING]);
+        } catch (\PDOException) {
+            // Best-effort, like clearProgress(): a leftover row shows a
+            // stale banner, never a broken migration.
+        }
+    }
+
+    /**
+     * Whether an abandoned migration is on record — what the Maintenance
+     * page's banner is driven by. Null when the last migration converged.
+     */
+    public function abandonedMigration(): ?AbandonedMigration
+    {
+        return AbandonedMigration::fromJson($this->getStoredSetting(self::ABANDONED_SETTING));
+    }
+
+    /**
+     * MySQL/MariaDB error codes meaning "the database already has this".
+     *
+     * A statement that is a no-op because its effect is already present is
+     * not a failure — it is the normal shape of a resumed migration, and
+     * of two processes that raced. Treating it as a failure is exactly
+     * what used to stop a schema converging. A syntax error, a bad type, a
+     * missing referenced table: those stay failures.
+     */
+    private static function isAlreadyApplied(\PDOException $e): bool
+    {
+        $code = (int) ($e->errorInfo[1] ?? 0);
+
+        return in_array($code, [
+            1050, // table already exists
+            1060, // duplicate column name
+            1061, // duplicate key name
+            1826, // duplicate foreign key constraint name
+        ], true);
     }
 
     /**
@@ -261,12 +461,22 @@ class MigrationRunner
      * the incomplete MigrationResult the caller should return immediately.
      * Returns null when there's still budget left, meaning the caller
      * should carry on to the next unit of work.
+     *
+     * The write is rate-limited (CHECKPOINT_MIN_INTERVAL_SECONDS) but the
+     * one that matters is not: a pass leaving on its budget always writes
+     * before it goes, so the row the next pass reads is never stale by
+     * more than one skipped interval of purely informational state.
      */
     private function checkpoint(string $progressKey, MigrationProgress $progress, float $deadline): ?MigrationResult
     {
-        $this->saveProgress($progressKey, $progress);
+        $now = microtime(true);
+        $outOfBudget = $now >= $deadline;
 
-        if (microtime(true) < $deadline) {
+        if ($outOfBudget || ($now - $this->lastCheckpointAt) >= self::CHECKPOINT_MIN_INTERVAL_SECONDS) {
+            $this->saveProgress($progressKey, $progress);
+        }
+
+        if (!$outOfBudget) {
             return null;
         }
 
@@ -280,28 +490,24 @@ class MigrationRunner
 
     /**
      * Rough 0.0–1.0 estimate for the migration-in-progress page's progress
-     * bar: three equally-weighted phases (table diffing, statement
-     * execution, explicit drops), each contributing its own completion
-     * fraction. Deliberately approximate — table/statement counts vary
-     * wildly in cost (a one-column ALTER vs. a big CREATE TABLE), so this
-     * is a "does the bar move" indicator, not a time estimate.
+     * bar: two equally-weighted phases (statement execution, explicit
+     * drops). The diff is no longer one of them — it is three queries for
+     * the whole schema, done in one go at the start of every pass rather
+     * than chunked across several.
+     *
+     * Deliberately approximate: statement costs vary wildly (a one-column
+     * ALTER against a big CREATE TABLE), so this is a "does the bar move"
+     * indicator, not a time estimate.
      */
     private function progressFraction(MigrationProgress $progress): float
     {
-        $diffFraction = $progress->totalTableCount > 0
-            ? ($progress->totalTableCount - count($progress->remainingTableNames)) / $progress->totalTableCount
-            : ($progress->tableQueueBuilt ? 1.0 : 0.0);
-
-        $executeFraction = 0.0;
-        if ($progress->tableQueueBuilt && empty($progress->remainingTableNames)) {
-            $executeFraction = $progress->totalStatementCount > 0
-                ? ($progress->totalStatementCount - count($progress->pendingStatements)) / $progress->totalStatementCount
-                : 1.0;
-        }
+        $executeFraction = $progress->totalStatementCount > 0
+            ? ($progress->totalStatementCount - $progress->remainingStatementCount) / $progress->totalStatementCount
+            : 1.0;
 
         $dropsFraction = $progress->dropsApplied ? 1.0 : 0.0;
 
-        return ($diffFraction + $executeFraction + $dropsFraction) / 3;
+        return (max(0.0, min(1.0, $executeFraction)) + $dropsFraction) / 2;
     }
 
     /**
@@ -367,7 +573,7 @@ class MigrationRunner
      */
     private function schemaHashSettingKey(array $schemaFiles): string
     {
-        return 'schema_hash_' . substr(hash('sha256', implode(',', $schemaFiles)), 0, 16);
+        return 'schema_hash_' . $this->schemaFilesIdentity($schemaFiles);
     }
 
     /**
@@ -375,7 +581,44 @@ class MigrationRunner
      */
     private function progressSettingKey(array $schemaFiles): string
     {
-        return 'schema_migration_progress_' . substr(hash('sha256', implode(',', $schemaFiles)), 0, 16);
+        return 'schema_migration_progress_' . $this->schemaFilesIdentity($schemaFiles);
+    }
+
+    /**
+     * Which schema files this is a migration OF — the identity both the
+     * hash cache and the resumable progress row are keyed on.
+     *
+     * Canonicalised, because the callers do not spell the same file the
+     * same way and one file must be one migration. `public/index.php`
+     * passes `<root>/public/../schema/core.sql`; `Task\
+     * InstallUpdateHandler` and `Task\RestoreBackupHandler` pass
+     * `<root>/schema/core.sql` (dirname of the storage path). Keyed on the
+     * raw strings, those are two `schema_hash_` rows and two
+     * `schema_migration_progress_` rows for one file — so an update would
+     * finish migrating, cache its hash, and then the very next page load
+     * would ask the other key, still find the old hash, and serve the
+     * migration-in-progress page: re-running through the browser the work
+     * the update had just done, and resuming neither side's checkpoint.
+     *
+     * realpath() answers false for a file that does not exist. That is not
+     * an error here — computeSchemaHash() already treats a missing schema
+     * file as empty content — so the raw string stands in, which keeps the
+     * key stable for a caller naming a file that is not there.
+     *
+     * @param array<string> $schemaFiles
+     */
+    private function schemaFilesIdentity(array $schemaFiles): string
+    {
+        $canonical = array_map(
+            static function (string $file): string {
+                $real = realpath($file);
+
+                return $real !== false ? $real : $file;
+            },
+            $schemaFiles
+        );
+
+        return substr(hash('sha256', implode(',', $canonical)), 0, 16);
     }
 
     private function loadOrStartProgress(string $key, string $targetHash): MigrationProgress
@@ -407,6 +650,7 @@ class MigrationRunner
 
     private function saveProgress(string $key, MigrationProgress $progress): void
     {
+        $this->lastCheckpointAt = microtime(true);
         $this->upsertInternalSetting(
             $key,
             (string) json_encode($progress->toArray()),
@@ -578,6 +822,7 @@ class MigrationRunner
                 try {
                     $pdo->exec($statement);
                     $executed[] = $statement;
+                    $this->introspectionCache = null;
                     $this->journalDrop($drop);
                 } catch (\PDOException $e) {
                     $warnings[] = "Failed to execute: {$statement} — Error: {$e->getMessage()}";
@@ -586,6 +831,28 @@ class MigrationRunner
         }
 
         return $executed;
+    }
+
+    /**
+     * Every table in the database, introspected once and reused until a
+     * DDL statement invalidates it.
+     *
+     * Reads the whole schema rather than only the tables one caller asked
+     * about, so a later call for a different set — the next module's
+     * schema, on the shared instance — is answered from the same cache
+     * instead of paying for another round.
+     *
+     * @return array<string, TableDefinition>
+     */
+    private function introspectedTables(): array
+    {
+        if ($this->introspectionCache === null) {
+            $this->introspectionCache = $this->introspector->getTableDefinitions(
+                $this->introspector->getTables()
+            );
+        }
+
+        return $this->introspectionCache;
     }
 
     /**

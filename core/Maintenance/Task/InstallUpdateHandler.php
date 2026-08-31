@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Core\Maintenance\Task;
 
 use Core\Database\MigrationRunner;
+use Core\Database\SchemaFiles;
 use Core\Database\SchemaComparator;
 use Core\Database\SchemaIntrospector;
 use Core\Database\SqlParser;
@@ -17,11 +18,13 @@ use Core\File\FileRepository;
 use Core\Http\StreamResponseHeaders;
 use Core\Maintenance\BackupRepository;
 use Core\Maintenance\BackupService;
+use Core\Maintenance\InstallLock;
 use Core\Maintenance\OpcodeCache;
 use Core\Maintenance\UpdateException;
 use Core\Maintenance\UpdateHistory;
 use Core\Maintenance\UpdateHistoryRepository;
 use Core\Maintenance\VersionFile;
+use Core\Scheduler\SchedulerKick;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
@@ -103,6 +106,31 @@ class InstallUpdateHandler implements TaskHandlerInterface
             return;
         }
 
+        // Nothing below this point may run twice at once: it overwrites the
+        // live install directory. The guards upstream cannot prevent that on
+        // their own — findInProgress() cannot see a queued install and
+        // cancelPending() dedupes only within one reference — so two rows
+        // with different references can both be due. See InstallLock.
+        if (!InstallLock::acquire($pdo)) {
+            // Terminal, not silent and not left 'pending': the install that
+            // holds the lock is about to call markOtherInProgressAsFailed()
+            // on every non-terminal row anyway, and a row abandoned in
+            // 'pending' shows as "En cours" in the update history forever.
+            $updateHistoryRepository->markFailed(
+                $historyId,
+                'Installation abandonnée : une autre installation était déjà en cours au même moment.'
+            );
+            $context->journal->log(
+                'core',
+                'update_skipped',
+                'info',
+                'Installation ignorée : une autre installation détenait déjà le verrou',
+                ['history_id' => $historyId, 'version_to' => $history->versionTo],
+                $history->requestedBy
+            );
+            return;
+        }
+
         // This update is genuinely about to start — the clearest possible
         // signal that any OTHER still-non-terminal row is abandoned, not
         // actually running (see UpdateHistoryRepository::
@@ -171,21 +199,43 @@ class InstallUpdateHandler implements TaskHandlerInterface
                 $this->clearCompiledTemplateCache($context->storagePath);
                 $this->dropStaleCompiledCode();
 
+                // The migration does NOT run here, and that is the whole
+                // point of this line.
+                //
+                // installFiles() has just replaced every file on disk
+                // while this process keeps running. Its own classes are
+                // the OLD ones, already loaded; anything it has not
+                // loaded yet is autoloaded from the NEW files. Migrating
+                // from here therefore means running the previous
+                // version's MigrationRunner against the next version's
+                // MigrationResult and MigrationProgress — and removing so
+                // much as a constructor parameter from either of those is
+                // then enough to make the update throw, roll back, and
+                // roll back identically on every retry, because the retry
+                // runs the same old code. That is not hypothetical: it is
+                // six consecutive rollbacks on scoutmagic.be over
+                // `Unknown named parameter $backupCreated`, and it would
+                // have been six more over `array_push(): Argument #1 must
+                // be of type array, null given` if the queue fields had
+                // simply been dropped.
+                //
+                // So the migration is handed to a different process. The
+                // resume task below re-enters this handler on a later
+                // scheduler pass, where every class is loaded from the
+                // new files and no mixture is possible.
+                // SchedulerRunner::processOverdue() claims its task list
+                // once, at the start of a pass, so a task created during
+                // a pass is never run by that same pass — the different
+                // process is guaranteed, not hoped for.
                 $updateHistoryRepository->setStatus($historyId, 'migrating');
-                $migrationRunner = new MigrationRunner(
-                    $context->connection,
-                    new SchemaIntrospector($pdo),
-                    new SchemaComparator(),
-                    new SqlParser()
-                );
-                $migrationResult = $migrationRunner->migrate([$basePath . '/schema/core.sql']);
+                $this->scheduleMigrationResume($context, $historyId, $downloadUrl, $sourceType);
 
-                if (!$migrationResult->complete) {
-                    $this->scheduleMigrationResume($context, $historyId, $downloadUrl, $sourceType);
-                    return;
-                }
+                // ...and started now rather than at the next cron tick or
+                // the next visitor's page load, which would just be
+                // "migrate on somebody's request" wearing a different hat.
+                SchedulerKick::now($context);
 
-                $this->finishInstall($historyId, $history, $context, $updateHistoryRepository, $backupRepository, $fileRepository);
+                return;
             } catch (\Throwable $installError) {
                 $this->rollbackToSafetyBackup(
                     $historyId,
@@ -230,6 +280,13 @@ class InstallUpdateHandler implements TaskHandlerInterface
             );
         } finally {
             $this->removeDirectory($tempDir);
+            // Released here and not at the end of the whole update: an
+            // out-of-budget migration returns from handle() with the status
+            // still 'migrating' and resumes in a LATER invocation, which
+            // re-enters through resumeMigration() and replaces no files at
+            // all. Holding the lock across that gap would mean holding it
+            // across a connection that has already gone away.
+            InstallLock::release($pdo);
         }
     }
 
@@ -262,12 +319,14 @@ class InstallUpdateHandler implements TaskHandlerInterface
                 new SchemaComparator(),
                 new SqlParser()
             );
-            $migrationResult = $migrationRunner->migrate([$basePath . '/schema/core.sql']);
+            $migrationResult = $migrationRunner->migrate(SchemaFiles::all($basePath));
 
             if (!$migrationResult->complete) {
                 $this->scheduleMigrationResume($context, $historyId, $downloadUrl, $sourceType);
                 return;
             }
+
+            $this->refuseUnconvergedMigration($migrationResult);
 
             $this->finishInstall($historyId, $history, $context, $updateHistoryRepository, $backupRepository, $fileRepository);
         } catch (\Throwable $migrationError) {
@@ -330,6 +389,31 @@ class InstallUpdateHandler implements TaskHandlerInterface
      * the top-level guard in handle() checks to route back into
      * resumeMigration() next time.
      */
+    /**
+     * An abandoned migration is a failed update, not a degraded one.
+     *
+     * MigrationRunner gives up after several identically failing passes
+     * and caches the schema hash anyway, because a site held on the
+     * progress page forever is worse than a schema missing a column. That
+     * trade-off is right for a visitor arriving on a site nobody is
+     * updating; it is wrong here, where a safety backup exists and
+     * rolling back to it is both possible and correct. `complete` alone
+     * cannot tell the two apart, which is why MigrationResult carries
+     * `converged` — throwing here hands the case to the caller's existing
+     * rollback path (status `rolled_back`, not `failed`).
+     */
+    private function refuseUnconvergedMigration(\Core\Database\MigrationResult $result): void
+    {
+        if ($result->converged) {
+            return;
+        }
+
+        throw new \RuntimeException(
+            'Schema migration was abandoned without converging: '
+            . 'the same statements failed on every attempt.'
+        );
+    }
+
     private function scheduleMigrationResume(TaskContext $context, int $historyId, string $downloadUrl, string $sourceType): void
     {
         $schedulerService = new SchedulerService(new SchedulerRepository($context->connection->getPdo()));
@@ -485,12 +569,27 @@ class InstallUpdateHandler implements TaskHandlerInterface
                 'L\'installation de la mise à jour a échoué — la version précédente a été restaurée '
                 . 'automatiquement. Le détail est dans le journal des événements.'
             ));
+            // The technical detail goes HERE and nowhere else. The
+            // user-facing message above deliberately says only "the detail
+            // is in the event journal" (UserFacingMessage's rule: no class
+            // name, no file path, no library text on a page) — which was a
+            // promise this entry did not keep. Six production rollbacks
+            // were diagnosable only by reasoning about the diff, because
+            // the exception message existed nowhere: not in the journal,
+            // not in update_history, and not in the server log either,
+            // since the handler catches it.
             $context->journal->log(
                 'core',
                 'update_rolled_back',
                 'info',
                 'Restauration automatique effectuée après échec de mise à jour',
-                ['version_from' => $history->versionFrom, 'version_to' => $history->versionTo],
+                [
+                    'version_from' => $history->versionFrom,
+                    'version_to' => $history->versionTo,
+                    'error' => $error->getMessage(),
+                    'error_class' => $error::class,
+                    'error_at' => basename($error->getFile()) . ':' . $error->getLine(),
+                ],
                 $history->requestedBy
             );
             $notifyTitle = 'Échec de la mise à jour';

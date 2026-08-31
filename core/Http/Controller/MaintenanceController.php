@@ -8,10 +8,13 @@ declare(strict_types=1);
 
 namespace Core\Http\Controller;
 
+use Core\Database\AbandonedMigration;
+use Core\Database\MigrationRunner;
 use Core\Config\SettingService;
 use Core\Exception\UserFacingMessage;
 use Core\File\FileRepository;
 use Core\Http\FlashMessage;
+use Core\Database\SchemaFiles;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
@@ -46,6 +49,9 @@ class MaintenanceController extends AbstractController
     private const FULL_BACKUP_SCOPES = ['full_config', 'full_no_gallery', 'full_with_gallery'];
 
     private const KEEP_BACKUPS = 5;
+
+    /** How many past installations Configuration > Maintenance lists. */
+    private const UPDATE_HISTORY_SHOWN = 20;
 
     /**
      * How long the `dev` channel may go without installing anything before
@@ -95,7 +101,11 @@ class MaintenanceController extends AbstractController
         private SettingService $settingService,
         private string $storagePath,
         private SecretManager $secretManager,
-        private ?GitHubReleaseClientInterface $releaseClient = null
+        private ?GitHubReleaseClientInterface $releaseClient = null,
+        // Optional, and trailing, so no existing construction site moves.
+        // Null simply means updateStatus() polls without advancing the
+        // migration — exactly what it did before.
+        private ?MigrationRunner $migrationRunner = null
     ) {
     }
 
@@ -115,7 +125,18 @@ class MaintenanceController extends AbstractController
         [$installedVersionDisplay, $installedVersionCommit] = self::splitInstalledVersion($installedVersion);
         $installedNotes = $this->installedVersionNotes($installedVersion, $installedVersionCommit);
 
+        // A migration that gave up caches its hash anyway, so the site
+        // keeps serving pages instead of sitting on the progress screen
+        // forever. That is only an acceptable trade if somebody is told —
+        // this is where they are told.
+        $abandonedMigration = AbandonedMigration::fromJson(
+            $this->settingService->get(MigrationRunner::ABANDONED_SETTING) !== null
+                ? (string) $this->settingService->get(MigrationRunner::ABANDONED_SETTING)
+                : null
+        );
+
         return $this->render('config/maintenance.html.twig', [
+            'abandoned_migration' => $abandonedMigration,
             'installed_version' => $installedVersionDisplay,
             'installed_version_commit' => $installedVersionCommit,
             'installed_version_notes' => $installedNotes['notes'],
@@ -126,7 +147,13 @@ class MaintenanceController extends AbstractController
             'update_release_notes' => (string) ($this->settingService->get('update_release_notes') ?: ''),
             'update_release_html_url' => (string) ($this->settingService->get('update_release_html_url') ?: ''),
             'update_dependencies_changed' => (bool) ((int) ($this->settingService->get('update_dependencies_changed') ?: '0')),
-            'update_history' => $this->updateHistoryRepository->findRecent(5),
+            // Twenty, not five. Five showed roughly one evening of dev-mode
+            // auto-updates: the six consecutive rollbacks that wedged
+            // production did not fit on the page at once, so the pattern
+            // — every attempt failing, always at the same point — was
+            // invisible to the person looking at it. A run of failures is
+            // the thing this table exists to make obvious.
+            'update_history' => $this->updateHistoryRepository->findRecent(self::UPDATE_HISTORY_SHOWN),
             'backups' => $this->backupRepository->findRecent(self::KEEP_BACKUPS),
             'gallery_enabled' => in_array('gallery', $this->moduleManager->getEnabledModuleIds(), true),
             'zip_encryption_supported' => $this->backupService->supportsZipEncryption(),
@@ -408,10 +435,60 @@ class MaintenanceController extends AbstractController
             return $this->json(['error' => 'Mise à jour introuvable.'], 404);
         }
 
+        $progress = $this->advanceMigration($history->status);
+        $history = $this->updateHistoryRepository->findById($id) ?? $history;
+
         return $this->json([
             'status' => $history->status,
             'error_message' => $history->errorMessage,
+            'migration_progress' => $progress,
         ]);
+    }
+
+    /**
+     * One short migration slice, on the poll that is already happening.
+     *
+     * The administrator watching this page is refetching every three
+     * seconds anyway; before this, each of those requests read a status
+     * row and did nothing. Now they drive the work — the same thing
+     * `POST /api/system/migration-step` does for the migration-in-progress
+     * page, and for the same reason: a queue that only advances when the
+     * scheduler happens to run is a queue somebody watches not advancing.
+     *
+     * Three deliberate limits.
+     *
+     * **Only during `migrating`.** Any other status means either nothing
+     * to migrate or a step that is not this one's to touch, and running
+     * DDL on a status poll for a failed update would be gratuitous.
+     *
+     * **A short budget**, because this runs inside a request a person is
+     * waiting on. It is the same 5 s the migration-step endpoint uses, not
+     * the 900 s `public/cron.php` can afford — the poll returns, the next
+     * one three seconds later resumes from the checkpoint.
+     *
+     * **Never fatal.** This endpoint's job is to report a status; a
+     * migration that throws must not turn that into a 500 and leave the
+     * page with no idea what is happening. The scheduled resume task owns
+     * the failure path, including the rollback, and it will see the same
+     * error on its own pass.
+     *
+     * Nothing here advances `update_history`: finishing the update stays
+     * `Task\InstallUpdateHandler`'s, whose resume path re-diffs and finds
+     * the work already done.
+     */
+    private function advanceMigration(string $status): ?float
+    {
+        if ($status !== 'migrating' || $this->migrationRunner === null) {
+            return null;
+        }
+
+        try {
+            return $this->migrationRunner
+                ->migrate(SchemaFiles::all(dirname($this->storagePath)))
+                ->progressFraction;
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /**

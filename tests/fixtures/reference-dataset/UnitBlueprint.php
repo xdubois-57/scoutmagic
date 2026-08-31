@@ -61,18 +61,40 @@ final class UnitBlueprint
      * canonicalSortOrder() recognises — and must NOT contain "unité", which
      * that method routes to the Staff d'U slot (50).
      *
-     * @var array<string, array{name: string, branch: string, ignoredCode: string}>
+     * `email` fills `sections.email`, the one section column no Desk export
+     * carries: it is typed on Configuration > Config Desk and read by every
+     * page that offers "écrire à la section". The column existed and was
+     * empty in every earlier version of this dataset, which made those pages
+     * look broken rather than unconfigured. The domain is the unit's own,
+     * under the RFC 2606 reserved `example.net` — one domain for the unit,
+     * never a real one and never the same as the members' `example.com`.
+     *
+     * @var array<string, array{name: string, branch: string, ignoredCode: string, email: string}>
      */
     public const SECTIONS = [
-        'bal1' => ['name' => 'Ribambelle Bleue',     'branch' => 'Baladins',   'ignoredCode' => 'ZZ001B2'],
-        'bal2' => ['name' => 'Ribambelle Verte',     'branch' => 'Baladins',   'ignoredCode' => 'ZZ001L1'],
-        'lou1' => ['name' => 'Meute de Seeonee',     'branch' => 'Louveteaux', 'ignoredCode' => 'ZZ001L2'],
-        'lou2' => ['name' => 'Meute de Waingunga',   'branch' => 'Louveteaux', 'ignoredCode' => 'ZZ001E1'],
-        'ecl1' => ['name' => 'Troupe du Faucon',     'branch' => 'Éclaireurs', 'ignoredCode' => 'ZZ001P1'],
-        'pio1' => ['name' => "Poste de l'Escaut",    'branch' => 'Pionniers',  'ignoredCode' => 'ZZ001R1'],
-        'rou1' => ['name' => 'Route de Compostelle', 'branch' => 'Route',      'ignoredCode' => 'ZZ001I1'],
-        'iam1' => ['name' => 'Iama Horizon',         'branch' => 'Iama',       'ignoredCode' => 'ZZ001B1'],
+        'bal1' => ['name' => 'Ribambelle Bleue',     'branch' => 'Baladins',   'ignoredCode' => 'ZZ001B2', 'email' => 'ribambelle-bleue@' . self::MAIL_DOMAIN],
+        'bal2' => ['name' => 'Ribambelle Verte',     'branch' => 'Baladins',   'ignoredCode' => 'ZZ001L1', 'email' => 'ribambelle-verte@' . self::MAIL_DOMAIN],
+        'lou1' => ['name' => 'Meute de Seeonee',     'branch' => 'Louveteaux', 'ignoredCode' => 'ZZ001L2', 'email' => 'seeonee@' . self::MAIL_DOMAIN],
+        'lou2' => ['name' => 'Meute de Waingunga',   'branch' => 'Louveteaux', 'ignoredCode' => 'ZZ001E1', 'email' => 'waingunga@' . self::MAIL_DOMAIN],
+        'ecl1' => ['name' => 'Troupe du Faucon',     'branch' => 'Éclaireurs', 'ignoredCode' => 'ZZ001P1', 'email' => 'faucon@' . self::MAIL_DOMAIN],
+        'pio1' => ['name' => "Poste de l'Escaut",    'branch' => 'Pionniers',  'ignoredCode' => 'ZZ001R1', 'email' => 'escaut@' . self::MAIL_DOMAIN],
+        'rou1' => ['name' => 'Route de Compostelle', 'branch' => 'Route',      'ignoredCode' => 'ZZ001I1', 'email' => 'compostelle@' . self::MAIL_DOMAIN],
+        'iam1' => ['name' => 'Iama Horizon',         'branch' => 'Iama',       'ignoredCode' => 'ZZ001B1', 'email' => 'iama@' . self::MAIL_DOMAIN],
     ];
+
+    /**
+     * The unit's own mail domain, RFC 2606 reserved so it can never resolve.
+     * Deliberately different from the members' `example.com`: a section
+     * address is the unit's, a member's address is the family's, and the two
+     * being visibly different is what makes a mis-wired "reply to" obvious.
+     */
+    public const MAIL_DOMAIN = 'zz001.example.net';
+
+    /**
+     * Staff d'U never appears in a Desk export — UnitStaffSectionService
+     * synthesises it — so its address cannot live in SECTIONS above.
+     */
+    public const UNIT_STAFF_EMAIL = 'staff@' . self::MAIL_DOMAIN;
 
     /**
      * Target headcount per section per year: [animés, cadres].
@@ -160,6 +182,15 @@ final class UnitBlueprint
      * behaviour — the label is the raw Desk string and nothing re-sorts it by
      * meaning.
      *
+     * `Animateur responsable` is the function the trombinoscope's
+     * "responsable" comes from: Modules\Trombinoscope\Repository\
+     * FunctionFlagsRepository flags it `is_lead`, and
+     * Service\TrombinoscopeService promotes whoever holds it to the top of
+     * the section's staff. Exactly ONE cadre per section per year carries it
+     * (PopulationBuilder::designateSectionLeads()), because a flag every
+     * animateur carried would make the "responsable" whichever row the query
+     * happened to return first. See SECTION_LEAD_FUNCTION below.
+     *
      * @var array<string, string>
      */
     public const FUNCTIONS = [
@@ -193,6 +224,17 @@ final class UnitBlueprint
         'Intendant',
         'Candidat intendant',
     ];
+
+    /**
+     * The FONCTION whose `is_lead` flag the trombinoscope reads. Named once
+     * here so the generator that hands it out and the seeder that flags it
+     * cannot drift apart.
+     *
+     * It is `Animateur responsable` rather than the `Chef de section` this
+     * mechanism was built with, for the same reason the rest of this table
+     * changed: that is the label a real Desk export carries.
+     */
+    public const SECTION_LEAD_FUNCTION = 'Animateur responsable';
 
     /** Functions held at unit level: no Branche, no Section, no Date début. */
     public const UNIT_LEVEL_FUNCTIONS = [

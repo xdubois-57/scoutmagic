@@ -1,7 +1,8 @@
 // Shared end-to-end helpers for the groups module: open the group-creation
-// form, and wait until groups.js is actually running.
+// form, wait until groups.js is actually running, and unfold the message
+// composer it folds away.
 //
-// Both are needed by every scenario that touches a group — specs/
+// All three are needed by every scenario that touches a group — specs/
 // groups-discussion.spec.js writes in one, specs/groups-management.spec.js
 // runs one — and each is a fact about the module rather than about either
 // scenario, so they live here instead of once per file.
@@ -46,4 +47,24 @@ export async function openCreateGroupForm(page) {
  */
 export async function waitForGroupsJsReady(page) {
     await page.waitForFunction(() => document.documentElement.classList.contains('groups-js'));
+}
+
+/**
+ * Unfold the message composer on a group page.
+ *
+ * modules/groups/views/show.html.twig renders the composer as a single
+ * tinted line — an avatar, « Écrire un message… » and the photo and poll
+ * icons — and groups.js folds the real form away behind it as soon as it
+ * runs. Every scenario that writes a message therefore has to ask for the
+ * form first, exactly as a member does.
+ *
+ * Always call it AFTER waitForGroupsJsReady(): the fold happens inside
+ * that same top-level evaluation, so before it the bar is still hidden and
+ * this click would have nothing to land on.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+export async function openComposer(page) {
+    await page.getByRole('button', { name: 'Écrire un message…' }).click();
+    await expect(page.getByLabel('Écrire un message')).toBeVisible();
 }

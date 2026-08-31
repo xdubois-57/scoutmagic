@@ -22,6 +22,18 @@
 // With exactly one active banner, "random pick among visible" is
 // deterministic — either it may show and does, or it must not and does
 // not.
+//
+// ONE THING THIS SCENARIO LEANS ON, said out loud because it is invisible
+// here: the editorial banner is the LAST of the home page's three bands
+// in priority order (pages/home.html.twig), so it only renders for a
+// visitor who owes nothing and has no unread group. That holds for the
+// administrator this scenario drives — nothing has billed them or written
+// in their groups yet at this point in the run — and the priority rule
+// itself is checked in specs/public-home-page.spec.js, which deliberately
+// creates both of those states and cleans them up again. A scenario that
+// gave this administrator money to pay BEFORE this file runs would make
+// the assertions below fail with "the banner is missing", which is why
+// this paragraph is here rather than in a commit message.
 import { expect, test } from '@playwright/test';
 
 import { answerCookieBanner } from '../support/cookie-banner.js';

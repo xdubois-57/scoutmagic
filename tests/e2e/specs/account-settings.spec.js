@@ -136,10 +136,20 @@ test('the account page updates the profile, replaces the photo through the clien
     await page.waitForURL('**/account', { waitUntil: 'domcontentloaded' });
     const avatarImage = page.locator('.editable-image img.person-avatar');
     await expect(avatarImage).toBeVisible();
-    expect(
-        await avatarImage.evaluate((img) => /** @type {HTMLImageElement} */ (img).naturalWidth),
-        'the stored WebP must decode when served back through /files',
-    ).toBeGreaterThan(0);
+    // Polled rather than sampled once. The redirect above is awaited at
+    // DOMContentLoaded, which says nothing about subresources, and
+    // Core\View\PersonAvatar renders this <img> with width/height
+    // attributes plus loading="lazy" decoding="async" — so the element
+    // already owns its reserved 96px box, and satisfies toBeVisible(),
+    // while naturalWidth is still 0. The claim is unchanged; it is just
+    // given the time the decode always needed. Same shape as the
+    // lightbox decode check in gallery-media.spec.js.
+    await expect
+        .poll(
+            () => avatarImage.evaluate((img) => /** @type {HTMLImageElement} */ (img).naturalWidth),
+            { message: 'the stored WebP must decode when served back through /files' },
+        )
+        .toBeGreaterThan(0);
 
     // ---------------------------------------------------------------
     // And taken away again — through the data-confirm dialog that

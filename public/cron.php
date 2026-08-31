@@ -46,10 +46,9 @@ use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Cookie\CookieConsentService;
 use Core\Database\Connection;
-use Core\Database\MigrationRunner;
-use Core\Database\SchemaComparator;
-use Core\Database\SchemaIntrospector;
-use Core\Database\SqlParser;
+use Core\Database\DeploymentMigration;
+use Core\Maintenance\AbandonedInstallSweeper;
+use Core\Maintenance\UpdateHistoryRepository;
 use Core\Http\Router;
 use Core\Import\MemberYearRepository;
 use Core\Journal\JournalRepository;
@@ -115,9 +114,23 @@ $settingService = new SettingService(new SettingRepository($pdo));
 $settingService->register('cron_last_run', '0', 'number', 'Dernier passage du cron réel',
     'Horodatage (timestamp Unix) du dernier passage de public/cron.php — jamais mis à jour par le pseudo-cron. Lecture seule.',
     null, null, null, false, 999);
-(new SettingRepository($pdo))->updateValue(null, 'cron_last_run', (string) time());
+$cronSettingRepository = new SettingRepository($pdo);
+$cronSettingRepository->updateValue(null, 'cron_last_run', (string) time());
+
+// ...and the ring buffer beside it. One stamp answers "did a real cron
+// ever run"; it cannot answer "how often", and a crontab configured hourly
+// on a host that silently drops it looks identical through one stamp to a
+// crontab firing every minute. Only the intervals tell them apart, and an
+// interval needs two timestamps (Core\Scheduler\CronRunHistory).
+\Core\Scheduler\CronRunHistory::register($settingService);
+\Core\Scheduler\CronRunHistory::record($cronSettingRepository, time());
 $journalRepo = new JournalRepository($pdo);
 $journalService = new JournalService($journalRepo);
+
+// An uncaught throwable in a scheduled task is exactly the kind of error
+// nobody is watching a terminal for — journal it too, now that there is a
+// database to journal it to (Core\Http\ErrorHandler class docblock).
+\Core\Http\ErrorHandler::setJournalService($journalService);
 $schedulerRepo = new SchedulerRepository($pdo);
 $runner = new SchedulerRunner($schedulerRepo, $journalService);
 $userAccountRepo = new UserAccountRepository($pdo, $encryptionService);
@@ -205,19 +218,12 @@ if (VapidKeyPairFactory::isValid(
 // SchedulerRunner only knows about handlers a ModuleManager has loaded.
 // Router/MenuBuilder are only needed here to satisfy ModuleManager's
 // constructor; their route/menu output is never used in a CLI context.
-$migrationRunner = new MigrationRunner(
-    $connection,
-    new SchemaIntrospector($pdo),
-    new SchemaComparator(),
-    new SqlParser()
-);
 $moduleManager = new ModuleManager(
     __DIR__ . '/../modules',
     $settingService,
     new CookieConsentService(),
     new MenuBuilder(Role::SUPERADMIN),
     new ModuleRegistryRepository($pdo),
-    $migrationRunner,
     $journalService,
     new Router(),
     $notificationService,
@@ -260,6 +266,30 @@ scoutmagic_bootstrap_scheduler(
     dirname(__DIR__) . '/storage',
     $notificationService
 );
+
+// Migrate the whole declared schema, before anything else runs.
+//
+// This entry point is the best place in the application to do it, and it
+// used to be the only one that built a MigrationRunner and never called
+// it. The reasoning about the budget, and the pass itself, live in
+// Database\DeploymentMigration — a seam a test can reach, which an inline
+// block in a cron script is not.
+$migrationResult = DeploymentMigration::run($connection, dirname(__DIR__));
+
+// Housekeeping: close update_history rows left at 'pending' that no
+// scheduled action is ever going to start. 'pending' is the one
+// non-terminal status with no net of its own — see the class.
+AbandonedInstallSweeper::sweep(
+    new UpdateHistoryRepository($pdo),
+    new SchedulerRepository($pdo)
+);
+
+if (!$migrationResult->complete) {
+    // Not an error: the next cron pass resumes from the checkpoint. Said
+    // out loud because a silent partial migration is exactly what made
+    // the original incident hard to see.
+    echo "Schema migration incomplete, resuming on the next pass.\n";
+}
 
 // Process overdue tasks
 $processed = $runner->processOverdue();

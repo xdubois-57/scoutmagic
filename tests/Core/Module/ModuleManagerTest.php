@@ -7,7 +7,6 @@ namespace Tests\Core\Module;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Cookie\CookieConsentService;
-use Core\Database\MigrationRunner;
 use Core\Http\Request;
 use Core\Http\Router;
 use Core\Journal\JournalRepository;
@@ -39,7 +38,6 @@ class ModuleManagerTest extends TestCase
     private Router $router;
     private string $fixturesDir;
     private \PDO $pdo;
-    private MigrationRunner&\PHPUnit\Framework\MockObject\MockObject $migrationRunner;
 
     protected function setUp(): void
     {
@@ -54,7 +52,6 @@ class ModuleManagerTest extends TestCase
         $this->registryRepo = new ModuleRegistryRepository($this->pdo);
         $this->router = new Router();
 
-        $this->migrationRunner = $this->createMock(MigrationRunner::class);
         $journalRepo = new JournalRepository($this->pdo);
         $journalService = new JournalService($journalRepo);
 
@@ -64,7 +61,6 @@ class ModuleManagerTest extends TestCase
             $this->cookieConsentService,
             $this->menuBuilder,
             $this->registryRepo,
-            $this->migrationRunner,
             $journalService,
             $this->router,
             null,
@@ -511,16 +507,57 @@ class ModuleManagerTest extends TestCase
         $this->assertContains('auto_dependent_module', $this->manager->getEnabledModuleIds());
     }
 
-    public function testActivateRefusesAnUnmetRequirementBeforeMigratingTheSchema(): void
+    public function testActivateRefusesAnUnmetRequirement(): void
     {
-        // dependent_module ships a schema.sql precisely so this ordering is
-        // observable: the refusal must happen before any migration runs.
-        $this->migrationRunner->expects($this->never())->method('migrate');
-
         $this->expectException(ModuleException::class);
         $this->expectExceptionMessage('nécessite le module « Module de test valide »');
 
         $this->manager->activate('dependent_module', 1);
+    }
+
+    /**
+     * Activation is bookkeeping, and nothing else.
+     *
+     * It used to run the module's schema migration, which meant DDL on a
+     * live request at the moment an administrator clicked "activer" — with
+     * a time budget that could run out and turn the click into "réessayez
+     * dans un instant". Every module's tables now come from the one pass
+     * over the whole declared schema that runs at deploy time
+     * (Core\Database\SchemaFiles), whether the module is enabled or not.
+     *
+     * dependent_module ships a schema.sql declaring a table, so the
+     * absence of that table after a successful activation is the
+     * observable form of "activate() ran no DDL".
+     */
+    public function testActivatingAModuleCreatesNoTableOfItsOwn(): void
+    {
+        $this->manager->activate('valid_module', 1);
+        $this->manager->activate('dependent_module', 1);
+
+        $this->assertNotNull(
+            $this->registryRepo->findByModuleId('dependent_module'),
+            'the activation itself must have succeeded'
+        );
+        $tables = $this->existingTables();
+        // Without this the assertion below would pass on an empty list,
+        // which is the shape a broken harness takes.
+        $this->assertContains('settings', $tables, 'the test database must actually have tables');
+        $this->assertNotContains(
+            'dependent_module_items',
+            $tables,
+            'activate() must not run the module schema: the deploy migration owns every table'
+        );
+    }
+
+    /**
+     * @return array<string>
+     */
+    private function existingTables(): array
+    {
+        $rows = $this->pdo->query("SELECT name FROM sqlite_master WHERE type = 'table'")
+            ->fetchAll(\PDO::FETCH_COLUMN);
+
+        return array_map(strval(...), $rows === false ? [] : $rows);
     }
 
     public function testActivateRefusalLeavesNoRegistryRow(): void
@@ -537,9 +574,6 @@ class ModuleManagerTest extends TestCase
 
     public function testActivateSucceedsOnceTheRequirementIsEnabled(): void
     {
-        $this->migrationRunner->method('migrate')->willReturn(
-            new \Core\Database\MigrationResult([], [])
-        );
         $this->manager->activate('valid_module', 1);
 
         $this->manager->activate('dependent_module', 1);
@@ -551,9 +585,6 @@ class ModuleManagerTest extends TestCase
 
     public function testDeactivateRefusesWhileAnEnabledModuleRequiresIt(): void
     {
-        $this->migrationRunner->method('migrate')->willReturn(
-            new \Core\Database\MigrationResult([], [])
-        );
         $this->manager->activate('valid_module', 1);
         $this->manager->activate('dependent_module', 1);
 
@@ -565,9 +596,6 @@ class ModuleManagerTest extends TestCase
 
     public function testDeactivateSucceedsOnceTheDependentIsDisabled(): void
     {
-        $this->migrationRunner->method('migrate')->willReturn(
-            new \Core\Database\MigrationResult([], [])
-        );
         $this->manager->activate('valid_module', 1);
         $this->manager->activate('dependent_module', 1);
 
@@ -606,7 +634,6 @@ class ModuleManagerTest extends TestCase
             $this->cookieConsentService,
             $menuBuilder,
             $this->registryRepo,
-            $this->createMock(MigrationRunner::class),
             new JournalService(new JournalRepository($this->pdo)),
             new Router()
         );
@@ -632,7 +659,6 @@ class ModuleManagerTest extends TestCase
             $this->cookieConsentService,
             $this->menuBuilder,
             $this->registryRepo,
-            $this->migrationRunner,
             new JournalService(new JournalRepository($this->pdo)),
             $this->router,
             null,
@@ -717,7 +743,6 @@ class ModuleManagerTest extends TestCase
             $this->cookieConsentService,
             new MenuBuilder(Role::fromString('admin')),
             $this->registryRepo,
-            $this->migrationRunner,
             new JournalService(new JournalRepository($this->pdo)),
             $router,
             null,
@@ -741,7 +766,6 @@ class ModuleManagerTest extends TestCase
             $this->cookieConsentService,
             new MenuBuilder(Role::fromString('admin')),
             $this->registryRepo,
-            $this->migrationRunner,
             new JournalService(new JournalRepository($this->pdo)),
             $router,
             null,
@@ -764,7 +788,6 @@ class ModuleManagerTest extends TestCase
             $this->cookieConsentService,
             new MenuBuilder(Role::fromString('admin')),
             $this->registryRepo,
-            $this->migrationRunner,
             new JournalService(new JournalRepository($this->pdo)),
             new Router(),
             null,

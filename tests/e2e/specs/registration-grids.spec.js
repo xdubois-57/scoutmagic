@@ -19,6 +19,14 @@
 // asserting BOTH fields is what notices a regression to a whole-form save
 // that dropped one.
 //
+// The scenario also drives the waitlist switch on /config/inscriptions,
+// which is the third shape of "the browser decides" on this module: the
+// switch is a plain checkbox, so turning it OFF sends no field at all, and
+// what the server does with that absence decides whether two thresholds
+// the chief never saw survive the save. A round trip through a real form
+// is the only place that is observable — a PHPUnit request array is
+// written by the test, and would carry whatever the test believed.
+//
 // ORDERING
 // ----------------------------------------------------------------------------
 // Runs after registration-flow.spec.js (alphabetical: -flow < -grids),
@@ -36,6 +44,54 @@ import { chooseInSelectBar } from '../support/select-bar.js';
 
 const MEMBER_NAME = 'Kaa Serpent';
 const DEPARTURE_COMMENT = 'Déménage à Namur cet été.';
+
+/**
+ * Unfolds the « Capacités par branche » box of /config/inscriptions.
+ * Collapsed is its default, so every control inside it — the waitlist
+ * switch, the thresholds, the grid — is genuinely unreachable until this
+ * runs.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+async function openCapacitiesBox(page) {
+    // The toggle is a data-bs-toggle="collapse" button, so it does nothing
+    // at all until Bootstrap's delegated handler exists. base.html.twig
+    // loads bootstrap.bundle.min.js well after the toggle's own markup, and
+    // that markup already carries aria-expanded="false" — so every barrier
+    // written against the static HTML can be satisfied mid-parse, before the
+    // bundle has run. A click that lands then is silently swallowed: the box
+    // stays `.collapse` and no retry follows, because the click itself
+    // succeeded. Waiting for the global is the one barrier the parser cannot
+    // fake.
+    await page.waitForFunction(() => typeof window.bootstrap !== 'undefined');
+    await page.getByRole('button', { name: 'Capacités par branche', exact: true }).click();
+    await expect(page.locator('#registration-capacities-box')).toBeVisible();
+}
+
+/**
+ * Submits that box and waits for the page its redirect renders.
+ *
+ * The barrier is the toggle going back to `aria-expanded="false"`, not the
+ * URL: this POST redirects to the address the browser is ALREADY on, so
+ * `waitForURL` would resolve instantly and let the next assertion read the
+ * page from before the save. The box is open when the click happens and
+ * folded again on the page that comes back.
+ *
+ * The button is scoped to the panel: the rich-text editor's modal on this
+ * page carries an « Enregistrer » of its own.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+async function saveCapacitiesBox(page) {
+    await Promise.all([
+        page.waitForResponse((response) =>
+            response.request().method() === 'POST' && response.url().endsWith('/config/inscriptions')),
+        page.locator('#registration-capacities-box')
+            .getByRole('button', { name: 'Enregistrer', exact: true }).click(),
+    ]);
+    await expect(page.getByRole('button', { name: 'Capacités par branche', exact: true }))
+        .toHaveAttribute('aria-expanded', 'false');
+}
 
 test('the departures and passage grids save on change, with no save button anywhere', async ({ page }) => {
     /** @type {string[]} */
@@ -151,6 +207,47 @@ test('the departures and passage grids save on change, with no save button anywh
     // status transitions in prose — « En attente → Acceptée ou Retirée » —
     // so a substring match resolves to the badge AND that sentence.
     await expect(page.getByText('Retirée', { exact: true })).toBeVisible();
+
+    // ---------------------------------------------------------------
+    // The waitlist switch, inside the capacity box it governs. Off must
+    // remove everything that depends on it — the two ratio thresholds and
+    // the availability columns of « Vérification des capacités » — while
+    // leaving the stored values alone: they come back unchanged when it
+    // goes on again.
+    // ---------------------------------------------------------------
+    await page.goto('/config/inscriptions', { waitUntil: 'domcontentloaded' });
+    await expect(
+        page.getByRole('button', { name: 'Capacités par branche', exact: true }),
+        'the capacity box opens on demand',
+    ).toHaveAttribute('aria-expanded', 'false');
+    await openCapacitiesBox(page);
+
+    const availableThreshold = page.getByLabel('Seuil « places disponibles »');
+    await expect(availableThreshold).toBeVisible();
+    const storedThreshold = await availableThreshold.inputValue();
+    expect(storedThreshold, 'the threshold must have a stored value to lose').not.toBe('');
+    await expect(page.getByRole('columnheader', { name: 'Niveau public' })).toBeVisible();
+
+    await page.getByRole('switch', { name: "Gérer les listes d'attente" }).uncheck();
+    await saveCapacitiesBox(page);
+
+    await openCapacitiesBox(page);
+    await expect(
+        page.getByLabel('Seuil « places disponibles »'),
+        'a threshold that no longer means anything must not be on screen',
+    ).toHaveCount(0);
+    await expect(page.getByRole('columnheader', { name: 'Niveau public' })).toHaveCount(0);
+    await expect(page.getByRole('columnheader', { name: 'Restant' })).toHaveCount(0);
+
+    await page.getByRole('switch', { name: "Gérer les listes d'attente" }).check();
+    await saveCapacitiesBox(page);
+
+    await openCapacitiesBox(page);
+    await expect(
+        page.getByLabel('Seuil « places disponibles »'),
+        'a threshold hidden while the waitlist was off must come back unchanged',
+    ).toHaveValue(storedThreshold);
+    await expect(page.getByRole('columnheader', { name: 'Niveau public' })).toBeVisible();
 
     expect(alerts, 'a grid reported a failed save through window.alert()').toEqual([]);
     expect(serverErrors, 'the application returned a server error').toEqual([]);

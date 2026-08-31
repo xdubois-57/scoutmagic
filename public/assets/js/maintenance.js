@@ -113,8 +113,23 @@
         var submitBtn = /** @type {HTMLButtonElement} */ (form.querySelector('button[type="submit"]'));
         var progressEl = form.querySelector('[id$="-progress"]') || document.getElementById('update-install-progress');
         var errorEl = form.querySelector('[id$="-error"]') || document.getElementById('update-install-error');
+        // Filled in while the update sits in `migrating`: that step is the one
+        // that can run for minutes, and each poll now drives a slice of it
+        // server-side, so the spinner alone would hide real progress.
+        var detailEl = progressEl ? progressEl.querySelector('[data-role="migration-detail"]') : null;
         /** @type {{stop: () => void}|null} */
         var pollHandle = null;
+
+        /** @param {unknown} fraction */
+        function showMigrationProgress(fraction) {
+            if (!detailEl) return;
+            if (typeof fraction !== 'number' || !isFinite(fraction)) {
+                detailEl.textContent = '';
+                return;
+            }
+            var percent = Math.max(0, Math.min(100, Math.round(fraction * 100)));
+            detailEl.textContent = ' Migration du schéma : ' + percent + ' %.';
+        }
 
         function stopPolling() {
             if (pollHandle) {
@@ -138,6 +153,24 @@
         function pollStatus(historyId) {
             pollHandle = window.ScoutMagicApi.poll(function () {
                 return window.ScoutMagicApi.getJson('/api/maintenance/update-status/' + historyId).then(function (res) {
+                    // A 200 that is not JSON, at this URL, means one thing:
+                    // the schema migration is running, and public/index.php
+                    // short-circuits every request before routing to serve
+                    // the progress page instead. This poller would otherwise
+                    // spin here for the whole window, on the one address that
+                    // cannot answer it — observed on 2026-08-30, an admin
+                    // watching an install with the tab open and doing
+                    // nothing. Reload, so the tab lands on that progress
+                    // page, whose own script drives the migration and
+                    // reloads back here when it is done. (getJson answers
+                    // status 0 on a genuine network failure, so this cannot
+                    // be confused with one, and the reload ends this poller
+                    // rather than looping it.)
+                    if (res.data === null && res.status === 200) {
+                        stopPolling();
+                        window.location.reload();
+                        return false;
+                    }
                     if (!res.data) {
                         // Transient network hiccup — keep polling.
                         return undefined;
@@ -151,6 +184,7 @@
                         return false;
                     }
                     // pending / backing_up / downloading / installing / migrating: keep polling.
+                    showMigrationProgress(res.data.status === 'migrating' ? res.data.migration_progress : null);
                     return undefined;
                 });
             }, { intervalMs: 3000 });

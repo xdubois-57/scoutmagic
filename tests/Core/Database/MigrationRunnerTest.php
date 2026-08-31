@@ -74,6 +74,96 @@ class MigrationRunnerTest extends TestCase
         $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
     }
 
+    /**
+     * dropAllTables() empties the database in setUp(), `settings`
+     * included — and `settings` is where MigrationRunner keeps the schema
+     * hash and the in-flight progress row. A test that needs either to
+     * survive has to put the table back first.
+     *
+     * Built from schema/core.sql through the application's own parser and
+     * comparator rather than from a literal CREATE TABLE here, so it
+     * cannot drift away from the real definition.
+     */
+    private function createSettingsTable(): void
+    {
+        foreach ((new SqlParser())->parseFile(dirname(__DIR__, 3) . '/schema/core.sql') as $table) {
+            if ($table->name !== 'settings') {
+                continue;
+            }
+
+            foreach ((new SchemaComparator())->compareOneDeclaredTable($table, null) as $statement) {
+                $this->connection->getPdo()->exec($statement);
+            }
+
+            return;
+        }
+
+        $this->fail('schema/core.sql no longer declares a `settings` table');
+    }
+
+    /**
+     * Widening an ENUM on an ALREADY-INSTALLED site.
+     *
+     * The question this answers is not academic: `event_log.level` gained
+     * an `error` value (ARCHITECTURE.md §8.6), and the schema rules warn
+     * that some declared changes converge only on a fresh install — an
+     * index's column list is silently a no-op on an installed site, and a
+     * primary key is skipped entirely. A column TYPE is not one of those:
+     * `SchemaComparator` compares the normalized type and issues a
+     * `MODIFY COLUMN`. Pinned here against a real MySQL/MariaDB server,
+     * with the check that actually matters at the end — the widened value
+     * is accepted by the column afterwards, which on a strict-mode server
+     * it is not before.
+     */
+    public function testMigrateWidensAnEnumOnAnAlreadyInstalledTable(): void
+    {
+        $tmpDir = sys_get_temp_dir() . '/migration_enum_test_' . uniqid();
+        mkdir($tmpDir);
+        $schemaPath = $tmpDir . '/schema.sql';
+
+        $declare = static function (string $values) use ($schemaPath): void {
+            file_put_contents(
+                $schemaPath,
+                "CREATE TABLE enum_widening_test (\n"
+                . "    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,\n"
+                . "    level ENUM({$values}) NOT NULL DEFAULT 'info'\n"
+                . ');'
+            );
+        };
+
+        try {
+            $runner = new MigrationRunner($this->connection, $this->introspector, new SchemaComparator(), new SqlParser());
+            $pdo = $this->connection->getPdo();
+
+            $declare("'info', 'security'");
+            $runner->migrate([$schemaPath]);
+
+            $this->assertSame(
+                "enum('info','security')",
+                $pdo->query("SHOW COLUMNS FROM enum_widening_test LIKE 'level'")->fetch(\PDO::FETCH_ASSOC)['Type']
+            );
+
+            $declare("'info', 'security', 'error'");
+            $result = $runner->migrate([$schemaPath]);
+
+            $this->assertNotEmpty($result->executedStatements);
+            $this->assertStringContainsString('MODIFY COLUMN', $result->executedStatements[0]);
+            $this->assertSame(
+                "enum('info','security','error')",
+                $pdo->query("SHOW COLUMNS FROM enum_widening_test LIKE 'level'")->fetch(\PDO::FETCH_ASSOC)['Type']
+            );
+
+            $pdo->exec("INSERT INTO enum_widening_test (level) VALUES ('error')");
+            $this->assertSame(
+                'error',
+                $pdo->query('SELECT level FROM enum_widening_test ORDER BY id DESC LIMIT 1')->fetchColumn()
+            );
+        } finally {
+            @unlink($schemaPath);
+            @rmdir($tmpDir);
+        }
+    }
+
     public function testMigrateCreatesTablesFromCoreSql(): void
     {
         $runner = new MigrationRunner(
@@ -208,6 +298,270 @@ class MigrationRunnerTest extends TestCase
 
         $this->assertIsArray($result->warnings);
         $this->assertSame($before, glob($tempDir . '/backup_*.sql') ?: []);
+    }
+
+    /**
+     * The introspection memo describes the live schema, so executing DDL
+     * makes it a description of the past.
+     *
+     * Getting this test to actually fail without the invalidation took two
+     * attempts, and the first one is worth recording: against an EMPTY
+     * database the memo is never even populated — the diff loop only
+     * consults it for tables that already exist, so with none existing it
+     * short-circuits and the cache stays null. The staleness only bites
+     * when the first pass both READS the schema and then CHANGES it, which
+     * is why `memo_existing` is created up front.
+     *
+     * Two different schema files on purpose too: a second migrate() for the
+     * same file short-circuits on the cached hash and never introspects at
+     * all, so the obvious "migrate twice" shape cannot cover this either.
+     */
+    public function testExecutingDdlInvalidatesTheIntrospectionMemo(): void
+    {
+        $pdo = $this->connection->getPdo();
+        // Exists before the first pass, so the diff loop consults — and
+        // therefore populates — the memo while `memo_created` still does
+        // not exist.
+        $pdo->exec('CREATE TABLE memo_existing (id INT PRIMARY KEY)');
+
+        $tmpDir = sys_get_temp_dir() . '/migration_memo_test_' . uniqid();
+        mkdir($tmpDir);
+        $first = $tmpDir . '/first.sql';
+        $second = $tmpDir . '/second.sql';
+        file_put_contents(
+            $first,
+            "CREATE TABLE memo_existing (\n    id INT PRIMARY KEY\n);\n"
+            . "CREATE TABLE memo_created (\n    id INT PRIMARY KEY\n);"
+        );
+        // A runner still holding the pre-CREATE memo believes memo_created
+        // absent and emits CREATE TABLE for it, which fails with "table
+        // already exists" and lands in warnings.
+        file_put_contents(
+            $second,
+            "CREATE TABLE memo_created (\n    id INT PRIMARY KEY,\n    label VARCHAR(20) NULL\n);"
+        );
+
+        try {
+            $runner = new MigrationRunner($this->connection, $this->introspector, new SchemaComparator(), new SqlParser());
+
+            $runner->migrate([$first]);
+            $result = $runner->migrate([$second]);
+
+            // Not assertSame([], warnings): the second file declares only
+            // memo_created, so memo_existing legitimately produces the
+            // "exists in database but not in declared schema" notice — the
+            // structurally-false warning a later iteration removes. What
+            // must not appear is an execution failure.
+            $failures = array_values(array_filter(
+                $result->warnings,
+                static fn(string $w): bool => str_contains($w, 'Failed to execute')
+            ));
+            $this->assertSame([], $failures, 'a stale memo shows up here as "table already exists"');
+            $this->assertTrue($result->complete);
+            $this->assertNotEmpty(array_filter(
+                $result->executedStatements,
+                static fn(string $st): bool => str_contains($st, 'ADD COLUMN')
+            ), 'the second pass must ALTER the existing table, not try to create it');
+
+            $columns = array_map(fn($c) => $c->name, $this->introspector->getColumns('memo_created'));
+            $this->assertContains('label', $columns);
+        } finally {
+            $pdo->exec('DROP TABLE IF EXISTS memo_created');
+            $pdo->exec('DROP TABLE IF EXISTS memo_existing');
+            @unlink($first);
+            @unlink($second);
+            @rmdir($tmpDir);
+        }
+    }
+
+    /**
+     * The defect this iteration exists to remove.
+     *
+     * The old runner popped a statement off a PERSISTED queue before
+     * executing it. A process killed between the `ADD COLUMN` and its
+     * checkpoint came back, replayed the statement, collected "Duplicate
+     * column name" — and since any PDOException incremented the failure
+     * count, and the schema hash was only cached when that count was zero,
+     * the site stayed on the migration-progress page indefinitely.
+     *
+     * Simulated the only way that state can now be reached: the column is
+     * added out of band, exactly as an interrupted pass would have left
+     * it, and the attempt's progress row is still sitting there. The
+     * resume must simply converge.
+     */
+    public function testAResumeAfterAnInterruptionBetweenTheDdlAndItsCheckpointConverges(): void
+    {
+        $pdo = $this->connection->getPdo();
+        $this->createSettingsTable();
+        $pdo->exec('CREATE TABLE resume_test (id INT PRIMARY KEY)');
+
+        $tmpDir = sys_get_temp_dir() . '/migration_resume_test_' . uniqid();
+        mkdir($tmpDir);
+        $schema = $tmpDir . '/schema.sql';
+        file_put_contents($schema, "CREATE TABLE resume_test (\n    id INT PRIMARY KEY,\n    added VARCHAR(20) NULL\n);");
+
+        try {
+            $runner = new MigrationRunner($this->connection, $this->introspector, new SchemaComparator(), new SqlParser());
+
+            // The interrupted pass: the ALTER reached the database, the
+            // checkpoint that would have recorded it did not.
+            $pdo->exec('ALTER TABLE resume_test ADD COLUMN added VARCHAR(20) NULL');
+
+            $result = $runner->migrate([$schema]);
+
+            $this->assertTrue($result->complete);
+            $this->assertTrue($result->converged, 'a replayed statement must not stop the schema converging');
+            $this->assertSame([], array_values(array_filter(
+                $result->warnings,
+                static fn(string $w): bool => str_contains($w, 'Duplicate column')
+            )));
+            // And it really is done: a second call short-circuits on the
+            // cached hash instead of finding work again.
+            $this->assertFalse($runner->isPending([$schema]));
+        } finally {
+            $pdo->exec('DROP TABLE IF EXISTS resume_test');
+            @unlink($schema);
+            @rmdir($tmpDir);
+        }
+    }
+
+    /**
+     * The same protection one level down, for the case re-diffing cannot
+     * prevent: two processes racing, or a stale memo, so the statement is
+     * generated and the database already has its effect. "Already there"
+     * is not a failure — treating it as one is exactly what used to stop a
+     * migration converging.
+     *
+     * The introspector is mocked into lying (it reports the table without
+     * the column) so the comparator really does emit the ADD COLUMN
+     * against a database that already has it.
+     */
+    public function testAStatementWhoseEffectIsAlreadyPresentIsNotAFailure(): void
+    {
+        $pdo = $this->connection->getPdo();
+        $pdo->exec('CREATE TABLE race_test (id INT PRIMARY KEY, already_here VARCHAR(20) NULL)');
+
+        $tmpDir = sys_get_temp_dir() . '/migration_race_test_' . uniqid();
+        mkdir($tmpDir);
+        $schema = $tmpDir . '/schema.sql';
+        file_put_contents($schema, "CREATE TABLE race_test (\n    id INT PRIMARY KEY,\n    already_here VARCHAR(20) NULL\n);");
+
+        try {
+            $lying = $this->createMock(SchemaIntrospector::class);
+            $lying->method('getTables')->willReturn(['race_test']);
+            $lying->method('getTableDefinitions')->willReturn([
+                'race_test' => new \Core\Database\TableDefinition(
+                    name: 'race_test',
+                    columns: [new \Core\Database\ColumnDefinition(
+                        name: 'id',
+                        type: 'int',
+                        nullable: false,
+                        default: null,
+                        autoIncrement: false,
+                        extra: null
+                    )],
+                    indexes: [],
+                    foreignKeys: []
+                ),
+            ]);
+
+            $runner = new MigrationRunner($this->connection, $lying, new SchemaComparator(), new SqlParser());
+            $result = $runner->migrate([$schema]);
+
+            $this->assertTrue($result->converged, '"duplicate column" must be read as already-applied, not as a failure');
+            $this->assertTrue($result->complete);
+        } finally {
+            $pdo->exec('DROP TABLE IF EXISTS race_test');
+            @unlink($schema);
+            @rmdir($tmpDir);
+        }
+    }
+
+    /**
+     * A migration that genuinely cannot converge must stop asking. The
+     * site staying on the progress page forever is a worse outcome than a
+     * schema missing a column — so after CONVERGENCE_ATTEMPTS identical
+     * failures the attempt is abandoned, the hash is cached anyway, and
+     * the failure becomes visible rather than silent.
+     */
+    public function testAMigrationThatCannotConvergeIsAbandonedAfterTheCeilingAndSaysSo(): void
+    {
+        $pdo = $this->connection->getPdo();
+        $this->createSettingsTable();
+        $pdo->exec('CREATE TABLE stubborn_test (id INT PRIMARY KEY)');
+
+        $tmpDir = sys_get_temp_dir() . '/migration_stubborn_test_' . uniqid();
+        mkdir($tmpDir);
+        $schema = $tmpDir . '/schema.sql';
+        // A column MySQL will refuse to add: a row cannot be that wide.
+        // Refused every time, and regenerated every time because it never
+        // appears — the definition of a migration that cannot converge.
+        file_put_contents(
+            $schema,
+            "CREATE TABLE stubborn_test (\n    id INT PRIMARY KEY,\n    huge VARCHAR(65533) NOT NULL\n);"
+        );
+
+        try {
+            $journal = $this->createMock(JournalService::class);
+            $journal->expects($this->once())
+                ->method('log')
+                ->with('core', 'schema_migration_abandoned', 'security', $this->anything(), $this->anything());
+
+            $runner = new MigrationRunner(
+                $this->connection,
+                $this->introspector,
+                new SchemaComparator(),
+                new SqlParser(),
+                20,
+                journal: $journal
+            );
+
+            for ($pass = 1; $pass < MigrationRunner::CONVERGENCE_ATTEMPTS; $pass++) {
+                $result = $runner->migrate([$schema]);
+                $this->assertFalse($result->complete, "pass {$pass} must keep the attempt open");
+                $this->assertFalse($result->converged);
+                $this->assertTrue($runner->isPending([$schema]), 'the hash must not be cached while retries remain');
+            }
+
+            $final = $runner->migrate([$schema]);
+
+            $this->assertTrue($final->complete, 'the attempt must stop rather than loop forever');
+            $this->assertFalse($final->converged, 'and must not claim the schema reached what was declared');
+            $this->assertFalse($runner->isPending([$schema]), 'the hash is cached so the progress page stops');
+
+            $abandoned = $runner->abandonedMigration();
+            $this->assertNotNull($abandoned, 'the Maintenance page needs something to show a banner from');
+            $this->assertNotEmpty($abandoned->failedStatements);
+        } finally {
+            $pdo->exec('DROP TABLE IF EXISTS stubborn_test');
+            @unlink($schema);
+            @rmdir($tmpDir);
+        }
+    }
+
+    /**
+     * And the banner does not outlive the problem: a later migration that
+     * converges clears it. A warning nobody can clear is a warning
+     * everybody learns to ignore.
+     */
+    public function testACleanMigrationClearsAPreviousAbandonment(): void
+    {
+        $tmpDir = sys_get_temp_dir() . '/migration_clear_test_' . uniqid();
+        mkdir($tmpDir);
+        $schema = $tmpDir . '/schema.sql';
+        file_put_contents($schema, 'CREATE TABLE clear_test (id INT PRIMARY KEY);');
+
+        try {
+            $this->createSettingsTable();
+            $runner = new MigrationRunner($this->connection, $this->introspector, new SchemaComparator(), new SqlParser());
+            $runner->migrate([$schema]);
+
+            $this->assertNull($runner->abandonedMigration());
+        } finally {
+            $this->connection->getPdo()->exec('DROP TABLE IF EXISTS clear_test');
+            @unlink($schema);
+            @rmdir($tmpDir);
+        }
     }
 
     /**

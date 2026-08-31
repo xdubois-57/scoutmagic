@@ -17,6 +17,14 @@ use PHPUnit\Framework\TestCase;
  * console nobody opens. An RGPD page naming a provider the site no longer
  * contacts — or worse, failing to name one it does — is a compliance
  * defect that no amount of testing the map itself would reveal.
+ *
+ * The map's browser-storage key is a fourth agreement of the same shape,
+ * added when the map became expanded by default: JavaScript writes it,
+ * module.json declares it to the consent banner and the cookie
+ * preferences page, and nothing in either language can see the other.
+ * AGENTS.md § Cookie consent makes the declaration mandatory, so a key
+ * renamed on one side only is a site quietly storing something it never
+ * told the visitor about.
  */
 final class MapTilesTest extends TestCase
 {
@@ -74,6 +82,59 @@ final class MapTilesTest extends TestCase
         $list = (string) file_get_contents($root . '/modules/camps/views/list.html.twig');
         $this->assertStringNotContainsString('unpkg.com', $list);
         $this->assertStringNotContainsString('cdn.jsdelivr', $list);
+    }
+
+    public function testTheMapsStorageKeyIsDeclaredAsAFunctionalCookieOfThisModule(): void
+    {
+        $root = self::root();
+        $js = (string) file_get_contents($root . '/public/assets/js/camps-map.js');
+
+        // Read the key out of the JavaScript rather than writing it here
+        // twice: a test that hardcodes the name goes on passing after a
+        // rename on one side, which is the whole failure it exists for.
+        $this->assertSame(
+            1,
+            preg_match("/STORAGE_KEY = '([a-z0-9_]+)'/", $js, $match),
+            'camps-map.js no longer declares a single STORAGE_KEY this test can read.'
+        );
+        $key = $match[1];
+
+        /** @var array{cookies?: array<int, array<string, string>>} $manifest */
+        $manifest = json_decode((string) file_get_contents($root . '/modules/camps/module.json'), true);
+        $declared = [];
+        foreach ($manifest['cookies'] ?? [] as $cookie) {
+            $declared[$cookie['name']] = $cookie;
+        }
+
+        $this->assertArrayHasKey(
+            $key,
+            $declared,
+            "camps-map.js writes '{$key}' to localStorage but modules/camps/module.json declares no such entry — "
+            . 'the consent banner and the cookie preferences page would both be an incomplete picture '
+            . '(AGENTS.md § Cookie consent).'
+        );
+        // Functional and not necessary: the map works without it, so it
+        // is gated on consent client-side, and a category of 'necessary'
+        // here would silently exempt it from that gate.
+        $this->assertSame('functional', $declared[$key]['category']);
+        $this->assertNotEmpty($declared[$key]['purpose']);
+        $this->assertNotEmpty($declared[$key]['duration']);
+    }
+
+    public function testTheRgpdPageDescribesAMapThatIsOpenBeforeAnybodyAsks(): void
+    {
+        // The map used to be collapsed by default and the policy said so,
+        // in those words. Now that the tiles are fetched on load, that
+        // sentence is not merely stale: it tells a reader their IP does
+        // not leave unless they ask for a map, which is false.
+        $rgpd = (string) file_get_contents(self::root() . '/core/View/rgpd_default.html');
+
+        $this->assertStringNotContainsString(
+            'repliée par défaut',
+            $rgpd,
+            'The map is expanded by default; a policy still promising the opposite understates what leaves the browser.'
+        );
+        $this->assertStringContainsString('dépliée par défaut', $rgpd);
     }
 
     private static function root(): string

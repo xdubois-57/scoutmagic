@@ -74,7 +74,10 @@ class RegistrationTestHelper
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             age_branch_id INTEGER NOT NULL,
             year_in_branch INTEGER NOT NULL,
-            capacity INTEGER NOT NULL DEFAULT 0,
+            -- Nullable, exactly like modules/registration/schema.sql: NULL is
+            -- "pas de limite", 0 is "branche fermée", and a test database that
+            -- refused NULL would make the distinction untestable.
+            capacity INTEGER NULL,
             UNIQUE(age_branch_id, year_in_branch),
             FOREIGN KEY (age_branch_id) REFERENCES age_branches(id)
         )');

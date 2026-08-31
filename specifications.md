@@ -10,6 +10,7 @@ Everything beyond the core site is a module (`modules/<id>/`, ARCHITECTURE.md §
 
 | Module | Name in the interface | Specified in |
 |---|---|---|
+| `attestations` | Attestations | §41 |
 | `banner` | Bannière | §36 |
 | `calendar` | Calendrier | §27 |
 | `camps` | Camps | §26 |
@@ -115,7 +116,7 @@ Two photos, never mixed. A **member's** photo belongs to a scout year and is the
 
 | Page | Content |
 |---|---|
-| {Member display name} × N | One page per linked member, two-column layout (same grid/stacking as Accueil, §4.1). Header: photo (replaceable by the member themselves outside configuration mode), display name, section, scout year. Right column: branch card (federation logo + link, per the member's age branch). Left column, in order: section name/email; section responsable (full legal name + postal address); badges assigned within the section; Staff d'U "Référent {section}" badge holders; next upcoming section event and links to Trombinoscope/Calendrier filtered on that section (both optional modules); the member's own functions this year; recent mass-mail communications with a "view as sent" detail page (module, optional); private documents — self only, never staff-visible (future home of fiscal attestations); photo galleries linked to the member's sections this scout year (module, optional); known contact emails (self-service: add/delete/resend verification/reactivate); all personal info from Desk with a mandatory note that it can't be edited here. Chiefs can adjust a member's scout year offset (+1/0/-1) when age-vs-section mismatch requires it. |
+| {Member display name} × N | One page per linked member, two-column layout (same grid/stacking as Accueil, §4.1). Header: photo (replaceable by the member themselves outside configuration mode), display name, section, scout year. Right column: branch card (federation logo + link, per the member's age branch). Left column, in order: section name/email; section responsable (full legal name + postal address); badges assigned within the section; Staff d'U "Référent {section}" badge holders; next upcoming section event and links to Trombinoscope/Calendrier filtered on that section (both optional modules); the member's own functions this year; recent mass-mail communications with a "view as sent" detail page (module, optional); private documents — the member's own, for the year shown (the Staff d'Unité read them from the admin member sheet instead, §41.7); photo galleries linked to the member's sections this scout year (module, optional); known contact emails (self-service: add/delete/resend verification/reactivate); all personal info from Desk with a mandatory note that it can't be edited here. Chiefs can adjust a member's scout year offset (+1/0/-1) when age-vs-section mismatch requires it. |
 | {Member email detail} | One page per mass-mail email received, reachable only from the member's own page — subject, section, sent date, full body as actually sent |
 | Trombinoscope (module) | Every section's chief/chief-d'unité staff, grouped by section, with the section's designated "responsable" highlighted. Accepts `?section={id}` to preselect a section (also used by the member page's own link above). |
 | Galerie (module) | Photo/video albums (identified: view; chief: manage — see §4.3). Opening a media fills the screen; **one control** offers to save it at the best quality the site keeps of it. Each file is named after the photo's own name plus its media id — so two photos two phones both called `IMG_1234` are saved as two files rather than one overwriting the other — and the whole album's ZIP names its entries exactly the same way. |
@@ -153,6 +154,7 @@ Two photos, never mixed. A **member's** photo belongs to a scout year and is the
 | Passage (module registration) | admin | Split arriving families and promoted animés between sections ahead of next scout year — see §18.2. Chef d'unité only (not a per-section chief), since spreading arrivals across sections needs the whole unit at once |
 | Encadrement (module leadership) | admin | Three lists of people to contact, read out of the Desk import — training paths, age-related legal deadlines, steward registrations. See §25 |
 | Locations (module rental) | admin | Which assets exist and who runs each one — creating an asset, its general description, its managers, archiving it, and the accounting account its money is expected on. Everything that is a property of one asset is set in that asset's own managed space instead. See §22 |
+| Attestations (module attestations) | admin | Découper le PDF d'attestations reçu de la fédération et déposer l'attestation de chaque membre sur sa page. Un lot = un fichier déposé, avec son année scoute, sa catégorie et son libellé. Écran de vérification avant publication, envoi aux familles en pièce jointe, écran de couverture (qui n'a pas encore reçu la sienne) et reprise complète d'un lot. Voir §41 |
 | Cotisations (module fees) | admin | Checking what the federation bills against the unit's own roster: the season's snapshot, tariff accuracy per household, and the report of an imported invoice. See §31 |
 
 #### The page of one member (`/admin/members/{id}`)
@@ -195,7 +197,7 @@ Pas de QR ni d'IBAN ici, contrairement à la page du membre : un chef d'unité r
 
 **Les groupes, c'est l'appartenance et rien d'autre** : aucun message, aucune réponse, aucun décompte. Un chef d'unité a besoin de savoir par quels groupes la personne est joignable ; ce que les gens s'écrivent n'est pas un fait à résumer sur une page de staff.
 
-**Two things are never on this page.** A member's **private documents**: `files.owner_member_id` carries an explicit guarantee (ARCHITECTURE.md §8.3) of no chief and no admin bypass, tax certificates will live there, and listing them here would revoke that guarantee in silence. And a **writable** secondary-address control, for the reason above.
+**A member's private documents ARE on this page**, all scout years together, each openable and resendable by e-mail — this reverses what this paragraph used to say, and the guarantee behind it (no chief and no admin bypass on `files.owner_member_id`) was withdrawn deliberately: see §41.7 for the reasoning and the three bounds, and ARCHITECTURE.md §8.3 for the mechanism. **One thing is still never on this page**: a **writable** secondary-address control, for the reason above.
 
 **Searching, and who it proposes.** The repository never filtered on `is_active` and the result has always carried the flag — what was missing was a way to narrow. The filter is **actifs** by default (what is wanted nine times out of ten), with *inactifs* and *tous* one tap away, and it travels with the query so a submit keeps it. The row is unchanged otherwise: the export checkbox, the initials pill, the totem after the first name, the section and function, and the status badge whose exact words stay « inscrit » / « non inscrit », never « actif ». **The two exports coexist** — the whole search, and the checked selection — and are never merged; both follow the filter the screen is showing.
 
@@ -667,6 +669,8 @@ Two dialogs answer "who": **the reaction tally** opens on who reacted and with w
 **A group tied to the current scout year carries it in its name** — "Louveteaux (2025-2026)" — wherever it is written: the list, the group's own page, its members and gallery pages, the breadcrumb. A past-year group does not, being already marked as an archive, and a group tied to no year has nothing to add.
 
 Photos and videos live in a gallery album belonging to the group, never listed in the unit's own gallery and readable only by the group's members. "Galerie du groupe" shows them all on one page.
+
+**On a wide screen the conversation stops filling it.** From a tablet in landscape upwards, the feed keeps a reading width and the space beside it becomes a side column: the group's search box, its members with their photos and a link to the full list, its latest photos — shortcuts to the "Membres" and "Galerie" pages the header already offers, not pages of their own. A message's photos are shown smaller there for the same reason: one photo used to be nearly as tall as the screen it was read on. On a phone nothing changes — a photo takes the width, which is the right size there.
 
 ### 20.3 Reporting and moderation
 
@@ -1702,3 +1706,248 @@ The raw message, each body half and each attachment are stored **encrypted at re
 ### 40.4 RGPD
 
 **Deliberately unchanged.** The module cannot load on a deploying unit's installation, so it processes no data any unit is controller for. The absence of an RGPD entry for it is the correct outcome, not an oversight.
+
+---
+
+## 41. Attestations — découper et distribuer (module attestations)
+
+L'unité distribue plusieurs sortes d'attestations nominatives. Les **attestations fiscales**, que la
+fédération transmet en un **PDF unique** contenant celles de tous les membres — le document qu'une
+famille joint à sa déclaration pour déduire les frais de garde. Et les **attestations de présence**,
+remises juste après un camp. D'autres peuvent apparaître.
+
+Ce n'est donc pas une fonctionnalité « fiscale » : c'est un mécanisme de **découpe et de distribution
+d'attestations nominatives**, dont le fiscal est le cas le plus lourd. Aujourd'hui, le chef d'unité
+découpe le PDF à la main et le distribue par e-mail, un par un.
+
+Le site sait déjà stocker un document privé rattaché à une personne (`member_documents` +
+`files.owner_member_id`) : ce qui manquait, c'est ce qui alimente ce stockage.
+
+Espace chefs d'U, `role_min: admin` sur toutes les routes sans exception. Le module n'est pas activé
+par défaut : une unité qui n'en distribue pas ne doit pas voir la page apparaître dans son menu.
+
+### 41.1 Un lot, c'est un fichier déposé
+
+Plusieurs PDF arrivent chaque année, souvent partiels : un premier envoi en février, un complément en
+mars pour les inscriptions tardives, parfois une correction. Un lot correspond donc à **un fichier
+déposé**, pas à une année ni à une campagne.
+
+Chaque lot porte trois choses. Une **année scoute**, choisie au dépôt et valable pour tout le lot :
+le site ne déduit aucune date. Une attestation fiscale portant sur l'année civile 2025 se traite en
+général pendant l'année scoute 2025-2026, mais un rattrapage tombe ailleurs, et une attestation de
+présence ne se rattache à aucune année civile.
+
+Une **catégorie** — fiscale, présence, autre. Étiquette courte choisie dans une liste fermée, qui ne
+configure rien : elle sert uniquement à rapprocher les lots entre eux. Sans elle, deux questions que
+les fichiers partiels posent inévitablement deviennent impossibles à répondre. *Ce membre a-t-il déjà
+reçu la sienne ?* — un rapprochement sur le seul libellé confondrait une attestation fiscale et une
+attestation de présence, deux documents parfaitement légitimes pour la même personne la même année.
+*Qui n'en a toujours pas ?* — après trois fichiers partiels, seul le site peut le dire.
+
+Un **libellé libre** — « Attestation fiscale 2025 », « Attestation présence camp Éclaireurs 2026 ».
+C'est lui qui s'affiche sur la page du membre et qui distingue deux lots de la même catégorie.
+
+### 41.2 Le découpage
+
+Repris de l'ancien site, où il fonctionnait en production depuis plusieurs années.
+
+**La taille d'un document est détectée, pas saisie.** Le site lit le premier champ texte de chaque
+page ; dès qu'il retrouve celui de la première page, il en déduit le nombre de pages par attestation.
+Aucun paramètre à régler, aucune hypothèse sur le format fédéral, et le mécanisme survit à une
+attestation qui passerait d'une à deux pages.
+
+**Un garde-fou arithmétique.** Si le nombre total de pages n'est pas un multiple de la taille
+détectée, le traitement s'arrête et rien n'est produit. Une découpe décalée d'une page attribuerait
+l'attestation de chaque famille à la suivante — c'est le pire résultat possible, et il doit être
+impossible. L'écran nomme les deux nombres et le reste, pour qu'un lecteur sache qu'il faut retourner
+vers la fédération plutôt que redéposer le même fichier.
+
+**L'appariement se fait sur le nom**, indexé dans les deux sens (« Nom Prénom » et « Prénom Nom »),
+en minuscules et sans accents. C'est la seule information dont le PDF dispose : il ne porte ni
+identifiant Desk, ni date de naissance.
+
+**La table couvre toutes les années, pas seulement l'année en cours.** Une attestation fiscale porte
+sur l'année écoulée : elle concerne souvent un membre parti entre-temps, absent du roster actuel et
+sans page sur le site. Ne restreindre l'appariement qu'à l'année effective priverait précisément ceux
+qui en ont besoin.
+
+**Les homonymes sont traités comme une ambiguïté, jamais résolus d'office.** Deux membres peuvent
+porter le même nom. L'ancien site gardait le premier appariement trouvé : un choix silencieux, sur un
+document nominatif que le staff ne peut pas relire après coup, qui envoie l'attestation d'une famille
+à une autre sans que personne ne s'en aperçoive. C'est l'erreur la plus grave que cette fonctionnalité
+puisse commettre.
+
+Un nom présent dans le PDF mais inconnu du site reste non apparié et n'est pas distribuable : sans
+membre, il n'y a ni page où déposer le document, ni vérification d'identité.
+
+### 41.3 L'écran de vérification
+
+**Rien n'est distribué avant confirmation humaine.** L'appariement par nom échoue de façon
+prévisible : accents, noms composés, nom d'épouse, inversion nom/prénom, membre parti en cours
+d'année, personne étrangère à l'unité présente dans le PDF.
+
+Après le découpage, l'écran présente une ligne par attestation : le nom **lu dans le PDF**, le membre
+apparié, sa fonction principale, et l'état — apparié, non apparié, ou ambigu. Le nom lu est affiché
+parce que c'est lui que le lecteur doit comparer : deux orthographes de la même personne, celle que
+la fédération a imprimée et celle que Desk détient.
+
+**Chaque ligne porte une case, cochée par défaut.** Tout est distribué sauf décision contraire :
+c'est le cas courant, et l'inverse obligerait à cocher quarante lignes pour un lot normal. **Une
+ligne sans membre ne peut pas être cochée** : elle n'a pas de destinataire.
+
+**Un filtre par fonction principale** permet de n'afficher qu'un groupe et de le traiter d'un geste.
+C'est ainsi qu'on écarte les animateurs d'un lot fiscal : filtrer, tout décocher. Le composant est
+la select bar en mode multi — les fonctions viennent de Desk, varient d'une unité à l'autre et
+portent des libellés longs.
+
+Trois pièges, et ce sont les vrais risques de l'écran.
+
+**Masquer, jamais retirer.** Une ligne filtrée garde l'état de sa case. Si le filtre supprimait les
+lignes, décocher les animateurs puis filtrer sur « Scout » effacerait silencieusement les décisions
+prises, et le lot partirait amputé.
+
+**La commande d'ensemble n'agit que sur les lignes affichées, et son libellé porte leur nombre** :
+« Désélectionner les 12 lignes affichées », jamais « tout désélectionner ». Agir en silence sur des
+lignes masquées amputerait le lot sans que personne ne le voie.
+
+**Les lignes non appariées et ambiguës restent visibles quel que soit le filtre.** Elles n'ont pas de
+fonction ; les masquer au premier tri les ferait disparaître sans jamais être traitées.
+
+**Deux compteurs distincts** : « 12 affichées sur 55 » parle du filtre, « 43 à distribuer » parle du
+lot. C'est le second qui décide.
+
+### 41.4 Les doublons
+
+Un membre présent dans deux PDF reçoit **deux documents ; ils coexistent**. Le site ne devine pas si
+le second est une correction de la fédération ou un complément légitime, et remplacer
+automatiquement ferait disparaître un document que personne n'a demandé de supprimer.
+
+L'écran **signale** la ligne — « a déjà reçu une attestation fiscale pour cette année scoute, le
+11/02 » — et laisse décocher. C'est un avertissement, pas un blocage. Le rapprochement se fait sur
+membre + catégorie + année scoute, et ne regarde que les lots déjà publiés : un lot que personne n'a
+validé n'a rien donné à personne.
+
+**Un membre qui apparaît deux fois dans un même lot** est signalé de la même façon, sur les deux
+lignes : c'est le même fait, et le lecteur choisit laquelle garder.
+
+### 41.5 À la publication
+
+Les lignes non cochées sont **supprimées** — leur découpe n'est pas conservée, aucun document n'est
+créé. Une ligne sans membre part avec elles plutôt que de bloquer tout le lot : un chef d'unité ne
+doit pas rester coincé sur un nom que Desk ne contient pas, et l'écran l'annonce avant qu'il valide.
+
+Le lot garde en revanche **le compte de ce qui a été écarté**, pour qu'on puisse répondre six mois
+plus tard à « pourquoi 43 attestations pour 55 membres ? ». Un compteur, pas des noms.
+
+Chaque ligne conservée dépose **un document sur la page de son membre** (`member_documents`),
+pointant vers l'attestation déjà découpée : la publication ne crée pas un second fichier, elle
+rattache celui qui existe. Le document porte le libellé du lot et l'année scoute du lot, et la ligne
+retient l'identifiant du document qu'elle a produit — c'est ce qui rendra le lot reprenable.
+
+**Un lot publié est verrouillé, y compris pour celui qui l'a publié.** `owner_member_id` rend chaque
+attestation illisible par le staff : il n'y a donc plus rien à vérifier ni rien à corriger, seulement
+à reprendre en entier. L'écran continue d'afficher les lignes, en lecture seule — un lot publié reste
+le relevé de ce qui est parti où.
+
+### 41.6 Prévenir les familles
+
+**Publier n'est pas envoyer, et c'est délibérément deux gestes.** Une attestation ne sert qu'au
+moment où la famille en a besoin ; sans avertissement, elle la réclamera des mois plus tard, par
+e-mail, au trésorier. Tant que personne n'a appuyé, l'écran affiche « Familles non prévenues » en
+évidence.
+
+L'envoi n'est **jamais automatique** : c'est un bouton du chef d'unité. Un lot déposé n'est pas
+forcément un lot qu'on veut envoyer aujourd'hui, et une découpe se vérifie avant que quoi que ce soit
+ne parte.
+
+**L'attestation part en pièce jointe.** C'est ce qui résout le cas du membre parti : sa famille n'a
+plus aucun accès au site, et c'est elle qui a le plus besoin du document. Un lien public porteur d'un
+jeton a été écarté — un jeton qui circule vaut un accès, l'exposition serait la même avec en plus une
+route et une exception au contrôle d'accès.
+
+**Un message par famille, envoyé par petits groupes**, jamais dans la requête qui l'a demandé : deux
+cents attestations, ce sont deux cents allers-retours SMTP, et une rafale est ce qui abîme la
+réputation d'un domaine. Le déclenchement arme une tâche planifiée qui envoie une tranche puis se
+réarme tant qu'il reste du travail.
+
+**Un envoi n'est jamais réessayé.** Un échec de transport ne sait pas distinguer « jamais parti » de
+« parti, puis la connexion est tombée », et une attestation reçue deux fois est pire qu'une
+attestation reçue une fois : la famille ne peut pas savoir laquelle fait foi. La ligne est marquée,
+l'écran la compte, et le chef d'unité renvoie à la main depuis la fiche du membre.
+
+L'adresse utilisée est celle **du membre, la plus récente que le site connaisse**. Un membre dont le
+site ne connaît aucune adresse est compté « aucune adresse connue » plutôt que réessayé indéfiniment :
+son attestation est bien sur sa page, et l'écran dit ce que ces deux compteurs — sans adresse, envoi
+refusé — veulent dire et ce qu'on peut y faire.
+
+**Une notification par compte, pas une par document.** Un parent de trois enfants recevrait sinon
+trois notifications d'affilée, ce qui est exactement la façon dont on apprend à balayer ce genre de
+message sans le lire. La notification ne nomme personne : elle porte le libellé du lot, parce qu'elle
+s'affiche sur un écran verrouillé. Le canal e-mail de cette notification est désactivé — l'attestation
+elle-même arrive déjà par e-mail.
+
+### 41.7 Répondre à une famille après coup
+
+« Nous n'avons rien reçu. » C'est la question qui revient, et sans réponse elle oblige à redéposer
+tout le PDF fédéral.
+
+Sur la fiche d'un membre, le Staff d'unité voit désormais ses **documents privés**, toutes années
+confondues — la demande porte presque toujours sur une saison passée — et peut les ouvrir et les
+**renvoyer par e-mail** à l'adresse que le site connaît pour ce membre.
+
+**Cela retire une garantie que le site annonçait.** Un document rattaché à son propriétaire était
+jusqu'ici illisible par le staff, sans exception de rôle. Ce n'est plus vrai, et le mécanisme n'est
+pas cloisonnable : l'ouvrir pour les attestations l'ouvre pour tout ce qui sera un jour rattaché à
+un propriétaire. Trois bornes l'encadrent :
+
+- l'accès s'arrête au **Staff d'unité** — jamais un animateur de section, qui n'a aucune raison de
+  lire l'attestation fiscale d'un animé ;
+- le plancher de rôle du fichier reste vérifié à part, donc rien n'est atteint qu'un rôle
+  n'atteignait déjà ;
+- **chaque ouverture et chaque renvoi sont consignés au journal du site**, au niveau « sécurité »,
+  sous forme d'identifiants uniquement — jamais un nom, jamais une adresse. C'est cette trace qui
+  remplace la barrière retirée, et la page le dit à celui qui la consulte.
+
+### 41.8 Qui n'a pas encore reçu la sienne
+
+Les fichiers partiels rendent la question urgente : après un premier envoi en février, un complément
+en mars et parfois une correction, personne ne recoupe trois lots à la main.
+
+Un écran (`/admin/attestations/couverture`) répond, pour une **catégorie** et une **année scoute** :
+qui détient son attestation et qui ne l'a pas. La liste des manquants passe en premier — c'est elle
+qu'on transmet à la fédération pour réclamer le complément ; les autres sont repliés en dessous.
+
+Deux règles décident si la réponse est juste. La population est le **listing de cette année-là**, pas
+celui d'aujourd'hui : un membre parti était là quand l'attestation a été gagnée, et sa famille n'a
+plus de page sur le site pour s'apercevoir qu'elle n'a rien reçu. Et le rapprochement se fait sur la
+**personne**, pas sur sa fiche annuelle — sinon la même personne réapparaîtrait comme manquante dès
+l'année suivante. Seuls les lots publiés comptent : un lot que personne n'a validé n'a rien donné à
+personne.
+
+### 41.9 Reprendre un lot
+
+Un lot doit pouvoir être **repris en entier** : les documents déposés sur les pages des membres sont
+retirés, les attestations découpées supprimées, le lot disparaît et l'on revient au dépôt d'un
+nouveau fichier.
+
+C'est indispensable parce que la seule erreur vraiment coûteuse — une découpe décalée d'une page —
+n'est visible qu'après coup, et qu'elle donne à chaque famille l'attestation d'une autre. La reprise
+doit être **une action franche** : supprimer quarante documents à la main sur quarante fiches, c'est
+ainsi qu'une moitié de lot erroné survit.
+
+La reprise ne retire que ce que **ce lot** a produit : un membre qui détient aussi une attestation
+d'un autre lot la conserve.
+
+**Ce qu'elle ne défait pas, c'est l'e-mail.** Les attestations déjà envoyées sont dans des boîtes
+mail et rien ici ne les rattrape. C'est la phrase par laquelle commence la confirmation, pas une note
+en bas de page : un lecteur qui croit que la reprise rappelle les messages n'enverra pas la
+correction dont les familles ont besoin.
+
+Un lot encore en brouillon s'abandonne de la même façon — c'est aussi la seule manière de se
+débarrasser des attestations découpées d'un fichier qui n'aurait jamais dû être déposé.
+
+### 41.10 Hors périmètre
+
+La **génération** d'attestations par l'unité elle-même. Le site ne produit aucun document : il découpe
+un PDF qu'on lui fournit. Une attestation de présence après camp entre donc dans le périmètre si elle
+arrive sous forme de PDF groupé, pas si elle doit être composée par le site.

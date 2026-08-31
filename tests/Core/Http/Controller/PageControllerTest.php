@@ -13,6 +13,7 @@ use Core\Member\SectionService;
 use Core\Member\UnitStaffSectionService;
 use Core\Member\MemberProfile;
 use Core\Module\HomeBannerProvider;
+use Core\Module\HomeGroupActivityProvider;
 use Core\Module\HookRegistry;
 use Core\Module\HomePaymentDueProvider;
 use Core\Module\HomeNewsProvider;
@@ -268,13 +269,143 @@ class PageControllerTest extends TestCase
     }
 
     /**
-     * @param array{total_cents: int, demands: list<array{member_year_id: int, member_name: string, label: string, amount_cents: int}>, single_member_year_id: ?int, statement_date: ?string} $summary
+     * THE PRIORITY RULE, with all three candidates able to speak at once.
+     *
+     * The home page carries ONE band, and the order that picks it is a
+     * business rule shared by PageController::home() and
+     * pages/home.html.twig: money due first, group activity second, the
+     * unit's editorial banner last. This is the case that used to render
+     * a stack of three.
      */
-    private function controllerWithPaymentDue(array $summary): PageController
+    public function testOnlyThePaymentBandIsRenderedWhenAllThreeProvidersHaveSomethingToSay(): void
     {
-        $provider = new class ($summary) implements HomePaymentDueProvider {
-            /** @param array<string, mixed> $summary */
-            public function __construct(private array $summary)
+        $banner = $this->spyBannerProvider('<p>Message important</p>');
+        $activity = $this->spyGroupActivityProvider(self::GROUP_ACTIVITY);
+        $controller = $this->controllerWithHooks([
+            HomePaymentDueProvider::class => $this->paymentDueProvider(self::PAYMENT_DUE),
+            HomeGroupActivityProvider::class => $activity,
+            HomeBannerProvider::class => $banner,
+        ]);
+
+        $body = $controller->home(new Request('GET', '/', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('id="home-payment-due"', $body);
+        $this->assertStringNotContainsString('Du nouveau dans vos groupes', $body);
+        $this->assertStringNotContainsString('Message important', $body);
+        $this->assertSame(1, substr_count($body, 'alert alert-info'), 'exactly one band, never a stack');
+
+        // The order is meant to be short-circuited, not merely rendered
+        // selectively: a provider whose answer can no longer be shown
+        // goes to the database for nothing.
+        $this->assertSame(0, $activity->calls, 'the group provider must not be asked once a payment band was chosen');
+        $this->assertSame(0, $banner->calls, 'the banner provider must not be asked once a payment band was chosen');
+    }
+
+    /**
+     * Second in the order: with nothing to pay, group activity outranks
+     * the editorial banner — a message addressed to this visitor beats
+     * one addressed to everybody.
+     */
+    public function testGroupActivityOutranksTheEditorialBannerWhenNothingIsDue(): void
+    {
+        $banner = $this->spyBannerProvider('<p>Message important</p>');
+        $controller = $this->controllerWithHooks([
+            HomeGroupActivityProvider::class => $this->spyGroupActivityProvider(self::GROUP_ACTIVITY),
+            HomeBannerProvider::class => $banner,
+        ]);
+
+        $body = $controller->home(new Request('GET', '/', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Du nouveau dans vos groupes', $body);
+        $this->assertStringNotContainsString('Message important', $body);
+        $this->assertSame(1, substr_count($body, 'alert alert-info'));
+        $this->assertSame(0, $banner->calls, 'the banner provider must not be asked once the group band was chosen');
+    }
+
+    /**
+     * Last in the order: the editorial banner is the fallback, shown
+     * exactly when the two bands above it stayed silent.
+     */
+    public function testTheEditorialBannerIsRenderedWhenTheTwoBandsAboveHaveNothingToSay(): void
+    {
+        $controller = $this->controllerWithHooks([
+            HomePaymentDueProvider::class => $this->paymentDueProvider(null),
+            HomeGroupActivityProvider::class => $this->spyGroupActivityProvider(null),
+            HomeBannerProvider::class => $this->spyBannerProvider('<p>Message important</p>'),
+        ]);
+
+        $body = $controller->home(new Request('GET', '/', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Message important', $body);
+        $this->assertSame(1, substr_count($body, 'alert alert-info'));
+    }
+
+    /**
+     * One style for all three: the Banners module's plain Bootstrap
+     * alert-info. Three different colours in one slot read as a severity
+     * scale the page never meant.
+     *
+     * Asserted on each band's own class attribute rather than on the
+     * whole document — base.html.twig carries alert-warning bands of its
+     * own (the offline and impersonation strips), so a document-wide
+     * search would pass whatever the home page did.
+     */
+    public function testEveryBandWearsTheSameAlertInfoStyle(): void
+    {
+        $paymentBody = $this->controllerWithHooks([
+            HomePaymentDueProvider::class => $this->paymentDueProvider(self::PAYMENT_DUE),
+        ])->home(new Request('GET', '/', [], [], [], []), [])->getBody();
+
+        $this->assertSame(
+            1,
+            preg_match('/<div id="home-payment-due" class="([^"]+)"/', $paymentBody, $paymentClasses),
+            'the payment band was not rendered at all'
+        );
+        $this->assertStringContainsString('alert-info', $paymentClasses[1]);
+        $this->assertStringNotContainsString('alert-warning', $paymentClasses[1]);
+
+        $activityBody = $this->controllerWithHooks([
+            HomeGroupActivityProvider::class => $this->spyGroupActivityProvider(self::GROUP_ACTIVITY),
+        ])->home(new Request('GET', '/', [], [], [], []), [])->getBody();
+
+        // The group band carries no id; its own icon identifies it.
+        $this->assertSame(
+            1,
+            preg_match('/<div class="([^"]*alert[^"]*)">\s*<i class="bi bi-chat-dots"/', $activityBody, $activityClasses),
+            'the group activity band was not rendered at all'
+        );
+        $this->assertStringContainsString('alert-info', $activityClasses[1]);
+        $this->assertStringNotContainsString('alert-primary', $activityClasses[1]);
+        // The band's one action stays btn-primary — coherent inside an
+        // alert-info, and unchanged by the restyling.
+        $this->assertStringContainsString('btn btn-sm btn-primary', $activityBody);
+    }
+
+    /** A summary with something to pay, for the priority-order tests. */
+    private const PAYMENT_DUE = [
+        'total_cents' => 3825,
+        'demands' => [['member_year_id' => 11, 'member_name' => 'Margaux', 'label' => 'Cotisation', 'amount_cents' => 3825]],
+        'single_member_year_id' => 11,
+        'statement_date' => '2026-02-20',
+    ];
+
+    /** A summary with unread group activity, for the same tests. */
+    private const GROUP_ACTIVITY = [
+        'group_count' => 1,
+        'single_group' => ['id' => 7, 'name' => 'Staff Louveteaux'],
+        'new_posts' => 2,
+        'new_replies_or_reactions' => 0,
+        'new_mentions' => 0,
+    ];
+
+    /**
+     * @param array<string, mixed>|null $summary
+     */
+    private function paymentDueProvider(?array $summary): HomePaymentDueProvider
+    {
+        return new class ($summary) implements HomePaymentDueProvider {
+            /** @param array<string, mixed>|null $summary */
+            public function __construct(private ?array $summary)
             {
             }
 
@@ -283,18 +414,91 @@ class PageControllerTest extends TestCase
              */
             public function getHomePaymentSummaryForCurrentUser(): ?array
             {
-                /** @var array{total_cents: int, demands: list<array{member_year_id: int, member_name: string, label: string, amount_cents: int}>, single_member_year_id: ?int, statement_date: ?string} $summary */
+                /** @var null|array{total_cents: int, demands: list<array{member_year_id: int, member_name: string, label: string, amount_cents: int}>, single_member_year_id: ?int, statement_date: ?string} $summary */
                 $summary = $this->summary;
 
                 return $summary;
             }
         };
+    }
+
+    /**
+     * Counts its calls, so a test can assert the controller stopped
+     * asking once a higher-priority band had been chosen.
+     *
+     * @param array<string, mixed>|null $summary
+     */
+    private function spyGroupActivityProvider(?array $summary): HomeGroupActivityProvider
+    {
+        return new class ($summary) implements HomeGroupActivityProvider {
+            public int $calls = 0;
+
+            /** @param array<string, mixed>|null $summary */
+            public function __construct(private ?array $summary)
+            {
+            }
+
+            /**
+             * @return null|array{group_count: int, single_group: null|array{id: int, name: string}, new_posts: int, new_replies_or_reactions: int, new_mentions: int}
+             */
+            public function getHomeActivitySummaryForCurrentUser(): ?array
+            {
+                ++$this->calls;
+                /** @var null|array{group_count: int, single_group: null|array{id: int, name: string}, new_posts: int, new_replies_or_reactions: int, new_mentions: int} $summary */
+                $summary = $this->summary;
+
+                return $summary;
+            }
+        };
+    }
+
+    /** Counts its calls, for the same reason. */
+    private function spyBannerProvider(?string $html): HomeBannerProvider
+    {
+        return new class ($html) implements HomeBannerProvider {
+            public int $calls = 0;
+
+            public function __construct(private ?string $html)
+            {
+            }
+
+            public function getRandomBannerHtml(string $viewerRole): ?string
+            {
+                ++$this->calls;
+
+                return $this->html;
+            }
+        };
+    }
+
+    /**
+     * A PageController holding a registry of several hooks at once — what
+     * the composition root builds on an install where more than one of
+     * the home page's contributing modules is enabled.
+     *
+     * @param array<class-string, object> $hooks
+     */
+    private function controllerWithHooks(array $hooks): PageController
+    {
+        $registry = new HookRegistry();
+        foreach ($hooks as $hookInterface => $implementation) {
+            $registry->register($hookInterface, $implementation);
+        }
 
         return new PageController(
             $this->twig, $this->editableService, $this->sectionRepo, $this->settingService, $this->rgpdContentService,
-            $this->sectionService, $this->unitStaffSectionService, $this->scoutYearService,
-            $this->hooksWith(\Core\Module\HomePaymentDueProvider::class, $provider)
+            $this->sectionService, $this->unitStaffSectionService, $this->scoutYearService, $registry
         );
+    }
+
+    /**
+     * @param array{total_cents: int, demands: list<array{member_year_id: int, member_name: string, label: string, amount_cents: int}>, single_member_year_id: ?int, statement_date: ?string} $summary
+     */
+    private function controllerWithPaymentDue(array $summary): PageController
+    {
+        return $this->controllerWithHooks([
+            HomePaymentDueProvider::class => $this->paymentDueProvider($summary),
+        ]);
     }
 
     public function testHomePagePassesTheCurrentViewerRoleToTheBannerProvider(): void

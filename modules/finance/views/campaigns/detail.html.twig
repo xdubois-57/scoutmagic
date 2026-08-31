@@ -173,6 +173,14 @@
            href="/finance/campaigns/{{ campaign.id }}/export?filter={{ filter }}">
             <i class="bi bi-download" aria-hidden="true"></i> Exporter ({{ rows|length }})
         </a>
+        {# The sheet ignores the filter on purpose: a label is only ever
+           produced by a receivable that still asks for something, so the
+           count beside it is the unpaid tile above and never rows|length.
+           See Controller\CampaignController::labels(). #}
+        <a class="btn btn-outline-secondary btn-sm tap-target"
+           href="/finance/campaigns/{{ campaign.id }}/labels">
+            <i class="bi bi-tags" aria-hidden="true"></i> Étiquettes ({{ totals.unpaid_count }})
+        </a>
         <form method="post" action="/finance/campaigns/{{ campaign.id }}/status" class="d-inline"
               data-confirm="{{ campaign.isOpen
                   ? 'Clôturer la campagne ? Les rappels s\'arrêtent et la campagne est figée — elle reste consultable.'

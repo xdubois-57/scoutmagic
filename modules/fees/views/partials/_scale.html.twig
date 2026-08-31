@@ -11,24 +11,57 @@
   unit whose wording is ordinary never opens this. The second exists only to
   turn a discrepancy into euros — nothing is computed from it and no screen
   presents it as an amount owed.
+
+  « Chercher les montants » (Modules\Fees\Service\FederalScaleLookupService)
+  reads the federation's own page and PROPOSES the three amounts. It is a
+  second submit button on this same form rather than a nested form, which
+  HTML does not allow — `formaction` sends it elsewhere and the CSRF token
+  above is the same one. It is rendered only while `scale_lookup_available`
+  is true, i.e. while the llm_connector module is enabled AND has a model on
+  the cheap tier (ARCHITECTURE.md §7.5): with no AI, this block is exactly
+  what it always was.
+
+  Nothing about a proposal is saved. `scale_suggestion` carries the amounts
+  through one redirect (Modules\Fees\Support\SuggestedScale), fills the
+  fields, opens the block, and says which page and which scout year the
+  figures came from — validating a number without knowing what it rests on
+  is the thing this banner exists to prevent. The chef d'unité still has to
+  click « Enregistrer le barème ».
 #}
+{% set _suggested = scale_suggestion|default(null) %}
 <div class="card mb-3">
     <div class="card-body py-2">
         <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none"
                 data-bs-toggle="collapse" data-bs-target="#fees-scale"
-                aria-expanded="false" aria-controls="fees-scale">
+                aria-expanded="{{ _suggested ? 'true' : 'false' }}" aria-controls="fees-scale">
             <i class="bi bi-sliders" aria-hidden="true"></i> Barème des cotisations
         </button>
-        <div class="collapse mt-3" id="fees-scale">
+        <div class="collapse mt-3{{ _suggested ? ' show' : '' }}" id="fees-scale">
             <p class="small text-body-secondary">
                 Saisi à la main, uniquement pour traduire un écart en euros. Laissé vide, un écart s'affiche sans
                 montant plutôt qu'avec un montant faux. La catégorie Desk n'est à préciser que si le site s'est
                 trompé en la devinant.
             </p>
+            {% if _suggested %}
+                {#
+                  An <output>, not a div with role="status": this IS the
+                  result of an action the visitor just triggered, which is
+                  the element's own definition, and it carries the live-region
+                  semantics natively instead of borrowing them from a role
+                  (Sonar Web:S6819). `d-block` because <output> is inline by
+                  default and `.alert` does not set a display of its own.
+                #}
+                <output class="alert alert-info py-2 small d-block">
+                    Montants proposés pour l'année <strong>{{ _suggested.year }}</strong>, lus sur
+                    <a href="{{ _suggested.url }}" target="_blank" rel="noopener noreferrer">{{ _suggested.url }}</a>.
+                    Rien n'est enregistré tant que vous n'avez pas cliqué sur « Enregistrer le barème ».
+                </output>
+            {% endif %}
             <form method="post" action="/admin/fees/tarifs/bareme">
                 {{ csrf_field()|raw }}
                 <div class="row g-3">
                     {% for key, line in tariff_panel %}
+                        {% set _amount_cents = _suggested ? _suggested.amount_cents[key] : line.amount_cents %}
                         <div class="col-12 col-md-4">
                             <div class="border rounded p-2">
                                 <p class="fw-semibold small mb-2">{{ category_labels[key] }}</p>
@@ -55,7 +88,7 @@
                                     label: 'Montant par personne (€)',
                                     type: 'text',
                                     inputmode: 'decimal',
-                                    value: line.amount_cents is null ? '' : (line.amount_cents / 100)|number_format(2, ',', ''),
+                                    value: _amount_cents is null ? '' : (_amount_cents / 100)|number_format(2, ',', ''),
                                     size: 'sm',
                                     wrapper_class: 'mb-0',
                                 } only %}
@@ -63,7 +96,27 @@
                         </div>
                     {% endfor %}
                 </div>
-                <button type="submit" class="btn btn-sm btn-outline-secondary mt-3">Enregistrer le barème</button>
+                {#
+                  « Enregistrer le barème » stays the FIRST submit button of
+                  the form on purpose: it is the one a browser fires when
+                  someone presses Enter in an amount field, and a stray
+                  Enter must never become an AI request.
+                #}
+                <div class="d-flex flex-wrap gap-2 mt-3">
+                    <button type="submit" class="btn btn-sm btn-outline-secondary">Enregistrer le barème</button>
+                    {% if scale_lookup_available|default(false) %}
+                        <button type="submit" class="btn btn-sm btn-outline-secondary"
+                                formaction="/admin/fees/tarifs/bareme/chercher">
+                            <i class="bi bi-magic" aria-hidden="true"></i> Chercher les montants
+                        </button>
+                    {% endif %}
+                </div>
+                {% if scale_lookup_available|default(false) %}
+                    <p class="form-text mt-2 mb-0">
+                        « Chercher les montants » lit la page des cotisations de la fédération et pré-remplit les trois
+                        champs ci-dessus, sans rien enregistrer. Vérifiez-les, puis enregistrez.
+                    </p>
+                {% endif %}
             </form>
         </div>
     </div>

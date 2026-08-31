@@ -701,6 +701,43 @@ body:has(> #cookie-banner) {
     margin: 0.75rem 0;
 }
 
+/* ============================================================
+   Rich text rendered with |raw — the one rule that bounds an image
+   nobody sized
+   ============================================================
+   Everything a chief writes through a rich-text editor (a news
+   article's body, the site's editable blocks, a help topic, the RGPD
+   page, a rental's conditions, a camp's note) is stored as HTML and
+   printed with `|raw`. An <img> in it carries whatever width the
+   source file had: a 4000px photo pasted into an article came out at
+   4000px and pushed the whole page sideways, because nothing in this
+   stylesheet or in Bootstrap constrains it — `.img-fluid` is opt-in,
+   and no editor here adds it.
+
+   So the containers carry `.rich-text` (alongside whatever class they
+   already had) and every image inside one is bounded here, once.
+
+   The desktop cap is the same 420px as `.groups-media-grid`
+   (components.css): on a wide screen a photo that fills the text
+   column reads as a banner the author never asked for, and an image
+   slightly too small is a much smaller problem than one too large.
+   Below 992px the image simply fits its column, which is what a phone
+   wants and what the reported case never got wrong.
+
+   `height: auto` is what keeps a constrained image in proportion —
+   without it an `<img width height>` pair (which editors do emit)
+   keeps its stated height while the width shrinks. */
+.rich-text img {
+    max-width: 100%;
+    height: auto;
+}
+
+@media (min-width: 992px) {
+    .rich-text img {
+        max-width: 420px;
+    }
+}
+
 /* Passage (modules/registration, views/passage.html.twig) — the column
    both of that page's tables end with: a section picker and its
    « Enregistrer » button, side by side in one flex row.

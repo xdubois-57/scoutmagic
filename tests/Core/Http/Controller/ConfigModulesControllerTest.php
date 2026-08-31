@@ -56,7 +56,6 @@ class ConfigModulesControllerTest extends TestCase
             $cookieConsentService,
             $menuBuilder,
             $this->registryRepo,
-            $migrationRunner,
             $journalService,
             $router
         );

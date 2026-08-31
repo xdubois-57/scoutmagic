@@ -107,6 +107,34 @@ class JournalControllerTest extends TestCase
         $this->assertStringContainsString('Security event', $response->getBody());
     }
 
+    /**
+     * The page half of point 17: an uncaught error is only "consultable
+     * from the site" if the journal page offers the level, filters on it,
+     * and tells it apart from the other two at a glance.
+     */
+    public function testIndexOffersAndAppliesTheErrorLevel(): void
+    {
+        $this->journalService->log('core', 'login_success', 'info', 'Connexion réussie');
+        $this->journalService->log(
+            'core',
+            'uncaught_error',
+            'error',
+            'Erreur non interceptée : RuntimeException dans /app/core/X.php:12'
+        );
+
+        $unfiltered = $this->controller->index(new Request('GET', '/admin/journal', [], [], [], []), [])->getBody();
+        $this->assertStringContainsString('<option value="error">Erreur</option>', $unfiltered);
+        $this->assertStringContainsString('badge text-bg-danger', $unfiltered);
+
+        $filtered = $this->controller
+            ->index(new Request('GET', '/admin/journal', ['level' => 'error'], [], [], []), [])
+            ->getBody();
+
+        $this->assertStringContainsString('1 entrée', $filtered);
+        $this->assertStringContainsString('Erreur non interceptée', $filtered);
+        $this->assertStringNotContainsString('Connexion réussie', $filtered);
+    }
+
     public function testIndexShowsResolvedEmailAndIp(): void
     {
         $actor = $this->userRepo->create('actor@test.be');

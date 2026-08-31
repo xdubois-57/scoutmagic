@@ -102,6 +102,13 @@ final class ReferenceDatasetImportTest extends TestCase
                 );
                 self::assertSame(
                     $expectedCadres,
+                    // Un « Animateur responsable », un « Intendant » ou un
+                    // « Candidat … » compte comme un cadre : le générateur
+                    // promeut un animateur existant, il n'ajoute personne
+                    // (PopulationBuilder::designateSectionLeads() et
+                    // ::designateSectionSpecialists()). La liste vit dans le
+                    // blueprint, lu aussi par le générateur, pour que les deux
+                    // ne puissent pas diverger.
                     $this->countInSection($label, $name, UnitBlueprint::SECTION_STAFF_FUNCTIONS),
                     "{$name} n'a pas le nombre de cadres déclaré en {$label}.",
                 );

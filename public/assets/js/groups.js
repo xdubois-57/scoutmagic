@@ -399,6 +399,57 @@
 
         restoreDraft();
 
+        // --- Folded down to one line until it is asked for.
+        //
+        // show.html.twig renders the bar HIDDEN and the form open, so a
+        // browser that never runs this file keeps the composer it has
+        // always had — the fold is an enhancement, never the only way in.
+        // Everything below therefore only ever HIDES the form after
+        // having something to put in its place.
+        //
+        // Two states open it on arrival instead, and they are the same
+        // fact seen from two sides: this composer already holds text
+        // nobody has published yet.
+        //
+        //  - a local draft, just restored by restoreDraft() above (a
+        //    lost connection, a refused submit, a closed tab);
+        //  - a message the AI moderation refused and handed back to its
+        //    author, filled in server-side (data-rejected-draft, set by
+        //    show.html.twig for the shape that fills THIS composer). The
+        //    panel above it has just said the text was kept in the form
+        //    below; folding that form away would hide exactly what the
+        //    member was told to look for.
+        //
+        // Reading the textarea covers the first case and would cover the
+        // second on its own; the attribute is still consulted, because a
+        // rule the server states is not one to re-derive from a symptom.
+        //
+        // Opening is one-way: publishing a message does NOT fold the
+        // composer back. Somebody who has just written is the one person
+        // on the page likely to write again, and taking the form away
+        // from under them would read as the post having failed.
+        var openButton = document.getElementById('groups-composer-open');
+        if (openButton) {
+            var startsOpen = textarea.value.trim() !== '' || form.dataset.rejectedDraft === '1';
+
+            if (!startsOpen) {
+                form.classList.add('d-none');
+                openButton.classList.remove('d-none');
+                openButton.classList.add('d-flex');
+            }
+
+            openButton.addEventListener('click', function () {
+                form.classList.remove('d-none');
+                openButton.classList.add('d-none');
+                openButton.classList.remove('d-flex');
+                // The click meant "I want to write", so the caret goes
+                // where the writing happens rather than leaving one more
+                // tap between the member and the field they just asked
+                // for.
+                textarea.focus();
+            });
+        }
+
         // --- "Publier", offered only when there is something to publish.
         //
         // The same four things the server accepts a post for (Service\
@@ -1020,6 +1071,66 @@
         )).map(function (el) { return /** @type {HTMLElement} */ (el).dataset.mediaId; });
     }
 
+    /**
+     * Fill a media cell that has just finished processing, from DATA.
+     *
+     * This used to be `cell.innerHTML = item.html`, with the server
+     * sending the rendered `media_thumb.html.twig`. Nothing user-supplied
+     * ever travelled through it — that partial holds an integer id and an
+     * enum — but an innerHTML sink fed by a fetch response is a DOM-XSS
+     * sink regardless of what flows through it today, and it would have
+     * become a real one the first time somebody put a caption in that
+     * template. The server now sends {id, status, media_type} and nothing
+     * here ever parses HTML.
+     *
+     * Deliberately mirrors media_thumb.html.twig's `done`/`failed`
+     * branches, which stay the source for the FIRST render — the two are
+     * only ever seen one after the other on the same cell, so a
+     * divergence would show up immediately as a thumbnail that changes
+     * appearance the moment it loads.
+     *
+     * @param {HTMLElement} cell
+     * @param {{id: number|string, status: string, media_type?: string}} item
+     */
+    function renderResolvedMedia(cell, item) {
+        cell.textContent = '';
+
+        if (item.status === 'failed') {
+            var failed = document.createElement('span');
+            failed.className = 'd-flex align-items-center justify-content-center h-100 text-danger';
+            failed.title = 'Échec du traitement de ce média';
+            var warning = document.createElement('i');
+            warning.className = 'bi bi-exclamation-triangle';
+            warning.setAttribute('aria-hidden', 'true');
+            failed.appendChild(warning);
+            cell.appendChild(failed);
+
+            return;
+        }
+
+        var image = document.createElement('img');
+        // Built from the id the server just sent back, never from a URL
+        // it sent: a path this file assembles cannot be pointed elsewhere.
+        image.src = '/gallery/media/' + encodeURIComponent(String(item.id)) + '/thumb';
+        image.alt = '';
+        image.className = 'w-100 h-100';
+        image.style.objectFit = 'cover';
+        image.loading = 'lazy';
+        cell.appendChild(image);
+
+        if (item.media_type === 'video') {
+            var badge = document.createElement('span');
+            badge.className = 'position-absolute top-50 start-50 translate-middle text-white';
+            badge.style.fontSize = '1.75rem';
+            badge.style.textShadow = '0 0 6px rgba(0,0,0,.6)';
+            var play = document.createElement('i');
+            play.className = 'bi bi-play-circle-fill';
+            play.setAttribute('aria-hidden', 'true');
+            badge.appendChild(play);
+            cell.appendChild(badge);
+        }
+    }
+
     function pollMediaStatus() {
         var feed = document.getElementById('groups-feed');
         var ids = pendingMediaIds();
@@ -1034,13 +1145,13 @@
             return response.ok ? response.json() : [];
         }).then(function (items) {
             items.forEach(function (item) {
-                if (item.status === 'pending' || item.status === 'processing' || typeof item.html !== 'string') {
+                if (item.status === 'pending' || item.status === 'processing') {
                     return;
                 }
                 var cell = /** @type {HTMLElement} */ (document.querySelector('[data-media-id="' + item.id + '"]'));
                 if (cell) {
                     cell.dataset.status = item.status;
-                    cell.innerHTML = item.html;
+                    renderResolvedMedia(cell, item);
                 }
             });
         }).catch(function () {
@@ -2015,24 +2126,53 @@
         var modal = bootstrap.Modal.getOrCreateInstance(modalEl);
 
         return new Promise(function (resolve) {
-            var chosen = false;
+            var settled = false;
 
+            function cleanup() {
+                list.removeEventListener('click', onPick);
+                modalEl.removeEventListener('hidden.bs.modal', onHidden);
+            }
+
+            // Resolved on the CHOICE, never on the closing animation.
+            //
+            // This used to set a flag, call modal.hide(), and resolve from
+            // 'hidden.bs.modal' — so the form was submitted only once the
+            // fade-out had finished. Bootstrap's hide() returns early and
+            // fires nothing while the modal is still transitioning IN
+            // (`_isShown`/`_isTransitioning`), and a click can land inside
+            // that window: the dialog is already at its final position
+            // while its opacity is still animating. The promise then never
+            // settled, the form was never submitted, and the message was
+            // simply never pinned — with no error and no feedback. Rare by
+            // hand, reliable under load: it is how the end-to-end suite
+            // came to poll for « Désépingler » 122 times over a full
+            // minute and never see it.
             function onPick(event) {
                 var button = /** @type {HTMLElement|null} */ (
                     /** @type {HTMLElement} */ (event.target).closest('[data-duration]')
                 );
-                if (!button) {
+                if (!button || settled) {
                     return;
                 }
-                chosen = true;
+                settled = true;
                 field.value = button.dataset.duration || '';
+                cleanup();
+                // Best-effort tidying: the form submit below navigates
+                // away, so whether the fade-out completes is immaterial.
                 modal.hide();
+                resolve(true);
             }
 
+            // Dismissal keeps hanging off 'hidden.bs.modal', which is the
+            // right signal for it: closing without choosing must do
+            // nothing, so an event that never arrives costs nothing.
             function onHidden() {
-                list.removeEventListener('click', onPick);
-                modalEl.removeEventListener('hidden.bs.modal', onHidden);
-                resolve(chosen);
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                cleanup();
+                resolve(false);
             }
 
             list.addEventListener('click', onPick);

@@ -69,13 +69,31 @@ tests/fixtures/reference-dataset/
   build.php              point d'entrée CLI du builder
   InstanceContext.php    ouvre l'installation cible et refuse les mauvaises
   InstanceReset.php      vide l'installation cible pour --reset (§8.4)
-  FinanceSeeder.php      comptes bancaires + import des six relevés
+  ModuleActivator.php    active tous les modules par le vrai ModuleManager
+  FinanceSeeder.php      comptes bancaires + import des relevés
   DemoAccounts.php       LA TABLE : quel membre porte quel rôle de démo
-  ExtrasBlueprint.php    LA TABLE : décalages, départs, badges, évènements
-  ExtrasApplier.php      applique les extras par les vrais services
+  ExtrasBlueprint.php    LA TABLE : décalages, départs, créances, adresses
+  ExtrasApplier.php      applique les extras, et orchestre les semeurs
   desk/                  les trois exports Desk générés, commités
   bank/                  les six relevés BNP générés, commités
   photos/                le lot de photos (§4) + assignments.csv, généré
+```
+
+**Un domaine, deux fichiers** — c'est la règle de ce répertoire, et elle est
+la raison pour laquelle `ExtrasBlueprint` et `ExtrasApplier` ont été coupés en
+morceaux quand le jeu de données a grossi : un `*Blueprint` **décrit**, un
+`*Seeder` **applique**, et aucun des deux ne fait le travail de l'autre.
+
+```
+  CalendarBlueprint / CalendarSeeder      rythme hebdomadaire, camps, Temps d'U
+  NewsBlueprint / NewsSeeder              articles, formulaires, réponses
+  CampaignBlueprint / CampaignSeeder      vente de calendriers + réconciliation
+  CampsBlueprint / CampsSeeder            lieux de camp et séjours
+  RegistrationBlueprint / RegistrationSeeder  capacités et demandes
+  BannerBlueprint / BannerSeeder          bannières et leur role_min
+  GalleryBlueprint / GallerySeeder        l'album externe
+  RentalBlueprint / RentalSeeder          le local, son tarif, ses locations
+  StaffBlueprint / StaffSeeder            responsables de section et badges
 ```
 
 Les classes sont autochargées par l'entrée `autoload-dev` de `composer.json`
@@ -180,6 +198,15 @@ date-calculée (2 années passées, la courante, 2 suivantes) — cessera de lis
 exercices. L'import bancaire, lui, continue de fonctionner :
 `FiscalYearRepository::findForDate()` interroge `scout_years` directement.
 
+**Une quatrième année existe en base**, `2027-2028`, créée par
+`ScoutYearService::ensureYear()` : c'est celle des demandes d'inscription
+(§8.3), qui sont par nature des demandes pour l'année *suivante*. Elle n'a
+aucun membre et n'apparaît nulle part ailleurs. Elle est épinglée plutôt que
+dérivée de « l'année suivante » pour la même raison que les trois autres : une
+cible date-calculée mettrait les demandes dans une année différente selon le
+jour de la construction, et l'arithmétique des capacités cesserait de vouloir
+dire quelque chose.
+
 ## 6. Pièges du pipeline, constatés dans le code
 
 À lire avant de toucher au builder ou aux tests d'import.
@@ -262,83 +289,172 @@ construire (§8.4).
    porte une clé étrangère. Un identifiant `1` en dur marche par coïncidence
    sur une installation neuve et échoue dès que les comptes ont été
    renumérotés.
-2. **Les trois années scoutes et les trois imports Desk**, dans l'ordre
+2. **Tous les modules, activés par le vrai `Core\Module\ModuleManager::
+   activate()`** (`ModuleActivator`), dans un ordre topologique de leurs
+   `requires` — `activate()` refuse un module dont une dépendance dure n'est
+   pas encore active. **Ici, et pas à la fin.** L'état final demandé est le
+   même (tous les modules actifs), mais l'ordre décide de ce que le build peut
+   écrire : un module éteint n'a ni réglages par défaut ni routes, et les
+   extras qui en dépendent étaient sautés en silence. C'est le service de
+   modules qui active, jamais une écriture dans `module_registry` : l'activation
+   crée les réglages par défaut, enregistre les routes et journalise — un
+   `INSERT` dans la table ne fait aucun des trois, et `RegistrationSeeder`
+   écrit précisément un réglage qui n'existe pas avant.
+3. **Les trois années scoutes et les trois imports Desk**, dans l'ordre
    chronologique, par le vrai `DeskImportService` — le même
    `DeskImportReplay` que le test d'import de bout en bout.
-3. **La confirmation des rôles**, par le chemin de Config Desk
+4. **La confirmation des rôles**, par le chemin de Config Desk
    (`FunctionRepository::updateRole(..., true)` puis
    `UnitStaffSectionService::syncMembership()` sur les trois années). C'est le
    seul endroit d'où Staff d'U peut naître.
-4. **Les finances** : catégories par défaut, puis comptes de section, puis les
-   deux comptes d'unité, puis les six relevés. **L'ordre est porteur** —
-   `ensureDefaultCategories()` ne sème que tant que la table est vide, et créer
-   un compte y ajoute déjà sa catégorie « Virement <compte> ».
-5. **Les comptes de démonstration** adossés à des membres, après les imports
+5. **Les finances** : catégories par défaut, puis comptes de section, puis
+   **l'IBAN de chaque compte de section**, puis les deux comptes d'unité, puis
+   les six relevés. **L'ordre est porteur** — `ensureDefaultCategories()` ne
+   sème que tant que la table est vide, et créer *ou compléter* un compte y
+   ajoute déjà sa catégorie « Virement <compte> ».
+   `ensureDefaultAccountsForSections()` crée un compte par section **sans
+   IBAN**, ce qui est correct — il ne peut pas en inventer un — mais laisse
+   huit comptes qu'aucun relevé ne peut atteindre ; `completeSectionAccounts()`
+   les complète par `FinanceService::updateAccount()`, qui normalise l'IBAN
+   avant l'index aveugle et synchronise la catégorie de virement.
+6. **Les extras et les semeurs par domaine** : adresses de section, décalages
+   d'année, départs, badges et photos, puis calendrier, actualités, camps,
+   inscriptions, bannières, galerie, locations et responsables de section.
+7. **La campagne de paiement**, après les extras : elle a besoin des membres
+   (`finance_campaign_rows.member_id` est obligatoire, et une ligne qui ne
+   résout personne fait refuser tout le fichier) et du compte d'unité. Ses
+   communications structurées sont **tirées au hasard à la création**, donc
+   elles ne peuvent pas figurer dans les relevés commités : le semeur les relit,
+   écrit un septième relevé BNP et le fait entrer par le même `ImportService`,
+   qui catégorise, déduplique et réconcilie.
+8. **Les comptes de démonstration** adossés à des membres, après les imports
    qui les créent.
-6. **Un rapport en français** : effectifs par année, sections actives et
-   inactives, compteurs financiers.
+9. **Un rapport en français** : effectifs par année, sections actives et
+   inactives, compteurs financiers, et une ligne par extra — avec les
+   remarques (une section sans responsable, un album externe non créé, une
+   réservation refusée) plutôt qu'un compteur qu'il faudrait interpréter.
 
 ### 8.2 Résultat constaté sur une instance jetable
+
+> **Ces chiffres datent d'avant IT-18 et sont en attente d'une construction.**
+> Le lot qui a ajouté le calendrier, les actualités, les camps, les
+> inscriptions, les bannières, la galerie, les locations et la campagne de
+> paiement **n'a pas pu être construit** : `build.php` rejoue toute
+> l'application contre une vraie base et prend `GET_LOCK('scoutmagic_schema_
+> migration')`, un verrou **serveur** MySQL, ce que la machine de
+> développement partagée sur laquelle ce lot a été écrit ne permettait pas.
+> Les lignes marquées **`à constater`** ci-dessous seront remplies à la
+> prochaine construction sur une instance jetable ; celles qui portent encore
+> un nombre sont celles qu'IT-18 ne touche pas, et elles restent vraies —
+> la population, les relevés et le lot de photos n'ont pas bougé. **Ne
+> devinez pas les valeurs manquantes** : un chiffre inventé dans cette table
+> est pire qu'une case vide, parce qu'il se lit comme une observation.
 
 | Contrôle | Valeur |
 |---|---|
 | Membres actifs | 178 / 180 / 180 |
-| Fonctions inédites | 5 en A1, 1 en A2, 1 en A3 |
-| Fonctions confirmées | 9 (plus une laissée non confirmée : `Délégué de branche`) |
+| Fonctions inédites | `à constater` — le vocabulaire réel en compte davantage qu'avant |
+| Fonctions confirmées | 9 (`UnitBlueprint::FUNCTIONS`), plus une laissée non confirmée : `Délégué de branche` |
 | Staff d'U (rôle admin confirmé) | un rattachement par membre de niveau unité et par année ; au moins trois par année, et les trois fonctions d'unité représentées |
-| Mouvements financiers importés | 125 |
+| Modules activés | `à constater` — tous ceux présents sur le disque |
+| Mouvements financiers importés | 125 pour les six relevés, `à constater` avec le septième |
 | Doublons reconnus | 12 — les 2 comptes × 2 années × 3 lignes de recouvrement |
-| Catégories | 13, dont les 2 de virement interne |
-| Mouvements catégorisés | 105 sur 125 |
+| Catégories | `à constater` — les défauts, plus une par compte à IBAN |
+| Mouvements catégorisés | `à constater` |
+| Comptes de section complétés | 8 attendus, `à constater` |
+| Évènements de calendrier | `à constater` — de l'ordre de 600 (le rythme, §8.3) |
+| Articles / réponses de formulaire | 5 / 10 déclarés, `à constater` |
+| Lieux de camp / séjours | 5 / 12 déclarés, `à constater` |
+| Demandes d'inscription | 23 déclarées, `à constater` |
+| Lignes de campagne / créances | une par membre de A3, `à constater` |
+| Réservations | 7 déclarées, `à constater` |
 | Sections | 8 + Staff d'U, `Iama Horizon` inactive |
 
-Les 20 mouvements non catégorisés sont les cotisations à communication
-structurée : elles se réconcilient contre des créances attendues (§8.3), pas
-contre une règle de libellé.
+Les 20 mouvements non catégorisés des six relevés commités sont les
+cotisations à communication structurée : elles se réconcilient contre des
+créances attendues (§8.3), pas contre une règle de libellé.
 
 ### 8.3 Les extras, et le sous-ensemble couvert
 
-Les extras sont tout ce que Desk ne connaît pas. Ils sont déclarés dans
-`ExtrasBlueprint` et appliqués par `ExtrasApplier`, **toujours par les vrais
-services** — jamais une écriture directe dans `member_photos`, `member_badges`
-ou `finance_expected_receivables`.
+Les extras sont tout ce que Desk ne connaît pas. Ils sont déclarés dans un
+`*Blueprint` et appliqués par un `*Seeder`, **toujours par les vrais
+services** — jamais une écriture directe dans `member_photos`,
+`calendar_events`, `news_articles` ou `finance_expected_receivables`.
 
 **Couverts :**
 
 | Extra | Ce qu'il apporte |
 |---|---|
+| Adresses de section | Une par section, plus le Staff d'U. `sections.email` existait et restait vide, ce qui faisait passer les surfaces « écrire à la section » pour cassées plutôt que pour non configurées. |
 | Décalages d'année | 2 membres, dont `T0009` en A1 — l'héritage par-dessus l'année manquante (scénario 5). |
 | Départs marqués | 3, avec commentaire : deux qui se réalisent, un qui ne se réalise pas. C'est à quoi ressemble une grille « Départs » en mars. |
-| Badges | 5 attributions sur `Infirmier` et `Trésorier`, après le semis des badges par défaut et des badges référents de section. |
+| Badges | `Trésorier` et `Infirmier` sur une personne de **chaque section, chaque année** — une règle, pas une liste — plus cinq attributions épinglées sur des personnes nommées. |
+| Responsables de section | La fonction `Chef de section`, portée par **exactement un cadre par section et par année** (le générateur la distribue) et marquée `is_lead` dans `trombinoscope_function_flags` (le semeur la marque). Une seule des deux moitiés ne se voit pas : une fonction non marquée est un animateur ordinaire, une marque sur une fonction que personne ne porte laisse toutes les sections sans responsable. |
 | Photos individuelles | 43, par `PhotoIngestionService` — le pipeline de `/upload`. |
 | Photos de groupe | 14, recadrées en 4:3 avant stockage. |
-| Évènements de calendrier | 9, sur les calendriers de section et le calendrier d'unité. |
-| Créances attendues | 17, une par communication structurée. Le montant dû (65 €) n'est **pas** le montant payé : certains foyers sont à jour, d'autres non — une page de réconciliation où tout est soldé ne montre rien. |
+| Calendriers de section | Le **rythme** d'une vraie unité, décrit comme une règle et non comme une liste : réunion le samedi de la mi-septembre à fin juin, moins les congés scolaires belges et quelques samedis de plus ; un grand jeu et un weekend avant Noël, autant après ; un camp fin juillet dont la durée dépend de la branche (trois jours chez les Baladins, quinze chez les Pionniers). La Route et le Staff d'U n'en ont pas : l'une s'organise seule, l'autre se réunit en Conseil d'unité. |
+| Calendrier Animateurs | Un Temps d'unité (un weekend) par année et quelques Conseils d'unité le samedi matin, sur le calendrier que `CalendarService::ensureDefaultCalendar()` crée — visible des seuls cadres, ce qui est exactement ce qu'un Conseil d'unité doit être. |
+| Actualités | 5 articles couvrant les quatre visibilités, dont un `direct_link` (« listé nulle part », qui n'est pas un barreau de l'échelle des rôles), deux formulaires **avec leurs réponses déjà déposées**, une image dans le corps du texte et une capacité presque — mais pas tout à fait — épuisée. |
+| Créances attendues | 17, une par communication structurée des relevés. Le montant dû (65 €) n'est **pas** le montant payé : certains foyers sont à jour, d'autres non — une page de réconciliation où tout est soldé ne montre rien. |
+| Campagne de paiement | Une vente de calendriers couvrant **tous** les membres de A3, une ligne par membre, importée depuis un vrai `.xlsx` par `CampaignService::createFromFile()`. La réconciliation est **partielle et fautive à dessein** : une majorité n'a rien payé, une large minorité a payé juste, et il y a un paiement court, un trop-perçu, deux virements faits deux fois et deux communications qui ne correspondent à aucune créance. |
+| Camps | 5 lieux et 12 séjours, la plupart passés, trois à venir — dont un `À confirmer`, un `Annulé` et un dont on ne connaît plus que l'année. |
+| Inscriptions | Le formulaire **ouvert**, les capacités semées à `SlotService::DEFAULT_CAPACITY`, trois réglées à la main pour montrer les trois valeurs qui comptent (un nombre, `NULL` = sans limite, `0` = fermé volontairement), et 23 demandes concentrées sur la première année du chemin : treize acceptées contre une capacité de quinze, donc un créneau visiblement proche de sa limite sans que rien ne soit complet. |
+| Bannières | 5, dont une inactive, réparties sur `public` / `identified` / `chief` — le texte formaté va dans `editable_contents` sous `banner_content_{id}`, jamais dans la table `banners`. |
+| Galerie | Un album **externe** pointant vers une page publique de démonstration sans données personnelles. Délibérément pas d'album local : un album est précisément la surface où un lecteur cesse de voir une fixture et croit voir des photos d'enfants. |
+| Locations | Le local d'unité, configuré de bout en bout (tarif, contraintes, gestionnaire désigné parmi les membres), et 7 réservations à des stades différents : trois clôturées, deux confirmées dont une à cheval sur aujourd'hui, une demande à traiter, une refusée. |
+
+**Deux points à savoir, tous les deux imposés par les services :**
+
+- **Un article sans image de couverture n'est pas constructible.**
+  `ArticleService::create()` refuse un `image_file_id` nul (« Une image est
+  obligatoire pour l'article. ») ; la colonne n'est nullable que pour que les
+  lignes antérieures à son existence restent migrables. Le jeu de données
+  varie donc ce qu'il peut varier — la visibilité, la présence d'une image
+  *dans le corps*, l'indexation — et laisse une couverture à chaque article.
+- **Une réponse de formulaire et une demande d'inscription passent par le
+  dépôt de leur module, pas par son service de soumission.** `ResponseService::
+  submit()` et `RegistrationService::submit()` sont des *requêtes* : ils
+  veulent une session connectée, un environnement Twig et une boîte aux
+  lettres, parce que leur travail est d'envoyer une confirmation. Un build en
+  ligne de commande n'a aucun des trois, et lui donner une boîte aux lettres
+  voudrait dire qu'une construction de jeu de données envoie du courrier à des
+  familles fictives. Le dépôt reste le code du module : il chiffre, il pose
+  les index aveugles, il fait tout dans une transaction. Les **changements de
+  statut**, eux, passent bien par le service (`RequestStatusService`), qui est
+  ce qui refuse une transition impossible.
 
 **Non couverts, délibérément.** Le chantier demandait « une couverture large
 des modules, pas l'exhaustivité », et autorisait explicitement à proposer un
 sous-ensemble plutôt que de livrer une couverture partielle non documentée.
-Manquent donc : **documents de section**, **articles d'actualité avec
-formulaire**, **groupes de discussion et messages**, **demandes d'inscription**,
-**bien en location avec réservation**.
+Manquent donc, et **seulement** ceux-là :
 
-La raison est la même pour les cinq : chacun demande de recomposer la chaîne
+- **les documents de section** (`Core\Member\SectionDocumentService`) ;
+- **les groupes de discussion et leurs messages** (module `groups`).
+
+La raison est la même pour les deux : chacun demande de recomposer la chaîne
 complète de son module — notifications, planificateur, stockage chiffré,
 parfois un connecteur IA optionnel — soit beaucoup de surface de câblage pour
-une fixture, et autant de constructeurs à suivre à chaque évolution. Les sept
-extras couverts sont ceux dont le reste du jeu de données a besoin pour avoir
-du sens : sans les photos le trombinoscope est vide, sans les créances les
-vingt cotisations ne se réconcilient contre rien, sans le décalage d'année le
-scénario 5 n'est pas observable.
+une fixture, et autant de constructeurs à suivre à chaque évolution. Les
+groupes en particulier exigent que le super-administrateur ait une identité
+membre et un nom sur son compte (`GroupAccessService`), ce que le scénario
+end-to-end provisionne et que le builder ne fait pas.
 
-**Un module désactivé sur l'instance cible est ignoré, pas fatal — et le saut
-est signalé.** `ExtrasApplier` vérifie que les tables du module existent avant
-d'écrire : un module désactivé n'a pas de tables, et c'est une configuration,
-pas une panne. Le builder affiche alors explicitement
-`(ignoré : module « calendar » désactivé)` à côté du compteur.
+Les trois extras qui manquaient avec eux — **articles d'actualité avec
+formulaire**, **demandes d'inscription**, **bien en location avec
+réservation** — sont couverts depuis IT-18 et figurent dans le tableau
+ci-dessus.
+
+**Un module absent de l'instance cible est ignoré, pas fatal — et le saut est
+signalé.** `ExtrasApplier` vérifie que la table témoin de chaque domaine
+existe avant d'écrire. Depuis IT-18 le builder active tous les modules avant
+d'en arriver là (§8.1), donc en pratique rien n'est sauté ; le garde reste,
+parce que le builder peut viser une installation dont le schéma est antérieur
+à un module, et qu'un build qui meurt à mi-chemin serait pire qu'un build qui
+nomme la page qu'il n'a pas pu remplir. Le builder affiche alors explicitement
+`(ignoré : module « calendar » absent)` à côté du compteur.
 
 Ce n'est pas un détail cosmétique : un compteur à zéro se lit exactement pareil
-que le module soit désactivé ou que le nom de table dans le code soit faux — et
+que le module soit absent ou que le nom de table dans le code soit faux — et
 il l'a été une fois (`calendars` au lieu de `calendar_calendars`), ce qui a
 silencieusement perdu neuf évènements sur une instance où le calendrier était
 actif depuis le début.
@@ -447,11 +563,32 @@ Où porter une modification :
 | Ce qu'on veut changer | Où |
 |---|---|
 | Taille ou forme de l'unité, effectifs, viviers de noms | `UnitBlueprint.php` |
+| L'adresse email d'une section | `UnitBlueprint::SECTIONS` (clé `email`) |
 | Un comportement nommé à exercer | `ScenarioCatalog.php`, puis `ScenarioPeople.php` |
 | Quelle photo de groupe va à quelle section | `PhotoLot::GROUP_PHOTOS` |
 | Le genre d'un portrait ajouté au lot | `PhotoLot::INDIVIDUAL_GENDERS` |
+| Le rythme d'une branche, la durée d'un camp | `CalendarBlueprint.php` |
+| Un article, un formulaire, ses réponses | `NewsBlueprint.php` |
+| Un lieu de camp, un séjour | `CampsBlueprint.php` |
+| Une capacité d'inscription, une demande | `RegistrationBlueprint.php` |
+| Le montant de la campagne, l'état de sa réconciliation | `CampaignBlueprint.php` |
+| Une bannière et son `role_min` | `BannerBlueprint.php` |
+| Le local en location, son tarif, ses réservations | `RentalBlueprint.php` |
+| Quels badges chaque section porte | `StaffBlueprint.php` |
 
-puis relancer le générateur et committer ce qu'il a écrit.
+Seuls les quatre premiers touchent des fichiers **générés** — les autres sont
+lus au moment de la construction, et n'ont rien à régénérer. Après une
+modification de l'un des quatre, relancer le générateur et committer ce qu'il
+a écrit.
+
+**Un cas mérite un mot** : `UnitBlueprint::SECTION_LEAD_FUNCTION`
+(« Chef de section ») est distribuée par le générateur — exactement un cadre
+par section et par année, choisi en post-passe et **sans tirer une seule fois
+dans le Rng**, parce qu'un tirage supplémentaire décalerait tous les suivants
+et réécrirait l'ensemble du jeu de données. `ReferenceDatasetFormatTest`
+vérifie l'unicité section par section et année par année ; `StaffSeeder` pose
+la marque `is_lead` correspondante et signale toute section restée sans
+responsable.
 
 Le tirage est déterministe : un xorshift32 écrit sur place plutôt que `mt_rand()`,
 parce que le déterminisme de `mt_rand()` est une propriété d'implémentation du
@@ -533,13 +670,28 @@ la population de fond commence à `T0101`.
 
 ### 9.3 Les relevés bancaires
 
-Six fichiers : deux comptes × trois exercices. Un seul format existe,
+Six fichiers commités : deux comptes × trois exercices. Un seul format existe,
 `bnp` (`BankStatementParserFactory::getSupportedBankCodes()`).
+
+**Un septième relevé est écrit à la construction et n'est pas commité** : les
+paiements de la campagne (§8.3). Ses lignes portent les communications
+structurées que `CampaignService` a tirées au hasard en créant les créances,
+qui n'existent donc pas avant la construction. Il est produit par le même
+`BnpCsvWriter` et importé par le même `ImportService`, avec des références
+bancaires préfixées `9` pour qu'aucune de ses lignes ne puisse être confondue
+avec la répétition d'une ligne d'un fichier commité.
 
 | Compte | IBAN | Solde d'ouverture |
 |---|---|---|
-| Compte d'unité | `BE00 0000 0000 0001` | 4 250,00 € |
-| Compte camps | `BE00 0000 0000 0002` | 1 875,00 € |
+| Compte d'unité | `BE27 0000 0000 0001` | 4 250,00 € |
+| Compte camps | `BE97 0000 0000 0002` | 1 875,00 € |
+
+Les comptes de section, eux, n'ont pas de relevé : ils reçoivent seulement un
+IBAN, **calculé** par `BankBlueprint::sectionIban()` avec ses vraies clés de
+contrôle ISO 13616 plutôt que listé — il y en a un par section, les sections
+sont déclarées ailleurs, et une seconde liste à tenir à jour est une seconde
+liste à se tromper. Le code banque `000` n'est attribué à aucune institution
+belge : aucun de ces comptes n'appartient à personne.
 
 **Un exercice comptable est une année scoute** : `FiscalYearRepository::findForDate()`
 le résout directement dans `scout_years`, et l'import refuse toute ligne
@@ -649,3 +801,40 @@ Et trois garde-fous mécaniques, qui échouent au lieu de dériver :
 - `ReferenceDatasetImportTest` : les exports veulent toujours dire ce qu'ils
   disent, rejoués par le vrai pipeline ;
 - `ReferenceDatasetBuilderTest` : ce que le builder écrit par-dessus.
+
+Un quatrième, qui ne vit pas ici : `tests/e2e/specs/all-modules-enabled.spec.js`
+vérifie, sur l'instance jetable du harnais de bout en bout, que **tous les
+modules sont actifs et que le site démarre avec eux**. C'est la même invariante
+que le §8.1 impose au builder, épinglée là où elle est observable dans un
+navigateur ; le scénario n'a pas besoin d'être étendu pour la construction du
+jeu de données, parce que le builder rend compte lui-même de ce qu'il a activé
+et de ce qui a refusé — et qu'ajouter un scénario de navigateur sur le
+*contenu* du jeu de données irait contre la règle de ce répertoire (le contenu
+se vérifie par le rapport du builder, pas au navigateur).
+
+### 12.1 Ce qui n'a pas pu être vérifié
+
+`build.php` rejoue toute l'application contre une vraie base et prend
+`GET_LOCK('scoutmagic_schema_migration')`, un verrou **serveur** MySQL.
+Sur une machine partagée, le lancer casse la suite de tests de tout le monde.
+Le lot IT-18 a donc été écrit sans jamais être construit, et c'est une limite
+assumée de cette voie : le builder « se vérifie sur une instance jetable,
+jamais sur celle qui sert à valider les autres voies ». Ce qui tient la ligne
+en attendant, c'est `vendor/bin/phpstan analyse` — ce répertoire est dans ses
+`paths` précisément parce qu'il compose des services à la main comme une
+racine de composition, et casse de la même façon.
+
+Deux choses restent à constater à la première construction, en plus des
+compteurs du §8.2 :
+
+- **l'album externe de la galerie.** `AlbumService::create()` va chercher les
+  balises Open Graph de la cible ; le réseau sortant est restreint sur les
+  machines où ce lot a été écrit, donc le lien n'a **pas** pu être vérifié.
+  L'échec est sans conséquence par construction — le scrape est *best effort*,
+  et un album dont la cible n'a pas répondu est créé quand même, avec le titre
+  déclaré et sans vignette, ce qui est un des états que le site doit savoir
+  afficher — mais si la vignette manque après une construction en ligne, c'est
+  le lien qu'il faut regarder.
+- **les refus des modules**, s'il y en a : le rapport du builder imprime chaque
+  module qui n'a pas voulu s'activer avec la raison qu'il a donnée, et chaque
+  réservation ou section que son module a refusée.

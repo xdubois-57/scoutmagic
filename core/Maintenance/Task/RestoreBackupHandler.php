@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Core\Maintenance\Task;
 
 use Core\Database\MigrationRunner;
+use Core\Database\SchemaFiles;
 use Core\Database\SchemaComparator;
 use Core\Database\SchemaIntrospector;
 use Core\Database\SqlParser;
@@ -16,6 +17,8 @@ use Core\File\FileRepository;
 use Core\Maintenance\BackupException;
 use Core\Maintenance\BackupRepository;
 use Core\Maintenance\BackupService;
+use Core\Maintenance\RequesterNotice;
+use Core\Scheduler\SchedulerKick;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
@@ -55,6 +58,9 @@ use Core\Security\EncryptionService;
 class RestoreBackupHandler implements TaskHandlerInterface
 {
     private const KEEP_BACKUPS = 5;
+
+    private const TYPE_COMPLETED = 'core.restore_completed';
+    private const TYPE_FAILED = 'core.restore_failed';
 
     /** @var string[] */
     private const ENCRYPTED_BACKUP_TYPES = ['full_config', 'full_no_gallery', 'full_with_gallery'];
@@ -128,21 +134,24 @@ class RestoreBackupHandler implements TaskHandlerInterface
                     $backupService->restoreFiles($restoreZipPath, $password);
                 }
 
-                $migrationRunner = new MigrationRunner(
-                    $context->connection,
-                    new SchemaIntrospector($pdo),
-                    new SchemaComparator(),
-                    new SqlParser()
-                );
-                $migrationResult = $migrationRunner->migrate([$basePath . '/schema/core.sql']);
+                // Not migrated here, for the same reason
+                // Task\InstallUpdateHandler does not: restoreFiles() has
+                // just replaced the file tree under a running process, so
+                // its loaded classes are the ones that were on disk a
+                // moment ago while anything it loads next comes from the
+                // restored files. Migrating from here would run one
+                // version's MigrationRunner against another version's
+                // MigrationResult and MigrationProgress — the mixture
+                // that cost six consecutive rollbacks in production.
+                //
+                // The resume path below already does exactly the right
+                // thing, on a later scheduler pass where nothing is mixed;
+                // it is now the only path that migrates.
                 $source = (string) ($payload['source'] ?? 'server');
+                $this->scheduleMigrationResume($context, $safetyBackupId, $source, $requestedBy);
+                SchedulerKick::now($context);
 
-                if (!$migrationResult->complete) {
-                    $this->scheduleMigrationResume($context, $safetyBackupId, $source, $requestedBy);
-                    return;
-                }
-
-                $this->finishRestore($context, $backupRepository, $fileRepository, $source, $requestedBy);
+                return;
             } catch (\Throwable $restoreError) {
                 $this->rollbackToSafetyBackup($context, $backupService, (string) $safetyDbDump, (string) $safetyZip, $requestedBy, $restoreError);
             }
@@ -156,14 +165,13 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 $requestedBy
             );
 
-            if ($requestedBy !== null) {
-                $context->notifications?->notify(
-                    $requestedBy,
-                    'Échec de la restauration',
-                    'La sauvegarde de sécurité préalable a échoué — aucune modification n\'a été effectuée.',
-                    '/config/maintenance'
-                );
-            }
+            RequesterNotice::send(
+                $context,
+                $requestedBy,
+                self::TYPE_FAILED,
+                'Échec de la restauration',
+                'La sauvegarde de sécurité préalable a échoué — aucune modification n\'a été effectuée.'
+            );
         } finally {
             if ($uploadedTempPath !== null) {
                 @unlink($uploadedTempPath);
@@ -202,7 +210,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 new SchemaComparator(),
                 new SqlParser()
             );
-            $migrationResult = $migrationRunner->migrate([$basePath . '/schema/core.sql']);
+            $migrationResult = $migrationRunner->migrate(SchemaFiles::all($basePath));
 
             if (!$migrationResult->complete) {
                 $this->scheduleMigrationResume($context, $safetyBackupId, $source, $requestedBy);
@@ -228,14 +236,14 @@ class RestoreBackupHandler implements TaskHandlerInterface
                     ['error' => $migrationError->getMessage()],
                     $requestedBy
                 );
-                if ($requestedBy !== null) {
-                    $context->notifications?->notify(
-                        $requestedBy,
-                        'Échec critique de la restauration',
-                        'La migration a échoué et aucune sauvegarde de sécurité n\'a pu être restaurée automatiquement. Une intervention manuelle est nécessaire.',
-                        '/config/maintenance'
-                    );
-                }
+                RequesterNotice::send(
+                    $context,
+                    $requestedBy,
+                    self::TYPE_FAILED,
+                    'Échec critique de la restauration',
+                    'La migration a échoué et aucune sauvegarde de sécurité n\'a pu être '
+                    . 'restaurée automatiquement. Une intervention manuelle est nécessaire.'
+                );
                 return;
             }
 
@@ -289,14 +297,13 @@ class RestoreBackupHandler implements TaskHandlerInterface
 
         $this->purgeBeyondLimit($backupRepository, $fileRepository, $context->storagePath);
 
-        if ($requestedBy !== null) {
-            $context->notifications?->notify(
-                $requestedBy,
-                'Restauration terminée',
-                'La restauration de la sauvegarde est terminée.',
-                '/config/maintenance'
-            );
-        }
+        RequesterNotice::send(
+            $context,
+            $requestedBy,
+            self::TYPE_COMPLETED,
+            'Restauration terminée',
+            'La restauration de la sauvegarde est terminée.'
+        );
     }
 
     /**
@@ -349,9 +356,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
             $notifyBody = 'La restauration a échoué et la restauration automatique de l\'état précédent a également échoué. Une intervention manuelle est nécessaire.';
         }
 
-        if ($requestedBy !== null) {
-            $context->notifications?->notify($requestedBy, $notifyTitle, $notifyBody, '/config/maintenance');
-        }
+        RequesterNotice::send($context, $requestedBy, self::TYPE_FAILED, $notifyTitle, $notifyBody);
     }
 
     /**

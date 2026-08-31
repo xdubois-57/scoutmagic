@@ -444,6 +444,47 @@ class RentalManagementController extends AbstractController
     }
 
     /**
+     * The optional photo carried by a meter reading or an incident report,
+     * stored through `UploadHandler` like every other file in this module.
+     *
+     * A browser posts an untouched file input all the same — as an
+     * UPLOAD_ERR_NO_FILE entry. That is "no photo", not a failed upload;
+     * without that test the whole reading or incident was refused and lost.
+     * Same guard as uploadComplianceFile() above.
+     *
+     * @throws RentalException
+     */
+    private function uploadOptionalPhoto(Request $request, RentalBooking $booking): ?int
+    {
+        $uploaded = $request->getFile('photo');
+        if (
+            $this->uploadHandler === null
+            || $uploaded === null
+            || ($uploaded['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE
+        ) {
+            return null;
+        }
+
+        try {
+            return $this->uploadHandler->handle(
+                $uploaded,
+                RentalDocumentService::STORAGE_SUBDIRECTORY,
+                self::ALLOWED_PHOTO_MIMES,
+                self::MAX_DOCUMENT_BYTES,
+                RentalDocumentService::FILE_ROLE_MIN,
+                'rental',
+                AuthSession::getUserAccountId(),
+                RentalDocumentService::OWNER_TYPE,
+                $booking->id
+            );
+        } catch (UploadException $e) {
+            // Narrow on purpose — see the identical catch in
+            // uploadDocument() above.
+            throw new RentalException($e->getMessage(), 0, $e);
+        }
+    }
+
+    /**
      * GET /mes-locations — every asset the visitor manages (§6.5).
      *
      * @param array<string, string> $params
@@ -1602,27 +1643,7 @@ class RentalManagementController extends AbstractController
             $readAt = DateInput::parse(DateInput::ISO_DATETIME_LOCAL, (string) $request->getBody('read_at', ''))
                 ?? new \DateTimeImmutable();
 
-            $fileId = null;
-            $uploaded = $request->getFile('photo');
-            if ($uploaded !== null && $this->uploadHandler !== null) {
-                try {
-                    $fileId = $this->uploadHandler->handle(
-                        $uploaded,
-                        RentalDocumentService::STORAGE_SUBDIRECTORY,
-                        self::ALLOWED_PHOTO_MIMES,
-                        self::MAX_DOCUMENT_BYTES,
-                        RentalDocumentService::FILE_ROLE_MIN,
-                        'rental',
-                        AuthSession::getUserAccountId(),
-                        RentalDocumentService::OWNER_TYPE,
-                        $booking->id
-                    );
-                } catch (UploadException $e) {
-                    // Narrow on purpose — see the identical catch in
-                    // uploadDocument() above.
-                    throw new RentalException($e->getMessage(), 0, $e);
-                }
-            }
+            $fileId = $this->uploadOptionalPhoto($request, $booking);
 
             $this->stayService?->recordReading(
                 $booking,
@@ -1674,27 +1695,7 @@ class RentalManagementController extends AbstractController
     public function reportIncident(Request $request, array $params): Response
     {
         return $this->stayAction($request, function (RentalBooking $booking) use ($request): void {
-            $fileId = null;
-            $uploaded = $request->getFile('photo');
-            if ($uploaded !== null && $this->uploadHandler !== null) {
-                try {
-                    $fileId = $this->uploadHandler->handle(
-                        $uploaded,
-                        RentalDocumentService::STORAGE_SUBDIRECTORY,
-                        self::ALLOWED_PHOTO_MIMES,
-                        self::MAX_DOCUMENT_BYTES,
-                        RentalDocumentService::FILE_ROLE_MIN,
-                        'rental',
-                        AuthSession::getUserAccountId(),
-                        RentalDocumentService::OWNER_TYPE,
-                        $booking->id
-                    );
-                } catch (UploadException $e) {
-                    // Narrow on purpose — see the identical catch in
-                    // uploadDocument() above.
-                    throw new RentalException($e->getMessage(), 0, $e);
-                }
-            }
+            $fileId = $this->uploadOptionalPhoto($request, $booking);
 
             $this->stayService?->reportIncident(
                 $booking,

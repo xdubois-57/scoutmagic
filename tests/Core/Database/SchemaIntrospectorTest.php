@@ -124,4 +124,260 @@ class SchemaIntrospectorTest extends TestCase
         $this->assertSame('id', $foreignKeys[0]->referencedColumn);
         $this->assertSame('CASCADE', $foreignKeys[0]->onDelete);
     }
+
+    /**
+     * The bulk read must describe the schema exactly as the per-table
+     * methods do — it replaces them on the hot path, so any divergence
+     * would show up as spurious ALTER statements on every migration.
+     */
+    public function testBulkDefinitionsMatchThePerTableOnes(): void
+    {
+        $this->pdo->exec(
+            'CREATE TABLE test_introspect_table (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(50) NOT NULL,
+                slug VARCHAR(50) NULL,
+                UNIQUE KEY uniq_slug (slug),
+                KEY idx_name (name)
+            ) ENGINE=InnoDB'
+        );
+        $this->pdo->exec(
+            'CREATE TABLE test_introspect_child (
+                id INT PRIMARY KEY,
+                parent_id INT NOT NULL,
+                CONSTRAINT fk_introspect_parent FOREIGN KEY (parent_id)
+                    REFERENCES test_introspect_table(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB'
+        );
+
+        $bulk = $this->introspector->getTableDefinitions(
+            ['test_introspect_table', 'test_introspect_child']
+        );
+
+        foreach (['test_introspect_table', 'test_introspect_child'] as $table) {
+            $one = $this->introspector->getTableDefinition($table);
+            $this->assertEquals($one->columns, $bulk[$table]->columns, "columns differ for {$table}");
+            $this->assertEquals($one->indexes, $bulk[$table]->indexes, "indexes differ for {$table}");
+            $this->assertEquals($one->foreignKeys, $bulk[$table]->foreignKeys, "foreign keys differ for {$table}");
+        }
+    }
+
+    /**
+     * A name that is not a table is simply absent — the caller learns the
+     * same thing getTables() would have told it, without an exception and
+     * without an empty TableDefinition that would read as "a table with no
+     * columns" and provoke a CREATE.
+     */
+    public function testATableThatDoesNotExistIsAbsentRatherThanEmpty(): void
+    {
+        $this->pdo->exec('CREATE TABLE test_introspect_table (id INT PRIMARY KEY) ENGINE=InnoDB');
+
+        $bulk = $this->introspector->getTableDefinitions(
+            ['test_introspect_table', 'a_table_that_was_never_created']
+        );
+
+        $this->assertArrayHasKey('test_introspect_table', $bulk);
+        $this->assertArrayNotHasKey('a_table_that_was_never_created', $bulk);
+    }
+
+    public function testNoTablesAskedForCostsNoQuery(): void
+    {
+        $this->assertSame([], $this->introspector->getTableDefinitions([]));
+    }
+
+    /**
+     * The measurement the whole iteration exists for: reading N tables
+     * costs three INFORMATION_SCHEMA queries, not three per table.
+     * Counted through the server's own Com_select rather than by
+     * instrumenting the code, so it measures what actually reached MySQL.
+     */
+    public function testReadingManyTablesCostsThreeQueriesNotThreePerTable(): void
+    {
+        for ($i = 0; $i < 8; $i++) {
+            $this->pdo->exec("CREATE TABLE test_bulk_count_{$i} (id INT PRIMARY KEY, name VARCHAR(20)) ENGINE=InnoDB");
+        }
+        $names = array_map(static fn(int $i): string => "test_bulk_count_{$i}", range(0, 7));
+
+        try {
+            $before = $this->comSelect();
+            $this->introspector->getTableDefinitions($names);
+            // No adjustment for the probe: SHOW SESSION STATUS increments
+            // Com_show_status, not Com_select.
+            $bulk = $this->comSelect() - $before;
+
+            $before = $this->comSelect();
+            foreach ($names as $name) {
+                $this->introspector->getTableDefinition($name);
+            }
+            $perTable = $this->comSelect() - $before;
+
+            $this->assertSame(3, $bulk, 'the bulk read must be exactly three queries');
+            $this->assertSame(24, $perTable, 'eight tables, three queries each');
+        } finally {
+            for ($i = 0; $i < 8; $i++) {
+                $this->pdo->exec("DROP TABLE IF EXISTS test_bulk_count_{$i}");
+            }
+        }
+    }
+
+    private function comSelect(): int
+    {
+        $row = $this->pdo->query("SHOW SESSION STATUS LIKE 'Com_select'")->fetch(\PDO::FETCH_ASSOC);
+
+        return (int) $row['Value'];
+    }
+
+    // --- MariaDB reports an expression, not a value ---
+
+    /**
+     * The 534-statement bug, and the reason it went unnoticed for so long:
+     * nothing was failing. Every migration pass regenerated the same
+     * `MODIFY COLUMN` statements, they all succeeded, introspection
+     * reported the same "difference" back, and the schema never converged
+     * — a permanent cost paid on every schema change, with no error
+     * anywhere to point at it.
+     *
+     * On MariaDB 10.2+ COLUMN_DEFAULT holds a SQL expression rather than a
+     * value: a nullable column with no default reports the bare text
+     * `NULL`, which read literally means "this column defaults to the
+     * four-character string NULL".
+     */
+    public function testANullableColumnWithNoDefaultReportsNoDefault(): void
+    {
+        $this->pdo->exec('DROP TABLE IF EXISTS default_probe');
+        $this->pdo->exec('CREATE TABLE default_probe (plain VARCHAR(10) NULL, required INT NOT NULL)');
+
+        $columns = $this->indexByName((new SchemaIntrospector($this->pdo))->getColumns('default_probe'));
+
+        $this->assertNull($columns['plain']->default);
+        $this->assertNull($columns['required']->default);
+    }
+
+    /**
+     * A column that genuinely defaults to the string "NULL" must keep it,
+     * on either engine — and this is where the two of them stop agreeing.
+     *
+     * MariaDB quotes string literals, so it reports `'NULL'` here and the
+     * bare `NULL` can only ever mean "no default". MySQL does not quote,
+     * so it reports `NULL` for this column — the exact opposite meaning —
+     * and says "no default" with a real SQL NULL instead, which it has
+     * already made unambiguous. Each engine is internally consistent;
+     * together they contradict each other, which is why the introspector
+     * has to know which one it is talking to.
+     *
+     * This is the assertion that caught it: CI runs MySQL 8, production
+     * runs MariaDB 10.11, and a first version of the fix applied MariaDB's
+     * reading everywhere — erasing this default on MySQL. Collapsing the
+     * two would make a real default silently vanish from the schema's
+     * description of itself.
+     */
+    public function testAColumnWhoseDefaultIsTheStringNullKeepsItOnEitherEngine(): void
+    {
+        $this->pdo->exec('DROP TABLE IF EXISTS default_probe');
+        $this->pdo->exec("CREATE TABLE default_probe (odd VARCHAR(10) NULL DEFAULT 'NULL')");
+
+        $columns = $this->indexByName((new SchemaIntrospector($this->pdo))->getColumns('default_probe'));
+
+        $this->assertSame('NULL', $columns['odd']->default);
+    }
+
+    /**
+     * The counterpart on the same table, so the pair is read together: a
+     * column with no default at all, beside one defaulting to the string
+     * "NULL". Whatever the engine, these two must not come back the same.
+     */
+    public function testNoDefaultAndTheStringNullAreNeverConfused(): void
+    {
+        $this->pdo->exec('DROP TABLE IF EXISTS default_probe');
+        $this->pdo->exec(
+            "CREATE TABLE default_probe (nothing VARCHAR(10) NULL, literal VARCHAR(10) NULL DEFAULT 'NULL')"
+        );
+
+        $columns = $this->indexByName((new SchemaIntrospector($this->pdo))->getColumns('default_probe'));
+
+        $this->assertNull($columns['nothing']->default);
+        $this->assertSame('NULL', $columns['literal']->default);
+        $this->assertNotSame($columns['nothing']->default, $columns['literal']->default);
+    }
+
+    /**
+     * String defaults come back as SQL literals — quoted, with quotes and
+     * backslashes doubled — while a schema file declares `DEFAULT 'public'`
+     * and the parser hands back `public`. Sixty columns differed on
+     * nothing but those quotes.
+     */
+    public function testStringDefaultsAreUnquotedAndUnescaped(): void
+    {
+        $this->pdo->exec('DROP TABLE IF EXISTS default_probe');
+        $this->pdo->exec(
+            "CREATE TABLE default_probe (
+                plain VARCHAR(30) DEFAULT 'public',
+                empty_string VARCHAR(30) DEFAULT '',
+                apostrophe VARCHAR(30) DEFAULT 'it''s',
+                backslash VARCHAR(30) DEFAULT 'back\\\\slash'
+            )"
+        );
+
+        $columns = $this->indexByName((new SchemaIntrospector($this->pdo))->getColumns('default_probe'));
+
+        $this->assertSame('public', $columns['plain']->default);
+        $this->assertSame('', $columns['empty_string']->default);
+        $this->assertSame("it's", $columns['apostrophe']->default);
+        $this->assertSame('back\\slash', $columns['backslash']->default);
+    }
+
+    /**
+     * Expression defaults are NOT unquoted — they arrive unquoted and mean
+     * what they say. `current_timestamp()` versus `CURRENT_TIMESTAMP` is a
+     * spelling difference between two real defaults, reconciled where
+     * things are compared rather than here.
+     */
+    public function testExpressionAndNumericDefaultsArePassedThroughUntouched(): void
+    {
+        $this->pdo->exec('DROP TABLE IF EXISTS default_probe');
+        $this->pdo->exec(
+            'CREATE TABLE default_probe (
+                stamped DATETIME NULL DEFAULT CURRENT_TIMESTAMP,
+                counted INT NULL DEFAULT 0
+            )'
+        );
+
+        $columns = $this->indexByName((new SchemaIntrospector($this->pdo))->getColumns('default_probe'));
+
+        $this->assertStringContainsStringIgnoringCase('current_timestamp', (string) $columns['stamped']->default);
+        $this->assertSame('0', $columns['counted']->default);
+    }
+
+    /**
+     * The bulk read is what MigrationRunner actually calls, so it must
+     * decode identically — a fix that only reached the per-table path
+     * would leave the 534 statements exactly where they were.
+     */
+    public function testTheBulkReadDecodesDefaultsTheSameWayAsThePerTableRead(): void
+    {
+        $this->pdo->exec('DROP TABLE IF EXISTS default_probe');
+        $this->pdo->exec("CREATE TABLE default_probe (plain VARCHAR(10) NULL, named VARCHAR(10) DEFAULT 'public')");
+
+        $introspector = new SchemaIntrospector($this->pdo);
+        $perTable = $this->indexByName($introspector->getColumns('default_probe'));
+        $bulk = $this->indexByName($introspector->getTableDefinitions(['default_probe'])['default_probe']->columns);
+
+        $this->assertNull($bulk['plain']->default);
+        $this->assertSame($perTable['plain']->default, $bulk['plain']->default);
+        $this->assertSame($perTable['named']->default, $bulk['named']->default);
+    }
+
+    /**
+     * @param array<int, \Core\Database\ColumnDefinition> $columns
+     * @return array<string, \Core\Database\ColumnDefinition>
+     */
+    private function indexByName(array $columns): array
+    {
+        $byName = [];
+        foreach ($columns as $column) {
+            $byName[$column->name] = $column;
+        }
+
+        return $byName;
+    }
 }

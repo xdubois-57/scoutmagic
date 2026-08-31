@@ -16,6 +16,10 @@ années passées, en lecture seule.
 
 ## Publier un message
 
+En haut du groupe, touchez la barre « Écrire un message… » : le
+formulaire complet s'ouvre. Le reste du temps elle tient sur une ligne
+et laisse la place aux messages.
+
 Écrivez jusqu'à 5000 caractères, joignez jusqu'à quatre photos ou
 vidéos, et mentionnez quelqu'un en tapant « @ » suivi de son nom — la
 personne citée est prévenue. Un lien tapé dans le texte est détecté
@@ -56,3 +60,16 @@ Le menu « ⋮ » d'un message permet de le signaler aux animateurs qui
 modèrent le groupe. Le signalement est confidentiel : l'auteur du
 message n'en saura rien, et vous ne recevrez pas de compte rendu.
 Plusieurs signalements masquent le message en attendant une décision.
+
+## Sur un grand écran
+
+Sur un ordinateur, la conversation occupe une colonne de largeur de
+lecture et une colonne latérale apparaît à côté d'elle : la recherche
+dans le groupe, ses membres avec leur photo, et ses dernières photos.
+Ce sont des raccourcis vers les pages « Membres » et « Galerie » de
+l'en-tête, pas des pages supplémentaires.
+
+Les photos d'un message y sont aussi présentées plus petites : une seule
+photo occupait auparavant presque toute la hauteur de l'écran. Sur
+téléphone, rien ne change — la photo occupe la largeur, qui est la
+bonne taille là-bas.

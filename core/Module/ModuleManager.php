@@ -10,7 +10,6 @@ namespace Core\Module;
 
 use Core\Config\SettingService;
 use Core\Cookie\CookieConsentService;
-use Core\Database\MigrationRunner;
 use Core\Exception\UserFacingMessage;
 use Core\Http\Router;
 use Core\Journal\JournalService;
@@ -43,7 +42,6 @@ class ModuleManager
         private CookieConsentService $cookieConsentService,
         private MenuBuilder $menuBuilder,
         private ModuleRegistryRepository $registryRepo,
-        private MigrationRunner $migrationRunner,
         private JournalService $journalService,
         private Router $router,
         private ?NotificationService $notificationService = null,
@@ -442,12 +440,15 @@ class ModuleManager
                 $this->journalService->log(
                     'core',
                     'module_requirements_unmet',
-                    // event_log.level is a MySQL ENUM('info', 'security') —
-                    // any other value makes the INSERT itself throw, which
-                    // would turn "this module is quietly skipped" into a
-                    // fatal on every request. Same reason every other
-                    // non-security failure log in the codebase uses 'info'
-                    // (see Core\Http\Controller\RgpdConfigController).
+                    // Deliberately 'info' even though event_log.level now
+                    // has an 'error' member (ARCHITECTURE.md §8.6). A
+                    // value the INSTALLED database does not know yet makes
+                    // the INSERT itself throw, and this is the one code
+                    // path whose entire purpose is that a module with an
+                    // unmet requirement is quietly skipped rather than
+                    // fatal — while public/cron.php, which calls
+                    // loadEnabledModules(), never migrates. So this stays
+                    // on the value every schema has always had.
                     'info',
                     "Module « {$module->manifest->id} » non chargé : un module requis est absent, invalide ou désactivé",
                     ['module_id' => $module->manifest->id, 'requires' => $module->manifest->requires]
@@ -455,26 +456,21 @@ class ModuleManager
                 continue;
             }
 
-            // Auto-migrate when module version is newer than installed version
+            // A newer manifest version no longer means "migrate this
+            // module's schema now". It never should have: the schema
+            // change took effect only if somebody also remembered to bump
+            // the version, nothing enforced that, and a forgotten bump was
+            // invisible until a query failed against a column that was
+            // never added. The whole declared schema is migrated in one
+            // pass at deploy time instead (Core\Database\SchemaFiles).
+            //
+            // The version comparison stays, because it still marks the one
+            // thing that is genuinely per-module and per-version: pruning
+            // the settings the new manifest stopped declaring.
             if ($module->installedVersion !== null
                 && version_compare($module->manifest->version, $module->installedVersion, '>')
             ) {
-                $schemaPath = $this->modulesDir . '/' . $module->manifest->id . '/schema.sql';
-                $migrationComplete = true;
-                if (file_exists($schemaPath)) {
-                    $migrationComplete = $this->migrationRunner->migrate([$schemaPath])->complete;
-                }
-
-                // Only record the new version once its migration actually
-                // finished — MigrationRunner::migrate() can return early
-                // (its own time budget) with the schema not yet fully
-                // caught up. Bumping the registry version anyway would make
-                // this version_compare() check stop matching, permanently
-                // stranding the module mid-migration since nothing would
-                // ever call migrate() for it again.
-                if ($migrationComplete) {
-                    $this->registryRepo->upsert($module->manifest->id, true, $module->manifest->version, null);
-                }
+                $this->registryRepo->upsert($module->manifest->id, true, $module->manifest->version, null);
 
                 // A module upgrade is also where a setting the new manifest
                 // no longer declares stops existing. Nothing did this
@@ -539,18 +535,14 @@ class ModuleManager
                 : "Le module « {$manifest->name} » nécessite le module {$quoted}. Activez-le d'abord.");
         }
 
-        // Run schema migration if schema.sql exists. A caller retrying
-        // after this exception resumes automatically — MigrationRunner
-        // persists its own progress, keyed by the schema file, independent
-        // of this method ever being called again.
-        $schemaPath = $this->modulesDir . '/' . $moduleId . '/schema.sql';
-        if (file_exists($schemaPath)) {
-            $migrationResult = $this->migrationRunner->migrate([$schemaPath]);
-            if (!$migrationResult->complete) {
-                throw new ModuleRefusalException("La migration du schéma du module '{$moduleId}' n'a pas pu se terminer dans le temps imparti — réessayez l'activation dans un instant, elle reprendra automatiquement là où elle s'est arrêtée.");
-            }
-        }
-
+        // No schema migration here any more. Every module's tables — this
+        // one's included, enabled or not — are created with the core
+        // schema, in one pass, by whatever deployed this code
+        // (Core\Database\SchemaFiles). Activating a module is now purely
+        // bookkeeping, which is what it should always have been: running
+        // DDL at the moment an administrator clicks "activer" meant a
+        // schema change on a live request, with a time budget that could
+        // run out and turn the click into "réessayez dans un instant".
         // Register default settings
         foreach ($manifest->settings as $setting) {
             $this->settingService->register(

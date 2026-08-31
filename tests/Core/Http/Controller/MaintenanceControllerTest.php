@@ -208,6 +208,31 @@ class MaintenanceControllerTest extends TestCase
     }
 
     /**
+     * Five rows was roughly one evening of dev-mode auto-updates, so the
+     * six consecutive rollbacks that wedged production did not fit on the
+     * page at once — and a run of failures all stopping at the same point
+     * is exactly what this table exists to make obvious.
+     */
+    public function testTheMaintenancePageListsTwentyPastInstallationsNotFive(): void
+    {
+        for ($i = 1; $i <= 25; $i++) {
+            $id = $this->updateHistoryRepository->create('dev-from' . $i, 'dev-vers' . $i, false, null);
+            $this->updateHistoryRepository->markCompleted($id);
+        }
+
+        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+
+        // Counted on the "version de départ" column, which only the
+        // history table renders — the newest target version also appears
+        // in the auto-update health line above it, and counting that one
+        // would silently make 20 look like 21.
+        $this->assertStringContainsString('dev-from25', $body);
+        $this->assertStringContainsString('dev-from6', $body);
+        $this->assertStringNotContainsString('dev-from5<', $body);
+        $this->assertSame(20, substr_count($body, 'dev-from'));
+    }
+
+    /**
      * The auto-update health signal. It exists because everything else
      * about that channel stays green when it stops working — a push
      * webhook answers 200 whether it installed or ignored the push — so a
@@ -690,6 +715,101 @@ class MaintenanceControllerTest extends TestCase
 
         $decoded = json_decode($response->getBody(), true);
         $this->assertSame('pending', $decoded['status']);
+    }
+
+    /**
+     * A controller with a runner attached, so the polling behaviour can be
+     * asserted on the one thing that matters: WHEN it migrates.
+     */
+    private function controllerWithRunner(\Core\Database\MigrationRunner $runner): MaintenanceController
+    {
+        $reflection = new \ReflectionClass($this->controller);
+        $clone = clone $this->controller;
+        $property = $reflection->getProperty('migrationRunner');
+        $property->setAccessible(true);
+        $property->setValue($clone, $runner);
+
+        return $clone;
+    }
+
+    /**
+     * The administrator watching this page refetches every three seconds
+     * anyway, and each of those requests used to read a status row and do
+     * nothing. Now they drive the migration — the same thing the
+     * migration-in-progress page's own endpoint does, and for the same
+     * reason: a migration that only advances when the scheduler happens to
+     * run is a migration somebody watches not advancing.
+     */
+    public function testPollingDrivesTheMigrationWhileAnUpdateIsMigrating(): void
+    {
+        $id = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, 1);
+        $this->updateHistoryRepository->setStatus($id, 'migrating');
+
+        $runner = $this->createMock(\Core\Database\MigrationRunner::class);
+        $runner->expects($this->once())
+            ->method('migrate')
+            ->willReturn(new \Core\Database\MigrationResult([], [], false, 0.42));
+
+        $response = $this->controllerWithRunner($runner)->updateStatus(
+            new Request('GET', '/api/maintenance/update-status/' . $id, [], [], [], []),
+            ['id' => (string) $id]
+        );
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertSame('migrating', $decoded['status']);
+        $this->assertSame(0.42, $decoded['migration_progress']);
+    }
+
+    /**
+     * And never outside that step. Any other status means either nothing
+     * to migrate or a step this endpoint has no business touching —
+     * running DDL on a status poll for a failed update would be
+     * gratuitous, and on a completed one, work nobody asked for.
+     */
+    public function testPollingNeverMigratesOutsideTheMigratingStep(): void
+    {
+        $runner = $this->createMock(\Core\Database\MigrationRunner::class);
+        $runner->expects($this->never())->method('migrate');
+        $controller = $this->controllerWithRunner($runner);
+
+        foreach (['pending', 'backing_up', 'downloading', 'installing', 'completed', 'failed', 'rolled_back'] as $status) {
+            $id = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, 1);
+            $this->updateHistoryRepository->setStatus($id, $status);
+
+            $response = $controller->updateStatus(
+                new Request('GET', '/api/maintenance/update-status/' . $id, [], [], [], []),
+                ['id' => (string) $id]
+            );
+
+            $decoded = json_decode($response->getBody(), true);
+            $this->assertSame($status, $decoded['status']);
+            $this->assertNull($decoded['migration_progress'], "no slice may run in '{$status}'");
+        }
+    }
+
+    /**
+     * This endpoint's job is to report a status. A migration that throws
+     * must not turn that into a 500 and leave the page unable to say what
+     * is happening — the scheduled resume task owns the failure path,
+     * including the rollback, and will meet the same error on its own pass.
+     */
+    public function testAFailingSliceStillReportsTheStatus(): void
+    {
+        $id = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, 1);
+        $this->updateHistoryRepository->setStatus($id, 'migrating');
+
+        $runner = $this->createMock(\Core\Database\MigrationRunner::class);
+        $runner->method('migrate')->willThrowException(new \RuntimeException('boom'));
+
+        $response = $this->controllerWithRunner($runner)->updateStatus(
+            new Request('GET', '/api/maintenance/update-status/' . $id, [], [], [], []),
+            ['id' => (string) $id]
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertSame('migrating', $decoded['status']);
+        $this->assertNull($decoded['migration_progress']);
     }
 
     public function testUpdateAutoBackupFrequencyValidatesCsrf(): void

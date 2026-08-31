@@ -67,6 +67,69 @@ class OnCallServiceTest extends TestCase
         $this->assertSame('2026-07-31', $grid['days'][30]['date']);
     }
 
+    /**
+     * Module spec §2.6 "unicité de garde": several people can be marked on
+     * call the same day, and the ROSTER ORDER decides who the calls
+     * actually reach. The phone layout names that person on every row, so
+     * the rule is resolved here rather than a second time in a template.
+     */
+    public function testResolveTargetsForMonthPicksTheFirstRosterMemberMarked(): void
+    {
+        $this->onCallRepository->replaceRange('2026-07-01', '2026-07-31', [
+            // Deliberately stored in the reverse of the roster order.
+            new OnCallAssignment(9, '2026-07-05', OnCallAssignment::STATE_ONCALL),
+            new OnCallAssignment(4, '2026-07-05', OnCallAssignment::STATE_ONCALL),
+        ]);
+
+        $targets = $this->service->resolveTargetsForMonth(2026, 7, [4, 9]);
+
+        $this->assertSame(4, $targets['2026-07-05']['member_id']);
+        $this->assertSame(2, $targets['2026-07-05']['oncall_count']);
+    }
+
+    public function testResolveTargetsForMonthCoversEveryDayAndSaysNullForAnUnassignedOne(): void
+    {
+        $targets = $this->service->resolveTargetsForMonth(2026, 7, [4]);
+
+        $this->assertCount(31, $targets);
+        $this->assertNull($targets['2026-07-14']['member_id']);
+        $this->assertSame(0, $targets['2026-07-14']['oncall_count']);
+    }
+
+    /**
+     * An « indisponible » mark is not a duty: it says who must NOT be
+     * called, and leaves the day to the default number.
+     */
+    public function testResolveTargetsForMonthIgnoresAnUnavailableMark(): void
+    {
+        $this->onCallRepository->replaceRange('2026-07-01', '2026-07-31', [
+            new OnCallAssignment(4, '2026-07-05', OnCallAssignment::STATE_UNAVAILABLE),
+        ]);
+
+        $targets = $this->service->resolveTargetsForMonth(2026, 7, [4]);
+
+        $this->assertNull($targets['2026-07-05']['member_id']);
+        $this->assertSame(0, $targets['2026-07-05']['oncall_count']);
+    }
+
+    /**
+     * A member marked on call but absent from the roster (no Staff d'U
+     * function, or no mobile) reaches nobody — exactly as
+     * computeAndScheduleTransitions() already reads it, so the page and
+     * the scheduled redirection can never disagree.
+     */
+    public function testResolveTargetsForMonthIgnoresAMemberOutsideTheRoster(): void
+    {
+        $this->onCallRepository->replaceRange('2026-07-01', '2026-07-31', [
+            new OnCallAssignment(77, '2026-07-05', OnCallAssignment::STATE_ONCALL),
+        ]);
+
+        $targets = $this->service->resolveTargetsForMonth(2026, 7, [4]);
+
+        $this->assertNull($targets['2026-07-05']['member_id']);
+        $this->assertSame(1, $targets['2026-07-05']['oncall_count']);
+    }
+
     public function testGetMonthGridMarksWeekends(): void
     {
         // 2026-07-04 is a Saturday.

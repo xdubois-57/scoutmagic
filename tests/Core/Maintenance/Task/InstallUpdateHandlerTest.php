@@ -11,6 +11,7 @@ use Core\Database\Connection;
 use Core\Import\MemberYearRepository;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
+use Core\Maintenance\BackupService;
 use Core\Maintenance\Task\InstallUpdateHandler;
 use Core\Maintenance\UpdateException;
 use Core\Maintenance\UpdateHistoryRepository;
@@ -205,6 +206,97 @@ class InstallUpdateHandlerTest extends TestCase
      * layer of the H1 self-update integrity fix. Tested via reflection since
      * the guard throws immediately (no network), well before the retry loop.
      */
+    /**
+     * The rollback that actually worked is the one nobody could diagnose.
+     * `markRolledBack()` writes a deliberately vague user-facing string
+     * (UserFacingMessage's rule: no class name, no file path, no library
+     * text on a page) promising the detail is in the event journal — and
+     * the journal entry did not carry it. Six identical production
+     * rollbacks on scoutmagic.be were readable only by reasoning about the
+     * diff, because `Error: Unknown named parameter $backupCreated`
+     * existed in no record at all: not the journal, not update_history,
+     * and not the server log, since the handler catches the throwable.
+     *
+     * So this asserts the promise rather than the wording: the message,
+     * the class and the throw site are all in the entry, and none of them
+     * leaks into what the page shows.
+     */
+    public function testASuccessfulRollbackJournalsTheErrorThatCausedIt(): void
+    {
+        $historyId = $this->updateHistoryRepository->create('dev-8e3b6c1', 'dev-63afd86', false, $this->userId);
+        $history = $this->updateHistoryRepository->findById($historyId);
+        $this->assertNotNull($history);
+
+        // The restore itself must SUCCEED: the entry under test is the one
+        // written after it, and a failing restore takes the other branch.
+        $backupService = $this->createMock(BackupService::class);
+        $backupService->expects($this->once())->method('restoreDatabase');
+        $backupService->expects($this->once())->method('restoreFiles');
+
+        $error = new \Error('Unknown named parameter $backupCreated');
+
+        $method = new \ReflectionMethod(InstallUpdateHandler::class, 'rollbackToSafetyBackup');
+        $method->setAccessible(true);
+        $method->invoke(
+            $this->handler,
+            $historyId,
+            $history,
+            $this->context,
+            $this->updateHistoryRepository,
+            $backupService,
+            $this->storagePath . '/dump.sql',
+            $this->storagePath . '/files.zip',
+            $error
+        );
+
+        $row = $this->pdo->query(
+            "SELECT context FROM event_log WHERE event_type = 'update_rolled_back' ORDER BY id DESC LIMIT 1"
+        )->fetch(\PDO::FETCH_ASSOC);
+        $this->assertNotFalse($row, 'a completed rollback must be journaled');
+
+        $context = json_decode((string) $row['context'], true);
+        $this->assertSame('dev-8e3b6c1', $context['version_from']);
+        $this->assertSame('dev-63afd86', $context['version_to']);
+        $this->assertSame('Unknown named parameter $backupCreated', $context['error']);
+        $this->assertSame('Error', $context['error_class']);
+        $this->assertStringStartsWith('InstallUpdateHandlerTest.php:', $context['error_at']);
+    }
+
+    /**
+     * The counterpart, and the reason the detail goes in the journal and
+     * not in `markRolledBack()`: that string is rendered as a title=""
+     * tooltip on Configuration > Maintenance, so it must stay free of the
+     * exception's own text.
+     */
+    public function testTheDetailStaysOutOfWhatTheMaintenancePageShows(): void
+    {
+        $historyId = $this->updateHistoryRepository->create('dev-8e3b6c1', 'dev-63afd86', false, $this->userId);
+        $history = $this->updateHistoryRepository->findById($historyId);
+        $this->assertNotNull($history);
+
+        $backupService = $this->createMock(BackupService::class);
+
+        $method = new \ReflectionMethod(InstallUpdateHandler::class, 'rollbackToSafetyBackup');
+        $method->setAccessible(true);
+        $method->invoke(
+            $this->handler,
+            $historyId,
+            $history,
+            $this->context,
+            $this->updateHistoryRepository,
+            $backupService,
+            $this->storagePath . '/dump.sql',
+            $this->storagePath . '/files.zip',
+            new \Error('Unknown named parameter $backupCreated')
+        );
+
+        $after = $this->updateHistoryRepository->findById($historyId);
+        $this->assertNotNull($after);
+        $this->assertSame('rolled_back', $after->status);
+        $this->assertStringNotContainsString('backupCreated', (string) $after->errorMessage);
+        $this->assertStringContainsString('journal des événements', (string) $after->errorMessage);
+    }
+
     public function testDownloadRefusesANonGitHubUrlBeforeFetching(): void
     {
         $method = new \ReflectionMethod(InstallUpdateHandler::class, 'download');

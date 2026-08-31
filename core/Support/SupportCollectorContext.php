@@ -55,7 +55,7 @@ class SupportCollectorContext
      *
      * The canonical case is a scheduled task's `last_error` — a PDO failure
      * message routinely quotes the credentials it failed with, and this
-     * archive is destined for email. The same routine sanitises collector
+     * archive leaves the installation. The same routine sanitises collector
      * failure reasons in `collection-status.json`.
      *
      * **Substitution comes first, and the order is the whole point.** The

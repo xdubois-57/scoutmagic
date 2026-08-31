@@ -107,7 +107,6 @@ class StatisticsPayloadBuilderTest extends TestCase
             new CookieConsentService([]),
             new MenuBuilder(Role::fromString('admin')),
             new ModuleRegistryRepository($this->pdo),
-            $this->createMock(MigrationRunner::class),
             new JournalService(new JournalRepository($this->pdo)),
             new Router()
         );

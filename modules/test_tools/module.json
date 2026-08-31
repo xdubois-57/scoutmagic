@@ -1,8 +1,8 @@
 {
   "id": "test_tools",
   "name": "Outils de test",
-  "description": "Boîte à outils réservée à l'installation de référence et aux installations locales de développement. Premier outil : le bac à sable e-mail, qui capture les messages sortants au lieu de les envoyer.",
-  "version": "1.1.0",
+  "description": "Boîte à outils réservée à l'installation de référence et aux installations locales de développement. Le bac à sable e-mail, qui capture les messages sortants au lieu de les envoyer, et de quoi provoquer une vraie erreur pour vérifier qu'elle atterrit bien dans le journal du site.",
+  "version": "1.2.0",
   "enabled_by_default": false,
   "visible_when": [
     "reference_installation",
@@ -25,6 +25,15 @@
           "Configuration"
         ]
       }
+    },
+    {
+      "path": "/test-tools/uncaught-error",
+      "method": "GET",
+      "controller": "Modules\\TestTools\\Controller\\TestToolsController",
+      "action": "provokeUncaughtError",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
     },
     {
       "path": "/test-tools/mail-sandbox",
