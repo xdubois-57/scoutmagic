@@ -1,0 +1,126 @@
+{% extends 'base.html.twig' %}
+{% block title %}Réinscription — {{ site_name }}{% endblock %}
+{% block content %}
+{% include 'partials/page_header.html.twig' with {
+    title: 'Campagne de réinscription',
+    subtitle: "Quand demander aux familles si leur enfant revient, et où en est la campagne.",
+} only %}
+
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h5 mb-3">État</h2>
+        <p class="mb-2">
+            {% if is_open %}
+                <span class="badge text-bg-success">Ouverte</span>
+                {% if close_date %}<span class="ms-2">Clôture prévue le {{ close_date }}.</span>{% endif %}
+            {% else %}
+                <span class="badge text-bg-secondary">Fermée</span>
+            {% endif %}
+        </p>
+
+        <div class="row row-cols-2 row-cols-md-4 g-3 mt-1">
+            <div class="col">
+                <div class="border rounded p-2 text-center">
+                    <div class="h4 mb-0">{{ tracking.answered }} / {{ tracking.total }}</div>
+                    <div class="small text-body-secondary">réponses reçues</div>
+                </div>
+            </div>
+            <div class="col">
+                <div class="border rounded p-2 text-center">
+                    <div class="h4 mb-0">{{ tracking.silent }}</div>
+                    <div class="small text-body-secondary">sans réponse</div>
+                </div>
+            </div>
+            <div class="col">
+                <div class="border rounded p-2 text-center">
+                    <div class="h4 mb-0">{{ tracking.leaving }}</div>
+                    <div class="small text-body-secondary">départs annoncés</div>
+                </div>
+            </div>
+            <div class="col">
+                <div class="border rounded p-2 text-center">
+                    <div class="h4 mb-0">{{ tracking.target_year_label }}</div>
+                    <div class="small text-body-secondary">année visée</div>
+                </div>
+            </div>
+        </div>
+
+        {# Deliberately counts only: a list here would be a list of children
+           whose parents have said they are leaving, sitting on a
+           configuration screen. Passage and Départs are where individual
+           decisions belong. #}
+        <p class="form-text mt-3 mb-0">
+            Ces chiffres comptent les animés de l'année en cours. Les décisions individuelles se lisent sur les
+            pages « Départs » et « Passage ».
+        </p>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h5 mb-3">Relancer maintenant</h2>
+        <p class="small text-body-secondary">
+            Écrit à toutes les familles qui n'ont pas encore répondu pour tous leurs enfants. Un email par
+            adresse, listant les enfants concernés.
+        </p>
+        {% if is_open %}
+            <form method="post" action="/config/reinscription/relance">
+                {{ csrf_field()|raw }}
+                <button type="submit" class="btn btn-outline-primary">Relancer les familles sans réponse</button>
+            </form>
+        {% else %}
+            <button type="button" class="btn btn-outline-primary" disabled>Relancer les familles sans réponse</button>
+            <div class="form-text">
+                Indisponible campagne fermée : relancer vers un formulaire qu'une famille ne peut plus remplir
+                ne l'aiderait pas.
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h5 mb-3">Réglages</h2>
+        <form method="post" action="/config/reinscription">
+            {{ csrf_field()|raw }}
+
+            <div class="row g-3">
+                <div class="col-12 col-md-6">
+                    <label class="form-label" for="open-at">Ouverture (MM-JJ)</label>
+                    <input type="text" class="form-control" id="open-at" name="registration_reenrollment_open_at"
+                           value="{{ open_at }}" pattern="\d{2}-\d{2}" placeholder="03-01">
+                    <div class="form-text">Mois puis jour, sans année — la même date se rejoue chaque année. Une date manquée est manquée : la campagne ne s'ouvre pas rétroactivement.</div>
+                </div>
+                <div class="col-12 col-md-6">
+                    <label class="form-label" for="close-at">Fermeture (MM-JJ)</label>
+                    <input type="text" class="form-control" id="close-at" name="registration_reenrollment_close_at"
+                           value="{{ close_at }}" pattern="\d{2}-\d{2}" placeholder="05-15">
+                </div>
+                <div class="col-12 col-md-6">
+                    <label class="form-label" for="reminder-1">Premier rappel (jours avant la fermeture)</label>
+                    <input type="number" class="form-control" id="reminder-1" name="registration_reenrollment_reminder_1_days"
+                           value="{{ reminder_1_days }}" min="0" max="365">
+                    <div class="form-text">Un rappel dont la date tombe avant l'ouverture est sauté, jamais envoyé en retard.</div>
+                </div>
+                <div class="col-12 col-md-6">
+                    <label class="form-label" for="reminder-2">Second rappel (jours avant la fermeture)</label>
+                    <input type="number" class="form-control" id="reminder-2" name="registration_reenrollment_reminder_2_days"
+                           value="{{ reminder_2_days }}" min="0" max="365">
+                </div>
+            </div>
+
+            <div class="form-check form-switch mt-3">
+                <input class="form-check-input" type="checkbox" role="switch" id="is-open"
+                       name="is_open" value="1" {{ is_open ? 'checked' : '' }}>
+                <label class="form-check-label" for="is-open">Campagne ouverte</label>
+                <div class="form-text">
+                    Interrupteur manuel : il force l'état quelles que soient les dates ci-dessus. La fermer ici
+                    envoie l'email de clôture aux familles sans réponse, comme une fermeture programmée.
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary mt-3">Enregistrer</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

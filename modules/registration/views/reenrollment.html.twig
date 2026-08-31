@@ -3,8 +3,17 @@
 {% block content %}
 {% include 'partials/page_header.html.twig' with {
     title: 'Réinscription ' ~ target_year_label,
-    subtitle: "Dites-nous si votre enfant revient l'année prochaine. Vous pouvez revenir sur votre réponse tant que la campagne est ouverte.",
+    subtitle: is_open
+        ? "Dites-nous si votre enfant revient l'année prochaine. Vous pouvez revenir sur votre réponse tant que la campagne est ouverte."
+        : "La campagne est clôturée. Votre réponse est conservée telle que vous l'avez donnée — contactez le Staff d'U pour toute modification.",
 } only %}
+
+{% if not is_open %}
+    <div class="alert alert-info">
+        La campagne de réinscription est clôturée. Cette page reste consultable : votre réponse n'est pas perdue.
+        Pour la modifier, contactez le Staff d'U.
+    </div>
+{% endif %}
 
 {% if cards is empty %}
     {% include 'partials/empty_state.html.twig' with {
@@ -39,6 +48,40 @@
                 {% endif %}
             </p>
 
+            {% if not is_open %}
+                <dl class="row mb-0 small">
+                    <dt class="col-sm-4">Votre réponse</dt>
+                    <dd class="col-sm-8">
+                        {% if not answered %}
+                            <span class="text-body-secondary">Aucune réponse n'a été enregistrée.</span>
+                        {% elseif leaving %}
+                            {{ card.display_name }} quitte l'unité.
+                        {% else %}
+                            {{ card.display_name }} est réinscrit·e.
+                        {% endif %}
+                    </dd>
+                    {% if answered and card.answer.preferredSectionId is not null %}
+                        {% for section in card.arrival_sections %}
+                            {% if section.id == card.answer.preferredSectionId %}
+                                <dt class="col-sm-4">Section souhaitée</dt>
+                                <dd class="col-sm-8">{{ section.label }}</dd>
+                            {% endif %}
+                        {% endfor %}
+                    {% endif %}
+                    {% if answered and card.answer.friendWishesWithin(card.friend_wish_limit) is not empty %}
+                        <dt class="col-sm-4">Avec qui</dt>
+                        <dd class="col-sm-8">
+                            {% for wish in card.answer.friendWishesWithin(card.friend_wish_limit) %}
+                                {{ wish.rawName }}{{ not loop.last ? ', ' : '' }}
+                            {% endfor %}
+                        </dd>
+                    {% endif %}
+                    {% if answered and card.answer.familyComment %}
+                        <dt class="col-sm-4">Votre mot</dt>
+                        <dd class="col-sm-8">{{ card.answer.familyComment }}</dd>
+                    {% endif %}
+                </dl>
+            {% else %}
             <form method="post" action="/reinscription" class="reenrollment-form" data-member="{{ card.member_id }}">
                 {{ csrf_field()|raw }}
                 <input type="hidden" name="member_id" value="{{ card.member_id }}">
@@ -130,6 +173,7 @@
 
                 <button type="submit" class="btn btn-primary">Enregistrer ma réponse</button>
             </form>
+            {% endif %}
         </div>
     </div>
 {% endfor %}

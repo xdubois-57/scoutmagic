@@ -29,17 +29,21 @@ use Core\View\MenuBuilder;
  * no entry. That is also the cheapest possible check: the page's own
  * cards decide, so the menu and the page can never disagree.
  *
- * Deliberately NOT gated on the campaign window yet. The open/close dates
- * exist as settings (roadmap IT-13) but nothing reads them until the
- * campaign itself lands; gating here first would hide the page with no
- * way to reach it and no e-mail yet pointing at it.
+ * **Before the campaign opens, the entry is not there.** Asking a family
+ * to answer a question the unit has not asked yet is noise, and the
+ * opening e-mail is what tells them the question exists.
+ *
+ * **After it closes, the entry stays.** The page turns read-only rather
+ * than disappearing: a family who answered and then finds the page gone
+ * would reasonably conclude their answer went with it.
  */
 class ReenrollmentMenuHookService implements MenuEntryProvider
 {
     public function __construct(
         private ReenrollmentFormService $formService,
         private ScoutYearResolver $scoutYearResolver,
-        private ScoutYearService $scoutYearService
+        private ScoutYearService $scoutYearService,
+        private ReenrollmentCampaignService $campaign
     ) {
     }
 
@@ -49,6 +53,12 @@ class ReenrollmentMenuHookService implements MenuEntryProvider
     public function getMenuEntries(?string $email): array
     {
         if ($email === null) {
+            return [];
+        }
+
+        // Never opened yet — nothing to point at. Once a campaign has run,
+        // the closed page is still worth reaching (see the class docblock).
+        if (!$this->campaign->isOpen() && $this->campaign->currentCampaignKey() === null) {
             return [];
         }
 
@@ -84,9 +94,11 @@ class ReenrollmentMenuHookService implements MenuEntryProvider
                 // next year, not one of the visitor's own members.
                 2000,
                 true,
-                $unanswered > 0
-                    ? $unanswered . ' réponse' . ($unanswered > 1 ? 's' : '') . ' attendue' . ($unanswered > 1 ? 's' : '')
-                    : 'Réponse enregistrée',
+                $this->campaign->isOpen()
+                    ? ($unanswered > 0
+                        ? $unanswered . ' réponse' . ($unanswered > 1 ? 's' : '') . ' attendue' . ($unanswered > 1 ? 's' : '')
+                        : 'Réponse enregistrée')
+                    : 'Campagne clôturée',
                 MenuBuilder::SORT_GROUP_DYNAMIC,
                 'bi-arrow-repeat',
                 'mes_membres'

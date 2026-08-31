@@ -1,0 +1,12 @@
+La réinscription {{ target_year_label }} est clôturée
+
+Bonjour,
+
+La campagne de réinscription pour l'année {{ target_year_label }} vient de se terminer sans que nous ayons reçu votre réponse.
+
+Concerné(s) :
+{% for name in member_names %}- {{ name }}
+{% endfor %}
+Voir la page de réinscription : {{ reenrollment_url }}
+
+Il n'est pas trop tard : contactez le Staff d'U et nous ferons le nécessaire.

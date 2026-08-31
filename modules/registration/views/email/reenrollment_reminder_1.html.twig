@@ -1,0 +1,17 @@
+{% extends 'email/base.html.twig' %}
+{% block content %}
+    <h2 style="margin:0 0 16px;font-size:20px;">Il reste un peu de temps pour répondre</h2>
+    <p>Bonjour,</p>
+    <p>Nous n'avons pas encore votre réponse pour l'année {{ target_year_label }}. La campagne se termine le {{ close_date }}.</p>
+    <p style="margin:16px 0 8px;"><strong>Concerné{{ member_names|length > 1 ? 's' : '' }} :</strong></p>
+    <ul style="margin:0 0 16px;padding-left:20px;">
+        {% for name in member_names %}<li>{{ name }}</li>{% endfor %}
+    </ul>
+    <p style="text-align:center;margin:24px 0;">
+        <a href="{{ reenrollment_url }}"
+           style="display:inline-block;padding:10px 24px;background-color:#0d6efd;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:bold;">
+            Répondre maintenant
+        </a>
+    </p>
+    <p style="font-size:13px;color:#666;">Si vous avez déjà répondu pour vos autres enfants, seul celui listé ci-dessus manque.</p>
+{% endblock %}

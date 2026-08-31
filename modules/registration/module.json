@@ -71,6 +71,35 @@
       "breadcrumb": { "label": "Ma demande", "parents": ["Espace membres"] }
     },
     {
+      "path": "/config/reinscription",
+      "method": "GET",
+      "controller": "Modules\\Registration\\Controller\\ReenrollmentConfigController",
+      "action": "index",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": "Réinscription",
+      "menu_icon": "bi-arrow-repeat",
+      "breadcrumb": { "label": "Réinscription", "parents": ["Configuration"] }
+    },
+    {
+      "path": "/config/reinscription",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\ReenrollmentConfigController",
+      "action": "save",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/config/reinscription/relance",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\ReenrollmentConfigController",
+      "action": "remind",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
       "path": "/reinscription",
       "method": "GET",
       "controller": "Modules\\Registration\\Controller\\ReenrollmentController",
@@ -578,6 +607,14 @@
     {
       "key": "auto_assign_passage",
       "handler": "Modules\\Registration\\Task\\AutoAssignPassageHandler"
+    },
+    {
+      "key": "reenrollment_campaign",
+      "handler": "Modules\\Registration\\Task\\ReenrollmentCampaignHandler"
+    },
+    {
+      "key": "send_reenrollment_emails",
+      "handler": "Modules\\Registration\\Task\\SendReenrollmentEmailsHandler"
     }
   ],
   "storage": {},
@@ -607,6 +644,102 @@
           "name": "expiry_hours",
           "label": "Durée de validité (heures)",
           "example": "48"
+        }
+      ]
+    },
+    {
+      "id": "registration.reenrollment_opening",
+      "label": "Réinscription — ouverture de la campagne",
+      "description": "Envoyé à toutes les familles d'animés au moment où la campagne de réinscription s'ouvre. Un email par adresse, listant les enfants concernés — jamais un email par enfant.",
+      "default_subject": "Réinscription {{ target_year_label }}",
+      "template": "@registration/email/reenrollment_opening.html.twig",
+      "variables": [
+        {
+          "name": "target_year_label",
+          "label": "Année scoute visée",
+          "example": "2027-2028"
+        },
+        {
+          "name": "close_date",
+          "label": "Date de clôture de la campagne",
+          "example": "15 mai 2027"
+        },
+        {
+          "name": "reenrollment_url",
+          "label": "Lien vers la page de réinscription",
+          "example": "https://exemple.be/reinscription"
+        }
+      ]
+    },
+    {
+      "id": "registration.reenrollment_reminder_1",
+      "label": "Réinscription — premier rappel",
+      "description": "Envoyé quelques jours avant la clôture, aux seules familles qui n'ont pas encore répondu pour tous leurs enfants. Un rappel dont la date calculée tombe avant l'ouverture est sauté, jamais envoyé en retard.",
+      "default_subject": "Il reste un peu de temps pour répondre",
+      "template": "@registration/email/reenrollment_reminder_1.html.twig",
+      "variables": [
+        {
+          "name": "target_year_label",
+          "label": "Année scoute visée",
+          "example": "2027-2028"
+        },
+        {
+          "name": "close_date",
+          "label": "Date de clôture de la campagne",
+          "example": "15 mai 2027"
+        },
+        {
+          "name": "reenrollment_url",
+          "label": "Lien vers la page de réinscription",
+          "example": "https://exemple.be/reinscription"
+        }
+      ]
+    },
+    {
+      "id": "registration.reenrollment_reminder_2",
+      "label": "Réinscription — dernier rappel",
+      "description": "Envoyé juste avant la clôture, aux seules familles qui n'ont toujours pas répondu.",
+      "default_subject": "Dernier rappel — réinscription {{ target_year_label }}",
+      "template": "@registration/email/reenrollment_reminder_2.html.twig",
+      "variables": [
+        {
+          "name": "target_year_label",
+          "label": "Année scoute visée",
+          "example": "2027-2028"
+        },
+        {
+          "name": "close_date",
+          "label": "Date de clôture de la campagne",
+          "example": "15 mai 2027"
+        },
+        {
+          "name": "reenrollment_url",
+          "label": "Lien vers la page de réinscription",
+          "example": "https://exemple.be/reinscription"
+        }
+      ]
+    },
+    {
+      "id": "registration.reenrollment_closing",
+      "label": "Réinscription — clôture",
+      "description": "Envoyé à la clôture de la campagne, aux seules familles qui n'ont pas répondu — que la clôture soit programmée ou forcée à la main.",
+      "default_subject": "La réinscription {{ target_year_label }} est clôturée",
+      "template": "@registration/email/reenrollment_closing.html.twig",
+      "variables": [
+        {
+          "name": "target_year_label",
+          "label": "Année scoute visée",
+          "example": "2027-2028"
+        },
+        {
+          "name": "close_date",
+          "label": "Date de clôture de la campagne",
+          "example": "15 mai 2027"
+        },
+        {
+          "name": "reenrollment_url",
+          "label": "Lien vers la page de réinscription",
+          "example": "https://exemple.be/reinscription"
         }
       ]
     }

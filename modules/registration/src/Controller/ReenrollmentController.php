@@ -17,6 +17,7 @@ use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Modules\Registration\Repository\ReenrollmentAnswer;
+use Modules\Registration\Service\ReenrollmentCampaignService;
 use Modules\Registration\Service\ReenrollmentFormService;
 use Modules\Registration\Service\ReenrollmentService;
 use Twig\Environment;
@@ -50,7 +51,8 @@ class ReenrollmentController extends AbstractController
         private ReenrollmentFormService $formService,
         private ReenrollmentService $reenrollmentService,
         private ScoutYearResolver $scoutYearResolver,
-        private ScoutYearService $scoutYearService
+        private ScoutYearService $scoutYearService,
+        private ReenrollmentCampaignService $campaign
     ) {
     }
 
@@ -71,6 +73,10 @@ class ReenrollmentController extends AbstractController
                 (string) $publicYear['label'],
                 (int) $targetYear['id']
             ),
+            // Closed: the page stays, read-only. Making it disappear would
+            // tell a family who had answered that their answer went with
+            // it (roadmap IT-15).
+            'is_open' => $this->campaign->isOpen(),
             'csrf_token' => CsrfGuard::generateToken(),
         ]);
     }
@@ -88,6 +94,18 @@ class ReenrollmentController extends AbstractController
     {
         if (($guard = $this->guardCsrf($request, self::PAGE_URL)) !== null) {
             return $guard;
+        }
+
+        // The window is enforced on the server, not by the absence of a
+        // button: a form left open in a tab across the closing date must
+        // not still write.
+        if (!$this->campaign->isOpen()) {
+            FlashMessage::set(
+                'error',
+                "La campagne de réinscription est clôturée. Contactez le Staff d'U pour toute modification."
+            );
+
+            return $this->redirect(self::PAGE_URL);
         }
 
         [$publicYear, $targetYear] = $this->resolveYears();

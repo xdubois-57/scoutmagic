@@ -26,6 +26,7 @@ use Modules\Registration\Repository\ReenrollmentRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\SectionTransferRepository;
 use Modules\Registration\Service\PassageService;
+use Modules\Registration\Service\ReenrollmentCampaignService;
 use Modules\Registration\Service\ReenrollmentFormService;
 use Modules\Registration\Service\ReenrollmentService;
 use PHPUnit\Framework\TestCase;
@@ -58,6 +59,7 @@ class ReenrollmentControllerTest extends TestCase
     private ReenrollmentController $controller;
     private ReenrollmentRepository $repository;
     private SettingService $settingService;
+    private ReenrollmentCampaignService $campaign;
     private int $currentYearId;
     private int $targetYearId;
     private int $louveteauxA;
@@ -150,12 +152,49 @@ class ReenrollmentControllerTest extends TestCase
         $twig->addGlobal('current_path', '/reinscription');
         $twig->addGlobal('csp_nonce', 'test-nonce');
 
+        // IT-15 — the campaign window. Opened in the fixture, because
+        // every test in this class is about what a family sees and does
+        // while it IS open; the closed state has its own tests below.
+        $this->campaign = new ReenrollmentCampaignService(
+            $this->settingService,
+            $scoutYearResolver,
+            $scoutYearService,
+            $this->repository,
+            $passageService
+        );
+        $this->settingService->register(
+            ReenrollmentCampaignService::SETTING_OPEN,
+            '0',
+            'boolean',
+            'Campagne ouverte',
+            'Test.',
+            'registration'
+        );
+        $this->settingService->register(
+            ReenrollmentCampaignService::SETTING_OPEN_AT,
+            '03-01',
+            'text',
+            'Ouverture',
+            'Test.',
+            'registration'
+        );
+        $this->settingService->register(
+            ReenrollmentCampaignService::SETTING_CLOSE_AT,
+            '05-15',
+            'text',
+            'Fermeture',
+            'Test.',
+            'registration'
+        );
+        $this->campaign->open();
+
         $this->controller = new ReenrollmentController(
             $twig,
             new ReenrollmentFormService($memberService, $passageService, $reenrollmentService),
             $reenrollmentService,
             $scoutYearResolver,
-            $scoutYearService
+            $scoutYearService,
+            $this->campaign
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -360,6 +399,48 @@ class ReenrollmentControllerTest extends TestCase
         foreach (['reconnu', 'introuvable', 'trouvé', 'ambigu'] as $leak) {
             $this->assertStringNotContainsString($leak, $body);
         }
+    }
+
+    // ── the campaign window ───────────────────────────────────────────
+
+    public function testAClosedCampaignLeavesThePageReadableAndTheAnswerVisible(): void
+    {
+        $memberId = $this->createAnime('Alix', '2017-06-01', $this->louveteauxA, self::PARENT_EMAIL);
+        AuthSession::login(1, self::PARENT_EMAIL, 'identified');
+        $this->controller->save($this->post([
+            'member_id' => (string) $memberId,
+            'decision' => 'reenrolled',
+            'family_comment' => 'Alix a hâte.',
+        ]), []);
+
+        $this->campaign->close();
+        $body = $this->page();
+
+        // The page stays: making it disappear would tell a family who had
+        // answered that their answer went with it.
+        $this->assertStringContainsString('Alix', $body);
+        $this->assertStringContainsString('Alix a hâte.', $body);
+        $this->assertStringContainsString('campagne de réinscription est clôturée', $body);
+        $this->assertStringNotContainsString('class="reenrollment-form"', $body);
+        $this->assertStringNotContainsString('Enregistrer ma réponse', $body);
+    }
+
+    public function testAClosedCampaignRefusesAWriteEvenFromAFormLeftOpenInATab(): void
+    {
+        $memberId = $this->createAnime('Alix', '2017-06-01', $this->louveteauxA, self::PARENT_EMAIL);
+        $this->campaign->close();
+
+        AuthSession::login(1, self::PARENT_EMAIL, 'identified');
+        $response = $this->controller->save($this->post([
+            'member_id' => (string) $memberId,
+            'decision' => 'leaving',
+        ]), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertNull(
+            $this->repository->findAnswer($memberId, $this->targetYearId),
+            'The window is enforced on the server, not by the absence of a button.'
+        );
     }
 
     // ── the RBAC floor ────────────────────────────────────────────────

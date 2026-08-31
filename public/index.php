@@ -4427,16 +4427,35 @@ if ($isEnabled('registration')) {
         $registrationPassageService,
         $registrationReenrollmentService
     );
+    // IT-15 — the campaign's window and its tracking. Shares the module's
+    // one PassageService and one ReenrollmentRepository, so the page, the
+    // menu, the config screen and the scheduled task all read the same
+    // « who is an animé » and the same « who has answered ».
+    $registrationReenrollmentCampaign = new \Modules\Registration\Service\ReenrollmentCampaignService(
+        $settingService,
+        $scoutYearResolver,
+        $scoutYearService,
+        $registrationReenrollmentRepository,
+        $registrationPassageService
+    );
     $registrationReenrollmentMenuHook = new \Modules\Registration\Service\ReenrollmentMenuHookService(
         $registrationReenrollmentForm,
         $scoutYearResolver,
-        $scoutYearService
+        $scoutYearService,
+        $registrationReenrollmentCampaign
     );
+    $frontController->registerController(
+        \Modules\Registration\Controller\ReenrollmentConfigController::class,
+        new \Modules\Registration\Controller\ReenrollmentConfigController(
+            $twig, $registrationReenrollmentCampaign, $settingService, $schedulerService, $journalService
+        )
+    );
+    \Modules\Registration\Task\ReenrollmentCampaignHandler::ensureScheduled($schedulerService);
     $frontController->registerController(
         \Modules\Registration\Controller\ReenrollmentController::class,
         new \Modules\Registration\Controller\ReenrollmentController(
             $twig, $registrationReenrollmentForm, $registrationReenrollmentService,
-            $scoutYearResolver, $scoutYearService
+            $scoutYearResolver, $scoutYearService, $registrationReenrollmentCampaign
         )
     );
 

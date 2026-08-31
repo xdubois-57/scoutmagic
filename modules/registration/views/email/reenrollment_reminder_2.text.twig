@@ -1,0 +1,12 @@
+Dernier rappel avant le {{ close_date }}
+
+Bonjour,
+
+La campagne de réinscription {{ target_year_label }} se termine le {{ close_date }} et nous n'avons toujours pas votre réponse.
+
+Concerné(s) :
+{% for name in member_names %}- {{ name }}
+{% endfor %}
+Répondre maintenant : {{ reenrollment_url }}
+
+Après cette date, contactez le Staff d'U pour toute modification.
