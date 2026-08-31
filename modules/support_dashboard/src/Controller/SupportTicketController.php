@@ -80,6 +80,10 @@ class SupportTicketController extends AbstractController
 
         return $this->render('@support_dashboard/ticket.html.twig', [
             'ticket' => $ticket,
+            // The two readings side by side: what the instance reported
+            // WITH the ticket, and what it has reported since.
+            'statistics_comparison' => SupportTicketService::statisticsComparison($ticket),
+            'statistics_drifted' => SupportTicketService::statisticsDrifted($ticket),
             // The queue is a real ancestor PAGE, not a menu label, so it
             // travels as a breadcrumb_trail: a `parents` entry naming it
             // would render as inert grey text (design.md §7.3).

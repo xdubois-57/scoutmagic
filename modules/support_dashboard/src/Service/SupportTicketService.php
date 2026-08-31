@@ -93,6 +93,77 @@ class SupportTicketService
     }
 
     /**
+     * The two readings of one installation, side by side: what it reported
+     * **with** the ticket, and what it has reported since.
+     *
+     * The left column is the reason the snapshot exists at all — by the
+     * time somebody reads a three-week-old ticket, the version and the
+     * member count on the installation row have moved, and « quelle
+     * version avaient-ils quand ça a cassé » is the question the report
+     * was attached to answer.
+     *
+     * @param array<string, mixed> $ticket a row from detail()
+     * @return list<array{label: string, at_ticket: string|null, latest: string|null, changed: bool}>
+     */
+    public static function statisticsComparison(array $ticket): array
+    {
+        $snapshot = is_array($ticket['statistics_snapshot'] ?? null) ? $ticket['statistics_snapshot'] : [];
+        $latest = is_array($ticket['installation'] ?? null) ? $ticket['installation'] : [];
+        $frozen = $snapshot === [] ? [] : ReportedFacts::fromPayload($snapshot);
+
+        $rows = [];
+        foreach (ReportedFacts::LABELS as $key => $label) {
+            $atTicket = self::readable($frozen[$key] ?? null);
+            $now = self::readable($latest[$key] ?? null);
+
+            $rows[] = [
+                'label' => $label,
+                'at_ticket' => $snapshot === [] ? null : $atTicket,
+                'latest' => $now,
+                // Only a real difference between two known values is a
+                // change: « non renseigné » on one side is an absence, and
+                // highlighting it would cry wolf on every older ticket.
+                'changed' => $snapshot !== []
+                    && $atTicket !== null
+                    && $now !== null
+                    && $atTicket !== $now,
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Whether any compared field actually moved — what decides if the page
+     * says so at all.
+     *
+     * @param array<string, mixed> $ticket
+     */
+    public static function statisticsDrifted(array $ticket): bool
+    {
+        foreach (self::statisticsComparison($ticket) as $row) {
+            if ($row['changed']) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static function readable(mixed $value): ?string
+    {
+        if (is_bool($value)) {
+            return $value ? 'Oui' : 'Non';
+        }
+
+        if (is_int($value) || is_float($value)) {
+            return (string) $value;
+        }
+
+        return is_string($value) && trim($value) !== '' ? trim($value) : null;
+    }
+
+    /**
      * The categories actually present, for a filter that never offers an
      * empty result.
      *

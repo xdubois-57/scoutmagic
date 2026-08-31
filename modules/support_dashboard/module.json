@@ -2,7 +2,7 @@
   "id": "support_dashboard",
   "name": "Tableau de bord support",
   "description": "Réception et consultation des rapports d'utilisation envoyés par les installations ScoutMagic.",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "enabled_by_default": false,
   "visible_when": ["statistics_receiver"],
   "routes": [
@@ -49,10 +49,10 @@
       "action": "index",
       "menu": "configuration",
       "role_min": "superadmin",
-      "label": "Tableau de bord support",
+      "label": "Support",
       "menu_icon": "bi-speedometer2",
       "menu_group": "exploitation",
-      "breadcrumb": { "label": "Tableau de bord support", "parents": ["Configuration"] }
+      "breadcrumb": { "label": "Support", "parents": ["Configuration"] }
     },
     {
       "path": "/support-dashboard/tickets",
@@ -61,9 +61,7 @@
       "action": "index",
       "menu": "configuration",
       "role_min": "superadmin",
-      "label": "Tickets de support",
-      "menu_icon": "bi-life-preserver",
-      "menu_group": "exploitation",
+      "label": "",
       "breadcrumb": { "label": "Tickets de support", "parents": ["Configuration"] }
     },
     {

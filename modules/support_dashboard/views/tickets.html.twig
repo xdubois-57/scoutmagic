@@ -13,6 +13,17 @@
 
 {% include 'partials/page_header.html.twig' with { title: 'Tickets de support' } only %}
 
+{# Deux pages, une seule entrée de menu : le menu nomme la fonction, ces
+   onglets nomment les écrans qu'elle contient. #}
+{% include 'partials/sub_nav.html.twig' with {
+    items: [
+        { label: 'Tableau de bord', url: '/support-dashboard' },
+        { label: 'Tickets', url: '/support-dashboard/tickets' },
+    ],
+    current: '/support-dashboard/tickets',
+} only %}
+
+
 {# Filtres et recherche vivent dans la query string et nulle part ailleurs
    (ARCHITECTURE.md §8.50) : la même URL montre toujours la même liste. #}
 <div class="card mb-3">
@@ -75,9 +86,14 @@
             <p class="small text-body-secondary mb-2">
                 Analyse de {{ analysis.ticket_count }} ticket(s), le {{ analysis.requested_at }}.
             </p>
-            {# Rendu comme du texte : ce que le fournisseur renvoie n'est
-               jamais du balisage que cette page exécute. #}
-            <pre class="border rounded p-3 bg-body-tertiary small mb-0 support-analysis">{{ analysis.result }}</pre>
+            {# Rendu en HTML par Core\View\MarkdownRenderer, qui échappe
+               TOUT avant de réintroduire le balisage qu'il connaît : ce que
+               le fournisseur renvoie ne peut donc pas devenir du HTML que
+               cette page exécute, et le `|raw` porte sur la sortie du
+               rendu, jamais sur le texte reçu. #}
+            <div class="support-analysis border rounded p-3 bg-body-tertiary small mb-0">
+                {{ analysis.result|markdown|raw }}
+            </div>
         {% endif %}
     </div>
 </div>
