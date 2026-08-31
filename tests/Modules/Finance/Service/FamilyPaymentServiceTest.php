@@ -66,7 +66,12 @@ class FamilyPaymentServiceTest extends TestCase
             'intendant'
         );
 
-        $this->scoutYearId = FinanceTestHelper::createScoutYear($this->pdo, '2025-2026', '2025-09-01', '2026-08-31', true);
+        // The year the application is in, not a year spelled out: this is
+        // seeded is_current, so naming it made the class expire on
+        // 1 September (Tests\DatabaseTestHelper::scoutYear()). The
+        // « Cotisations … » labels below are free text and stay as they are.
+        [$yearLabel, $yearStart, $yearEnd] = \Tests\DatabaseTestHelper::scoutYear();
+        $this->scoutYearId = FinanceTestHelper::createScoutYear($this->pdo, $yearLabel, $yearStart, $yearEnd, true);
 
         $this->memberIds['Lucie'] = $this->createMember('Lucie', 'famille@test.be');
         $this->memberIds['Antoine'] = $this->createMember('Antoine', 'famille@test.be');

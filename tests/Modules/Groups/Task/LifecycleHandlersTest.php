@@ -55,7 +55,7 @@ class LifecycleHandlersTest extends TestCase
 
         $this->groupRepo = new GroupRepository($this->pdo);
         $this->scheduler = new SchedulerService(new SchedulerRepository($this->pdo));
-        $this->currentYearId = GroupsTestHelper::createScoutYear($this->pdo, '2025-2026', true);
+        $this->currentYearId = GroupsTestHelper::createScoutYear($this->pdo, \Tests\DatabaseTestHelper::scoutYear()[0], true);
 
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $this->context = new TaskContext(
@@ -97,7 +97,7 @@ class LifecycleHandlersTest extends TestCase
     public function testEnsureSectionGroupsAlsoCoversAFutureYearAlreadyImported(): void
     {
         $sectionId = GroupsTestHelper::createSection($this->pdo, 'LOU', 'Louveteaux');
-        $nextYearId = GroupsTestHelper::createScoutYear($this->pdo, '2026-2027', false);
+        $nextYearId = GroupsTestHelper::createScoutYear($this->pdo, \Tests\DatabaseTestHelper::scoutYear(1)[0], false);
 
         (new EnsureSectionGroupsHandler())->handle([], $this->context);
 

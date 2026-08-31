@@ -54,19 +54,36 @@ const ACCOUNT_IBAN = 'BE71 0961 2345 6769';
  * @param {number} daysAgo
  */
 function statementDate(daysAgo) {
-    const now = new Date();
+    // Brussels, not the runner's timezone. Node here is not the process
+    // that decides which scout year a movement lands in — PHP is, and
+    // Core\Config\AppClock pins PHP to Europe/Brussels. On a CI runner
+    // set to UTC those two disagree for the two hours before midnight
+    // UTC, which on 31 August is the difference between « this scout
+    // year » and « last one »: this spec computed August dates while the
+    // application had already turned September, and the import filed
+    // neither line where the assertion was looking.
+    //
+    // Exactly the bug scripts/e2e-support.php's own clock fix addresses
+    // one layer down, and it has to be answered here too because this
+    // date is computed in Node before PHP ever sees it.
+    const inBrussels = (date) => new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Europe/Brussels',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).format(date);
+
+    const today = inBrussels(new Date());
+    const [year, month] = today.split('-').map(Number);
     // A scout year opens on 1 September (Core\Config\ScoutYearService::
-    // labelForDate()); month 8 is September, JavaScript counting from 0.
-    const yearStart = new Date(now.getMonth() >= 8 ? now.getFullYear() : now.getFullYear() - 1, 8, 1);
+    // labelForDate()).
+    const yearStart = `${month >= 9 ? year : year - 1}-09-01`;
 
-    const wanted = new Date(now);
-    wanted.setDate(wanted.getDate() - daysAgo);
+    const wanted = inBrussels(new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000));
+    // Both are YYYY-MM-DD, so a string comparison is a date comparison.
+    const [y, m, d] = (wanted < yearStart ? yearStart : wanted).split('-');
 
-    const date = wanted < yearStart ? yearStart : wanted;
-    const day = String(date.getDate()).padStart(2, '0');
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-
-    return `${day}/${month}/${date.getFullYear()}`;
+    return `${d}/${m}/${y}`;
 }
 
 function bnpStatement() {

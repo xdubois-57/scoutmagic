@@ -86,7 +86,8 @@ class AlbumServiceTest extends TestCase
         $stmt->execute(['enc', 'idx']);
         $this->authorId = (int) $this->pdo->lastInsertId();
 
-        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2025-2026', '2025-09-01', '2026-08-31')");
+        [$label, $yearStart, $yearEnd] = DatabaseTestHelper::scoutYear();
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('{$label}', '{$yearStart}', '{$yearEnd}')");
         $this->scoutYearId = (int) $this->pdo->lastInsertId();
         $scoutYearService = new ScoutYearService($this->pdo);
 
@@ -322,7 +323,8 @@ class AlbumServiceTest extends TestCase
         $stmt = $pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');
         $stmt->execute(['enc', 'idx']);
         $authorId = (int) $pdo->lastInsertId();
-        $pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2025-2026', '2025-09-01', '2026-08-31')");
+        [$label, $yearStart, $yearEnd] = DatabaseTestHelper::scoutYear();
+        $pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('{$label}', '{$yearStart}', '{$yearEnd}')");
 
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $storageLocationRepository = new StorageLocationRepository($pdo, $encryption);
