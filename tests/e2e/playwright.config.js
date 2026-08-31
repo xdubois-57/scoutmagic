@@ -104,6 +104,43 @@ export default defineConfig({
         // own future scenario; it is not part of "does the application
         // boot and render".
         serviceWorkers: 'block',
+        // Bootstrap's overlay races, closed at the source rather than
+        // waited around one dialog at a time.
+        //
+        // Modal.hide() is a no-op while the opening transition runs (the
+        // trap support/confirm-dialog.js and support/section-editor.js
+        // each document from their own corner). `toBeVisible()` passes the
+        // instant `.show` lands, which is the START of the fade — so a
+        // spec that opens a dialog and acts on it promptly can call hide()
+        // inside that window. The dialog then stays open forever AND
+        // leaves its backdrop, which swallows every later click, so the
+        // NEXT overlay in the same spec "never opens" either. That is one
+        // bug wearing two faces, and it is why the failures never repeat
+        // on the same spec.
+        //
+        // It bit the DAST job (scripts/dast.sh) about one run in five
+        // while `npm run e2e` stayed green on the identical commit: same
+        // specs, same code, just enough extra latency through OWASP ZAP
+        // and the TLS terminator to change which side of the race won.
+        // Five consecutive CI failures, five different specs, every one an
+        // overlay stuck in its pre-click state at exactly the 40 s ceiling
+        // — and not one of them a security finding.
+        //
+        // 'reduce' zeroes the transition durations Bootstrap actually
+        // measures. Verified in a browser rather than read off the
+        // stylesheet: modal 0.15s, .modal-dialog 0.3s, .offcanvas 0.3s and
+        // .modal-backdrop 0.15s all compute to 0s under it, and a probe
+        // that opens a modal and clicks its close button as fast as it can
+        // goes from 25 stuck runs out of 25 to 0 out of 25.
+        //
+        // Nothing is lost by testing this way. No spec asserts on an
+        // animation, and the two places the site reads this setting
+        // (groups.js's reaction card, nav-rail.js's rail) only swap a
+        // smooth scroll for an instant one — "the same landing place,
+        // without the travel", as groups.js puts it. Real users who set
+        // the preference get this behaviour, so it is a supported path,
+        // not a test-only mode.
+        reducedMotion: 'reduce',
         actionTimeout: scaled(10_000),
         navigationTimeout: scaled(30_000),
         // The security scan (scripts/dast.sh) serves the throwaway

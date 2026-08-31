@@ -26,6 +26,7 @@ import { expect, test } from '@playwright/test';
 
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { loginAsAdmin } from '../support/admin-login.js';
+import { waitForSosJsReady } from '../support/sos.js';
 
 /**
  * Puts the roster back the way the harness provisioned it — empty.
@@ -55,6 +56,7 @@ async function resetOnCallRoster(page) {
     // all of them mean "nothing to restore", not "something went wrong".
     try {
         await page.goto('/admin/sos', { waitUntil: 'domcontentloaded' });
+        await waitForSosJsReady(page);
 
         // The two months these scenarios can have written to: the one the
         // page opens on, and the next one. Read off the island rather than
@@ -110,6 +112,7 @@ test('the duty grid cycles a cell through its three states, saving the month on 
     await loginAsAdmin(page);
     await answerCookieBanner(page);
     await page.goto('/admin/sos', { waitUntil: 'load' });
+    await waitForSosJsReady(page);
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
 
     // The desktop table renders one clickable cell per staff member per
@@ -140,6 +143,7 @@ test('the duty grid cycles a cell through its three states, saving the month on 
     await expect(cellAgain()).toHaveText('✓');
 
     await page.reload({ waitUntil: 'load' });
+    await waitForSosJsReady(page);
     await expect(cellAgain(), 'the on-call mark must survive a reload').toHaveText('✓');
 
     // There used to be an assertion here that the phone rendering of this
@@ -161,6 +165,7 @@ test('the duty grid cycles a cell through its three states, saving the month on 
     await expect(cellAgain()).toHaveText('');
 
     await page.reload({ waitUntil: 'load' });
+    await waitForSosJsReady(page);
     await expect(cellAgain(), 'the cleared cell must survive a reload too').toHaveText('');
 
     // The planned-transitions block rendered (its pagination is AJAX-fed
@@ -218,6 +223,7 @@ test('on a phone the month is a list of days, and one sheet edits any of them', 
     await page.setViewportSize(PHONE);
 
     await page.goto('/admin/sos', { waitUntil: 'load' });
+    await waitForSosJsReady(page);
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
 
     // Scoped to the page's own <main>: the navigation renders menu
@@ -246,6 +252,12 @@ test('on a phone the month is a list of days, and one sheet edits any of them', 
     // "apply the redirection immediately" path (module spec §3).
     // ---------------------------------------------------------------
     await main.getByRole('link', { name: 'Mois suivant' }).click();
+    // « Mois suivant » is an ordinary <a href>, so this is a full page
+    // load and sos-admin.js has to run again before any row answers a tap.
+    // toBeVisible() below proves the list rendered, which is not the same
+    // thing — and this is the exact navigation whose missing wait made the
+    // sheet "never open" in CI.
+    await waitForSosJsReady(page);
     await expect(dayList).toBeVisible();
     await expect(
         dayList.locator('.sos-day-row.list-group-item-warning'),
@@ -291,6 +303,7 @@ test('on a phone the month is a list of days, and one sheet edits any of them', 
     await expect(rowTarget(), 'the row now names whoever takes the calls').toHaveText(memberName);
 
     await page.reload({ waitUntil: 'load' });
+    await waitForSosJsReady(page);
     await expect(rowTarget(), 'the duty must survive a reload').toHaveText(memberName);
 
     // ---------------------------------------------------------------
@@ -307,6 +320,7 @@ test('on a phone the month is a list of days, and one sheet edits any of them', 
 
     await press('Rien');
     await page.reload({ waitUntil: 'load' });
+    await waitForSosJsReady(page);
     await expect(rowTarget()).toContainText('Par défaut');
 
     // ---------------------------------------------------------------
@@ -353,6 +367,7 @@ test('the default-number warning shows only when today has no on-call', async ({
     await loginAsAdmin(page);
     await answerCookieBanner(page);
     await page.goto('/admin/sos', { waitUntil: 'load' });
+    await waitForSosJsReady(page);
 
     // Today according to the SERVER, never to this process's clock: the
     // desktop grid marks its own row, and a timezone difference between the
@@ -395,6 +410,7 @@ test('the default-number warning shows only when today has no on-call', async ({
     // so saving one would change nothing today and the warning must go.
     await cycleToday();
     await page.reload({ waitUntil: 'load' });
+    await waitForSosJsReady(page);
     await openSettings();
     await expect(warning, 'a day with an explicit duty is not re-routed by the default number').toHaveCount(0);
 
@@ -403,6 +419,7 @@ test('the default-number warning shows only when today has no on-call', async ({
     await cycleToday();
     await cycleToday();
     await page.reload({ waitUntil: 'load' });
+    await waitForSosJsReady(page);
     await openSettings();
     await expect(warning).toBeVisible();
 

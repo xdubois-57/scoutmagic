@@ -166,7 +166,17 @@ test('the departures and passage grids save on change, with no save button anywh
 
     // Put the member back: a standing "leaving" mark would surface in the
     // passage and forecast views every spec after this one reads.
+    // Waited for, exactly like the check() above it — unchecking saves on
+    // its own too, and reloading straight away races that request: the
+    // navigation aborts the POST, the server keeps the member marked as
+    // leaving, and the assertion below reads a box that is still checked.
+    // Harmless by hand, where nobody reloads inside the same tick; it
+    // failed in CI under the security scan, whose added latency widens the
+    // window (Playwright reports uncheck() done once the DOM reflects it,
+    // not once the save has landed).
+    const saveOfReset = page.waitForResponse((response) => response.url().includes('/departs/') && response.request().method() === 'POST');
     await page.getByRole('checkbox', { name: `Ne sera plus là l'année prochaine — ${MEMBER_NAME}` }).uncheck();
+    expect((await (await saveOfReset).json()).success, 'unchecking the box must save on its own').toBe(true);
     await page.reload({ waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('checkbox', { name: `Ne sera plus là l'année prochaine — ${MEMBER_NAME}` })).not.toBeChecked();
 
@@ -181,10 +191,24 @@ test('the departures and passage grids save on change, with no save button anywh
     await page.getByRole('row', { name: /Zoé/ }).first().getByRole('link', { name: 'Ouvrir' }).click();
     await page.waitForURL(/\/config\/inscriptions\/demandes\/\d+$/, { waitUntil: 'domcontentloaded' });
 
+    // Waited for by the STATUS each POST produces, not by the URL.
+    //
+    // Both actions redirect back to this same address, so
+    // waitForURL(/\/config\/inscriptions\/demandes\/\d+$/) matched the page
+    // already on screen and returned without waiting for anything at all.
+    // The next click then went out against a page whose POST had not
+    // landed: the acceptance was lost, the child never reached /passage,
+    // and the failure surfaced twenty lines below as a row that does not
+    // exist — with the two specs after this one failing in turn, since
+    // they inherit its request.
+    //
+    // request_detail.html.twig renders the state as a badge, so waiting
+    // for the badge waits for the fact rather than for an address that
+    // never changed.
     await page.getByRole('button', { name: 'Revenir en attente' }).click();
-    await page.waitForURL(/\/config\/inscriptions\/demandes\/\d+$/, { waitUntil: 'domcontentloaded' });
+    await expect(page.getByText('En attente', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Accepter', exact: true }).click();
-    await page.waitForURL(/\/config\/inscriptions\/demandes\/\d+$/, { waitUntil: 'domcontentloaded' });
+    await expect(page.getByText('Acceptée', { exact: true })).toBeVisible();
 
     await page.goto('/passage', { waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('heading', { level: 1, name: 'Passage' })).toBeVisible();

@@ -25,6 +25,28 @@ import { expect } from '@playwright/test';
 export async function openSectionEditor(page, dialogId) {
     const dialog = page.locator(`#${dialogId}`);
 
+    // The trigger is a `data-bs-target` button, so what opens the dialog
+    // is Bootstrap's own delegated data-api — not any code in this repo.
+    // A click landing before bootstrap.bundle.min.js has run therefore
+    // does nothing at all: no error, no effect, and the assertion below
+    // then waits out its full ceiling on a dialog nobody asked to open,
+    // reporting it as "hidden" as though the dialog were at fault.
+    //
+    // This is the readiness convention groups.js and sos-admin.js each
+    // publish for their own listeners (`groups-js`, `sos-js`), applied to
+    // the library this trigger depends on: window.bootstrap exists only
+    // once that bundle has executed.
+    //
+    // It earned its place. Across five 20-sample batches of the DAST job,
+    // three failures on three different specs — camps-place-and-review's
+    // #review-modal, rental-lifecycle's #gestionnaires-edit and
+    // rental-management's #tarification-edit — were all this helper's
+    // click, and each looked like a separate dialog bug until they were
+    // put side by side. `npm run e2e` loses the race far more rarely; the
+    // scan proxies every asset through OWASP ZAP and a TLS terminator, so
+    // the bundle lands later relative to everything else.
+    await page.waitForFunction(() => typeof (/** @type {any} */ (window)).bootstrap !== 'undefined');
+
     await page.locator(`[data-bs-target="#${dialogId}"]`).first().click();
     await expect(dialog).toBeVisible();
 
