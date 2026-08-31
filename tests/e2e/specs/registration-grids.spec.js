@@ -150,7 +150,7 @@ test('the departures and passage grids save on change, with no save button anywh
     await leavingBox.check();
     expect ((await (await saveOfLeaving).json()).success, 'checking the box must save on its own').toBe(true);
 
-    const commentField = page.getByLabel(`Commentaire de départ — ${MEMBER_NAME}`);
+    const commentField = page.getByLabel(`Note interne — jamais vue par la famille — ${MEMBER_NAME}`);
     await expect(commentField).toBeVisible();
 
     const saveOfComment = page.waitForResponse((response) => response.url().includes('/departs/') && response.request().method() === 'POST');
@@ -162,7 +162,7 @@ test('the departures and passage grids save on change, with no save button anywh
     // a regression to one whole-form save typically drops one of them.
     await page.reload({ waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('checkbox', { name: `Ne sera plus là l'année prochaine — ${MEMBER_NAME}` })).toBeChecked();
-    await expect(page.getByLabel(`Commentaire de départ — ${MEMBER_NAME}`)).toHaveValue(DEPARTURE_COMMENT);
+    await expect(page.getByLabel(`Note interne — jamais vue par la famille — ${MEMBER_NAME}`)).toHaveValue(DEPARTURE_COMMENT);
 
     // Put the member back: a standing "leaving" mark would surface in the
     // passage and forecast views every spec after this one reads.

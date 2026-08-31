@@ -135,8 +135,13 @@
                                         </div>
                                     {% endif %}
                                     <div class="departure-staff-note" style="{{ row.leaving ? '' : 'display:none;' }}">
+                                        {# The member's name is in the accessible name but not on
+                                           screen: the row already says whose line this is, and a
+                                           label repeated per row is a label nobody reads. It is
+                                           what keeps « Note interne » unambiguous when a section
+                                           has twenty of them. #}
                                         <label class="form-label small text-muted mb-1" for="departure-comment-{{ row.profile.memberYearId }}">
-                                            Note interne — jamais vue par la famille
+                                            Note interne — jamais vue par la famille<span class="visually-hidden"> — {{ row.profile.firstName }} {{ row.profile.lastName }}</span>
                                         </label>
                                         <textarea class="form-control form-control-sm departure-comment" id="departure-comment-{{ row.profile.memberYearId }}" data-member-year-id="{{ row.profile.memberYearId }}"
                                             rows="2" placeholder="Commentaire facultatif (motif du départ, jamais visible en dehors de cette section)">{{ row.comment }}</textarea>
