@@ -119,6 +119,32 @@ $connection = new Connection(
 
 $pdo = $connection->getPdo();
 
+// ONE pass at a time (Core\Scheduler\CronPassLock).
+//
+// The crontab starts a pass every minute; a pass is not bounded by a
+// minute. It migrates the whole declared schema with a 900 s budget, then
+// runs every overdue task, and a single handler — a full backup, an
+// update install, one LLM call per uncategorised movement — can outlast
+// several ticks on its own. Nothing used to stop those passes overlapping
+// because, until the crontab became a requirement, there was rarely a
+// crontab to overlap with.
+//
+// Taken here, before anything is stamped or done: a pass that stands down
+// has not completed, so it must not write `cron_last_run` (which means "a
+// full pass finished") nor a `CronRunHistory` entry.
+//
+// **And it exits SILENTLY**, which is the deliberate part. Anything this
+// script prints becomes an email from the host's cron daemon, so a backup
+// running for ten minutes would send ten "skipped" emails — the operator
+// would either learn to ignore the mailbox or turn the crontab off, and
+// both are worse than the overlap. Skipping is normal operation, not an
+// incident: `Core\Scheduler\CronHealth` still reads the site as active
+// throughout, because the heartbeat at the top of this file is written
+// before the lock is ever asked for.
+if (!\Core\Scheduler\CronPassLock::acquire($pdo)) {
+    exit(0);
+}
+
 $encryptionService = EncryptionService::fromEncodedKeys(
     (string) ($secrets['encryption_key'] ?? ''),
     (string) ($secrets['blind_index_key'] ?? '')
@@ -330,3 +356,10 @@ $deleted = $journalService->cleanup($retentionDays);
 if ($processed > 0 || $deleted > 0) {
     echo "Processed {$processed} task(s), deleted {$deleted} old journal entry/entries.\n";
 }
+
+// Belt and braces: a MySQL/MariaDB advisory lock belongs to a CONNECTION
+// and the server drops it the instant that connection closes — which is
+// what happens when this process ends, however it ends, so a pass killed
+// mid-flight can never wedge the next one. Releasing here just means a
+// pass that finished normally lets go at a point this file chose.
+\Core\Scheduler\CronPassLock::release($pdo);
