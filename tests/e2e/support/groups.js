@@ -68,3 +68,43 @@ export async function openComposer(page) {
     await page.getByRole('button', { name: 'Écrire un message…' }).click();
     await expect(page.getByLabel('Écrire un message')).toBeVisible();
 }
+
+/**
+ * Closes `#groups-detail-modal` — the one dialog every "who…?" list on a
+ * group page shares — and waits for it to be gone.
+ *
+ * The close has to wait for the OPEN to have finished first, which is what
+ * this exists to encode. Bootstrap's Modal.hide() does nothing at all
+ * while the opening transition is still running, silently: the dialog
+ * stays on screen with its backdrop, and the assertion after it waits out
+ * its whole ceiling reporting a dialog that "will not close".
+ *
+ * The window is easy to land in here because the dialog is filled from a
+ * fetch: groups.js calls show() and then awaits the list, so a spec that
+ * asserts on the arriving content and closes immediately is timing its
+ * click against the response rather than against the animation.
+ * toBeVisible() does not stand in for that — it passes the instant `.show`
+ * lands, which is the START of the fade.
+ *
+ * `:focus-within` is the proof the opening finished: Bootstrap focuses the
+ * modal when it fires `shown.bs.modal`, and matching the element or any
+ * descendant covers both that and anything the dialog focuses itself —
+ * the same reasoning, and the same pitfall, as support/section-editor.js
+ * documents at greater length.
+ *
+ * This cost two failures on this branch, in two different specs
+ * (groups-discussion and groups-mentions), each looking like a dialog of
+ * its own until they were put side by side. An earlier reading that
+ * seemed to rule the transition out had in fact been taken five seconds
+ * after the click, by which time the flag it read had long since cleared —
+ * it said nothing about the moment that mattered.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+export async function closeDetailDialog(page) {
+    const dialog = page.locator('#groups-detail-modal');
+
+    await expect(page.locator('#groups-detail-modal:focus-within')).toHaveCount(1);
+    await dialog.locator('.btn-close').click();
+    await expect(dialog).toBeHidden();
+}

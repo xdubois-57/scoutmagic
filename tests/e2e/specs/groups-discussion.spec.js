@@ -69,7 +69,7 @@ import { expect, test } from '@playwright/test';
 import { autoConfirm } from '../support/confirm-dialog.js';
 import { loginAsAdmin, loginAsMember } from '../support/admin-login.js';
 // Shared with specs/groups-management.spec.js — see support/groups.js.
-import { openComposer, openCreateGroupForm, waitForGroupsJsReady } from '../support/groups.js';
+import { closeDetailDialog, openComposer, openCreateGroupForm, waitForGroupsJsReady } from '../support/groups.js';
 
 // Unique per run so a re-run against a database that somehow survived
 // (E2E_DB_NAME pointed elsewhere, a killed teardown) still starts from an
@@ -96,22 +96,6 @@ test('a member writes in a discussion group: a message, a link, a poll, a reply 
     page.on('response', (response) => {
         if (response.status() >= 500) {
             serverErrors.push(`HTTP ${response.status()} on ${response.url()}`);
-        }
-    });
-    // TEMPORARY INSTRUMENTATION — remove once the stuck-modal flake at the
-    // « Fermer » step below is understood. An uncaught page error is the
-    // one explanation nothing has been able to rule out: Bootstrap clears
-    // Modal._isTransitioning inside the very callback that first calls
-    // _focustrap.activate(), so a throw in there leaves the flag true for
-    // good, and every later hide() then returns immediately and silently.
-    /** @type {string[]} */
-    const pageErrors = [];
-    page.on('pageerror', (error) => {
-        pageErrors.push(`pageerror: ${error.message}`);
-    });
-    page.on('console', (message) => {
-        if (message.type() === 'error') {
-            pageErrors.push(`console.error: ${message.text()}`);
         }
     });
     // The deletions in step 7 stand behind the site's own confirmation
@@ -363,81 +347,7 @@ test('a member writes in a discussion group: a message, a link, a poll, a reply 
     // point of resolving identity in one service: one person must not read
     // as two different people across two surfaces.
     await expect(dialog.locator('#groups-detail-modal-body')).toContainText('Baden Powell (Baden)');
-    // TEMPORARY INSTRUMENTATION, round two. Round one answered the
-    // question it was asked and killed its own hypothesis: at failure
-    // Bootstrap held isShown=true, isTransitioning=FALSE, a live instance,
-    // one backdrop, body.modal-open, and pageErrors was EMPTY. In that
-    // state hide() would have worked — so hide() was never called, and no
-    // exception prevented it. The remaining suspect is the event itself: a
-    // `click` only exists where mousedown and mouseup share a target, and
-    // Playwright reports its action done once it has dispatched the mouse
-    // events, whether or not a click was synthesised from them.
-    await page.evaluate(() => {
-        const w = /** @type {any} */ (window);
-        w.__closeProbe = { down: [], up: [], click: [], dismissMatched: 0 };
-        const describe = (event) => {
-            const target = /** @type {HTMLElement} */ (event.target);
-            return target && target.tagName
-                ? target.tagName + (target.className ? '.' + String(target.className).split(' ')[0] : '')
-                : String(target);
-        };
-        document.addEventListener('mousedown', (e) => w.__closeProbe.down.push(describe(e)), true);
-        document.addEventListener('mouseup', (e) => w.__closeProbe.up.push(describe(e)), true);
-        document.addEventListener('click', (e) => {
-            w.__closeProbe.click.push(describe(e));
-            const target = /** @type {HTMLElement} */ (e.target);
-            if (target && target.closest && target.closest('[data-bs-dismiss="modal"]')) {
-                w.__closeProbe.dismissMatched += 1;
-            }
-        }, true);
-    });
-    await dialog.getByRole('button', { name: 'Fermer' }).click();
-    // TEMPORARY INSTRUMENTATION — see the pageErrors listener at the top.
-    // This assertion fails about one DAST run in ten with the dialog still
-    // carrying `modal fade show` and `display: block`, and four
-    // explanations have already been tested and disproved: the opening
-    // transition (reducedMotion now zeroes every duration Bootstrap
-    // measures), a second openDetailDialog() reopening it (the trace shows
-    // exactly one /reactions request), a leaked listener cancelling the
-    // hide (there is no hide.bs.modal listener anywhere, and no dispose()
-    // call to strand the instance), and the body being replaced under it
-    // (the trace's DOM snapshots are back-references, so it never
-    // changed). What is left is Bootstrap's own view of the dialog, which
-    // no artifact so far records — so record it.
-    try {
-        await expect(dialog).toBeHidden({ timeout: 5_000 });
-    } catch (failure) {
-        const state = await page.evaluate(() => {
-            const element = document.getElementById('groups-detail-modal');
-            const bs = /** @type {any} */ (window).bootstrap;
-            const instance = bs && bs.Modal ? bs.Modal.getInstance(element) : null;
-            return {
-                className: element ? element.className : '(absent)',
-                inlineDisplay: element ? element.style.display : '(absent)',
-                hasInstance: Boolean(instance),
-                isShown: instance ? instance._isShown : null,
-                isTransitioning: instance ? instance._isTransitioning : null,
-                focustrapActive: instance && instance._focustrap ? instance._focustrap._isActive : null,
-                backdrops: document.querySelectorAll('.modal-backdrop').length,
-                bodyHasModalOpen: document.body.classList.contains('modal-open'),
-                // Round two: did a click event exist at all, and did it
-                // land on something Bootstrap's delegated dismiss handler
-                // would have matched?
-                probe: /** @type {any} */ (window).__closeProbe,
-                dismissButtons: document.querySelectorAll('#groups-detail-modal [data-bs-dismiss="modal"]').length,
-                activeElement: document.activeElement
-                    ? document.activeElement.tagName
-                        + (document.activeElement.className
-                            ? '.' + String(document.activeElement.className).split(' ')[0]
-                            : '')
-                    : '(none)',
-            };
-        });
-        // eslint-disable-next-line no-console
-        console.log('[MODAL-STUCK] state=' + JSON.stringify(state)
-            + ' pageErrors=' + JSON.stringify(pageErrors));
-        throw failure;
-    }
+    await closeDetailDialog(page);
 
     // --- Everything above happened without a single page load. Reload
     // once, and require the server to hand all of it back: that is what
