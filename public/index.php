@@ -5266,6 +5266,28 @@ if ($isEnabled('leadership')) {
         new \Modules\Leadership\Service\CandidateDetector()
     );
 
+    // The vocabulary mapping predates the BACV and Woodbadge boxes, so
+    // every decision a unit had already recorded says « brevet » and
+    // nothing says which one (roadmap IT-19). MigrationRunner is DDL-only,
+    // so this reclassification runs here, once, behind an internal
+    // settings flag — see Service\FormationStepMigration for why the call
+    // site is a page load rather than a configuration screen.
+    (new \Modules\Leadership\Service\FormationStepMigration(
+        $leadershipMappingRepository,
+        $settingService,
+        $journalService
+    ))->runOnce();
+
+    // One journal entry per import listing the formation wordings the site
+    // did not understand (Core\Import\DeskImportListener, §7.4) — counts
+    // only, never a member.
+    $deskImportListeners->register(new \Modules\Leadership\Service\LeadershipDeskImportListener(
+        $leadershipRepository,
+        $leadershipMappingRepository,
+        $leadershipResolver,
+        $journalService
+    ));
+
     $frontController->registerController(
         \Modules\Leadership\Controller\LeadershipController::class,
         new \Modules\Leadership\Controller\LeadershipController(
