@@ -205,7 +205,13 @@
      * "future" at all, for the same reason.
      */
     function updateFutureYearWarning() {
+        // el() returns null for an id that is not in the document, and
+        // selectScoutYears() runs on every draft that opens — including in
+        // fixtures that carry only the fields they are about. A missing box
+        // is nothing to warn in, not a reason to abort the dialog.
         const box = el('mm-future-year-warning');
+        if (!box) return;
+
         const warnings = [MM_DATA.scoutYears.previous, MM_DATA.scoutYears.current, MM_DATA.scoutYears.next]
             .filter(y => y.warning && mmSelectedYearIds.includes(y.id))
             .map(y => y.warning);
