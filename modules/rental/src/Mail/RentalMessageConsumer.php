@@ -15,6 +15,7 @@ use Modules\InboundMail\Api\InboundAttachment;
 use Modules\InboundMail\Api\InboundMailInterface;
 use Modules\InboundMail\Api\InboundMessage;
 use Modules\InboundMail\Api\LinkOrigin;
+use Modules\InboundMail\Api\MessageCandidate;
 use Modules\InboundMail\Api\MessageConsumerInterface;
 use Modules\InboundMail\Api\MessageLink;
 use Modules\Rental\Booking\RentalBooking;
@@ -54,6 +55,14 @@ use Modules\Rental\Service\RentalDocumentService;
 class RentalMessageConsumer implements MessageConsumerInterface
 {
     public const CONSUMER_ID = 'rental';
+
+    /**
+     * How many propositions one ambiguous message may produce. A renter
+     * with a standing booking every month would otherwise turn a single
+     * email into a wall nobody reads — which is a different way of saying
+     * nothing at all.
+     */
+    public const MAX_PROPOSITIONS = 5;
 
     /**
      * How far either side of a stay a sender-matched message is still
@@ -123,11 +132,80 @@ class RentalMessageConsumer implements MessageConsumerInterface
             return AnalysisResult::linkedTo(self::CONSUMER_ID, $threaded, LinkOrigin::THREAD);
         }
 
-        $bySender = $this->matchBySender($message);
+        return $this->fromSender($message);
+    }
 
-        return $bySender !== null
-            ? AnalysisResult::linkedTo(self::CONSUMER_ID, $bySender, LinkOrigin::SENDER)
-            : AnalysisResult::nothing();
+    /**
+     * The sender-and-window level, which produces a link when it is sure
+     * and **propositions when it is not**.
+     *
+     * Ambiguity used to be answered with silence: several bookings of the
+     * same renter in range meant no association at all. That was right
+     * about not choosing — putting a renter's email on whichever of their
+     * two bookings sorted first is worse than not attaching it, because
+     * the manager reading the wrong file has no way to know — and wrong
+     * about stopping there. The module knows something; it just does not
+     * know which. Saying so, and letting a human pick, is what a
+     * proposition is for.
+     */
+    private function fromSender(CandidateMessage $message): AnalysisResult
+    {
+        $inWindow = $this->bookingsInWindow($message);
+
+        if (count($inWindow) === 1) {
+            return AnalysisResult::linkedTo(self::CONSUMER_ID, $inWindow[0]->reference, LinkOrigin::SENDER);
+        }
+
+        if ($inWindow === []) {
+            return AnalysisResult::nothing();
+        }
+
+        // By arrival date, because that is the order a person compares
+        // them in. The repository's own order is about listing bookings,
+        // not about choosing between two of them, and inheriting it here
+        // would make the list arbitrary for the one reader who has to pick.
+        usort(
+            $inWindow,
+            static fn(RentalBooking $a, RentalBooking $b) => $a->arrivalDate <=> $b->arrivalDate
+        );
+
+        // Bounded. A renter with a standing booking every month would
+        // otherwise turn one email into a wall of propositions nobody
+        // reads, which is a different way of saying nothing.
+        $candidates = [];
+        foreach (array_slice($inWindow, 0, self::MAX_PROPOSITIONS) as $booking) {
+            $candidates[] = new MessageCandidate(
+                businessReference: $booking->reference,
+                label: $this->labelFor($booking),
+                evidenceType: 'sender_window',
+                explanation: 'L\'adresse de l\'expéditeur est celle du locataire, et le message est '
+                    . 'arrivé pendant la période de cette réservation. '
+                    . count($inWindow) . ' réservations de ce locataire correspondent : '
+                    . 'ScoutMagic n\'en choisit aucune.'
+            );
+        }
+
+        return new AnalysisResult([], $candidates);
+    }
+
+    /**
+     * A booking as a manager recognises it — the reference alone is an
+     * identifier, not something anybody reads at a glance.
+     */
+    private function labelFor(RentalBooking $booking): string
+    {
+        // Built here rather than through the `date_fr` Twig filter: this
+        // string is stored (encrypted) on the proposition row, so it has to
+        // exist before any template does.
+        $arrival = DateInput::iso($booking->arrivalDate);
+        $departure = DateInput::iso($booking->departureDate);
+
+        if ($arrival === null || $departure === null) {
+            return $booking->reference;
+        }
+
+        return $booking->reference . ' — du ' . $arrival->format('d/m/Y')
+            . ' au ' . $departure->format('d/m/Y');
     }
 
     /**
@@ -152,6 +230,8 @@ class RentalMessageConsumer implements MessageConsumerInterface
             'référence de location explicite dans l\'objet ou le corps',
             'réponse dans une conversation déjà rattachée à une location',
             'adresse du locataire, entre la demande et quelques semaines après le départ',
+            'plusieurs réservations du même locataire dans la période : une proposition par réservation, '
+                . 'aucune n\'est choisie',
         ];
     }
 
@@ -314,18 +394,19 @@ class RentalMessageConsumer implements MessageConsumerInterface
      * to a booking from three years ago. And with several bookings in
      * range, it attaches nothing at all.
      */
-    private function matchBySender(CandidateMessage $message): ?string
+    /**
+     * @return RentalBooking[]
+     */
+    private function bookingsInWindow(CandidateMessage $message): array
     {
         if ($message->fromEmail === '') {
-            return null;
+            return [];
         }
 
-        $inWindow = array_values(array_filter(
+        return array_values(array_filter(
             $this->bookingRepository->findByRenterEmail($message->fromEmail),
             fn(RentalBooking $booking) => $this->covers($booking, $message->sentAt)
         ));
-
-        return count($inWindow) === 1 ? $inWindow[0]->reference : null;
     }
 
     /**

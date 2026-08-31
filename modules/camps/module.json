@@ -412,7 +412,7 @@
       "role_min": "chief",
       "label": "",
       "breadcrumb": {
-        "label": "Courrier non classé",
+        "label": "Courrier des camps",
         "parents": [
           "Espace animateurs"
         ],
@@ -438,6 +438,24 @@
       "method": "POST",
       "controller": "Modules\\Camps\\Controller\\CampsMailController",
       "action": "discard",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/courrier/{id}/proposition/confirmation",
+      "method": "POST",
+      "controller": "Modules\\Camps\\Controller\\CampsMailController",
+      "action": "confirmProposition",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/courrier/{id}/proposition/rejet",
+      "method": "POST",
+      "controller": "Modules\\Camps\\Controller\\CampsMailController",
+      "action": "dismissProposition",
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": ""
@@ -533,13 +551,6 @@
       "description": "Dans une boîte dédiée uniquement : si un message annonce des dates sans ambiguïté, un séjour est créé automatiquement, visiblement marqué comme tel. Le lieu est d'abord un terrain déjà connu ; un nouveau terrain n'est créé que si le module Connecteur Intelligence Artificielle est actif, son nom étant alors lu dans le corps du message — jamais dans le nom de l'expéditeur. Sans ce réglage, ou faute de lieu, le message reste dans le courrier non classé avec une action « Créer un camp depuis ce message »."
     },
     {
-      "key": "camps_unsorted_retention_months",
-      "default_value": "6",
-      "type": "number",
-      "label": "Conservation du courrier non classé (mois)",
-      "description": "Durée après laquelle un message resté non classé est effacé. Elle se compte depuis la date du message lui-même : un message détaché d'un séjour et renvoyé au courrier non classé garde sa date d'origine, et peut donc partir au prochain passage s'il est déjà ancien."
-    },
-    {
       "key": "camps_ai_summary_enabled",
       "default_value": "1",
       "type": "boolean",
@@ -577,10 +588,6 @@
     {
       "key": "geocode_places",
       "handler": "Modules\\Camps\\Task\\GeocodePlacesHandler"
-    },
-    {
-      "key": "purge_unsorted_mail",
-      "handler": "Modules\\Camps\\Task\\PurgeUnsortedMailHandler"
     },
     {
       "key": "refresh_place_summaries",

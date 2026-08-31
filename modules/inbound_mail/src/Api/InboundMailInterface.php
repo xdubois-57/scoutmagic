@@ -11,13 +11,23 @@ namespace Modules\InboundMail\Api;
 /**
  * What another module may do with the mail this module collected (§7.11).
  *
- * **Every method is scoped to one business reference of one consumer.**
- * There is deliberately no `findAll()`, no `findByMailbox()` and no
- * `search()`: a manager who may open a booking must not thereby gain a
- * window onto the unit's whole mailbox, and the way to make that
- * impossible is to never offer the query. A consumer id is passed on every
- * call for the same reason — `rental` asking for `finance`'s messages gets
- * nothing, rather than getting them because it knew a reference.
+ * **Every method is scoped to one consumer, and to references that
+ * consumer's caller supplies.** There is deliberately no `findAll()`, no
+ * `findByMailbox()` and no `search()`: a manager who may open a booking
+ * must not thereby gain a window onto the unit's whole mailbox, and the
+ * way to make that impossible is to never offer the query. A consumer id
+ * is passed on every call for the same reason — `rental` asking for
+ * `finance`'s messages gets nothing, rather than getting them because it
+ * knew a reference.
+ *
+ * `findForTriage()` is the one method that returns messages the caller did
+ * not name a reference for, and it is still not a general read: what it
+ * adds comes from the **mailbox configuration** — a box the superadmin
+ * declared this consumer may read in full — and from nowhere else. A
+ * consumer cannot widen its own scope through this interface; only the
+ * configuration screen can, and it says in as many words what it is doing.
+ * The Chef d'Unité's own unscoped view lives inside `inbound_mail`
+ * (`Service\GeneralMailboxService`) and is not reachable from here.
  *
  * Consumed the §7.5 way: a nullable dependency the consumer degrades
  * without.
@@ -37,6 +47,109 @@ interface InboundMailInterface
      * somewhere else gets null rather than somebody else's mail.
      */
     public function findOneForReference(string $consumerId, string $businessReference, int $messageId): ?InboundMessage;
+
+    /**
+     * Associate a message with one of this consumer's business objects,
+     * because a person said so.
+     *
+     * `LinkOrigin::MANUAL`, always: the origin answers « comment ce
+     * rattachement a-t-il été fait », and a human decision presented as a
+     * heuristic makes every later reader trust it less than they should.
+     *
+     * **Idempotent** — two people orienting one message towards the same
+     * object produce one association and neither sees an error. It does
+     * not remove any other association either: a message can legitimately
+     * belong to a stay and to an invoice at once, and « rattacher ici » is
+     * not « retirer de là ».
+     *
+     * The caller is responsible for having checked that the user may reach
+     * the reference (§7.7) — this module cannot know a consumer's
+     * authorisation rules, which is exactly why the check stays in the
+     * consumer's controller.
+     *
+     * @return bool whether an association was created (false when it
+     *   already existed)
+     */
+    public function attach(
+        string $consumerId,
+        string $businessReference,
+        int $messageId,
+        ?int $userAccountId = null
+    ): bool;
+
+    /**
+     * The mail this consumer's own users may sort — the business triage
+     * list (§8.58, IT-07).
+     *
+     * **Still scoped**, and that is why it may live on this contract at
+     * all: the caller passes the references the requester can actually
+     * reach, and this module never invents one. What it adds on top comes
+     * from the mailbox configuration alone — a box the superadmin declared
+     * this consumer may read in full contributes everything it holds, and
+     * a box they did not contributes nothing.
+     *
+     * Propositions are included alongside associations, because a
+     * proposition exists to be confirmed or dismissed by somebody who
+     * knows, and a list showing only what the module was already sure
+     * about would hide exactly the messages that need a human.
+     *
+     * @param string[] $ownReferences references the requester may manage
+     * @return InboundMessage[] newest first, bounded
+     */
+    public function findForTriage(string $consumerId, array $ownReferences, int $limit = 50): array;
+
+    /**
+     * This consumer's still-standing propositions on a set of messages,
+     * keyed by message id — what a triage screen renders next to each row
+     * without querying inside its own loop.
+     *
+     * Another module's propositions on the same message are deliberately
+     * absent: they are not this screen's business, and showing them would
+     * leak one module's guesses into another module's audience.
+     *
+     * @param int[] $messageIds
+     * @return array<int, MessageCandidate[]>
+     */
+    public function findCandidatesFor(string $consumerId, array $messageIds): array;
+
+    /**
+     * Confirm one of this consumer's own propositions, as a person.
+     *
+     * The association is recorded with `LinkOrigin::MANUAL` rather than
+     * the heuristic that produced the proposition (D20): once somebody has
+     * read the message and said yes, presenting their decision as a guess
+     * would make every later reader trust it less than they should.
+     *
+     * Scoped like everything else here — a proposition whose reference is
+     * not among `$ownReferences` is refused rather than confirmed, so a
+     * screen cannot be talked into filing a message under an object its
+     * user may not reach.
+     *
+     * @param string[] $ownReferences
+     */
+    public function confirmCandidate(
+        string $consumerId,
+        array $ownReferences,
+        int $messageId,
+        int $candidateId,
+        ?int $userAccountId = null
+    ): bool;
+
+    /**
+     * Set one of this consumer's own propositions aside, for good (A3).
+     *
+     * Dismissing protects nothing: a message the module no longer proposes
+     * anything about is a message the retention may remove, or « écarter »
+     * would quietly mean « conserver ».
+     *
+     * @param string[] $ownReferences
+     */
+    public function dismissCandidate(
+        string $consumerId,
+        array $ownReferences,
+        int $messageId,
+        int $candidateId
+    ): bool;
 
     /**
      * Detach a message: it leaves **this** business object, and nothing

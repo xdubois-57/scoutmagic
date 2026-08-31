@@ -22,12 +22,14 @@ use Tests\DatabaseTestHelper;
 use Tests\Modules\Camps\CampsTestHelper;
 
 /**
- * « Courrier non classé ».
+ * « Courrier des camps » — this module's view of the business triage list.
  *
- * Two promises this screen was not keeping: a message could be deleted for
- * good by somebody who could only ever see 220 characters of it, and the
- * setting `camps_auto_create_from_mail` described an action
- * (« Créer un camp depuis ce message ») that existed nowhere.
+ * It used to be « Courrier non classé », backed by a reserved `unsorted`
+ * reference. What the screen shows now comes from
+ * `InboundMailInterface::findForTriage()`, which every consumer will call;
+ * what it promises is unchanged — a message is readable in full before
+ * anybody decides its fate, and « Créer un camp depuis ce message » is a
+ * real action rather than a setting describing one.
  *
  * @group database
  */
@@ -62,8 +64,10 @@ class CampsMailControllerTest extends TestCase
         $message = new InboundMessage(
             id: 42,
             mailboxId: 2,
-            consumerId: CampsMessageConsumer::CONSUMER_ID,
-            businessReference: CampsMessageConsumer::UNSORTED_REFERENCE,
+            // Attached to nothing — the ordinary state of a message on a
+            // dedicated box that no stay claimed.
+            consumerId: '',
+            businessReference: '',
             linkOrigin: LinkOrigin::SENDER,
             subject: 'Confirmation de réservation',
             fromEmail: 'info@mozet.be',
@@ -108,7 +112,6 @@ class CampsMailControllerTest extends TestCase
             TwigFactory::create($root . '/core/View/templates', false, ['camps' => $root . '/modules/camps/views']),
             $camps,
             $places,
-            new SettingService(new SettingRepository($this->pdo)),
             $this->inbound,
             $this->proposals,
             $this->fieldCompletion
@@ -151,27 +154,31 @@ class CampsMailControllerTest extends TestCase
         $this->assertStringContainsString('Créer un camp depuis ce message', html_entity_decode($html));
     }
 
-    public function testTheRetentionWarningStillStatesTheDelay(): void
+    public function testTheScreenStillStatesThatUnattachedMailIsRemoved(): void
     {
-        $this->assertStringContainsString('effacés après 6 mois', $this->screen());
+        // The duration itself belongs to inbound_mail now, and quoting a
+        // number this module no longer owns is how a screen ends up
+        // promising six months while the setting says three.
+        $this->assertStringContainsString(
+            'supprimé automatiquement au terme du délai de conservation',
+            $this->screen()
+        );
     }
 
     // ── attach() ────────────────────────────────────────────────────
 
-    public function testAttachingAMessageMovesItOntoTheStayAndSendsTheChiefThere(): void
+    public function testAttachingAMessagePutsItOnTheStayAndSendsTheChiefThere(): void
     {
         $response = $this->post('attach', ['camp_id' => (string) $this->campId], ['id' => '42']);
 
         $this->assertSame(302, $response->getStatusCode());
         $this->assertSame('/chefs/camps/sejours/' . $this->campId, $response->getHeaders()['Location'] ?? null);
+        // An association, not a move: there is no reserved reference to
+        // move the message OFF any more, and the message may legitimately
+        // belong to something else as well.
         $this->assertSame(
-            [[
-                CampsMessageConsumer::CONSUMER_ID,
-                CampsMessageConsumer::UNSORTED_REFERENCE,
-                CampsMessageConsumer::referenceFor($this->campId),
-                42,
-            ]],
-            $this->inbound->moves
+            [[CampsMessageConsumer::CONSUMER_ID, CampsMessageConsumer::referenceFor($this->campId), 42]],
+            $this->inbound->attaches
         );
     }
 
@@ -184,7 +191,7 @@ class CampsMailControllerTest extends TestCase
         $response = $this->post('attach', ['camp_id' => '999999'], ['id' => '42']);
 
         $this->assertSame('/chefs/camps/courrier', $response->getHeaders()['Location'] ?? null);
-        $this->assertSame([], $this->inbound->moves);
+        $this->assertSame([], $this->inbound->attaches);
     }
 
     public function testAttachingWithNoStayChosenMovesNothing(): void
@@ -192,7 +199,7 @@ class CampsMailControllerTest extends TestCase
         $response = $this->post('attach', [], ['id' => '42']);
 
         $this->assertSame('/chefs/camps/courrier', $response->getHeaders()['Location'] ?? null);
-        $this->assertSame([], $this->inbound->moves);
+        $this->assertSame([], $this->inbound->attaches);
     }
 
     public function testAttachWithoutACsrfTokenMovesNothing(): void
@@ -201,23 +208,27 @@ class CampsMailControllerTest extends TestCase
 
         $this->controller->attach($request, ['id' => '42']);
 
-        $this->assertSame([], $this->inbound->moves);
+        $this->assertSame([], $this->inbound->attaches);
     }
 
     // ── discard() ───────────────────────────────────────────────────
 
     /**
-     * `detach()` from the reserved 'unsorted' reference DELETES, per
-     * inbound_mail's own semantics: there is no unattached queue to fall
-     * back into, and 'unsorted' is itself the fallback.
+     * `detach()` removes ONE association and destroys nothing: the message
+     * falls back into the unit's general mail, where the chef d'unité can
+     * still re-orient it and where inbound_mail's retention removes it.
      */
-    public function testDiscardingAMessageDetachesItFromUnsorted(): void
+    public function testDiscardingAMessageDetachesItFromTheStayItNames(): void
     {
-        $response = $this->post('discard', [], ['id' => '42']);
+        $response = $this->post(
+            'discard',
+            ['business_reference' => CampsMessageConsumer::referenceFor($this->campId)],
+            ['id' => '42']
+        );
 
         $this->assertSame('/chefs/camps/courrier', $response->getHeaders()['Location'] ?? null);
         $this->assertSame(
-            [[CampsMessageConsumer::CONSUMER_ID, CampsMessageConsumer::UNSORTED_REFERENCE, 42]],
+            [[CampsMessageConsumer::CONSUMER_ID, CampsMessageConsumer::referenceFor($this->campId), 42]],
             $this->inbound->detaches
         );
     }
@@ -318,13 +329,15 @@ class CampsMailControllerTest extends TestCase
  * An InboundMailInterface that records what it was asked to do.
  *
  * A stub returning true would prove the controller redirected; what these
- * tests are about is WHICH reference a message was moved between, which is
- * the whole of the reserved-'unsorted' design.
+ * tests are about is WHICH reference a message ends up on, and what the
+ * screen offers before it does.
  *
  * @internal
  */
 class RecordingInboundMail implements InboundMailInterface
 {
+    use \Tests\Modules\InboundMail\InertInboundMail;
+
     /** @var array<int, array{0: string, 1: string, 2: string, 3: int}> */
     public array $moves = [];
 
@@ -336,10 +349,33 @@ class RecordingInboundMail implements InboundMailInterface
     {
     }
 
+    /** @var array<int, array{0: string, 1: string, 2: int}> */
+    public array $attaches = [];
+
     /** @return InboundMessage[] */
     public function findForReference(string $consumerId, string $businessReference): array
     {
         return $this->messages;
+    }
+
+    /**
+     * @param string[] $ownReferences
+     * @return InboundMessage[]
+     */
+    public function findForTriage(string $consumerId, array $ownReferences, int $limit = 50): array
+    {
+        return $this->messages;
+    }
+
+    public function attach(
+        string $consumerId,
+        string $businessReference,
+        int $messageId,
+        ?int $userAccountId = null
+    ): bool {
+        $this->attaches[] = [$consumerId, $businessReference, $messageId];
+
+        return true;
     }
 
     public function findOneForReference(string $consumerId, string $businessReference, int $messageId): ?InboundMessage

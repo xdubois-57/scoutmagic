@@ -792,6 +792,8 @@ class RentalConfigControllerTest extends TestCase
  */
 class TwoMailboxes implements \Modules\InboundMail\Api\InboundMailInterface
 {
+    use \Tests\Modules\InboundMail\InertInboundMail;
+
     /** @return \Modules\InboundMail\Api\InboundMessage[] */
     public function findForReference(string $consumerId, string $businessReference): array
     {

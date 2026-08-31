@@ -14,12 +14,14 @@ use Core\Security\Role;
 use Core\Service\DateInput;
 use Modules\Camps\Repository\Camp;
 use Modules\Camps\Repository\CampRepository;
+use Modules\Camps\Service\CampLabels;
 use Modules\Camps\Service\DocumentService;
 use Modules\InboundMail\Api\AnalysisResult;
 use Modules\InboundMail\Api\CandidateMessage;
 use Modules\InboundMail\Api\InboundMailInterface;
 use Modules\InboundMail\Api\InboundMessage;
 use Modules\InboundMail\Api\LinkOrigin;
+use Modules\InboundMail\Api\MessageCandidate;
 use Modules\InboundMail\Api\MessageConsumerInterface;
 use Modules\InboundMail\Api\MessageLink;
 
@@ -39,28 +41,34 @@ use Modules\InboundMail\Api\MessageLink;
  *      window around that stay.
  * Nothing weaker. Never a place name in a subject, never auto-creation.
  *
- * **A dedicated mailbox** (`camps_dedicated_mailbox_ids`) — an address
- * whose whole contents are about camps, e.g. camps@unite.be. Everything
- * is claimed, and what cannot be attributed to a stay lands under the
- * reserved reference `unsorted`, which backs a "Courrier non classé"
- * screen. Nothing is discarded on arrival; the retention purge handles it
- * later.
+ * **A dedicated mailbox** — an address whose whole contents are about
+ * camps, e.g. camps@unite.be. It no longer produces an association at all
+ * for mail nobody could attribute: the message is stored like every other
+ * (§8.58), the chief sees it in the unit's mail, and the module's own
+ * users see it too because a dedicated box grants them `ReadMode::ALL`.
+ * The reserved `unsorted` reference this replaced was a business object
+ * that was not one — a bucket masquerading as a stay, with its own
+ * retention, its own screen and its own purge task, all duplicating what
+ * `inbound_mail` now does once for everybody.
  *
- * **Ambiguity is answered with silence.** Two stays matching one sender
- * inside the window means no attachment — putting a farmer's e-mail on
- * whichever of two stays sorted first is worse than leaving it where it
- * was, because the chief reading the wrong stay has no way to know.
+ * **Ambiguity produces propositions, never a guess.** Two stays matching
+ * one sender inside the window means two propositions and no attachment:
+ * putting a farmer's e-mail on whichever of two stays sorted first is
+ * worse than leaving it unattached, because the chief reading the wrong
+ * stay has no way to know. Saying « c'est l'un de ces deux, choisissez »
+ * is the honest middle the module used to lack.
  */
 class CampsMessageConsumer implements MessageConsumerInterface
 {
     public const CONSUMER_ID = 'camps';
 
     /**
-     * The reserved business reference for a dedicated mailbox's
-     * unattributable mail. Not a stay id, and no stay can ever collide
-     * with it: stay references are 'camp-{id}'.
+     * How many propositions one ambiguous message may produce. A farmer
+     * who has hosted the unit ten times would otherwise turn one e-mail
+     * into a wall nobody reads, which is a different way of saying
+     * nothing.
      */
-    public const UNSORTED_REFERENCE = 'unsorted';
+    public const MAX_PROPOSITIONS = 5;
 
     /**
      * How far around a stay a sender-matched message is still assumed to
@@ -135,31 +143,134 @@ class CampsMessageConsumer implements MessageConsumerInterface
         }
 
         // 2. A known contact writing, bounded by a window around the stay
-        //    they are a contact of.
-        $campId = $this->campIdForSender($message);
-        if ($campId !== null) {
-            return AnalysisResult::linkedTo(self::CONSUMER_ID, self::referenceFor($campId), LinkOrigin::SENDER);
-        }
-
-        // 3. Dedicated mailbox only: keep everything else, unsorted. In a
-        //    shared mailbox this is where the consumer says "not mine".
-        if ($this->isDedicatedMailbox($message->mailboxId)) {
-            return AnalysisResult::linkedTo(self::CONSUMER_ID, self::UNSORTED_REFERENCE, LinkOrigin::SENDER);
-        }
-
-        return AnalysisResult::nothing();
+        //    they are a contact of. One match is an association; several
+        //    are propositions, and none is chosen.
+        return $this->fromSender($message);
     }
 
     /**
-     * Nothing to add once the message is on disk.
+     * @return int[] the stays this sender could plausibly be writing about
+     */
+    private function campIdsForSender(CandidateMessage $message): array
+    {
+        if ($message->fromEmail === '') {
+            return [];
+        }
+
+        $index = $this->encryption->blindIndex(
+            EncryptionService::normalizeEmailForIndex($message->fromEmail),
+            'camp_contacts.email'
+        );
+
+        $stmt = $this->pdo->prepare(
+            'SELECT DISTINCT camp_id FROM camp_contacts WHERE email_blind_index = ?'
+        );
+        $stmt->execute([$index]);
+
+        $inWindow = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $camp = $this->camps->findById((int) $row['camp_id']);
+            if ($camp !== null && $this->isInWindow($camp, $message->sentAt)) {
+                $inWindow[] = (int) $row['camp_id'];
+            }
+        }
+
+        return $inWindow;
+    }
+
+    private function fromSender(CandidateMessage $message): AnalysisResult
+    {
+        $inWindow = $this->campIdsForSender($message);
+
+        if (count($inWindow) === 1) {
+            return AnalysisResult::linkedTo(
+                self::CONSUMER_ID,
+                self::referenceFor($inWindow[0]),
+                LinkOrigin::SENDER
+            );
+        }
+
+        if ($inWindow === []) {
+            // Including on a dedicated mailbox. The message is stored
+            // anyway, the chief sees it in the unit's mail, and this
+            // module's own users see it because a dedicated box grants
+            // them the whole box — none of which needs a fake business
+            // object to hang it on.
+            return AnalysisResult::nothing();
+        }
+
+        $candidates = [];
+        foreach (array_slice($inWindow, 0, self::MAX_PROPOSITIONS) as $campId) {
+            $camp = $this->camps->findById($campId);
+            if ($camp === null) {
+                continue;
+            }
+
+            $candidates[] = new MessageCandidate(
+                businessReference: self::referenceFor($campId),
+                label: $this->labelFor($camp),
+                evidenceType: 'sender_window',
+                explanation: 'L\'expéditeur est un contact de ce séjour, et le message est arrivé '
+                    . 'dans sa période. ' . count($inWindow) . ' séjours de ce contact correspondent : '
+                    . 'ScoutMagic n\'en choisit aucun.'
+            );
+        }
+
+        return new AnalysisResult([], $candidates);
+    }
+
+    /**
+     * A stay as a chief recognises it. The reference (`camp-51`) is an
+     * identifier, not something anybody reads at a glance.
      *
-     * Everything this module recognises is in the headers and the body, and
-     * both were available on arrival. Reading a stay's attachments for more
-     * would be guesswork on a file a stranger sent.
+     * Through `Service\CampLabels`, which is what every other camps screen
+     * uses: a second way of writing a stay's dates would drift from the
+     * first within a season, and this string is read next to those screens.
+     */
+    private function labelFor(Camp $camp): string
+    {
+        $dates = CampLabels::dateRange($camp->startDate, $camp->endDate, $camp->yearOnly);
+        $type = CampLabels::stayType($camp->stayType);
+
+        return $dates === '' ? $type : $type . ' — ' . $dates;
+    }
+
+    /**
+     * Automatic stay creation, and nothing else.
+     *
+     * It belongs on the deferred pass rather than on arrival for two
+     * reasons. It needs a **stored** message — `StayFromMailService` reads
+     * the body and may call the AI connector, neither of which
+     * `CandidateMessage` can carry — and it is bounded and hourly, so a
+     * first synchronisation of a five-year-old box does not try to invent
+     * four hundred stays inside one page view.
+     *
+     * Three guards, all of them load-bearing:
+     *
+     * - **a dedicated mailbox only.** On the unit's shared address, a
+     *   supplier's quotation would become a camp.
+     * - **`camps_auto_create_from_mail`**, through
+     *   `StayFromMailService::isAutomatic()`. A unit that turned it off
+     *   gets nothing here, ever.
+     * - **nothing already attached.** A message that a chief has since
+     *   oriented by hand must not sprout a second stay because an hourly
+     *   task got to it afterwards.
      */
     public function analyzeStored(InboundMessage $message): AnalysisResult
     {
-        return AnalysisResult::nothing();
+        if ($this->stayFromMail === null
+            || !$this->stayFromMail->isAutomatic()
+            || $message->links !== []
+            || !$this->isDedicatedMailbox($message->mailboxId)
+        ) {
+            return AnalysisResult::nothing();
+        }
+
+        $campId = $this->stayFromMail->createFrom($message);
+
+        return $campId === null
+            ? AnalysisResult::nothing()
+            : AnalysisResult::linkedTo(self::CONSUMER_ID, self::referenceFor($campId), LinkOrigin::SENDER);
     }
 
     /**
@@ -218,20 +329,11 @@ class CampsMessageConsumer implements MessageConsumerInterface
     {
         $campId = self::campIdFromReference($link->businessReference);
         if ($campId === null) {
-            // Unsorted, in a dedicated mailbox. When the setting allows it
-            // and the message states both its dates and a usable place, it
-            // becomes a stay right here and stops being unsorted; when it
-            // does not, it stays where it is and the screen offers the
-            // same reading as a pre-filled form.
-            if ($link->businessReference === self::UNSORTED_REFERENCE && $this->stayFromMail !== null) {
-                $created = $this->stayFromMail->createFrom($message);
-                if ($created !== null) {
-                    $campId = $created;
-                }
-            }
-            if ($campId === null) {
-                return;
-            }
+            // Not one of this module's references. Automatic stay creation
+            // used to live here, hanging off the `unsorted` association;
+            // it has moved to analyzeStored(), which is where a stored
+            // message and a deferred, bounded pass already meet.
+            return;
         }
 
         // The reference names a stay; it does not prove one still exists.
@@ -329,37 +431,6 @@ class CampsMessageConsumer implements MessageConsumerInterface
      * The stay a known contact's address points at, or null when there is
      * none — or when there are SEVERAL.
      */
-    private function campIdForSender(CandidateMessage $message): ?int
-    {
-        $index = $this->encryption->blindIndex(
-            EncryptionService::normalizeEmailForIndex($message->fromEmail),
-            'camp_contacts.email'
-        );
-
-        $stmt = $this->pdo->prepare(
-            'SELECT DISTINCT camp_id FROM camp_contacts WHERE email_blind_index = ?'
-        );
-        $stmt->execute([$index]);
-        $campIds = array_map(static fn(array $r): int => (int) $r['camp_id'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
-        if ($campIds === []) {
-            return null;
-        }
-
-        $inWindow = [];
-        foreach ($campIds as $campId) {
-            $camp = $this->camps->findById($campId);
-            if ($camp !== null && $this->isInWindow($camp, $message->sentAt)) {
-                $inWindow[] = $campId;
-            }
-        }
-
-        // Exactly one, or nothing. A farmer who has hosted the unit three
-        // times has three stays under one address, and guessing which one
-        // this message is about would put it on the wrong page with no
-        // way for the reader to tell.
-        return count($inWindow) === 1 ? $inWindow[0] : null;
-    }
-
     private function isInWindow(Camp $camp, \DateTimeImmutable $sentAt): bool
     {
         $start = $camp->startDate ?? $camp->endDate;

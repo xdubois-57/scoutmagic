@@ -274,7 +274,6 @@ function scoutmagic_bootstrap_scheduler(
                             new \Modules\Camps\Service\DuplicatePlaceDetector($campsPlaceRepo, $llm),
                             $campsMessageReader,
                             $settingService,
-                            $inboundMail,
                             $llm
                         )
                     ));

@@ -58,6 +58,13 @@ class PurgeUnlinkedMessagesHandler implements TaskHandlerInterface
      * of unsorted camp mail expects to find six months of it; quietly
      * erasing three of them on upgrade would be the module deleting data
      * nobody asked it to delete. A fresh installation starts at 90.
+     *
+     * Copied ONCE into this module's own setting by the composition root
+     * (IT-07), rather than read live as it was at first. The live read was
+     * right while Camps still owned the value; now that its `unsorted`
+     * reference is gone, Camps no longer reads that setting at all, and a
+     * module declaring a setting nothing in it reads is a promise its
+     * configuration page makes and the application does not keep.
      */
     public const CAMPS_LEGACY_RETENTION_DAYS = 180;
     public const CAMPS_LEGACY_SETTING = 'camps_unsorted_retention_months';
@@ -137,12 +144,13 @@ class PurgeUnlinkedMessagesHandler implements TaskHandlerInterface
     }
 
     /**
-     * The configured retention, or the value this installation inherits.
+     * The configured retention.
      *
-     * The Camps reprise is read live rather than migrated once, on purpose:
-     * a unit that never opens the new setting keeps the six months it
-     * chose, and one that does opens a field already holding 180 rather
-     * than a default that would quietly shorten it.
+     * One setting, this module's own. The Camps value an installation may
+     * have had was copied into it once (see `CAMPS_LEGACY_RETENTION_DAYS`),
+     * so a unit that had chosen six months opens a field already holding
+     * 180 rather than a default that would quietly shorten it — and a unit
+     * that never had one gets 90.
      */
     public function retentionDays(SettingService $settings): int
     {
@@ -151,12 +159,44 @@ class PurgeUnlinkedMessagesHandler implements TaskHandlerInterface
             return max(1, (int) $configured);
         }
 
-        $campsMonths = $settings->get(self::CAMPS_LEGACY_SETTING, 'camps', '');
-        if ($campsMonths !== null && trim((string) $campsMonths) !== '') {
-            return self::CAMPS_LEGACY_RETENTION_DAYS;
+        return self::DEFAULT_RETENTION_DAYS;
+    }
+
+    /**
+     * Copy Camps' own six-month setting into this module's, once.
+     *
+     * Only when this module's setting has not been answered: a unit that
+     * has already chosen a duration here has said what it wants, and an
+     * inherited value must never overwrite a stated one.
+     *
+     * @return bool whether anything was inherited
+     */
+    public static function inheritCampsRetention(
+        SettingService $settings,
+        \Core\Config\SettingRepository $repository
+    ): bool {
+        $own = trim((string) ($settings->get(self::SETTING_RETENTION_DAYS, 'inbound_mail', '') ?? ''));
+        if ($own !== '' && $own !== (string) self::DEFAULT_RETENTION_DAYS) {
+            return false;
         }
 
-        return self::DEFAULT_RETENTION_DAYS;
+        $campsMonths = trim((string) ($settings->get(self::CAMPS_LEGACY_SETTING, 'camps', '') ?? ''));
+        if ($campsMonths === '') {
+            return false;
+        }
+
+        // The months are not converted arithmetically: A8 fixes the
+        // inherited value at 180 days, because "six months" as a retention
+        // is a decision about roughly half a year, not about 182.6 days,
+        // and a unit reading 183 in the field would wonder what happened.
+        $repository->updateValue(
+            'inbound_mail',
+            self::SETTING_RETENTION_DAYS,
+            (string) self::CAMPS_LEGACY_RETENTION_DAYS
+        );
+        $settings->clearCache();
+
+        return true;
     }
 
     public static function bootstrap(SchedulerService $scheduler): void
