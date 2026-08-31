@@ -350,9 +350,64 @@ class FinanceMessageConsumerTest extends TestCase
         $this->assertGreaterThanOrEqual(0, $this->consumer()->triageAudienceCount());
     }
 
-    private function consumer(array &$filed = [], ?int $actorFor = null): FinanceMessageConsumer
+    // ── Filing: the three ways it declines, none of them loud ──────────
+
+    public function testAnAttachmentThatIsNotAReceiptIsNeverFiled(): void
     {
-        $receipts = new RecordingExpenseReceipts($filed);
+        // A signature logo or a calendar invite travels with plenty of
+        // messages. Filing one as a receipt would put a picture nobody
+        // chose into the books.
+        $filed = [];
+        $consumer = $this->consumer($filed, 7);
+
+        $consumer->onLinked($this->storedMessage(mimeType: 'text/calendar'), $this->manualLink(7));
+
+        $this->assertSame([], $filed);
+    }
+
+    public function testAnAttachmentWhoseBytesCannotBeReadIsSkippedRatherThanFiledEmpty(): void
+    {
+        // The row may point at a file the storage no longer holds. An
+        // empty receipt in the books is worse than no receipt at all.
+        $filed = [];
+        $consumer = $this->consumer($filed, 7, static fn(int $fileId): ?string => null);
+
+        $consumer->onLinked($this->storedMessage(), $this->manualLink(7));
+
+        $this->assertSame([], $filed);
+    }
+
+    public function testFinanceRefusingTheReceiptDoesNotUndoTheAssociation(): void
+    {
+        // The message belongs on the account either way, and a treasurer
+        // can attach the file by hand from the receipts screen. Failing the
+        // association here would take away the part that did work.
+        $filed = [];
+        $consumer = $this->consumer($filed, 7, null, new RefusingExpenseReceipts());
+
+        $consumer->onLinked($this->storedMessage(), $this->manualLink(7));
+
+        $this->assertSame([], $filed, 'nothing was filed');
+    }
+
+    private function manualLink(int $byUserAccountId): MessageLink
+    {
+        return new MessageLink(
+            FinanceMessageConsumer::CONSUMER_ID,
+            FinanceMessageConsumer::referenceFor($this->accountId),
+            LinkOrigin::MANUAL,
+            0,
+            $byUserAccountId
+        );
+    }
+
+    private function consumer(
+        array &$filed = [],
+        ?int $actorFor = null,
+        ?\Closure $readFile = null,
+        ?\Modules\Finance\Api\ExpenseReceiptInterface $receipts = null
+    ): FinanceMessageConsumer {
+        $receipts ??= new RecordingExpenseReceipts($filed);
 
         return new FinanceMessageConsumer(
             $this->accounts,
@@ -370,7 +425,7 @@ class FinanceMessageConsumerTest extends TestCase
                 : static fn(int $id): ?array => $id === $actorFor
                     ? ['role' => 'admin', 'member_ids' => []]
                     : null,
-            static fn(int $fileId): ?string => 'des octets'
+            $readFile ?? static fn(int $fileId): ?string => 'des octets'
         );
     }
 
@@ -400,10 +455,13 @@ class FinanceMessageConsumerTest extends TestCase
         return new CandidateAttachment('facture.pdf', 'application/pdf', 8192);
     }
 
-    private function storedMessage(bool $twoAttachments = false): InboundMessage
+    private function storedMessage(
+        bool $twoAttachments = false,
+        string $mimeType = 'application/pdf'
+    ): InboundMessage
     {
         $attachments = [
-            new InboundAttachment(88, 55, 900, 'facture.pdf', 'application/pdf', 8192, 'hash-a'),
+            new InboundAttachment(88, 55, 900, 'facture.pdf', $mimeType, 8192, 'hash-a'),
         ];
         if ($twoAttachments) {
             $attachments[] = new InboundAttachment(89, 55, 901, 'photo.jpg', 'image/jpeg', 4096, 'hash-b');
@@ -481,5 +539,38 @@ class RecordingExpenseReceipts implements \Modules\Finance\Api\ExpenseReceiptInt
         ];
 
         return 1;
+    }
+}
+
+/**
+ * Finance refusing the account, as it does when the actor may not post to
+ * it. The consumer must let the association stand regardless.
+ */
+class RefusingExpenseReceipts implements \Modules\Finance\Api\ExpenseReceiptInterface
+{
+    /**
+     * @param int[] $actorLinkedMemberIds
+     * @return array<int, string>
+     */
+    public function receiptAccounts(string $actorRole, array $actorLinkedMemberIds): array
+    {
+        return [];
+    }
+
+    /**
+     * @param int[] $actorLinkedMemberIds
+     */
+    public function storeReceipt(
+        string $content,
+        string $mimeType,
+        string $originalFilename,
+        int $accountId,
+        ?float $suggestedAmount,
+        ?string $suggestedDate,
+        string $actorRole,
+        array $actorLinkedMemberIds,
+        ?int $uploadedBy
+    ): int {
+        throw new \RuntimeException('ce compte ne vous est pas ouvert');
     }
 }
