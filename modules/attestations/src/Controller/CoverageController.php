@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Attestations\Controller;
 
+use Core\Config\ScoutYearService;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
@@ -35,7 +36,8 @@ class CoverageController extends AbstractController
     public function __construct(
         protected Environment $twig,
         private CoverageService $coverage,
-        private ScoutYearResolver $scoutYearResolver
+        private ScoutYearResolver $scoutYearResolver,
+        private ScoutYearService $scoutYears
     ) {
     }
 
@@ -53,13 +55,11 @@ class CoverageController extends AbstractController
         // d'unité who will write to the federation.
         $category = AttestationCategory::tryFromValue((string) $request->getQuery('category', ''))
             ?? AttestationCategory::Tax;
-        // The public year is a default, never a decision — same posture as
-        // the deposit form. Falling back to the most recent year the site
-        // holds, and finally to 0, keeps a fresh installation on the empty
-        // state instead of a type error.
+        // The current year, same default and same reason as the deposit
+        // form: the public year lags behind during a transition, and the
+        // question being asked is about the season the reader is living in.
         $scoutYearId = IntegerInput::id($request->getQuery('scout_year_id', ''))
-            ?? $this->scoutYearResolver->getPublicYearId()
-            ?? (int) ($years[0]['id'] ?? 0);
+            ?? (int) $this->scoutYears->getCurrentYear()['id'];
 
         $coverage = $this->coverage->forYear($category, $scoutYearId);
 
