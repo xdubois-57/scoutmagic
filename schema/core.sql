@@ -666,7 +666,17 @@ CREATE TABLE event_log (
     -- throwable, so a crash is consultable from /admin/journal and not
     -- only from whatever file error_log() happens to write to on a
     -- shared host (ARCHITECTURE.md §8.6).
-    level ENUM('info', 'security', 'error') NOT NULL DEFAULT 'info',
+    --
+    -- 'warning' was added later, and not as a nicety: fourteen call sites
+    -- across core and five modules were already writing it — a rejected
+    -- statistics report, a booking mail that would not send, a mailbox
+    -- over quota — and MySQL under STRICT_TRANS_TABLES refuses a value
+    -- outside an ENUM, so every one of those paths threw a PDOException
+    -- on a real installation while passing in tests, where SQLite's
+    -- `level` is a plain TEXT. The endpoint that made it visible is the
+    -- worst of them: the statistics intake is `role_min: public`, so its
+    -- rejection path turned a bad request into a 500.
+    level ENUM('info', 'warning', 'security', 'error') NOT NULL DEFAULT 'info',
     description VARCHAR(500) NOT NULL,
     context JSON,
     INDEX idx_logged_at (logged_at),
