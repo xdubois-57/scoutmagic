@@ -92,7 +92,6 @@ class EmailTemplateRegistry
                 defaultSubject: 'Confirmation de désinscription des emails groupés',
                 template: 'email/member_email_unsubscribe_confirmation.html.twig',
                 variables: [
-                    new EmailTemplateVariable('name', 'Nom affiché du membre', 'Akéla'),
                     new EmailTemplateVariable('staffdu_email', "Adresse du Staff d'U", 'staff@exemple.be'),
                 ]
             ),
@@ -100,10 +99,9 @@ class EmailTemplateRegistry
                 id: 'member_email_unsubscribe_staffdu',
                 label: "Désinscription — avis au Staff d'U",
                 description: "Envoyé au Staff d'U quand une adresse se désinscrit des envois groupés.",
-                defaultSubject: 'Confirmation de désinscription des emails groupés',
+                defaultSubject: "Désinscription d'une adresse email des envois groupés",
                 template: 'email/member_email_unsubscribe_staffdu.html.twig',
                 variables: [
-                    new EmailTemplateVariable('name', 'Nom affiché du membre', 'Akéla'),
                     new EmailTemplateVariable('unsubscribed_email', 'Adresse désinscrite', 'famille@exemple.be'),
                 ]
             ),

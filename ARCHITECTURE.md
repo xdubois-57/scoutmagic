@@ -514,6 +514,45 @@ e-mail declared but not yet migrated must keep working too.
 `site_name` is deliberately not a variable anywhere: the header, the footer
 and the unit's name belong to `email/base.html.twig`, which stays code.
 
+**Rendering, and the two paths through it.** `EmailTemplateRenderer` answers
+for a declared e-mail with a subject and both bodies. With no row in
+`email_template_overrides` it renders the Twig files shipped with the
+application — byte for byte what the calling service used to render itself,
+which is the property `EmailTemplateRendererTest` pins rather than describes.
+With a row, the stored subject and body win, each declared `{{ variable }}`
+replaced by **string substitution**, longest name first (with `member` and
+`member_name` both declared, replacing the short one first eats the start of
+the long one). A `{{ … }}` naming something undeclared is left exactly as
+written and journaled once per template, because a placeholder that silently
+renders as itself in every e-mail a unit sends is the kind of thing nobody
+notices for a season.
+
+**The stored content is never given to Twig.** Not `createTemplate()`, not a
+sandbox, not `include`. An administration page that could define a Twig
+template would be an administration page that could run code, and string
+substitution is the only shape with nothing to escape from. The stored body
+is dropped into `email/base.html.twig` through `email/custom.html.twig`, so
+the frame stays code; the plain-text half is derived from the HTML, since a
+customised e-mail has one body and multipart is mandatory.
+
+**One row means one customisation, and no row means none.** There is no
+stored default, no version history and no difference to compute: « Revenir au
+gabarit par défaut » deletes the row, which puts the e-mail back on the
+shipped template and back on the path of every future update.
+`EmailTemplateCustomisationService` owns the two rules about what may be
+stored at all — `editable: false` is refused on the server, and the body is
+sanitised through `Core\Security\HtmlSanitizer` before it is written, like
+every other rich text.
+
+**`MailService::send()` stays the only delivery point.** The renderer produces
+content and sends nothing, and it adds no `[{short_name}]` subject prefix —
+MailService adds that to every message, and a renderer that added it too
+would double it on exactly the e-mails an administrator had touched.
+
+**The migration is one sender at a time.** Core's nine are on the renderer;
+each module's are switched over on their own, and an e-mail that has not been
+switched over yet goes on working exactly as before.
+
 ### 8.8 SectionPicker component
 
 Reusable Twig partial (presentation layer: §8.30's `partials/select_bar.html.twig`, `mode: single` — `partials/section_picker.html.twig` is a thin mapping layer over it). Shows sections (not branches). Default: section of highest-role member linked to account. `Core\Member\SectionService::getAllWithBranches()` excludes hidden (`sections.is_visible = false`, admin toggle) and inactive (`sections.is_active = false`, automatic — see §7.4-adjacent Desk import note below) sections by default — every call site (Staffs, Trombinoscope, the public Sections page) gets this filtering for free; only the Config Desk admin page (which manages both) passes `includeHidden: true`. Name, color, and visibility are configurable from Configuration > Config Desk. `sections.color` is an explicit override (hex); when unset, `Core\Member\SectionService::colorForSection()` derives it from the section's branch (`Core\Member\MemberYearService::colorForBranchSortOrder()`), or a dedicated color for Staff d'U — every color-coded picker/list across the site (Staffs, Trombinoscope, the calendar module, statistics) calls this single source of truth.

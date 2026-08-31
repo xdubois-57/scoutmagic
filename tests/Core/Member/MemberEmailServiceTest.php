@@ -20,6 +20,7 @@ use Core\Member\SectionService;
 use Core\Security\EncryptionService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
 
 /**
  * @group database
@@ -59,7 +60,7 @@ class MemberEmailServiceTest extends TestCase
         $this->service = new MemberEmailService(
             $this->repository,
             $this->mailService,
-            $twig,
+            EmailTemplateRendererFactory::overTestDatabase($this->pdo, $twig),
             new JournalService(new JournalRepository($this->pdo)),
             new SectionService($connection, $this->encryption, new \Core\Badge\MemberBadgeRepository($this->pdo)),
             new MemberService(new MemberYearRepository($this->pdo), $this->encryption, $connection),
@@ -109,7 +110,7 @@ class MemberEmailServiceTest extends TestCase
         $service = new MemberEmailService(
             $this->repository,
             $this->mailService,
-            $this->createMock(\Twig\Environment::class),
+            EmailTemplateRendererFactory::overTestDatabase($this->pdo, $this->createMock(\Twig\Environment::class)),
             new JournalService(new JournalRepository($this->pdo)),
             new SectionService(Connection::withPdo($this->pdo), $this->encryption, new \Core\Badge\MemberBadgeRepository($this->pdo)),
             new MemberService(new MemberYearRepository($this->pdo), $this->encryption, Connection::withPdo($this->pdo)),

@@ -1033,6 +1033,29 @@ $mailCaptureTransport = \Modules\TestTools\Mail\CaptureTransportFactory::forInst
 
 $mailService = MailServiceFactory::create($secrets, $dkimManager, $mailCaptureTransport);
 
+// Automatic e-mails (Core\Mail\Template, ARCHITECTURE.md §8.7bis).
+//
+// The registry is created HERE, well before the modules are loaded, and
+// handed to ModuleManager further down — the mutable-registry shape §7.6
+// describes: this straight-line script has to build the consumers before
+// the contributors, so it passes the OBJECT and lets the later block fill
+// it. A sender built now therefore sees a module's e-mails once that
+// module has loaded, without anything being re-registered.
+//
+// The renderer answers for both paths: the Twig template shipped with the
+// application when nothing is customised, and the stored subject and body
+// when something is. It is the senders' dependency, never MailService's —
+// MailService remains the one delivery point and knows nothing about
+// templates.
+$emailTemplateRegistry = new \Core\Mail\Template\EmailTemplateRegistry();
+$emailTemplateOverrideRepository = new \Core\Mail\Template\EmailTemplateOverrideRepository($pdo);
+$emailTemplateRenderer = new \Core\Mail\Template\EmailTemplateRenderer(
+    $twig,
+    $emailTemplateRegistry,
+    $emailTemplateOverrideRepository,
+    $journalService
+);
+
 // Create NotificationService (Web Push, Core\Notification) — VAPID subject
 // must be a mailto: or an https URL, never empty, hence the fallback chain
 // down to a hardcoded URL for a freshly-setup site with no contact email yet.
@@ -1075,7 +1098,7 @@ $authService = new AuthService(
     $connection,
     $encryptionService,
     $mailService,
-    $twig,
+    $emailTemplateRenderer,
     (string) $settingService->get('base_url'),
     (string) $settingService->get('site_name')
 );
@@ -1085,7 +1108,7 @@ $passwordResetService = new PasswordResetService(
     $connection,
     $encryptionService,
     $mailService,
-    $twig,
+    $emailTemplateRenderer,
     (string) $settingService->get('base_url'),
     (string) $settingService->get('site_name')
 );
@@ -1124,7 +1147,7 @@ $superAdminService = new SuperAdminService(
     $journalService,
     new SuperAdminMailer(
         $mailService,
-        $twig,
+        $emailTemplateRenderer,
         (string) $settingService->get('site_name'),
         (string) $settingService->get('base_url')
     )
@@ -1226,7 +1249,7 @@ $memberDocumentService = new \Core\Member\MemberDocumentService($memberDocumentR
 // Member\MemberEmailService). $memberEmailRepository was already built
 // above, before $roleResolver.
 $memberEmailService = new \Core\Member\MemberEmailService(
-    $memberEmailRepository, $mailService, $twig, $journalService, $sectionService, $memberService, $scoutYearService,
+    $memberEmailRepository, $mailService, $emailTemplateRenderer, $journalService, $sectionService, $memberService, $scoutYearService,
     (string) $settingService->get('base_url'), (string) ($settingService->get('site_name') ?: 'Unité scoute')
 );
 
@@ -1624,14 +1647,6 @@ $helpRegistry = new \Core\Help\HelpRegistry(
     \Core\Maintenance\VersionFile::read(dirname(__DIR__))
 );
 $helpService = new \Core\Help\HelpService($helpRegistry);
-
-// Automatic e-mails (Core\Mail\Template\EmailTemplateRegistry) — same
-// single-shared-instance reasoning as $offlineWhitelist and $helpRegistry
-// above: core declares its own, ModuleManager hands it each enabled
-// module's `emails` section as that module loads, and one list answers
-// for both. Holding it is an inventory, not a behaviour change: every
-// service goes on sending exactly as it did.
-$emailTemplateRegistry = new \Core\Mail\Template\EmailTemplateRegistry();
 
 // Create ModuleManager (modules loaded after core routes are registered)
 $modulesDir = __DIR__ . '/../modules';

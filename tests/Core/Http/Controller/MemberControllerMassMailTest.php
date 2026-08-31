@@ -29,6 +29,7 @@ use Modules\MassMail\Api\MassMailQueryInterface;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Twig\Environment;
+use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
 
 /**
  * MemberController's optional Modules\MassMail\Api\MassMailQueryInterface
@@ -97,7 +98,7 @@ class MemberControllerMassMailTest extends TestCase
         $memberEmailService = new MemberEmailService(
             new MemberEmailRepository($this->pdo, $this->encryption),
             $this->createMock(\Core\Mail\MailService::class),
-            $this->createMock(Environment::class),
+            EmailTemplateRendererFactory::overTestDatabase($this->pdo, $this->createMock(Environment::class)),
             new JournalService(new JournalRepository($this->pdo)),
             new SectionService($connection, $this->encryption, $memberBadgeRepository),
             $this->memberService,

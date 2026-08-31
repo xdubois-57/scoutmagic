@@ -12,8 +12,8 @@ use Core\Config\ScoutYearService;
 use Core\Journal\JournalService;
 use Core\Mail\MailException;
 use Core\Mail\MailService;
+use Core\Mail\Template\EmailTemplateRenderer;
 use Core\Service\TextNormalizerService;
-use Twig\Environment;
 
 /**
  * Multi-email support per member (login + mass-mail unsubscribe) — see
@@ -36,7 +36,7 @@ class MemberEmailService
     public function __construct(
         private MemberEmailRepository $repository,
         private MailService $mailService,
-        private Environment $twig,
+        private EmailTemplateRenderer $emailTemplateRenderer,
         private JournalService $journalService,
         private SectionService $sectionService,
         private MemberService $memberService,
@@ -422,11 +422,14 @@ class MemberEmailService
             'expiry_hours' => self::CONFIRMATION_EXPIRY_HOURS,
         ];
 
-        $bodyHtml = $this->twig->render('email/member_email_confirmation.html.twig', $context);
-        $bodyText = $this->twig->render('email/member_email_confirmation.text.twig', $context);
+        // Declared `editable: false` (Core\Mail\Template) — an address
+        // confirmation an administrator could reword is a way to lock
+        // somebody out — so this always renders the shipped template. It
+        // goes through the renderer anyway so there is one rendering path.
+        $email = $this->emailTemplateRenderer->render('member_email_confirmation', $context);
 
         try {
-            $this->mailService->send(to: $to, subject: 'Confirmez votre adresse email', bodyHtml: $bodyHtml, bodyText: $bodyText);
+            $this->mailService->send(to: $to, subject: $email->subject, bodyHtml: $email->bodyHtml, bodyText: $email->bodyText);
         } catch (MailException $e) {
             $reason = str_replace($to, '[adresse]', $e->getMessage());
             $this->journalService->log(
@@ -460,24 +463,31 @@ class MemberEmailService
         $staffduSection = $this->sectionService->findByDeskCode(UnitStaffSectionService::DESK_CODE);
         $staffduEmail = $staffduSection['email'] ?? null;
         if ($staffduEmail !== null && $staffduEmail !== '') {
+            $staffduEmailMessage = $this->emailTemplateRenderer->render('member_email_unsubscribe_staffdu', $context);
+
             try {
                 $this->mailService->send(
                     to: $staffduEmail,
-                    subject: "Désinscription d'une adresse email des envois groupés",
-                    bodyHtml: $this->twig->render('email/member_email_unsubscribe_staffdu.html.twig', $context),
-                    bodyText: $this->twig->render('email/member_email_unsubscribe_staffdu.text.twig', $context)
+                    subject: $staffduEmailMessage->subject,
+                    bodyHtml: $staffduEmailMessage->bodyHtml,
+                    bodyText: $staffduEmailMessage->bodyText
                 );
             } catch (MailException) {
                 // Best-effort — the unsubscribe itself already succeeded.
             }
         }
 
+        $confirmation = $this->emailTemplateRenderer->render(
+            'member_email_unsubscribe_confirmation',
+            $context + ['staffdu_email' => $staffduEmail]
+        );
+
         try {
             $this->mailService->send(
                 to: $unsubscribedEmail,
-                subject: 'Confirmation de désinscription des emails groupés',
-                bodyHtml: $this->twig->render('email/member_email_unsubscribe_confirmation.html.twig', $context + ['staffdu_email' => $staffduEmail]),
-                bodyText: $this->twig->render('email/member_email_unsubscribe_confirmation.text.twig', $context + ['staffdu_email' => $staffduEmail])
+                subject: $confirmation->subject,
+                bodyHtml: $confirmation->bodyHtml,
+                bodyText: $confirmation->bodyText
             );
         } catch (MailException) {
             // Best-effort, same reasoning.

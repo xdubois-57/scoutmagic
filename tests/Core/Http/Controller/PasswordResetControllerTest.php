@@ -15,6 +15,7 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Twig\Environment;
 use Twig\Loader\ArrayLoader;
+use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
 
 /**
  * @group database
@@ -53,7 +54,7 @@ class PasswordResetControllerTest extends TestCase
         $connection = $this->createMock(Connection::class);
         $connection->method('getPdo')->willReturn($this->pdo);
 
-        $this->service = new PasswordResetService($connection, $this->encryption, $mailService, $twig, 'https://example.com', 'Test Unit');
+        $this->service = new PasswordResetService($connection, $this->encryption, $mailService, EmailTemplateRendererFactory::overTestDatabase($this->pdo, $twig), 'https://example.com', 'Test Unit');
         $this->controller = new PasswordResetController($twig, $this->service);
     }
 

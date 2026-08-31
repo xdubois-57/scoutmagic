@@ -26,6 +26,7 @@ use Minishlink\WebPush\MessageSentReport;
 use Minishlink\WebPush\WebPush;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
 
 /**
  * @group database
@@ -578,7 +579,10 @@ class NotificationServiceTest extends TestCase
 
         $mailer = new NotificationMailer(
             $mailService,
-            \Core\View\TwigFactory::create(dirname(__DIR__, 3) . '/core/View/templates'),
+            EmailTemplateRendererFactory::overTestDatabase(
+                $this->pdo,
+                \Core\View\TwigFactory::create(dirname(__DIR__, 3) . '/core/View/templates')
+            ),
             'Unité Test',
             'https://example.test'
         );
