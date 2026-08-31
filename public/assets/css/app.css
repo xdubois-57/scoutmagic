@@ -864,14 +864,6 @@ body:has(> #cookie-banner) {
             mask-image: linear-gradient(to bottom, #000 82%, transparent 100%);
 }
 
-/* Étiquette d'un déclencheur Bootstrap Collapse : c'est Bootstrap qui
-   pose et retire .collapsed sur le bouton, donc l'échange « Afficher /
-   Réduire » ne demande aucun JavaScript. */
-[data-bs-toggle="collapse"].collapsed .show-when-expanded,
-[data-bs-toggle="collapse"]:not(.collapsed) .show-when-collapsed {
-    display: none;
-}
-
 [data-bs-toggle="collapse"] .bi-chevron-down,
 [data-notes-clamp-toggle] .bi-chevron-down {
     transition: transform 0.2s ease;
