@@ -377,8 +377,27 @@ class DeskImportService
         }
         $this->memberYearRepository->replaceAddresses($memberYearId, $addresses);
 
-        // Replace functions
+        // Replace functions.
+        //
+        // A Desk export carries ONE ROW PER (function × address), so a
+        // member with two addresses and one function arrives here with
+        // that function twice — identical in every field. Written through
+        // as-is, that became two strictly identical `member_functions`
+        // rows, and every reader without a DISTINCT counted the person
+        // twice (section headcounts, the leadership ratio, member
+        // statistics). Deduplicating here rather than at each of the
+        // forty-odd read sites is the only place the two rows are still
+        // known to come from one fact.
+        //
+        // The key is the WHOLE row: two entries differing on any field
+        // are two real functions — « Animateur / Louveteaux » and
+        // « Animateur / Baladins » is the ordinary case, and collapsing
+        // those would lose information rather than restore it. First
+        // occurrence wins, so the main function keeps its place at the
+        // head of the list (Core\Member\MemberProfile::getMainFunction()
+        // falls back to the first entry when nothing is flagged).
         $functions = [];
+        $seenFunctions = [];
         foreach ($member->functions as $fn) {
             $functionId = $this->mappingResolver->resolveFunction($fn->functionCode);
 
@@ -392,7 +411,7 @@ class DeskImportService
                 $sectionId = $this->mappingResolver->resolveSection($fn->sectionCode, $branchId, $fn->sectionName);
             }
 
-            $functions[] = [
+            $row = [
                 'function_id' => $functionId,
                 'section_id' => $sectionId,
                 'age_branch_id' => $branchId,
@@ -401,6 +420,17 @@ class DeskImportService
                 'mandate_end' => $this->parseDate($fn->mandateEnd),
                 'is_main_function' => $fn->isMainFunction,
             ];
+
+            // serialize() rather than json_encode(): it always returns a
+            // string, and the row is built literally so its key order is
+            // fixed.
+            $key = serialize($row);
+            if (isset($seenFunctions[$key])) {
+                continue;
+            }
+            $seenFunctions[$key] = true;
+
+            $functions[] = $row;
         }
         $this->memberYearRepository->replaceFunctions($memberYearId, $functions);
 

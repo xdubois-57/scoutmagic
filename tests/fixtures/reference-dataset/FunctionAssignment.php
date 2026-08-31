@@ -18,6 +18,11 @@ namespace Tests\Fixtures\ReferenceDataset;
  * function, and why the writer multiplies functions by addresses rather than
  * emitting one row per function.
  *
+ * Core\Import\DeskImportService collapses the repeat before it reaches
+ * `member_functions`, so two identical parsed functions are stored once. That
+ * happens downstream of everything this fixture describes and changes nothing
+ * about what belongs in the CSV.
+ *
  * `section` and `branch` are null for a unit-level function (Chef d'unité,
  * Intendant d'unité, Trésorier d'unité): those rows carry no Branche, no
  * Section and no Date début in a real export either.

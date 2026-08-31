@@ -602,6 +602,10 @@ class MemberService
                 endDate: $fnRow['end_date'],
             );
         }
+        // One function said twice is one function — see
+        // MemberFunctionInfo::deduplicate() for why the rows are there at
+        // all and why only strictly identical ones collapse.
+        $functions = MemberFunctionInfo::deduplicate($functions);
 
         // Get scout year label
         $stmt = $pdo->prepare('SELECT label FROM scout_years WHERE id = ?');

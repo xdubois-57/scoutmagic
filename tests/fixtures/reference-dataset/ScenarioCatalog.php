@@ -123,7 +123,7 @@ final class ScenarioCatalog
         19 => [
             'name' => 'Membre à deux adresses',
             'tiers' => ['T0026'],
-            'expectation' => 'Domicile + Adresse secondaire. Deux lignes portant la MÊME fonction — les adresses sont dédupliquées par type, les fonctions ne le sont pas.',
+            'expectation' => 'Domicile + Adresse secondaire. Deux lignes portant la MÊME fonction : deux adresses dédupliquées par type, et UNE seule ligne member_functions — l\'import réduit deux lignes identiques à la fonction qu\'elles décrivent.',
         ],
         20 => [
             'name' => 'Membre sans email, sans date de naissance, sans téléphone fixe',

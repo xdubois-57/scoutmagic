@@ -386,42 +386,43 @@ final class ReferenceDatasetImportTest extends TestCase
         self::assertSame(2, $this->householdSize($index, '2025-2026'));
     }
 
-    public function testAMemberWithTwoAddressesKeepsBothDeduplicatedByType(): void
+    public function testAMemberWithTwoAddressesKeepsBothAndOneFunction(): void
     {
         // Scenario 19, and the asymmetry it exists to pin down. Two rows in
         // the CSV, one per address, both carrying the SAME function:
         //
-        //   - addresses ARE deduplicated (DeskCsvParser::buildMember() keeps
-        //     the first row per "Type d'adresse"), so two rows give two
+        //   - addresses ARE deduplicated by DeskCsvParser::buildMember()
+        //     (first row per "Type d'adresse" wins), so two rows give two
         //     addresses, not four;
-        //   - functions are NOT, so the same "Animé" appears twice and
-        //     replaceFunctions() inserts both member_functions rows.
+        //   - the two function rows the export repeats are collapsed by
+        //     DeskImportService, so the same "Animé" is stored once.
         //
-        // The duplicate function row is what a real export produces and what
-        // the pipeline stores. Everything that counts members counts DISTINCT
-        // member_year_id for exactly this reason; anything that ever stops
-        // doing so will double-count this member first.
+        // The second half of that used to be the opposite: both rows were
+        // stored, and every reader without a DISTINCT counted this member
+        // twice. The repeat is an artefact of the export's one-row-per-
+        // (function × address) shape, not a second function, and it is
+        // collapsed where the two rows are still known to come from one
+        // fact. The DISTINCT counting below is unchanged and still right —
+        // it is simply no longer the only thing standing between this
+        // member and being counted twice.
         $types = $this->addressTypesOf('T0026', '2024-2025');
         self::assertSame(['Adresse secondaire', 'Domicile'], $types);
 
         $functions = $this->functionRowsOf('T0026', '2024-2025');
-        self::assertCount(2, $functions, 'Les deux lignes du CSV devraient donner deux member_functions.');
-        self::assertSame(['Animé', 'Animé'], array_map(
-            static fn (array $row): string => (string) $row['desk_code'],
-            $functions,
-        ));
+        self::assertCount(1, $functions, 'Les deux lignes du CSV ne décrivent qu\'une fonction.');
+        self::assertSame('Animé', (string) $functions[0]['desk_code']);
 
-        // And the duplicate really is invisible to anything that counts
-        // properly: the section holds strictly more member_functions rows than
-        // members, and the headcount still matches the blueprint.
+        // A section now holds exactly as many member_functions rows as it
+        // holds members with that function: the gap the duplicate opened is
+        // closed, and the headcount is unchanged either way.
         $distinct = $this->countInSection('2024-2025', 'Troupe du Faucon', ['Animé']);
         $rows = $this->countFunctionRowsInSection('2024-2025', 'Troupe du Faucon', ['Animé']);
 
-        self::assertGreaterThan($distinct, $rows, 'Le doublon de fonction attendu a disparu du jeu de données.');
+        self::assertSame($rows, $distinct, 'Un doublon de fonction est réapparu dans le jeu de données.');
         self::assertSame(
             UnitBlueprint::HEADCOUNT['2024-2025']['ecl1'][0],
             $distinct,
-            'Le comptage par section doit rester en DISTINCT member_year_id, sinon ce membre est compté deux fois.',
+            'Le comptage par section doit rester en DISTINCT member_year_id.',
         );
     }
 

@@ -467,7 +467,12 @@ moteur et non une promesse — il a déjà changé une fois — et que `--check`
 | 2026-2027 | 180 | 278 |
 
 Une ligne par (fonction × adresse) : les adresses sont dédupliquées par
-`Type d'adresse` dans le parseur, les fonctions ne le sont pas.
+`Type d'adresse` dans le parseur, les fonctions ne le sont pas — le parseur
+rend bien deux `ParsedFunction` identiques. C'est `DeskImportService` qui les
+réduit à une seule ligne `member_functions`, juste avant l'écriture : deux
+lignes identiques en tous points décrivent une fonction dite deux fois. Deux
+lignes qui diffèrent sur n'importe quel champ (« Animateur / Louveteaux » et
+« Animateur / Baladins ») restent deux fonctions.
 
 ### 9.2 Les scénarios
 

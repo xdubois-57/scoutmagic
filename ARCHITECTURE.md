@@ -299,6 +299,7 @@ these drifts silently.
 - Raw values resolved via mapping tables (functions, branches, tariffs, sections).
 - New functions default to lowest role — require admin confirmation.
 - CSV **kept**, encrypted at rest, for a retention expressed in scout years — see below.
+- **A repeated function row is one function, not two.** A Desk export emits one line per (function × address), so a member with two addresses and one function arrives as that function twice, identical in every field. `DeskImportService` collapses entries identical on the whole tuple (function, section, branch, start, end, mandate end, main flag) before `MemberYearRepository::replaceFunctions()` — the last point at which the two rows are still known to come from one fact. Two entries differing on **any** field stay two: « Animateur / Louveteaux » and « Animateur / Baladins » are two real functions. Left alone, the repeat became two strictly identical `member_functions` rows and every reader without a `DISTINCT` counted the person twice. The same rule is applied on the way out by `Core\Member\MemberFunctionInfo::deduplicate()`, so a year imported before this existed reads correctly without waiting for the next import. No `UNIQUE` constraint backs it: `schema/core.sql` auto-migrates on every request and adding one would fail on the rows already there.
 - Import journaled (metadata only).
 
 **The roster-replacement barrier** (`Core\Import\RosterReplacementGuard`,

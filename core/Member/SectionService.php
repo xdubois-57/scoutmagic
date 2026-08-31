@@ -448,6 +448,13 @@ class SectionService
                 endDate: $fnRow['end_date'],
             );
         }
+        // One function said twice is one function — see
+        // MemberFunctionInfo::deduplicate() for why the rows are there at
+        // all and why only strictly identical ones collapse.
+        $functionsByMemberYear = array_map(
+            [MemberFunctionInfo::class, 'deduplicate'],
+            $functionsByMemberYear
+        );
 
         // Scout year labels for every year the set spans.
         $yearIds = array_values(array_unique(array_map(fn(array $row) => (int) $row['scout_year_id'], $rows)));

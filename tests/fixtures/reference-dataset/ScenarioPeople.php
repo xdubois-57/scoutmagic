@@ -264,8 +264,9 @@ final class ScenarioPeople
     /** @return list<Person> */
     private function twoFunctions(): array
     {
-        // Two functions, one main. Functions are NOT deduplicated the way
-        // addresses are, so this member produces two rows per address.
+        // Two functions, one main. The CSV repeats both for every address
+        // (one row per function × address); the importer collapses the
+        // repeats, so this member ends up with exactly these two rows.
         $person = $this->factory->make('T0017', 1999, null);
         foreach ([self::A1, self::A2, self::A3] as $year) {
             $person->years[$year] = new PersonYear(
