@@ -607,6 +607,16 @@ When the mass-mail module (§4.3) is also active, its "nouvel email" list picker
 
 Sending both this list and, separately, a section list that now includes the same newly-encoded child will reach that family twice — the same is already true of any two overlapping mass-mail lists today, so this isn't a new failure mode, and no automatic cross-email deduplication exists (or is planned) to prevent it.
 
+### 18.4 Sending to a scout year that has not happened yet
+
+A mailing list has no scout year of its own — it is a set of criteria, and the year is chosen in the compose dialog. Ticking a year **after the public one** raises a warning there, and only there: shown for the current year it would be permanent noise, and permanent noise is not read when it finally matters. The configuration page says the same thing once, where lists are defined, since it has no year to name.
+
+Two wordings, because there are two situations. With the registration module enabled the audience is the **projection** (§19.1) — decided passages, accepted registrations, announced departures — and the warning says it is incomplete until Desk is encoded. Without that module there is nothing but Desk, and the warning says the list will only be right once next year is fully imported.
+
+The projection also becomes the source of the recipients themselves for the two lists a population answers — a section's list and "tous les membres actifs" — which is what makes next year selectable at all before a Desk import (it used to be locked until one had happened). « Les chefs » and a custom list are deliberately left on Desk: a projection is animés only and carries no FONCTION, so it has nothing to say about either, and answering them from it would be inventing recipients.
+
+Only projected people who **already have a Desk identity** become recipients. An accepted registration nobody has encoded yet is a real future member and the warning names it — « des destinataires peuvent manquer » — but the address expansion, the recipient rows and the one-click unsubscribe link are all keyed on a member id it does not have.
+
 ## 19. Registration module — Prévisions and the year-transition veto (module registration)
 
 The module's last piece: a read-only headcount projection for next scout year, and a hard block on transitioning the whole site to it while registration requests are still open. See ARCHITECTURE.md §8.38 for implementation detail.

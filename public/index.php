@@ -3258,8 +3258,14 @@ if ($isEnabled('mass_mail')) {
         $massMailAudienceRepo, $massMailResolutionRepo, $journalService
     );
 
+    // No registration module here (this block runs whether or not it is
+    // enabled), so no projection: a future-year list falls back to Desk and
+    // says so. The two year services are core's and are always available —
+    // they are what decides whether a year is in the future at all, which
+    // has to work with registration disabled too.
     $massMailListService = new \Modules\MassMail\Service\MailingListService(
-        $massMailListRepo, $massMailResolutionRepo, $sectionService, $massMailFunctionRepo
+        $massMailListRepo, $massMailResolutionRepo, $sectionService, $massMailFunctionRepo,
+        null, null, $scoutYearResolver, $scoutYearService
     );
     $massMailAccessService = new \Modules\MassMail\Service\MassMailAccessService($memberService, $sectionService);
     $massMailService = new \Modules\MassMail\Service\MassMailService(
@@ -4370,7 +4376,14 @@ if ($isEnabled('registration')) {
         // since PHP doesn't retroactively update an already-injected
         // dependency. Both are rebuilt together here.
         $massMailListService = new \Modules\MassMail\Service\MailingListService(
-            $massMailListRepo, $massMailResolutionRepo, $sectionService, $massMailFunctionRepo, $registrationExternalMailingListService
+            $massMailListRepo, $massMailResolutionRepo, $sectionService, $massMailFunctionRepo,
+            $registrationExternalMailingListService,
+            // IT-11 — with registration enabled, a list aimed at a year the
+            // unit has not reached yet resolves through the projection
+            // instead of an empty Desk year (ARCHITECTURE.md §7.5).
+            $registrationProjectedPopulation,
+            $scoutYearResolver,
+            $scoutYearService
         );
         // Fresh instances rather than reusing the $massMailAudienceRepo/…
         // variables from the mass_mail block above — they're identical

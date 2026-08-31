@@ -498,7 +498,7 @@ class MassMailController extends AbstractController
     }
 
     /**
-     * @return array{previous: array{id: int, label: string, available: bool}, current: array{id: int, label: string, available: bool}, next: array{id: int, label: string, available: bool}}
+     * @return array{previous: array{id: int, label: string, available: bool, warning: ?string}, current: array{id: int, label: string, available: bool, warning: ?string}, next: array{id: int, label: string, available: bool, warning: ?string}}
      */
     private function buildScoutYearOptions(): array
     {
@@ -507,13 +507,27 @@ class MassMailController extends AbstractController
         $nextLabel = ScoutYearService::nextLabel($current['label']);
         $nextId = $this->scoutYearService->ensureYear($nextLabel);
 
+        // A future scout year used to be selectable ONLY once Desk had been
+        // imported for it (module addendum) — there was nothing to send to
+        // otherwise. With the registration module enabled there now is: the
+        // projection knows who is expected next year long before Desk does
+        // (Modules\Registration\Api\ProjectedPopulationProvider), which is
+        // exactly what the warning below is about. Without that module the
+        // old rule stands unchanged.
+        $nextIsProjected = $this->mailingListService->futureAudienceWarning($nextId) !== null
+            && $this->mailingListService->resolveMembers('default_active_members', null, null, $nextId) !== [];
+
         return [
-            'previous' => ['id' => $this->scoutYearService->ensureYear($previousLabel), 'label' => $previousLabel, 'available' => true],
-            'current' => ['id' => $current['id'], 'label' => $current['label'], 'available' => true],
-            // A future scout year is only selectable once Desk has actually
-            // been imported for it (module addendum) — nothing to send to
-            // otherwise.
-            'next' => ['id' => $nextId, 'label' => $nextLabel, 'available' => $this->importJournalRepository->findByYear($nextId) !== []],
+            'previous' => ['id' => $this->scoutYearService->ensureYear($previousLabel), 'label' => $previousLabel, 'available' => true, 'warning' => null],
+            'current' => ['id' => $current['id'], 'label' => $current['label'], 'available' => true, 'warning' => null],
+            'next' => [
+                'id' => $nextId,
+                'label' => $nextLabel,
+                'available' => $this->importJournalRepository->findByYear($nextId) !== [] || $nextIsProjected,
+                // Null for the current year and for any past one: a warning
+                // shown on every ordinary send is a warning nobody reads.
+                'warning' => $this->mailingListService->futureAudienceWarning($nextId),
+            ],
         ];
     }
 
