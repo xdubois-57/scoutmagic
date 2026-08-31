@@ -300,6 +300,13 @@
     {% include 'partials/help_panel.html.twig' %}
     <script src="{{ asset('/assets/js/help-panel.js') }}" defer></script>
     <script src="{{ asset('/assets/js/help-search.js') }}" defer></script>
+    {# The panel's assistant state travels with the panel, so its script
+       does too. It binds nothing on a page where the assistant is not
+       offered (no connector, or a role below `chief`), and it is in the
+       offline shell because the « vous êtes hors connexion » line is its
+       doing — without it, offline, the field would just swallow a
+       question. #}
+    <script src="{{ asset('/assets/js/help-assistant.js') }}" defer></script>
     {% block scripts %}{% endblock %}
 
     {# The confirmation behind every form carrying data-confirm lives in

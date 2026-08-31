@@ -250,3 +250,117 @@ describe('rendering', () => {
         expect(submit.defaultPrevented).toBe(true);
     });
 });
+
+describe('handing a question over to the assistant', () => {
+    // The invite is the ONE place the assistant is offered (locked
+    // decision D2): under the results of a search that already ran, never
+    // above them and never instead of them. These tests pin that
+    // placement, since it is a product decision a stylesheet cannot hold.
+    function buildScope(markup) {
+        document.body.innerHTML = `
+            <script type="application/json" id="help-search-index">${JSON.stringify(CORPUS)}</script>
+            <div data-help-search-scope>
+                <form><input data-help-search-input value=""></form>
+                <div data-help-search-results hidden></div>
+                ${markup}
+                <div data-help-search-default>LISTE COMPLÈTE</div>
+            </div>`;
+    }
+
+    const LINK_INVITE = `
+        <div data-help-assistant-invite-zone hidden>
+            <a href="/aide/assistant" data-help-assistant-invite>Demander à l'assistant</a>
+        </div>`;
+
+    const PANEL_INVITE = `
+        <div data-help-assistant-invite-zone hidden>
+            <button type="button" data-help-assistant-invite>Demander à l'assistant</button>
+        </div>
+        <div data-help-assistant-host hidden><div data-help-assistant></div></div>`;
+
+    async function boot() {
+        vi.resetModules();
+        await import('../../public/assets/js/help-search.js');
+    }
+
+    function type(value) {
+        const input = document.querySelector('[data-help-search-input]');
+        input.value = value;
+        input.dispatchEvent(new Event('input'));
+    }
+
+    it('stays hidden until a search has actually run', async () => {
+        buildScope(LINK_INVITE);
+        await boot();
+
+        const zone = document.querySelector('[data-help-assistant-invite-zone]');
+        expect(zone.hidden).toBe(true);
+
+        type('photo');
+        expect(zone.hidden).toBe(false);
+
+        type('');
+        expect(zone.hidden).toBe(true);
+    });
+
+    it('is offered even when the search found nothing — that is when it is useful', async () => {
+        buildScope(LINK_INVITE);
+        await boot();
+
+        type('xyzzy');
+
+        expect(document.querySelector('[data-help-assistant-invite-zone]').hidden).toBe(false);
+    });
+
+    it('carries the typed question to /aide/assistant through sessionStorage', async () => {
+        buildScope(LINK_INVITE);
+        await boot();
+
+        type('changer mon adresse');
+        const click = new Event('click', { cancelable: true, bubbles: true });
+        document.querySelector('[data-help-assistant-invite]').dispatchEvent(click);
+
+        // A link, so the navigation is allowed to happen…
+        expect(click.defaultPrevented).toBe(false);
+        // …and the question travels in sessionStorage rather than in the
+        // URL: it is free text a human typed, and a query string ends up
+        // in history and in every access log on the way.
+        expect(window.sessionStorage.getItem('scoutmagic:help-assistant:question'))
+            .toBe('changer mon adresse');
+    });
+
+    it('opens the assistant in place inside the panel, question in hand', async () => {
+        buildScope(PANEL_INVITE);
+        await boot();
+
+        const received = [];
+        document.querySelector('[data-help-assistant]')
+            .addEventListener('scoutmagic:help-assistant-ask', (e) => received.push(e.detail.question));
+
+        type('changer mon adresse');
+        const click = new Event('click', { cancelable: true, bubbles: true });
+        document.querySelector('[data-help-assistant-invite]').dispatchEvent(click);
+
+        expect(click.defaultPrevented).toBe(true);
+        expect(document.querySelector('[data-help-assistant-host]').hidden).toBe(false);
+        expect(received).toEqual(['changer mon adresse']);
+        // The offer has been taken up; repeating it under every subsequent
+        // search would be noise.
+        expect(document.querySelector('[data-help-assistant-invite-zone]').hidden).toBe(true);
+
+        type('photo');
+        expect(document.querySelector('[data-help-assistant-invite-zone]').hidden).toBe(true);
+    });
+
+    it('binds nothing when the assistant is not on offer', async () => {
+        // No connector, or a role below chief: the partial renders
+        // nothing at all and the search must not notice.
+        buildScope('');
+        await boot();
+
+        type('photo');
+
+        expect(document.querySelector('[data-help-search-results]').hidden).toBe(false);
+        expect(document.querySelector('[data-help-assistant-invite-zone]')).toBeNull();
+    });
+});

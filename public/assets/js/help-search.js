@@ -388,6 +388,29 @@
         return wrapper;
     }
 
+    // --- Handing over to the assistant -----------------------------
+
+    // Where a question waits while the browser navigates from /aide to
+    // /aide/assistant. sessionStorage and not a query string: the text is
+    // whatever a human typed and can name a person or an amount, and a
+    // query string ends up in browser history and in every access log on
+    // the way. Read once and removed (public/assets/js/help-assistant.js).
+    // Not a cookie either — nothing about this feature adds one.
+    var PENDING_QUESTION_KEY = 'scoutmagic:help-assistant:question';
+
+    /**
+     * @param {string} question
+     */
+    function stashQuestion(question) {
+        try {
+            window.sessionStorage.setItem(PENDING_QUESTION_KEY, question);
+        } catch (e) {
+            // Private mode, storage disabled, quota — the visitor simply
+            // retypes the question on the page. Never a failure worth an
+            // error message.
+        }
+    }
+
     /**
      * Binds one surface — the help panel or the /aide page. Both carry
      * the same three markers, so the two surfaces share this file
@@ -404,6 +427,45 @@
             return;
         }
 
+        // Absent whenever the assistant is not on offer — no connector,
+        // or a role below `chief`. The search does not care either way
+        // (locked decision D2), so everything about it stays optional
+        // here rather than becoming a second code path.
+        var inviteZone = /** @type {HTMLElement|null} */ (scope.querySelector('[data-help-assistant-invite-zone]'));
+        var invite = scope.querySelector('[data-help-assistant-invite]');
+        var assistantHost = /** @type {HTMLElement|null} */ (scope.querySelector('[data-help-assistant-host]'));
+
+        if (invite) {
+            invite.addEventListener('click', function (e) {
+                var question = input.value.trim();
+
+                if (!assistantHost) {
+                    // /aide: the invite is a link to /aide/assistant, and
+                    // the question travels with it. Navigation proceeds.
+                    stashQuestion(question);
+                    return;
+                }
+
+                // The help panel: the assistant is already in this drawer,
+                // one include below. Reveal it rather than leaving the page
+                // — the results the visitor just read stay above it.
+                e.preventDefault();
+                assistantHost.hidden = false;
+                if (inviteZone) {
+                    inviteZone.hidden = true;
+                }
+                // Dispatched ON the assistant, not on its wrapper: an
+                // event bubbles up, and help-assistant.js listens from
+                // inside.
+                var assistant = assistantHost.querySelector('[data-help-assistant]');
+                if (assistant) {
+                    assistant.dispatchEvent(new CustomEvent('scoutmagic:help-assistant-ask', {
+                        detail: { question: question }
+                    }));
+                }
+            });
+        }
+
         function render() {
             var query = input.value.trim();
             results.replaceChildren();
@@ -413,6 +475,9 @@
                 // or /aide's full listing by category.
                 results.hidden = true;
                 fallback.hidden = false;
+                if (inviteZone) {
+                    inviteZone.hidden = true;
+                }
                 return;
             }
 
@@ -430,6 +495,13 @@
 
             results.hidden = false;
             fallback.hidden = true;
+            // Under the results, and only there: what the search found is
+            // the thing the assistant is an alternative to, so the offer
+            // reads after them. Once the panel's assistant is open the
+            // invite has done its job and does not come back.
+            if (inviteZone && !(assistantHost && !assistantHost.hidden)) {
+                inviteZone.hidden = false;
+            }
         }
 
         input.addEventListener('input', render);

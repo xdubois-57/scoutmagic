@@ -2003,7 +2003,17 @@ $router->addRoute('POST', '/api/rich-text-content', EditableContentController::c
 // empty on purpose: the help belongs to no menu, and a `parents` entry
 // that matches no MenuBuilder label renders as dead text (design.md §7.3).
 $router->addRoute('GET', '/aide', \Core\Http\Controller\HelpController::class, 'index', 'public', ['label' => 'Aide', 'parents' => []]);
+// BEFORE /aide/{topic}, and this order is the whole wiring: Router::
+// resolve() keeps the FIRST route that matches, so the topic route
+// registered after it would otherwise swallow /aide/assistant and answer
+// 404 for a topic nobody wrote. Core\Help\HelpFrontMatterParser reserves
+// the id 'assistant' from the other side, so a topic can never claim it.
+$router->addRoute('GET', '/aide/assistant', \Core\Http\Controller\HelpAssistantController::class, 'page', 'chief', ['label' => 'Assistant', 'parents' => [], 'ancestors' => [['label' => 'Aide', 'path' => '/aide']]]);
 $router->addRoute('GET', '/aide/{topic}', \Core\Http\Controller\HelpController::class, 'show', 'public', ['label' => 'Aide', 'parents' => [], 'ancestors' => [['label' => 'Aide', 'path' => '/aide']]]);
+// The endpoint both surfaces post to. role_min: chief like the page —
+// the local search stays public, the assistant does not (locked
+// decision D4).
+$router->addRoute('POST', '/api/aide/assistant', \Core\Http\Controller\HelpAssistantController::class, 'ask', 'chief');
 
 // Cookie consent
 $router->addRoute('GET', '/cookies', CookieController::class, 'preferences', 'public', ['label' => 'Préférences cookies', 'parents' => []]);
@@ -2431,6 +2441,29 @@ $helpAssistantService = new \Core\Help\Assistant\AssistantService(
     $journalService,
     \Core\Maintenance\VersionFile::read(dirname(__DIR__)),
     $llmConnectorForOthers
+);
+
+// The assistant's two surfaces (the panel's third state and
+// /aide/assistant). Registered HERE, after the service exists: the
+// llm_connector block just above is what decides whether the connector
+// is a service or null, and a controller cannot be handed a dependency
+// built three hundred lines later.
+$frontController->registerController(
+    \Core\Http\Controller\HelpAssistantController::class,
+    new \Core\Http\Controller\HelpAssistantController($twig, $helpAssistantService, $helpService)
+);
+
+// Whether the « Demander à l'assistant » control is offered at all —
+// read by the help panel, which base.html.twig ships on every page. Both
+// halves are checked here and re-checked server-side on the endpoint:
+// the role floor (locked decision D4 — the assistant is `chief`, the
+// local search stays `public`), and the connector actually being
+// operational (D7 — no activation setting, availability IS the switch).
+// The role test comes first so that a visitor below the floor costs no
+// query at all.
+$twig->addGlobal(
+    'help_assistant_available',
+    Role::fromString($currentRole)->hasAccess(Role::CHIEF) && $helpAssistantService->isAvailable()
 );
 
 // RGPD content service (may use LLM if module is active). Each module's

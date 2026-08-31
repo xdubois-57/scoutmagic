@@ -48,6 +48,23 @@
 
         <div data-help-search-results hidden></div>
 
+        {# The panel's third state (locked decision D3): the same partial
+           the /aide/assistant page includes, revealed in place by
+           help-search.js when the invite below is used. Hidden until
+           then, so the panel still opens on the search and nothing else. #}
+        {% include 'partials/help_assistant_invite.html.twig' with {
+            inline: true
+        } only %}
+
+        {% if help_assistant_available|default(false) %}
+            <div class="mt-3" data-help-assistant-host hidden>
+                {% include 'partials/help_assistant.html.twig' with {
+                    available: true,
+                    compact: true
+                } only %}
+            </div>
+        {% endif %}
+
         <div data-help-search-default>
             {% if route_help|default([]) is empty %}
                 {# No topic covers this page — which is not a failure, and

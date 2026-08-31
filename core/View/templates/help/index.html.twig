@@ -57,6 +57,15 @@
 
         <div class="mb-4" data-help-search-results hidden></div>
 
+        {# The assistant does not live on this page — it has one of its
+           own (/aide/assistant) and a state in the help panel, and a
+           third copy of the same conversation is exactly what the shared
+           partial exists to avoid. So here the invite is a link, and
+           help-search.js hands the typed question over to the page. #}
+        {% include 'partials/help_assistant_invite.html.twig' with {
+            inline: false
+        } only %}
+
         <div data-help-search-default>
             {% if grouped_topics is empty %}
                 {% include 'partials/empty_state.html.twig' with {

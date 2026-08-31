@@ -389,6 +389,11 @@ class AuthController extends AbstractController
         PendingMagicLink::forget();
         ScoutYearSession::clear();
         TemporaryMemberSession::clear();
+        // The help assistant's conversation dies here too: it lives only
+        // in the session (locked decision, ARCHITECTURE.md §8.87), and a
+        // shared computer must not hand the next person the previous
+        // one's questions.
+        \Core\Help\Assistant\AssistantSession::clear();
         FlashMessage::set('success', 'Vous avez été déconnecté.');
 
         return $this->redirect('/');

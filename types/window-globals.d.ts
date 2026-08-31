@@ -249,4 +249,17 @@ interface Window {
         tokenize: (value: string) => string[];
         normalize: (value: string) => string;
     };
+    // public/assets/js/help-assistant.js — the conversation's rendering,
+    // exposed for the unit tests: the staged exchange and the list of
+    // topics the assistant read are the parts worth checking without a
+    // provider on the other end.
+    ScoutMagicHelpAssistant?: {
+        openExchange: (question: string) => {
+            block: HTMLElement;
+            status: HTMLElement;
+            answer: HTMLElement;
+            topics: HTMLElement;
+        };
+        renderTopics: (target: HTMLElement, topics: Array<{ id: string, title: string }>) => void;
+    };
 }

@@ -107,6 +107,9 @@ class AssistantService
     ) {
     }
 
+    /** Memoised isAvailable() answer for this request — see below. */
+    private ?bool $available = null;
+
     /**
      * Whether the assistant can be offered at all — the connector is
      * wired AND both tiers it needs have a model.
@@ -119,7 +122,15 @@ class AssistantService
      */
     public function isAvailable(): bool
     {
-        return $this->llmConnector !== null
+        // Memoised for the request: the help panel ships on every page and
+        // asks this once per render, and each tier check is a provider row
+        // plus a model row. Nothing can enable a provider mid-request, so
+        // the answer cannot change between two calls in the same one.
+        if ($this->available !== null) {
+            return $this->available;
+        }
+
+        return $this->available = $this->llmConnector !== null
             && $this->llmConnector->isTierAvailable(LlmTier::CHEAP)
             && $this->llmConnector->isTierAvailable(LlmTier::CAPABLE);
     }
