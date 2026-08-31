@@ -4319,6 +4319,27 @@ if ($isEnabled('registration')) {
         )
     );
 
+    // IT-10 — Api\ProjectedPopulationProvider (ARCHITECTURE.md §7.5): the
+    // projection as a public contract, so the Passage statistics box and
+    // mass_mail's future-year audiences can read it without either of them
+    // importing anything else from this module. A façade over the
+    // ForecastService built just above — deliberately the SAME instance, so
+    // there is one projection and not two that could disagree.
+    //
+    // Nothing consumes it yet, and that is the point of the iteration: the
+    // contract lands first, its consumers follow. It is built here rather
+    // than lazily because this whole block only runs when `registration` is
+    // enabled, which IS the nullable-dependency rule — a consumer built
+    // outside it receives null and must go on working.
+    $registrationProjectedPopulation = new \Modules\Registration\Service\ProjectedPopulationService(
+        $registrationForecastService,
+        $registrationSlotService,
+        $scoutYearService,
+        $sectionService,
+        $registrationRequestRepo,
+        new \Modules\Registration\Repository\ProjectedMemberEmailRepository($pdo, $encryptionService)
+    );
+
     // Re-registers ImportController with the real reconciliation trigger —
     // the earlier registration (before this module's services existed)
     // used a forward-reference `?? null` since $registrationReconciliation
