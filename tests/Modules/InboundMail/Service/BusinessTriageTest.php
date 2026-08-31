@@ -233,6 +233,59 @@ class BusinessTriageTest extends TestCase
      * @param InboundMessage[] $messages
      * @return int[]
      */
+    // ── One module's propositions, and nobody else's ────────────────────
+
+    public function testAScreenSeesItsOwnModulesPropositionsAndNotAnothersOnTheSameMessage(): void
+    {
+        // The isolation this method exists for. One message can carry a
+        // proposition from two modules at once; showing camps' guess on the
+        // rental triage screen would leak one module's reasoning into
+        // another's audience, and that audience is a different set of
+        // people.
+        $id = $this->store('deux@x', $this->sharedBox);
+        $this->addCandidate($id, 'rental', 'LOC-1');
+        $this->addCandidate($id, 'camps', 'camp-1');
+
+        $mine = $this->service->findCandidatesFor('rental', [$id]);
+
+        $this->assertCount(1, $mine[$id]);
+        $this->assertSame('LOC-1', $mine[$id][0]->businessReference);
+    }
+
+    public function testThePropositionsComeBackGroupedByMessage(): void
+    {
+        // Grouped here so a triage screen can render a whole page without
+        // querying inside its own loop.
+        $first = $this->store('un@x', $this->sharedBox);
+        $second = $this->store('deux@x', $this->sharedBox);
+        $this->addCandidate($first, 'rental', 'LOC-1');
+        $this->addCandidate($second, 'rental', 'LOC-2');
+
+        $found = $this->service->findCandidatesFor('rental', [$first, $second]);
+
+        $this->assertSame('LOC-1', $found[$first][0]->businessReference);
+        $this->assertSame('LOC-2', $found[$second][0]->businessReference);
+    }
+
+    public function testAPropositionSomebodySetAsideIsNotOfferedAgain(): void
+    {
+        // `dismissed_at` is final (A3 / D10): a proposition that reappeared
+        // after somebody rejected it would make the screen argue with its
+        // own user.
+        $id = $this->store('ecarte@x', $this->sharedBox);
+        $this->addCandidate($id, 'rental', 'LOC-1');
+        $this->service->dismissCandidate('rental', ['LOC-1'], $id, $this->candidateId($id));
+
+        $this->assertSame([], $this->service->findCandidatesFor('rental', [$id]));
+    }
+
+    public function testAskingAboutNoMessageAtAllAsksTheDatabaseNothing(): void
+    {
+        // An empty page is a real case — the screen renders it — and an
+        // `IN ()` would be a syntax error rather than an empty answer.
+        $this->assertSame([], $this->service->findCandidatesFor('rental', []));
+    }
+
     private function ids(array $messages): array
     {
         return array_map(static fn(InboundMessage $message) => $message->id, $messages);
