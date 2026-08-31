@@ -455,6 +455,66 @@ pour nommer un contrôle, et c'est celle que le test contrôle.
 
 ---
 
+## IT-07 — Verrouillage des invariants du corpus
+
+**Livré.**
+
+- **`question` devient obligatoire**, 2 à 4 par sujet, sur tout le corpus
+  (`HelpInvariantsTest::testEveryTopicCarriesTwoToFourQuestions`). Le cas
+  « aucune question » a son propre message, parce que c'est l'erreur d'un
+  sujet nouveau, et il dit quoi faire : écrire deux à quatre questions
+  comme on les taperait — et si une deuxième vraie question ne vient pas,
+  réécrire le sujet plutôt que le remplir.
+- **`HelpLabelDriftTest`**, le test de dérive des libellés : chaque
+  citation entre guillemets français d'un corps doit exister dans
+  l'interface (gabarit Twig, script du navigateur, source PHP qui
+  construit un libellé). Une ALLOWLIST de 25 entrées porte les exceptions,
+  **en toutes lettres et non en nombre**.
+- **Documentation** : `docs/module-development.md` § Help topics décrit le
+  champ `question` (répétable, 2 à 4, obligatoire, formulées comme on les
+  tape, uniques dans tout le corpus, et le diagnostic quand une deuxième
+  ne vient pas) et la règle de citation littérale d'un libellé ;
+  `AGENTS.md` § Module creation checklist, point 14, les rappelle toutes
+  les deux avec le test qui les tient.
+
+**Les deux tests ont été vérifiés en les faisant échouer.** Une fausse
+dérive injectée dans `journal` (« Filtre par rubrique ») est nommée
+citation par citation ; le même sujet privé de ses questions est refusé
+avec le message de diagnostic. Les deux repassent au vert une fois le
+fichier restauré.
+
+**Décisions autonomes.**
+
+1. **Les guillemets français seulement, pas le gras.** Le document demande
+   les deux. Dans ce corpus le gras sert massivement l'emphase de prose
+   (« **Un champ vide est rempli.** ») ; le contrôler produirait des
+   dizaines de faux positifs et une ALLOWLIST trop longue pour être lue —
+   ce qui est le mode de panne de toute liste d'exceptions. Les guillemets
+   sont la convention réelle du corpus pour nommer un contrôle.
+2. **L'ALLOWLIST porte les chaînes exactes, pas des compteurs.** Le
+   document renvoie à la forme de cliquet de
+   `UxConventionsTest::INLINE_TOUCH_PATCH_ALLOWLIST`, qui compte. Le
+   cliquet est conservé dans les deux sens (une citation non listée
+   échoue ; une citation listée qui se met à résoudre échoue aussi, il
+   faut réduire la liste) mais avec les chaînes : « une exception
+   remplacée par une autre » est précisément la dérive que ce test
+   cherche, et un compteur ne la voit pas.
+3. **Deux règles mécaniques évitent trois exceptions** : une citation
+   portant des points de suspension (« Référent … », « Nécessite : ... »)
+   est un raccourci par construction, et une citation sans la moindre
+   lettre (« ⋮ ») n'est pas un libellé.
+4. **Un renvoi vers un autre sujet n'est pas une citation d'écran.** Le
+   test connaît les titres et les titres de section de tout le corpus et
+   les laisse passer, plutôt que de les faire vivre dans l'ALLOWLIST.
+
+**Les 25 exceptions, et pourquoi il n'y en a que six sortes** : une parole
+rapportée, une valeur d'exemple, un libellé du navigateur ou du système,
+un gabarit à variable, un raccourci nommant deux contrôles voisins, une
+fonction nommée en prose. Le docblock de l'ALLOWLIST les énumère, et rien
+d'autre n'a le droit d'y entrer.
+
+---
+
 ## Note transverse — la suite n'est plus verte, et ce n'est pas ce chantier
 
 Constaté pendant IT-02, à consigner parce que le critère « fait quand » de

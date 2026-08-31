@@ -31,7 +31,13 @@ use PHPUnit\Framework\TestCase;
  *
  * The rest pins the editorial charter (design.md §7.11) where a rule is
  * mechanically checkable: topic length, at most one warning callout, no
- * external link except the federation's site.
+ * external link except the federation's site, and — since the corpus was
+ * enriched — two to four `question:` lines per topic, each unique across
+ * the whole corpus.
+ *
+ * The other half of "the corpus still describes the real screens" is
+ * Tests\Core\Help\HelpLabelDriftTest, which checks the labels the bodies
+ * quote against the interface itself.
  */
 final class HelpInvariantsTest extends TestCase
 {
@@ -185,26 +191,34 @@ final class HelpInvariantsTest extends TestCase
     }
 
     /**
-     * The shape of the `question` field, on the topics that carry one.
+     * Every topic carries 2 to 4 `question:` lines, and each one has the
+     * shape of a question.
      *
-     * « Every topic must have questions » is NOT asserted here yet — the
-     * corpus is being enriched category by category, and a rule that
-     * fails on 120 files the day it lands teaches nobody anything. It
-     * becomes mandatory once every category has been through its revision
-     * pass; until then this pins the shape so an enriched topic can only
-     * be enriched correctly.
+     * This was deliberately not mandatory while the corpus was being
+     * enriched category by category — a rule that fails on 120 files the
+     * day it lands teaches nobody anything. All four passes are done
+     * (docs/chantiers/aide-recherche-assistant.md, IT-03 to IT-06), so it
+     * is mandatory now: a topic arriving without questions is invisible
+     * to the instant search for every word its title does not happen to
+     * use, which is the failure this whole field exists to prevent.
+     *
+     * The floor of two is the real rule, not a formality. If a second
+     * genuine question cannot be written for a topic, the topic is
+     * describing a screen instead of documenting a task, and it wants
+     * rewriting rather than enriching (design.md §7.11).
      */
-    public function testEveryDeclaredQuestionHasTheShapeOfAQuestion(): void
+    public function testEveryTopicCarriesTwoToFourQuestions(): void
     {
         $topics = self::shippedTopics();
         $this->assertNotEmpty($topics, 'The shipped corpus must not be empty.');
 
         foreach ($topics as $topic) {
-            if ($topic->questions === []) {
-                continue;
-            }
-
             $count = count($topic->questions);
+            $this->assertNotSame(
+                0,
+                $count,
+                "Help topic '{$topic->id}' ({$topic->filePath}) declares no `question:` line. Write two to four, in the words somebody searching would type — and if a second real one cannot be written, the topic describes a screen instead of documenting a task."
+            );
             $this->assertGreaterThanOrEqual(
                 self::MIN_QUESTIONS_PER_TOPIC,
                 $count,

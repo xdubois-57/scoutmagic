@@ -938,6 +938,8 @@ title: Demander la location d'un local
 summary: Choisir des dates libres et envoyer une demande.
 category: Premiers pas
 role_min: public
+question: Comment réserver le local d'une unité scoute ?
+question: Que se passe-t-il après l'envoi de ma demande ?
 paths: /locations/*
 related: suivre-ma-demande
 ---
@@ -982,6 +984,28 @@ Corps en Markdown…
   `http(s)://` URL becomes an `<a>`, so `[voir](/aide/x)` renders as its
   own source text. Point at another topic with `related`, and name a page
   by its label rather than its route.
+- `question`: **two to four per topic, mandatory**, one per line — the
+  only repeatable key, because a real question contains the comma
+  `paths`/`related` split on. Write them as somebody would TYPE them into
+  the search box, not as a table of contents: « Comment envoyer un mail
+  personnalisé depuis un fichier Excel ? », not « Publipostage ». They are
+  the field that carries the vocabulary real people use when it differs
+  from your title, which is most of the time, and one source feeds both
+  the instant search and the help assistant's catalogue. Each must end
+  with `?`, stay under 80 characters, and be unique across the whole
+  corpus — two topics claiming one question is a real ambiguity, not a
+  duplicate to tolerate. **If you cannot write a second genuine one, the
+  topic is describing a screen instead of documenting a task**: rewrite it
+  rather than pad the list. `tests/Core/Help/HelpInvariantsTest` enforces
+  all of it.
+- **Quote a control exactly as the screen writes it.** A topic that says
+  « à catégoriser » where the page shows « À catégoriser » is already
+  drifting, and `tests/Core/Help/HelpLabelDriftTest` fails on a citation
+  that appears nowhere in the interface. Its short ALLOWLIST is for the
+  six things a citation legitimately is when it is not a label — reported
+  speech, an example value, a browser's own menu, a template with a
+  placeholder, a shorthand naming two controls at once, a feature named
+  in prose — and nothing else.
 - A new end-user-facing page should ship with a topic covering it, in the
   same change (AGENTS.md § Module creation checklist).
 
