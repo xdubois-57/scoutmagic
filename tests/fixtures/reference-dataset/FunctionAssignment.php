@@ -23,8 +23,9 @@ namespace Tests\Fixtures\ReferenceDataset;
  * happens downstream of everything this fixture describes and changes nothing
  * about what belongs in the CSV.
  *
- * `section` and `branch` are null for a unit-level function (Chef d'unité,
- * Intendant d'unité, Trésorier d'unité): those rows carry no Branche, no
+ * `section` and `branch` are null for a unit-level function
+ * (UnitBlueprint::UNIT_LEVEL_FUNCTIONS — Animateur d'unité, Équipier
+ * d'unité, Collaborateur d'unité): those rows carry no Branche, no
  * Section and no Date début in a real export either.
  */
 final class FunctionAssignment

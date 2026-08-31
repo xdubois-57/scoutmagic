@@ -62,12 +62,15 @@ class MappingResolverTest extends TestCase
 
     public function testResolveFunctionRoleNeverElevatedAutomatically(): void
     {
-        // Create multiple unknown functions — none should get elevated
-        $this->resolver->resolveFunction('Chef d\'unité');
+        // Create multiple unknown functions — none should get elevated.
+        // The first is a real Desk label whose confirmed role IS `admin`,
+        // which is exactly the point: the CSV never carries a role, so the
+        // import cannot know that and must not guess it.
+        $this->resolver->resolveFunction('Animateur d\'unité');
         $this->resolver->resolveFunction('Administrateur');
         $this->resolver->resolveFunction('Directeur');
 
-        foreach (['Chef d\'unité', 'Administrateur', 'Directeur'] as $code) {
+        foreach (['Animateur d\'unité', 'Administrateur', 'Directeur'] as $code) {
             $fn = $this->functionRepo->findByDeskCode($code);
             $this->assertNotNull($fn);
             $this->assertSame('identified', $fn['role'], "Function '$code' should not be auto-elevated.");

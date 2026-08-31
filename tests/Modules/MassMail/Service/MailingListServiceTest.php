@@ -58,6 +58,27 @@ class MailingListServiceTest extends TestCase
         $this->functionId = (int) $this->pdo->lastInsertId();
     }
 
+    /**
+     * Non-regression, and it is worth stating why this test exists at all.
+     *
+     * The « Nouvelle liste » function picker was suspected of grouping or
+     * renaming the Desk vocabulary. It does neither: DeskCsvParser reads
+     * FONCTION, MappingResolver::resolveFunction() creates the row with
+     * `label = desk_code` verbatim, this method hands that label to the
+     * template, and the template prints it. There is no mapping anywhere on
+     * that path, and this pins the absence — a function whose Desk label is
+     * « Équipier d'unité » is offered as « Équipier d'unité », apostrophe,
+     * accent and all.
+     */
+    public function testTheFunctionPickerOffersTheRawDeskLabel(): void
+    {
+        $this->pdo->exec("INSERT INTO functions (desk_code, label, role) VALUES ('Équipier d''unité', 'Équipier d''unité', 'admin')");
+
+        $labels = array_column($this->service->getAllFunctions(), 'label');
+
+        $this->assertContains("Équipier d'unité", $labels);
+    }
+
     public function testDefaultListsOnlyIncludeActiveSectionsPlusTheTwoUnitWideLists(): void
     {
         $lists = $this->service->getDefaultLists();

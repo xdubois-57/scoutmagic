@@ -4,11 +4,15 @@ declare(strict_types=1);
 
 namespace Tests\Integration;
 
+use Core\Badge\MemberBadgeRepository;
 use Core\Database\Connection;
 use Core\Maintenance\BackupService;
 use Core\Security\EncryptionService;
+use Core\Member\SectionService;
 use Core\Security\UserAccountRepository;
 use Modules\Finance\Repository\AccountRepository;
+use Modules\Trombinoscope\Repository\TrombinoscopeRepository;
+use Modules\Trombinoscope\Service\TrombinoscopeService;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -269,6 +273,65 @@ final class ReferenceDatasetBuilderTest extends TestCase
         );
         self::assertGreaterThan(0, $result['counts']['créances attendues'], 'Les modules présents doivent, eux, être traités.');
         self::assertArrayNotHasKey('créances attendues', $result['skipped']);
+    }
+
+    /**
+     * The section responsable, end to end: the vocabulary carries
+     * « Animateur responsable », the builder flags that function as the
+     * trombinoscope's lead, and Core\Module\SectionResponsableProvider then
+     * answers with a real person for every section.
+     *
+     * None of that existed before: no generated function carried the label,
+     * so the provider answered null for every section and three surfaces
+     * built on it — the public Sections page's responsable line, the member
+     * page's responsable-and-postal-address block, the trombinoscope's
+     * highlighted card — were exercised by nothing at all.
+     */
+    public function testTheSectionResponsableIsFlaggedAndResolves(): void
+    {
+        // The module's own table, absent from the shared test schema for the
+        // same reason the calendar's is: it belongs to a module, and
+        // ExtrasApplier reads its presence as "this module is enabled here".
+        $this->pdo->exec('CREATE TABLE trombinoscope_function_flags (
+            function_id INTEGER PRIMARY KEY,
+            is_lead INTEGER NOT NULL DEFAULT 0
+        )');
+
+        $result = $this->applyExtras();
+
+        self::assertSame(1, $result['counts']['drapeau responsable']);
+        self::assertArrayNotHasKey('drapeau responsable', $result['skipped']);
+
+        $flagged = $this->pdo->query(
+            "SELECT f.desk_code FROM trombinoscope_function_flags tff
+             JOIN functions f ON f.id = tff.function_id WHERE tff.is_lead = 1"
+        )?->fetchAll(\PDO::FETCH_COLUMN) ?: [];
+        self::assertSame(['Animateur responsable'], $flagged);
+
+        $connection = Connection::withPdo($this->pdo);
+        $sectionService = new SectionService(
+            $connection,
+            $this->encryption,
+            new MemberBadgeRepository($this->pdo),
+        );
+        $trombinoscope = new TrombinoscopeService(
+            new TrombinoscopeRepository($connection),
+            $sectionService,
+        );
+
+        $yearId = $this->yearIds['2025-2026'];
+        $resolved = 0;
+        foreach ($sectionService->getAllWithBranches() as $section) {
+            if ($trombinoscope->getResponsable((int) $section['id'], $yearId) !== null) {
+                $resolved++;
+            }
+        }
+
+        self::assertGreaterThan(
+            0,
+            $resolved,
+            'Aucune section n\'a de responsable résolu : le drapeau ou la fonction ne se rejoignent pas.',
+        );
     }
 
     /**

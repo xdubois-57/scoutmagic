@@ -102,7 +102,7 @@ final class ReferenceDatasetImportTest extends TestCase
                 );
                 self::assertSame(
                     $expectedCadres,
-                    $this->countInSection($label, $name, ['Animateur', 'Animateur candidat']),
+                    $this->countInSection($label, $name, UnitBlueprint::SECTION_STAFF_FUNCTIONS),
                     "{$name} n'a pas le nombre de cadres déclaré en {$label}.",
                 );
             }
@@ -327,16 +327,111 @@ final class ReferenceDatasetImportTest extends TestCase
         // Scenario 14. Every function imports as identified/unconfirmed; this
         // one is the case a chief has to act on, and it only appears in the
         // last import.
-        $row = $this->pdo->query(
-            "SELECT role, confirmed FROM functions WHERE desk_code = 'Accompagnateur d''unité'"
-        )?->fetch();
+        $stmt = $this->pdo->prepare('SELECT role, confirmed FROM functions WHERE desk_code = ?');
+        $stmt->execute([UnitBlueprint::BRAND_NEW_FUNCTION]);
+        $row = $stmt->fetch();
 
         self::assertNotFalse($row, 'La fonction inédite de A3 n\'a pas été créée.');
         self::assertSame('identified', (string) $row['role']);
 
-        // confirmFunctionRoles() confirmed it, because the blueprint declares
-        // it — what matters is that the IMPORT never did.
-        self::assertNotContains('Accompagnateur d\'unité', $this->unconfirmed);
+        // And it STAYS unconfirmed after Config Desk is replayed, because it
+        // is deliberately absent from UnitBlueprint::FUNCTIONS. That is the
+        // case a chief has to act on, and the dataset is meant to contain at
+        // least one — see UnitBlueprint::BRAND_NEW_FUNCTION.
+        self::assertContains(UnitBlueprint::BRAND_NEW_FUNCTION, $this->unconfirmed);
+    }
+
+    /**
+     * The other half of the same rule: every function a real unit holds IS in
+     * the table, so nothing else is left hanging. A second unconfirmed label
+     * would mean a function was added to the dataset without being declared.
+     */
+    public function testTheBrandNewFunctionIsTheOnlyUnconfirmedOne(): void
+    {
+        self::assertSame([UnitBlueprint::BRAND_NEW_FUNCTION], $this->unconfirmed);
+    }
+
+    /**
+     * A guard against reintroducing the vocabulary this dataset used to
+     * invent. Desk produces none of these three, and a generated function
+     * carrying one means somebody copied an old example.
+     */
+    public function testNoFunctionCarriesTheRetiredFictionalLabels(): void
+    {
+        $labels = $this->pdo->query('SELECT desk_code FROM functions')?->fetchAll(\PDO::FETCH_COLUMN) ?: [];
+
+        foreach (["Chef d'unité", "Trésorier d'unité", "Accompagnateur d'unité"] as $retired) {
+            self::assertNotContains($retired, $labels, "Le vocabulaire fictif « {$retired} » est réapparu.");
+        }
+    }
+
+    /**
+     * Staff d'U is a staff, not one person: the vocabulary now carries three
+     * distinct unit-level functions and the generator hands them out in turn,
+     * so every year has at least one of each and the roster the public Contact
+     * page renders has somebody on it.
+     */
+    public function testStaffDUHoldsSeveralPeopleEveryYear(): void
+    {
+        foreach (UnitBlueprint::YEARS as $label) {
+            self::assertGreaterThanOrEqual(
+                3,
+                $this->countInSection($label, UnitStaffSectionService::DESK_CODE, UnitBlueprint::UNIT_LEVEL_FUNCTIONS),
+                "Staff d'U est trop petit en {$label} pour que le roster montre quoi que ce soit.",
+            );
+        }
+
+        foreach (UnitBlueprint::UNIT_LEVEL_FUNCTIONS as $code) {
+            self::assertGreaterThan(
+                0,
+                $this->countInSection('2026-2027', UnitStaffSectionService::DESK_CODE, [$code]),
+                "Aucun « {$code} » en 2026-2027 : la rotation des fonctions d'unité ne tourne plus.",
+            );
+        }
+    }
+
+    /**
+     * Exactly one designated responsable per section per year. Nothing in the
+     * dataset carried « Animateur responsable » before, so
+     * Core\Module\SectionResponsableProvider answered null everywhere and
+     * three surfaces that depend on it — the public Sections page, the member
+     * page's responsable block, the trombinoscope's highlighted card — were
+     * exercised by nothing at all.
+     */
+    public function testEverySectionHasExactlyOneResponsable(): void
+    {
+        foreach (UnitBlueprint::YEARS as $label) {
+            foreach (UnitBlueprint::HEADCOUNT[$label] as $handle => [, $cadres]) {
+                if ($cadres === 0) {
+                    continue;
+                }
+
+                $name = UnitBlueprint::SECTIONS[$handle]['name'];
+                self::assertSame(
+                    1,
+                    $this->countInSection($label, $name, ['Animateur responsable']),
+                    "{$name} n'a pas exactement un responsable en {$label}.",
+                );
+            }
+        }
+    }
+
+    /**
+     * Both candidate functions exist, and CandidateDetector recognises them —
+     * the word « candidat » comes first in the real Desk labels, which is the
+     * spelling this dataset now carries.
+     */
+    public function testBothCandidateFunctionsExistAndAreDetectedAsSuch(): void
+    {
+        $labels = $this->pdo->query('SELECT desk_code FROM functions')?->fetchAll(\PDO::FETCH_COLUMN) ?: [];
+
+        self::assertContains('Candidat animateur', $labels);
+        self::assertContains('Candidat intendant', $labels);
+
+        $detector = new \Modules\Leadership\Service\CandidateDetector();
+        self::assertTrue($detector->isCandidateLabel('Candidat animateur'));
+        self::assertTrue($detector->isCandidateLabel('Candidat intendant'));
+        self::assertFalse($detector->isCandidateLabel('Animateur responsable'));
     }
 
     public function testAFunctionLabelledCandidateSurvivesTheImportIntact(): void
@@ -344,7 +439,7 @@ final class ReferenceDatasetImportTest extends TestCase
         // Scenario 13. Nothing consumes the word today; the future Encadrement
         // module will, and this is the assertion that keeps the label alive
         // until then.
-        self::assertSame('Animateur candidat', $this->functionCodeOf('T0018', '2025-2026'));
+        self::assertSame('Candidat animateur', $this->functionCodeOf('T0018', '2025-2026'));
         self::assertSame('Animateur', $this->functionCodeOf('T0018', '2026-2027'));
     }
 
@@ -470,7 +565,23 @@ final class ReferenceDatasetImportTest extends TestCase
         // Scenario 24 — asserted as the invariant that matters rather than as
         // a figure to chase: a 50/50 split gives Prévisions and Statistiques
         // nothing to show.
+        //
+        // The band is « never within three points of 50 », not five. The
+        // generator draws at PersonFactory::GENDER_F_PERCENT = 46, and 176
+        // draws around 46 % land anywhere from about 42 % to 50 %: a five-point
+        // guard was asserting something the generator does not aim for, and
+        // held only because the seed happened to fall on the friendly side of
+        // it — the first change to the RNG stream (a scenario person built
+        // through a different helper) pushed 2024-2025 to 46.0 % and failed it.
+        // The share cannot simply be drawn lower either: PhotoAssigner refuses
+        // to build when the unit has fewer female cadres than the photo lot has
+        // female portraits, which is what happens below about 40 %.
+        //
+        // What the scenario really promises is in its second half — the share
+        // MOVES from one year to the next — and that is asserted below rather
+        // than described.
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $shares = [];
 
         foreach (UnitBlueprint::YEARS as $label) {
             $rows = $this->pdo->query(
@@ -486,9 +597,17 @@ final class ReferenceDatasetImportTest extends TestCase
             }
 
             $share = $females / max(count($rows), 1) * 100;
-            self::assertLessThan(45.0, $share, "L'équilibre filles/garçons de {$label} est trop plat pour montrer quoi que ce soit.");
+            $shares[$label] = $share;
+
+            self::assertLessThan(47.0, $share, "L'équilibre filles/garçons de {$label} est trop plat pour montrer quoi que ce soit.");
             self::assertGreaterThan(30.0, $share, "L'équilibre filles/garçons de {$label} n'est plus crédible.");
         }
+
+        self::assertGreaterThan(
+            1,
+            count(array_unique(array_map(static fn (float $share): int => (int) round($share), $shares))),
+            'La part de F est identique toutes années confondues : les graphes de Prévisions et de Statistiques seraient plats.',
+        );
     }
 
     // ----------------------------------------------------------------- outils

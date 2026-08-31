@@ -34,8 +34,6 @@ namespace Tests\Fixtures\ReferenceDataset;
  */
 final class PopulationBuilder
 {
-    private const SECTION_LEADER_FUNCTIONS = ['Animateur', 'Animateur candidat'];
-    private const UNIT_CHIEF_FUNCTION = 'Chef d\'unité';
 
     /** @var array<string, Person> */
     private array $people = [];
@@ -45,11 +43,18 @@ final class PopulationBuilder
      * deliberately absent: they are never aged, churned or trimmed, because
      * their whole point is to do exactly what ScenarioPeople says they do.
      *
-     * @var array<string, array{birthYear: int, track: string, kind: string, section: ?string, active: bool}>
+     * `unitFunction` is set on unit-level members only — which of the three
+     * unit functions this person holds, fixed at creation and carried
+     * forward so nobody changes job title between two years by accident.
+     *
+     * @var array<string, array{birthYear: int, track: string, kind: string, section: ?string, active: bool, unitFunction?: string}>
      */
     private array $filler = [];
 
     private int $nextFillerNumber = ScenarioCatalog::FILLER_FIRST_ID;
+
+    /** How many unit-level members have been created, for the rotation below. */
+    private int $unitStaffCreated = 0;
 
     public function __construct(
         private readonly Rng $rng,
@@ -69,6 +74,7 @@ final class PopulationBuilder
                 $this->ageFiller($year);
             }
             $this->fillToHeadcount($year);
+            $this->promoteSectionRoles($year);
         }
 
         ksort($this->people);
@@ -99,7 +105,7 @@ final class PopulationBuilder
             match ($this->filler[$tiers]['kind']) {
                 'anime' => $this->carryAnime($tiers, $year, $reference),
                 'cadre' => $this->carryCadre($tiers, $year),
-                default => $this->carryUnitChief($tiers, $year),
+                default => $this->carryUnitStaff($tiers, $year),
             };
         }
     }
@@ -145,9 +151,9 @@ final class PopulationBuilder
         $this->appendCadreYear($tiers, $year, $section);
     }
 
-    private function carryUnitChief(string $tiers, string $year): void
+    private function carryUnitStaff(string $tiers, string $year): void
     {
-        $this->appendUnitChiefYear($tiers, $year);
+        $this->appendUnitStaffYear($tiers, $year);
     }
 
     /** Drop whoever is over the declared headcount, then recruit up to it. */
@@ -168,9 +174,9 @@ final class PopulationBuilder
         }
 
         $target = UnitBlueprint::UNIT_STAFF_SIZE[$year];
-        $this->trimTo($year, null, 'unitchief', $target);
-        for ($i = $this->countUnitChiefs($year); $i < $target; $i++) {
-            $this->createUnitChief($year);
+        $this->trimTo($year, null, 'unitstaff', $target);
+        for ($i = $this->countUnitStaff($year); $i < $target; $i++) {
+            $this->createUnitStaff($year);
         }
     }
 
@@ -185,7 +191,7 @@ final class PopulationBuilder
         $held = match ($kind) {
             'anime' => $this->countAnimes($year, $handle),
             'cadre' => $this->countLeaders($year, $handle),
-            default => $this->countUnitChiefs($year),
+            default => $this->countUnitStaff($year),
         };
 
         for ($i = count($members) - 1; $i >= 0 && $held > $target; $i--) {
@@ -194,6 +200,89 @@ final class PopulationBuilder
             $this->filler[$tiers]['active'] = false;
             $held--;
         }
+    }
+
+    /**
+     * Give each section the roles a real one carries, once its slots are
+     * filled for the year.
+     *
+     * **Exactly one `Animateur responsable` per section per year.** That is
+     * the section's designated responsable — what
+     * Core\Module\SectionResponsableProvider answers with, what the public
+     * Sections page names, what the member page shows beside a postal
+     * address, and what the trombinoscope highlights. The dataset carried no
+     * such function at all, so every one of those surfaces read `null` and
+     * none of them was exercised by anything. More than one would be a unit
+     * unable to say who is in charge, so the rule is exactly one.
+     *
+     * **`Intendant` and the two `Candidat …` functions** then go to the
+     * spare leader of the next sections in turn, one each, so the three land
+     * in three different sections rather than stacking in the first one. A
+     * section with a single leader keeps them as its responsable and
+     * contributes no spare.
+     *
+     * Deterministic throughout: sections in blueprint order, leaders in Tiers
+     * order, so the same seed produces the same people.
+     */
+    private function promoteSectionRoles(string $year): void
+    {
+        $spare = [];
+
+        foreach (array_keys(UnitBlueprint::HEADCOUNT[$year]) as $handle) {
+            $leaders = $this->fillerHolding($year, $handle, 'cadre');
+            sort($leaders);
+
+            if ($leaders === []) {
+                continue;
+            }
+
+            $this->rewriteSectionFunction($leaders[0], $year, 'Animateur responsable');
+
+            if (isset($leaders[1])) {
+                $spare[] = $leaders[1];
+            }
+        }
+
+        foreach (['Intendant', 'Candidat intendant', 'Candidat animateur'] as $index => $code) {
+            if (isset($spare[$index])) {
+                $this->rewriteSectionFunction($spare[$index], $year, $code);
+            }
+        }
+    }
+
+    /**
+     * Restate one person's section function under a different FONCTION,
+     * keeping its branch, section, dates and main flag — the person did not
+     * move, their job title is being named properly.
+     *
+     * PersonYear and FunctionAssignment are both readonly, so this rebuilds
+     * rather than mutates.
+     */
+    private function rewriteSectionFunction(string $tiers, string $year, string $code): void
+    {
+        $personYear = $this->people[$tiers]->years[$year];
+        $functions = $personYear->functions;
+        $existing = $functions[0];
+
+        $functions[0] = new FunctionAssignment(
+            functionCode: $code,
+            branch: $existing->branch,
+            section: $existing->section,
+            ignoredSectionCode: $existing->ignoredSectionCode,
+            startDate: $existing->startDate,
+            endDate: $existing->endDate,
+            mandateEnd: $existing->mandateEnd,
+            isMain: $existing->isMain,
+        );
+
+        $this->people[$tiers]->years[$year] = new PersonYear(
+            functions: $functions,
+            feeCode: $personYear->feeCode,
+            totem: $personYear->totem,
+            quali: $personYear->quali,
+            patrol: $personYear->patrol,
+            formationLevel: $personYear->formationLevel,
+        );
     }
 
     // ------------------------------------------------------- filler creation
@@ -237,20 +326,35 @@ final class PopulationBuilder
         $this->appendCadreYear($tiers, $year, $handle);
     }
 
-    private function createUnitChief(string $year): void
+    /**
+     * A unit-level member. The three unit functions are handed out in turn
+     * rather than all being the same one: UNIT_STAFF_SIZE is four or five a
+     * year, so a strict rotation guarantees at least one of each — which is
+     * what makes « Staff d'U » a staff rather than four copies of one job
+     * title, and what gives the roster on the public Contact page and the
+     * leadership module's Équipiers page something to show.
+     *
+     * The function is stored in the filler state and carried forward
+     * unchanged: somebody does not become a different kind of unit staffer
+     * between two years by accident.
+     */
+    private function createUnitStaff(string $year): void
     {
         $birthYear = UnitBlueprint::referenceYear($year) - $this->rng->int(24, 45);
         $tiers = $this->nextFillerTiers();
         $this->people[$tiers] = $this->factory->make($tiers, $birthYear, null);
+        $unitFunctions = UnitBlueprint::UNIT_LEVEL_FUNCTIONS;
         $this->filler[$tiers] = [
             'birthYear' => $birthYear,
             'track' => 'cadre',
-            'kind' => 'unitchief',
+            'kind' => 'unitstaff',
             'section' => null,
             'active' => true,
+            'unitFunction' => $unitFunctions[$this->unitStaffCreated % count($unitFunctions)],
         ];
+        $this->unitStaffCreated++;
 
-        $this->appendUnitChiefYear($tiers, $year);
+        $this->appendUnitStaffYear($tiers, $year);
     }
 
     // --------------------------------------------------------- year building
@@ -294,7 +398,7 @@ final class PopulationBuilder
         );
     }
 
-    private function appendUnitChiefYear(string $tiers, string $year): void
+    private function appendUnitStaffYear(string $tiers, string $year): void
     {
         $person = $this->people[$tiers];
         $previous = $this->previousYearOf($person, $year);
@@ -303,7 +407,7 @@ final class PopulationBuilder
         // is synthesised by UnitStaffSectionService from the admin role, and
         // that role is only known once Config Desk confirms the function.
         $person->years[$year] = new PersonYear(
-            functions: [$this->unitFunction(self::UNIT_CHIEF_FUNCTION, true)],
+            functions: [$this->unitFunction($this->filler[$tiers]['unitFunction'] ?? UnitBlueprint::UNIT_LEVEL_FUNCTIONS[0], true)],
             feeCode: UnitBlueprint::FEE_CODES['cadre'],
             totem: $previous->totem ?? $this->rng->pick(UnitBlueprint::TOTEMS),
             quali: $previous->quali ?? $this->rng->pick(UnitBlueprint::QUALIS),
@@ -350,12 +454,16 @@ final class PopulationBuilder
 
     private function countLeaders(string $year, ?string $handle): int
     {
-        return $this->count($year, $handle, fn (string $code): bool => in_array($code, self::SECTION_LEADER_FUNCTIONS, true));
+        return $this->count($year, $handle, fn (string $code): bool => in_array($code, UnitBlueprint::SECTION_STAFF_FUNCTIONS, true));
     }
 
-    private function countUnitChiefs(string $year): int
+    private function countUnitStaff(string $year): int
     {
-        return $this->count($year, null, fn (string $code): bool => $code === self::UNIT_CHIEF_FUNCTION);
+        return $this->count(
+            $year,
+            null,
+            fn (string $code): bool => in_array($code, UnitBlueprint::UNIT_LEVEL_FUNCTIONS, true)
+        );
     }
 
     /**

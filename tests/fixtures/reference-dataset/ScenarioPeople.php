@@ -237,11 +237,12 @@ final class ScenarioPeople
     {
         // Section animateur, then a unit-level function with no Section at
         // all. Staff d'U membership only appears once Config Desk confirms
-        // "Chef d'unité" as role=admin — never from the CSV.
+        // "Animateur d'unité" as role=admin — never from the CSV, which
+        // carries no role.
         $person = $this->factory->make('T0015', 1996, null);
         $person->years[self::A1] = $this->cadreYear('Animateur', 'ecl1', self::A1);
-        $person->years[self::A2] = $this->unitYear('Chef d\'unité');
-        $person->years[self::A3] = $this->unitYear('Chef d\'unité');
+        $person->years[self::A2] = $this->unitYear('Animateur d\'unité');
+        $person->years[self::A3] = $this->unitYear('Animateur d\'unité');
 
         return [$person];
     }
@@ -251,9 +252,15 @@ final class ScenarioPeople
     /** @return list<Person> */
     private function quartermaster(): array
     {
+        // Intendance is a SECTION function in the real vocabulary, not a
+        // unit-level one: the intendant of a section, with that section's
+        // branch and start date like any other of its staff. What the
+        // scenario is for is unchanged — a member whose confirmed role is
+        // `intendant` and nothing more, so the Finances pages open for
+        // somebody who is not a chef.
         $person = $this->factory->make('T0016', 1979, null);
         foreach ([self::A1, self::A2, self::A3] as $year) {
-            $person->years[$year] = $this->unitYear('Intendant d\'unité');
+            $person->years[$year] = $this->cadreYear('Intendant', 'pio1', $year);
         }
 
         return [$person];
@@ -272,7 +279,15 @@ final class ScenarioPeople
             $person->years[$year] = new PersonYear(
                 functions: [
                     $this->sectionFunction('Animateur', 'pio1', $year, true),
-                    $this->unitFunction('Trésorier d\'unité', false),
+                    // A secondary, section-less function. It used to be
+                    // « Trésorier d'unité », which said in a FONCTION what
+                    // this application says with a BADGE — and
+                    // ExtrasBlueprint already gives this very member the
+                    // Trésorier badge for all three years, so the same fact
+                    // existed twice in two shapes that could disagree. The
+                    // badge stays; the function becomes what Desk really
+                    // carries.
+                    $this->unitFunction('Collaborateur d\'unité', false),
                 ],
                 feeCode: UnitBlueprint::FEE_CODES['cadre'],
                 totem: 'Sittelle',
@@ -289,11 +304,14 @@ final class ScenarioPeople
     /** @return list<Person> */
     private function candidateFunction(): array
     {
-        // Desk marks an incomplete animateur "candidat". Nothing consumes the
-        // word today; the future Encadrement module will, and the test can
-        // only check the label survives the import intact.
+        // Desk marks an animateur whose obligations are incomplete
+        // « Candidat animateur » — the candidate word first, which is how
+        // Desk writes it. Modules\Leadership\Service\CandidateDetector
+        // reads the substring « candidat » accent- and case-insensitively,
+        // so what this pins is the label surviving the import intact AND
+        // the way out of candidacy: A2 candidate, A3 not.
         $person = $this->factory->make('T0018', 2005, null);
-        $person->years[self::A2] = $this->cadreYear('Animateur candidat', 'ecl1', self::A2);
+        $person->years[self::A2] = $this->cadreYear('Candidat animateur', 'ecl1', self::A2);
         $person->years[self::A3] = $this->cadreYear('Animateur', 'ecl1', self::A3);
 
         return [$person];
@@ -310,7 +328,7 @@ final class ScenarioPeople
         $person = $this->factory->make('T0019', 1990, null);
         $person->years[self::A1] = $this->cadreYear('Animateur', 'rou1', self::A1);
         $person->years[self::A2] = $this->cadreYear('Animateur', 'rou1', self::A2);
-        $person->years[self::A3] = $this->unitYear('Accompagnateur d\'unité');
+        $person->years[self::A3] = $this->unitYear(UnitBlueprint::BRAND_NEW_FUNCTION);
 
         return [$person];
     }

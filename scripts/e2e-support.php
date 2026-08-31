@@ -1112,7 +1112,7 @@ function e2e_role_accounts(): array
             'first_name' => 'Akela',
             'last_name' => 'Loup',
             'function_code' => 'E2E-ROLE-ADM',
-            'function_label' => "Chef d'unité adjoint",
+            'function_label' => "Équipier d'unité",
             'role' => Core\Security\Role::ADMIN,
         ],
     ];
@@ -1366,7 +1366,7 @@ function e2e_seed_unit_chief_function_for_admin(Core\Database\Connection $connec
     $staffBranchId = (int) $statement->fetchColumn();
 
     $pdo->prepare('INSERT INTO functions (desk_code, label, role, confirmed) VALUES (?, ?, ?, 1)')
-        ->execute(['E2E-CDU', "Chef d'unité", Core\Security\Role::ADMIN->value]);
+        ->execute(['E2E-CDU', "Animateur d'unité", Core\Security\Role::ADMIN->value]);
     $functionId = (int) $pdo->lastInsertId();
 
     $pdo->prepare(

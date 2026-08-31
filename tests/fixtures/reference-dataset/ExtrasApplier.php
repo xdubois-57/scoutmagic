@@ -57,6 +57,8 @@ use Modules\Finance\Service\AccountVisibility;
 use Modules\Finance\Service\ExpectedReceivableService;
 use Modules\Finance\Service\ReceivableAllocationService;
 use Modules\Finance\Service\TreasurerScope;
+use Modules\Trombinoscope\Repository\FunctionFlagsRepository;
+use Modules\Trombinoscope\Service\FunctionFlagsService;
 
 /**
  * Applies the extras through the application's own services.
@@ -91,6 +93,14 @@ final class ExtrasApplier
     }
 
     /**
+     * The FONCTION that designates a section's responsable — the one
+     * that carries the trombinoscope's lead flag. Kept beside the flag
+     * that reads it rather than in UnitBlueprint::FUNCTIONS, which is a
+     * FONCTION → role table and says nothing about module flags.
+     */
+    private const RESPONSABLE_FUNCTION = 'Animateur responsable';
+
+    /**
      * The extras that belong to an optional module, and the table whose
      * presence says whether that module is enabled on the target.
      *
@@ -99,6 +109,7 @@ final class ExtrasApplier
     private const MODULE_EXTRAS = [
         'évènements de calendrier' => ['table' => 'calendar_calendars', 'module' => 'calendar'],
         'créances attendues' => ['table' => 'finance_expected_receivables', 'module' => 'finance'],
+        'drapeau responsable' => ['table' => 'trombinoscope_function_flags', 'module' => 'trombinoscope'],
     ];
 
     /**
@@ -139,12 +150,57 @@ final class ExtrasApplier
                 continue;
             }
 
-            $counts[$label] = $label === 'évènements de calendrier'
-                ? $this->applyCalendarEvents($yearIds)
-                : $this->applyExpectedReceivables($unitAccountId);
+            $counts[$label] = match ($label) {
+                'évènements de calendrier' => $this->applyCalendarEvents($yearIds),
+                'créances attendues' => $this->applyExpectedReceivables($unitAccountId),
+                default => $this->applyResponsableFlag(),
+            };
         }
 
         return ['counts' => $counts, 'skipped' => $skipped];
+    }
+
+    /**
+     * Mark « Animateur responsable » as the function that designates a
+     * section's responsable — the trombinoscope's `is_lead` flag, which a
+     * chef sets by hand on Configuration > Config Desk
+     * (Core\Module\FunctionFlagsProvider, ARCHITECTURE.md §7.4).
+     *
+     * It is applied HERE, once, rather than inside
+     * DeskImportReplay::confirmFunctionRoles(): the flag belongs to an
+     * optional module, and a dataset built on an instance where the
+     * trombinoscope is disabled must skip it and say so rather than fail —
+     * which is exactly what this class's MODULE_EXTRAS mechanism already
+     * does for the calendar and for finance. confirmFunctionRoles() stays
+     * core-only, and the two Integration tests that call it keep running
+     * against a core-only schema.
+     *
+     * Without this flag SectionResponsableProvider answers null for every
+     * section, and the public Sections page's responsable line, the member
+     * page's responsable-and-postal-address block, and the trombinoscope's
+     * highlighted card are all unexercised — which was the state of the
+     * dataset before the vocabulary carried the function at all.
+     *
+     * @return int number of functions flagged
+     */
+    private function applyResponsableFlag(): int
+    {
+        $stmt = $this->pdo->prepare('SELECT id FROM functions WHERE desk_code = ?');
+        $stmt->execute([self::RESPONSABLE_FUNCTION]);
+        $functionId = $stmt->fetchColumn();
+
+        if ($functionId === false) {
+            return 0;
+        }
+
+        // Through the service, which is what Config Desk holds
+        // (FunctionsController receives the Core\Module\FunctionFlagsProvider
+        // the composition root gave it), rather than straight at the
+        // repository.
+        (new FunctionFlagsService(new FunctionFlagsRepository($this->pdo)))
+            ->setLead((int) $functionId, true);
+
+        return 1;
     }
 
     /**
