@@ -249,7 +249,7 @@ class TrainingServiceTest extends TestCase
 
     public function testABrevetedFirstYearAnimatorIsNotAskedToStartEither(): void
     {
-        $newcomer = LeadershipTestHelper::staffRow(['memberId' => 99, 'formationLevel' => 'Brevet']);
+        $newcomer = LeadershipTestHelper::staffRow(['memberId' => 99, 'formationLevel' => 'BACV']);
 
         $this->assertSame([], $this->service()->toConvince(
             [$newcomer],
@@ -258,6 +258,55 @@ class TrainingServiceTest extends TestCase
             self::PREVIOUS_YEAR_ID,
             new FormationLevelResolver()
         ));
+    }
+
+    /**
+     * Roadmap IT-20: the Woodbadge is off the animator path, which is a
+     * statement about the « parcours à terminer » list and not about the
+     * person. Printing "à convaincre de commencer" beside somebody holding
+     * one would be plainly wrong, so both lists leave them alone.
+     */
+    public function testAWoodbadgeHolderIsOnNeitherList(): void
+    {
+        $holder = LeadershipTestHelper::staffRow(['memberId' => 99, 'formationLevel' => 'Woodbadge']);
+        $resolver = new FormationLevelResolver();
+
+        $this->assertSame([], $this->service()->toConvince(
+            [$holder],
+            self::SCOUT_YEAR_ID,
+            self::SCOUT_YEAR_LABEL,
+            self::PREVIOUS_YEAR_ID,
+            $resolver
+        ));
+        $this->assertSame([], $this->service()->toFinish([$holder], $resolver));
+    }
+
+    /**
+     * The count behind the sentence above the ratio: how many animateurs
+     * carry a brevet nobody wrote the kind of, and therefore stopped
+     * counting towards it.
+     */
+    public function testTheUnspecifiedBrevetCountIsPerPersonAndOnlyTheLegacyBox(): void
+    {
+        $resolver = new FormationLevelResolver();
+        $rows = [
+            LeadershipTestHelper::staffRow(['memberId' => 1, 'formationLevel' => 'Animateur breveté']),
+            // The same person, two animation functions: one animateur.
+            LeadershipTestHelper::staffRow(['memberId' => 1, 'memberFunctionId' => 2, 'formationLevel' => 'Animateur breveté']),
+            LeadershipTestHelper::staffRow(['memberId' => 2, 'formationLevel' => 'BACV']),
+            LeadershipTestHelper::staffRow(['memberId' => 3, 'formationLevel' => 'Woodbadge']),
+            LeadershipTestHelper::staffRow(['memberId' => 4, 'formationLevel' => 'Zorglub']),
+            LeadershipTestHelper::staffRow(['memberId' => 5, 'formationLevel' => null]),
+        ];
+
+        $this->assertSame(1, $this->service()->unspecifiedBrevetCount($rows, $resolver));
+    }
+
+    public function testNothingToPreciseMeansNoCount(): void
+    {
+        $rows = [LeadershipTestHelper::staffRow(['memberId' => 1, 'formationLevel' => 'BACV'])];
+
+        $this->assertSame(0, $this->service()->unspecifiedBrevetCount($rows, new FormationLevelResolver()));
     }
 
     public function testAnUnrecognisedLevelStaysOnTheListToConvince(): void
@@ -406,7 +455,9 @@ class TrainingServiceTest extends TestCase
         $service = $this->service(headcounts: [5 => 24], sectionService: $sectionService);
 
         $rows = $service->sectionSituations([
-            LeadershipTestHelper::staffRow(['memberId' => 1, 'sectionId' => 5, 'formationLevel' => 'Brevet']),
+            // « BACV » and not « Brevet » since IT-20: only the brevet the
+            // ONE recognises counts towards its ratio.
+            LeadershipTestHelper::staffRow(['memberId' => 1, 'sectionId' => 5, 'formationLevel' => 'BACV']),
             LeadershipTestHelper::staffRow(['memberId' => 2, 'sectionId' => 5, 'formationLevel' => 'T1']),
         ], self::SCOUT_YEAR_ID, new FormationLevelResolver());
 

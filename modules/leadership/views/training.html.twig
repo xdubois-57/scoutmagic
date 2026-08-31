@@ -78,6 +78,23 @@
                     il ne sait rien d'une dérogation, d'un animateur prêté par une autre section ou de ce que
                     l'unité a convenu avec l'ONE, et ne se prononce donc jamais sur la conformité.
                 </p>
+
+                {# Seul le BACV est reconnu par l'ONE : un brevet dont le
+                   type n'a jamais été précisé ne compte donc plus. Le
+                   chiffre baisse le jour de la mise à jour, et cette phrase
+                   est ce qui rend la baisse compréhensible — sans elle,
+                   mieux valait ne rien changer du tout. #}
+                {% if unspecified_brevets > 0 %}
+                    <div class="alert alert-warning small" role="status">
+                        <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+                        {{ unspecified_brevets }} animateur{{ unspecified_brevets > 1 ? 's ont' : ' a' }} un niveau de
+                        formation à préciser. {{ unspecified_brevets > 1 ? 'Ils ne sont pas comptés' : "Il n'est pas compté" }}
+                        dans le ratio ONE, qui ne reconnaît que le BACV.
+                        <a href="/admin/leadership/training?mapping=1#formation-mapping" class="alert-link">
+                            Préciser les niveaux de formation
+                        </a>.
+                    </div>
+                {% endif %}
                 {% if section_situations|length > 0 %}
                     <ul class="list-group list-group-flush">
                         {% for row in section_situations %}

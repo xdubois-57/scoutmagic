@@ -129,6 +129,13 @@ class LeadershipController extends AbstractController
                 $context['scout_year_id'],
                 $context['resolver']
             ),
+            // Above the ratio rather than beside it: the number these
+            // people stopped counting towards is the one a chief reads
+            // first (roadmap IT-20).
+            'unspecified_brevets' => $this->trainingService->unspecifiedBrevetCount(
+                $context['staff'],
+                $context['resolver']
+            ),
             'unresolved_levels' => $this->trainingService->unresolvedLevels(
                 $context['scout_year_id'],
                 $context['resolver']
