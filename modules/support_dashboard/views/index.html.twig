@@ -1,6 +1,14 @@
 {% extends 'base.html.twig' %}
 {% block title %}Tableau de bord support — {{ site_name }}{% endblock %}
 
+{# Les blocs <pre> de cette page (description, note, analyse, JSON brut)
+   sont mis en forme dans components.css, que base.html.twig ne charge
+   délibérément pas. Sans ce lien, une seule ligne longue pousse toute la
+   page de côté à 375px. #}
+{% block stylesheets %}
+<link rel="stylesheet" href="{{ asset('/assets/css/components.css') }}">
+{% endblock %}
+
 {% macro value_or_missing(value) %}{% if value is null or value == '' %}<span class="text-body-secondary">Non renseigné</span>{% else %}{{ value }}{% endif %}{% endmacro %}
 
 {% block content %}

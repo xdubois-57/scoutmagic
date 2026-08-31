@@ -206,3 +206,27 @@ CREATE TABLE support_mail_probes (
     CONSTRAINT fk_support_mail_probes_installation FOREIGN KEY (installation_id)
         REFERENCES support_installations (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- One cross-ticket analysis run (ARCHITECTURE.md §8.49quinquies,
+-- roadmap IT-28).
+--
+-- **Persisted because it is a transmission, not a view.** Grouping tickets
+-- by symptom means sending their descriptions to an external provider,
+-- which makes that provider a sub-processor (AGENTS.md, RGPD). A result
+-- recomputed on every page load would repeat that transmission every time
+-- somebody opened the page, which is the difference between an operation
+-- the maintainer performs and one that happens to them. So a run is asked
+-- for, stored, and read back until somebody asks for another.
+--
+-- The result is encrypted for the same reason the descriptions are: it is
+-- a summary OF those descriptions, and a summary of personal data is
+-- personal data.
+CREATE TABLE support_ticket_analyses (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    requested_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- How many tickets the run actually read, so a reader can tell a
+    -- summary of forty tickets from a summary of two.
+    ticket_count INT UNSIGNED NOT NULL,
+    result_encrypted BLOB NOT NULL,
+    INDEX idx_support_ticket_analyses_requested (requested_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

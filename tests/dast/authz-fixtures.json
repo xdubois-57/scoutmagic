@@ -245,6 +245,9 @@
     "/s/{code}": {
       "code": "abcdefg"
     },
+    "/support-dashboard/tickets/{id}": {
+        "id": "1"
+    },
     "/support-dashboard/installations/{id}": {
       "id": "1"
     },

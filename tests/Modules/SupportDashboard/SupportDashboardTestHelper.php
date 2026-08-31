@@ -108,5 +108,12 @@ class SupportDashboardTestHelper
             delay_seconds INTEGER NULL,
             authentication_encrypted BLOB NULL
         )');
+
+        $pdo->exec('CREATE TABLE support_ticket_analyses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            requested_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            ticket_count INTEGER NOT NULL,
+            result_encrypted BLOB NOT NULL
+        )');
     }
 }

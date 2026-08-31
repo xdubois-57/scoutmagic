@@ -2,7 +2,7 @@
   "id": "support_dashboard",
   "name": "Tableau de bord support",
   "description": "Réception et consultation des rapports d'utilisation envoyés par les installations ScoutMagic.",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "enabled_by_default": false,
   "visible_when": ["statistics_receiver"],
   "routes": [
@@ -53,6 +53,46 @@
       "menu_icon": "bi-speedometer2",
       "menu_group": "exploitation",
       "breadcrumb": { "label": "Tableau de bord support", "parents": ["Configuration"] }
+    },
+    {
+      "path": "/support-dashboard/tickets",
+      "method": "GET",
+      "controller": "Modules\\SupportDashboard\\Controller\\SupportTicketController",
+      "action": "index",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": "Tickets de support",
+      "menu_icon": "bi-life-preserver",
+      "menu_group": "exploitation",
+      "breadcrumb": { "label": "Tickets de support", "parents": ["Configuration"] }
+    },
+    {
+      "path": "/support-dashboard/tickets/{id}",
+      "method": "GET",
+      "controller": "Modules\\SupportDashboard\\Controller\\SupportTicketController",
+      "action": "detail",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": "",
+      "breadcrumb": { "label": "Ticket", "parents": ["Configuration"] }
+    },
+    {
+      "path": "/support-dashboard/tickets/{id}/close",
+      "method": "POST",
+      "controller": "Modules\\SupportDashboard\\Controller\\SupportTicketController",
+      "action": "close",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/support-dashboard/tickets/analyse",
+      "method": "POST",
+      "controller": "Modules\\SupportDashboard\\Controller\\SupportTicketController",
+      "action": "analyse",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
     },
     {
       "path": "/support-dashboard/installations/{id}",
@@ -111,6 +151,10 @@
     {
       "key": "finalize_monthly_aggregate",
       "handler": "Modules\\SupportDashboard\\Task\\FinalizeMonthlyAggregateHandler"
+    },
+    {
+      "key": "purge_tickets",
+      "handler": "Modules\\SupportDashboard\\Task\\PurgeTicketsHandler"
     }
   ],
   "storage": {}

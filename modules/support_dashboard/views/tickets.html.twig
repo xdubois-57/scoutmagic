@@ -1,0 +1,148 @@
+{% extends 'base.html.twig' %}
+{% block title %}Tickets de support — {{ site_name }}{% endblock %}
+
+{# Les blocs <pre> de cette page (description, note, analyse, JSON brut)
+   sont mis en forme dans components.css, que base.html.twig ne charge
+   délibérément pas. Sans ce lien, une seule ligne longue pousse toute la
+   page de côté à 375px. #}
+{% block stylesheets %}
+<link rel="stylesheet" href="{{ asset('/assets/css/components.css') }}">
+{% endblock %}
+
+{% block content %}
+
+{% include 'partials/page_header.html.twig' with { title: 'Tickets de support' } only %}
+
+{# Filtres et recherche vivent dans la query string et nulle part ailleurs
+   (ARCHITECTURE.md §8.50) : la même URL montre toujours la même liste. #}
+<div class="card mb-3">
+    <div class="card-body">
+        <form method="get" action="/support-dashboard/tickets" class="row g-2 align-items-end">
+            <div class="col-12 col-md-4">
+                <label class="form-label" for="ticket-search">Recherche</label>
+                <input type="search" class="form-control" id="ticket-search" name="q"
+                       value="{{ filters.search }}" placeholder="Description, référence, note…">
+            </div>
+            <div class="col-6 col-md-3">
+                <label class="form-label" for="ticket-status">Statut</label>
+                <select class="form-select" id="ticket-status" name="status">
+                    <option value="open"{% if filters.status == 'open' %} selected{% endif %}>Ouverts</option>
+                    <option value="closed"{% if filters.status == 'closed' %} selected{% endif %}>Clôturés</option>
+                    <option value="all"{% if filters.status == 'all' %} selected{% endif %}>Tous</option>
+                </select>
+            </div>
+            <div class="col-6 col-md-3">
+                <label class="form-label" for="ticket-category">Catégorie</label>
+                <select class="form-select" id="ticket-category" name="category">
+                    <option value="">Toutes</option>
+                    {% for category in categories %}
+                        <option value="{{ category.value }}"{% if filters.category == category.value %} selected{% endif %}>
+                            {{ category.label }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-12 col-md-2">
+                <button type="submit" class="btn btn-primary w-100">Filtrer</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% if analysis_available %}
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h5 mb-3">Analyse transversale</h2>
+
+        {# Ce que l'envoi implique, dit avant le bouton et non après : les
+           descriptions partent chez un fournisseur externe, ce qui en fait
+           un sous-traitant (roadmap IT-28). #}
+        <div class="alert alert-info small">
+            <strong>Ce qui part :</strong> la catégorie, la description et la note de résolution des
+            {{ analysis_pending }} ticket(s) les plus récents. Jamais l'adresse de contact, jamais l'URL
+            de l'instance, jamais l'identifiant d'installation. Rien ne part tant que vous n'avez pas cliqué.
+        </div>
+
+        <form method="post" action="/support-dashboard/tickets/analyse">
+            {{ csrf_field()|raw }}
+            <button type="submit" class="btn btn-outline-primary"{% if analysis_pending == 0 %} disabled{% endif %}>
+                Analyser les tickets
+            </button>
+        </form>
+
+        {% if analysis %}
+            <hr>
+            <p class="small text-body-secondary mb-2">
+                Analyse de {{ analysis.ticket_count }} ticket(s), le {{ analysis.requested_at }}.
+            </p>
+            {# Rendu comme du texte : ce que le fournisseur renvoie n'est
+               jamais du balisage que cette page exécute. #}
+            <pre class="border rounded p-3 bg-body-tertiary small mb-0 support-analysis">{{ analysis.result }}</pre>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+<div class="card">
+    <div class="card-body">
+        {% if tickets is empty %}
+            <p class="text-body-secondary mb-0">Aucun ticket ne correspond à ces critères.</p>
+        {% else %}
+            <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                    <thead>
+                        <tr>
+                            <th scope="col" class="support-ticket-cell">Référence</th>
+                            <th scope="col">Reçu</th>
+                            <th scope="col">Catégorie</th>
+                            <th scope="col">Instance</th>
+                            <th scope="col">Statut</th>
+                            <th scope="col">Archive</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for ticket in tickets %}
+                            <tr>
+                                <td class="support-ticket-cell">
+                                    <a href="/support-dashboard/tickets/{{ ticket.id }}">
+                                        <code>{{ ticket.reference }}</code>
+                                    </a>
+                                    {# Un extrait, pas la description entière : on
+                                       cherche dans ce champ, et une liste de
+                                       références sans un mot du texte ne se trie
+                                       pas à l'œil. #}
+                                    <div class="small text-body-secondary">
+                                        {{ ticket.description|slice(0, 90) }}{% if ticket.description|length > 90 %}…{% endif %}
+                                    </div>
+                                </td>
+                                <td class="small">{{ ticket.created_at }}</td>
+                                <td class="small">{{ ticket.category ? ticket.category.label : 'Non précisée' }}</td>
+                                <td class="small">
+                                    {# Imprimée toujours, jamais rendue cliquable : la
+                                       valeur vient d'un inconnu (ARCHITECTURE.md §8.50). #}
+                                    {{ ticket.installation.instance_url|default('Installation inconnue') }}
+                                </td>
+                                <td>
+                                    {% include 'partials/status_badge.html.twig' with {
+                                        status: ticket.status == 'closed' ? 'done' : 'pending',
+                                        label: ticket.status == 'closed' ? 'Clôturé' : 'Ouvert',
+                                    } only %}
+                                </td>
+                                <td class="small">
+                                    {% if ticket.archive_file_id %}
+                                        <i class="bi bi-paperclip" aria-hidden="true"></i>
+                                        <span class="visually-hidden">Archive transmise</span>
+                                    {% else %}
+                                        <span class="text-body-secondary">—</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+{% endblock %}

@@ -4191,6 +4191,36 @@ if ($isEnabled('support_dashboard')) {
         )
     );
 
+    // The ticket queue (roadmap IT-28). One repository instance for the
+    // list, the detail and the analysis: they read the same table and a
+    // second one would be a second place for the retention constants to
+    // drift.
+    $supportTicketRepo = new \Modules\SupportDashboard\Repository\SupportTicketRepository($pdo, $encryptionService);
+
+    $frontController->registerController(
+        \Modules\SupportDashboard\Controller\SupportTicketController::class,
+        new \Modules\SupportDashboard\Controller\SupportTicketController(
+            $twig,
+            new \Modules\SupportDashboard\Service\SupportTicketService(
+                $supportTicketRepo,
+                $journalService,
+                // The probes of the installation that sent the ticket —
+                // « mes e-mails ne partent pas » plus a probe run the same
+                // afternoon is exactly what this page is for.
+                $supportMailProbeService
+            ),
+            // Optional dependency on the llm_connector module
+            // (ARCHITECTURE.md §7.5): null without it, and the analysis
+            // block then does not render at all.
+            new \Modules\SupportDashboard\Service\TicketAnalysisService(
+                $supportTicketRepo,
+                new \Modules\SupportDashboard\Repository\SupportTicketAnalysisRepository($pdo, $encryptionService),
+                $journalService,
+                $llmConnectorForOthers
+            )
+        )
+    );
+
     $frontController->registerController(
         \Modules\SupportDashboard\Controller\StatisticsIntakeController::class,
         new \Modules\SupportDashboard\Controller\StatisticsIntakeController(
@@ -4213,7 +4243,7 @@ if ($isEnabled('support_dashboard')) {
             $twig,
             new \Modules\SupportDashboard\Service\TicketIntakeService(
                 $supportInstallationRepo,
-                new \Modules\SupportDashboard\Repository\SupportTicketRepository($pdo, $encryptionService),
+                $supportTicketRepo,
                 $journalService
             ),
             // The archive arrives on its own route (roadmap IT-26) and is
@@ -4222,7 +4252,7 @@ if ($isEnabled('support_dashboard')) {
             // only through /files/{id}.
             new \Modules\SupportDashboard\Service\TicketArchiveIntakeService(
                 $supportInstallationRepo,
-                new \Modules\SupportDashboard\Repository\SupportTicketRepository($pdo, $encryptionService),
+                $supportTicketRepo,
                 $encryptedFileStorageService,
                 $journalService
             ),
@@ -4263,6 +4293,9 @@ if ($isEnabled('support_dashboard')) {
         \Modules\SupportDashboard\Task\PurgeInstallationsHandler::TASK_KEY => \Modules\SupportDashboard\Task\PurgeInstallationsHandler::REFERENCE,
         // Monthly history (§8.51): closes every calendar month that ended.
         \Modules\SupportDashboard\Task\FinalizeMonthlyAggregateHandler::TASK_KEY => \Modules\SupportDashboard\Task\FinalizeMonthlyAggregateHandler::REFERENCE,
+        // Ticket retention (roadmap IT-28): the diagnostic archives, then
+        // the tickets themselves, then the analyses that summarise them.
+        \Modules\SupportDashboard\Task\PurgeTicketsHandler::TASK_KEY => \Modules\SupportDashboard\Task\PurgeTicketsHandler::REFERENCE,
     ] as $supportTaskKey => $supportTaskReference) {
         $schedulerService->rearm('support_dashboard', $supportTaskKey, $supportTaskReference, new DateTimeImmutable());
     }
