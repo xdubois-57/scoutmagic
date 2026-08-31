@@ -129,7 +129,11 @@
                 {% endif %}
             </p>
             {% if installed_version_notes %}
-                <div class="small text-body-secondary mb-1">{{ installed_version_notes|markdown }}</div>
+                {% include 'partials/clampable_notes.html.twig' with {
+                    id: 'installed-version-notes',
+                    notes: installed_version_notes,
+                    classes: 'small text-body-secondary mb-1'
+                } only %}
             {% endif %}
             <p class="small text-body-secondary">
                 Dernière vérification :
@@ -174,7 +178,11 @@
                         {% endif %}
                     </p>
                     {% if update_release_notes %}
-                        <div class="small mb-2">{{ update_release_notes|markdown }}</div>
+                        {% include 'partials/clampable_notes.html.twig' with {
+                            id: 'update-release-notes',
+                            notes: update_release_notes,
+                            classes: 'small mb-2'
+                        } only %}
                     {% endif %}
                     {% if update_dependencies_changed %}
                         <div class="alert alert-warning small mb-2">
@@ -211,28 +219,35 @@
                                 <th>Statut</th>
                             </tr>
                         </thead>
+                        {# Five, then the rest on demand. The page's job is
+                           "install the update in front of me"; twenty rows of
+                           history pushed that below the fold. The rows beyond
+                           the fifth are rendered all the same — the controller
+                           already fetched them, and a reader who opens the list
+                           should not wait for a round trip. #}
                         <tbody>
-                            {% for entry in update_history %}
-                                <tr>
-                                    <td class="small text-nowrap">{{ entry.versionFrom }} → {{ entry.versionTo }}</td>
-                                    <td class="small text-nowrap">{{ entry.startedAt }}</td>
-                                    <td class="small">
-                                        {% if entry.status == 'completed' %}
-                                            {% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Réussie' } only %}
-                                        {% elseif entry.status == 'failed' %}
-                                            {# title tooltips (error detail) — kept out of the shared partial, which carries none #}
-                                            <span class="badge text-bg-danger" title="{{ entry.errorMessage }}">Échouée</span>
-                                        {% elseif entry.status == 'rolled_back' %}
-                                            <span class="badge text-bg-warning" title="{{ entry.errorMessage }}">Échouée — restaurée automatiquement</span>
-                                        {% else %}
-                                            {% include 'partials/status_badge.html.twig' with { status: 'in_progress', label: 'En cours (' ~ entry.status ~ ')' } only %}
-                                        {% endif %}
-                                    </td>
-                                </tr>
+                            {% for entry in update_history|slice(0, 5) %}
+                                {% include 'partials/update_history_row.html.twig' with { entry: entry } only %}
                             {% endfor %}
                         </tbody>
+                        {% if update_history|length > 5 %}
+                            <tbody class="collapse" id="update-history-more">
+                                {% for entry in update_history|slice(5) %}
+                                    {% include 'partials/update_history_row.html.twig' with { entry: entry } only %}
+                                {% endfor %}
+                            </tbody>
+                        {% endif %}
                     </table>
                 </div>
+                {% if update_history|length > 5 %}
+                    <button type="button" class="btn btn-outline-secondary btn-sm mt-2 collapsed"
+                            data-bs-toggle="collapse" data-bs-target="#update-history-more"
+                            aria-expanded="false" aria-controls="update-history-more">
+                        <span class="show-when-collapsed">Afficher les {{ update_history|length - 5 }} précédentes</span>
+                        <span class="show-when-expanded">Afficher moins</span>
+                        <i class="bi bi-chevron-down ms-1" aria-hidden="true"></i>
+                    </button>
+                {% endif %}
             {% endif %}
         </div>
     </div>
@@ -683,4 +698,5 @@
 {% block scripts %}
     <script src="{{ asset('/assets/js/chunked-upload.js') }}" defer nonce="{{ csp_nonce }}"></script>
     <script src="{{ asset('/assets/js/maintenance.js') }}" defer nonce="{{ csp_nonce }}"></script>
+    <script src="{{ asset('/assets/js/notes-clamp.js') }}" defer nonce="{{ csp_nonce }}"></script>
 {% endblock %}

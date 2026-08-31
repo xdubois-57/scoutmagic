@@ -1,0 +1,33 @@
+{# Release notes, bounded to about twenty lines with « voir plus ».
+
+   Author-written Markdown of no fixed length: a patch ships two lines, a
+   release that lands a module ships several screens. Configuration >
+   Maintenance renders two of these at once (installed version, available
+   version), and unbounded they pushed the install button and the update
+   history below the fold.
+
+   The clamp is CSS (`.notes-clamp`, app.css) — height rather than a line
+   count, because this is RENDERED Markdown and cutting twenty lines of
+   source would cut mid-element. The button ships `hidden` and is revealed
+   by public/assets/js/notes-clamp.js only when the block really overflows:
+   a two-line note must not grow a button that reveals nothing.
+
+   Parameters (pass `only`):
+     id       unique, used to tie block and button together
+     notes    the Markdown source
+     classes  utility classes for the block (typography, spacing) #}
+<div class="notes-clamp {{ classes|default('') }}"
+     id="{{ id }}"
+     data-notes-clamp="{{ id }}-toggle">{{ notes|markdown }}</div>
+<button type="button"
+        class="btn btn-link btn-sm p-0 mb-2"
+        id="{{ id }}-toggle"
+        data-notes-clamp-toggle
+        aria-controls="{{ id }}"
+        aria-expanded="false"
+        data-label-collapsed="Voir la description complète"
+        data-label-expanded="Réduire la description"
+        hidden>
+    <span data-notes-clamp-label>Voir la description complète</span>
+    <i class="bi bi-chevron-down ms-1" aria-hidden="true"></i>
+</button>
