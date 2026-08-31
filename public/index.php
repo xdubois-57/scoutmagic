@@ -3099,6 +3099,57 @@ if ($isEnabled('finance')) {
         $financeAccountRepo, $financeTreasurerScopeService, $financeReceiptService, $effectiveScoutYear->id
     );
 
+    // An invoice arriving by email, offered as a receipt on the account it
+    // names (§8.58). A FACTORY, like every other consumer here: the
+    // question "who may open this attachment" builds exactly one consumer,
+    // and an ordinary page view — which never asks — builds none.
+    //
+    // Unlike the scheduled path, this one supplies an actor and a file
+    // reader, because here there IS somebody making the request: a
+    // treasurer confirming a proposition. Finance's account check is built
+    // from that actor, and the consumer refuses to invent one.
+    if (isset($inboundReadConsumers)) {
+        $inboundReadConsumers->registerFactory(
+            \Modules\Finance\Mail\FinanceMessageConsumer::CONSUMER_ID,
+            static fn(): \Modules\InboundMail\Api\MessageConsumerInterface =>
+                new \Modules\Finance\Mail\FinanceMessageConsumer(
+                    $financeAccountRepo,
+                    $financeTreasurerScopeService,
+                    $pdo,
+                    $encryptionService,
+                    $effectiveScoutYear->id,
+                    $expenseReceiptProvider,
+                    // The confirming user, resolved into the (role,
+                    // members) pair finance's authorisation needs. Only
+                    // ever the CURRENT session: a stored account id from
+                    // some other request is not somebody making a request
+                    // now, and finance must not be handed one.
+                    static function (int $userAccountId) use ($linkedMemberIds): ?array {
+                        if (!AuthSession::isAuthenticated()
+                            || AuthSession::getUserAccountId() !== $userAccountId
+                        ) {
+                            return null;
+                        }
+
+                        return [
+                            'role' => AuthSession::getRole(),
+                            'member_ids' => $linkedMemberIds,
+                        ];
+                    },
+                    static function (int $fileId) use ($encryptedFileStorageService): ?string {
+                        try {
+                            return $encryptedFileStorageService->retrieve($fileId);
+                        } catch (\Throwable) {
+                            // The bytes are gone or unreadable. The
+                            // association still stands; a treasurer can
+                            // attach the file by hand.
+                            return null;
+                        }
+                    }
+                )
+        );
+    }
+
     // A receipt's FILE follows its account's rule too (ARCHITECTURE.md
     // §8.70): role_min alone is a hierarchical floor and cannot say "the
     // Louveteaux section", so without this the screen would be narrowed

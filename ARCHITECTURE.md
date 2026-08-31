@@ -1584,6 +1584,16 @@ What does protect the files is the ordinary mechanism: `File\RentalDocumentOwner
 
 **The polling task is the one module task registered by hand** rather than auto-resolved from its manifest, because it needs the consumer registry and only a composition root can build one — as a lazy factory in `public/scheduler-bootstrap.php`, the single file both entry points call (§8.5), so the graph is only assembled when a sync task is actually due and the registration cannot exist under one trigger and not the other. `Tests\Modules\InboundMail\CompositionRootWiringTest` pins the factory's load-bearing facts, the camps consumer's last position included.
 
+### 8.59bis An invoice arriving by email (`Modules\Finance\Mail`)
+
+**This consumer only ever proposes.** Never an association, on any path: a receipt is an accounting document, and a wrong one is worse than a missing one because it silently balances against the wrong account. What turns a proposition into a receipt is a treasurer confirming it, and nothing else.
+
+**Two signals, both required.** An **attachment** of a type a receipt can be (PDF or image — a spreadsheet is a document and not a receipt), and **exactly one of the unit's own IBANs** in the message's text. The second is what says *which* account, and the module refuses to guess: zero matches is silence, and two matches is silence too, because an email quoting two of the unit's accounts is almost always a transfer between them and a transfer's receipt belongs to neither side. The IBAN is matched through its blind index, so nothing is decrypted to answer the question. A weak signal, and `describeEvidence()` says so out loud — the superadmin reads that sentence before opening a shared mailbox to this module, which is what publishing per-consumer evidence is for.
+
+**A receipt is only ever filed by a person.** `onLinked()` files nothing unless `MessageLink::createdByUserAccountId` names one, and unless the composition root's resolver recognises that id as the CURRENT session: finance's account check is built from the actor, and inventing one would be this module granting itself an account it may not touch. On the scheduled path there is no actor and no file reader, deliberately — a synchronisation has nobody making a request. `onUnlinked()` does nothing at all: detaching the email a receipt arrived in is a statement about the mail, not about the books, and quietly deleting a receipt because somebody tidied a mailbox is the surprise §8.70 exists to prevent.
+
+**Strictly additive to finance.** Nothing in that module changed: the consumer reaches it through `Api\ExpenseReceiptInterface`, which already existed for the federation-invoice flow, and through `Service\AccountVisibility`, which already answers "may this role see this account" — the same answer the finance screens get, deliberately, because a message filed against an account and the account's own movements must not have two different rules. A consumer that needed its provider to change would have been a consumer built at the wrong layer.
+
 ### 8.59 A booking's correspondence (`Modules\Rental\Mail`)
 
 **`rental` claims its own mail; `inbound_mail` has no idea what a booking

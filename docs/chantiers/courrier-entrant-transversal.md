@@ -547,3 +547,69 @@ mois ». Ni l'un ni l'autre n'est vrai : le message quitte le séjour et
 reste dans le courrier de l'unité. L'écran ne cite d'ailleurs plus de durée
 — citer un nombre dont ce module n'est plus propriétaire est la façon dont
 un écran finit par promettre six mois pendant que le réglage en dit trois.
+
+## IT-08 — le consumer finances
+
+### Strictement additif, et c'était vérifiable
+
+Rien n'a changé dans le module finances. Le consumer l'atteint par
+`Api\ExpenseReceiptInterface` — qui existait déjà pour la facture de
+fédération — et par `Service\AccountVisibility`, qui répond déjà « ce rôle
+voit-il ce compte ». C'est la même réponse que les écrans finances
+obtiennent, volontairement : un message classé sur un compte et les
+mouvements de ce compte ne doivent pas avoir deux règles différentes.
+
+Un consumer qui aurait exigé que son fournisseur change aurait été un
+consumer construit au mauvais étage.
+
+### Il ne fait que proposer
+
+Jamais un rattachement, sur aucun chemin. Un reçu est une pièce comptable,
+et un mauvais reçu est pire qu'un reçu manquant : il s'équilibre en silence
+sur le mauvais compte.
+
+### Deux signaux, tous les deux obligatoires
+
+Une **pièce jointe** d'un type qu'un reçu peut avoir (PDF ou image — un
+tableur est un document, pas un reçu), et **exactement un** des IBAN de
+l'unité dans le texte. Le second dit *quel* compte, et le module refuse de
+deviner : zéro correspondance, silence ; deux correspondances, silence
+aussi, parce qu'un email citant deux comptes de l'unité est presque
+toujours un virement interne et que le reçu d'un virement n'appartient par
+défaut à aucun des deux côtés.
+
+L'IBAN passe par son index aveugle : rien n'est déchiffré pour répondre.
+
+`describeEvidence()` dit « signal faible » en toutes lettres. C'est le prix
+de l'absence de seuil central : chaque consumer publie ce sur quoi il
+propose, et le superadmin lit cette phrase avant d'ouvrir une boîte
+partagée au module.
+
+### Un reçu n'est jamais classé que par une personne
+
+`onLinked()` ne classe rien tant que `MessageLink::createdByUserAccountId`
+ne nomme personne, **et** tant que le résolveur de la racine de composition
+ne reconnaît pas cet identifiant comme la session **en cours**.
+L'autorisation de finances se construit à partir de l'acteur ; en inventer
+un ici reviendrait à ce que ce module s'accorde un compte auquel il n'a pas
+droit.
+
+Sur le chemin planifié, il n'y a ni acteur ni lecteur de fichier, et c'est
+délibéré : une synchronisation n'a personne qui fait une demande.
+
+### `onUnlinked()` ne fait rien
+
+Détacher l'email dans lequel un reçu est arrivé est une affirmation sur le
+courrier, pas sur la comptabilité. Supprimer un reçu en silence parce que
+quelqu'un a rangé une boîte mail est exactement la surprise que §8.70
+existe pour éviter. On retire un reçu depuis l'écran des reçus.
+
+### `Api\CandidateAttachment` (livré en IT-07)
+
+Le contrat disait depuis toujours qu'un candidat porte les **métadonnées**
+des pièces jointes. Jusqu'à IT-07 il n'en portait aucune, et un consumer
+dont le signal est « il y a une pièce jointe » n'avait aucun moyen de
+poser la question. Métadonnées seulement : pas d'octets, et un test le
+vérifie — lire un PDF pendant la synchronisation ferait exploser
+`max_execution_time` sur un hébergement mutualisé, en laissant le curseur
+immobile, donc en rejouant le même run condamné à chaque tick.
