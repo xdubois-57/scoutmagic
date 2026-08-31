@@ -363,6 +363,34 @@ test('a member writes in a discussion group: a message, a link, a poll, a reply 
     // point of resolving identity in one service: one person must not read
     // as two different people across two surfaces.
     await expect(dialog.locator('#groups-detail-modal-body')).toContainText('Baden Powell (Baden)');
+    // TEMPORARY INSTRUMENTATION, round two. Round one answered the
+    // question it was asked and killed its own hypothesis: at failure
+    // Bootstrap held isShown=true, isTransitioning=FALSE, a live instance,
+    // one backdrop, body.modal-open, and pageErrors was EMPTY. In that
+    // state hide() would have worked — so hide() was never called, and no
+    // exception prevented it. The remaining suspect is the event itself: a
+    // `click` only exists where mousedown and mouseup share a target, and
+    // Playwright reports its action done once it has dispatched the mouse
+    // events, whether or not a click was synthesised from them.
+    await page.evaluate(() => {
+        const w = /** @type {any} */ (window);
+        w.__closeProbe = { down: [], up: [], click: [], dismissMatched: 0 };
+        const describe = (event) => {
+            const target = /** @type {HTMLElement} */ (event.target);
+            return target && target.tagName
+                ? target.tagName + (target.className ? '.' + String(target.className).split(' ')[0] : '')
+                : String(target);
+        };
+        document.addEventListener('mousedown', (e) => w.__closeProbe.down.push(describe(e)), true);
+        document.addEventListener('mouseup', (e) => w.__closeProbe.up.push(describe(e)), true);
+        document.addEventListener('click', (e) => {
+            w.__closeProbe.click.push(describe(e));
+            const target = /** @type {HTMLElement} */ (e.target);
+            if (target && target.closest && target.closest('[data-bs-dismiss="modal"]')) {
+                w.__closeProbe.dismissMatched += 1;
+            }
+        }, true);
+    });
     await dialog.getByRole('button', { name: 'Fermer' }).click();
     // TEMPORARY INSTRUMENTATION — see the pageErrors listener at the top.
     // This assertion fails about one DAST run in ten with the dialog still
@@ -392,6 +420,17 @@ test('a member writes in a discussion group: a message, a link, a poll, a reply 
                 focustrapActive: instance && instance._focustrap ? instance._focustrap._isActive : null,
                 backdrops: document.querySelectorAll('.modal-backdrop').length,
                 bodyHasModalOpen: document.body.classList.contains('modal-open'),
+                // Round two: did a click event exist at all, and did it
+                // land on something Bootstrap's delegated dismiss handler
+                // would have matched?
+                probe: /** @type {any} */ (window).__closeProbe,
+                dismissButtons: document.querySelectorAll('#groups-detail-modal [data-bs-dismiss="modal"]').length,
+                activeElement: document.activeElement
+                    ? document.activeElement.tagName
+                        + (document.activeElement.className
+                            ? '.' + String(document.activeElement.className).split(' ')[0]
+                            : '')
+                    : '(none)',
             };
         });
         // eslint-disable-next-line no-console
