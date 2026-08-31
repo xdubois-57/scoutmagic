@@ -16,6 +16,7 @@ use Modules\InboundMail\Api\CandidateAttachment;
 use Modules\InboundMail\Api\CandidateMessage;
 use Modules\InboundMail\Api\MessageConsumerInterface;
 use Modules\InboundMail\Api\MessageLink;
+use Modules\InboundMail\Api\MessageRetentionPreference;
 use Modules\InboundMail\Client\FetchedAttachment;
 use Modules\InboundMail\Client\FetchedMessage;
 use Modules\InboundMail\Client\IncomingMailboxClientInterface;
@@ -237,6 +238,18 @@ class MailboxSyncService
             return false;
         }
 
+        // What the consumers that CLAIMED this message want kept of it
+        // (roadmap IT-22). Nobody claimed it, or nobody expressed a
+        // preference: exactly the behaviour that has always been —  body
+        // stored, headers not.
+        $claimants = array_values(array_filter(
+            $consumers,
+            static fn(MessageConsumerInterface $consumer): bool
+                => isset($results[$consumer->consumerId()])
+        ));
+        $keepBody = self::anyWants($claimants, static fn(MessageRetentionPreference $p): bool => $p->wantsBody(), true);
+        $keepHeaders = self::anyWants($claimants, static fn(MessageRetentionPreference $p): bool => $p->wantsRawHeaders(), false);
+
         $storedId = $this->messageRepository->create(
             mailboxId: $mailbox->id,
             folder: $message->folder,
@@ -247,11 +260,15 @@ class MailboxSyncService
             subject: $message->subject,
             fromEmail: $message->fromEmail,
             fromName: $message->fromName,
-            bodyText: $candidate->bodyText,
-            bodyHtml: $candidate->bodyHtml,
+            // Empty strings rather than nulls: the columns are NOT NULL,
+            // and loosening a constraint for every message to record one
+            // consumer's frugality would be the wrong trade.
+            bodyText: $keepBody ? $candidate->bodyText : '',
+            bodyHtml: $keepBody ? $candidate->bodyHtml : '',
             sentAt: $message->sentAt,
             toEmails: $message->toEmails,
-            isBulk: $message->isBulk
+            isBulk: $message->isBulk,
+            rawHeaders: $keepHeaders ? $message->rawHeaders : null
         );
 
         $created = $this->applier->apply($storedId, $results);
@@ -264,6 +281,36 @@ class MailboxSyncService
         $this->notifyLinked($storedId, $created);
 
         return true;
+    }
+
+    /**
+     * Whether any of these consumers wants $want kept, each one that
+     * declares nothing answering $default.
+     *
+     * **The wider answer wins**, deliberately, and per consumer rather
+     * than per set: one module's frugality must not delete what another
+     * needs off the same message, and a module that never declared
+     * anything must keep behaving as it always did even when it shares a
+     * message with one that did. A message nobody claimed takes the
+     * default outright.
+     *
+     * @param MessageConsumerInterface[] $consumers
+     * @param callable(MessageRetentionPreference): bool $want
+     */
+    private static function anyWants(array $consumers, callable $want, bool $default): bool
+    {
+        if ($consumers === []) {
+            return $default;
+        }
+
+        foreach ($consumers as $consumer) {
+            $answer = $consumer instanceof MessageRetentionPreference ? $want($consumer) : $default;
+            if ($answer) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
