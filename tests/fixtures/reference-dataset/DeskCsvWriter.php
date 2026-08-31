@@ -28,7 +28,11 @@ namespace Tests\Fixtures\ReferenceDataset;
  * One row per (function × address). Addresses are deduplicated by
  * `Type d'adresse` inside the parser; functions are not — so a member with two
  * addresses and one function produces two rows carrying the SAME function,
- * exactly as a real export does.
+ * exactly as a real export does. What the IMPORTER does with that repeat is a
+ * separate question and a separate answer: `Core\Import\DeskImportService`
+ * collapses entries identical in every field before storing them, so those two
+ * rows become one `member_functions` row. Keep writing both here — the point of
+ * this fixture is to produce what Desk produces, not what the database keeps.
  */
 final class DeskCsvWriter
 {

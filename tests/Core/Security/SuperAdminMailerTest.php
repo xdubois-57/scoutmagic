@@ -45,7 +45,16 @@ class SuperAdminMailerTest extends TestCase
         $this->service = new SuperAdminService(
             $this->userRepo,
             new JournalService(new JournalRepository($this->pdo)),
-            new SuperAdminMailer($this->mailService, $twig, 'Unité Test', 'https://unite.example')
+            new SuperAdminMailer(
+                $this->mailService,
+                new \Core\Mail\Template\EmailTemplateRenderer(
+                    $twig,
+                    new \Core\Mail\Template\EmailTemplateRegistry(),
+                    new \Core\Mail\Template\EmailTemplateOverrideRepository($this->pdo)
+                ),
+                'Unité Test',
+                'https://unite.example'
+            )
         );
     }
 

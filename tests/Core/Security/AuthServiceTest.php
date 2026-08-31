@@ -13,6 +13,7 @@ use Core\Security\UserAccountRepository;
 use PHPUnit\Framework\TestCase;
 use Twig\Environment;
 use Twig\Loader\ArrayLoader;
+use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
 
 /**
  * @group database
@@ -90,6 +91,23 @@ class AuthServiceTest extends TestCase
             )
         ');
 
+        // This file builds its own minimal schema rather than using
+        // DatabaseTestHelper, so the e-mail register's table has to be
+        // declared here too: AuthService renders the magic link through
+        // Core\Mail\Template\EmailTemplateRenderer, which asks whether a
+        // customisation exists before it renders anything. An empty table
+        // is the ordinary answer — the shipped template.
+        $this->pdo->exec('
+            CREATE TABLE email_template_overrides (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                template_id TEXT NOT NULL UNIQUE,
+                subject TEXT NOT NULL,
+                body_html TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_by INTEGER
+            )
+        ');
+
         $this->encryption = new EncryptionService(
             str_repeat('a', 32),
             str_repeat('b', 32)
@@ -122,7 +140,7 @@ class AuthServiceTest extends TestCase
             $connection,
             $this->encryption,
             $this->mailService,
-            $twig,
+            EmailTemplateRendererFactory::overTestDatabase($this->pdo, $twig),
             'https://example.com',
             'Test Unit'
         );

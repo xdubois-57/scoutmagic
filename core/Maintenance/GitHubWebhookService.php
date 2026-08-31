@@ -20,7 +20,7 @@ use Core\Scheduler\SchedulerService;
  * schedules Task\InstallUpdateHandler at the admin's configured weekly
  * slot, gated by the allowed version-bump level) and a push (development
  * mode only — installs immediately from the CI-built artifact attached to
- * the rolling `dev-build` prerelease, ignoring both the level gate and the
+ * the rolling `dev-latest` prerelease, ignoring both the level gate and the
  * weekly slot).
  *
  * Signature verification (verifySignature()) is a separate, pure method
@@ -58,7 +58,15 @@ class GitHubWebhookService
      * builds, and it is a property of the workflow, restated here so the
      * two halves of the contract are readable together.
      */
-    public const DEV_BUILD_TAG = 'dev-build';
+    // 'dev-latest', not the original 'dev-build': that name was used by a
+    // release published while this repository had GitHub's release
+    // immutability enabled, and a tag name once used by an immutable
+    // release is reserved FOREVER — republishing under it answers
+    // "tag_name was used by an immutable release" even after the release
+    // is deleted and the setting disabled (measured, three attempts).
+    // If this tag ever has to change again, the deployed sites' copies of
+    // this constant still point at the old one: plan the bridge first.
+    public const DEV_BUILD_TAG = 'dev-latest';
 
     /**
      * How long Task\InstallUpdateHandler may keep waiting for that
@@ -383,7 +391,7 @@ class GitHubWebhookService
         //
         // .github/workflows/dev-build.yml publishes the same artifact
         // scripts/release.sh builds (both call scripts/build-artifact.sh),
-        // as an asset of the rolling `dev-build` prerelease. It is FLAT,
+        // as an asset of the rolling `dev-latest` prerelease. It is FLAT,
         // exactly like a release artifact — no wrapping
         // "{owner}-{repo}-{sha}/" directory — which is why source_type is
         // 'release' and not 'branch': resolveBranchArchiveRoot() exists

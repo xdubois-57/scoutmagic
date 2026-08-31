@@ -102,6 +102,54 @@ class FormationLevelMappingRepository
         $stmt->execute([$rawValue, $key, $step->value, $now]);
     }
 
+    /**
+     * Reclassify the mappings an admin recorded before the BACV and the
+     * Woodbadge had boxes of their own (roadmap IT-19).
+     *
+     * Everything a unit had decided was a brevet landed on the legacy box,
+     * whatever kind of brevet it was; the ONE ratio now needs the two
+     * apart. What the raw wording says is the only evidence available, and
+     * it is enough for the two named ones: a folded key carrying « bacv »
+     * is a BACV, one carrying « wood » is a Woodbadge. **Everything else
+     * stays on the legacy box** — a brevet whose kind nobody recorded is
+     * not a BACV just because the site would prefer a cleaner number.
+     *
+     * Two set-based statements rather than a row loop: the table is small
+     * by construction, but this runs on a live request and a loop over it
+     * would be round trips for nothing. Only rows still on the legacy box
+     * are touched, so the whole thing is idempotent — a second run matches
+     * nothing — and re-running it can never undo a decision an admin has
+     * since made by hand, since such a row no longer says 'brevet'.
+     *
+     * BACV is applied first: a wording mentioning both is a BACV that also
+     * says which weekend it was earned on far more often than it is a
+     * Woodbadge, and one of the two has to win a comparison nobody can
+     * settle from a string.
+     *
+     * @return int rows reclassified
+     */
+    public function reclassifyLegacyBrevetRows(): int
+    {
+        $pdo = $this->connection->getPdo();
+        $now = date('Y-m-d H:i:s');
+        $changed = 0;
+
+        foreach ([
+            ['%bacv%', FormationStep::BACV],
+            ['%wood%', FormationStep::WOODBADGE],
+        ] as [$pattern, $step]) {
+            $stmt = $pdo->prepare(
+                'UPDATE leadership_formation_levels
+                 SET step = ?, updated_at = ?
+                 WHERE step = ? AND raw_value_key LIKE ?'
+            );
+            $stmt->execute([$step->value, $now, FormationStep::BREVET->value, $pattern]);
+            $changed += $stmt->rowCount();
+        }
+
+        return $changed;
+    }
+
     /** Undo a mapping: the value goes back to whatever the heuristic makes of it. */
     public function delete(string $rawValue): void
     {

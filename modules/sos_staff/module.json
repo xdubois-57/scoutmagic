@@ -179,5 +179,21 @@
       "handler": "Modules\\SosStaff\\Task\\ApplyRedirectHandler"
     }
   ],
-  "storage": {}
+  "storage": {},
+  "emails": [
+    {
+      "id": "sos_staff.admin_alert",
+      "label": "Alerte de redirection SOS Staff d'U",
+      "description": "Envoyé aux chefs d'unité quand la redirection du numéro SOS échoue.",
+      "default_subject": "Alerte — Redirection SOS Staff d'U",
+      "template": "@sos_staff/email/admin_alert.html.twig",
+      "variables": [
+        {
+          "name": "message",
+          "label": "Message d'erreur",
+          "example": "Le fournisseur a refusé la redirection."
+        }
+      ]
+    }
+  ]
 }

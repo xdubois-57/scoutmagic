@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Modules\SosStaff\Service;
 
 use Core\Journal\JournalService;
+use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
 use Core\Mail\MailService;
 use Core\Member\MemberFunctionInfo;
 use Core\Member\MemberProfile;
@@ -61,7 +62,7 @@ class RedirectServiceTest extends TestCase
             $this->userAccountRepository,
             $this->mailService,
             $this->journalService,
-            $this->twig,
+            EmailTemplateRendererFactory::shippedOnlyForModule($this->twig, 'sos_staff'),
             $notifications ?? $this->notificationService
         );
     }
@@ -401,7 +402,7 @@ class RedirectServiceTest extends TestCase
             $this->userAccountRepository,
             $this->mailService,
             $this->journalService,
-            $this->twig,
+            EmailTemplateRendererFactory::shippedOnlyForModule($this->twig, 'sos_staff'),
             null
         );
 

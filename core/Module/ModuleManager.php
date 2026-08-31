@@ -13,6 +13,7 @@ use Core\Cookie\CookieConsentService;
 use Core\Exception\UserFacingMessage;
 use Core\Http\Router;
 use Core\Journal\JournalService;
+use Core\Mail\Template\EmailTemplateRegistry;
 use Core\Notification\NotificationService;
 use Core\Offline\OfflineWhitelist;
 use Core\View\MenuBuilder;
@@ -65,7 +66,13 @@ class ModuleManager
         // and ~400 route validations per page view. Entries are keyed on
         // each file's mtime+size, so an edited manifest reparses
         // immediately, dev checkouts included.
-        private ?string $manifestCacheDirectory = null
+        private ?string $manifestCacheDirectory = null,
+        // Automatic-e-mail aggregation (Core\Mail\Template\
+        // EmailTemplateRegistry) — same optional-trailing-parameter
+        // pattern as $helpRegistry above; null (tests, callers that
+        // predate the registry) simply registers no module e-mails, and
+        // every module goes on sending exactly as it did.
+        private ?EmailTemplateRegistry $emailTemplateRegistry = null
     ) {
     }
 
@@ -677,6 +684,13 @@ class ModuleManager
                 null,
                 $setting['editable']
             );
+        }
+
+        // Register the automatic e-mails this module declares. Purely an
+        // inventory at this point: nothing changes about how the module
+        // sends them.
+        if (!empty($manifest->emails)) {
+            $this->emailTemplateRegistry?->registerModuleTemplates($manifest->id, $manifest->name, $manifest->emails);
         }
 
         // Register cookies

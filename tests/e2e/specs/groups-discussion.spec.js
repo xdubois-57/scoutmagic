@@ -69,7 +69,7 @@ import { expect, test } from '@playwright/test';
 import { autoConfirm } from '../support/confirm-dialog.js';
 import { loginAsAdmin, loginAsMember } from '../support/admin-login.js';
 // Shared with specs/groups-management.spec.js — see support/groups.js.
-import { openComposer, openCreateGroupForm, waitForGroupsJsReady } from '../support/groups.js';
+import { closeDetailDialog, openComposer, openCreateGroupForm, waitForGroupsJsReady } from '../support/groups.js';
 
 // Unique per run so a re-run against a database that somehow survived
 // (E2E_DB_NAME pointed elsewhere, a killed teardown) still starts from an
@@ -347,8 +347,7 @@ test('a member writes in a discussion group: a message, a link, a poll, a reply 
     // point of resolving identity in one service: one person must not read
     // as two different people across two surfaces.
     await expect(dialog.locator('#groups-detail-modal-body')).toContainText('Baden Powell (Baden)');
-    await dialog.getByRole('button', { name: 'Fermer' }).click();
-    await expect(dialog).toBeHidden();
+    await closeDetailDialog(page);
 
     // --- Everything above happened without a single page load. Reload
     // once, and require the server to hand all of it back: that is what

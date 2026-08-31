@@ -8,13 +8,16 @@ declare(strict_types=1);
 
 namespace Modules\MassMail\Service;
 
+use Core\Config\ScoutYearService;
 use Core\Import\FunctionRepository;
 use Core\Member\SectionService;
+use Core\ScoutYear\ScoutYearResolver;
 use Modules\MassMail\Repository\Email;
 use Modules\MassMail\Repository\MailingList;
 use Modules\MassMail\Repository\MailingListRepository;
 use Modules\MassMail\Repository\MemberResolutionRepository;
 use Modules\Registration\Api\ExternalMailingListProvider;
+use Modules\Registration\Api\ProjectedPopulationProvider;
 
 /**
  * Owns all "kinds" of mailing list (module spec): default lists — one
@@ -39,8 +42,91 @@ class MailingListService
         private MemberResolutionRepository $resolutionRepository,
         private SectionService $sectionService,
         private FunctionRepository $functionRepository,
-        private ?ExternalMailingListProvider $externalListProvider = null
+        private ?ExternalMailingListProvider $externalListProvider = null,
+        /**
+         * The projection (ARCHITECTURE.md §7.5, `registration`'s
+         * `Api\ProjectedPopulationProvider`) — null when that module is
+         * disabled, and every future-year list then falls back to Desk,
+         * which is exactly what it used to do.
+         */
+        private ?ProjectedPopulationProvider $projectedPopulation = null,
+        private ?ScoutYearResolver $scoutYearResolver = null,
+        private ?ScoutYearService $scoutYearService = null
     ) {
+    }
+
+    /**
+     * Whether `$scoutYearId` is a year the unit has not reached yet.
+     *
+     * Compared by LABEL, never by id: a scout year row is created the
+     * moment something needs it, so next year's id can be lower than this
+     * year's (the same trap `SectionMembershipRepository` fell into) and
+     * `id > publicId` would answer at random. Labels are `YYYY-YYYY`, so a
+     * string comparison is the chronology.
+     */
+    public function isFutureScoutYear(int $scoutYearId): bool
+    {
+        if ($this->scoutYearResolver === null || $this->scoutYearService === null) {
+            return false;
+        }
+
+        $year = $this->scoutYearService->findById($scoutYearId);
+        if ($year === null) {
+            return false;
+        }
+
+        return (string) $year['label'] > (string) $this->scoutYearResolver->getCurrentPublicYear()['label'];
+    }
+
+    /**
+     * What to tell somebody about to send to a year that has not happened
+     * yet — null for the current year and for any past one, because a
+     * warning shown on every ordinary send is a warning nobody reads.
+     *
+     * Two texts, because there are two situations and they are not equally
+     * reassuring: with the registration module the list already knows about
+     * decided passages, accepted registrations and announced departures and
+     * is merely incomplete; without it there is nothing but Desk, which for
+     * a year nobody has imported means very little.
+     */
+    public function futureAudienceWarning(int $scoutYearId): ?string
+    {
+        if (!$this->isFutureScoutYear($scoutYearId)) {
+            return null;
+        }
+
+        $label = (string) ($this->scoutYearService?->findById($scoutYearId)['label'] ?? '');
+
+        if ($this->projectedPopulation !== null) {
+            return "Cette liste vise l'année {$label}. Elle tient compte des passages décidés, des inscriptions "
+                . "acceptées et des départs annoncés. Tant que tout n'est pas encodé dans Desk, elle reste une "
+                . 'projection : des destinataires peuvent manquer ou changer de section.';
+        }
+
+        return "Cette liste vise l'année {$label}. Le module Inscriptions étant désactivé, elle ne repose que sur "
+            . "les données Desk : elle ne sera exacte qu'une fois l'année suivante entièrement encodée dans Desk.";
+    }
+
+    /**
+     * The same caveat as futureAudienceWarning(), stated where a list is
+     * DEFINED rather than where a year is picked — so the configuration
+     * page can say what « l'année prochaine » will mean before anybody
+     * discovers it in a dialog seconds before sending.
+     *
+     * Not year-specific and never null: this page has no year to name, and
+     * a sentence that appeared and disappeared depending on the calendar
+     * would be worse than one that is simply always true.
+     */
+    public function futureAudienceNotice(): string
+    {
+        if ($this->projectedPopulation !== null) {
+            return 'Pour une année scoute à venir, les listes de section et « tous les membres actifs » '
+                . "s'appuient sur la projection du module Inscriptions — passages décidés, inscriptions "
+                . "acceptées, départs annoncés — tant que Desk n'est pas encodé.";
+        }
+
+        return 'Pour une année scoute à venir, les listes ne reposent que sur les données Desk : elles ne '
+            . "seront exactes qu'une fois l'année entièrement encodée dans Desk.";
     }
 
     /**
@@ -203,6 +289,25 @@ class MailingListService
      */
     public function resolveMembers(string $listType, ?int $listId, ?int $listSectionId, int $scoutYearId): array
     {
+        // A year the unit has not reached yet has, by definition, little or
+        // nothing in Desk. When `registration` is enabled its projection
+        // knows who is expected — decided passages, accepted registrations,
+        // announced departures — so the two lists that mean something for a
+        // population read it instead of an empty Desk year.
+        //
+        // The other two do not, and are deliberately left alone: a
+        // projection is animés only and carries no FUNCTION, so it has
+        // nothing to say about « les chefs » or about a custom list built
+        // from functions. Answering those from it would be inventing
+        // recipients.
+        if (
+            $this->projectedPopulation !== null
+            && in_array($listType, ['default_section', 'default_active_members'], true)
+            && $this->isFutureScoutYear($scoutYearId)
+        ) {
+            return $this->projectedMembers($scoutYearId, $listType === 'default_section' ? $listSectionId : null);
+        }
+
         switch ($listType) {
             case 'default_section':
                 \assert($listSectionId !== null);
@@ -234,6 +339,52 @@ class MailingListService
             default:
                 throw new MailingListException("Type de liste inconnu : {$listType}");
         }
+    }
+
+    /**
+     * The projected audience of a future year, in the shape the rest of
+     * this module already speaks: `{member_id, email}`.
+     *
+     * **Only the people who already have a Desk identity.** An accepted
+     * registration that nobody has encoded yet is a real future member and
+     * the warning says so, but it has no `member_id` — and everything
+     * downstream is keyed on one: `MemberEmailService::
+     * resolveValidAddressesForMassMail()`, the per-address recipient rows,
+     * and the one-click unsubscribe link. Pushing a request through that
+     * pipeline would mean inventing an identity for it, which is a much
+     * larger change than showing a warning; a family whose child is not yet
+     * encoded is one of the « destinataires [qui] peuvent manquer » the
+     * warning names.
+     *
+     * @return array<int, array{member_id: int, email: ?string}>
+     */
+    private function projectedMembers(int $scoutYearId, ?int $sectionId): array
+    {
+        \assert($this->projectedPopulation !== null);
+
+        $emails = [];
+        foreach ($this->projectedPopulation->reachableRecipients($scoutYearId) as $recipient) {
+            if ($recipient->memberId !== null) {
+                $emails[$recipient->memberId] = $recipient->email;
+            }
+        }
+
+        $members = [];
+        foreach ($this->projectedPopulation->projectedPopulation($scoutYearId) as $person) {
+            if ($person->memberId === null) {
+                continue;
+            }
+            if ($sectionId !== null && $person->sectionId !== $sectionId) {
+                continue;
+            }
+
+            $members[] = [
+                'member_id' => $person->memberId,
+                'email' => $emails[$person->memberId] ?? null,
+            ];
+        }
+
+        return $members;
     }
 
     /**

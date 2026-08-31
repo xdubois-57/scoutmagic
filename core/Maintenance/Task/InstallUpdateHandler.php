@@ -530,7 +530,7 @@ class InstallUpdateHandler implements TaskHandlerInterface
         $updateHistoryRepository->markFailed(
             $historyId,
             'L\'archive de cette mise à jour n\'a jamais été publiée : l\'intégration continue devait déposer '
-            . '« ' . basename($downloadUrl) . ' » sur la préversion « dev-build » du dépôt, et elle est toujours '
+            . '« ' . basename($downloadUrl) . ' » sur la préversion « ' . \Core\Maintenance\GitHubWebhookService::DEV_BUILD_TAG . ' » du dépôt, et elle est toujours '
             . 'absente. La mise à jour a été abandonnée sans rien modifier ; relancez la construction, puis '
             . 'réessayez.'
         );

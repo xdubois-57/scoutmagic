@@ -43,6 +43,7 @@ use Modules\MassMail\Service\MergeRenderer;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\MassMail\MassMailTestHelper;
+use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
 
 /**
  * Turning somebody else's rows into a mail-merge draft.
@@ -92,7 +93,7 @@ class MergeDraftServiceTest extends TestCase
             new MemberEmailService(
                 new MemberEmailRepository($this->pdo, $encryption),
                 $this->createMock(MailService::class),
-                $this->createMock(\Twig\Environment::class),
+                EmailTemplateRendererFactory::overTestDatabase($this->pdo, $this->createMock(\Twig\Environment::class)),
                 new JournalService(new JournalRepository($this->pdo)),
                 $sectionService,
                 $memberService,

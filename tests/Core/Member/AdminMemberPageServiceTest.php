@@ -200,6 +200,38 @@ class AdminMemberPageServiceTest extends TestCase
         $this->assertFalse($history[1]['is_current']);
     }
 
+    /**
+     * The order on screen is the calendar's, never the order the
+     * `scout_years` rows happened to be created in.
+     * ScoutYearService::ensureYear() makes a year the first time anything
+     * needs it, so an install that has already prepared next year holds a
+     * LOWER id for a LATER year — which is exactly what this fixture
+     * builds by creating the OLDEST year last. It matters twice over:
+     * the block is truncated at SECTION_HISTORY_LIMIT, so a shuffled list
+     * does not merely read oddly, it keeps the wrong rows.
+     */
+    public function testSectionHistoryFollowsTheCalendarNotTheOrderTheYearsWereCreated(): void
+    {
+        $olderYearId = $this->scoutYearService->ensureYear('2023-2024');
+        $this->assertGreaterThan(
+            $this->currentYearId,
+            $olderYearId,
+            'the fixture must give the oldest year the highest id'
+        );
+
+        $this->insertPeriod($olderYearId, $this->baladinsId, '2023-09-01');
+        $this->insertPeriod($this->pastYearId, $this->baladinsId, '2024-09-01');
+        $this->insertPeriod($this->currentYearId, $this->louveteauxId, '2025-09-01');
+
+        $history = $this->build()['section_history'];
+
+        $this->assertSame(
+            ['2025-2026', '2024-2025', '2023-2024'],
+            array_column($history, 'scout_year_label')
+        );
+        $this->assertSame([true, false, false], array_column($history, 'is_current'));
+    }
+
     public function testSectionHistoryCollapsesTwoPeriodsOfTheSameYearAndSection(): void
     {
         // A member who left a section and came back inside one year has

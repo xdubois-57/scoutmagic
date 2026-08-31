@@ -560,4 +560,24 @@
             loadTransitionsPage(page);
         });
     }
+
+    // Every listener above is now attached, and this says so.
+    //
+    // Same convention, and the same reason, as groups.js's `groups-js`
+    // marker: the day rows and the desktop grid answer clicks from
+    // listeners bound HERE, not from markup, so a page whose HTML has
+    // rendered is not yet a page that reacts. A tap landing in that window
+    // does nothing at all — no error, no effect — and the offcanvas the
+    // caller was waiting for simply never opens.
+    //
+    // Nobody working by hand can lose that race: reading a month and
+    // choosing a day takes far longer than this file needs. A browser
+    // suite can, and did — tests/e2e/specs/oncall-grid.spec.js clicks a
+    // row immediately after a month navigation, which failed in CI under
+    // the security scan, whose added latency widens the window.
+    //
+    // The class is the only honest proof that this file ran: written from
+    // here rather than into the template, so a page whose JavaScript
+    // failed to load never claims otherwise.
+    document.documentElement.classList.add('sos-js');
 })();

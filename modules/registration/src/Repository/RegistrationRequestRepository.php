@@ -441,6 +441,23 @@ class RegistrationRequestRepository
         $stmt->execute([$sectionId, $id]);
     }
 
+    /**
+     * The other half of IT-18's « Réinitialiser »: the intended section of
+     * every accepted request of one target year, cleared in one statement.
+     *
+     * Accepted requests only. A pending or refused request has no place on
+     * the Passage page, so the button that empties that page has no
+     * business touching one.
+     */
+    public function clearIntendedSectionsForYear(int $scoutYearId): void
+    {
+        $stmt = $this->pdo->prepare(
+            "UPDATE registration_requests SET intended_section_id = NULL
+              WHERE scout_year_id = ? AND status = 'accepted'"
+        );
+        $stmt->execute([$scoutYearId]);
+    }
+
     public function updateFeeCategory(int $id, ?int $feeCategoryId): void
     {
         $stmt = $this->pdo->prepare('UPDATE registration_requests SET fee_category_id = ? WHERE id = ?');

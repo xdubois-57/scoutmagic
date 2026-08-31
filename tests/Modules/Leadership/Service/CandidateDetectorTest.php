@@ -29,7 +29,8 @@ class CandidateDetectorTest extends TestCase
             'inclusive middle dot' => ['Candidat·e animateur·rice'],
             'inclusive parentheses' => ['Candidat(e) animateur'],
             'the noun' => ['Animateur en candidature'],
-            'accented neighbours' => ['Candidat chef d\'unité'],
+            'accented neighbours' => ['Candidat animateur d\'unité'],
+            'the other real one' => ['Candidat intendant'],
             'extra whitespace' => ['   Candidat   animateur  '],
             'hyphenated' => ['Candidat-animateur'],
         ];
@@ -48,7 +49,8 @@ class CandidateDetectorTest extends TestCase
     {
         return [
             'plain animateur' => ['Animateur'],
-            'chef d\'unité' => ["Chef d'unité"],
+            'unit-level animation' => ["Animateur d'unité"],
+            'section responsable' => ['Animateur responsable'],
             'intendant' => ['Intendant'],
             'accented but unrelated' => ['Animateur délégué'],
             'empty' => [''],

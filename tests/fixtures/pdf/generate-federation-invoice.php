@@ -74,8 +74,8 @@ $blocks = [
     // The federation prints a label here, not a code: "Staff d'unité",
     // which is this site's STAFFDU section.
     ['COT_NORM', 'Cotisation normale', "Staff d'unité", '39,00', [
-        ['DUPONT', 'Sophie', '22/06/1995', "Chef d'unité"],
-        ['Lemaire', 'Marc', '10/01/1990', "Chef d'unité"],
+        ['DUPONT', 'Sophie', '22/06/1995', "Animateur d'unité"],
+        ['Lemaire', 'Marc', '10/01/1990', "Animateur d'unité"],
         ['BODART', 'Emma', '05/05/1998', 'Animateur'],
         ['THIRY', 'Gilles', '17/02/1997', 'Animateur'],
         ['VERHEYEN', 'Lucie', '08/12/1999', 'Animateur'],
@@ -102,8 +102,8 @@ $blocks = [
     ]],
     // Negative unit price, tied to a formation level.
     ['RED_ANIM_BREV', 'Réduction animateur breveté', "Staff d'unité", '-10,00', [
-        ['DUPONT', 'Sophie', '22/06/1995', "Chef d'unité"],
-        ['Lemaire', 'Marc', '10/01/1990', "Chef d'unité"],
+        ['DUPONT', 'Sophie', '22/06/1995', "Animateur d'unité"],
+        ['Lemaire', 'Marc', '10/01/1990', "Animateur d'unité"],
     ]],
 ];
 

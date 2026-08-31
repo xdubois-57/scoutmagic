@@ -46,12 +46,23 @@ enregistrements, les e-mails de l'unité risquent la boîte à courrier
 indésirable. Régénérer la clé de signature impose de mettre à jour
 l'enregistrement correspondant.
 
-## La tâche planifiée (cron)
+## La tâche cron
 
-Le bloc du bas donne la ligne à installer chez votre hébergeur pour
-que les tâches de fond (notifications, rappels, purges) tournent
-chaque minute. Sans elle, le site ne travaille qu'au rythme des
-visites.
+Le bloc « Tâche cron » donne la ligne exacte à installer chez votre
+hébergeur pour que les tâches de fond (sauvegardes, mises à jour,
+notifications, rappels) tournent chaque minute. Elle est
+indispensable : sans elle, le site ne travaille qu'au rythme des
+visites, et rien ne se passe la nuit ni pendant les vacances.
+
+Le mot `php` au début de la ligne n'est pas facultatif. Certains
+panneaux d'hébergement proposent un champ « Adresse du script » et
+acceptent un simple chemin de fichier : dans ce cas, rien ne
+s'exécute, et aucun message ne le signale.
+
+Un indicateur affiche l'état détecté et se met à jour tout seul.
+Lors de la toute première installation, le bouton « Installer » reste
+bloqué tant qu'il n'est pas passé au vert. Sur un site déjà
+configuré, l'indicateur avertit mais n'empêche jamais d'enregistrer.
 
 ## Le compte administrateur
 

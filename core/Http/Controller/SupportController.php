@@ -20,6 +20,12 @@ use Core\Service\DateInput;
 use Core\Statistics\DestinationMatcher;
 use Core\Statistics\StatisticsPayloadBuilder;
 use Core\Statistics\StatisticsSender;
+use Core\File\FileRepository;
+use Core\Support\Ticket\ArchiveContents;
+use Core\Support\Ticket\MailProbeSender;
+use Core\Support\Ticket\SupportArchiveSender;
+use Core\Support\Ticket\SupportTicketSender;
+use Core\Support\Ticket\TicketIdentityService;
 use Core\Statistics\StatisticsStateSettings;
 use Core\Support\SupportPackageService;
 use Core\Support\SupportPackageState;
@@ -59,7 +65,30 @@ class SupportController extends AbstractController
         private JournalService $journalService,
         private StatisticsPayloadBuilder $payloadBuilder,
         private SchedulerService $schedulerService,
-        private StatisticsSender $statisticsSender
+        private StatisticsSender $statisticsSender,
+        /**
+         * Null when nothing wired one — the ticket section then simply
+         * does not render, the way every other optional capability of this
+         * codebase degrades.
+         */
+        private ?SupportTicketSender $ticketSender = null,
+        private ?TicketIdentityService $ticketIdentity = null,
+        private ?SupportArchiveSender $archiveSender = null,
+        /**
+         * The collectors' technical names, in the order the archive is
+         * built — turned into French on the way to the view. Empty when
+         * nothing wired them, which simply hides the contents list.
+         *
+         * @var list<string>
+         */
+        private array $collectorNames = [],
+        /** Only ever asked for the archive's size, on the consent screen. */
+        private ?FileRepository $fileRepository = null,
+        /**
+         * The diagnostic mail probes (roadmap IT-27). Null when nothing
+         * wired one — the section then does not render, like the rest.
+         */
+        private ?MailProbeSender $probeSender = null
     ) {
     }
 
@@ -70,10 +99,44 @@ class SupportController extends AbstractController
      */
     public function index(Request $request, array $params): Response
     {
+        return $this->renderIndex();
+    }
+
+    /**
+     * The page, with an optional half-filled ticket form.
+     *
+     * `$ticketForm` is what an administrator had typed when a send
+     * failed: the page is re-rendered rather than redirected to, because
+     * a redirect would lose the description they just wrote and « votre
+     * saisie a disparu, réessayez » is not an error message anybody
+     * accepts (roadmap IT-25).
+     *
+     * @param array<string, string> $ticketForm
+     */
+    private function renderIndex(array $ticketForm = []): Response
+    {
         $lastSuccessAt = self::nonEmpty($this->settingService->get(self::LAST_SUCCESS_SETTING));
         $lastFailureAt = self::nonEmpty($this->settingService->get(self::LAST_FAILURE_SETTING));
 
         return $this->render('config/support.html.twig', [
+            // The ticket section, or nothing at all when no sender is
+            // wired.
+            'ticket_available' => $this->ticketSender !== null,
+            'ticket_categories' => $this->ticketSender?->categories() ?? [],
+            'ticket_last_sent' => $this->ticketSender?->lastSent(),
+            'ticket_form' => $ticketForm,
+            'ticket_contact_default' => (string) (AuthSession::getEmail() ?? ''),
+            'ticket_guard' => $this->ticketIdentity?->firstFailingGuard(),
+            'ticket_telemetry_enabled' => $this->ticketIdentity?->telemetryEnabled() ?? false,
+            // The archive half of the ticket (roadmap IT-26): what the
+            // archive holds, in French, and how big it is — both shown
+            // BEFORE the box that agrees to transmit it.
+            'archive_available' => $this->archiveSender !== null,
+            'archive_contents' => ArchiveContents::describe($this->collectorNames),
+            'archive_size_bytes' => $this->currentPackageSizeBytes(),
+            'archive_transmitted' => $this->archiveTransmitted(),
+            'archive_transmitted_at' => $this->archiveSender?->transmittedAt() ?? '',
+            'archive_destination' => (string) ($this->settingService->get('statistics_destination') ?? ''),
             'statistics_enabled' => $this->settingService->get('statistics_enabled') === '1',
             // `statistics_destination` is deliberately NOT passed to the
             // view. Where the report goes is a project-level fact, not a
@@ -117,6 +180,14 @@ class SupportController extends AbstractController
             'package_file_id' => $this->currentPackageFileId(),
             'package_generated_at' => self::nonEmpty($this->settingService->get(SupportPackageState::GENERATED_AT)),
             'package_retention_days' => SupportPackageService::RETENTION_DAYS,
+            // The mail probes (roadmap IT-27). The page has to say when
+            // the button will work again rather than simply refusing:
+            // a disabled control with no reason is the same silence the
+            // probe exists to remove.
+            'probe_available' => $this->probeSender !== null,
+            'probe_last_run' => $this->probeSender?->lastRun(),
+            'probe_rate_limited_until' => $this->probeSender
+                ?->rateLimitedUntil(new \DateTimeImmutable())?->format('H:i'),
         ]);
     }
 
@@ -180,6 +251,170 @@ class SupportController extends AbstractController
         $fileId = (int) ($this->settingService->get(SupportPackageState::FILE_ID) ?? '0');
 
         return $fileId > 0 ? $fileId : null;
+    }
+
+    /**
+     * The size of the archive currently on disk, or null when there is
+     * none. What a consent screen owes a reader alongside the contents:
+     * agreeing to transmit « quelque chose » is not agreeing to transmit
+     * forty megabytes of it.
+     */
+    private function currentPackageSizeBytes(): ?int
+    {
+        $fileId = $this->currentPackageFileId();
+        if ($fileId === null || $this->archiveSender === null) {
+            return null;
+        }
+
+        $record = $this->fileRepository?->findById($fileId);
+
+        return $record !== null ? $record->sizeBytes : null;
+    }
+
+    /** Whether the archive of the ticket currently displayed has left. */
+    private function archiveTransmitted(): bool
+    {
+        $last = $this->ticketSender?->lastSent();
+
+        return $last !== null
+            && ($this->archiveSender?->wasTransmittedFor($last['reference']) ?? false);
+    }
+
+    /**
+     * POST /config/support/ticket/archive — the second, separate call
+     * (roadmap IT-26).
+     *
+     * The acknowledgement is verified **here**, on the server: a checkbox
+     * enforced only in the browser is a decoration, and this one is the
+     * whole consent.
+     *
+     * @param array<string, string> $params
+     */
+    public function sendArchive(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, '/config/support')) !== null) {
+            return $guard;
+        }
+
+        $last = $this->ticketSender?->lastSent();
+        if ($this->archiveSender === null || $last === null) {
+            FlashMessage::set('error', "Aucun ticket récent auquel joindre une archive.");
+
+            return $this->redirect('/config/support');
+        }
+
+        $result = $this->archiveSender->send(
+            $last['reference'],
+            (string) $request->getBody('archive_acknowledged', '') === '1'
+        );
+
+        if ($result->sent) {
+            FlashMessage::set('success', sprintf(
+                'Archive transmise et rattachée au ticket %s.',
+                $last['reference']
+            ));
+        } else {
+            FlashMessage::set('error', self::archiveFailureMessage((string) $result->failureReason));
+        }
+
+        return $this->redirect('/config/support');
+    }
+
+    /**
+     * The French reading of an archive that did not leave.
+     *
+     * « Le ticket est intact » is in every one of them on purpose: the
+     * separate call exists so a failed upload costs nothing, and an
+     * administrator reading an error has to know that before deciding
+     * whether to start over.
+     */
+    private static function archiveFailureMessage(string $reason): string
+    {
+        return match ($reason) {
+            SupportArchiveSender::FAILURE_NOT_ACKNOWLEDGED =>
+                "Cochez la case de transmission pour envoyer l'archive. Le ticket est intact.",
+            SupportArchiveSender::FAILURE_NO_ARCHIVE =>
+                "Aucune archive de diagnostic n'est disponible : générez-en une d'abord. Le ticket est intact.",
+            SupportArchiveSender::FAILURE_UNREADABLE_ARCHIVE =>
+                "L'archive conservée est illisible : générez-en une nouvelle. Le ticket est intact.",
+            SupportArchiveSender::FAILURE_REFUSED =>
+                "Le serveur de support a refusé l'archive. Le ticket est intact, l'archive n'a pas été transmise.",
+            default =>
+                "L'archive n'a pas pu être transmise (serveur injoignable ou envoi trop long). Le ticket est intact : vous pouvez réessayer.",
+        };
+    }
+
+    /**
+     * POST /config/support/mail-probe — sends one diagnostic message per
+     * mailbox the receiver synchronises (roadmap IT-27).
+     *
+     * **Not the Mail configuration page's test send.** That one proves a
+     * relay accepted the message; this one proves it arrived somewhere
+     * that can say what SPF, DKIM and DMARC made of it and how long the
+     * chain took. Both are useful and neither replaces the other.
+     *
+     * @param array<string, string> $params
+     */
+    public function sendMailProbe(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, '/config/support')) !== null) {
+            return $guard;
+        }
+
+        if ($this->probeSender === null) {
+            FlashMessage::set('error', "Les sondes de diagnostic ne sont pas disponibles sur cette installation.");
+
+            return $this->redirect('/config/support');
+        }
+
+        $result = $this->probeSender->send(new \DateTimeImmutable());
+
+        if ($result->sent) {
+            FlashMessage::set('success', sprintf(
+                $result->deliveredCount === $result->addressCount
+                    ? 'Sonde %s envoyée vers %d boîte(s). Le résultat apparaîtra chez le support dès réception.'
+                    : 'Sonde %1$s partie vers %3$d boîte(s) sur %2$d : les autres ont été refusées par votre serveur de messagerie.',
+                $result->correlationKey,
+                $result->addressCount,
+                $result->deliveredCount
+            ));
+        } else {
+            FlashMessage::set('error', $this->probeFailureMessage((string) $result->failureReason));
+        }
+
+        return $this->redirect('/config/support');
+    }
+
+    /**
+     * The French reading of a probe that did not leave.
+     *
+     * Each one names what to do next: a message that only says « échec »
+     * about the mail path is exactly the silence this feature exists to
+     * remove.
+     */
+    private function probeFailureMessage(string $reason): string
+    {
+        $until = $this->probeSender?->rateLimitedUntil(new \DateTimeImmutable());
+
+        return match ($reason) {
+            MailProbeSender::FAILURE_RATE_LIMITED => sprintf(
+                "Une sonde a déjà été envoyée il y a moins d'une heure%s.",
+                $until !== null ? ' — réessayez à partir de ' . $until->format('H:i') : ''
+            ),
+            MailProbeSender::FAILURE_NO_MAILBOX =>
+                "Le serveur de support ne relève aucune boîte : il n'a rien vers quoi envoyer une sonde.",
+            MailProbeSender::FAILURE_MAIL_REFUSED =>
+                "Votre serveur de messagerie a refusé tous les envois : la configuration Courriel est à vérifier avant tout diagnostic d'acheminement.",
+            MailProbeSender::FAILURE_NO_IDENTITY =>
+                "L'identité de cette installation n'a pas pu être créée : le coffre de secrets est indisponible.",
+            TicketIdentityService::GUARD_NO_DESTINATION =>
+                "Aucun serveur de support n'est configuré pour cette installation.",
+            TicketIdentityService::GUARD_INSECURE_DESTINATION,
+            TicketIdentityService::GUARD_NON_PUBLIC_DESTINATION =>
+                "Le serveur de support configuré n'est pas une destination publique en HTTPS : rien n'a été envoyé.",
+            default =>
+                "Le serveur de support n'a pas pu être joint : aucune sonde n'a été envoyée.",
+        };
     }
 
     /**
@@ -270,6 +505,95 @@ class SupportController extends AbstractController
         }
 
         return $this->redirect('/config/support');
+    }
+
+    /**
+     * POST /config/support/ticket — one ticket, sent now.
+     *
+     * Synchronous like the test report beside it, and for the same
+     * reason: the whole value is the answer coming back on the next page,
+     * and the call is one bounded POST with the transport's own 10 s / 20 s
+     * caps.
+     *
+     * **A failure re-renders rather than redirects.** What the
+     * administrator wrote is the one thing this page must not lose, and a
+     * redirect carries a flash message but not a form.
+     *
+     * @param array<string, string> $params
+     */
+    public function sendTicket(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, '/config/support')) !== null) {
+            return $guard;
+        }
+
+        if ($this->ticketSender === null) {
+            FlashMessage::set('error', "L'envoi de tickets n'est pas disponible sur cette installation.");
+
+            return $this->redirect('/config/support');
+        }
+
+        $category = trim((string) $request->getBody('ticket_category', ''));
+        $description = trim((string) $request->getBody('ticket_description', ''));
+        $contactEmail = trim((string) $request->getBody('ticket_contact_email', ''));
+
+        $submitted = [
+            'category' => $category,
+            'description' => $description,
+            'contact_email' => $contactEmail,
+        ];
+
+        if ($description === '' || $contactEmail === '' || $category === '') {
+            FlashMessage::set('error', 'Complétez la catégorie, la description et l\'adresse de contact.');
+
+            return $this->renderIndex($submitted);
+        }
+
+        $result = $this->ticketSender->send($category, $description, $contactEmail);
+
+        if (!$result->sent) {
+            // The reason is a category; the message is French. Neither
+            // carries a word of what was typed.
+            FlashMessage::set('error', self::ticketFailureMessage((string) $result->failureReason));
+
+            return $this->renderIndex($submitted);
+        }
+
+        FlashMessage::set('success', sprintf(
+            'Ticket envoyé. Référence : %s. Le mainteneur répondra par e-mail à %s.',
+            (string) $result->reference,
+            $contactEmail
+        ));
+
+        return $this->redirect('/config/support');
+    }
+
+    /**
+     * The French reading of a ticket that did not leave, or that the
+     * receiver refused.
+     *
+     * Every branch says what to do about it. « Échec de l'envoi » alone
+     * tells a superadmin nothing they can act on, and this is a page whose
+     * whole audience is somebody already stuck.
+     */
+    private static function ticketFailureMessage(string $reason): string
+    {
+        return match ($reason) {
+            TicketIdentityService::GUARD_NO_DESTINATION =>
+                "Aucune destination de support n'est configurée sur cette installation.",
+            TicketIdentityService::GUARD_INSECURE_DESTINATION =>
+                "La destination du support n'est pas en HTTPS : rien n'est envoyé, le secret d'installation voyagerait en clair.",
+            TicketIdentityService::GUARD_NON_PUBLIC_DESTINATION =>
+                "La destination du support n'est pas un nom public : rien n'est envoyé.",
+            SupportTicketSender::FAILURE_NO_IDENTITY =>
+                "L'identité de cette installation n'a pas pu être créée (fichier de secrets indisponible). Votre saisie est conservée ci-dessous.",
+            SupportTicketSender::FAILURE_REFUSED =>
+                "Le serveur de support a refusé le ticket. Vérifiez la catégorie, puis réessayez. Votre saisie est conservée ci-dessous.",
+            SupportTicketSender::FAILURE_MALFORMED_ANSWER =>
+                "Le serveur de support a répondu quelque chose d'inattendu. Réessayez plus tard ; votre saisie est conservée ci-dessous.",
+            default =>
+                "Le serveur de support est injoignable pour le moment. Aucun ticket n'a été créé ; votre saisie est conservée ci-dessous, vous pouvez réessayer.",
+        };
     }
 
     /**

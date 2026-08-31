@@ -24,9 +24,85 @@ function row(endpoint, field, id) {
         </td></tr>`;
 }
 
-const PAGE = `<table><tbody>
+/**
+ * The statistics box (spec §8), as the server renders it: BOTH scopes
+ * present, one of them hidden, and the arrivals warning next to the
+ * switch. The browser never builds this — it only decides which half is
+ * visible — so the fixture is markup, not a data structure.
+ *
+ * @param {string} projectedText
+ * @param {string} arrivalsText
+ */
+function statisticsBox(projectedText = 'Louveteaux A · 12', arrivalsText = 'Louveteaux A · 3') {
+    return `
+        <div id="passage-statistics">
+            <input type="radio" name="passage-stats-scope" id="passage-scope-projected" value="projected" checked>
+            <input type="radio" name="passage-stats-scope" id="passage-scope-arrivals" value="arrivals">
+            <div class="alert d-none" id="passage-arrivals-warning">Les animés qui restent…</div>
+            <div class="passage-stats-scope" data-scope="projected">${projectedText}</div>
+            <div class="passage-stats-scope" data-scope="arrivals" hidden>${arrivalsText}</div>
+        </div>`;
+}
+
+/**
+ * IT-17's planning block, as the server renders it under one line: the
+ * staff's own two fields, an AI suggestion awaiting a human, and an
+ * ambiguous « avec qui » name with its candidate picker.
+ */
+function planningBlock(memberId) {
+    return `
+        <tr><td>
+            <div>
+                <select class="passage-wish-select" data-endpoint="/passage/membre/${memberId}/souhait"
+                        data-field="preferred_section_id">
+                    <option value="0">— Non défini —</option>
+                    <option value="9" selected>Éclaireurs A</option>
+                </select>
+                <div class="form-text passage-wish-feedback"></div>
+            </div>
+            <div>
+                <textarea class="passage-note" data-endpoint="/passage/membre/${memberId}/note">Note.</textarea>
+                <div class="form-text passage-note-feedback"></div>
+            </div>
+            <div class="alert alert-warning passage-ai-suggestion" data-endpoint="/passage/membre/${memberId}/ia">
+                <input type="checkbox" class="passage-ai-confirm">
+                <div class="form-text passage-ai-feedback"></div>
+            </div>
+            <ul>
+                <li class="passage-friend-wish" data-wish-id="5">
+                    <select class="passage-friend-select">
+                        <option value="31" selected>Martin Léo</option>
+                        <option value="32">Dupont Léo</option>
+                    </select>
+                    <button type="button" class="passage-friend-save"
+                            data-endpoint="/passage/souhait/5/rattacher">Rattacher</button>
+                    <span class="form-text passage-friend-feedback"></span>
+                </li>
+            </ul>
+        </td></tr>`;
+}
+
+/**
+ * IT-18's toolbar, as the server renders it: the two buttons, the shared
+ * feedback line, and the method radios that live in the dialog.
+ */
+function toolbar() {
+    return `
+        <div>
+            <button type="button" id="passage-optimize-run" data-endpoint="/passage/optimiser">Répartir</button>
+            <form data-confirm="Réinitialiser ?">
+                <button type="button" id="passage-reset" data-endpoint="/passage/reinitialiser">Réinitialiser</button>
+            </form>
+            <span id="passage-optimize-feedback"></span>
+            <input type="radio" name="passage-optimize-method" value="balanced" checked>
+            <input type="radio" name="passage-optimize-method" value="wishes">
+        </div>`;
+}
+
+const PAGE = `${toolbar()}${statisticsBox()}<table><tbody>
     ${row('/passage/inscription/12/section', 'intended_section_id', 4)}
     ${row('/passage/membre/77/destination', 'destination_section_id', 9)}
+    ${planningBlock(77)}
 </tbody></table>`;
 
 function jsonResponse(body, status = 200) {
@@ -145,6 +221,234 @@ describe('registration-passage.js', () => {
             global.fetch = vi.fn(() => jsonResponse({ success: true }));
             saveIn(0).click();
             await vi.waitFor(() => expect(feedbackIn(0).textContent).toBe('Enregistré.'));
+        });
+    });
+
+    describe('the statistics box', () => {
+        const scopeBlock = (scope) => document.querySelector(`.passage-stats-scope[data-scope="${scope}"]`);
+        const scopeRadio = (scope) => document.querySelector(`input[name="passage-stats-scope"][value="${scope}"]`);
+        const warning = () => document.getElementById('passage-arrivals-warning');
+
+        it('shows « Effectif projeté » and hides the other scope on load', async () => {
+            await boot();
+
+            expect(scopeBlock('projected').hidden).toBe(false);
+            expect(scopeBlock('arrivals').hidden).toBe(true);
+            expect(warning().classList.contains('d-none')).toBe(true);
+        });
+
+        it('swaps the visible scope and raises the warning with « Arrivées seules »', async () => {
+            await boot();
+
+            scopeRadio('arrivals').checked = true;
+            scopeRadio('arrivals').dispatchEvent(new Event('change', { bubbles: true }));
+
+            expect(scopeBlock('arrivals').hidden).toBe(false);
+            expect(scopeBlock('projected').hidden).toBe(true);
+            expect(warning().classList.contains('d-none')).toBe(false);
+        });
+
+        it('replaces the whole box with what the save answered', async () => {
+            global.fetch = vi.fn(() => jsonResponse({
+                success: true,
+                statistics_html: statisticsBox('Louveteaux A · 13', 'Louveteaux A · 4'),
+            }));
+            await boot();
+
+            saveIn(0).click();
+            await vi.waitFor(() => expect(scopeBlock('projected').textContent).toBe('Louveteaux A · 13'));
+        });
+
+        it('puts the reader back in the scope they were reading', async () => {
+            // A chief working in « Arrivées seules » must not be thrown out
+            // of it on every save — and the server always re-renders on the
+            // default scope, so the choice has to be restored here.
+            global.fetch = vi.fn(() => jsonResponse({
+                success: true,
+                statistics_html: statisticsBox('projeté frais', 'arrivées fraîches'),
+            }));
+            await boot();
+
+            scopeRadio('arrivals').checked = true;
+            scopeRadio('arrivals').dispatchEvent(new Event('change', { bubbles: true }));
+
+            saveIn(0).click();
+            await vi.waitFor(() => expect(scopeBlock('arrivals').textContent).toBe('arrivées fraîches'));
+            expect(scopeRadio('arrivals').checked).toBe(true);
+            expect(scopeBlock('arrivals').hidden).toBe(false);
+            expect(scopeBlock('projected').hidden).toBe(true);
+            expect(warning().classList.contains('d-none')).toBe(false);
+        });
+
+        it('leaves the box alone when the answer carries none', async () => {
+            // A save that did not bring statistics back (an older response
+            // shape, a refusal) must not blank the box.
+            global.fetch = vi.fn(() => jsonResponse({ success: true }));
+            await boot();
+
+            saveIn(0).click();
+            await vi.waitFor(() => expect(feedbackIn(0).textContent).toBe('Enregistré.'));
+            expect(scopeBlock('projected').textContent).toBe('Louveteaux A · 12');
+        });
+
+        it('does not break a page that has no box at all', async () => {
+            document.body.innerHTML = `<table><tbody>${row('/passage/inscription/12/section', 'intended_section_id', 4)}</tbody></table>`;
+            global.fetch = vi.fn(() => jsonResponse({ success: true, statistics_html: statisticsBox() }));
+
+            await expect(boot()).resolves.not.toThrow();
+            document.querySelector('.passage-save').click();
+            await vi.waitFor(() => expect(document.querySelector('.passage-feedback').textContent).toBe('Enregistré.'));
+        });
+    });
+
+    describe('optimising and resetting (IT-18)', () => {
+        const feedback = () => document.getElementById('passage-optimize-feedback');
+
+        beforeEach(() => {
+            // The two handlers reload the page on success; jsdom has no
+            // navigation, so the call is observed rather than performed.
+            delete window.location;
+            window.location = { reload: vi.fn() };
+            window.ScoutMagicConfirm = { ask: vi.fn(() => Promise.resolve(true)) };
+        });
+
+        it('sends the method the chief chose', async () => {
+            await boot();
+            document.querySelector('input[value="wishes"]').checked = true;
+
+            document.getElementById('passage-optimize-run').click();
+
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+            expect(lastRequest()).toEqual({
+                url: '/passage/optimiser',
+                body: { method: 'wishes', _csrf_token: 'tok-123' },
+            });
+        });
+
+        it('says how many were placed, and repeats the warnings the server sent', async () => {
+            global.fetch = vi.fn(() => jsonResponse({
+                success: true,
+                placed: 7,
+                warnings: ["Écart d'effectif de 38 %, au-delà de la limite."],
+            }));
+            await boot();
+
+            document.getElementById('passage-optimize-run').click();
+
+            await vi.waitFor(() => expect(feedback().textContent).toContain('7 personnes réparties.'));
+            expect(feedback().textContent).toContain("Écart d'effectif de 38 %");
+            expect(feedback().classList.contains('text-danger')).toBe(true);
+        });
+
+        it('does not reload when the server refuses, and says why', async () => {
+            global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Indisponible.' }));
+            await boot();
+
+            document.getElementById('passage-optimize-run').click();
+
+            await vi.waitFor(() => expect(feedback().textContent).toBe('Indisponible.'));
+            expect(window.location.reload).not.toHaveBeenCalled();
+        });
+
+        it('ASKS BEFORE RESETTING, through the site dialog and never window.confirm', async () => {
+            await boot();
+
+            document.getElementById('passage-reset').click();
+
+            await vi.waitFor(() => expect(window.ScoutMagicConfirm.ask).toHaveBeenCalled());
+            expect(window.ScoutMagicConfirm.ask.mock.calls[0][0].message).toBe('Réinitialiser ?');
+            await vi.waitFor(() => expect(lastRequest().url).toBe('/passage/reinitialiser'));
+        });
+
+        it('resets nothing when the question is answered no', async () => {
+            window.ScoutMagicConfirm = { ask: vi.fn(() => Promise.resolve(false)) };
+            await boot();
+
+            document.getElementById('passage-reset').click();
+
+            await vi.waitFor(() => expect(window.ScoutMagicConfirm.ask).toHaveBeenCalled());
+            expect(fetch).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('the planning block (IT-17)', () => {
+        const wishSelect = () => document.querySelector('.passage-wish-select');
+        const note = () => document.querySelector('.passage-note');
+        const aiBox = () => document.querySelector('.passage-ai-suggestion');
+        const aiCheckbox = () => document.querySelector('.passage-ai-confirm');
+
+        it('saves the staff wish on change, under its own field name', async () => {
+            await boot();
+
+            wishSelect().value = '9';
+            wishSelect().dispatchEvent(new Event('change'));
+
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+            expect(lastRequest()).toEqual({
+                url: '/passage/membre/77/souhait',
+                body: { preferred_section_id: 9, _csrf_token: 'tok-123' },
+            });
+        });
+
+        it('saves the internal note on blur, and only on blur', async () => {
+            await boot();
+
+            note().value = 'À placer avec son frère.';
+            note().dispatchEvent(new Event('input'));
+            expect(fetch).not.toHaveBeenCalled();
+
+            note().dispatchEvent(new Event('blur'));
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+            expect(lastRequest()).toEqual({
+                url: '/passage/membre/77/note',
+                body: { note: 'À placer avec son frère.', _csrf_token: 'tok-123' },
+            });
+        });
+
+        it('records a confirmation of the AI reading, and shows it', async () => {
+            await boot();
+
+            aiCheckbox().checked = true;
+            aiCheckbox().dispatchEvent(new Event('change'));
+
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+            expect(lastRequest().body.confirmed).toBe(true);
+            await vi.waitFor(() => expect(aiBox().classList.contains('alert-success')).toBe(true));
+        });
+
+        it('PUTS THE CONFIRMATION BACK when the server refuses it', async () => {
+            global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Non.' }));
+            await boot();
+
+            aiCheckbox().checked = true;
+            aiCheckbox().dispatchEvent(new Event('change'));
+
+            await vi.waitFor(() => expect(aiCheckbox().checked).toBe(false));
+            expect(aiBox().classList.contains('alert-warning')).toBe(true);
+        });
+
+        it('attaches an ambiguous name to the member the chief picked', async () => {
+            await boot();
+
+            const picker = document.querySelector('.passage-friend-select');
+            picker.value = '32';
+            document.querySelector('.passage-friend-save').click();
+
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+            expect(lastRequest()).toEqual({
+                url: '/passage/souhait/5/rattacher',
+                body: { matched_member_id: 32, _csrf_token: 'tok-123' },
+            });
+        });
+
+        it('says so when a resolution is refused, beside the name it is about', async () => {
+            global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Pas un candidat.' }));
+            await boot();
+
+            document.querySelector('.passage-friend-save').click();
+
+            await vi.waitFor(() =>
+                expect(document.querySelector('.passage-friend-feedback').textContent).toBe('Pas un candidat.'));
         });
     });
 

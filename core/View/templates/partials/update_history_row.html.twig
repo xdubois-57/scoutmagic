@@ -1,0 +1,22 @@
+{# One row of Configuration > Maintenance's update history.
+
+   Extracted because the table is rendered in two <tbody> elements — the
+   five most recent, then the rest behind a Bootstrap collapse — and two
+   copies of a status ladder is two places for it to drift. Expects a
+   single `entry` (Core\Maintenance\UpdateHistory), passed `only`. #}
+<tr>
+    <td class="small text-nowrap">{{ entry.versionFrom }} → {{ entry.versionTo }}</td>
+    <td class="small text-nowrap">{{ entry.startedAt }}</td>
+    <td class="small">
+        {% if entry.status == 'completed' %}
+            {% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Réussie' } only %}
+        {% elseif entry.status == 'failed' %}
+            {# title tooltips (error detail) — kept out of the shared partial, which carries none #}
+            <span class="badge text-bg-danger" title="{{ entry.errorMessage }}">Échouée</span>
+        {% elseif entry.status == 'rolled_back' %}
+            <span class="badge text-bg-warning" title="{{ entry.errorMessage }}">Échouée — restaurée automatiquement</span>
+        {% else %}
+            {% include 'partials/status_badge.html.twig' with { status: 'in_progress', label: 'En cours (' ~ entry.status ~ ')' } only %}
+        {% endif %}
+    </td>
+</tr>

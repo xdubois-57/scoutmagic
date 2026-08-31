@@ -96,12 +96,100 @@
     mailMode.addEventListener('change', toggleSmtp);
     toggleSmtp();
 
+    // --- Cron status chip + save gate -------------------------------------
+    //
+    // A real crontab is the engine behind every background task, and a
+    // first install finished without one silently does none of them. The
+    // page therefore polls GET /setup/cron-status and keeps the install
+    // button disabled until the answer is 'active'. On an already-
+    // configured site (/setup doubles as « Installation & serveur ») the
+    // chip is shown but never blocks anything — see SetupController::save(),
+    // which enforces the same asymmetry server-side.
+    var isFirstRun = form.dataset.initialized !== '1';
+    var cronChip = document.getElementById('cron-status-chip');
+    var cronSaveHint = document.getElementById('cron-save-hint');
+    var cronActive = false;
+
     // Test DB connection
     var dbTestPassed = form.dataset.initialized === '1';
-    if (dbTestPassed) {
-        btnSave.disabled = false;
-        saveHint.style.display = 'none';
+
+    function updateSaveState() {
+        var blockedByDb = !dbTestPassed;
+        var blockedByCron = isFirstRun && !cronActive;
+
+        btnSave.disabled = blockedByDb || blockedByCron;
+        saveHint.style.display = blockedByDb ? 'block' : 'none';
+        if (cronSaveHint) {
+            cronSaveHint.classList.toggle('d-none', !blockedByCron);
+        }
     }
+
+    /**
+     * @param {string} state 'never' | 'stale' | 'active'
+     * @param {number|null} secondsSince seconds since the last detected pass
+     * @returns {void}
+     */
+    function renderCronChip(state, secondsSince) {
+        cronActive = state === 'active';
+        if (cronChip) {
+            cronChip.className = 'badge ' + (cronActive ? 'text-bg-success' : 'text-bg-danger');
+            if (cronActive) {
+                cronChip.textContent = secondsSince === null
+                    ? 'Actif'
+                    : 'Actif — dernier passage il y a ' + secondsSince + ' s';
+            } else if (state === 'stale') {
+                cronChip.textContent = secondsSince === null
+                    ? 'Plus vu depuis longtemps'
+                    : 'Plus vu depuis ' + describeDelay(secondsSince);
+            } else {
+                cronChip.textContent = 'Jamais détecté';
+            }
+        }
+        updateSaveState();
+    }
+
+    /**
+     * @param {number} seconds
+     * @returns {string}
+     */
+    function describeDelay(seconds) {
+        if (seconds < 60) {
+            return seconds + ' s';
+        }
+        if (seconds < 3600) {
+            return Math.floor(seconds / 60) + ' min';
+        }
+        if (seconds < 86400) {
+            return Math.floor(seconds / 3600) + ' h';
+        }
+        return Math.floor(seconds / 86400) + ' j';
+    }
+
+    function pollCronStatus() {
+        fetch('/setup/cron-status')
+            .then(function(r) { return r.json(); })
+            .then(function(json) {
+                renderCronChip(String(json.state || 'never'), typeof json.seconds_since_heartbeat === 'number' ? json.seconds_since_heartbeat : null);
+            })
+            .catch(function() {
+                // A failed poll says nothing about the crontab — leave the
+                // last known verdict in place rather than flipping the
+                // chip red on a dropped request.
+            });
+    }
+
+    if (cronChip) {
+        // The server rendered its own verdict into the chip's dataset a
+        // moment ago, so the page starts correct and there is nothing to
+        // ask for yet — the poll only has to notice the crontab the
+        // operator is configuring RIGHT NOW, which is what the interval is
+        // for. Polling immediately on load would just repeat the answer
+        // the page was built with.
+        renderCronChip(cronChip.dataset.initialState || 'never', null);
+        setInterval(pollCronStatus, 5000);
+    }
+
+    updateSaveState();
 
     // For first-time setup, btn-test-db's data-action points at
     // /setup/install-database instead of /setup/test-db \u2014 same button,
@@ -136,8 +224,7 @@
                         // and empties this database (or picks another one).
                         dbResult.innerHTML = '<span class="text-success">\u2713 Connexion r\u00e9ussie</span>';
                         dbTestPassed = false;
-                        btnSave.disabled = true;
-                        saveHint.style.display = 'block';
+                        updateSaveState();
                         if (dbNotEmptyWarning) {
                             dbNotEmptyCount.textContent = json.table_count + (json.table_count > 1 ? ' tables' : ' table');
                             dbNotEmptyWarning.classList.remove('d-none');
@@ -157,21 +244,18 @@
                     } else if (json.migrated) {
                         dbResult.innerHTML = '<span class="text-success">\u2713 Base de donn\u00e9es install\u00e9e (' + json.statements_executed + ' instruction' + (json.statements_executed > 1 ? 's' : '') + ', ' + json.table_count + ' table' + (json.table_count > 1 ? 's' : '') + ').</span>';
                         dbTestPassed = true;
-                        btnSave.disabled = false;
-                        saveHint.style.display = 'none';
+                        updateSaveState();
                         if (dbNotEmptyWarning) { dbNotEmptyWarning.classList.add('d-none'); }
                     } else {
                         dbResult.innerHTML = '<span class="text-success">\u2713 Connexion r\u00e9ussie</span>';
                         dbTestPassed = true;
-                        btnSave.disabled = false;
-                        saveHint.style.display = 'none';
+                        updateSaveState();
                         if (dbNotEmptyWarning) { dbNotEmptyWarning.classList.add('d-none'); }
                     }
                 } else {
                     dbResult.innerHTML = '<span class="text-danger">\u2717 ' + json.message + '</span>';
                     dbTestPassed = false;
-                    btnSave.disabled = true;
-                    saveHint.style.display = 'block';
+                    updateSaveState();
                     if (dbNotEmptyWarning) { dbNotEmptyWarning.classList.add('d-none'); }
                 }
             })

@@ -155,50 +155,108 @@ final class UnitBlueprint
 
     /**
      * Every FONCTION the dataset uses, and the role Config Desk will be asked
-     * to confirm for it (IT-05 reads this table; the CSV itself never carries
-     * a role — every new function imports as 'identified', unconfirmed).
+     * to confirm for it (the CSV itself never carries a role — every new
+     * function imports as 'identified', unconfirmed).
      *
-     * `Accompagnateur d'unité` appears only in 2026-2027: it is the brand-new
-     * function that must show up unconfirmed and block on confirmation.
-     * `Animateur candidat` is how Desk marks someone whose obligations are
-     * incomplete — nothing consumes the word "candidat" today; the future
-     * Encadrement module will.
+     * These are the labels a real Belgian unit's Desk export carries, verbatim.
+     * The table used to invent four that Desk does not produce — `Chef
+     * d'unité`, `Intendant d'unité`, `Trésorier d'unité`, `Accompagnateur
+     * d'unité` — which made the dataset unable to exercise anything keyed on
+     * the real vocabulary. Two consequences in particular were invisible:
+     * nothing anywhere carried `Animateur responsable`, so the trombinoscope's
+     * lead flag and Core\Module\SectionResponsableProvider had no data at
+     * all; and `Trésorier d'unité` duplicated a concept the application models
+     * as a BADGE (Core\Badge, seeded by BadgeService::ensureDefaults() and
+     * assigned by ExtrasBlueprint), so the same fact existed twice in two
+     * incompatible shapes.
      *
-     * `Chef de section` is the function the trombinoscope's "responsable"
-     * comes from: Modules\Trombinoscope\Repository\FunctionFlagsRepository
-     * flags it `is_lead`, and Service\TrombinoscopeService promotes whoever
-     * holds it to the top of the section's staff. Exactly ONE cadre per
-     * section per year carries it (PopulationBuilder::designateSectionLeads()),
-     * because a flag every animateur carried would make the "responsable"
-     * whichever row the query happened to return first.
+     * Spelling matters to the character: `Candidat animateur`, not `Animateur
+     * candidat` — that is how Desk writes it, and it is what
+     * Modules\Leadership\Service\CandidateDetector reads (it looks for the
+     * substring « candidat », accent- and case-insensitively, so the order of
+     * the two words is free as far as the code is concerned and pinned here as
+     * far as fidelity is concerned).
+     *
+     * FunctionRepository::findAll() sorts by label, so the two `Candidat …`
+     * entries file under C, far from `Animateur`. That is the intended
+     * behaviour — the label is the raw Desk string and nothing re-sorts it by
+     * meaning.
+     *
+     * `Animateur responsable` is the function the trombinoscope's
+     * "responsable" comes from: Modules\Trombinoscope\Repository\
+     * FunctionFlagsRepository flags it `is_lead`, and
+     * Service\TrombinoscopeService promotes whoever holds it to the top of
+     * the section's staff. Exactly ONE cadre per section per year carries it
+     * (PopulationBuilder::designateSectionLeads()), because a flag every
+     * animateur carried would make the "responsable" whichever row the query
+     * happened to return first. See SECTION_LEAD_FUNCTION below.
      *
      * @var array<string, string>
      */
     public const FUNCTIONS = [
         'Animé' => 'identified',
         'Animateur' => 'chief',
-        'Animateur candidat' => 'chief',
-        'Chef de section' => 'chief',
-        'Chef d\'unité' => 'admin',
-        'Intendant d\'unité' => 'intendant',
-        'Trésorier d\'unité' => 'intendant',
-        'Accompagnateur d\'unité' => 'identified',
+        'Candidat animateur' => 'chief',
+        'Animateur responsable' => 'chief',
+        'Intendant' => 'intendant',
+        'Candidat intendant' => 'intendant',
+        'Animateur d\'unité' => 'admin',
+        'Équipier d\'unité' => 'admin',
+        'Collaborateur d\'unité' => 'admin',
+    ];
+
+    /**
+     * The FONCTIONs that occupy one of a section's `cadres` slots in
+     * HEADCOUNT — animation and intendance alike. The headcount counts
+     * POSTS, not job titles: an `Intendant` fills the slot an `Animateur`
+     * would have filled, and counting only the animation ones would have
+     * the generator recruit a second person into the same post.
+     *
+     * Read by PopulationBuilder when it fills a section and by the tests
+     * that check the result against HEADCOUNT, so the two cannot disagree.
+     *
+     * @var non-empty-list<string>
+     */
+    public const SECTION_STAFF_FUNCTIONS = [
+        'Animateur',
+        'Animateur responsable',
+        'Candidat animateur',
+        'Intendant',
+        'Candidat intendant',
     ];
 
     /**
      * The FONCTION whose `is_lead` flag the trombinoscope reads. Named once
      * here so the generator that hands it out and the seeder that flags it
      * cannot drift apart.
+     *
+     * It is `Animateur responsable` rather than the `Chef de section` this
+     * mechanism was built with, for the same reason the rest of this table
+     * changed: that is the label a real Desk export carries.
      */
-    public const SECTION_LEAD_FUNCTION = 'Chef de section';
+    public const SECTION_LEAD_FUNCTION = 'Animateur responsable';
 
     /** Functions held at unit level: no Branche, no Section, no Date début. */
     public const UNIT_LEVEL_FUNCTIONS = [
-        'Chef d\'unité',
-        'Intendant d\'unité',
-        'Trésorier d\'unité',
-        'Accompagnateur d\'unité',
+        'Animateur d\'unité',
+        'Équipier d\'unité',
+        'Collaborateur d\'unité',
     ];
+
+    /**
+     * The one function deliberately ABSENT from FUNCTIONS.
+     *
+     * DeskImportReplay::confirmFunctionRoles() replays Config Desk against
+     * FUNCTIONS and leaves anything missing from it unconfirmed, at the
+     * `identified` role the import created. That case — « a function so new
+     * no chef has seen it in Config Desk yet » — is a deliberate part of the
+     * dataset (scenario 14), and it only exists as long as at least one
+     * generated label is outside the table. It used to be `Accompagnateur
+     * d'unité`; with the vocabulary corrected, every function a unit really
+     * holds is now IN the table, so the case is carried by a label chosen for
+     * the purpose and named here rather than left to chance.
+     */
+    public const BRAND_NEW_FUNCTION = 'Délégué de branche';
 
     /** "Tarif" column values. A member moving between two of them is scenario 23. */
     public const FEE_CODES = [

@@ -962,3 +962,80 @@ exactement comme avant.
   aws/aws-sdk-php: ["S3"]` — seul S3 est utilisé, par la galerie) la
   ramènent à 31 Mo pour 12 000 entrées, mesuré sur une construction
   réelle. Le canal stable en profite à l'identique.
+
+### Post-scriptum — le tag brûlé
+
+L'immutabilité des releases GitHub a coûté trois passages du workflow :
+le premier a échoué en téléversant un asset sur une release publiée
+(« Cannot upload assets to an immutable release »), le second et le
+troisième en republiant sous le même tag après suppression — « tag_name
+was used by an immutable release », y compris une fois l'option
+désactivée sur le dépôt. Un nom de tag ayant porté une release immuable
+est réservé pour toujours. Le canal publie donc sous `dev-latest`, en
+brouillon avec l'asset attaché puis publication ; `dev-build` reste
+brûlé, et le site déployé qui pointait dessus a dû être ponté à la main
+(un fichier, `GitHubWebhookService.php`, par FTP).
+
+## IT-10 — Le crontab qui n'exécutait rien
+
+Le fil de tout ce qui précède finit par un fait embarrassant : la file
+avait été conçue pour survivre sans vrai cron, et elle a survécu. C'est
+exactement pour cela que l'installation de référence a tourné plusieurs
+jours avec une entrée de crontab qui n'exécutait rien du tout. Le panneau
+LWS demandait une « adresse du script » ; on lui avait donné
+`/htdocs/public/cron.php`, sans `php` devant. Un chemin nu n'exécute rien
+et ne le dit à personne. `cron_last_run` est resté à `0`, le pseudo-cron
+et la continuation ont fait tourner le site assez bien pour que personne
+ne regarde, et aucune page du site ne disait quoi que ce soit.
+
+**Le battement de cœur.** `public/cron.php` écrit désormais
+`storage/temp/cron-heartbeat` tout en haut du fichier : avant
+l'autoloader, avant `SecretManager`, avant la base. Deux raisons, et la
+seconde est celle qui compte. La première : le tampon `cron_last_run`
+n'est écrit qu'après autoload + secrets + connexion réussie, donc une
+passe qui démarre et meurt est indistinguable d'un crontab absent. La
+seconde : le garde-fou de l'installation ci-dessous doit rendre un verdict
+**avant** que le site ne soit initialisé, là où il n'y a pas de base du
+tout. Écriture au mieux, jamais fatale, jamais bavarde — tout ce qui sort
+sur la sortie standard devient un courriel du démon cron de l'hébergeur,
+chaque minute.
+
+**`Core\Scheduler\CronHealth`** lit les trois traces qui existent — le
+fichier (vivant, pré-base), `cron_last_run` (dernière passe complète) et
+le tampon circulaire (le seul à donner un intervalle) — et répond par un
+`CronStatus` immuable. `actif` veut dire « vu il y a moins de 180 s »,
+parce qu'un cron à la minute est ce qu'on attend ; `STALE_AFTER_SECONDS`
+(7200) reste le verdict plus dur, « silencieux et plus seulement en
+retard », sur lequel le collecteur du paquet de support et les
+statistiques d'usage décidaient déjà. `CronCadenceCollector` consomme
+maintenant `CronHealth` au lieu de redire les mêmes seuils, et gagne au
+passage le seul diagnostic qu'un tampon unique ne pouvait pas donner : le
+crontab se déclenche, et la passe meurt avant la base.
+
+**Vérifié pendant l'installation, pas conseillé.** `GET /setup/cron-status`
+répond l'état en JSON, derrière le même jeton d'installation que ses
+voisines `/setup/*`. La page d'installation l'interroge toutes les cinq
+secondes et affiche une pastille qui passe au vert toute seule ; tant
+qu'elle est rouge, le bouton « Installer » est désactivé et
+`SetupController::save()` refuse côté serveur — en réaffichant le
+formulaire avec ce qui a été saisi, parce qu'un formulaire de cette
+longueur ne se jette pas.
+
+**L'asymétrie est volontaire.** Sur un site déjà configuré, `/setup` est
+la page « Installation & serveur » d'un super administrateur, et le
+contrôle n'est plus qu'un avertissement. Refuser d'enregistrer un mot de
+passe de base de données parce que le crontab a sauté trois minutes — un
+hoquet d'hébergeur, une pointe de charge, une passe qui déborde — casserait
+la page de configuration d'un site en production sur un transitoire. Ce
+serait pire que le problème évité.
+
+**Et de façon permanente.** La page Maintenance ouvre sur deux lignes
+d'état : le cron réel (cadence quand elle est mesurable, ligne exacte à
+configurer quand il est rouge) et la mise à jour automatique (dernière
+version posée, et note rouge quand la *dernière tentative* — pas la
+dernière réussite — a échoué ou été restaurée). Les deux pannes que ce
+bloc surveille ont la même signature : elles ne produisent aucune erreur.
+
+La ligne de crontab est écrite à un seul endroit,
+`CronHealth::crontabLine()`, et porte toujours `php ` devant le chemin.
+C'est ce préfixe, et rien d'autre, qui a coûté les jours de silence.

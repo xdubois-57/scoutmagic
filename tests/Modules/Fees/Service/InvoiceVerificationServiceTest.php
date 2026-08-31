@@ -252,6 +252,52 @@ class InvoiceVerificationServiceTest extends TestCase
     }
 
     /**
+     * Roadmap IT-21: with the leadership module enabled, a « BACV » is a
+     * breveté — the wording that used to be missed altogether, since it
+     * does not contain "brevet". The fallback reading catches it too now,
+     * so this passes either way; what it pins is that the count follows
+     * the discount question and not the ONE ratio.
+     */
+    public function testABacvAndAWoodbadgeBothOpenTheReduction(): void
+    {
+        $this->createMemberYear($this->normalFeeId, $this->staffId, 'BACV');
+        $this->createMemberYear($this->normalFeeId, $this->staffId, 'Woodbadge');
+        $this->createMemberYear($this->normalFeeId, $this->staffId, 'Formation en cours');
+        $snapshot = $this->snapshots->capture($this->scoutYearId, new \DateTimeImmutable('2026-01-05 07:00:00'));
+
+        $invoice = $this->storeInvoice(
+            [new InvoiceLine('RED_ANIM_BREV', 'Réduction animateur breveté', 'STAFFDU', -1000, 2, -2000, $this->people(2))],
+            $snapshot->id
+        );
+
+        $line = $this->service->reconstitutedLines($invoice)[0];
+        $this->assertSame(2, $line->expectedQuantity);
+        $this->assertTrue($line->matches());
+    }
+
+    /**
+     * The semantics IT-21 was told not to change: a wording nobody can
+     * read is « the site cannot say », so the line stays undetermined
+     * rather than announcing a reduction the federation forgot.
+     */
+    public function testAnUnreadableFormationWordingLeavesTheLineUndetermined(): void
+    {
+        $this->createMemberYear($this->normalFeeId, $this->staffId, 'Zorglub maison');
+        $snapshot = $this->snapshots->capture($this->scoutYearId, new \DateTimeImmutable('2026-01-05 07:00:00'));
+
+        $invoice = $this->storeInvoice(
+            [new InvoiceLine('COT_ANIM', 'Cotisation animateur', 'STAFFDU', 2500, 1, 2500, $this->people(1))],
+            $snapshot->id
+        );
+
+        $this->assertSame(
+            0,
+            $this->service->countDiscrepancies($invoice),
+            'an unreadable wording is never reported as a missing reduction'
+        );
+    }
+
+    /**
      * Undetermined, not zero: an unknown reference disables the only check
      * the line had, and the screen says so rather than accusing the
      * federation of billing for nobody.

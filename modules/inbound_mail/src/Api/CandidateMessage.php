@@ -56,6 +56,17 @@ class CandidateMessage
          */
         public readonly array $attachments = [],
         /**
+         * The raw header block, for the consumers whose whole signal is
+         * in it (roadmap IT-22/IT-27: an authentication verdict, a relay
+         * chain).
+         *
+         * Carried on every candidate, like the bodies above: what a
+         * consumer may *analyse* is the message, and what is *kept* is
+         * the separate question `Api\MessageRetentionPreference` answers.
+         * Null when the client could not supply it.
+         */
+        public readonly ?string $rawHeaders = null,
+        /**
          * The consumer id this box was declared **dedicated** to, or null
          * for a shared one — `Api\MailboxPurpose`, as the configuration
          * screen recorded it.

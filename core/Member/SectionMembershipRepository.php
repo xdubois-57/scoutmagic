@@ -213,12 +213,30 @@ class SectionMembershipRepository
      * member page (Core\Member\SectionDocumentPageService) walks this to
      * find every (section, scout year) the member was ever active in.
      *
+     * Ordered by the scout year's own start_date, never by scout_year_id:
+     * that id is the order rows were CREATED, which is not the calendar.
+     * Core\Config\ScoutYearService::ensureYear() makes a year on demand,
+     * and the registration module makes next year's the first time a
+     * request is accepted or a passage decided — so on a real install
+     * 2027-2028 can carry a LOWER id than 2026-2027, and this list came
+     * back shuffled. The visible cost was on the member page, whose
+     * « Parcours dans l'unité » block is this list truncated to its first
+     * SECTION_HISTORY_LIMIT entries: shuffled, the truncation kept the
+     * wrong ones.
+     *
+     * scout_years.start_date is NOT NULL, so an inner join drops nothing
+     * and needs no coalesce. The secondary sort stays on the period's own
+     * start_date, for the member who changed section mid-year.
+     *
      * @return MemberSectionPeriod[]
      */
     public function findAllForMember(int $memberId): array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT * FROM member_section_periods WHERE member_id = ? ORDER BY scout_year_id DESC, start_date DESC'
+            'SELECT msp.* FROM member_section_periods msp
+             JOIN scout_years sy ON msp.scout_year_id = sy.id
+             WHERE msp.member_id = ?
+             ORDER BY sy.start_date DESC, msp.start_date DESC'
         );
         $stmt->execute([$memberId]);
 

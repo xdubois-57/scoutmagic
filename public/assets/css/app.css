@@ -737,3 +737,147 @@ body:has(> #cookie-banner) {
         max-width: 420px;
     }
 }
+
+/* Passage (modules/registration, views/passage.html.twig) — the column
+   both of that page's tables end with: a section picker and its
+   « Enregistrer » button, side by side in one flex row.
+
+   The button already carried .text-nowrap, so the defect was never a
+   wrapped label: with nothing stopping the flex item from shrinking, the
+   button was squeezed BELOW the width of its own text and the nowrap made
+   that text overflow the cell. .flex-shrink-0 on the button and
+   .flex-grow-1 on the select fix the pair; this class gives the column the
+   room the two of them actually need — a realistic section name plus the
+   button — rather than the 200/240px it had been guessed at.
+
+   A class rather than the three style="min-width:…" attributes it
+   replaces: SECURITY.md §34 asks for exactly this conversion whenever a
+   template carrying inline geometry is touched anyway, and these were
+   static values, not computed ones. It lives here rather than in
+   components.css because base.html.twig loads app.css for every page and
+   components.css only on the pages that opt in — one min-width rule does
+   not justify pulling a thousand lines of unrelated component CSS into
+   this one page.
+
+   The table stays inside .table-responsive: horizontal scrolling on a
+   phone is the accepted outcome here (spec §12), not a defect to design
+   around. The goal is a legible column, not a table that fits 375px. */
+.passage-assign-col {
+    min-width: 17.5rem;
+}
+
+/* The planning block under a Passage line (roadmap IT-17,
+   @registration/_passage_planning.html.twig).
+
+   It sits in a `colspan` cell of a table that scrolls horizontally at
+   375px — deliberately, per the rule just above — so without this it
+   would be as wide as the TABLE and a chief would have to scroll right to
+   read a note or tick a checkbox. Two rules fix that:
+
+   - `max-width` caps it at the screen rather than at the table;
+   - `position: sticky; left: 0` pins it to the left edge of the scroll
+     viewport, so it stays put while the row above it scrolls.
+
+   The 4rem is the page padding plus the card's own, either side, so the
+   block ends where the card does instead of a hair past it. Erring
+   narrow is deliberate: a few pixels of slack cost nothing, and a few
+   pixels of overflow cost the end of every sentence. */
+.passage-planning-inner {
+    position: sticky;
+    left: 0;
+    max-width: calc(100vw - 4rem);
+}
+
+/* Configuration > E-mails (core/View/templates/config/emails.html.twig,
+   config/email_edit.html.twig).
+
+   Two rules, both about a column that must not collapse:
+
+   - .email-state-col is the inventory's « État » column. Its content is a
+     single badge, so the browser is happy to squeeze it to the width of
+     the longest word and wrap « Non modifiable (email d'authentification) »
+     over four lines. The state is what the page is read for; it gets the
+     room to say itself on one line and the table scrolls instead
+     (.table-responsive, spec §12).
+   - .email-body-editor is the preview the shared rich-text modal reads
+     from and writes back to. Empty — a template whose content block did
+     not render — it would be a zero-height box with no hint that the
+     « Modifier » button opens anything, so it keeps a minimum height.
+
+   Classes rather than inline style attributes: SECURITY.md §34, and these
+   are static values. In app.css rather than components.css for the same
+   reason as .passage-assign-col above — base.html.twig loads app.css on
+   every page, components.css only where a page opts in. */
+.email-state-col {
+    white-space: nowrap;
+}
+
+.email-body-editor {
+    min-height: 6rem;
+}
+
+/* Passage statistics box (modules/registration/views/
+   _passage_statistics.html.twig, spec §8).
+
+   Two track heights, because the two bars answer different questions and
+   should not read as one control: the total is a comparison BETWEEN the
+   sections of a branch and gets the taller track; the gender split is a
+   100% bar whose numbers are written out beside it, so the bar itself is
+   a glance rather than a measurement.
+
+   Classes rather than inline style attributes for the static half
+   (SECURITY.md §34); the widths and the section colour stay inline
+   because they are computed per section and there is nothing to hoist.
+   In app.css for the same reason as .passage-assign-col above —
+   base.html.twig loads it on every page, components.css only on the pages
+   that opt in. */
+.passage-stats-track {
+    height: 0.5rem;
+    background-color: var(--bs-secondary-bg);
+    overflow: hidden;
+}
+
+.passage-stats-fill {
+    height: 100%;
+}
+
+.passage-stats-gender {
+    height: 0.375rem;
+}
+
+/* ============================================================
+   Bornage des blocs qui grandissent tout seuls (§7.6)
+   ============================================================ */
+
+/* Notes de version : hauteur, pas nombre de lignes. Le contenu est du
+   Markdown rendu (titres, listes, blocs de code ont chacun leur propre
+   boîte de ligne), donc découper 20 lignes de source côté serveur
+   couperait au milieu d'un élément. 30em ≈ 20 lignes à la hauteur de
+   ligne Bootstrap (1.5). Bootstrap n'a pas d'équivalent multiligne de
+   .text-truncate : c'est la raison d'être de ces quelques lignes.
+   Le dégradé signale qu'il reste du texte ; public/assets/js/notes-clamp.js
+   retire la classe quand le contenu tient déjà. */
+.notes-clamp:not(.is-expanded) {
+    max-height: 30em;
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(to bottom, #000 82%, transparent 100%);
+            mask-image: linear-gradient(to bottom, #000 82%, transparent 100%);
+}
+
+/* Étiquette d'un déclencheur Bootstrap Collapse : c'est Bootstrap qui
+   pose et retire .collapsed sur le bouton, donc l'échange « Afficher /
+   Réduire » ne demande aucun JavaScript. */
+[data-bs-toggle="collapse"].collapsed .show-when-expanded,
+[data-bs-toggle="collapse"]:not(.collapsed) .show-when-collapsed {
+    display: none;
+}
+
+[data-bs-toggle="collapse"] .bi-chevron-down,
+[data-notes-clamp-toggle] .bi-chevron-down {
+    transition: transform 0.2s ease;
+}
+
+[data-bs-toggle="collapse"]:not(.collapsed) .bi-chevron-down,
+[data-notes-clamp-toggle][aria-expanded="true"] .bi-chevron-down {
+    transform: rotate(180deg);
+}

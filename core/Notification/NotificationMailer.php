@@ -10,7 +10,7 @@ namespace Core\Notification;
 
 use Core\Mail\MailException;
 use Core\Mail\MailService;
-use Twig\Environment;
+use Core\Mail\Template\EmailTemplateRenderer;
 
 /**
  * The email copy of a notification (ARCHITECTURE.md §8.24).
@@ -42,7 +42,7 @@ class NotificationMailer
 
     public function __construct(
         private MailService $mailService,
-        private Environment $twig,
+        private EmailTemplateRenderer $emailTemplateRenderer,
         private string $siteName,
         private string $baseUrl
     ) {
@@ -71,11 +71,19 @@ class NotificationMailer
         ];
 
         try {
+            // The subject is the notification's own title (or the
+            // discretion stand-in), never the register's default one: it
+            // says what happened, and a customised subject would say the
+            // same thing about every notification. The BODY still goes
+            // through the register, so an administrator can reword the
+            // frame around it.
+            $email = $this->emailTemplateRenderer->render('notification', $context);
+
             $this->mailService->send(
                 to: $to,
                 subject: $discretion ? self::DISCRETION_SUBJECT : $record->title,
-                bodyHtml: $this->twig->render('email/notification.html.twig', $context),
-                bodyText: $this->twig->render('email/notification.text.twig', $context)
+                bodyHtml: $email->bodyHtml,
+                bodyText: $email->bodyText
             );
         } catch (MailException) {
             return false;

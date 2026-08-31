@@ -13,6 +13,7 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Security\CsrfGuard;
+use Modules\SupportDashboard\Service\MailProbeService;
 use Modules\SupportDashboard\Service\SupportDashboardFilters;
 use Modules\SupportDashboard\Service\SupportDashboardService;
 use Modules\SupportDashboard\Service\SupportHistoryPeriod;
@@ -32,7 +33,12 @@ class SupportDashboardController extends AbstractController
     public function __construct(
         protected Environment $twig,
         private SupportDashboardService $dashboardService,
-        private JournalService $journalService
+        private JournalService $journalService,
+        /**
+         * The diagnostic mail probes (roadmap IT-27). Null when nothing
+         * wired one — the detail dialog then shows no probe section.
+         */
+        private ?MailProbeService $probeService = null
     ) {
     }
 
@@ -72,6 +78,11 @@ class SupportDashboardController extends AbstractController
 
         return $this->render('@support_dashboard/partials/detail.html.twig', [
             'installation' => $installation,
+            // The diagnostic probes this installation asked for
+            // (roadmap IT-27). Shown here and nowhere else: the relay
+            // chain is IP addresses and server names, and this dialog is
+            // already `role_min: superadmin`.
+            'probes' => $this->probeService?->resultsFor((int) $installation['id']) ?? [],
         ]);
     }
 

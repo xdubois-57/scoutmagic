@@ -336,7 +336,15 @@ class SupportPackageServiceTest extends TestCase
         $readme = $this->readArchive($fileId)['README.txt'];
 
         $this->assertStringContainsString('générée localement', $readme);
-        $this->assertStringContainsString('Rien n\'a été transmis automatiquement', $readme);
+        // Roadmap IT-26 turned the absolute promise into a conditional
+        // one, and the README is the copy an administrator reads with the
+        // archive already in their hands — so it has to describe the one
+        // way it can leave, not merely forbid the automatic ones.
+        $this->assertStringContainsString('Rien n\'est transmis automatiquement', $readme);
+        $this->assertStringContainsString('Aucun envoi automatique', $readme);
+        $this->assertStringContainsString('Configuration > Support', $readme);
+        $this->assertStringContainsString('cocher que vous acceptez de la transmettre', $readme);
+        $this->assertStringNotContainsString('sous aucune forme.', $readme, 'the absolute claim is retired');
         $this->assertStringContainsString('cela ne peut pas être garanti', $readme);
         $this->assertStringContainsString('support@scoutmagic.be', $readme);
         $this->assertStringContainsString('informations PHP', $readme);

@@ -788,7 +788,8 @@ class SetupControllerTest extends TestCase
             [$pdo, $params] = $this->connectToTestDatabase();
             $this->resetSecretsForFirstInstall();
 
-            $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath, $this->tempDir);
+            $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath, $this->publicDir());
+            $this->writeCronHeartbeat();
             $token = \Core\Security\CsrfGuard::generateToken();
             $_POST['_csrf_token'] = $token;
 
@@ -840,6 +841,39 @@ class SetupControllerTest extends TestCase
                 unlink($key);
             }
         }
+    }
+
+    /**
+     * The public directory this test's fake installation is served from —
+     * `storage/` is its sibling, exactly as in the "natural" hosting
+     * layout, so Core\Scheduler\CronHealth resolves the heartbeat file
+     * from it the way it does in production.
+     */
+    private function publicDir(): string
+    {
+        $dir = $this->tempDir . '/public';
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+
+        return $dir;
+    }
+
+    /**
+     * A real crontab having just fired, as public/cron.php records it.
+     *
+     * First-time setup refuses to complete while no cron has been detected
+     * (SetupController::save()), so every test that drives the wizard to
+     * completion has to provision one — the same thing the end-to-end
+     * harness does by running the instance's own cron.php once.
+     */
+    private function writeCronHeartbeat(?int $at = null): void
+    {
+        $tempDir = $this->tempDir . '/storage/temp';
+        if (!is_dir($tempDir)) {
+            mkdir($tempDir, 0755, true);
+        }
+        file_put_contents($tempDir . '/cron-heartbeat', (string) ($at ?? time()));
     }
 
     /**
@@ -1065,7 +1099,8 @@ class SetupControllerTest extends TestCase
 
         $token = \Core\Security\CsrfGuard::generateToken();
 
-        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath, $this->publicDir());
+        $this->writeCronHeartbeat();
         $request = new Request('POST', '/setup/save', [], [
             '_csrf_token' => $token,
             'db_host' => $host,
@@ -1153,7 +1188,8 @@ class SetupControllerTest extends TestCase
 
         $token = \Core\Security\CsrfGuard::generateToken();
 
-        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath, $this->publicDir());
+        $this->writeCronHeartbeat();
         $request = new Request('POST', '/setup/save', [], [
             '_csrf_token' => $token,
             'db_host' => $host,
@@ -1425,6 +1461,181 @@ class SetupControllerTest extends TestCase
 
         $this->assertArrayNotHasKey('key_missing', $decoded['dkim']);
         $this->assertSame("v=DKIM1; k=rsa; p={$publicKey}", $decoded['dkim']['expected']);
+    }
+
+    // --- La tache cron, verifiee pendant l'installation --------------------
+
+    /**
+     * The page must show the exact line to configure, with the `php`
+     * prefix — a hosting panel handed a bare script path executes nothing
+     * at all, and reports nothing either. That is the failure this whole
+     * section exists to prevent, and it is lived experience, not theory.
+     */
+    public function testTheSetupPageShowsTheExactCrontabLineWithThePhpPrefix(): void
+    {
+        $_SESSION['setup_token_verified'] = true;
+
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath, '/htdocs/public');
+
+        $body = $controller->index(new Request('GET', '/setup', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('* * * * * php /htdocs/public/cron.php', $body);
+        $this->assertStringContainsString('Tâche cron', $body);
+        $this->assertStringContainsString('cron-status-chip', $body);
+        // The « Adresse du script » trap, named on the page itself.
+        $this->assertStringContainsString('Adresse du script', $body);
+    }
+
+    public function testCronStatusReportsNeverWhenNoCronHasEverRun(): void
+    {
+        $_SESSION['setup_token_verified'] = true;
+
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath, $this->publicDir());
+
+        $json = json_decode($controller->cronStatus(new Request('GET', '/setup/cron-status', [], [], [], []), [])->getBody(), true);
+
+        $this->assertSame('never', $json['state']);
+        $this->assertNull($json['seconds_since_heartbeat']);
+    }
+
+    public function testCronStatusReportsActiveOnceTheHeartbeatExists(): void
+    {
+        $_SESSION['setup_token_verified'] = true;
+        $this->writeCronHeartbeat();
+
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath, $this->publicDir());
+
+        $json = json_decode($controller->cronStatus(new Request('GET', '/setup/cron-status', [], [], [], []), [])->getBody(), true);
+
+        $this->assertSame('active', $json['state']);
+        $this->assertIsInt($json['seconds_since_heartbeat']);
+        $this->assertLessThan(5, $json['seconds_since_heartbeat']);
+    }
+
+    public function testCronStatusReportsStaleWhenTheHeartbeatIsOld(): void
+    {
+        $_SESSION['setup_token_verified'] = true;
+        $this->writeCronHeartbeat(time() - 4000);
+
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath, $this->publicDir());
+
+        $json = json_decode($controller->cronStatus(new Request('GET', '/setup/cron-status', [], [], [], []), [])->getBody(), true);
+
+        $this->assertSame('stale', $json['state']);
+    }
+
+    /**
+     * The access boundary for /setup/cron-status while the site is NOT yet
+     * initialized is the installation token, exactly like every other
+     * /setup/* endpoint — the route's own role_min (superadmin, registered
+     * in public/index.php beside its siblings) only takes over once
+     * token.php is gone. See denyUnlessTokenVerified().
+     */
+    public function testCronStatusIsRefusedBeforeTheInstallationTokenIsVerified(): void
+    {
+        unset($_SESSION['setup_token_verified']);
+        file_put_contents($this->tempDir . '/token.php', "<?php /* TOKEN: " . str_repeat('a', 64) . " */\n");
+
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath, $this->tempDir);
+
+        $response = $controller->cronStatus(new Request('GET', '/setup/cron-status', [], [], [], []), []);
+
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    /**
+     * The gate itself. A first install completed without a real crontab is
+     * an install whose backups, updates, reminders and notifications all
+     * silently never happen — the reference installation ran that way for
+     * days and no page said so.
+     */
+    public function testFirstRunSaveIsRefusedWhileNoCronHasBeenDetected(): void
+    {
+        $_SESSION['setup_token_verified'] = true;
+
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath, $this->publicDir());
+        $token = \Core\Security\CsrfGuard::generateToken();
+        $request = new Request('POST', '/setup/save', [], array_merge($this->validFormData(), [
+            '_csrf_token' => $token,
+            'admin_password_confirm' => 'Motdepasse-2027!',
+        ]), [], []);
+
+        $response = $controller->save($request, []);
+
+        // Nothing was installed, the reason is on screen, and the operator
+        // keeps what they typed — this form is far too long to throw away
+        // over a prerequisite that is not met yet.
+        $body = $response->getBody();
+        $this->assertFalse($this->secretManager->isInitialized());
+        $this->assertFileDoesNotExist($this->tempDir . '/keys/master.key');
+        $this->assertStringContainsString('value="Test Unit"', $body);
+        $this->assertStringContainsString('Aucune tâche cron', $body);
+    }
+
+    /**
+     * And the other half: once the crontab has genuinely fired, the very
+     * same submission goes through. Without this the test above would pass
+     * just as happily against a save() that always refuses.
+     */
+    public function testFirstRunSavePassesTheCronGateOnceTheHeartbeatExists(): void
+    {
+        $_SESSION['setup_token_verified'] = true;
+        $this->writeCronHeartbeat();
+
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath, $this->publicDir());
+        $token = \Core\Security\CsrfGuard::generateToken();
+        $request = new Request('POST', '/setup/save', [], array_merge($this->validFormData(), [
+            '_csrf_token' => $token,
+            'admin_password_confirm' => 'Motdepasse-2027!',
+        ]), [], []);
+
+        $response = $controller->save($request, []);
+
+        // The form names a database that does not exist, so the install
+        // fails later, on the connection — which is precisely the proof it
+        // got PAST the cron gate rather than being stopped by it: a
+        // refusal re-renders the form, a redirect means it went on.
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertStringNotContainsString(
+            'Aucune tâche cron',
+            (string) (\Core\Http\FlashMessage::get()['message'] ?? '')
+        );
+    }
+
+    /**
+     * The asymmetry, deliberately. On an already-configured site /setup is
+     * « Installation & serveur », the superadmin configuration page:
+     * refusing to save a database password or an SMTP host because the
+     * crontab missed three minutes would break a live site's config page
+     * over a transient, which is worse than the problem being prevented.
+     */
+    public function testAnAlreadyConfiguredSiteIsNeverBlockedByTheCronGate(): void
+    {
+        $this->secretManager->generateMasterKey();
+        $this->secretManager->writeSecrets([
+            'db_host' => 'invalid.invalid.host', 'db_port' => 3306, 'db_name' => 'x',
+            'db_user' => 'x', 'db_password' => 'x',
+            'encryption_key' => base64_encode(random_bytes(32)),
+            'blind_index_key' => base64_encode(random_bytes(32)),
+        ]);
+        // Deliberately NO heartbeat: no cron is running on this site.
+
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath, $this->publicDir());
+        $token = \Core\Security\CsrfGuard::generateToken();
+        $request = new Request('POST', '/setup/save', [], array_merge($this->validFormData(), [
+            '_csrf_token' => $token,
+            'db_host' => 'invalid.invalid.host',
+            'admin_email' => '',
+            'admin_password' => '',
+        ]), [], []);
+
+        $response = $controller->save($request, []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertStringNotContainsString(
+            'Aucune tâche cron',
+            (string) (\Core\Http\FlashMessage::get()['message'] ?? '')
+        );
     }
 
     /**

@@ -21,6 +21,9 @@
     "less and less."
   ],
   "groups": {
+    "/api/support/tickets/{reference}": {
+      "reference": "SUP-ABCDEF"
+    },
     "/admin/attestations/{id}": {
       "id": "1"
     },
@@ -95,6 +98,9 @@
     },
     "/config/courrier-entrant/boites/{id}": {
       "id": "1"
+    },
+    "/config/emails/{template}": {
+      "template": "member_email_unsubscribe_confirmation"
     },
     "/config/gallery/albums/{id}": {
       "id": "1"
@@ -220,6 +226,9 @@
     "/passage/membre/{id}": {
       "id": "1"
     },
+    "/passage/souhait/{id}": {
+      "id": "1"
+    },
     "/password-reset/{id}": {
       "id": "1"
     },
@@ -235,6 +244,9 @@
     },
     "/s/{code}": {
       "code": "abcdefg"
+    },
+    "/support-dashboard/tickets/{id}": {
+        "id": "1"
     },
     "/support-dashboard/installations/{id}": {
       "id": "1"

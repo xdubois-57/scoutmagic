@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Modules\Retro\Service;
 
+use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
+
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Mail\MailService;
@@ -69,7 +71,7 @@ class BoardServiceTest extends TestCase
         return new BoardService(
             $this->boardRepository, new CommentRepository($this->pdo), $this->memberService, $this->sectionService,
             $this->schedulerService, $this->journalService, $mailService ?? $this->createMock(MailService::class),
-            $this->twig, 'Test Unit', 'https://example.test',
+            EmailTemplateRendererFactory::shippedOnlyForModule($this->twig, 'retro'), 'Test Unit', 'https://example.test',
             $shortUrlService, $calendarEventLookup, $summaryService
         );
     }

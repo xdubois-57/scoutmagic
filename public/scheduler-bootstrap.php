@@ -211,6 +211,23 @@ function scoutmagic_bootstrap_scheduler(
                 $auditService = new \Core\Audit\AuditService(new \Core\Audit\AuditRepository($pdo, $encryptionService));
                 $fileRepository = new \Core\File\FileRepository($pdo);
 
+                // Registered FIRST, and deliberately: it claims only a
+                // message whose subject carries a key this receiver
+                // itself issued, which is the narrowest claim of the
+                // lot, and a probe landing in a shared box must not be
+                // swallowed by a consumer with a wider appetite
+                // (roadmap IT-27).
+                if (in_array('support_dashboard', $enabledModuleIds, true)) {
+                    $registry->register(new \Modules\SupportDashboard\Mail\SupportMessageConsumer(
+                        new \Modules\SupportDashboard\Service\MailProbeService(
+                            new \Modules\SupportDashboard\Repository\SupportMailProbeRepository($pdo, $encryptionService),
+                            new \Modules\SupportDashboard\Repository\SupportInstallationRepository($pdo),
+                            $journalService,
+                            $inboundMail
+                        )
+                    ));
+                }
+
                 if ($inboundMail !== null && in_array('rental', $enabledModuleIds, true)) {
                     $rentalBookingRepository = new \Modules\Rental\Repository\RentalBookingRepository($pdo, $encryptionService);
                     // No ActorAccountResolver on the scheduled path:

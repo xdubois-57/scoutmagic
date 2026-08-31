@@ -76,29 +76,29 @@ final class ScenarioCatalog
             'expectation' => 'Animateur de Seeonee en A1, de Waingunga en A2 et A3. Sa photo le suit également.',
         ],
         10 => [
-            'name' => 'Animateur devenu chef d\'unité',
+            'name' => 'Animateur devenu animateur d\'unité',
             'tiers' => ['T0015'],
-            'expectation' => 'Animateur avec section en A1 ; Chef d\'unité sans section en A2 et A3, donc rattaché à Staff d\'U — mais seulement une fois le rôle admin confirmé dans Config Desk.',
+            'expectation' => 'Animateur avec section en A1 ; Animateur d\'unité sans section en A2 et A3, donc rattaché à Staff d\'U — mais seulement une fois le rôle admin confirmé dans Config Desk.',
         ],
         11 => [
-            'name' => 'Intendant',
+            'name' => 'Intendant de section',
             'tiers' => ['T0016'],
-            'expectation' => 'Intendant d\'unité les trois années, fonction sans branche ni section.',
+            'expectation' => 'Intendant des Pionniers les trois années : une fonction de section, avec branche et section, dont le rôle confirmé est intendant et rien de plus.',
         ],
         12 => [
             'name' => 'Deux fonctions dont une principale',
             'tiers' => ['T0017'],
-            'expectation' => 'Animateur (principale, avec section) + Trésorier d\'unité (secondaire, sans section). Deux lignes par adresse, pas une.',
+            'expectation' => 'Animateur (principale, avec section) + Collaborateur d\'unité (secondaire, sans section). Le fait « trésorier » reste porté par le badge, que ExtrasBlueprint assigne au même membre les trois années — jamais par une FONCTION.',
         ],
         13 => [
             'name' => 'Fonction « candidat »',
             'tiers' => ['T0018'],
-            'expectation' => 'Animateur candidat en A2, Animateur en A3. Rien ne consomme le mot aujourd\'hui ; le test vérifie que le libellé traverse l\'import intact.',
+            'expectation' => 'Candidat animateur en A2, Animateur en A3 : le libellé traverse l\'import intact, CandidateDetector le reconnaît, et la sortie de candidature est observable d\'une année à l\'autre.',
         ],
         14 => [
             'name' => 'FONCTION inédite en A3',
             'tiers' => ['T0019'],
-            'expectation' => 'Accompagnateur d\'unité n\'existe qu\'en A3 : la fonction doit être créée en role=identified, confirmed=false, et compter dans newFunctionsCount.',
+            'expectation' => 'Délégué de branche (UnitBlueprint::BRAND_NEW_FUNCTION) n\'existe qu\'en A3 et n\'est dans aucune table de rôles : la fonction doit être créée en role=identified, confirmed=false, compter dans newFunctionsCount, et rester non confirmée après le rejeu de Config Desk.',
         ],
         15 => [
             'name' => 'Section vidée',
@@ -123,7 +123,7 @@ final class ScenarioCatalog
         19 => [
             'name' => 'Membre à deux adresses',
             'tiers' => ['T0026'],
-            'expectation' => 'Domicile + Adresse secondaire. Deux lignes portant la MÊME fonction — les adresses sont dédupliquées par type, les fonctions ne le sont pas.',
+            'expectation' => 'Domicile + Adresse secondaire. Deux lignes portant la MÊME fonction : deux adresses dédupliquées par type, et UNE seule ligne member_functions — l\'import réduit deux lignes identiques à la fonction qu\'elles décrivent.',
         ],
         20 => [
             'name' => 'Membre sans email, sans date de naissance, sans téléphone fixe',
@@ -148,7 +148,7 @@ final class ScenarioCatalog
         24 => [
             'name' => 'Équilibre filles/garçons non trivial',
             'tiers' => [],
-            'expectation' => 'La part de F n\'est jamais à moins de 5 points de 50 % (elle tourne autour de 40 %), et elle bouge d\'une année à l\'autre : les graphes de Prévisions et de Statistiques doivent avoir quelque chose à montrer.',
+            'expectation' => 'La part de F n\'est jamais à moins de 3 points de 50 % (le tirage vise 46 %, PersonFactory::GENDER_F_PERCENT), et elle bouge d\'une année à l\'autre : les graphes de Prévisions et de Statistiques doivent avoir quelque chose à montrer.',
         ],
     ];
 

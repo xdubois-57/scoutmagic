@@ -47,10 +47,13 @@ class DeparturesControllerTest extends TestCase
     private int $sectionBId;
     private int $leaMemberYearId;
     private int $noeMemberYearId;
+    private SettingService $settingService;
+    private \Modules\Registration\Service\ReenrollmentDepartureService $departureLink;
 
     protected function setUp(): void
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
+        \Tests\Modules\Registration\RegistrationTestHelper::createTables($this->pdo);
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $connection = Connection::withPdo($this->pdo);
 
@@ -93,8 +96,16 @@ class DeparturesControllerTest extends TestCase
         $twig->addGlobal('current_path', '/departs');
         $twig->addGlobal('csp_nonce', 'test-nonce');
 
+        $this->settingService = $settingService;
+        $this->departureLink = \Tests\Modules\Registration\RegistrationTestHelper::departureLink(
+            $this->pdo,
+            $this->encryption,
+            $settingService
+        );
+
         $this->controller = new DeparturesController(
-            $twig, $sectionStaffAuth, $sectionService, $this->departureService, $scoutYearResolver
+            $twig, $sectionStaffAuth, $sectionService, $this->departureService, $scoutYearResolver,
+            $this->departureLink
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -144,6 +155,26 @@ class DeparturesControllerTest extends TestCase
         $stmt->execute([$memberYearId, $functionId, $sectionId, $this->branchIdOf($sectionId)]);
 
         return $memberYearId;
+    }
+
+    /**
+     * A family answer recorded the way the « Réinscription » page records
+     * one: the row, then the link that moves the departure box.
+     */
+    private function answerFor(int $memberYearId, string $decision, ?string $comment = null): void
+    {
+        $targetYearId = (new ScoutYearService($this->pdo))->ensureYear('2027-2028');
+
+        $stmt = $this->pdo->prepare('SELECT member_id FROM member_years WHERE id = ?');
+        $stmt->execute([$memberYearId]);
+        $memberId = (int) $stmt->fetchColumn();
+
+        $repository = new \Modules\Registration\Repository\ReenrollmentRepository($this->pdo, $this->encryption);
+        $repository->saveAnswer($memberId, $targetYearId, $decision, null, $comment, null, []);
+
+        $answer = $repository->findAnswer($memberId, $targetYearId);
+        self::assertNotNull($answer);
+        $this->departureLink->apply($answer, $this->scoutYearId);
     }
 
     private function branchIdOf(int $sectionId): int
@@ -204,6 +235,93 @@ class DeparturesControllerTest extends TestCase
             '#<h1[^>]*>Départs</h1>\s*<span class="badge text-bg-secondary">2026-2027</span>#',
             $body
         );
+    }
+
+    // ── IT-16: the family's answer, beside the staff's own box ────────
+
+    /**
+     * The counter says how many lines the two sources disagree about and
+     * how many families are still silent. Both are COUNTS: who is leaving
+     * is a decision, and decisions belong on the line they concern.
+     */
+    public function testTheDivergenceCounterIsExact(): void
+    {
+        $this->answerFor($this->leaMemberYearId, 'leaving');
+        // The chief knows better and unticks it — their decision stands,
+        // and the line is now a divergence.
+        $this->departureService->unmarkLeaving($this->leaMemberYearId);
+
+        AuthSession::login(1, 'chief@example.com', 'chief');
+        $body = $this->controller->index(new Request('GET', '/departs', [], [], [], []), [])->getBody();
+
+        $this->assertMatchesRegularExpression(
+            '#id="departures-divergence-count".*?<strong>1</strong>#s',
+            $body
+        );
+        $this->assertMatchesRegularExpression(
+            '#id="departures-unanswered-count".*?<strong>0</strong>#s',
+            $body
+        );
+    }
+
+    public function testASilentFamilyIsCountedAsSilentAndNeverAsADivergence(): void
+    {
+        // Section A holds exactly one animé, and nobody has answered for
+        // them. The campaign is open, so the block is shown.
+        $this->settingService->register(
+            \Modules\Registration\Service\ReenrollmentCampaignService::SETTING_OPEN,
+            '1',
+            'boolean',
+            'Campagne ouverte',
+            'desc',
+            'registration'
+        );
+
+        AuthSession::login(1, 'chief@example.com', 'chief');
+        $body = $this->controller->index(new Request('GET', '/departs', [], [], [], []), [])->getBody();
+
+        $this->assertMatchesRegularExpression('#id="departures-divergence-count".*?<strong>0</strong>#s', $body);
+        $this->assertMatchesRegularExpression('#id="departures-unanswered-count".*?<strong>1</strong>#s', $body);
+    }
+
+    /**
+     * A unit that has never run a reenrollment campaign has no answers and
+     * no question. A column of empty cells with « 1 famille sans réponse »
+     * above it would be an alarm about a feature they do not use.
+     */
+    public function testNothingReenrollmentRelatedIsShownWithoutACampaign(): void
+    {
+        AuthSession::login(1, 'chief@example.com', 'chief');
+        $body = $this->controller->index(new Request('GET', '/departs', [], [], [], []), [])->getBody();
+
+        $this->assertStringNotContainsString('Réponse de la famille', $body);
+        $this->assertStringNotContainsString('departures-divergence-count', $body);
+    }
+
+    /**
+     * What the family wrote is READ ONLY here, and it is not the staff's
+     * note. The two fields are two fields: one a parent can edit from
+     * their own page and this one cannot, one the family never sees.
+     */
+    public function testTheFamilyAnswerIsReadOnlyAndTheStaffNoteSaysWhoNeverSeesIt(): void
+    {
+        $this->answerFor($this->leaMemberYearId, 'leaving', 'Nous déménageons en juillet.');
+
+        AuthSession::login(1, 'chief@example.com', 'chief');
+        $body = $this->controller->index(new Request('GET', '/departs', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Nous déménageons en juillet.', $body);
+        $this->assertStringContainsString('non modifiable ici', $body);
+        // The family's words are in a quote, never in a field this page
+        // could post back.
+        $this->assertMatchesRegularExpression(
+            '#<blockquote[^>]*>Nous déménageons en juillet\.</blockquote>#',
+            $body
+        );
+        $this->assertStringContainsString('Note interne — jamais vue par la famille', $body);
+        // And the staff note is still the staff note: the family comment
+        // was not written into it.
+        $this->assertNull($this->departureService->getStatus($this->leaMemberYearId)?->comment);
     }
 
     public function testChiefSeesOnlyOwnSection(): void

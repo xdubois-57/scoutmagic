@@ -8,7 +8,9 @@ declare(strict_types=1);
 
 namespace Core\Support\Collector;
 
+use Core\Scheduler\CronHealth;
 use Core\Scheduler\CronRunHistory;
+use Core\Scheduler\CronStatus;
 use Core\Support\SupportCollectorContext;
 use Core\Support\SupportCollectorInterface;
 
@@ -47,12 +49,6 @@ class CronCadenceCollector implements SupportCollectorInterface
     /** Beyond this, printing every row stops informing and starts hiding. */
     private const MAX_LATENCY_ROWS = 200;
 
-    /**
-     * `Core\Statistics\StatisticsPayloadBuilder` uses the same threshold to
-     * decide the same thing, and the two must not disagree.
-     */
-    private const CRON_STALE_AFTER_SECONDS = 7200;
-
     public function name(): string
     {
         return 'cron_cadence';
@@ -87,11 +83,20 @@ class CronCadenceCollector implements SupportCollectorInterface
         $schedulerLastRun = (int) ($settings->get('scheduler_last_run') ?? 0);
         $history = CronRunHistory::read($settings);
 
+        // The verdict below is Core\Scheduler\CronHealth's, not this
+        // collector's own: the same question is asked by the setup gate
+        // and by the maintenance page, and three copies of the same two
+        // thresholds is how they would come to disagree.
+        $status = (new CronHealth($context->storagePath(), $settings))->status($now);
+
         $lines[] = '## Horodatages bruts';
         $lines[] = 'cron_last_run : ' . $this->stamp($cronLastRun, $now)
             . '  (écrit uniquement par public/cron.php — un vrai crontab)';
         $lines[] = 'scheduler_last_run : ' . $this->stamp($schedulerLastRun, $now)
             . '  (écrit par le pseudo-cron de public/index.php, à chaque visite)';
+        $lines[] = 'battement de cœur (storage/' . CronHealth::HEARTBEAT_FILE . ') : '
+            . $this->stamp($status->lastHeartbeatAt ?? 0, $now)
+            . '  (écrit tout en haut de public/cron.php, avant même l\'autoloader)';
         $lines[] = '';
 
         $lines[] = '## Tampon circulaire des ' . CronRunHistory::MAX_ENTRIES . ' derniers passages de public/cron.php';
@@ -107,17 +112,27 @@ class CronCadenceCollector implements SupportCollectorInterface
         $lines[] = '';
 
         $lines[] = '## Verdict';
-        if ($cronLastRun === 0) {
+        $sinceLastSeen = $status->secondsSinceLastSeen();
+        if ($status->state === CronStatus::STATE_NEVER) {
             $lines[] = 'VRAI CRON : jamais détecté. public/cron.php n\'a jamais tourné sur cette installation.';
             $lines[] = 'La file n\'avance donc que sur les visites (pseudo-cron), et depuis la continuation';
             $lines[] = 'de l\'ordonnanceur, sur les sauts que celle-ci enchaîne.';
-        } elseif (($now - $cronLastRun) > self::CRON_STALE_AFTER_SECONDS) {
-            $lines[] = 'VRAI CRON : configuré mais SILENCIEUX depuis ' . $this->duration($now - $cronLastRun) . '.';
+        } elseif ($status->isSilentBeyond(CronHealth::STALE_AFTER_SECONDS)) {
+            $lines[] = 'VRAI CRON : configuré mais SILENCIEUX depuis ' . $this->duration((int) $sinceLastSeen) . '.';
             $lines[] = 'Il a tourné par le passé et ne tourne plus — panne d\'hébergeur, tâche supprimée,';
             $lines[] = 'ou chemin PHP devenu invalide.';
-            $context->addNote('Le cron réel n\'a pas tourné depuis ' . $this->duration($now - $cronLastRun) . '.');
+            $context->addNote('Le cron réel n\'a pas tourné depuis ' . $this->duration((int) $sinceLastSeen) . '.');
         } else {
-            $lines[] = 'VRAI CRON : détecté et actif (dernier passage il y a ' . $this->duration($now - $cronLastRun) . ').';
+            $lines[] = 'VRAI CRON : détecté et actif (dernier passage il y a ' . $this->duration((int) $sinceLastSeen) . ').';
+        }
+
+        // A heartbeat with no cron_last_run behind it is its own diagnosis,
+        // and the one a single stamp could never give: the crontab DOES
+        // fire, and the pass dies before it reaches the database.
+        if ($status->lastHeartbeatAt !== null && $cronLastRun === 0) {
+            $lines[] = 'ATTENTION : le crontab se déclenche (battement de cœur présent) mais aucun passage';
+            $lines[] = 'complet n\'a jamais atteint la base de données — le script démarre et échoue ensuite.';
+            $context->addNote('Le crontab se déclenche mais aucun passage complet n\'atteint la base.');
         }
 
         if ($schedulerLastRun === 0) {

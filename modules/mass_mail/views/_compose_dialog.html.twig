@@ -75,6 +75,16 @@
                         de fin d'année, retrouvailles...).
                     </p>
                     <p class="form-text small mb-0" id="mm-previous-year-note"></p>
+
+                    {# The future-year warning (Modules\MassMail\Service\
+                       MailingListService::futureAudienceWarning()). Shown only
+                       when a year AFTER the public one is ticked — never for
+                       the current year, where it would be permanent noise
+                       nobody reads. Its text comes from the server, because
+                       which of the two texts applies depends on whether the
+                       registration module is enabled, which the browser has no
+                       business deciding. #}
+                    <div class="alert alert-warning small py-2 mt-2 mb-0 d-none" id="mm-future-year-warning"></div>
                 </div>
 
                 <div class="mb-3">

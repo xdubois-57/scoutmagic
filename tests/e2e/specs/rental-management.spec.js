@@ -40,7 +40,7 @@
 import { test, expect } from '@playwright/test';
 import { loginAsAdmin } from '../support/admin-login.js';
 import { expectRendersAsACalendar } from '../support/calendar.js';
-import { answerConfirmation } from '../support/confirm-dialog.js';
+import { answerConfirmation, waitForConfirmReady } from '../support/confirm-dialog.js';
 import { openSectionEditor } from '../support/section-editor.js';
 
 /** A date far enough out to clear any notice period the asset declares. */
@@ -234,6 +234,11 @@ test.describe('Rentals — running an asset', () => {
         await page.getByRole('link', { name: new RegExp(reference) }).first().click();
         await expect(page.getByText('Pierre Lambert').first()).toBeVisible();
 
+        // confirm.js must have installed its submit listener before this
+        // click: without it the form submits natively and unasked, the
+        // page navigates, and the dialog answerConfirmation() waits for is
+        // never built. See waitForConfirmReady()'s own comment.
+        await waitForConfirmReady(page);
         await page.getByRole('button', { name: 'Confirmée' }).click();
 
         // Confirming now asks first, and the dialog is where the manager

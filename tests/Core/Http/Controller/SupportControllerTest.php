@@ -22,6 +22,9 @@ use Core\Statistics\InstallationDateService;
 use Core\Statistics\InstallationIdentityService;
 use Core\Statistics\StatisticsPayloadBuilder;
 use Core\Statistics\StatisticsSender;
+use Core\Support\Ticket\SupportArchiveSender;
+use Core\Support\Ticket\SupportTicketSender;
+use Core\Support\Ticket\TicketIdentityService;
 use Core\Statistics\StatisticsTransportInterface;
 use Core\Statistics\StatisticsTransportResponse;
 use Core\Support\SupportPackageState;
@@ -73,6 +76,7 @@ class SupportControllerTest extends TestCase
     private string $projectRoot;
     private SecretManager $secretManager;
     private InstallationIdentityService $identityService;
+    private SupportRecordingTransport $ticketTransport;
     private SupportRecordingTransport $transport;
     private int $userId;
 
@@ -119,6 +123,8 @@ class SupportControllerTest extends TestCase
             $this->projectRoot
         );
         $this->transport = new SupportRecordingTransport();
+        $this->ticketTransport = new SupportRecordingTransport();
+        $ticketIdentity = new TicketIdentityService($this->settings, $this->identityService, $journalService);
         $this->controller = new SupportController(
             $this->twig,
             $this->settings,
@@ -133,7 +139,15 @@ class SupportControllerTest extends TestCase
                 $journalService,
                 $this->pdo,
                 '1.0.33'
-            )
+            ),
+            new SupportTicketSender(
+                $this->settings,
+                $ticketIdentity,
+                $this->ticketTransport,
+                $journalService,
+                '1.0.33'
+            ),
+            $ticketIdentity
         );
 
         $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index, is_super_admin) VALUES (?, ?, 1)');
@@ -181,6 +195,11 @@ class SupportControllerTest extends TestCase
         $this->settings->register(SupportController::LAST_FAILURE_REASON_SETTING, '', 'text', 'L', 'D', null, null, null, false);
         $this->settings->register(SupportPackageState::FILE_ID, '', 'text', 'L', 'D', null, null, null, false);
         $this->settings->register(SupportPackageState::GENERATED_AT, '', 'text', 'L', 'D', null, null, null, false);
+        $this->settings->register(SupportTicketSender::LAST_REFERENCE_SETTING, '', 'text', 'L', 'D', null, null, null, false);
+        $this->settings->register(SupportTicketSender::LAST_SENT_AT_SETTING, '', 'text', 'L', 'D', null, null, null, false);
+        $this->settings->register(SupportTicketSender::CATEGORIES_SETTING, '', 'text', 'L', 'D', null, null, null, false);
+        $this->settings->register(SupportArchiveSender::ARCHIVE_SENT_AT_SETTING, '', 'text', 'L', 'D', null, null, null, false);
+        $this->settings->register(SupportArchiveSender::ARCHIVE_REFERENCE_SETTING, '', 'text', 'L', 'D', null, null, null, false);
         InstallationDateService::register($this->settings);
         $this->settings->clearCache();
     }
@@ -192,6 +211,215 @@ class SupportControllerTest extends TestCase
         $_POST['_csrf_token'] = $token;
 
         return $token;
+    }
+
+    // ── The support ticket (roadmap IT-25) ─────────────────────────────
+
+    public function testTheFormOffersTheShippedCategoriesAndSaysWhatTravels(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/config/support', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Contacter le support', $body);
+        $this->assertStringContainsString('Import Desk', $body);
+        $this->assertStringContainsString("l'identifiant de cette installation", $body);
+        $this->assertStringContainsString('la version du site', $body);
+        $this->assertStringContainsString('la version de PHP', $body);
+        // Pre-filled with the signed-in superadmin's own address.
+        $this->assertStringContainsString('admin@test.example', $body);
+    }
+
+    public function testASentTicketShowsItsReferenceAndTheLocalStatus(): void
+    {
+        $this->issueCsrfToken();
+        $this->ticketTransport = $this->respondWith(200, (string) json_encode([
+            'status' => 'accepted',
+            'ticket_reference' => 'SUP-7KQ4F2',
+            'categories' => [['value' => 'other', 'label' => 'Autre']],
+        ]));
+
+        $response = $this->sendTicket();
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            'SUP-7KQ4F2',
+            (string) $this->settings->get(SupportTicketSender::LAST_REFERENCE_SETTING)
+        );
+
+        $body = $this->controller->index(new Request('GET', '/config/support', [], [], [], []), [])->getBody();
+        $this->assertStringContainsString('SUP-7KQ4F2', $body);
+        $this->assertStringContainsString('Envoyé', $body);
+    }
+
+    /**
+     * The one thing this page must never lose. A redirect carries a flash
+     * message and not a form, so a failed send re-renders.
+     */
+    public function testAnUnreachableServerKeepsTheAdministratorsInputAndMarksNothingSent(): void
+    {
+        $this->issueCsrfToken();
+        $this->ticketTransport = $this->respondWith(503, 'nope');
+
+        $response = $this->sendTicket();
+
+        $this->assertSame(200, $response->getStatusCode(), 're-rendered, not redirected');
+        $this->assertStringContainsString('Mon import Desk ne passe plus', $response->getBody());
+        $this->assertSame('', (string) $this->settings->get(SupportTicketSender::LAST_REFERENCE_SETTING));
+        $this->assertStringNotContainsString('SUP-', $response->getBody());
+    }
+
+    /**
+     * A refusal is still an answer, and the list it carries is exactly
+     * what the instance needs to correct itself.
+     */
+    public function testARefusalRemembersTheCategoriesTheReceiverPublished(): void
+    {
+        $this->issueCsrfToken();
+        $this->ticketTransport = $this->respondWith(200, (string) json_encode([
+            'status' => 'refused',
+            'reason' => 'unknown_category',
+            'categories' => [['value' => 'nouvelle', 'label' => 'Nouvelle catégorie']],
+        ]));
+
+        $this->sendTicket();
+
+        $body = $this->controller->index(new Request('GET', '/config/support', [], [], [], []), [])->getBody();
+        $this->assertStringContainsString('Nouvelle catégorie', $body);
+    }
+
+    /**
+     * The description is the one field a person wrote. It is on its way to
+     * somebody else's installation; it has no business in this one's
+     * journal, on success or on failure.
+     */
+    public function testTheJournalNeverCarriesTheDescription(): void
+    {
+        $this->issueCsrfToken();
+        $this->ticketTransport = $this->respondWith(200, (string) json_encode([
+            'status' => 'accepted',
+            'ticket_reference' => 'SUP-7KQ4F2',
+        ]));
+
+        $this->sendTicket();
+
+        $rows = $this->pdo->query(
+            "SELECT event_type, level, description, context FROM event_log WHERE event_type = 'support_ticket_sent'"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+
+        $this->assertCount(1, $rows);
+        $this->assertSame('info', $rows[0]['level']);
+        $this->assertStringContainsString('SUP-7KQ4F2', (string) $rows[0]['context']);
+        $this->assertStringNotContainsString('Mon import Desk', (string) $rows[0]['context']);
+        $this->assertStringNotContainsString('Mon import Desk', (string) $rows[0]['description']);
+    }
+
+    public function testAnEmptyDescriptionIsRefusedBeforeAnythingLeaves(): void
+    {
+        $this->issueCsrfToken();
+
+        $response = $this->controller->sendTicket(new Request('POST', '/config/support/ticket', [], [
+            '_csrf_token' => (string) $_POST['_csrf_token'],
+            'ticket_category' => 'desk_import',
+            'ticket_description' => '   ',
+            'ticket_contact_email' => 'chef@unite.be',
+        ], [], []), []);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame([], $this->ticketTransport->calls, 'nothing left the site');
+    }
+
+    /**
+     * The guards are the report's own: a destination that is not HTTPS or
+     * not a public name means the form is not offered at all, rather than
+     * offered and then failing.
+     */
+    public function testACleartextDestinationHidesTheFormRatherThanFailingLater(): void
+    {
+        $this->settings->setInternal('statistics_destination', 'http://scoutmagic.be');
+
+        $body = $this->controller->index(new Request('GET', '/config/support', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Contacter le support', $body);
+        $this->assertStringContainsString("n'est pas en HTTPS", $body);
+        $this->assertStringNotContainsString('name="ticket_description"', $body);
+    }
+
+    private function respondWith(int $status, string $body): SupportRecordingTransport
+    {
+        $transport = new SupportRecordingTransport(StatisticsTransportResponse::response($status, $body));
+
+        $journalService = new JournalService(new JournalRepository($this->pdo));
+        $ticketIdentity = new TicketIdentityService($this->settings, $this->identityService, $journalService);
+        $payloadBuilder = new StatisticsPayloadBuilder(
+            $this->settings,
+            $this->pdo,
+            $this->identityService,
+            $this->projectRoot
+        );
+
+        $this->controller = new SupportController(
+            $this->twig,
+            $this->settings,
+            $journalService,
+            $payloadBuilder,
+            new SchedulerService(new SchedulerRepository($this->pdo)),
+            new StatisticsSender(
+                $this->settings,
+                $payloadBuilder,
+                $this->identityService,
+                $this->transport,
+                $journalService,
+                $this->pdo,
+                '1.0.33'
+            ),
+            new SupportTicketSender($this->settings, $ticketIdentity, $transport, $journalService, '1.0.33'),
+            $ticketIdentity
+        );
+
+        return $transport;
+    }
+
+    private function sendTicket(): \Core\Http\Response
+    {
+        return $this->controller->sendTicket(new Request('POST', '/config/support/ticket', [], [
+            '_csrf_token' => (string) $_POST['_csrf_token'],
+            'ticket_category' => 'desk_import',
+            'ticket_description' => 'Mon import Desk ne passe plus depuis hier.',
+            'ticket_contact_email' => 'chef@unite.be',
+        ], [], []), []);
+    }
+
+    /**
+     * Roadmap IT-26: the consent screen names what is in the archive and
+     * how big it is, BEFORE the box that agrees to transmit it — and the
+     * box is verified on the server, which is what this test proves by
+     * posting without it.
+     */
+    public function testTheArchiveIsNotTransmittedWithoutTheAcknowledgement(): void
+    {
+        $this->issueCsrfToken();
+        $this->settings->setInternal(SupportTicketSender::LAST_REFERENCE_SETTING, 'SUP-7KQ4F2');
+
+        $response = $this->controller->sendArchive(new Request('POST', '/config/support/ticket/archive', [], [
+            '_csrf_token' => (string) $_POST['_csrf_token'],
+            // No archive_acknowledged at all — exactly what a hand-made
+            // POST looks like.
+        ], [], []), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('', (string) $this->settings->get(SupportArchiveSender::ARCHIVE_REFERENCE_SETTING));
+    }
+
+    public function testWithoutATicketThereIsNothingToAttachAnArchiveTo(): void
+    {
+        $this->issueCsrfToken();
+
+        $response = $this->controller->sendArchive(new Request('POST', '/config/support/ticket/archive', [], [
+            '_csrf_token' => (string) $_POST['_csrf_token'],
+            'archive_acknowledged' => '1',
+        ], [], []), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('', (string) $this->settings->get(SupportArchiveSender::ARCHIVE_REFERENCE_SETTING));
     }
 
     public function testIndexRendersTheThreeBlocksAndTheWarning(): void
@@ -654,6 +882,7 @@ class SupportControllerTest extends TestCase
         $router->addRoute('POST', '/config/support/package', SupportController::class, 'generatePackage', 'superadmin');
         $router->addRoute('POST', '/config/support/statistics/test', SupportController::class, 'sendTestStatistics', 'superadmin');
         $router->addRoute('GET', '/api/support/package-status/{id}', SupportController::class, 'packageStatus', 'superadmin');
+        $router->addRoute('POST', '/config/support/ticket', SupportController::class, 'sendTicket', 'superadmin');
 
         $configFile = sys_get_temp_dir() . '/test_support_config_' . uniqid() . '.php';
         file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
@@ -680,6 +909,28 @@ class SupportControllerTest extends TestCase
         $response = $this->buildFrontController()->handle(new Request('GET', '/config/support', [], [], [], []));
 
         $this->assertSame(403, $response->getStatusCode());
+    }
+
+    /**
+     * A ticket carries this installation's identity, so who may speak for
+     * the installation is a superadmin question — the same floor as the
+     * rest of the page.
+     */
+    public function testAdminCannotOpenATicket(): void
+    {
+        AuthSession::logout();
+        AuthSession::login($this->userId, 'admin@test.example', 'admin');
+        $this->issueCsrfToken();
+
+        $response = $this->buildFrontController()->handle(new Request('POST', '/config/support/ticket', [], [
+            '_csrf_token' => (string) $_POST['_csrf_token'],
+            'ticket_category' => 'other',
+            'ticket_description' => 'Bonjour',
+            'ticket_contact_email' => 'chef@unite.be',
+        ], [], []));
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame([], $this->ticketTransport->calls);
     }
 
     public function testAdminCanNeitherTriggerAGenerationNorPollItsStatusNorSendATestReport(): void

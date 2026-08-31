@@ -56,7 +56,16 @@ class InboundMessage
         public readonly array $toEmails = [],
         public readonly array $attachments = [],
         public readonly array $links = [],
-        public readonly array $omittedAttachments = []
+        public readonly array $omittedAttachments = [],
+        /**
+         * The raw header block, when a consumer asked for it to be kept
+         * (Api\MessageRetentionPreference, roadmap IT-22) — null
+         * otherwise, which is the ordinary case.
+         *
+         * Truncated on write with the cut declared inside the value, so a
+         * reader can tell a short chain from a shortened one.
+         */
+        public readonly ?string $rawHeaders = null
     ) {
     }
 

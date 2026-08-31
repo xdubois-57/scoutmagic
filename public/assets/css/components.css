@@ -867,6 +867,30 @@
     overflow: auto;
 }
 
+/* The ticket queue's first cell carries the reference AND an excerpt of
+   the description, so it needs a floor: left to itself in a narrow
+   viewport the column collapses to two words a line and every row grows
+   to ten lines tall, which is worse than the horizontal scroll
+   `.table-responsive` already provides. Same reasoning and the same
+   shape as the Passage tables' own min-width (roadmap IT-02). */
+.support-ticket-cell {
+    min-width: 17.5rem;
+}
+
+/* Prose kept in a <pre> so it renders exactly as it was typed — a ticket
+   description, a resolution note, the AI's grouped summary. Unlike the
+   raw JSON above, these WRAP rather than scroll: a sentence somebody
+   wrote is read left to right, and a horizontal scrollbar under a
+   paragraph is a paragraph nobody finishes. Without this a single long
+   line pushes the whole page sideways at 375px, which is what it did. */
+.support-analysis,
+.support-ticket-description {
+    max-height: 30rem;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
 /* ── Availability month grid (Core\View\MonthGrid\DayStateGridBuilder,
    partials/month_day_grid.html.twig) ──────────────────────────────────────
    The sibling of .calendar-week above, and deliberately a separate set of

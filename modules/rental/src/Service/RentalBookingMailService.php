@@ -11,10 +11,11 @@ namespace Modules\Rental\Service;
 use Core\Config\SettingService;
 use Core\Journal\JournalService;
 use Core\Mail\MailService;
+use Core\Mail\Template\EmailTemplateRenderer;
+use Core\Mail\Template\RenderedEmail;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Booking\RenterDecision;
 use Modules\Rental\Repository\RentalAsset;
-use Twig\Environment;
 
 /**
  * Every email a booking sends. All of it through `MailService` (AGENTS.md),
@@ -37,7 +38,7 @@ class RentalBookingMailService
 {
     public function __construct(
         private MailService $mailService,
-        private Environment $twig,
+        private EmailTemplateRenderer $emailTemplateRenderer,
         private SettingService $settingService,
         private JournalService $journal
     ) {
@@ -61,18 +62,15 @@ class RentalBookingMailService
         $messageId = $this->newMessageId();
         $trackingUrl = $this->trackingUrl($booking, $trackingToken);
 
-        $context = [
-            'booking' => $booking,
-            'asset' => $asset,
+        $email = $this->renderFor($booking, $asset, 'rental.acknowledgement', [
             'tracking_url' => $trackingUrl,
-            'site_name' => $this->settingService->get('site_name') ?: 'Notre unité',
-        ];
+        ]);
 
         $this->mailService->send(
             $booking->renterEmail,
-            $this->subjectFor($booking, 'Votre demande de location'),
-            $this->twig->render('@rental/email/acknowledgement.html.twig', $context),
-            $this->twig->render('@rental/email/acknowledgement.text.twig', $context),
+            $email->subject,
+            $email->bodyHtml,
+            $email->bodyText,
             null,
             [],
             null,
@@ -129,24 +127,28 @@ class RentalBookingMailService
     ): bool {
         $word = $managerWord !== null ? trim($managerWord) : '';
 
-        $context = [
-            'booking' => $booking,
-            'asset' => $asset,
+        // Seven decisions share this one e-mail and each has its own
+        // subject line, which no single `default_subject` could state. It
+        // is therefore a DECLARED VARIABLE — the manifest's default
+        // subject is `{{ decision_subject }}` — so the shipped subject is
+        // still exactly $decision->subject(), and a unit that reworded the
+        // e-mail can put the decision's own words back wherever it wants.
+        $email = $this->renderFor($booking, $asset, 'rental.decision', [
+            'decision_subject' => $decision->subject(),
             'announcement' => $decision->announcement(),
             'call_to_action' => $decision->callToAction(),
             'manager_word' => $word !== '' ? $word : null,
             'tracking_url' => $decision->carriesTheTrackingLink() && $trackingToken !== null && $trackingToken !== ''
                 ? $this->trackingUrl($booking, $trackingToken)
                 : null,
-            'site_name' => $this->settingService->get('site_name') ?: 'Notre unité',
-        ];
+        ]);
 
         try {
             $this->mailService->send(
                 $booking->renterEmail,
-                $this->subjectFor($booking, $decision->subject()),
-                $this->twig->render('@rental/email/decision.html.twig', $context),
-                $this->twig->render('@rental/email/decision.text.twig', $context),
+                $email->subject,
+                $email->bodyHtml,
+                $email->bodyText,
                 null,
                 [],
                 null,
@@ -213,9 +215,10 @@ class RentalBookingMailService
             'site_name' => $this->settingService->get('site_name') ?: 'Notre unité',
         ];
 
-        $html = $this->twig->render('@rental/email/manager_notification.html.twig', $context);
-        $text = $this->twig->render('@rental/email/manager_notification.text.twig', $context);
-        $subject = $this->subjectFor($booking, 'Nouvelle demande de location');
+        // Rendered once, sent many times: every manager receives the same
+        // message, and rendering it per recipient would be six identical
+        // renders and one more chance for them to differ.
+        $email = $this->renderFor($booking, $asset, 'rental.manager_notification', $context);
 
         foreach (array_unique(array_filter($recipientEmails)) as $recipient) {
             // One message each rather than a shared To/BCC: a manager's
@@ -223,9 +226,9 @@ class RentalBookingMailService
             // header, and a single bad address must not sink the whole batch.
             $this->mailService->send(
                 $recipient,
-                $subject,
-                $html,
-                $text,
+                $email->subject,
+                $email->bodyHtml,
+                $email->bodyText,
                 null,
                 [],
                 null,
@@ -268,19 +271,22 @@ class RentalBookingMailService
         bool $isResend = false
     ): string {
         $messageId = $this->newMessageId();
-        $context = [
-            'booking' => $booking,
-            'asset' => $asset,
+
+        // The subject names the document and says whether this is a
+        // resend, which again no fixed `default_subject` could state: the
+        // manifest declares `{{ document_subject }}` and gets the same
+        // string this e-mail has always carried.
+        $email = $this->renderFor($booking, $asset, 'rental.document', [
+            'document_subject' => ($isResend ? 'À nouveau : ' : '') . $documentLabel,
             'document_label' => $documentLabel,
             'is_resend' => $isResend,
-            'site_name' => $this->settingService->get('site_name') ?: 'Notre unité',
-        ];
+        ]);
 
         $this->mailService->send(
             $booking->renterEmail,
-            $this->subjectFor($booking, ($isResend ? 'À nouveau : ' : '') . $documentLabel),
-            $this->twig->render('@rental/email/document.html.twig', $context),
-            $this->twig->render('@rental/email/document.text.twig', $context),
+            $email->subject,
+            $email->bodyHtml,
+            $email->bodyText,
             null,
             [['path' => $absolutePath, 'name' => $fileName]],
             null,
@@ -326,19 +332,16 @@ class RentalBookingMailService
      */
     public function sendPracticalInfo(RentalBooking $booking, RentalAsset $asset, array $contacts = []): bool
     {
-        $context = [
-            'booking' => $booking,
-            'asset' => $asset,
+        $email = $this->renderFor($booking, $asset, 'rental.practical_info', [
             'contacts' => $contacts,
-            'site_name' => $this->settingService->get('site_name') ?: 'Notre unité',
-        ];
+        ]);
 
         try {
             $this->mailService->send(
                 $booking->renterEmail,
-                $this->subjectFor($booking, 'Informations pratiques avant votre séjour'),
-                $this->twig->render('@rental/email/practical_info.html.twig', $context),
-                $this->twig->render('@rental/email/practical_info.text.twig', $context),
+                $email->subject,
+                $email->bodyHtml,
+                $email->bodyText,
                 null,
                 [],
                 null,
@@ -385,19 +388,16 @@ class RentalBookingMailService
         RentalAsset $asset,
         string $trackingToken
     ): bool {
-        $context = [
-            'booking' => $booking,
-            'asset' => $asset,
+        $email = $this->renderFor($booking, $asset, 'rental.tracking_link', [
             'tracking_url' => $this->trackingUrl($booking, $trackingToken),
-            'site_name' => $this->settingService->get('site_name') ?: 'Notre unité',
-        ];
+        ]);
 
         try {
             $this->mailService->send(
                 $booking->renterEmail,
-                $this->subjectFor($booking, 'Votre nouveau lien de suivi'),
-                $this->twig->render('@rental/email/tracking_link.html.twig', $context),
-                $this->twig->render('@rental/email/tracking_link.text.twig', $context),
+                $email->subject,
+                $email->bodyHtml,
+                $email->bodyText,
                 null,
                 [],
                 null,
@@ -433,6 +433,42 @@ class RentalBookingMailService
     public function subjectFor(RentalBooking $booking, string $subject): string
     {
         return '[' . $booking->reference . '] ' . $subject;
+    }
+
+    /**
+     * One of this module's declared e-mails, rendered through the register
+     * (ARCHITECTURE.md §8.7bis) rather than by rendering Twig here.
+     *
+     * The context handed over carries BOTH halves, and it has to:
+     * the shipped templates walk `booking` and `asset` as objects, while a
+     * customised body substitutes plain strings and can only be given the
+     * declared scalars. Passing one without the other would work until the
+     * day somebody customised the e-mail — the worst moment to find out.
+     *
+     * **The reference prefix stays outside.** `subjectFor()` is applied to
+     * whatever subject comes back, shipped or customised, because
+     * `[LOC-2027-0042]` is what ties a renter's reply back to their
+     * booking (the module's inbound-mail matching reads it). An
+     * administrator rewording the subject must not be able to break the
+     * threading of every conversation without noticing.
+     *
+     * @param array<string, mixed> $context
+     */
+    private function renderFor(RentalBooking $booking, RentalAsset $asset, string $templateId, array $context): RenderedEmail
+    {
+        $email = $this->emailTemplateRenderer->render($templateId, $context + [
+            'reference' => $booking->reference,
+            'asset_name' => $asset->name,
+            'site_name' => $this->settingService->get('site_name') ?: 'Notre unité',
+            'booking' => $booking,
+            'asset' => $asset,
+        ]);
+
+        return new RenderedEmail(
+            subject: $this->subjectFor($booking, $email->subject),
+            bodyHtml: $email->bodyHtml,
+            bodyText: $email->bodyText
+        );
     }
 
     /**

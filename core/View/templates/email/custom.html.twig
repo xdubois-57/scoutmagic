@@ -1,0 +1,20 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+
+ The body of a CUSTOMISED automatic e-mail (Core\Mail\Template\
+ EmailTemplateRenderer, ARCHITECTURE.md §8.7bis), dropped into the same
+ frame every other e-mail uses.
+
+ `body_html` is rich text an administrator wrote, already sanitised on
+ the way in (Core\Security\HtmlSanitizer, SECURITY.md §7) and already
+ variable-substituted as a plain string — it is never evaluated as Twig,
+ which is the whole reason this template takes a finished string rather
+ than rendering the stored content itself.
+
+ The header, the footer and the unit's name come from base.html.twig and
+ are not customisable: that is why `site_name` is never offered as an
+ insertable variable.
+#}
+{% extends 'email/base.html.twig' %}
+{% block content %}{{ body_html|raw }}{% endblock %}

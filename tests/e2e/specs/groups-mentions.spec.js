@@ -27,7 +27,7 @@ import { expect, test } from '@playwright/test';
 
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { loginAsAdmin, loginAsMember } from '../support/admin-login.js';
-import { openComposer, openCreateGroupForm, waitForGroupsJsReady } from '../support/groups.js';
+import { closeDetailDialog, openComposer, openCreateGroupForm, waitForGroupsJsReady } from '../support/groups.js';
 import { pngBuffer } from '../support/png.js';
 import { scaled } from '../support/timeouts.js';
 
@@ -169,8 +169,7 @@ test('a mention travels to a notification, a pin asks its duration, "Vu par" nam
         await seenBy.click();
         await expect(durationDialog).toBeVisible();
         await expect(durationDialog.getByText('Kaa', { exact: false })).toBeVisible();
-        await durationDialog.locator('.btn-close').click();
-        await expect(durationDialog).toBeHidden();
+        await closeDetailDialog(page);
 
         // ---------------------------------------------------------------
         // A photo post, and the group's gallery serving it through the

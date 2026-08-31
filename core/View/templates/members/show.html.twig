@@ -249,7 +249,7 @@
                 </div>
             {% endif %}
 
-            {# §6bis — Parcours de formation (leadership module, optional).
+            {# §6bis — Niveau de formation (leadership module, optional).
                SELF ONLY, and the is_self test is deliberately separate
                from the route's own authorization: MemberController::show()
                admits a chief/admin onto somebody else's page, and this
@@ -262,21 +262,17 @@
             {% if is_self and formation_path %}
                 <div class="card mb-3">
                     <div class="card-body">
-                        <h2 class="h5 mb-3">Mon parcours de formation</h2>
-                        {% if formation_path.isRecognised %}
-                            <ol class="list-unstyled d-flex flex-wrap gap-2 mb-3">
-                                {% for step in formation_path.steps %}
-                                    <li class="badge rounded-pill {{ step.reached ? 'text-bg-primary' : 'text-bg-light border' }}">
-                                        {{ step.label }}{% if step.current %} <span class="visually-hidden">(étape actuelle)</span>{% endif %}
-                                    </li>
-                                {% endfor %}
-                            </ol>
-                        {% endif %}
+                        <h2 class="h5 mb-3">Mon niveau de formation</h2>
+                        {# Le niveau atteint, et rien d'autre (roadmap
+                           IT-20). Plus de paliers, plus d'étape suivante :
+                           depuis que le Woodbadge et les Pi-days ont leur
+                           propre case, le parcours n'est plus une file
+                           unique, et une file dessinée ici présenterait une
+                           suite qui n'existe pas pour tout le monde. Le
+                           suivi du parcours reste sur la page Encadrement,
+                           qui est faite pour ça. #}
                         <p class="small mb-0">
                             {{ formation_path.currentLabel }}.
-                            {% if formation_path.nextLabel %}
-                                Prochaine étape connue : {{ formation_path.nextLabel }}.
-                            {% endif %}
                         </p>
                         {% if not formation_path.isRecognised %}
                             <p class="small text-body-secondary mb-0 mt-2">

@@ -10,12 +10,12 @@ namespace Modules\SosStaff\Service;
 
 use Core\Journal\JournalService;
 use Core\Mail\MailService;
+use Core\Mail\Template\EmailTemplateRenderer;
 use Core\Member\MemberProfile;
 use Core\Member\MemberService;
 use Core\Notification\NotificationService;
 use Core\Security\UserAccountRepository;
 use Modules\SosStaff\Provider\ProviderException;
-use Twig\Environment;
 
 /**
  * The redirect-change sequence (module spec §4): anti-duplicate check,
@@ -61,7 +61,7 @@ class RedirectService
         private UserAccountRepository $userAccountRepository,
         private MailService $mailService,
         private JournalService $journalService,
-        private Environment $twig,
+        private EmailTemplateRenderer $emailTemplateRenderer,
         private ?NotificationService $notificationService = null
     ) {
     }
@@ -222,11 +222,18 @@ class RedirectService
                 return;
             }
 
+            // Through the register (ARCHITECTURE.md §8.7bis) rather than
+            // Twig directly, so a unit that reworded this alert gets its
+            // own words. With no customisation the renderer renders the
+            // same two templates with the same context, which is what
+            // makes this a switch of path and not of behaviour.
+            $email = $this->emailTemplateRenderer->render('sos_staff.admin_alert', ['message' => $message]);
+
             $this->mailService->send(
                 to: $admin->email,
-                subject: 'Alerte — Redirection SOS Staff d\'U',
-                bodyHtml: $this->twig->render('@sos_staff/email/admin_alert.html.twig', ['message' => $message]),
-                bodyText: $this->twig->render('@sos_staff/email/admin_alert.text.twig', ['message' => $message])
+                subject: $email->subject,
+                bodyHtml: $email->bodyHtml,
+                bodyText: $email->bodyText
             );
         } catch (\Throwable $e) {
             // Best-effort — already journaled by the caller regardless; a

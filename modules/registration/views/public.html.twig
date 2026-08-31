@@ -209,6 +209,37 @@
                         </div>
                     {% endif %}
 
+                    {# « Avec qui » — hidden until the birth date says which branch
+                       the child joins, and shown only when that branch has more
+                       than one section: with a single section there is nothing to
+                       choose and nothing to ask. registration-public-form.js does
+                       the showing; the server keeps the same rule, so a browser
+                       with no JavaScript simply sees the fields and a family that
+                       fills them in for a single-section branch loses nothing.
+
+                       Plain text fields: no autocompletion, no validation, no
+                       feedback of any kind. The form behaves identically whether
+                       or not a name matches somebody — anything else would tell
+                       one family who the other families' children are. #}
+                    {% if friend_wish_limit > 0 %}
+                        <div class="mb-4 d-none" id="friend-wishes-zone">
+                            <div class="form-label d-block">Avec qui ?</div>
+                            <p class="form-text mt-0">
+                                Vous pouvez citer jusqu'à {{ friend_wish_limit }}
+                                {{ friend_wish_limit > 1 ? 'enfants' : 'enfant' }} déjà inscrits avec qui votre
+                                enfant aimerait être. Nous ferons de notre mieux, sans pouvoir le garantir.
+                            </p>
+                            {% for index in 0..(friend_wish_limit - 1) %}
+                                <div class="mb-2">
+                                    <label class="visually-hidden" for="friend-wish-{{ index }}">Ami {{ index + 1 }}</label>
+                                    <input type="text" class="form-control" name="friend_names[]"
+                                           id="friend-wish-{{ index }}" maxlength="120" autocomplete="off"
+                                           placeholder="Prénom et nom">
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+
                     {% include 'partials/form_field.html.twig' with {
                         field_id: 'remarks', field_name: 'remarks', type: 'textarea',
                         label: 'Remarques (facultatif)', rows: 3,
@@ -256,7 +287,8 @@
 {{ {
     birthYearSlots: birth_year_slots,
     waitlistEnabled: waitlist_enabled,
-    targetYearLabel: target_year_label
+    targetYearLabel: target_year_label,
+    friendWishBranchLabels: friend_wish_branch_labels
 }|json_encode(constant('JSON_HEX_TAG') b-or constant('JSON_HEX_AMP') b-or constant('JSON_UNESCAPED_UNICODE'))|raw }}
 </script>
 <script src="{{ asset('/assets/js/registration-public-form.js') }}" defer></script>

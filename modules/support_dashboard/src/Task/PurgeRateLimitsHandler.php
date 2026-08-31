@@ -12,6 +12,7 @@ use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
+use Modules\SupportDashboard\Repository\SupportMailProbeRepository;
 use Modules\SupportDashboard\Repository\SupportReportRateLimitRepository;
 use Modules\SupportDashboard\Service\StatisticsIntakeService;
 
@@ -24,6 +25,11 @@ use Modules\SupportDashboard\Service\StatisticsIntakeService;
  *
  * Without it the table grows forever: every accepted report writes a row,
  * and the counter only ever reads the last hour.
+ *
+ * It also drops the diagnostic mail probes nobody ever claimed, past
+ * their expiry (roadmap IT-27). Same job, same cadence, same reason — a
+ * row nothing will ever read again — so it is done here rather than in a
+ * fourth daily task whose only difference would be the table it names.
  */
 class PurgeRateLimitsHandler implements TaskHandlerInterface
 {
@@ -38,6 +44,12 @@ class PurgeRateLimitsHandler implements TaskHandlerInterface
                 ->format('Y-m-d H:i:s');
 
             (new SupportReportRateLimitRepository($context->connection->getPdo()))->deleteOlderThan($cutoff);
+
+            // A probe whose key has expired is a message that is not
+            // coming: the consumer already stopped recognising it, and
+            // the row is the last thing left of it.
+            (new SupportMailProbeRepository($context->connection->getPdo(), $context->encryption))
+                ->deleteExpired(new \DateTimeImmutable());
         } finally {
             $scheduler = new SchedulerService(new SchedulerRepository($context->connection->getPdo()));
             $scheduler->scheduleAfter('support_dashboard', self::TASK_KEY, self::INTERVAL_SECONDS, [], self::REFERENCE);

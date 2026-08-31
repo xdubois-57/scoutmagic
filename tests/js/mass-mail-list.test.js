@@ -97,6 +97,7 @@ function buildDom() {
             <div id="mm-scout-year-zone">
                 <div id="mm-scout-year-group"></div>
                 <p id="mm-previous-year-note"></p>
+                <div class="d-none" id="mm-future-year-warning"></div>
             </div>
 
             <div id="mm-merge-list-note" class="d-none"></div>
@@ -494,6 +495,47 @@ describe('mass-mail-list.js: the scout-year block', () => {
         await bootAndOpen();
         expect(document.getElementById('mm-previous-year-note').textContent)
             .toContain('généralement autour du 15/10');
+    });
+
+    // The future-year warning (spec §18.4) lives in a box this fixture
+    // does not carry — and the dialog must open all the same. This is the
+    // regression that broke every test in this file once: the warning
+    // helper runs on every draft that opens, and reading .textContent off
+    // a null aborted the whole dialog.
+    it('opens a draft normally on a page with no warning box', async () => {
+        await bootAndOpen(listData(), email({ scout_year_ids: [2] }));
+        document.getElementById('mm-future-year-warning').remove();
+
+        // Re-open, with the box gone: reading .textContent off a null is
+        // what aborted the whole dialog and broke every test in this file.
+        document.querySelector('.mm-open-btn').dispatchEvent(new Event('click'));
+        await settle();
+
+        expect(document.getElementById('mm-future-year-warning')).toBeNull();
+        expect(/** @type {HTMLInputElement} */ (document.getElementById('mm-subject')).value)
+            .not.toBe('');
+    });
+
+    it('shows the server\'s warning for a future year, and only for it', async () => {
+        const data = listData();
+        data.scoutYears.next.warning = "Cette liste vise l'année 2027-2028. …";
+        data.scoutYears.next.available = true;
+
+        await bootAndOpen(data, email({ scout_year_ids: [2] }));
+
+        const box = document.getElementById('mm-future-year-warning');
+        expect(box.classList.contains('d-none')).toBe(true);
+
+        const next = /** @type {HTMLInputElement} */ (document.getElementById('mm-year-next'));
+        next.checked = true;
+        next.dispatchEvent(new Event('change', { bubbles: true }));
+
+        expect(box.classList.contains('d-none')).toBe(false);
+        expect(box.textContent).toBe("Cette liste vise l'année 2027-2028. …");
+
+        next.checked = false;
+        next.dispatchEvent(new Event('change', { bubbles: true }));
+        expect(box.classList.contains('d-none')).toBe(true);
     });
 
     // A list contributed by another module (Email::LIST_TYPE_EXTERNAL —

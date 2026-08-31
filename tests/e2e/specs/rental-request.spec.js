@@ -83,7 +83,7 @@ const PROPOSED_DEPARTURE = isoDaysFromNow(69);
 const PROPOSAL_MESSAGE = 'Ces dates-là nous arrangeraient mieux, le local est pris la semaine avant.';
 
 test.describe('Rentals', () => {
-    test('an admin creates a hall and a visitor asks to rent it', async ({ page }) => {
+    test('an admin creates a hall and a visitor asks to rent it', async ({ page, browser }) => {
         // --- The unit puts a hall online. ---
         await loginAsAdmin(page);
         await page.goto('/admin/locations');
@@ -119,54 +119,72 @@ test.describe('Rentals', () => {
 
 
         // --- A stranger, with no account at all. ---
-        await page.context().clearCookies();
-        await page.goto('/locations');
+        // Their own browser context, not this one with its cookies
+        // cleared. The two identities used to share a context and take
+        // turns in it — clearCookies() to become the stranger,
+        // loginAsAdmin() to become the unit again — and a session is not
+        // something a page can put down and pick back up: a form renders
+        // with the CSRF token of the session that drew it, and by the
+        // time it is submitted the OTHER identity has replaced that
+        // session. The POST is then refused, the page comes back
+        // unchanged, and the failure surfaces several assertions later as
+        // whatever the click was supposed to cause never happening.
+        //
+        // That is a real DAST failure, not a hypothesis: the accept below
+        // answered 302 into « Votre session a expirée » while
+        // POST /cookies/reject-all answered 403, and the trace showed five
+        // renders of the tracking page carrying five different CSRF
+        // tokens — five sessions, for one visitor who never logged in.
+        // Two contexts cannot do that to each other.
+        const renterContext = await browser.newContext();
+        const renter = await renterContext.newPage();
+        await renter.goto('/locations');
 
-        await expect(page.getByRole('heading', { name: 'Locations' })).toBeVisible();
-        const assetLink = page.getByRole('link', { name: ASSET_NAME }).first();
+        await expect(renter.getByRole('heading', { name: 'Locations' })).toBeVisible();
+        const assetLink = renter.getByRole('link', { name: ASSET_NAME }).first();
         await expect(assetLink).toBeVisible();
         await assetLink.click();
 
         // The public page says what the hall is and never who is in it
         // (§6.6) — the calendar shows occupancy, never a renter.
-        await expect(page.getByRole('heading', { name: ASSET_NAME })).toBeVisible();
+        await expect(renter.getByRole('heading', { name: ASSET_NAME })).toBeVisible();
 
         // The availability calendar has to be READABLE, not merely
         // present: see ../support/calendar.js for the failure mode this
         // rules out, which every markup assertion in the PHP suite is
         // blind to.
-        await expectRendersAsACalendar(page.locator('#rental-calendar .daygrid'));
+        await expectRendersAsACalendar(renter.locator('#rental-calendar .daygrid'));
 
         // Paging forward is a plain link — no account, no JavaScript
         // required — and the grid on the next month must render just as
         // well as the first one did.
-        await page.getByRole('link', { name: 'Mois suivant' }).click();
-        await expectRendersAsACalendar(page.locator('#rental-calendar .daygrid'));
+        await renter.getByRole('link', { name: 'Mois suivant' }).click();
+        await expectRendersAsACalendar(renter.locator('#rental-calendar .daygrid'));
 
         // And a visitor can never page into the past (§22.2): the control
         // is disabled rather than hidden, so they are told rather than
         // left wondering where it went.
-        await page.goto(`/locations/${ASSET_SLUG}`);
+        await renter.goto(`/locations/${ASSET_SLUG}`);
         await expect(
-            page.getByRole('button', { name: /Mois précédent/ }),
+            renter.getByRole('button', { name: /Mois précédent/ }),
         ).toBeDisabled();
 
-        await page.getByRole('link', { name: /demande/i }).first().click();
-        await expect(page.getByRole('heading', { name: new RegExp(ASSET_NAME) })).toBeVisible();
+        await renter.getByRole('link', { name: /demande/i }).first().click();
+        await expect(renter.getByRole('heading', { name: new RegExp(ASSET_NAME) })).toBeVisible();
 
         // --- The request itself. ---
-        await page.locator('input[name="arrival"]').fill(ARRIVAL);
-        await page.locator('input[name="departure"]').fill(DEPARTURE);
-        await page.locator('input[name="persons"]').fill('35');
-        await page.locator('input[name="name"]').fill('Jeanne Martin');
-        await page.locator('input[name="email"]').fill('jeanne.martin@example.be');
-        await page.locator('input[name="organisation"]').fill('Les Scouts de Nulle Part');
+        await renter.locator('input[name="arrival"]').fill(ARRIVAL);
+        await renter.locator('input[name="departure"]').fill(DEPARTURE);
+        await renter.locator('input[name="persons"]').fill('35');
+        await renter.locator('input[name="name"]').fill('Jeanne Martin');
+        await renter.locator('input[name="email"]').fill('jeanne.martin@example.be');
+        await renter.locator('input[name="organisation"]').fill('Les Scouts de Nulle Part');
 
         // Both are required, and both are an acknowledgement rather than a
         // consent: the unit cannot handle the request without the data,
         // and the box attests that the visitor was told (§6.13).
-        await page.locator('input[name="accept_conditions"]').check();
-        await page.locator('input[name="accept_privacy"]').check();
+        await renter.locator('input[name="accept_conditions"]').check();
+        await renter.locator('input[name="accept_privacy"]').check();
 
         // Core\Security\HumanCheck refuses a form submitted faster than a
         // human could have filled it — a real barrier, and one this
@@ -174,38 +192,38 @@ test.describe('Rentals', () => {
         // configure away. Waiting here is therefore part of what is being
         // tested: the public form is protected, and a genuine request still
         // gets through.
-        await page.waitForTimeout(4000);
+        await renter.waitForTimeout(4000);
 
-        await page.getByRole('button', { name: 'Envoyer ma demande' }).click();
+        await renter.getByRole('button', { name: 'Envoyer ma demande' }).click();
 
         // --- What the visitor gets back. ---
         // A reference they can quote, which is also what a reply's subject
         // line carries back (§7.6, level 1) — and the tracking page itself,
         // reached with no account and no session at all: the link in their
         // acknowledgement IS the authorisation (§6.26).
-        const heading = page.getByRole('heading', { name: /Votre demande LOC-\d{4}-\d+/ });
+        const heading = renter.getByRole('heading', { name: /Votre demande LOC-\d{4}-\d+/ });
         await expect(heading).toBeVisible();
         const reference = (await heading.textContent()).match(/LOC-\d{4}-\d+/)[0];
 
         // The dates are held while the unit answers, and the page says
         // until when rather than leaving the visitor guessing (§6.14).
-        await expect(page.getByText(/Dates bloquées/)).toBeVisible();
+        await expect(renter.getByText(/Dates bloquées/)).toBeVisible();
 
         // The link IS the authorisation (§6.26): no account, no session,
         // and it still opens on a cold browser. Keeping the URL and
         // clearing everything is the only way to say that honestly.
-        const trackingUrl = page.url();
-        await page.context().clearCookies();
-        await page.goto(trackingUrl);
-        await expect(page.getByRole('heading', { name: new RegExp(reference) })).toBeVisible();
+        const trackingUrl = renter.url();
+        await renter.context().clearCookies();
+        await renter.goto(trackingUrl);
+        await expect(renter.getByRole('heading', { name: new RegExp(reference) })).toBeVisible();
 
         // A neighbouring id with the same token is refused — the id is
         // right there in the URL, so only the token may decide.
-        await page.goto(trackingUrl.replace(/\/(\d+)\//, (_, id) => `/${Number(id) + 1}/`));
-        await expect(page.getByRole('heading', { name: new RegExp(reference) })).toHaveCount(0);
+        await renter.goto(trackingUrl.replace(/\/(\d+)\//, (_, id) => `/${Number(id) + 1}/`));
+        await expect(renter.getByRole('heading', { name: new RegExp(reference) })).toHaveCount(0);
 
         // --- And what the unit sees. ---
-        await loginAsAdmin(page);
+        // Still signed in: nothing dropped this session in the meantime.
         await page.goto('/mes-locations');
 
         await expect(page.getByText(ASSET_NAME).first()).toBeVisible();
@@ -225,18 +243,17 @@ test.describe('Rentals', () => {
         await comment.getByRole('button', { name: 'Enregistrer' }).click();
         await expect(page.getByText(INTERNAL_NOTE)).toBeVisible();
 
-        await page.context().clearCookies();
-        await page.goto(trackingUrl);
+        await renter.context().clearCookies();
+        await renter.goto(trackingUrl);
 
-        await expect(page.getByRole('heading', { name: new RegExp(reference) })).toBeVisible();
-        await expect(page.locator('body')).not.toContainText(INTERNAL_NOTE);
+        await expect(renter.getByRole('heading', { name: new RegExp(reference) })).toBeVisible();
+        await expect(renter.locator('body')).not.toContainText(INTERNAL_NOTE);
 
         // --- The negotiation: the unit proposes, the renter decides. ---
         // Nothing a manager proposes changes the booking on its own —
         // that is the whole rule (§6.16), and it is only observable by
         // crossing the boundary twice: written by an authenticated
         // manager, answered by an anonymous browser holding a link.
-        await loginAsAdmin(page);
         await page.goto(`/mes-locations/${ASSET_SLUG}/reservations`);
         await page.getByRole('link', { name: new RegExp(reference) }).first().click();
 
@@ -252,43 +269,42 @@ test.describe('Rentals', () => {
         await expect(page.getByText(/En attente/).first()).toBeVisible();
 
         // --- The renter, with no account and no session. ---
-        await page.context().clearCookies();
-        await page.goto(trackingUrl);
+        await renter.context().clearCookies();
+        await renter.goto(trackingUrl);
 
         // The proposal is put to them in words, with what it costs to
         // ignore it spelled out.
-        await expect(page.getByText(/L'unité vous propose ces dates/)).toBeVisible();
-        await expect(page.getByText(/votre réservation reste inchangée/i)).toBeVisible();
+        await expect(renter.getByText(/L'unité vous propose ces dates/)).toBeVisible();
+        await expect(renter.getByText(/votre réservation reste inchangée/i)).toBeVisible();
 
         // --- And the booking has NOT moved. ---
         // Asserted on the « Votre séjour » block rather than on the page
         // as a whole, precisely because the proposed dates ARE already on
         // the page — inside the proposal being put to them. What must not
         // have changed is the booking, and the booking is that <dd>.
-        await expect(stayDates(page)).toContainText(frenchDate(DEPARTURE));
-        await expect(stayDates(page)).not.toContainText(frenchDate(PROPOSED_DEPARTURE));
+        await expect(stayDates(renter)).toContainText(frenchDate(DEPARTURE));
+        await expect(stayDates(renter)).not.toContainText(frenchDate(PROPOSED_DEPARTURE));
 
         // `exact` because the cookie banner's « Tout accepter » is a
         // substring match away, and it stands in front of the page anyway
         // — answering it first is not housekeeping (see
         // ../support/cookie-banner.js).
-        await answerCookieBanner(page);
-        await page.getByRole('button', { name: 'Accepter', exact: true }).click();
+        await answerCookieBanner(renter);
+        await renter.getByRole('button', { name: 'Accepter', exact: true }).click();
 
         // --- And now it has. ---
         // The dates in « Votre séjour » are ones this booking never had,
         // the proposal is closed, and the button that closed it is gone —
         // three things that could not have been true a moment ago.
-        await expect(stayDates(page)).toContainText(frenchDate(PROPOSED_DEPARTURE));
-        await expect(stayDates(page)).not.toContainText(frenchDate(DEPARTURE));
-        await expect(page.getByText('Acceptée').first()).toBeVisible();
-        await expect(page.getByRole('button', { name: 'Accepter', exact: true })).toHaveCount(0);
+        await expect(stayDates(renter)).toContainText(frenchDate(PROPOSED_DEPARTURE));
+        await expect(stayDates(renter)).not.toContainText(frenchDate(DEPARTURE));
+        await expect(renter.getByText('Acceptée').first()).toBeVisible();
+        await expect(renter.getByRole('button', { name: 'Accepter', exact: true })).toHaveCount(0);
 
         // --- The unit sees the same booking, moved. ---
         // Which is what says the DECISION reached the database rather
         // than only the page that rendered it: a different session, a
         // different template, the same dates.
-        await loginAsAdmin(page);
         await page.goto(`/mes-locations/${ASSET_SLUG}/reservations`);
         await page.getByRole('link', { name: new RegExp(reference) }).first().click();
 
@@ -299,6 +315,8 @@ test.describe('Rentals', () => {
         // like every other per-entity timeline on the site (§8.66).
         await expect(page.locator('.audit-timeline')).toBeVisible();
         await expect(page.getByText(/Décision sur la modification/).first()).toBeVisible();
+
+        await renterContext.close();
     });
 });
 

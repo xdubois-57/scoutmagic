@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Modules\Registration\Controller;
 
+use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
+
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Mail\MailService;
@@ -56,7 +58,7 @@ class TrackingControllerTest extends TestCase
         $twig->addGlobal('menus', null);
         $twig->addGlobal('current_path', '/inscriptions/suivi');
         $journalService = new JournalService(new JournalRepository($this->pdo));
-        $secondaryEmailService = new SecondaryEmailService($secondaryEmailRepository, $mailService, $twig, $journalService, 'https://example.com', 'Unité Test');
+        $secondaryEmailService = new SecondaryEmailService($secondaryEmailRepository, $mailService, EmailTemplateRendererFactory::shippedOnlyForModule($twig, 'registration'), $journalService, 'https://example.com', 'Unité Test');
 
         $statusService = new RequestStatusService($requestRepository, $journalService);
 

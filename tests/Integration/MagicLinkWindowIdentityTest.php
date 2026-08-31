@@ -23,6 +23,7 @@ use Core\Security\UserAccountRepository;
 use PHPUnit\Framework\TestCase;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
+use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
 
 /**
  * Confirming a magic link is not logging in.
@@ -92,7 +93,7 @@ class MagicLinkWindowIdentityTest extends TestCase
 
         $this->controller = new AuthController(
             $twig,
-            new AuthService($connection, $this->encryption, $mailService, $twig, 'https://example.test', 'Test Unit'),
+            new AuthService($connection, $this->encryption, $mailService, EmailTemplateRendererFactory::overTestDatabase($this->pdo, $twig), 'https://example.test', 'Test Unit'),
             new RoleResolver($memberYearRepo, $this->encryption, $this->pdo, $memberEmailRepo),
             new ScoutYearResolver(
                 new ScoutYearService($this->pdo),

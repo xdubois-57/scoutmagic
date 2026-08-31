@@ -54,7 +54,8 @@ class SupportDashboardTestHelper
             auto_update_level TEXT NULL,
             scout_year_label TEXT NULL,
             installed_at TEXT NULL,
-            last_upgraded_at TEXT NULL
+            last_upgraded_at TEXT NULL,
+            telemetry_enabled INTEGER NOT NULL DEFAULT 1
         )');
 
         $pdo->exec('CREATE TABLE support_monthly_aggregates (
@@ -76,6 +77,43 @@ class SupportDashboardTestHelper
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             ip_hash TEXT NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )');
+
+        $pdo->exec('CREATE TABLE support_tickets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            reference TEXT NOT NULL UNIQUE,
+            installation_id INTEGER NOT NULL,
+            category TEXT NOT NULL,
+            description_encrypted BLOB NOT NULL,
+            contact_email_encrypted BLOB NOT NULL,
+            contact_email_blind_index TEXT NOT NULL,
+            site_version TEXT NULL,
+            php_version TEXT NULL,
+            status TEXT NOT NULL DEFAULT \'open\',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            closed_at TEXT NULL,
+            resolution_note_encrypted BLOB NULL,
+            archive_file_id INTEGER NULL,
+            archive_received_at TEXT NULL
+        )');
+
+        $pdo->exec('CREATE TABLE support_mail_probes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            installation_id INTEGER NOT NULL,
+            correlation_key TEXT NOT NULL,
+            mailbox_address_encrypted BLOB NOT NULL,
+            issued_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            expires_at TEXT NOT NULL,
+            received_at TEXT NULL,
+            delay_seconds INTEGER NULL,
+            authentication_encrypted BLOB NULL
+        )');
+
+        $pdo->exec('CREATE TABLE support_ticket_analyses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            requested_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            ticket_count INTEGER NOT NULL,
+            result_encrypted BLOB NOT NULL
         )');
     }
 }

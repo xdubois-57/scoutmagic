@@ -119,6 +119,18 @@ The directory name **must** match the `id` field in `module.json`.
       "channels": { "in_app": "default_on", "push": "default_on", "email": "default_off" }
     }
   ],
+  "emails": [
+    {
+      "id": "calendar.multiday_event_reminder",
+      "label": "Rappel d'évènement sur plusieurs jours",
+      "description": "Envoyé au staff de la section quelques jours avant un évènement qui dure plus d'une journée.",
+      "default_subject": "Rappel — {{ event_title }}",
+      "template": "@calendar/email/multiday_event_reminder.html.twig",
+      "variables": [
+        { "name": "event_title", "label": "Titre de l'évènement", "example": "Week-end de section" }
+      ]
+    }
+  ],
   "offline": [
     {
       "path": "/calendar",
@@ -190,6 +202,10 @@ Two modules use it today: `support_dashboard` (`["statistics_receiver"]`) and `t
   - `role_min`: same role list as routes — the minimum role a recipient must currently hold to actually receive it (re-checked at send time, not at whatever moment the caller built the recipient list).
   - `channels`: an object with exactly the keys `in_app`, `push`, `email`, each one of `on` (always sent, member can't opt out), `off` (never sent, member can't opt in), `default_on`/`default_off` (member can override on the preferences page). See the Notifications section below.
   - `default_on_role_min`: optional, must be at or above `role_min`. The role from which this type's `default_on` channels actually start on — below it the type still appears on the preferences page with the same switches, all starting off. For a type that is genuinely useful to two audiences with opposite expectations: core's `core.update_installed` is `role_min: "admin"` + `default_on_role_min: "superadmin"`, so whoever runs the site is told automatic updates happened without asking, and an admin can ask. Omit it (the usual case) and the declared defaults apply to everybody the type is offered to.
+- **emails**: optional, each entry must have `id`, `label`, `description`, `default_subject`, `template`.
+  - `id`: must be prefixed `"{module_id}."` (e.g. `calendar.multiday_event_reminder`).
+  - `editable`: optional boolean, defaults to `true`. `false` for any authentication e-mail — the refusal is enforced server-side, not by hiding a button.
+  - `variables`: optional list of `{name, label, example}`. `name` is a lowercase identifier, unique within the entry; it is substituted as a plain string and never evaluated. See the E-mails section below.
 - **offline**: optional, each entry must have `path`, `label`, `role_min`. See the Offline pages section below.
 - **requires**: optional array of module ids this module cannot function without (hard dependencies). Must be non-empty strings, without duplicates, and never the module's own id. See the Hard dependencies section below.
 - **enabled_by_default**: optional boolean, defaults to `false`. When `true`, the module is activated automatically the very first time it is discovered on disk (no `module_registry` row yet) — no admin action needed. An admin's later explicit deactivation always sticks; this never re-activates a module that already has a registry row.
@@ -846,6 +862,36 @@ $notificationService->dispatch(
 - **A type nobody individually opted into needs `recipientsForType()`, not `findAllIds()`.** `dispatch()` always writes the in-app row (above), so handing it every account would put a row in the centre of somebody who had switched the type off. `NotificationService::recipientsForType('your.type')` returns exactly the accounts the type's `role_min` allows whose in-app channel resolves enabled for their own role and preferences — the recipient list for an announcement with no requester to answer (`Core\Maintenance\Task\InstallUpdateHandler` uses it for an update nobody asked for). It is not for a type whose audience is a membership or an ownership: that is still yours to resolve, per the `role_min` floor rule above.
 - A handful of pre-existing, out-of-scope Maintenance task types (reset/restore) use the older, simpler `notify($userAccountId, $title, $body, $url)` instead — single recipient, immediate, no role/channel/quiet-hours resolution. The update handler still uses it for the one case it fits, a manual install answering its own requester, and `dispatch()` for everything else. New module types should use `dispatch()`.
 
+## E-mails
+
+Every automatic e-mail your module sends must be declared in `module.json` under the `emails` section. The declaration is aggregated with core's own (`Core\Mail\Template\EmailTemplateRegistry`) into one list — the inventory an administrator reads, and the source the renderer answers from once your sender is migrated onto it.
+
+```json
+"emails": [
+  {
+    "id": "calendar.multiday_event_reminder",
+    "label": "Rappel d'évènement sur plusieurs jours",
+    "description": "Envoyé au staff de la section quelques jours avant un évènement qui dure plus d'une journée.",
+    "default_subject": "Rappel — {{ event_title }}",
+    "template": "@calendar/email/multiday_event_reminder.html.twig",
+    "editable": true,
+    "variables": [
+      { "name": "event_title", "label": "Titre de l'évènement", "example": "Week-end de section" },
+      { "name": "start_date",  "label": "Date de début",        "example": "14 mars 2027" }
+    ]
+  }
+]
+```
+
+- **`id` must be prefixed with your module id**, exactly like a notification type. Two modules can then never collide, and the page groups by module without parsing anything else. An unprefixed id is a load-time `ModuleException`.
+- **`description` is required and is French prose saying *when* the e-mail goes out**, not what it contains. It is the only thing an administrator has to decide whether the e-mail they are about to reword is the one they meant.
+- **`template` is the Twig file you ship**, under your module's Twig namespace (`@your_module/email/…`). It stays what is rendered as long as nobody has customised the e-mail. Ship the `.text.twig` twin beside it as before — multipart is mandatory (`SECURITY.md` §8).
+- **`variables` are the placeholders an administrator may insert**, written `{{ name }}` and substituted as **plain strings** — the stored content is never evaluated as Twig. Give each a French `label` (the wording of the insertion button) and a realistic `example` (what the preview and the test send show). A `name` is a lowercase identifier; anything else is refused at load time.
+- **Declare flat, substitutable values.** `{{ reference }}`, not `{{ booking.reference }}`: string substitution has no notion of an object, so a variable an administrator can insert has to be a value you can hand over as a string.
+- **Never declare `site_name`.** The header, the footer and the unit's name belong to `email/base.html.twig`, which stays code and is not customisable.
+- **`editable` is optional and defaults to `true`.** Declare `false` for an authentication e-mail — anything carrying a login link, a password reset or an address confirmation. An administrator who broke one would shut somebody out with no way back in, and the refusal is enforced on the server, not merely by hiding a button.
+- Declaring an e-mail changes nothing about how you send it: keep rendering your Twig and calling `MailService::send()`. The declaration is what puts it in the inventory.
+
 ## Offline pages (`Core\Offline\OfflineWhitelist`)
 
 A module can make one or more of its own GET pages available for offline viewing in the installed app (ARCHITECTURE.md §8.25) by declaring them under `module.json`'s `offline` section — same aggregation shape as `cookies`/`notifications`: core never hardcodes a module's path, the module declares it, `Core\Module\ModuleManager` registers it into the single shared `Core\Offline\OfflineWhitelist` while loading the module, and a disabled module's page simply never gets registered.
@@ -1051,19 +1097,28 @@ A module that needs the replies people send about its own objects — a booking,
    - `canRead(string $businessReference, array $linkedMemberIds, string $role): bool` — whether this requester may download an attachment of a message associated with that object of yours. `inbound_mail` does not know your authorisation rules and must not learn them, so it asks; answer with the same rule your own screens use. **Throwing is a refusal, never a grant.**
    - `describeEvidence(): array`, `triageAudienceLabel()`, `triageAudienceCount()` — French declarations shown on the mailbox configuration screen: what you propose on, and who would see the mail you sort. See point 5.
 
-2. **Ambiguity is silence, never a guess.** Several of your objects matching equally is a proposition at best and nothing at worst — never a link. Attaching a message to whichever of two candidates sorted first is worse than not attaching it, because the person reading the wrong file has no way to know it is the wrong file.
+2. **Optionally, declare what you want kept** by also implementing `Api\MessageRetentionPreference` — two methods, both about the messages *you* claim:
 
-3. **Try the reliable identifications first, and say which one answered.** An explicit reference in the subject, then the thread headers (`InboundMailInterface::findReferenceByThread()` resolves those for you — you cannot look inside the other module's storage, and should not), then anything weaker, bounded. `Api\LinkOrigin` carries the answer, and your interface should show a weak match as the guess it is.
+   - `wantsRawHeaders(): bool` — keep the message's raw header block, encrypted and truncated. `Authentication-Results`, `Received-SPF`, `DKIM-Signature` and the chain of `Received` lines are where a mail diagnosis lives, and nothing else stored keeps them. They also carry **IP addresses and server names**, which is why nobody gets them by default.
+   - `wantsBody(): bool` — return `false` if what people wrote is none of your business. A probe watching whether the site's own mail comes back needs the envelope and the verdict, not the correspondence. The body columns are then written empty rather than made nullable.
 
-4. **Links versus propositions is a question of who decides.** A `MessageLink` is a certainty you are willing to act on unattended. A `MessageCandidate` is a guess you hand to somebody — so it carries a French label, a French explanation and an `evidenceType`, because « correspondance faible (sender_window) » tells a chief nothing they can decide on. A proposition somebody sets aside is set aside **for good**: `dismissed_at` is final, and re-emitting the same guess never resurrects it.
+   **A consumer that does not implement this interface behaves exactly as it always has** — body kept, headers not — so there is nothing to add to an existing consumer. Where several consumers claim the same message the **wider** answer wins, each undeclared consumer answering the default: one module's frugality must not delete what another needs off the same mail.
 
-5. **There is no central rule about how strong a proposition must be**, and that is deliberate. The discipline belongs to you; the price of it is `describeEvidence()`, which publishes the signals you propose on so a superadmin reads what your module will do with a shared mailbox before opening it to you. `triageAudienceCount()` must count real people **for the scout year in effect** — the warning that shows it is the only guard-rail on that choice, so an estimate or a frozen figure makes it a lie.
+3. **Ambiguity is silence, never a guess.** Several of your objects matching equally is a proposition at best and nothing at worst — never a link. Attaching a message to whichever of two candidates sorted first is worse than not attaching it, because the person reading the wrong file has no way to know it is the wrong file.
 
-6. **Analysis happens once, on arrival, plus that one deferred pass.** Nothing re-analyses a stored message on its own, ever: propositions appearing and disappearing as modules are updated, with nobody able to say why, is worse than none. A superadmin who enables your module on a box that has been collecting for months asks for a re-analysis explicitly.
+4. **Try the reliable identifications first, and say which one answered.** An explicit reference in the subject, then the thread headers (`InboundMailInterface::findReferenceByThread()` resolves those for you — you cannot look inside the other module's storage, and should not), then anything weaker, bounded. `Api\LinkOrigin` carries the answer, and your interface should show a weak match as the guess it is.
 
-7. **Register the consumer in the shared builder** in `public/scheduler-bootstrap.php` — one closure feeds both inbound-mail tasks, and two copies of that wiring would be two places for it to drift. If your `canRead()` needs request-scoped state (a session's email, the current scout year), register a **factory** into the web path's read registry in `public/index.php` instead of an eager instance: a page view must not assemble the cross-module graph to answer a question it is not asking.
+5. **Links versus propositions is a question of who decides.** A `MessageLink` is a certainty you are willing to act on unattended. A `MessageCandidate` is a guess you hand to somebody — so it carries a French label, a French explanation and an `evidenceType`, because « correspondance faible (sender_window) » tells a chief nothing they can decide on. A proposition somebody sets aside is set aside **for good**: `dismissed_at` is final, and re-emitting the same guess never resurrects it.
 
-8. **Consume `Api\InboundMailInterface` as a nullable dependency** for everything else — listing a thread, associating, detaching, moving, purging. Every method is scoped to your consumer id and one business reference, and there is deliberately no way to ask for anything broader.
+6. **There is no central rule about how strong a proposition must be**, and that is deliberate. The discipline belongs to you; the price of it is `describeEvidence()`, which publishes the signals you propose on so a superadmin reads what your module will do with a shared mailbox before opening it to you. `triageAudienceCount()` must count real people **for the scout year in effect** — the warning that shows it is the only guard-rail on that choice, so an estimate or a frozen figure makes it a lie.
+
+7. **Analysis happens once, on arrival, plus that one deferred pass.** Nothing re-analyses a stored message on its own, ever: propositions appearing and disappearing as modules are updated, with nobody able to say why, is worse than none. A superadmin who enables your module on a box that has been collecting for months asks for a re-analysis explicitly.
+
+8. **Register the consumer in the shared builder** in `public/scheduler-bootstrap.php` — one closure feeds both inbound-mail tasks, and two copies of that wiring would be two places for it to drift. If your `canRead()` needs request-scoped state (a session's email, the current scout year), register a **factory** into the web path's read registry in `public/index.php` instead of an eager instance: a page view must not assemble the cross-module graph to answer a question it is not asking.
+
+9. **Consume `Api\InboundMailInterface` as a nullable dependency** for everything else — listing a thread, associating, detaching, moving, purging. Every method is scoped to your consumer id and one business reference, and there is deliberately no way to ask for anything broader.
+
+10. **`probeAddressesFor()` is the one method that hands you an address**, and the exception is narrow enough to be worth stating: `listMailboxSummaries()` gives a manager a name and a state precisely so the account address stays out of a picker, while this answers a *destination* — a diagnostic probe that cannot be addressed is not a probe. It answers for one consumer, about the enabled boxes that consumer may already analyse and no others, and a username that is not an e-mail address is left out rather than guessed at. Whatever you publish it through must be authenticated: an open route repeating this answer is a route handing out the installation's mailbox addresses.
 
 Two things this module guarantees so you do not have to: **nothing is ever written to the remote mailbox**, and **an attachment is owned by its message**, so `/files/{id}` asks you before serving it rather than trusting a flat `role_min` floor.
 

@@ -42,6 +42,17 @@ CREATE TABLE support_installations (
     scout_year_label VARCHAR(50) NULL,
     installed_at DATETIME NULL,
     last_upgraded_at DATETIME NULL,
+    -- False for a row this receiver created because an installation opened
+    -- a SUPPORT TICKET without ever sending a usage report (roadmap
+    -- IT-24). Support is not bought with data: a unit that refused
+    -- telemetry still gets an identity, provisioned on its first ticket.
+    --
+    -- The column exists so the dashboard can say so. Without it such a row
+    -- would read as an installation that has been silent for months, which
+    -- is the one thing it is not — it never agreed to speak. Set back to
+    -- true the day a real report arrives, because the reason for the mark
+    -- has gone.
+    telemetry_enabled BOOLEAN NOT NULL DEFAULT TRUE,
     INDEX idx_support_installations_last_received (last_received_at),
     INDEX idx_support_installations_version (scoutmagic_version)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -91,4 +102,131 @@ CREATE TABLE support_monthly_contributions (
     -- enforced here rather than by a read-then-write in PHP, which two
     -- concurrent reports could interleave past.
     UNIQUE KEY uniq_support_monthly_contribution (month, installation_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- One support ticket, sent by an installation and received here
+-- (ARCHITECTURE.md §8.49ter, roadmap IT-23).
+--
+-- **One-way, deliberately.** There is no thread, no reply travelling back
+-- to the instance, and no status the instance can read beyond the fact
+-- that it sent something. The maintainer answers from their own mailbox,
+-- like any other correspondence, and a ticket here is a record of what was
+-- reported rather than half of a conversation this codebase would then
+-- have to keep both ends of.
+--
+-- The description and the contact address ARE personal data: whoever wrote
+-- the ticket described their own installation in their own words and left
+-- an address to be answered on. Both are encrypted BLOBs, decrypted only
+-- in Repository\SupportTicketRepository (SECURITY.md §5), with a blind
+-- index on the address because "every ticket from this person" is a
+-- question the dashboard has to answer and an encrypted column cannot be
+-- compared.
+CREATE TABLE support_tickets (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    -- What a maintainer quotes back in the e-mail they answer with, and
+    -- the only identifier the reporting instance ever sees (roadmap
+    -- IT-25). Random rather than the row id: an instance learning « your
+    -- ticket is number 41 » learns how many tickets this receiver has
+    -- had, and the reference has to survive being read out on the phone,
+    -- so it is short, upper case, and drawn from an alphabet with no
+    -- O/0 or I/1 in it.
+    reference VARCHAR(20) NOT NULL UNIQUE,
+    -- The reporting installation's own row. ON DELETE CASCADE because
+    -- deleting an installation from the dashboard is how a receiver
+    -- forgets a unit entirely, and a ticket left behind would be a record
+    -- of a unit that was just deleted.
+    installation_id INT UNSIGNED NOT NULL,
+    -- One of Modules\SupportDashboard\TicketCategory's values. Validated
+    -- against that closed list before the insert, never trusted from the
+    -- body.
+    category VARCHAR(30) NOT NULL,
+    description_encrypted BLOB NOT NULL,
+    contact_email_encrypted BLOB NOT NULL,
+    contact_email_blind_index VARCHAR(64) NOT NULL,
+    -- What the instance was running when it wrote the ticket. Not personal
+    -- data and the first thing a maintainer reads, so kept in clear.
+    site_version VARCHAR(50) NULL,
+    php_version VARCHAR(20) NULL,
+    -- 'open' | 'closed'. The instance never sees this: it is the
+    -- receiver's own bookkeeping.
+    status VARCHAR(10) NOT NULL DEFAULT 'open',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    closed_at DATETIME NULL,
+    -- What the maintainer wrote when closing. Their own words about
+    -- somebody's installation — encrypted like the description.
+    resolution_note_encrypted BLOB NULL,
+    -- The diagnostic archive, when the administrator explicitly sent one
+    -- (roadmap IT-26). It arrives in a SEPARATE call, never on the ticket
+    -- route: a ticket body is two kilobytes and an archive is megabytes.
+    archive_file_id INT UNSIGNED NULL,
+    archive_received_at DATETIME NULL,
+    INDEX idx_support_tickets_installation (installation_id, created_at),
+    INDEX idx_support_tickets_status (status, created_at),
+    INDEX idx_support_tickets_contact (contact_email_blind_index),
+    CONSTRAINT fk_support_tickets_installation FOREIGN KEY (installation_id)
+        REFERENCES support_installations (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- One diagnostic mail probe: a message this receiver expects to arrive in
+-- one of its own synchronised mailboxes (ARCHITECTURE.md §8.49quater,
+-- roadmap IT-27).
+--
+-- **The receiver issues the correlation key, not the instance.** It is the
+-- side that has to recognise the message when it lands, and a key it did
+-- not choose is a key it cannot expect. Handing one out costs a row per
+-- address, which is also what makes « jamais reçu » a state rather than a
+-- silence.
+--
+-- The mailbox address is one of this receiver's own boxes — not personal
+-- data, and not a member's — but it is stored encrypted anyway: it comes
+-- back on an authenticated API and there is no reason for a database copy
+-- to be the plainest form of it anywhere.
+CREATE TABLE support_mail_probes (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    installation_id INT UNSIGNED NOT NULL,
+    -- Shared by every address of one probe run: one key, one button
+    -- press, N mailboxes.
+    correlation_key VARCHAR(32) NOT NULL,
+    mailbox_address_encrypted BLOB NOT NULL,
+    issued_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- A key nobody ever claims is a row that would otherwise sit here for
+    -- ever: past this instant the consumer stops recognising it and the
+    -- purge task removes it.
+    expires_at DATETIME NOT NULL,
+    received_at DATETIME NULL,
+    -- How long the message took, in seconds. NULL while nothing arrived —
+    -- never 0, which would read as "instantaneous".
+    delay_seconds INT UNSIGNED NULL,
+    -- What the headers said: SPF, DKIM, DMARC and the relay chain, as a
+    -- JSON object. Encrypted because the chain carries IP addresses and
+    -- server names, and shown only to a superadmin.
+    authentication_encrypted BLOB NULL,
+    INDEX idx_support_mail_probes_key (correlation_key),
+    INDEX idx_support_mail_probes_installation (installation_id, issued_at),
+    CONSTRAINT fk_support_mail_probes_installation FOREIGN KEY (installation_id)
+        REFERENCES support_installations (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- One cross-ticket analysis run (ARCHITECTURE.md §8.49quinquies,
+-- roadmap IT-28).
+--
+-- **Persisted because it is a transmission, not a view.** Grouping tickets
+-- by symptom means sending their descriptions to an external provider,
+-- which makes that provider a sub-processor (AGENTS.md, RGPD). A result
+-- recomputed on every page load would repeat that transmission every time
+-- somebody opened the page, which is the difference between an operation
+-- the maintainer performs and one that happens to them. So a run is asked
+-- for, stored, and read back until somebody asks for another.
+--
+-- The result is encrypted for the same reason the descriptions are: it is
+-- a summary OF those descriptions, and a summary of personal data is
+-- personal data.
+CREATE TABLE support_ticket_analyses (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    requested_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- How many tickets the run actually read, so a reader can tell a
+    -- summary of forty tickets from a summary of two.
+    ticket_count INT UNSIGNED NOT NULL,
+    result_encrypted BLOB NOT NULL,
+    INDEX idx_support_ticket_analyses_requested (requested_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

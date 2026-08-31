@@ -61,10 +61,26 @@ final class FormationLevelResolver
      * @var list<array{0: string, 1: FormationStep, 2: bool}>
      */
     private const PATTERNS = [
-        // Brevet first — it is the end of the path and its wording often
-        // carries the preceding step's name alongside it.
+        // The two named brevets first — they are the end of the path and
+        // their wording often carries a preceding step's name alongside
+        // it. Before the generic 'brevet' too: « brevet BACV » is a BACV,
+        // and reading it as an unspecified brevet would lose the very
+        // distinction the ONE ratio is built on.
+        ['bacv', FormationStep::BACV, false],
+        ['woodbadge', FormationStep::WOODBADGE, false],
+        // Whole-word, so it fires on « wood badge » (folded to two words)
+        // without firing on some unrelated string that merely contains it.
+        ['wood', FormationStep::WOODBADGE, true],
+
         ['brevet', FormationStep::BREVET, false],
         ['animateur brevete', FormationStep::BREVET, false],
+
+        // Pi-days: an entrance equivalent to T1, and its own box. Matched
+        // before the T-steps because « pi-days (T1) » is a Pi-days.
+        ['pi days', FormationStep::PI_DAYS, false],
+        ['pi day', FormationStep::PI_DAYS, false],
+        ['journee pi', FormationStep::PI_DAYS, false],
+        ['journees pi', FormationStep::PI_DAYS, false],
 
         ['t3', FormationStep::T3, true],
         ['troisieme etape', FormationStep::T3, false],

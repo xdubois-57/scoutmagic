@@ -40,7 +40,7 @@ class SupervisionCalculatorTest extends TestCase
     public function testSatisfiedWhenBothHalvesAreMet(): void
     {
         $situation = (new SupervisionCalculator())->evaluate(24, [
-            FormationStep::BREVET,
+            FormationStep::BACV,
             FormationStep::T2,
         ]);
 
@@ -64,12 +64,45 @@ class SupervisionCalculatorTest extends TestCase
     public function testNotSatisfiedWhenAnimatorsAreShort(): void
     {
         $situation = (new SupervisionCalculator())->evaluate(40, [
-            FormationStep::BREVET,
-            FormationStep::BREVET,
+            FormationStep::BACV,
+            FormationStep::BACV,
         ]);
 
         $this->assertSame(4, $situation->requiredAnimators);
         $this->assertFalse($situation->satisfied);
+    }
+
+    /**
+     * The ONE recognises the BACV. The Woodbadge is internal to scouting
+     * and carries no ONE recognition, so it is not a breveté here however
+     * much training it represents — this figure answers one body's
+     * question, not the site's opinion of somebody's competence.
+     */
+    public function testAWoodbadgeIsNotCountedInTheOneRatio(): void
+    {
+        $situation = (new SupervisionCalculator())->evaluate(12, [FormationStep::WOODBADGE]);
+
+        $this->assertSame(0, $situation->brevetCount);
+        $this->assertFalse($situation->satisfied);
+    }
+
+    /**
+     * A brevet whose kind nobody recorded might be a BACV — which a
+     * regulatory figure may not read as "is". It is not an unrecognised
+     * level either: the site knows exactly what it says, and the page names
+     * it in its own sentence rather than in the list of values to map.
+     */
+    public function testAnUnspecifiedBrevetIsNeitherCountedNorTreatedAsUnrecognised(): void
+    {
+        $situation = (new SupervisionCalculator())->evaluate(12, [FormationStep::BREVET]);
+
+        $this->assertSame(0, $situation->brevetCount);
+        $this->assertSame(0, $situation->unknownLevelCount);
+        $this->assertFalse($situation->satisfied);
+        $this->assertFalse(
+            $situation->mayBeIncomplete,
+            'the « valeurs non reconnues » list would not contain it, so pointing at that list would send a chief nowhere'
+        );
     }
 
     /**
@@ -93,7 +126,7 @@ class SupervisionCalculatorTest extends TestCase
     public function testAMetThresholdNeverWarnsEvenWithUnknownLevels(): void
     {
         $situation = (new SupervisionCalculator())->evaluate(12, [
-            FormationStep::BREVET,
+            FormationStep::BACV,
             FormationStep::UNKNOWN,
         ]);
 

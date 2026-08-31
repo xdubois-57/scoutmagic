@@ -116,15 +116,29 @@ class AutoCloseHandler implements TaskHandlerInterface
             'board_url' => $baseUrl . $publicUrl,
         ];
 
+        // Core's templates plus this module's own: a handler runs outside
+        // the composition root, so nothing has aggregated the manifests
+        // for it (ARCHITECTURE.md §8.7bis). A customisation is honoured
+        // all the same — that lives in the database, not in the registry.
+        $registry = new \Core\Mail\Template\EmailTemplateRegistry();
+        $registry->registerModuleManifest(
+            \Core\Module\ModuleManifest::fromFile($repoRoot . '/modules/retro/module.json')
+        );
+        $renderer = new \Core\Mail\Template\EmailTemplateRenderer(
+            $twig,
+            $registry,
+            new \Core\Mail\Template\EmailTemplateOverrideRepository($context->connection->getPdo()),
+            $context->journal
+        );
+
         try {
-            $bodyHtml = $twig->render('@retro/email/board_closed.html.twig', $twigContext);
-            $bodyText = $twig->render('@retro/email/board_closed.text.twig', $twigContext);
+            $rendered = $renderer->render('retro.board_closed', $twigContext);
 
             $context->mailService->send(
                 to: $email,
-                subject: 'Rétrospective clôturée : ' . $board->title,
-                bodyHtml: $bodyHtml,
-                bodyText: $bodyText
+                subject: $rendered->subject,
+                bodyHtml: $rendered->bodyHtml,
+                bodyText: $rendered->bodyText
             );
         } catch (\Throwable $e) {
             $context->journal->log(

@@ -584,6 +584,20 @@ class DatabaseTestHelper
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )');
 
+        // Customised automatic e-mails (schema/core.sql:
+        // email_template_overrides). No row means no customisation, so an
+        // empty table is the ordinary state and every renderer test that
+        // does not write one exercises the shipped-template path.
+        $pdo->exec('CREATE TABLE email_template_overrides (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            template_id TEXT NOT NULL UNIQUE,
+            subject TEXT NOT NULL,
+            body_html TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_by INTEGER,
+            FOREIGN KEY (updated_by) REFERENCES user_accounts(id) ON DELETE SET NULL
+        )');
+
         return $pdo;
     }
 }

@@ -33,7 +33,9 @@ class MemberFormationPathServiceTest extends TestCase
 
         $this->assertNotNull($path);
         $this->assertSame(
-            ['T1' => true, 'T2' => true, 'T3' => false, 'Brevet' => false],
+            // The path ends at the BACV since IT-19 — the brevet the ONE
+            // recognises, rather than a brevet of unstated kind.
+            ['T1' => true, 'T2' => true, 'T3' => false, 'BACV' => false],
             array_combine(
                 array_column($path->steps, 'label'),
                 array_column($path->steps, 'reached')
@@ -104,6 +106,6 @@ class MemberFormationPathServiceTest extends TestCase
 
         $this->assertNotNull($path);
         $this->assertTrue($path->isRecognised);
-        $this->assertSame('Brevet', $path->nextLabel);
+        $this->assertSame('BACV', $path->nextLabel);
     }
 }

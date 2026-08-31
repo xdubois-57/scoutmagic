@@ -23,6 +23,26 @@
 # excluding drafts and prereleases. That single fact is what keeps the two
 # channels apart: a `dev-build` release that ever became "latest" would be
 # offered to, and auto-installed by, every site on patch/minor/major.
+#
+# THE TAG IS `dev-latest`, AND THE ORIGINAL `dev-build` IS UNUSABLE
+# FOREVER: a tag name once used by an immutable release stays reserved by
+# GitHub's rulesets even after that release is deleted AND the repository
+# setting is disabled ("tag_name was used by an immutable release" —
+# measured over three attempts). If this tag ever has to change again,
+# every installed site still runs code pointing at the previous name
+# (GitHubWebhookService::DEV_BUILD_TAG): plan the bridge before renaming.
+#
+# THIS REPOSITORY HAD RELEASE IMMUTABILITY ENABLED, and that shaped the
+# whole publish step. A published release's assets and tag are frozen —
+# the first version of this workflow created the release and then tried
+# `gh release upload`, and GitHub answered
+# "HTTP 422: Cannot upload assets to an immutable release" (run #1).
+# The only supported way to change what `dev-build` serves is therefore
+# to DELETE the previous release outright and create a new one whose
+# asset is already attached when it is published: create as a DRAFT with
+# the file, then flip the draft bit. The flow is kept even now that the
+# setting is off — it works in both worlds, where upload-after-publish
+# only works in one.
 
 name: Dev build
 
@@ -73,61 +93,49 @@ jobs:
           echo "ASSET=${ASSET}" >> "${GITHUB_ENV}"
           ./scripts/build-artifact.sh "${GITHUB_WORKSPACE}/${ASSET}"
 
-      # The asset name Core\Maintenance\GitHubWebhookService builds its
-      # download URL from is scoutmagic-dev-<sha7>.zip under the
-      # `dev-build` tag — the tag has to point at the commit being
-      # published, so the release page shows the right source and a manual
-      # `git fetch --tags` lands somewhere meaningful.
+      # See the header: release immutability means the previous release is
+      # deleted and a fresh one is created with its asset already attached
+      # at publish time. During the delete→publish window (about a second,
+      # plus this job's ~1 min build) the download URL answers 404 — which
+      # is exactly the case Task\InstallUpdateHandler's wait-for-artifact
+      # loop exists for, so an in-flight install retries rather than fails.
       #
-      # The tag is moved through the git refs API rather than
-      # `gh release edit --target`: target_commitish only takes effect
-      # when the tag does not exist yet, so editing it on an existing
-      # release is silently a no-op.
-      - name: Publish the rolling dev-build prerelease
+      # Every deletion is tolerated failing (`|| true`) EXCEPT the final
+      # publish: a leftover release or tag degrades to a stale-but-working
+      # asset and a loud log line, while a hard stop here would leave the
+      # dev channel with no artifact at all for this commit.
+      - name: Publish the dev-latest prerelease
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: dev-latest
         run: |
           set -euo pipefail
 
-          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/dev-build" >/dev/null 2>&1; then
-            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/dev-build" \
-              -f sha="${GITHUB_SHA}" -F force=true >/dev/null
-          else
-            gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" \
-              -f ref="refs/tags/dev-build" -f sha="${GITHUB_SHA}" >/dev/null
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release delete "${RELEASE_TAG}" --yes \
+              || echo "WARNING: could not delete the previous ${RELEASE_TAG} release; publish below may fail"
           fi
+          # The tag is frozen alongside an immutable release and freed by
+          # its deletion; remove it so the draft below re-creates it at
+          # THIS commit rather than reusing wherever it pointed before.
+          gh api -X DELETE "repos/${GITHUB_REPOSITORY}/git/refs/tags/${RELEASE_TAG}" >/dev/null 2>&1 \
+            || echo "NOTE: no previous ${RELEASE_TAG} tag to delete (or deletion refused; the release will reuse it)"
 
-          if gh release view dev-build >/dev/null 2>&1; then
-            # Re-asserted on every run, never assumed: the prerelease flag
-            # is what keeps this out of /releases/latest, and a release
-            # someone edited by hand must be put back rather than trusted.
-            gh release edit dev-build --prerelease --draft=false --latest=false \
-              --title "Development build" >/dev/null
-          else
-            gh release create dev-build --prerelease --latest=false \
-              --title "Development build" \
-              --notes "Rolling build of the \`main\` branch, published for installations tracking the development channel (\`auto_update_level = dev\`). Never a stable release: this is a prerelease on purpose, so \`/releases/latest\` — the stable channel's only source — never sees it." >/dev/null
-          fi
+          gh release create "${RELEASE_TAG}" "${GITHUB_WORKSPACE}/${ASSET}" \
+            --draft --prerelease \
+            --target "${GITHUB_SHA}" \
+            --title "Development build" \
+            --notes "Rolling build of the \`main\` branch (\`${GITHUB_SHA}\`), published for installations tracking the development channel (\`auto_update_level = dev\`). Never a stable release: this is a prerelease on purpose, so \`/releases/latest\` — the stable channel's only source — never sees it." >/dev/null
 
-          gh release upload dev-build "${GITHUB_WORKSPACE}/${ASSET}" --clobber
+          # The publish. --latest=false re-asserted even though prerelease
+          # already implies it: the invariant in the header is not left to
+          # implication.
+          gh release edit "${RELEASE_TAG}" --draft=false --prerelease --latest=false >/dev/null
 
-      # Keep the three most recent builds. Not one: an install scheduled
-      # by the webhook can still be fetching the previous artifact minutes
-      # later (Task\InstallUpdateHandler waits for the asset to appear and
-      # then downloads it), and deleting what a site is mid-download is a
-      # failed update. Three covers a burst of pushes without letting the
-      # release accumulate every build ever made.
-      - name: Prune older dev artifacts
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          gh release view dev-build --json assets \
-            --jq '[.assets[] | select(.name | startswith("scoutmagic-dev-") and endswith(".zip"))]
-                  | sort_by(.createdAt) | reverse | .[3:] | .[].name' \
-            > stale-assets.txt
-          while IFS= read -r name; do
-            [ -n "${name}" ] || continue
-            echo "Deleting stale dev artifact ${name}"
-            gh release delete-asset dev-build "${name}" --yes
-          done < stale-assets.txt
+          # Prove the asset is really reachable at the address every
+          # installed site will build, or fail THIS run rather than let a
+          # site discover it after its 10-minute wait.
+          sleep 5
+          curl -sSfLI -o /dev/null \
+            "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/${ASSET}"
+          echo "Published ${ASSET} on ${RELEASE_TAG} at ${GITHUB_SHA}"

@@ -93,13 +93,13 @@ class MemberShowTemplateTest extends TestCase
     }
 
     /**
-     * The leadership module's training-path card is self-only, and the
+     * The leadership module's formation card is self-only, and the
      * template's own `is_self` test is the second of the two locks (the
      * first is MemberPageService, which does not even build the data for
      * anybody else). Both are here on purpose: this page renders for a
      * chief/admin too, so the route's authorization is not the question.
      */
-    public function testTheFormationPathCardIsRenderedOnTheMembersOwnPage(): void
+    public function testTheFormationCardIsRenderedOnTheMembersOwnPage(): void
     {
         $html = $this->render($this->makeMember(), true, [
             'formation_path' => new FormationPathView(
@@ -107,7 +107,7 @@ class MemberShowTemplateTest extends TestCase
                     ['label' => 'T1', 'reached' => true, 'current' => false],
                     ['label' => 'T2', 'reached' => true, 'current' => true],
                     ['label' => 'T3', 'reached' => false, 'current' => false],
-                    ['label' => 'Brevet', 'reached' => false, 'current' => false],
+                    ['label' => 'BACV', 'reached' => false, 'current' => false],
                 ],
                 currentLabel: 'Deuxième étape (T2) atteinte',
                 nextLabel: 'T3',
@@ -115,12 +115,39 @@ class MemberShowTemplateTest extends TestCase
             ),
         ]);
 
-        $this->assertStringContainsString('Mon parcours de formation', $html);
+        $this->assertStringContainsString('Mon niveau de formation', $html);
         $this->assertStringContainsString('Deuxième étape (T2) atteinte', $html);
-        $this->assertStringContainsString('Prochaine étape connue : T3', $html);
     }
 
-    public function testTheFormationPathCardIsAbsentWhenSomebodyElseIsLooking(): void
+    /**
+     * Roadmap IT-20: the card shows the level reached and nothing else.
+     * The path stopped being a single queue when Pi-days and the Woodbadge
+     * got boxes of their own, so drawing milestones and a next step here
+     * would promise a sequence that does not exist for everybody — the
+     * tracking stays on the Encadrement page, which is built for it.
+     */
+    public function testTheCardShowsNeitherMilestonesNorANextStep(): void
+    {
+        $html = $this->render($this->makeMember(), true, [
+            'formation_path' => new FormationPathView(
+                steps: [
+                    ['label' => 'T1', 'reached' => true, 'current' => false],
+                    ['label' => 'T2', 'reached' => true, 'current' => true],
+                    ['label' => 'T3', 'reached' => false, 'current' => false],
+                    ['label' => 'BACV', 'reached' => false, 'current' => false],
+                ],
+                currentLabel: 'Deuxième étape (T2) atteinte',
+                nextLabel: 'T3',
+                isRecognised: true,
+            ),
+        ]);
+
+        $this->assertStringNotContainsString('Prochaine étape connue', $html);
+        $this->assertStringNotContainsString('rounded-pill', $html);
+        $this->assertStringNotContainsString('étape actuelle', $html);
+    }
+
+    public function testTheFormationCardIsAbsentWhenSomebodyElseIsLooking(): void
     {
         $html = $this->render($this->makeMember(), false, [
             'formation_path' => new FormationPathView(
@@ -131,16 +158,14 @@ class MemberShowTemplateTest extends TestCase
             ),
         ]);
 
-        $this->assertStringNotContainsString('Mon parcours de formation', $html);
+        $this->assertStringNotContainsString('Mon niveau de formation', $html);
         $this->assertStringNotContainsString('Première étape (T1) atteinte', $html);
     }
 
     /**
-     * An unresolvable Desk value draws no milestones at all and says so —
-     * a half-filled path would be the site asserting progress it cannot
-     * read.
+     * An unresolvable Desk value says so, and nothing is deduced from it.
      */
-    public function testAnUnrecognisedLevelDrawsNoPath(): void
+    public function testAnUnrecognisedLevelSaysSoAndDeducesNothing(): void
     {
         $html = $this->render($this->makeMember(), true, [
             'formation_path' => new FormationPathView(
@@ -156,15 +181,13 @@ class MemberShowTemplateTest extends TestCase
 
         // Twig escapes the apostrophe, so match the half that survives.
         $this->assertStringContainsString('pas reconnu par le site', $html);
-        $this->assertStringNotContainsString('Prochaine étape connue', $html);
-        // No milestone chip is drawn at all.
-        $this->assertStringNotContainsString('rounded-pill', $html);
+        $this->assertStringContainsString("Votre équipe", $html);
     }
 
     public function testTheCardIsAbsentAltogetherWhenTheModuleIsDisabled(): void
     {
         $html = $this->render($this->makeMember(), true);
 
-        $this->assertStringNotContainsString('Mon parcours de formation', $html);
+        $this->assertStringNotContainsString('Mon niveau de formation', $html);
     }
 }

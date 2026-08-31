@@ -25,6 +25,7 @@ use Core\Security\UserAccountRepository;
 use PHPUnit\Framework\TestCase;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
+use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
 
 /**
  * A magic link identifies the address it was sent to, and only that address
@@ -115,7 +116,7 @@ class SecondaryEmailLoginIdentityTest extends TestCase
             $connection,
             $this->encryption,
             $mailService,
-            $twig,
+            EmailTemplateRendererFactory::overTestDatabase($this->pdo, $twig),
             'https://example.test',
             'Test Unit'
         );

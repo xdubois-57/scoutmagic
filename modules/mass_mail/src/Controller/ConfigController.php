@@ -55,6 +55,12 @@ class ConfigController extends AbstractController
             ),
             'all_functions' => $this->mailingListService->getAllFunctions(),
             'all_sections' => $this->mailingListService->getAllSections(),
+            // A list has no year of its own, so there is no per-list
+            // warning to show here — but the page is where somebody decides
+            // WHO a list holds, and next year's answer is a projection or
+            // nothing at all depending on one module. Said once, in the
+            // module's own words rather than the page's.
+            'future_audience_notice' => $this->mailingListService->futureAudienceNotice(),
             'batch_size' => (string) $this->settingService->get(self::SETTING_BATCH_SIZE, 'mass_mail', '20'),
             'batch_interval_minutes' => (string) $this->settingService->get(self::SETTING_BATCH_INTERVAL_MINUTES, 'mass_mail', '5'),
             'csrf_token' => CsrfGuard::generateToken(),

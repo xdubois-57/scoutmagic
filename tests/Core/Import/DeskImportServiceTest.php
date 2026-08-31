@@ -456,4 +456,204 @@ class DeskImportServiceTest extends TestCase
         $stmt = $this->pdo->query("SELECT is_active FROM sections WHERE desk_code = 'SV025L1'");
         $this->assertSame(1, (int) $stmt->fetchColumn());
     }
+
+    // ── one Desk row per (function × address) ─────────────────────────
+
+    /**
+     * A Desk export emits ONE ROW PER (function × address), so a member
+     * with two addresses and one function arrives as that function twice,
+     * identical in every field. Written through as-is it became two
+     * strictly identical `member_functions` rows and every reader without
+     * a DISTINCT counted the person twice.
+     */
+    public function testTwoAddressesAndOneFunctionProduceOneFunctionRow(): void
+    {
+        $this->importRows([
+            $this->row(['Tiers' => 'T900', 'Nom' => 'Leroy', 'Prenom' => 'Alix', 'Rue' => 'Rue A', 'No' => '1']),
+            $this->row(['Tiers' => 'T900', 'Nom' => 'Leroy', 'Prenom' => 'Alix', 'Rue' => 'Rue B', 'No' => '2', "Type d'adresse" => 'Adresse secondaire']),
+        ]);
+
+        $this->assertSame(2, $this->addressCountFor('T900'), 'both addresses must survive');
+        $this->assertSame(1, $this->functionCountFor('T900'));
+    }
+
+    /**
+     * The other half of the same rule: two rows differing on ANY field
+     * are two real functions. « Animateur / Louveteaux » and « Animateur /
+     * Baladins » is the ordinary case, and merging them would lose
+     * information rather than restore it.
+     */
+    public function testTheSameFunctionInTwoSectionsStaysTwoRows(): void
+    {
+        $this->importRows([
+            $this->row(['Tiers' => 'T901', 'Nom' => 'Leroy', 'Prenom' => 'Camille']),
+            $this->row([
+                'Tiers' => 'T901', 'Nom' => 'Leroy', 'Prenom' => 'Camille',
+                'Branche' => 'Baladins', 'Section' => 'SV025B1', 'Fonction principale' => 'false',
+            ]),
+        ]);
+
+        $this->assertSame(2, $this->functionCountFor('T901'));
+    }
+
+    /**
+     * Deduplication keeps the FIRST occurrence, so the main function
+     * survives and stays at the head of the list —
+     * Core\Member\MemberProfile::getMainFunction() falls back to the
+     * first entry when nothing is flagged, and a reordering here would be
+     * invisible until somebody's page named the wrong section.
+     */
+    public function testTheMainFunctionSurvivesDeduplicationAndStaysFirst(): void
+    {
+        $this->importRows([
+            $this->row(['Tiers' => 'T902', 'Nom' => 'Leroy', 'Prenom' => 'Dominique']),
+            $this->row([
+                'Tiers' => 'T902', 'Nom' => 'Leroy', 'Prenom' => 'Dominique',
+                'Branche' => 'Baladins', 'Section' => 'SV025B1', 'Fonction principale' => 'false',
+            ]),
+            $this->row(['Tiers' => 'T902', 'Nom' => 'Leroy', 'Prenom' => 'Dominique', 'Rue' => 'Rue B', "Type d'adresse" => 'Adresse secondaire']),
+            $this->row([
+                'Tiers' => 'T902', 'Nom' => 'Leroy', 'Prenom' => 'Dominique',
+                'Rue' => 'Rue B', "Type d'adresse" => 'Adresse secondaire',
+                'Branche' => 'Baladins', 'Section' => 'SV025B1', 'Fonction principale' => 'false',
+            ]),
+        ]);
+
+        $this->assertSame(2, $this->functionCountFor('T902'));
+
+        $stmt = $this->pdo->prepare(
+            'SELECT mf.is_main_function FROM member_functions mf
+             JOIN member_years my ON mf.member_year_id = my.id
+             JOIN members m ON my.member_id = m.id
+             WHERE m.desk_id = ? ORDER BY mf.id'
+        );
+        $stmt->execute(['T902']);
+
+        $this->assertSame([1, 0], array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN)));
+    }
+
+    /**
+     * The view-model both member pages read is collapsed too, so a year
+     * imported BEFORE this fix reads correctly without waiting for the
+     * next import. The two rows are inserted by hand here for exactly
+     * that reason — the importer would no longer write them.
+     */
+    public function testTwoIdenticalStoredRowsHydrateAsOneFunction(): void
+    {
+        $this->importRows([$this->row(['Tiers' => 'T903', 'Nom' => 'Leroy', 'Prenom' => 'Eli'])]);
+
+        $stmt = $this->pdo->prepare(
+            'SELECT mf.* FROM member_functions mf
+             JOIN member_years my ON mf.member_year_id = my.id
+             JOIN members m ON my.member_id = m.id WHERE m.desk_id = ?'
+        );
+        $stmt->execute(['T903']);
+        $existing = $stmt->fetch(\PDO::FETCH_ASSOC);
+        self::assertIsArray($existing);
+
+        $insert = $this->pdo->prepare(
+            'INSERT INTO member_functions (member_year_id, function_id, section_id, age_branch_id, start_date, end_date, mandate_end, is_main_function)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+        );
+        $insert->execute([
+            $existing['member_year_id'], $existing['function_id'], $existing['section_id'],
+            $existing['age_branch_id'], $existing['start_date'], $existing['end_date'],
+            $existing['mandate_end'], $existing['is_main_function'],
+        ]);
+
+        $this->assertSame(2, $this->functionCountFor('T903'), 'the fixture must really hold two rows');
+
+        $sectionService = new \Core\Member\SectionService(
+            \Core\Database\Connection::withPdo($this->pdo),
+            $this->encryption,
+            new \Core\Badge\MemberBadgeRepository($this->pdo)
+        );
+        $profile = $sectionService->hydrateMemberProfile((int) $existing['member_year_id']);
+
+        self::assertNotNull($profile);
+        $this->assertCount(1, $profile->functions);
+
+        $memberService = new \Core\Member\MemberService(
+            new MemberYearRepository($this->pdo),
+            $this->encryption,
+            \Core\Database\Connection::withPdo($this->pdo)
+        );
+        $single = $memberService->getMemberProfile((int) $existing['member_year_id']);
+
+        self::assertNotNull($single);
+        $this->assertCount(1, $single->functions, 'the single-member path must collapse them too');
+    }
+
+    // ── CSV composition helpers ───────────────────────────────────────
+
+    /**
+     * One CSV line, built from the sample export's own header and its
+     * second data line, with the named columns overridden. Composing from
+     * the committed fixture rather than writing a header out by hand is
+     * what keeps these cases valid when the Desk format gains a column.
+     *
+     * @param array<string, string> $overrides
+     * @return array<int, string>
+     */
+    private function row(array $overrides): array
+    {
+        $lines = file($this->fixturePath, FILE_IGNORE_NEW_LINES);
+        self::assertIsArray($lines);
+        $header = str_getcsv($lines[0], ';', '"', '\\');
+        $template = str_getcsv($lines[1], ';', '"', '\\');
+
+        foreach ($overrides as $column => $value) {
+            $index = array_search($column, $header, true);
+            self::assertIsInt($index, "unknown CSV column '{$column}'");
+            $template[$index] = $value;
+        }
+
+        return $template;
+    }
+
+    /**
+     * @param array<int, array<int, string>> $rows
+     */
+    private function importRows(array $rows): void
+    {
+        $lines = file($this->fixturePath, FILE_IGNORE_NEW_LINES);
+        self::assertIsArray($lines);
+
+        $path = tempnam(sys_get_temp_dir(), 'csv');
+        $handle = fopen($path, 'w');
+        self::assertNotFalse($handle);
+        fwrite($handle, $lines[0] . "\n");
+        foreach ($rows as $row) {
+            fputcsv($handle, $row, ';', '"', '\\');
+        }
+        fclose($handle);
+
+        $this->service->import($path, $this->scoutYearId, 1);
+    }
+
+    private function functionCountFor(string $deskId): int
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM member_functions mf
+             JOIN member_years my ON mf.member_year_id = my.id
+             JOIN members m ON my.member_id = m.id
+             WHERE m.desk_id = ?'
+        );
+        $stmt->execute([$deskId]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    private function addressCountFor(string $deskId): int
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM member_addresses ma
+             JOIN member_years my ON ma.member_year_id = my.id
+             JOIN members m ON my.member_id = m.id
+             WHERE m.desk_id = ?'
+        );
+        $stmt->execute([$deskId]);
+
+        return (int) $stmt->fetchColumn();
+    }
 }

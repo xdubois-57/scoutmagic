@@ -25,10 +25,24 @@ use Modules\Leadership\Value\SupervisionSituation;
  * tick here would be read as compliance, and this module is in no position
  * to certify compliance.
  *
+ * **The ONE recognises the BACV, and nothing else here does the deciding.**
+ * The count asks each step `countsForOneRatio()` rather than comparing
+ * against a case: the Woodbadge is internal to scouting and carries no ONE
+ * recognition, and a brevet whose kind nobody recorded (the legacy box)
+ * *might* be a BACV — which a figure with regulatory weight may not read
+ * as *is*. Both were counted here before they had boxes of their own, so
+ * this number can go **down** on the day a unit updates, and the page says
+ * why (Service\TrainingService::unspecifiedBrevetCount()); a ratio that
+ * was wrong is worse than a ratio that fell.
+ *
  * **The one asymmetry that makes the numbers trustworthy.** A level the
  * site cannot resolve (FormationStep::UNKNOWN) is never counted as a
  * brevet, so the brevet count is a *floor*: the real number is that or
- * higher, never lower. Which means:
+ * higher, never lower. The legacy box sits on the same side of that
+ * asymmetry — not counted, so never inflating the figure — with the
+ * difference that it is named in its own sentence rather than in the
+ * unrecognised list, because it *is* recognised: what is missing is which
+ * brevet it is. Which means:
  *
  * - Threshold met → met for certain, whatever the unrecognised values turn
  *   out to be. Nothing to warn about, and warning anyway would train
@@ -57,7 +71,7 @@ final class SupervisionCalculator
         $brevets = 0;
         $unknown = 0;
         foreach ($animatorSteps as $step) {
-            if ($step === FormationStep::BREVET) {
+            if ($step->countsForOneRatio()) {
                 $brevets++;
             } elseif ($step === FormationStep::UNKNOWN) {
                 $unknown++;

@@ -371,7 +371,36 @@ function authz_concrete_path(string $routePath, array $groups): ?string
 }
 
 /**
- * One HTTP exchange with the instance under test.
+ * One HTTP exchange with the instance under test, retried once when the
+ * instance says nothing at all.
+ *
+ * **A silent request carries no verdict, and a retry cannot manufacture
+ * one.** This gate replays 3,516 (route, role) pairs through one
+ * single-worker `php -S`, and one of them once came back with a header
+ * block that held no status line — which authz_http_once() reports as
+ * "no answer" and which the caller then counts as UNREACHABLE, never as
+ * "reached". Retrying it is therefore not a way of getting past a
+ * refusal: a route that reliably kills the connection stays silent on
+ * both attempts and still fails the run. What the retry buys is that a
+ * single dropped connection out of thousands no longer decides a
+ * security gate on a question it never asked.
+ *
+ * Replaying the POST costs nothing either: every POST here is sent with
+ * `{}` and no CSRF token, so it is refused before it can write (see this
+ * file's own header).
+ *
+ * @return array{status: int, content_type: string, location: string, cookie: ?string}|null
+ *         null on a transport failure (including a timeout), on both tries
+ */
+function authz_http(string $url, string $method, ?string $cookie, ?string $jsonBody = null, int $timeout = 15): ?array
+{
+    $response = authz_http_once($url, $method, $cookie, $jsonBody, $timeout);
+
+    return $response ?? authz_http_once($url, $method, $cookie, $jsonBody, $timeout);
+}
+
+/**
+ * The exchange itself.
  *
  * Streams rather than cURL, and no proxy, for the same reasons
  * scripts/dast-support.php gives: everything here is on loopback, and
@@ -380,7 +409,7 @@ function authz_concrete_path(string $routePath, array $groups): ?string
  * @return array{status: int, content_type: string, location: string, cookie: ?string}|null
  *         null on a transport failure (including a timeout)
  */
-function authz_http(string $url, string $method, ?string $cookie, ?string $jsonBody = null, int $timeout = 15): ?array
+function authz_http_once(string $url, string $method, ?string $cookie, ?string $jsonBody = null, int $timeout = 15): ?array
 {
     $headers = ["Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"];
     if ($cookie !== null) {
@@ -442,6 +471,16 @@ function authz_http(string $url, string $method, ?string $cookie, ?string $jsonB
         if (preg_match('/^Set-Cookie:\s*([^;]+)/i', $header, $m)) {
             $setCookie = trim($m[1]);
         }
+    }
+
+    // No status line means no answer, exactly like a refused connection.
+    // It used to fall through as status 0, which authz_was_denied() reads
+    // as "not denied" and the caller then prints as REACHED BY A ROLE
+    // THAT MAY NOT — the loudest line this tool has, for a route that had
+    // in fact said nothing at all. A verdict is a status code or it is
+    // not a verdict.
+    if ($status === 0) {
+        return null;
     }
 
     return ['status' => $status, 'content_type' => $contentType, 'location' => $location, 'cookie' => $setCookie];

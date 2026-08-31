@@ -83,6 +83,39 @@ final class SupportPackageFactory
     }
 
     /**
+     * The collectors' names, in the order the archive is built — for the
+     * screen that has to say what an administrator is agreeing to
+     * transmit (roadmap IT-26, `Core\Support\Ticket\ArchiveContents`).
+     *
+     * Declared here rather than duplicated on the page, so the list a
+     * consent screen shows is the list the archive is actually made of:
+     * two places would drift the first time a collector is added, and the
+     * one that drifts is the one somebody ticked a box beside.
+     *
+     * @return list<string>
+     */
+    public static function collectorNames(): array
+    {
+        return [
+            'statistics',
+            'database_structure',
+            'configuration_parameters',
+            'event_journal',
+            'scheduled_tasks',
+            'update_history',
+            'phpinfo',
+            'extensions',
+            'opcache',
+            'filesystem',
+            'commands',
+            'background_execution',
+            'cron_cadence',
+            'webserver',
+            'logs',
+        ];
+    }
+
+    /**
      * Every literal secret this installation holds, so a collector's failure
      * message can never smuggle one into `collection-status.json`.
      *

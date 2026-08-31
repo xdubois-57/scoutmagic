@@ -254,3 +254,166 @@ CREATE TABLE registration_section_transfers (
     CONSTRAINT fk_rst_year FOREIGN KEY (target_scout_year_id) REFERENCES scout_years(id) ON DELETE CASCADE,
     CONSTRAINT fk_rst_section FOREIGN KEY (destination_section_id) REFERENCES sections(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Iteration 8 — "Réinscription": a family's own answer about next scout
+-- year, and the friends the child would like to be with.
+--
+-- **The absence of a row IS "no answer yet".** There is deliberately no
+-- third `decision` value: a campaign that has to tell "still silent" from
+-- "answered" reads the same fact from the same place either way, and a
+-- 'pending' row would be a second way to say nothing — one that a
+-- reminder query could then disagree with.
+--
+-- Keyed on the permanent member_id plus the TARGET scout year, exactly
+-- like registration_section_transfers above and for the same reason: this
+-- is planning data belonging to the module, never a fact written onto the
+-- member's Desk-sourced record. The family's answer sets the departure
+-- flag; the staff may then correct it on the Départs page and their
+-- decision is what counts, but the family's own answer here is never
+-- modified or erased by that correction.
+CREATE TABLE registration_reenrollments (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    member_id INT UNSIGNED NOT NULL,
+    scout_year_id INT UNSIGNED NOT NULL,
+    decision VARCHAR(20) NOT NULL,
+    -- The section the family would like, when the child changes branch
+    -- and the arrival branch has more than one visible, active section.
+    -- NULL is ordinary: most answers do not get asked the question.
+    preferred_section_id INT UNSIGNED NULL,
+    -- Free text a family wrote about their own child — personal data, so
+    -- a BLOB encrypted through Core\Security\EncryptionService, decrypted
+    -- only in the Repository (SECURITY.md §5). No blind index: nobody
+    -- ever searches a comment by its exact text.
+    family_comment_encrypted BLOB NULL,
+    -- PHP-computed on every write (never SQL's NOW() — same portability
+    -- rule as the rest of this module, so the SQLite test database
+    -- behaves identically).
+    answered_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- Who submitted it, when a signed-in account did. NULL for an answer
+    -- that came through a family's own tracking link, which carries no
+    -- account.
+    answered_by_user_account_id INT UNSIGNED NULL,
+    -- What the automatic link with the « Départs » page last wrote into
+    -- member_years.leaving for this child (roadmap IT-16). NULL means it
+    -- has never written anything.
+    --
+    -- This column is what makes « the staff has the last word » decidable
+    -- without a second history: the automation owns the box only while
+    -- the box still holds what the automation left there. The moment
+    -- member_years.leaving differs from this value, somebody on the staff
+    -- moved it, and no later family answer overwrites it.
+    applied_leaving TINYINT(1) NULL,
+    UNIQUE INDEX idx_rre_member_year (member_id, scout_year_id),
+    CONSTRAINT fk_rre_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE,
+    CONSTRAINT fk_rre_year FOREIGN KEY (scout_year_id) REFERENCES scout_years(id) ON DELETE CASCADE,
+    CONSTRAINT fk_rre_section FOREIGN KEY (preferred_section_id) REFERENCES sections(id) ON DELETE SET NULL,
+    CONSTRAINT fk_rre_account FOREIGN KEY (answered_by_user_account_id) REFERENCES user_accounts(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- The « avec qui » list: free text a parent typed, plus what the server
+-- silently made of it.
+--
+-- **`raw_name_encrypted` names a THIRD PARTY** — another unit's child,
+-- written by somebody else's parent. It is personal data of the plainest
+-- kind, so it is a BLOB encrypted like the comment above, and again with
+-- no blind index: a wish is never looked up by its exact text, only read
+-- back to the family that wrote it and resolved once, server-side.
+--
+-- `matched_member_id` and `match_state` are that resolution, recorded so
+-- the optimiser does not redo it and so nobody has to guess afterwards
+-- why a wish was or was not honoured. 'ambiguous' (several members match)
+-- and 'none' are ordinary outcomes, not errors: the family typed a name,
+-- not an identifier, and the interface deliberately offers no
+-- autocompletion and no feedback about who was found.
+--
+-- `position` is the order the family typed them in, kept because the
+-- wish cap is applied to the FIRST N: lowering the cap later must stop
+-- using the extra rows without deleting what a family entered.
+CREATE TABLE registration_friend_wishes (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    reenrollment_id INT UNSIGNED NOT NULL,
+    position INT UNSIGNED NOT NULL,
+    raw_name_encrypted BLOB NOT NULL,
+    matched_member_id INT UNSIGNED NULL,
+    match_state VARCHAR(20) NOT NULL,
+    INDEX idx_rfw_reenrollment (reenrollment_id),
+    CONSTRAINT fk_rfw_reenrollment FOREIGN KEY (reenrollment_id) REFERENCES registration_reenrollments(id) ON DELETE CASCADE,
+    CONSTRAINT fk_rfw_member FOREIGN KEY (matched_member_id) REFERENCES members(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- The same « avec qui » question, asked on the PUBLIC registration form.
+--
+-- A separate table rather than a nullable second foreign key on
+-- registration_friend_wishes: a request is not a member and has no
+-- member_id, and a column that is null for half the rows is a column
+-- nobody can read without knowing which half they are looking at. The two
+-- tables hold the same shape and the same encryption, and they are read at
+-- two different moments of a child's life.
+--
+-- The name is a THIRD PARTY, exactly as in registration_friend_wishes:
+-- encrypted at rest, no blind index, never shown to the family named, and
+-- resolved once server-side by the same matcher.
+CREATE TABLE registration_request_friend_wishes (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    registration_request_id INT UNSIGNED NOT NULL,
+    position INT UNSIGNED NOT NULL,
+    raw_name_encrypted BLOB NOT NULL,
+    matched_member_id INT UNSIGNED NULL,
+    match_state VARCHAR(20) NOT NULL,
+    INDEX idx_rrfw_request (registration_request_id),
+    CONSTRAINT fk_rrfw_request FOREIGN KEY (registration_request_id) REFERENCES registration_requests(id) ON DELETE CASCADE,
+    CONSTRAINT fk_rrfw_member FOREIGN KEY (matched_member_id) REFERENCES members(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- The STAFF's own entry on the Passage page (roadmap IT-17): the section
+-- a chief believes this child should go to, and an internal note about
+-- them.
+--
+-- A table of its own rather than more columns on registration_reenrollments,
+-- for the reason IT-16 already established one way round: the staff moving
+-- something must never fabricate a family answer. Every reader of
+-- registration_reenrollments treats a row as « this family has answered »
+-- — the campaign's tracking, its reminder list, the family's own page — so
+-- a chief typing a note for a child whose family never answered would take
+-- them out of the reminder list by writing about them.
+--
+-- Keyed on the TARGET year, like the answers it sits beside: this is a
+-- decision about next year, and it resets on its own when next year
+-- becomes this year.
+--
+-- staff_note_encrypted is an internal note about a child, often about
+-- exactly the things a departure comment is about — encrypted at rest,
+-- decrypted only in the Repository (SECURITY.md §5), never in an export a
+-- family receives and never in the journal.
+CREATE TABLE registration_passage_notes (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    member_id INT UNSIGNED NOT NULL,
+    scout_year_id INT UNSIGNED NOT NULL,
+    preferred_section_id INT UNSIGNED NULL,
+    staff_note_encrypted BLOB NULL,
+    -- The optional AI re-reading of the family's free comment (roadmap
+    -- IT-17): what a model thinks the family asked for that the dedicated
+    -- fields did not capture.
+    --
+    -- `ai_source_hash` is a hash of the comment the suggestion was drawn
+    -- from, and it is what makes « one call per comment, never one per
+    -- page view » decidable: a comment whose hash still matches has
+    -- already been read, and a family who edits theirs gets exactly one
+    -- new call. It is a hash of text nobody looks up by it — no blind
+    -- index, no lookup, only an equality test against a value we hold.
+    --
+    -- `ai_confirmed` is the chief's validation. Until it is set, the
+    -- suggestion is shown « à vérifier » and the optimiser (IT-18) must
+    -- ignore it: a machine reading of a parent's sentence is a hint to a
+    -- human, never an input to a placement.
+    ai_source_hash VARCHAR(64) NULL,
+    ai_suggestion_encrypted BLOB NULL,
+    ai_confirmed TINYINT(1) NOT NULL DEFAULT 0,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_by_user_account_id INT UNSIGNED NULL,
+    UNIQUE INDEX idx_rpn_member_year (member_id, scout_year_id),
+    CONSTRAINT fk_rpn_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE,
+    CONSTRAINT fk_rpn_year FOREIGN KEY (scout_year_id) REFERENCES scout_years(id) ON DELETE CASCADE,
+    CONSTRAINT fk_rpn_section FOREIGN KEY (preferred_section_id) REFERENCES sections(id) ON DELETE SET NULL,
+    CONSTRAINT fk_rpn_account FOREIGN KEY (updated_by_user_account_id) REFERENCES user_accounts(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

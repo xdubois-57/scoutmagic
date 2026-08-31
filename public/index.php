@@ -269,6 +269,13 @@ if (!$isInitialized) {
         $response = $setupController->generateDkimKey($request, []);
     } elseif ($request->getMethod() === 'POST' && $request->getPath() === '/setup/test-email') {
         $response = $setupController->testEmail($request, []);
+    } elseif ($request->getMethod() === 'GET' && $request->getPath() === '/setup/cron-status') {
+        // Polled by the setup page while the operator configures the
+        // crontab with their host. Reachable here, before the site is
+        // initialized, because that is precisely when the answer matters:
+        // Core\Scheduler\CronHealth reads the heartbeat file, which needs
+        // no database.
+        $response = $setupController->cronStatus($request, []);
     } else {
         (new Response('', 302))->setHeader('Location', '/setup')->send();
         exit;
@@ -857,6 +864,19 @@ $settingService->register('support_package_file_id', '', 'text', 'Paquet de supp
 $settingService->register('support_package_generated_at', '', 'text', 'Date de génération du paquet de support',
     'Horodatage de génération de l\'archive de support conservée, utilisé pour sa purge automatique. Renseigné automatiquement.',
     null, null, null, false, 289);
+// Support-ticket bookkeeping (roadmap IT-25). Three internal rows and no
+// table: what is kept locally is the reference of the last ticket, when it
+// left, and the category list the receiver last published — a ticket is
+// one-way, so there is no state to reconcile and nothing to poll.
+$settingService->register('support_last_ticket_reference', '', 'text', 'Référence du dernier ticket de support',
+    'Référence renvoyée par le serveur de support pour le dernier ticket envoyé. Renseignée automatiquement.',
+    null, null, null, false, 290);
+$settingService->register('support_last_ticket_sent_at', '', 'text', 'Date du dernier ticket de support',
+    'Horodatage du dernier ticket de support envoyé depuis cette installation. Renseigné automatiquement.',
+    null, null, null, false, 291);
+$settingService->register('support_ticket_categories', '', 'text', 'Catégories de tickets de support',
+    'Liste des catégories publiée par le serveur de support lors du dernier échange. Renseignée automatiquement.',
+    null, null, null, false, 292);
 // `installed_at` declares itself (Core\Statistics\InstallationDateService::
 // register()) because SetupController writes it before this file has ever
 // run — see that method's own comment. Backfilled here once for every
@@ -1066,6 +1086,29 @@ $mailCaptureTransport = \Modules\TestTools\Mail\CaptureTransportFactory::forInst
 
 $mailService = MailServiceFactory::create($secrets, $dkimManager, $mailCaptureTransport);
 
+// Automatic e-mails (Core\Mail\Template, ARCHITECTURE.md §8.7bis).
+//
+// The registry is created HERE, well before the modules are loaded, and
+// handed to ModuleManager further down — the mutable-registry shape §7.6
+// describes: this straight-line script has to build the consumers before
+// the contributors, so it passes the OBJECT and lets the later block fill
+// it. A sender built now therefore sees a module's e-mails once that
+// module has loaded, without anything being re-registered.
+//
+// The renderer answers for both paths: the Twig template shipped with the
+// application when nothing is customised, and the stored subject and body
+// when something is. It is the senders' dependency, never MailService's —
+// MailService remains the one delivery point and knows nothing about
+// templates.
+$emailTemplateRegistry = new \Core\Mail\Template\EmailTemplateRegistry();
+$emailTemplateOverrideRepository = new \Core\Mail\Template\EmailTemplateOverrideRepository($pdo);
+$emailTemplateRenderer = new \Core\Mail\Template\EmailTemplateRenderer(
+    $twig,
+    $emailTemplateRegistry,
+    $emailTemplateOverrideRepository,
+    $journalService
+);
+
 // Create NotificationService (Web Push, Core\Notification) — VAPID subject
 // must be a mailto: or an https URL, never empty, hence the fallback chain
 // down to a hardcoded URL for a freshly-setup site with no contact email yet.
@@ -1108,7 +1151,7 @@ $authService = new AuthService(
     $connection,
     $encryptionService,
     $mailService,
-    $twig,
+    $emailTemplateRenderer,
     (string) $settingService->get('base_url'),
     (string) $settingService->get('site_name')
 );
@@ -1118,7 +1161,7 @@ $passwordResetService = new PasswordResetService(
     $connection,
     $encryptionService,
     $mailService,
-    $twig,
+    $emailTemplateRenderer,
     (string) $settingService->get('base_url'),
     (string) $settingService->get('site_name')
 );
@@ -1157,7 +1200,7 @@ $superAdminService = new SuperAdminService(
     $journalService,
     new SuperAdminMailer(
         $mailService,
-        $twig,
+        $emailTemplateRenderer,
         (string) $settingService->get('site_name'),
         (string) $settingService->get('base_url')
     )
@@ -1259,7 +1302,7 @@ $memberDocumentService = new \Core\Member\MemberDocumentService($memberDocumentR
 // Member\MemberEmailService). $memberEmailRepository was already built
 // above, before $roleResolver.
 $memberEmailService = new \Core\Member\MemberEmailService(
-    $memberEmailRepository, $mailService, $twig, $journalService, $sectionService, $memberService, $scoutYearService,
+    $memberEmailRepository, $mailService, $emailTemplateRenderer, $journalService, $sectionService, $memberService, $scoutYearService,
     (string) $settingService->get('base_url'), (string) ($settingService->get('site_name') ?: 'Unité scoute')
 );
 
@@ -1626,7 +1669,8 @@ $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Actions planifiées', '/
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Comptes superadmin', '/config/superadmins', 'superadmin', 44, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-shield-lock', null, 'exploitation');
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Maintenance', '/config/maintenance', 'admin', 45, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-tools', null, 'exploitation');
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Notifications', '/config/notifications', 'superadmin', 46, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-bell', null, 'exploitation');
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Support', '/config/support', 'superadmin', 47, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-life-preserver', null, 'exploitation');
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'E-mails', '/config/emails', 'superadmin', 47, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-envelope', null, 'exploitation');
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Support', '/config/support', 'superadmin', 48, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-life-preserver', null, 'exploitation');
 // order 10, not a leftover "after the separator" number — SORT_GROUP_CORE
 // (addPage()'s default) already sorts this after the dynamic member
 // entries/empty-state placeholder above regardless of the numeric order,
@@ -1676,7 +1720,8 @@ $moduleManager = new ModuleManager(
     $helpRegistry,
     // Manifest cache (mtime-keyed): saves re-reading and re-validating
     // every module.json on every request.
-    dirname(__DIR__) . '/storage/temp'
+    dirname(__DIR__) . '/storage/temp',
+    $emailTemplateRegistry
 );
 
 // Usage statistics (Core\Statistics, ARCHITECTURE.md §8.47). Built here
@@ -1688,6 +1733,16 @@ $installationIdentityService = new \Core\Statistics\InstallationIdentityService(
     $secretManager,
     $journalService
 );
+// The identity and destination a support ticket travels with (roadmap
+// IT-24/IT-25). Built beside the statistics identity because it IS that
+// identity: a unit that refused telemetry still gets one, provisioned on
+// its first ticket, and `statistics_enabled` is never touched here.
+$ticketIdentityService = new \Core\Support\Ticket\TicketIdentityService(
+    $settingService,
+    $installationIdentityService,
+    $journalService
+);
+
 $statisticsPayloadBuilder = new \Core\Statistics\StatisticsPayloadBuilder(
     $settingService,
     $pdo,
@@ -1872,6 +1927,19 @@ $router->addRoute('GET', '/config/notifications', \Core\Http\Controller\Notifica
 $router->addRoute('POST', '/config/notifications/rotate-vapid', \Core\Http\Controller\NotificationConfigController::class, 'rotateVapid', 'superadmin');
 $router->addRoute('POST', '/config/notifications/test', \Core\Http\Controller\NotificationConfigController::class, 'sendTest', 'superadmin');
 
+// Configuration > E-mails (Core\Mail\Template, ARCHITECTURE.md §8.7bis)
+// — the inventory of every automatic e-mail, and the editor for the ones
+// that may be reworded. `{template}` is deliberately NOT named `{id}`:
+// the router matches an id-named placeholder against digits only
+// (SECURITY.md §35), and these ids are registry keys like
+// `rental.acknowledgement`.
+$router->addRoute('GET', '/config/emails', \Core\Http\Controller\EmailTemplateController::class, 'index', 'superadmin', ['label' => 'E-mails', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
+$router->addRoute('GET', '/config/emails/{template}', \Core\Http\Controller\EmailTemplateController::class, 'edit', 'superadmin', ['label' => 'Email', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)], 'ancestors' => [['label' => 'E-mails', 'path' => '/config/emails']]]);
+$router->addRoute('POST', '/config/emails/{template}/sujet', \Core\Http\Controller\EmailTemplateController::class, 'saveSubject', 'superadmin');
+$router->addRoute('POST', '/config/emails/{template}/corps', \Core\Http\Controller\EmailTemplateController::class, 'saveBody', 'superadmin');
+$router->addRoute('POST', '/config/emails/{template}/defaut', \Core\Http\Controller\EmailTemplateController::class, 'reset', 'superadmin');
+$router->addRoute('POST', '/config/emails/{template}/test', \Core\Http\Controller\EmailTemplateController::class, 'sendTest', 'superadmin');
+
 // Member pages
 $router->addRoute('GET', '/members/{id}', MemberController::class, 'show', 'identified', ['label' => 'Membre', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ANIMES)]]);
 $router->addRoute('POST', '/members/{id}/scout-year-offset', MemberController::class, 'updateScoutYearOffset', 'chief');
@@ -1995,6 +2063,7 @@ $router->addRoute('POST', '/setup/save', SetupController::class, 'save', 'supera
 $router->addRoute('GET', '/setup/dns', SetupController::class, 'checkDns', 'superadmin');
 $router->addRoute('POST', '/setup/test-email', SetupController::class, 'testEmail', 'superadmin');
 $router->addRoute('POST', '/setup/generate-dkim-key', SetupController::class, 'generateDkimKey', 'superadmin');
+$router->addRoute('GET', '/setup/cron-status', SetupController::class, 'cronStatus', 'superadmin');
 
 // Import
 $router->addRoute('GET', '/admin/import', ImportController::class, 'index', 'admin', ['label' => 'Import Desk', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]]);
@@ -2054,6 +2123,16 @@ $router->addRoute('GET', '/config/support', SupportController::class, 'index', '
 $router->addRoute('POST', '/config/support/statistics', SupportController::class, 'saveStatistics', 'superadmin');
 $router->addRoute('POST', '/config/support/statistics/test', SupportController::class, 'sendTestStatistics', 'superadmin');
 $router->addRoute('POST', '/config/support/package', SupportController::class, 'generatePackage', 'superadmin');
+// One support ticket, sent now (roadmap IT-25). Same floor as the rest of
+// the page: a ticket carries this installation's identity, and who may
+// speak for the installation is a superadmin question.
+$router->addRoute('POST', '/config/support/ticket', SupportController::class, 'sendTicket', 'superadmin');
+// The archive, on its own call (roadmap IT-26): an upload that times out
+// must never take the ticket with it.
+$router->addRoute('POST', '/config/support/ticket/archive', SupportController::class, 'sendArchive', 'superadmin');
+// The diagnostic mail probes (roadmap IT-27): what the Courriel page's own
+// test send cannot answer — whether the message ARRIVED, and in what state.
+$router->addRoute('POST', '/config/support/mail-probe', SupportController::class, 'sendMailProbe', 'superadmin');
 $router->addRoute('GET', '/api/support/package-status/{id}', SupportController::class, 'packageStatus', 'superadmin');
 
 // Scheduled actions
@@ -2236,6 +2315,12 @@ $twig->addGlobal('active_page_url', $activePageUrl);
 $llmConnectorForOthers = null;
 $llmSubProcessorProvider = null;
 
+// How a Desk formation wording should be read for this unit
+// (Modules\Leadership\Api\FormationLevelInterface, §7.5) — assigned in
+// the leadership block below and consumed by `fees`, which falls back to
+// its own reading when the module is off.
+$leadershipFormationLevels = null;
+
 // Household size and the fee category it implies (ARCHITECTURE.md §8.34).
 // A core service, built once here rather than inside the registration
 // module's own block: it was assembled in there because that module was
@@ -2412,6 +2497,23 @@ $frontController->registerController(
         $pdo
     )
 );
+$frontController->registerController(
+    \Core\Http\Controller\EmailTemplateController::class,
+    new \Core\Http\Controller\EmailTemplateController(
+        $twig,
+        $emailTemplateRegistry,
+        $emailTemplateOverrideRepository,
+        $emailTemplateRenderer,
+        new \Core\Mail\Template\EmailTemplateCustomisationService(
+            $emailTemplateRegistry,
+            $emailTemplateOverrideRepository,
+            new \Core\Security\HtmlSanitizer()
+        ),
+        $journalService,
+        $mailService,
+        new \Core\Mail\Template\EmailTestSendThrottler($pdo)
+    )
+);
 $frontController->registerController(MaintenanceController::class, new MaintenanceController(
     $twig, $backupService, $backupRepository, $fileRepository, $updateHistoryRepository, $schedulerService, $moduleManager, $encryptionService, $journalService, $settingService, $storagePath, $secretManager,
     null,
@@ -2427,7 +2529,9 @@ $frontController->registerController(MaintenanceController::class, new Maintenan
         new SqlParser(),
         5,
         $journalService
-    )
+    ),
+    // The directory holding cron.php, for the health block's crontab line.
+    __DIR__
 ));
 $frontController->registerController(VersionController::class, new VersionController($twig, $storagePath));
 $githubWebhookService = new \Core\Maintenance\GitHubWebhookService(
@@ -2503,7 +2607,43 @@ $frontController->registerController(SupportController::class, new SupportContro
     $journalService,
     $statisticsPayloadBuilder,
     $schedulerService,
-    $statisticsSender
+    $statisticsSender,
+    // The ticket half of the page (roadmap IT-25). Same transport as the
+    // statistics sender above — the timeouts a page must not exceed live
+    // in one place.
+    new \Core\Support\Ticket\SupportTicketSender(
+        $settingService,
+        $ticketIdentityService,
+        new \Core\Statistics\StreamStatisticsTransport(),
+        $journalService,
+        \Core\Maintenance\VersionFile::read(dirname(__DIR__))
+    ),
+    $ticketIdentityService,
+    // The archive, on its own transport: megabytes uphill from a shared
+    // host is not a 2 KB JSON body, and sharing the interface would mean
+    // sharing the timeouts (roadmap IT-26).
+    new \Core\Support\Ticket\SupportArchiveSender(
+        $settingService,
+        $ticketIdentityService,
+        $encryptedFileStorageService,
+        new \Core\Support\Ticket\StreamArchiveTransport(),
+        $journalService,
+        \Core\Maintenance\VersionFile::read(dirname(__DIR__))
+    ),
+    \Core\Support\SupportPackageFactory::collectorNames(),
+    $fileRepository,
+    // The mail probes (roadmap IT-27). Same identity, same guards and the
+    // same transport as the ticket above; MailService is what actually
+    // carries the probe, so the local mail configuration is exactly what
+    // is being measured.
+    new \Core\Support\Ticket\MailProbeSender(
+        $settingService,
+        $ticketIdentityService,
+        new \Core\Statistics\StreamStatisticsTransport(),
+        $mailService,
+        $journalService,
+        \Core\Maintenance\VersionFile::read(dirname(__DIR__))
+    )
 ));
 $frontController->registerController(ScheduledActionsController::class, new ScheduledActionsController($twig, $schedulerRepo));
 $frontController->registerController(ConfigGeneralController::class, new ConfigGeneralController($twig));
@@ -2681,7 +2821,7 @@ if ($isEnabled('sos_staff')) {
     // a technical alert addressed to a role, not a personal notice.
     $sosRedirectService = new \Modules\SosStaff\Service\RedirectService(
         $sosProviderConfigService, $sosSettingsService, $memberService, $userAccountRepo, $mailService, $journalService,
-        $twig, $notificationService
+        $emailTemplateRenderer, $notificationService
     );
 
     $frontController->registerController(
@@ -2839,11 +2979,25 @@ if ($isEnabled('inbound_mail')) {
     // view builds none of them — §7.6's mutable-registry pattern.
     $inboundReadConsumers = new \Modules\InboundMail\Service\MessageConsumerRegistry();
 
+    // What each box lets each module do (IT-05). Built HERE rather than
+    // where it is first used further down, because the gateway itself
+    // needs it: `probeAddressesFor()` answers about the boxes a consumer
+    // may actually analyse, and a gateway without it would answer « aucune
+    // boîte » to everything — silently, which is the worst shape that
+    // mistake can take. It reads the SAME registry the file guard uses, so
+    // the answers a superadmin gives on the configuration screen and the
+    // answers every check acts on cannot come apart.
+    $inboundScopeService = new \Modules\InboundMail\Service\MailboxScopeService(
+        $inboundMailboxRepository,
+        $inboundReadConsumers
+    );
+
     $inboundMailForOthers = new \Modules\InboundMail\Service\InboundMailService(
         $inboundMessageRepository,
         $inboundMailboxRepository,
         new \Core\File\FileRepository($pdo),
-        $inboundReadConsumers
+        $inboundReadConsumers,
+        $inboundScopeService
     );
 
     // One-time reprise for installs that stored a message's consumer and
@@ -2923,16 +3077,6 @@ if ($isEnabled('inbound_mail')) {
     // (public/scheduler-bootstrap.php).
     $fileOwnershipCheckers[] = new \Modules\InboundMail\Service\InboundMessageAccessRegistry(
         $inboundMessageRepository,
-        $inboundReadConsumers
-    );
-
-    // What each box lets each module do (IT-05). It reads the SAME
-    // registry the file guard uses, so the answers a superadmin gives on
-    // the configuration screen and the answers the access check acts on
-    // cannot come apart — one registry, filled by factories, built at most
-    // once per request and only when something actually asks.
-    $inboundScopeService = new \Modules\InboundMail\Service\MailboxScopeService(
-        $inboundMailboxRepository,
         $inboundReadConsumers
     );
 
@@ -3471,8 +3615,14 @@ if ($isEnabled('mass_mail')) {
         $massMailAudienceRepo, $massMailResolutionRepo, $journalService
     );
 
+    // No registration module here (this block runs whether or not it is
+    // enabled), so no projection: a future-year list falls back to Desk and
+    // says so. The two year services are core's and are always available —
+    // they are what decides whether a year is in the future at all, which
+    // has to work with registration disabled too.
     $massMailListService = new \Modules\MassMail\Service\MailingListService(
-        $massMailListRepo, $massMailResolutionRepo, $sectionService, $massMailFunctionRepo
+        $massMailListRepo, $massMailResolutionRepo, $sectionService, $massMailFunctionRepo,
+        null, null, $scoutYearResolver, $scoutYearService
     );
     $massMailAccessService = new \Modules\MassMail\Service\MassMailAccessService($memberService, $sectionService);
     $massMailService = new \Modules\MassMail\Service\MassMailService(
@@ -3555,7 +3705,7 @@ if ($isEnabled('news')) {
     // simply disappears when finance is disabled, since every one of
     // these four is null in that case.
     $newsResponseService = new \Modules\News\Service\ResponseService(
-        $newsResponseRepo, $roleResolver, $sectionService, $mailService, $twig, $shortUrlService,
+        $newsResponseRepo, $roleResolver, $sectionService, $mailService, $emailTemplateRenderer, $shortUrlService,
         (string) ($settingService->get('base_url') ?: ''), (string) ($settingService->get('site_name') ?: 'Unité scoute'),
         $financeStructuredCommunicationForOthers, $financeExpectedReceivableForOthers, $financeSepaQrCodeForOthers, $financeAccountForOthers,
         $journalService
@@ -4036,6 +4186,16 @@ if ($isEnabled('support_dashboard')) {
     $supportRateLimitRepo = new \Modules\SupportDashboard\Repository\SupportReportRateLimitRepository($pdo);
     $supportMonthlyAggregateRepo = new \Modules\SupportDashboard\Repository\SupportMonthlyAggregateRepository($pdo);
 
+    // The diagnostic mail probes (roadmap IT-27). Built once here: the
+    // intake route issues keys with it and the inbound-mail consumer
+    // claims arriving messages with the same instance.
+    $supportMailProbeService = new \Modules\SupportDashboard\Service\MailProbeService(
+        new \Modules\SupportDashboard\Repository\SupportMailProbeRepository($pdo, $encryptionService),
+        $supportInstallationRepo,
+        $journalService,
+        $inboundMailForOthers
+    );
+
     $frontController->registerController(
         \Modules\SupportDashboard\Controller\SupportDashboardController::class,
         new \Modules\SupportDashboard\Controller\SupportDashboardController(
@@ -4045,7 +4205,41 @@ if ($isEnabled('support_dashboard')) {
                 $settingService,
                 $supportMonthlyAggregateRepo
             ),
-            $journalService
+            $journalService,
+            // The detail dialog's probe section (roadmap IT-27). It is
+            // already `role_min: superadmin`, which is the floor the
+            // relay chain needs.
+            $supportMailProbeService
+        )
+    );
+
+    // The ticket queue (roadmap IT-28). One repository instance for the
+    // list, the detail and the analysis: they read the same table and a
+    // second one would be a second place for the retention constants to
+    // drift.
+    $supportTicketRepo = new \Modules\SupportDashboard\Repository\SupportTicketRepository($pdo, $encryptionService);
+
+    $frontController->registerController(
+        \Modules\SupportDashboard\Controller\SupportTicketController::class,
+        new \Modules\SupportDashboard\Controller\SupportTicketController(
+            $twig,
+            new \Modules\SupportDashboard\Service\SupportTicketService(
+                $supportTicketRepo,
+                $journalService,
+                // The probes of the installation that sent the ticket —
+                // « mes e-mails ne partent pas » plus a probe run the same
+                // afternoon is exactly what this page is for.
+                $supportMailProbeService
+            ),
+            // Optional dependency on the llm_connector module
+            // (ARCHITECTURE.md §7.5): null without it, and the analysis
+            // block then does not render at all.
+            new \Modules\SupportDashboard\Service\TicketAnalysisService(
+                $supportTicketRepo,
+                new \Modules\SupportDashboard\Repository\SupportTicketAnalysisRepository($pdo, $encryptionService),
+                $journalService,
+                $llmConnectorForOthers
+            )
         )
     );
 
@@ -4062,6 +4256,46 @@ if ($isEnabled('support_dashboard')) {
             )
         )
     );
+
+    // Support tickets: the same identity as the statistics intake beside
+    // it, on its own route (roadmap IT-23).
+    $frontController->registerController(
+        \Modules\SupportDashboard\Controller\TicketIntakeController::class,
+        new \Modules\SupportDashboard\Controller\TicketIntakeController(
+            $twig,
+            new \Modules\SupportDashboard\Service\TicketIntakeService(
+                $supportInstallationRepo,
+                $supportTicketRepo,
+                $journalService
+            ),
+            // The archive arrives on its own route (roadmap IT-26) and is
+            // stored exactly as it was on the installation that produced
+            // it: encrypted at rest, `role_min: superadmin`, reachable
+            // only through /files/{id}.
+            new \Modules\SupportDashboard\Service\TicketArchiveIntakeService(
+                $supportInstallationRepo,
+                $supportTicketRepo,
+                $encryptedFileStorageService,
+                $journalService
+            ),
+            // The mail probes (roadmap IT-27). `$inboundMailForOthers` is
+            // null when `inbound_mail` is disabled, and the route then
+            // answers « aucune boîte » — which is the truth, not an error.
+            $supportMailProbeService
+        )
+    );
+
+    // The probe consumer, on the read side: nothing but this module ever
+    // reads a probe and it reads it from its own table, so the only
+    // honest answer to « may this person open an attachment of one of
+    // yours » is a refusal — but the registry has to be able to ASK.
+    if (isset($inboundReadConsumers)) {
+        $inboundReadConsumers->registerFactory(
+            \Modules\SupportDashboard\Mail\SupportMessageConsumer::CONSUMER_ID,
+            static fn(): \Modules\InboundMail\Api\MessageConsumerInterface =>
+                new \Modules\SupportDashboard\Mail\SupportMessageConsumer($supportMailProbeService)
+        );
+    }
 
     // Every one of this module's self-rescheduling daily tasks needs its
     // FIRST occurrence seeded here: declaring a handler in module.json only
@@ -4081,6 +4315,9 @@ if ($isEnabled('support_dashboard')) {
         \Modules\SupportDashboard\Task\PurgeInstallationsHandler::TASK_KEY => \Modules\SupportDashboard\Task\PurgeInstallationsHandler::REFERENCE,
         // Monthly history (§8.51): closes every calendar month that ended.
         \Modules\SupportDashboard\Task\FinalizeMonthlyAggregateHandler::TASK_KEY => \Modules\SupportDashboard\Task\FinalizeMonthlyAggregateHandler::REFERENCE,
+        // Ticket retention (roadmap IT-28): the diagnostic archives, then
+        // the tickets themselves, then the analyses that summarise them.
+        \Modules\SupportDashboard\Task\PurgeTicketsHandler::TASK_KEY => \Modules\SupportDashboard\Task\PurgeTicketsHandler::REFERENCE,
     ] as $supportTaskKey => $supportTaskReference) {
         $schedulerService->rearm('support_dashboard', $supportTaskKey, $supportTaskReference, new DateTimeImmutable());
     }
@@ -4355,7 +4592,7 @@ if ($isEnabled('retro')) {
     $retroCommentService = new \Modules\Retro\Service\CommentService($retroCommentRepo, $retroModerationService, $retroRateLimitService);
     $retroBoardService = new \Modules\Retro\Service\BoardService(
         $retroBoardRepo, $retroCommentRepo, $memberService, $sectionService, $schedulerService, $journalService,
-        $mailService, $twig, (string) ($settingService->get('site_name') ?: 'Unité scoute'), (string) ($settingService->get('base_url') ?: ''),
+        $mailService, $emailTemplateRenderer, (string) ($settingService->get('site_name') ?: 'Unité scoute'), (string) ($settingService->get('base_url') ?: ''),
         $shortUrlService,
         $calendarServiceForOthers,
         $retroSummaryService
@@ -4425,7 +4662,7 @@ if ($isEnabled('registration')) {
         $mailService, $editableContentService, $journalService, $registrationBaseUrl, $registrationSiteName
     );
     $registrationSecondaryEmailService = new \Modules\Registration\Service\SecondaryEmailService(
-        $registrationSecondaryEmailRepo, $mailService, $twig, $journalService, $registrationBaseUrl, $registrationSiteName
+        $registrationSecondaryEmailRepo, $mailService, $emailTemplateRenderer, $journalService, $registrationBaseUrl, $registrationSiteName
     );
     $registrationTrackingService = new \Modules\Registration\Service\TrackingService(
         $registrationRequestRepo, $registrationSecondaryEmailRepo, $encryptionService
@@ -4457,13 +4694,6 @@ if ($isEnabled('registration')) {
         $pdo, $registrationRequestRepo, $encryptionService, $registrationMigrationService, $journalService
     );
     $frontController->registerController(
-        \Modules\Registration\Controller\PublicRegistrationController::class,
-        new \Modules\Registration\Controller\PublicRegistrationController(
-            $twig, $registrationService, $registrationSlotService, $sectionService, $registrationAgeBracketRepo,
-            $scoutYearResolver, $memberService, $settingService, $humanCheckService
-        )
-    );
-    $frontController->registerController(
         \Modules\Registration\Controller\TrackingController::class,
         new \Modules\Registration\Controller\TrackingController(
             $twig, $registrationTrackingService, $registrationSecondaryEmailService, $registrationRequestRepo,
@@ -4489,30 +4719,21 @@ if ($isEnabled('registration')) {
         )
     );
 
-    // Iteration 6 — Départs (reusing the one core section-staff
-    // authorization service built up top, never a second instance;
-    // DepartureService is also core but constructed once, up top, since
-    // Core\Http\Controller\MemberController's own departure endpoint needs
-    // it whether or not this module is even enabled) and Passage (own
-    // PassageService + SectionTransferRepository storage).
-    $frontController->registerController(
-        \Modules\Registration\Controller\DeparturesController::class,
-        new \Modules\Registration\Controller\DeparturesController(
-            $twig, $sectionStaffAuthorizationService, $sectionService, $departureService, $scoutYearResolver
-        )
-    );
+    // Iteration 6 — Passage (own PassageService + SectionTransferRepository
+    // storage). « Départs » is registered further down, once the
+    // reenrollment link it now renders exists; it reuses the one core
+    // section-staff authorization service built up top, never a second
+    // instance, and DepartureService is also core but constructed once,
+    // up top, since Core\Http\Controller\MemberController's own departure
+    // endpoint needs it whether or not this module is even enabled.
 
     $registrationSectionTransferRepo = new \Modules\Registration\Repository\SectionTransferRepository($pdo);
     $registrationPassageService = new \Modules\Registration\Service\PassageService(
         $pdo, $encryptionService, $sectionService, $registrationSectionTransferRepo, $registrationRequestRepo, $registrationAgeBracketRepo
     );
-    $frontController->registerController(
-        \Modules\Registration\Controller\PassageController::class,
-        new \Modules\Registration\Controller\PassageController(
-            $twig, $registrationPassageService, $registrationRequestRepo, $registrationSectionTransferRepo, $sectionService,
-            $registrationAgeBracketRepo, $registrationSlotService, $scoutYearResolver, $scoutYearService
-        )
-    );
+    // PassageController is registered further down, once the projection
+    // exists: IT-12's statistics box reads Api\ProjectedPopulationProvider,
+    // which is a façade over the ForecastService built below.
 
     // Iteration 7 — the year-transition veto (Api\
     // ScoutYearTransitionVetoProvider, ARCHITECTURE.md §7.5/§8.38): Core\
@@ -4547,6 +4768,177 @@ if ($isEnabled('registration')) {
         )
     );
 
+    // IT-10 — Api\ProjectedPopulationProvider (ARCHITECTURE.md §7.5): the
+    // projection as a public contract, so the Passage statistics box and
+    // mass_mail's future-year audiences can read it without either of them
+    // importing anything else from this module. A façade over the
+    // ForecastService built just above — deliberately the SAME instance, so
+    // there is one projection and not two that could disagree.
+    //
+    // Nothing consumes it yet, and that is the point of the iteration: the
+    // contract lands first, its consumers follow. It is built here rather
+    // than lazily because this whole block only runs when `registration` is
+    // enabled, which IS the nullable-dependency rule — a consumer built
+    // outside it receives null and must go on working.
+    $registrationProjectedPopulation = new \Modules\Registration\Service\ProjectedPopulationService(
+        $registrationForecastService,
+        $registrationSlotService,
+        $scoutYearService,
+        $sectionService,
+        $registrationRequestRepo,
+        new \Modules\Registration\Repository\ProjectedMemberEmailRepository($pdo, $encryptionService)
+    );
+
+    // IT-14 — « Réinscription » in the Espace des animés: what a family
+    // answers about next year, and the same « avec qui » question the
+    // PUBLIC form asks of a child who is not a member yet.
+    //
+    // Built HERE rather than above with the rest of the module's early
+    // services because IT-17 resolves a typed name against the PROJECTED
+    // population of the arrival branch, which is what
+    // ProjectedPopulationService answers — and there is one projection for
+    // the whole module, never a second one that could disagree with the
+    // Passage statistics box reading the same numbers. The two controllers
+    // that need these services are registered immediately below, so the
+    // move costs nothing but this comment.
+    $registrationReenrollmentRepository = new \Modules\Registration\Repository\ReenrollmentRepository($pdo, $encryptionService);
+    // IT-17 — the staff's own entry on the Passage page, kept apart from
+    // the family's answer so a chief typing a note never fabricates one.
+    $registrationPassageNoteRepository = new \Modules\Registration\Repository\PassageNoteRepository($pdo, $encryptionService);
+    // IT-16 — the link between an answer and the « Départs » box. Built
+    // BEFORE the service that records answers, because recording one and
+    // moving the box is a single gesture: nothing may hold a
+    // ReenrollmentService that cannot move the box.
+    $registrationReenrollmentDeparture = new \Modules\Registration\Service\ReenrollmentDepartureService(
+        $registrationReenrollmentRepository,
+        $memberYearRepo,
+        $departureService,
+        $scoutYearService,
+        $settingService
+    );
+    $registrationReenrollmentService = new \Modules\Registration\Service\ReenrollmentService(
+        $registrationReenrollmentRepository,
+        $settingService,
+        $memberService,
+        $registrationReenrollmentDeparture,
+        $registrationProjectedPopulation,
+        $sectionService
+    );
+    $frontController->registerController(
+        \Modules\Registration\Controller\PublicRegistrationController::class,
+        new \Modules\Registration\Controller\PublicRegistrationController(
+            $twig, $registrationService, $registrationSlotService, $sectionService, $registrationAgeBracketRepo,
+            $scoutYearResolver, $memberService, $settingService, $humanCheckService,
+            // IT-14 — the « avec qui » names a family may type on the
+            // public form, resolved and stored the same way the
+            // reenrollment form's are.
+            $registrationReenrollmentService, $registrationReenrollmentRepository
+        )
+    );
+
+    // Iteration 6 — Départs (reusing the one core section-staff
+    // authorization service built up top, never a second instance;
+    // DepartureService is also core but constructed once, up top, since
+    // Core\Http\Controller\MemberController's own departure endpoint needs
+    // it whether or not this module is even enabled) and Passage (own
+    // PassageService + SectionTransferRepository storage).
+    $frontController->registerController(
+        \Modules\Registration\Controller\DeparturesController::class,
+        new \Modules\Registration\Controller\DeparturesController(
+            $twig, $sectionStaffAuthorizationService, $sectionService, $departureService, $scoutYearResolver,
+            $registrationReenrollmentDeparture
+        )
+    );
+
+
+    // The form's view model needs PassageService, which only exists this
+    // far down — so it is built here, while the repository and the service
+    // above it are built early enough for the PUBLIC form, which asks the
+    // same « avec qui » question of a child who is not a member yet.
+    $registrationReenrollmentForm = new \Modules\Registration\Service\ReenrollmentFormService(
+        $memberService,
+        $registrationPassageService,
+        $registrationReenrollmentService
+    );
+    // IT-15 — the campaign's window and its tracking. Shares the module's
+    // one PassageService and one ReenrollmentRepository, so the page, the
+    // menu, the config screen and the scheduled task all read the same
+    // « who is an animé » and the same « who has answered ».
+    $registrationReenrollmentCampaign = new \Modules\Registration\Service\ReenrollmentCampaignService(
+        $settingService,
+        $scoutYearResolver,
+        $scoutYearService,
+        $registrationReenrollmentRepository,
+        $registrationPassageService
+    );
+    $registrationReenrollmentMenuHook = new \Modules\Registration\Service\ReenrollmentMenuHookService(
+        $registrationReenrollmentForm,
+        $scoutYearResolver,
+        $scoutYearService,
+        $registrationReenrollmentCampaign
+    );
+    $frontController->registerController(
+        \Modules\Registration\Controller\ReenrollmentConfigController::class,
+        new \Modules\Registration\Controller\ReenrollmentConfigController(
+            $twig, $registrationReenrollmentCampaign, $settingService, $schedulerService, $journalService
+        )
+    );
+    \Modules\Registration\Task\ReenrollmentCampaignHandler::ensureScheduled($schedulerService);
+    $frontController->registerController(
+        \Modules\Registration\Controller\ReenrollmentController::class,
+        new \Modules\Registration\Controller\ReenrollmentController(
+            $twig, $registrationReenrollmentForm, $registrationReenrollmentService,
+            $scoutYearResolver, $scoutYearService, $registrationReenrollmentCampaign
+        )
+    );
+
+    // IT-12 — the Passage page's statistics box. Reads the projection
+    // through its own module's public contract like any other consumer
+    // would, rather than reaching into ForecastService: one projection,
+    // and the box can never disagree with the Prévisions page about next
+    // year's Louveteaux.
+    $frontController->registerController(
+        \Modules\Registration\Controller\PassageController::class,
+        new \Modules\Registration\Controller\PassageController(
+            $twig, $registrationPassageService, $registrationRequestRepo, $registrationSectionTransferRepo, $sectionService,
+            $registrationAgeBracketRepo, $registrationSlotService, $scoutYearResolver, $scoutYearService,
+            new \Modules\Registration\Service\PassageStatisticsService($sectionService, $registrationProjectedPopulation),
+            // IT-17 — what the families answered, beside the decision each
+            // line is about.
+            new \Modules\Registration\Service\PassagePlanningService(
+                $registrationReenrollmentRepository,
+                $registrationPassageNoteRepository,
+                $sectionService,
+                $registrationReenrollmentService
+            ),
+            $registrationPassageNoteRepository,
+            $registrationReenrollmentRepository,
+            // IT-17 — the optional AI re-reading of family comments. The
+            // one connector every consuming module reads, nullable: with
+            // llm_connector disabled this is null and the page renders
+            // exactly as it did before (ARCHITECTURE.md §7.5).
+            new \Modules\Registration\Service\PassageCommentReviewService(
+                $registrationReenrollmentRepository,
+                $registrationPassageNoteRepository,
+                $llmConnectorForOthers
+            ),
+            // IT-18 — « Optimiser la répartition ». Synchronous, in the
+            // answer to the request: no scheduled task to wire, and
+            // nothing here that a page load waits on.
+            new \Modules\Registration\Service\PassageOptimizationService(
+                $registrationPassageService,
+                $registrationProjectedPopulation,
+                $registrationRequestRepo,
+                $registrationReenrollmentRepository,
+                $registrationPassageNoteRepository,
+                $registrationSectionTransferRepo,
+                $memberYearRepo,
+                $settingService,
+                $pdo
+            )
+        )
+    );
+
     // Re-registers ImportController with the real reconciliation trigger —
     // the earlier registration (before this module's services existed)
     // used a forward-reference `?? null` since $registrationReconciliation
@@ -4577,7 +4969,14 @@ if ($isEnabled('registration')) {
         // since PHP doesn't retroactively update an already-injected
         // dependency. Both are rebuilt together here.
         $massMailListService = new \Modules\MassMail\Service\MailingListService(
-            $massMailListRepo, $massMailResolutionRepo, $sectionService, $massMailFunctionRepo, $registrationExternalMailingListService
+            $massMailListRepo, $massMailResolutionRepo, $sectionService, $massMailFunctionRepo,
+            $registrationExternalMailingListService,
+            // IT-11 — with registration enabled, a list aimed at a year the
+            // unit has not reached yet resolves through the projection
+            // instead of an empty Desk year (ARCHITECTURE.md §7.5).
+            $registrationProjectedPopulation,
+            $scoutYearResolver,
+            $scoutYearService
         );
         // Fresh instances rather than reusing the $massMailAudienceRepo/…
         // variables from the mass_mail block above — they're identical
@@ -4639,7 +5038,7 @@ if ($isEnabled('registration')) {
     // entries, carrying the earlier scan's best match forward.
     $registrationMenuEntries = $dynamicMenuRegistrar->register(
         $menuBuilder,
-        [$registrationMenuHookService],
+        [$registrationMenuHookService, $registrationReenrollmentMenuHook],
         AuthSession::isAuthenticated() ? AuthSession::getEmail() : null
     );
     if ($registrationMenuEntries !== []) {
@@ -4853,7 +5252,7 @@ if ($isEnabled('rental')) {
         $storagePath
     );
     $rentalBookingMailService = new \Modules\Rental\Service\RentalBookingMailService(
-        $mailService, $twig, $settingService, $journalService
+        $mailService, $emailTemplateRenderer, $settingService, $journalService
     );
 
     // The asset paperwork register (§6.33). A reminder list, never a
@@ -5088,6 +5487,28 @@ if ($isEnabled('leadership')) {
         new \Modules\Leadership\Service\CandidateDetector()
     );
 
+    // The vocabulary mapping predates the BACV and Woodbadge boxes, so
+    // every decision a unit had already recorded says « brevet » and
+    // nothing says which one (roadmap IT-19). MigrationRunner is DDL-only,
+    // so this reclassification runs here, once, behind an internal
+    // settings flag — see Service\FormationStepMigration for why the call
+    // site is a page load rather than a configuration screen.
+    (new \Modules\Leadership\Service\FormationStepMigration(
+        $leadershipMappingRepository,
+        $settingService,
+        $journalService
+    ))->runOnce();
+
+    // One journal entry per import listing the formation wordings the site
+    // did not understand (Core\Import\DeskImportListener, §7.4) — counts
+    // only, never a member.
+    $deskImportListeners->register(new \Modules\Leadership\Service\LeadershipDeskImportListener(
+        $leadershipRepository,
+        $leadershipMappingRepository,
+        $leadershipResolver,
+        $journalService
+    ));
+
     $frontController->registerController(
         \Modules\Leadership\Controller\LeadershipController::class,
         new \Modules\Leadership\Controller\LeadershipController(
@@ -5120,6 +5541,15 @@ if ($isEnabled('leadership')) {
             $leadershipMappingRepository,
             $journalService
         )
+    );
+
+    // The public reading of a Desk formation wording, for whoever else
+    // needs one (§7.5). `fees` is the one consumer today: its federation
+    // invoice check used to answer the same question with a heuristic of
+    // its own that did not know about the BACV.
+    $leadershipFormationLevels = new \Modules\Leadership\Service\FormationLevelApi(
+        $leadershipMappingRepository,
+        $leadershipResolver
     );
 
     $moduleHooks->register(\Core\Module\FormationPathProvider::class, new \Modules\Leadership\Service\MemberFormationPathService(
@@ -5194,7 +5624,10 @@ if ($isEnabled('fees')) {
         $feesSnapshotRepo,
         $feesTariffService,
         $sectionService,
-        new \Modules\Fees\Repository\HouseholdDetailRepository($pdo, $encryptionService)
+        new \Modules\Fees\Repository\HouseholdDetailRepository($pdo, $encryptionService),
+        // With leadership enabled, a brevet is what that unit decided one
+        // is; without it, the detector's own fallback reading (§7.5).
+        new \Modules\Fees\Service\BrevetDetector($leadershipFormationLevels)
     );
     $frontController->registerController(
         \Modules\Fees\Controller\InvoiceController::class,

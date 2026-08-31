@@ -169,9 +169,68 @@ export async function collectToasts(page) {
  *        exists inside the dialog.
  * @returns {Promise<string>} the dialog's message, for asserting on
  */
+/**
+ * Waits until confirm.js has installed its delegated `submit` listener.
+ *
+ * Call this BEFORE clicking anything inside a `form[data-confirm]`, and
+ * after every navigation to the page holding it — the flag lives on the
+ * document, so a new page starts without it.
+ *
+ * The listener is what turns a submit into a question. Click before it
+ * exists and the form simply submits, natively and unasked: the page
+ * navigates, no dialog is ever built, and answerConfirmation() below then
+ * waits out its ceiling on a dialog that was never going to come.
+ *
+ * That failure was diagnosed rather than guessed. Its instrumentation
+ * caught two identical samples holding roots:0 and anyConfirmMarkup:0 —
+ * nothing had ever been built — beside delegated:true and confirmForms:3,
+ * with activeElement back on <body> and the URL unchanged. confirm.js was
+ * armed and the forms were there when the state was READ, fifteen seconds
+ * later, on the page the native submit had just loaded; neither was true
+ * at the moment of the click.
+ *
+ * Third instance of one shape on this branch, after sos-admin.js's own
+ * listeners and Bootstrap's data-api (see support/sos.js and
+ * support/section-editor.js): a rendered page is not yet a page that
+ * reacts, and toBeVisible() on its content does not say otherwise.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+export async function waitForConfirmReady(page) {
+    await page.waitForFunction(
+        () => (/** @type {any} */ (document)).scoutMagicConfirmDelegated === true
+    );
+}
+
 export async function answerConfirmation(page, options = {}) {
     const dialog = page.locator('#sm-confirm-modal');
-    await dialog.waitFor({ state: 'visible' });
+    // TEMPORARY INSTRUMENTATION — remove once the dialog that never
+    // appears is understood. Under the security scan this wait times out
+    // roughly once in twenty runs, and the message it gives ("locator to
+    // be visible") names the dialog rather than whatever failed to ask for
+    // it. Two candidate causes are indistinguishable from that alone: the
+    // submit never happened (the click landed on a control the page had
+    // just re-rendered), or it happened and confirm.js did not intercept
+    // it (no form[data-confirm] around the submitter). This tells them
+    // apart, and it lives in the shared helper rather than in one spec
+    // because four specs reach this same line.
+    try {
+        await dialog.waitFor({ state: 'visible', timeout: 15_000 });
+    } catch (failure) {
+        const state = await page.evaluate(() => ({
+            roots: document.querySelectorAll('#sm-confirm-modal').length,
+            anyConfirmMarkup: document.querySelectorAll('[id^="sm-confirm-modal"]').length,
+            delegated: Boolean(/** @type {any} */ (document).scoutMagicConfirmDelegated),
+            confirmForms: document.querySelectorAll('form[data-confirm]').length,
+            openModals: document.querySelectorAll('.modal.show').length,
+            backdrops: document.querySelectorAll('.modal-backdrop').length,
+            activeElement: document.activeElement ? document.activeElement.outerHTML.slice(0, 160) : '(none)',
+            url: location.pathname + location.search,
+        }));
+        // eslint-disable-next-line no-console
+        console.log('[CONFIRM-MISSING] ' + JSON.stringify(state));
+        throw failure;
+    }
 
     const message = (await dialog.locator('#sm-confirm-modal-body').innerText()).trim();
 

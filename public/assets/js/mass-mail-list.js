@@ -172,6 +172,10 @@
         yearCheckboxes().forEach(cb => {
             cb.checked = yearIds.includes(parseInt(cb.value, 10));
         });
+        // Also the path that runs when an existing email is REOPENED, which
+        // is the one that would otherwise show a future-year draft with no
+        // warning on it.
+        updateFutureYearWarning();
     }
 
     /** @returns {HTMLInputElement[]} */
@@ -185,7 +189,36 @@
     el('mm-scout-year-group').addEventListener('change', (e) => {
         if (!(e.target instanceof Element) || !e.target.classList.contains('mm-year-checkbox')) return;
         mmSelectedYearIds = yearCheckboxes().filter(cb => cb.checked).map(cb => parseInt(cb.value, 10));
+        updateFutureYearWarning();
     });
+
+    /**
+     * Show the server's warning as soon as a year AFTER the public one is
+     * ticked, and hide it again when it is not — this is where the audience
+     * is really chosen, seconds before a send.
+     *
+     * The text is never composed here: which of the two wordings applies
+     * depends on whether the registration module is enabled
+     * (MailingListService::futureAudienceWarning()), and a browser guessing
+     * at that would be a second answer to a question the server already
+     * answered. Only `warning` being non-null decides that a year is
+     * "future" at all, for the same reason.
+     */
+    function updateFutureYearWarning() {
+        // el() returns null for an id that is not in the document, and
+        // selectScoutYears() runs on every draft that opens — including in
+        // fixtures that carry only the fields they are about. A missing box
+        // is nothing to warn in, not a reason to abort the dialog.
+        const box = el('mm-future-year-warning');
+        if (!box) return;
+
+        const warnings = [MM_DATA.scoutYears.previous, MM_DATA.scoutYears.current, MM_DATA.scoutYears.next]
+            .filter(y => y.warning && mmSelectedYearIds.includes(y.id))
+            .map(y => y.warning);
+
+        box.textContent = warnings.join(' ');
+        box.classList.toggle('d-none', warnings.length === 0);
+    }
 
     // Rich text toolbar — same execCommand engine as partials/rich_text_editor.html.twig.
     /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('#mm-body-toolbar [data-command]')).forEach(btn => {

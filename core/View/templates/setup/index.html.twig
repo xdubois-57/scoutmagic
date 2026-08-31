@@ -298,18 +298,48 @@
         </div>
     </div>
 
-    {# Tâche planifiée (cron) — informational only, no form fields, so it
-       stays outside the numbered sections above. #}
-    <div class="card mb-4">
+    {# ————— Tâche cron —————
+       Informational only, no form fields, so it stays outside the numbered
+       sections above. Le chip d'état est rempli par setup.js, qui interroge
+       GET /setup/cron-status toutes les cinq secondes ; tant qu'il n'est
+       pas vert lors d'une première installation, le bouton d'installation
+       reste désactivé (SetupController::save() refuse de son côté). #}
+    <div class="card mb-4" id="setup-cron-card">
         <div class="card-body">
-            <h2 class="card-title h5 mb-3">Tâche planifiée (cron)</h2>
-            <p class="text-body-secondary small">Le site exécute déjà les tâches planifiées (sauvegardes automatiques, rappels, relances d'envoi…) de façon opportuniste après chaque visite d'une page — pratique, mais peu fiable si le site reçoit peu de trafic : rien ne s'exécute tant que personne ne le consulte. Configurez une véritable tâche cron chez votre hébergeur pour que ces tâches s'exécutent à l'heure prévue, même sans visiteur.</p>
-            <p class="small mb-1">Ajoutez cette ligne dans votre crontab (ou dans la section « Tâches planifiées »/« Cron » du panneau de contrôle de votre hébergeur, si disponible) :</p>
+            <h2 class="card-title h5 mb-3">Tâche cron</h2>
+
+            <p class="small">
+                <strong>Une vraie tâche cron est indispensable.</strong> C'est elle qui fait tourner
+                tout ce que le site fait sans visiteur : sauvegardes automatiques, mises à jour,
+                rappels, notifications, purges. Sans elle, le site ne travaille qu'au rythme des
+                visites — et rien ne se passe la nuit, ni pendant les vacances.
+            </p>
+
+            <p class="small mb-1">Ajoutez cette ligne dans votre crontab (ou dans la section « Tâches planifiées »/« Cron » du panneau de contrôle de votre hébergeur) :</p>
             <div class="input-group input-group-sm mt-1 mb-2">
-                <input type="text" class="form-control font-monospace" value="* * * * * php {{ cron_script_path ?? '/chemin/vers/le/site/public/cron.php' }}" readonly id="cron-line-display" aria-label="Ligne crontab">
+                <input type="text" class="form-control font-monospace" value="{{ cron_crontab_line ?? '* * * * * php /chemin/vers/le/site/public/cron.php' }}" readonly id="cron-line-display" aria-label="Ligne crontab">
                 <button type="button" class="btn btn-outline-secondary btn-copy-value" data-copy-target="cron-line-display">Copier</button>
             </div>
-            <p class="text-body-secondary small mb-0">Le script se protège lui-même contre les exécutions simultanées et n'a besoin d'être lancé qu'une fois par minute. Remplacez <code>php</code> par le chemin complet de l'exécutable en ligne de commande si votre hébergeur en exige un précis (souvent indiqué dans son panneau de contrôle, par exemple <code>/usr/bin/php8.3</code>).</p>
+
+            <div class="alert alert-warning small" role="alert">
+                Le mot <code>php</code> au début n'est pas facultatif. Certains panneaux d'hébergement
+                proposent un champ « Adresse du script » ou « Commande » et acceptent un simple chemin
+                de fichier : dans ce cas, <strong>rien ne s'exécute</strong>, sans le moindre message
+                d'erreur. Indiquez toujours <code>php</code> (ou le chemin complet de l'exécutable, par
+                exemple <code>/usr/bin/php8.3</code>, si votre hébergeur en exige un précis) devant le
+                chemin du script.
+            </div>
+
+            <p class="small mb-1">État détecté :</p>
+            <p class="mb-2" id="cron-status-line">
+                <span class="badge text-bg-secondary" id="cron-status-chip"
+                      data-initial-state="{{ cron_state ?? 'never' }}">Vérification…</span>
+            </p>
+            <p class="text-body-secondary small mb-0">
+                Le script se protège lui-même contre les exécutions simultanées et doit être lancé
+                une fois par minute. Après avoir enregistré la ligne chez votre hébergeur, laissez
+                cette page ouverte : l'état passe au vert tout seul, en une minute au plus.
+            </p>
         </div>
     </div>
 
@@ -413,6 +443,17 @@
             {% if not is_initialized %}Installer{% else %}Enregistrer{% endif %}
         </button>
         <div class="form-text text-center mt-1" id="save-hint">{% if not is_initialized %}Installez la base de données avant de pouvoir continuer.{% else %}Testez la connexion à la base de données avant de pouvoir enregistrer.{% endif %}</div>
+        {# Première installation uniquement : la tâche cron est une condition
+           d'installation, pas un conseil. Sur un site déjà configuré, cette
+           page est « Installation & serveur » et l'absence de cron ne bloque
+           jamais un enregistrement — voir SetupController::save(). #}
+        {% if not is_initialized %}
+        <div class="form-text text-center mt-1 text-danger d-none" id="cron-save-hint">
+            Aucune tâche cron n'a encore été détectée. Configurez-la chez votre hébergeur
+            (section « Tâche cron » ci-dessus) : l'installation reste bloquée tant qu'elle
+            n'a pas tourné au moins une fois.
+        </div>
+        {% endif %}
     </div>
 </form>
 
