@@ -5,7 +5,7 @@ summary: Facturer un montant à chaque membre d'une liste, et suivre les paiemen
 category: Espace animateurs
 role_min: intendant
 paths: /finance/campaigns, /finance/campaigns/new, /finance/campaigns/*
-related: rappels, rapprochement, mes-paiements, finances, importer-extraits, outils-finance
+related: etiquettes-paiement, rappels, rapprochement, mes-paiements, finances, importer-extraits, outils-finance
 ---
 
 Une campagne facture un montant à chaque membre d'une liste — les
@@ -62,6 +62,12 @@ Rien ne se coche à la main : un statut vient des relevés bancaires
 importés. Abandonner une créance — une dispense, un geste commercial, une
 erreur de facturation — la solde sans qu'aucun paiement n'entre en
 caisse, et reste donc distinct d'un encaissement.
+
+## Les étiquettes à découper
+
+Le bouton « Étiquettes » produit une feuille A4 de 27 étiquettes à
+découper, une par créance qui doit encore quelque chose — voir
+« Distribuer des étiquettes de paiement ».
 
 ## Note interne
 

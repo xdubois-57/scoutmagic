@@ -48,7 +48,7 @@
 
         <h2 class="h6 text-uppercase text-body-secondary mb-2">Note</h2>
         {% if note %}
-            <div class="card mb-4"><div class="card-body">{{ note|raw }}</div></div>
+            <div class="card mb-4"><div class="card-body rich-text">{{ note|raw }}</div></div>
         {% else %}
             {% include 'partials/empty_state.html.twig' with {
                 message: 'Aucune note sur ce séjour.', compact: true,

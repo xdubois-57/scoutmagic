@@ -9,10 +9,18 @@
 // The page under test is the on-call planning grid
 // (modules/sos_staff/views/admin.html.twig), which decides which Staff d'U
 // member the unit's SOS number rings. What this file pins down:
-//   - the month and its starting duty states come from the page's JSON island,
-//     not from an inline script Vitest cannot see;
-//   - the three-state click cycle repaints the desktop cell AND the mobile
-//     button, and saves the whole month with the CSRF token;
+//   - the month, its starting duty states and the ROSTER ORDER come from the
+//     page's JSON island, not from an inline script Vitest cannot see;
+//   - the desktop grid's three-state click cycle and the phone layout's three
+//     NAMED buttons write the same state, repaint each other, and save the
+//     whole month with the CSRF token;
+//   - the day sheet is filled from the row that was tapped — one sheet for the
+//     whole month, stamped with the open day, which is what replaced ~250
+//     stacked buttons;
+//   - a day row keeps naming whoever actually receives the calls after an
+//     edit: the first roster member marked on call (module spec §2.6), the
+//     server-rendered default sentence when nobody is, and a flag when several
+//     are marked for nothing;
 //   - a {success:false} body and an HTTP 500 that is not JSON are both
 //     failures, never a silent "Enregistré.";
 //   - a server message containing markup is shown as text;
@@ -44,6 +52,12 @@ const STATES = {
 const TRANSITIONS_HTML = '<ul class="list-group"><li>page 2</li></ul>'
     + '<nav><a href="#" data-transitions-page="3">3</a></nav>';
 
+/**
+ * The page as the template renders it on a phone-sized screen, cut down to
+ * what this file exercises: the settings accordion's controls, two day rows,
+ * the single day sheet holding the whole roster, and the desktop table (both
+ * layouts always ship — only CSS hides one).
+ */
 const PAGE_DOM = `
     <select id="default-number-member" data-saved-value="4">
         <option value="4" selected>Alice D. (+32 470 00 00 01)</option>
@@ -54,13 +68,47 @@ const PAGE_DOM = `
     <input type="time" id="transition-hour" value="18:00">
     <input class="form-check-input" type="checkbox" id="email-notifications-toggle" checked>
 
-    <div id="sos-mobile-grid">
-        <button type="button" class="btn btn-sm btn-success sos-oncall-cell" data-member-id="4" data-date="2026-03-01">
-            <span class="d-block small">Alice</span><span>✓</span>
+    <div class="list-group" id="sos-day-list" data-default-target="Par défaut — Alice D.">
+        <button type="button" class="list-group-item list-group-item-action sos-day-row"
+                data-date="2026-03-01" data-date-label="dimanche 1 mars 2026" data-activity="Fête des Baladins">
+            <span>dim 1</span>
+            <span data-day-target>Alice D.</span>
+            <i class="bi bi-people d-none" data-day-multiple></i>
         </button>
-        <button type="button" class="btn btn-sm btn-outline-secondary sos-oncall-cell" data-member-id="7" data-date="2026-03-01">
-            <span class="d-block small">Bruno</span><span>—</span>
+        <button type="button" class="list-group-item list-group-item-action sos-day-row"
+                data-date="2026-03-02" data-date-label="lundi 2 mars 2026" data-activity="">
+            <span>lun 2</span>
+            <span class="text-body-secondary" data-day-target>Par défaut — Alice D.</span>
+            <i class="bi bi-people d-none" data-day-multiple></i>
         </button>
+    </div>
+
+    <div class="offcanvas offcanvas-bottom" id="sos-day-sheet" data-date="">
+        <h2 id="sos-day-sheet-title">Journée</h2>
+        <p class="d-none" id="sos-day-sheet-activity"></p>
+        <div data-sheet-member-id="4">
+            <div data-member-name>Alice D.</div>
+            <div class="btn-group">
+                <button type="button" class="btn btn-sm sos-state-button btn-outline-secondary"
+                        data-member-id="4" data-date="" data-state="oncall" aria-pressed="false">Garde</button>
+                <button type="button" class="btn btn-sm sos-state-button btn-outline-secondary"
+                        data-member-id="4" data-date="" data-state="unavailable" aria-pressed="false">Indispo</button>
+                <button type="button" class="btn btn-sm sos-state-button btn-secondary"
+                        data-member-id="4" data-date="" data-state="" aria-pressed="true">Rien</button>
+            </div>
+        </div>
+        <div data-sheet-member-id="7">
+            <div data-member-name>Bruno T.</div>
+            <div class="btn-group">
+                <button type="button" class="btn btn-sm sos-state-button btn-outline-secondary"
+                        data-member-id="7" data-date="" data-state="oncall" aria-pressed="false">Garde</button>
+                <button type="button" class="btn btn-sm sos-state-button btn-outline-secondary"
+                        data-member-id="7" data-date="" data-state="unavailable" aria-pressed="false">Indispo</button>
+                <button type="button" class="btn btn-sm sos-state-button btn-secondary"
+                        data-member-id="7" data-date="" data-state="" aria-pressed="true">Rien</button>
+            </div>
+        </div>
+        <div id="sos-day-sheet-status"></div>
     </div>
 
     <table class="sos-grid"><tbody>
@@ -118,6 +166,37 @@ function clickCell(selector) {
     document.querySelector(selector).dispatchEvent(new Event('click', { bubbles: true }));
 }
 
+/**
+ * Presses one of the phone layout's three named state buttons.
+ *
+ * @param {string} memberId
+ * @param {string} state 'oncall' | 'unavailable' | '' (the « Rien » button)
+ */
+function pressStateButton(memberId, state) {
+    document
+        .querySelector(`#sos-day-sheet .sos-state-button[data-member-id="${memberId}"][data-state="${state}"]`)
+        .dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+}
+
+/** Taps a day row, which fills and opens the single day sheet. */
+function openDay(date) {
+    document
+        .querySelector(`.sos-day-row[data-date="${date}"]`)
+        .dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+}
+
+/** @param {string} date @param {string} memberId */
+function sheetButton(date, memberId, state) {
+    return document.querySelector(
+        `#sos-day-sheet .sos-state-button[data-member-id="${memberId}"][data-state="${state}"]`,
+    );
+}
+
+/** @param {string} date */
+function dayRow(date) {
+    return document.querySelector(`.sos-day-row[data-date="${date}"]`);
+}
+
 function changeControl(id) {
     document.getElementById(id).dispatchEvent(new Event('change', { bubbles: true }));
 }
@@ -145,6 +224,7 @@ describe('sos-admin.js', () => {
             month: 3,
             monthParam: '2026-03',
             states: structuredClone(STATES),
+            orderedMemberIds: [4, 7],
         });
         global.fetch = mockFetch({});
         window.ScoutMagicToast = { show: vi.fn() };
@@ -377,8 +457,11 @@ describe('sos-admin.js', () => {
             expect(body.cells).toHaveLength(3);
         });
 
-        it('repaints the desktop cell and the mobile button together', async () => {
+        it('repaints the desktop cell and the open sheet together', async () => {
             await boot();
+            // The sheet only stands for a day once one has been opened —
+            // that is what stamps `data-date` on its buttons.
+            openDay('2026-03-01');
 
             clickCell('td.sos-oncall-cell[data-member-id="7"]');
 
@@ -386,10 +469,10 @@ describe('sos-admin.js', () => {
             expect(desktop.classList.contains('state-oncall')).toBe(true);
             expect(desktop.textContent).toBe('✓');
 
-            const mobile = document.querySelector('button.sos-oncall-cell[data-member-id="7"]');
-            expect(mobile.classList.contains('btn-success')).toBe(true);
-            expect(mobile.classList.contains('btn-outline-secondary')).toBe(false);
-            expect(mobile.lastElementChild.textContent).toBe('✓');
+            const garde = sheetButton('2026-03-01', '7', 'oncall');
+            expect(garde.classList.contains('btn-success')).toBe(true);
+            expect(garde.getAttribute('aria-pressed')).toBe('true');
+            expect(sheetButton('2026-03-01', '7', '').getAttribute('aria-pressed')).toBe('false');
         });
 
         it('cycles « de garde » → « indisponible » → rien, dropping the cell from the payload', async () => {
@@ -409,8 +492,6 @@ describe('sos-admin.js', () => {
             expect(desktop.textContent).toBe('');
             expect(desktop.classList.contains('state-oncall')).toBe(false);
             expect(desktop.classList.contains('state-unavailable')).toBe(false);
-            expect(document.querySelector('button.sos-oncall-cell[data-member-id="4"]').lastElementChild.textContent)
-                .toBe('—');
         });
 
         it('says « Enregistré. » only on a business success', async () => {
@@ -444,6 +525,207 @@ describe('sos-admin.js', () => {
             });
             expect(window.ScoutMagicToast.show)
                 .toHaveBeenCalledWith('Erreur : réponse serveur invalide.', { variant: 'error' });
+        });
+    });
+
+    describe('the day sheet — one sheet for the whole month', () => {
+        it('fills itself from the row that was tapped and stamps the open day on every button', async () => {
+            await boot();
+
+            openDay('2026-03-01');
+
+            expect(document.getElementById('sos-day-sheet-title').textContent)
+                .toBe('dimanche 1 mars 2026');
+            expect(document.getElementById('sos-day-sheet').dataset.date).toBe('2026-03-01');
+            document.querySelectorAll('#sos-day-sheet .sos-state-button').forEach((button) => {
+                expect(button.dataset.date).toBe('2026-03-01');
+            });
+        });
+
+        it('shows the day\'s activity, and hides the line when there is none', async () => {
+            await boot();
+            const activity = document.getElementById('sos-day-sheet-activity');
+
+            openDay('2026-03-01');
+            expect(activity.textContent).toBe('Fête des Baladins');
+            expect(activity.classList.contains('d-none')).toBe(false);
+
+            openDay('2026-03-02');
+            expect(activity.textContent).toBe('');
+            expect(activity.classList.contains('d-none')).toBe(true);
+        });
+
+        it('shows each member\'s state for the day it was opened on', async () => {
+            await boot();
+
+            // 2026-03-01: Alice (4) on call, Bruno (7) unmarked.
+            openDay('2026-03-01');
+            expect(sheetButton('2026-03-01', '4', 'oncall').classList.contains('btn-success')).toBe(true);
+            expect(sheetButton('2026-03-01', '7', '').classList.contains('btn-secondary')).toBe(true);
+
+            // 2026-03-02: Bruno unavailable, Alice unmarked. Same buttons.
+            openDay('2026-03-02');
+            expect(sheetButton('2026-03-02', '7', 'unavailable').classList.contains('btn-danger')).toBe(true);
+            expect(sheetButton('2026-03-02', '4', '').classList.contains('btn-secondary')).toBe(true);
+        });
+
+        it('does nothing at all on a row carrying no date', async () => {
+            await boot();
+            const row = dayRow('2026-03-01');
+            row.removeAttribute('data-date');
+
+            row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+            expect(document.getElementById('sos-day-sheet').dataset.date).toBe('');
+        });
+    });
+
+    describe('the three named state buttons', () => {
+        it('sets « Garde » outright, and saves the whole month', async () => {
+            await boot();
+            openDay('2026-03-02');
+
+            pressStateButton('7', 'oncall');
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+
+            const { url, body } = lastRequest();
+            expect(url).toBe('/admin/sos/oncall');
+            expect(body._csrf_token).toBe('tok-123');
+            expect(body.cells).toContainEqual({ member_id: 7, date: '2026-03-02', state: 'oncall' });
+        });
+
+        it('sets « Indispo » without having to pass through « Garde » first', async () => {
+            // The button this replaced cycled ✓ → ✗ → —, so reaching one
+            // state meant pressing through the others (and saving each).
+            await boot();
+            openDay('2026-03-02');
+
+            pressStateButton('4', 'unavailable');
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+
+            expect(lastRequest().body.cells)
+                .toContainEqual({ member_id: 4, date: '2026-03-02', state: 'unavailable' });
+        });
+
+        it('« Rien » drops the pair from the posted month', async () => {
+            await boot();
+            openDay('2026-03-01');
+
+            pressStateButton('4', '');
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+
+            expect(lastRequest().body.cells)
+                .toEqual([{ member_id: 7, date: '2026-03-02', state: 'unavailable' }]);
+            expect(sheetButton('2026-03-01', '4', '').getAttribute('aria-pressed')).toBe('true');
+        });
+
+        it('mirrors the change onto the desktop cell', async () => {
+            await boot();
+            openDay('2026-03-01');
+
+            pressStateButton('7', 'unavailable');
+
+            const desktop = document.querySelector('td.sos-oncall-cell[data-member-id="7"]');
+            expect(desktop.classList.contains('state-unavailable')).toBe(true);
+            expect(desktop.textContent).toBe('✗');
+        });
+
+        it('reports the save in the sheet as well as under the grid', async () => {
+            await boot();
+            openDay('2026-03-01');
+
+            pressStateButton('7', 'oncall');
+            await vi.waitFor(() => {
+                expect(document.getElementById('sos-day-sheet-status').textContent).toBe('Enregistré.');
+            });
+            expect(document.getElementById('oncall-save-status').textContent).toBe('Enregistré.');
+        });
+    });
+
+    describe('a day row keeps naming who really receives the calls', () => {
+        it('names the first roster member marked on call, not the first one clicked', async () => {
+            // Roster order is [4, 7]. Marking Bruno (7) on a day Alice (4)
+            // already holds must not rename the row: module spec §2.6 uses
+            // the FIRST roster member marked, and the extra mark changes
+            // nothing.
+            await boot();
+            openDay('2026-03-01');
+
+            pressStateButton('7', 'oncall');
+
+            expect(dayRow('2026-03-01').querySelector('[data-day-target]').textContent).toBe('Alice D.');
+        });
+
+        it('flags a day several people are marked on', async () => {
+            await boot();
+            const flag = dayRow('2026-03-01').querySelector('[data-day-multiple]');
+            expect(flag.classList.contains('d-none')).toBe(true);
+
+            openDay('2026-03-01');
+            pressStateButton('7', 'oncall');
+
+            expect(flag.classList.contains('d-none')).toBe(false);
+        });
+
+        it('renames the row when the winner changes', async () => {
+            await boot();
+            openDay('2026-03-02');
+
+            pressStateButton('7', 'oncall');
+
+            const target = dayRow('2026-03-02').querySelector('[data-day-target]');
+            expect(target.textContent).toBe('Bruno T.');
+            expect(target.classList.contains('text-body-secondary')).toBe(false);
+        });
+
+        it('falls back to the server-rendered default sentence when nobody is left on call', async () => {
+            await boot();
+            openDay('2026-03-01');
+
+            pressStateButton('4', '');
+
+            const target = dayRow('2026-03-01').querySelector('[data-day-target]');
+            expect(target.textContent).toBe('Par défaut — Alice D.');
+            expect(target.classList.contains('text-body-secondary')).toBe(true);
+        });
+    });
+
+    describe('« Ma disponibilité » — the same buttons, no sheet', () => {
+        /** The tab as the template renders it: one row per day, one member. */
+        const MY_TAB_DOM = `
+            <div class="list-group" id="sos-my-availability">
+                <div class="list-group-item" id="sos-day-2026-03-01">
+                    <span>dim 1</span>
+                    <div class="btn-group">
+                        <button type="button" class="btn btn-sm sos-state-button btn-success"
+                                data-member-id="4" data-date="2026-03-01" data-state="oncall"
+                                aria-pressed="true">Garde</button>
+                        <button type="button" class="btn btn-sm sos-state-button btn-outline-secondary"
+                                data-member-id="4" data-date="2026-03-01" data-state="unavailable"
+                                aria-pressed="false">Indispo</button>
+                        <button type="button" class="btn btn-sm sos-state-button btn-outline-secondary"
+                                data-member-id="4" data-date="2026-03-01" data-state=""
+                                aria-pressed="false">Rien</button>
+                    </div>
+                </div>
+            </div>
+            <div id="oncall-save-status"></div>`;
+
+        it('saves the month from a row that never opens a sheet', async () => {
+            document.body.innerHTML = MY_TAB_DOM;
+            await boot();
+
+            document
+                .querySelector('.sos-state-button[data-state="unavailable"]')
+                .dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+
+            const { url, body } = lastRequest();
+            expect(url).toBe('/admin/sos/oncall');
+            expect(body.cells).toContainEqual({ member_id: 4, date: '2026-03-01', state: 'unavailable' });
+            expect(document.querySelector('.sos-state-button[data-state="unavailable"]').classList
+                .contains('btn-danger')).toBe(true);
+            expect(document.getElementById('oncall-save-status').textContent).toBe('Enregistrement…');
         });
     });
 

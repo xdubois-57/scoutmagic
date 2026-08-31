@@ -12,6 +12,7 @@ use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
+use Core\Member\MemberService;
 use Core\Member\SectionService;
 use Core\Scheduler\SchedulerService;
 use Core\ScoutYear\ScoutYearResolver;
@@ -48,6 +49,7 @@ class SosAdminController extends AbstractController
         private SchedulerService $schedulerService,
         private ScoutYearResolver $scoutYearResolver,
         private JournalService $journalService,
+        private MemberService $memberService,
         private ?CalendarEventLookupInterface $calendarEvents = null
     ) {
     }
@@ -74,26 +76,200 @@ class SosAdminController extends AbstractController
         $transitionsPage = max(1, (int) $request->getQuery('transitions_page', 1));
         $transitions = $this->buildPlannedTransitions($year, $month, $effectiveYear->id, $transitionsPage);
 
+        $sectionActivity = $this->buildSectionActivity($year, $month, $role);
+        $defaultMemberId = $this->settingsService->resolveDefaultNumberMemberId($effectiveYear->id);
+
+        $today = (new \DateTimeImmutable())->format('Y-m-d');
+
         return $this->render('@sos_staff/admin.html.twig', [
             'sos_number' => $this->providerConfigService->getSosNumber(),
             'live_state' => $this->resolveLiveState($effectiveYear->id),
             'staff_options' => $staffOptions,
-            'default_number_selection_member_id' => $this->settingsService->resolveDefaultNumberMemberId($effectiveYear->id),
+            'default_number_selection_member_id' => $defaultMemberId,
+            'default_number_label' => $this->labelFromOptions($staffOptions, $defaultMemberId),
+            // §4b: the warning beside the default-number picker is shown
+            // only when saving would really change who the SOS line rings
+            // — exactly the condition applyImmediatelyIfTodayUsesDefault()
+            // acts on. A permanent warning that is wrong half the time
+            // ends up ignored.
+            'today_uses_default_number' => $this->onCallService
+                ->resolveTargetForDate($today, $orderedStaffMemberIds) === null,
             'transition_hour' => $this->settingsService->getTransitionHour(),
             'email_notifications_enabled' => $this->settingsService->isEmailNotificationsEnabled(),
             'year' => $year,
             'month' => $month,
+            'today' => $today,
             'month_label' => $this->monthLabel($year, $month),
             'month_param' => sprintf('%04d-%02d', $year, $month),
             'prev_month_param' => sprintf('%04d-%02d', $prevYear, $prevMonth),
             'next_month_param' => sprintf('%04d-%02d', $nextYear, $nextMonth),
             'days' => $grid['days'],
             'states' => $grid['states'],
-            'section_activity' => $this->buildSectionActivity($year, $month, $role),
+            'section_activity' => $sectionActivity,
+            // The phone layout only (the desktop .sos-grid still renders
+            // `days` whole, and is not concerned by any of this).
+            'mobile_tab' => $request->getQuery('tab') === 'me' ? 'me' : 'month',
+            'mobile_days' => $this->buildMobileDays(
+                $grid,
+                $sectionActivity,
+                $this->onCallService->resolveTargetsForMonth($year, $month, $orderedStaffMemberIds),
+                $staffOptions,
+                $today
+            ),
+            'my_member_id' => $this->resolveSignedInStaffMemberId($staffOptions, $effectiveYear->id),
+            'ordered_staff_member_ids' => array_map('intval', $orderedStaffMemberIds),
             'planned_transitions' => $transitions['entries'],
             'planned_transitions_page' => $transitions['page'],
             'planned_transitions_total_pages' => $transitions['total_pages'],
         ]);
+    }
+
+    /**
+     * The phone layout's day list (spec §3 "A — the month, read-only").
+     *
+     * Everything the rows show is resolved here rather than in the
+     * template: who actually receives the calls that day (the service's
+     * §2.6 roster-order rule, never recomputed from the states grid), how
+     * many people are marked so the page can flag a day where the extra
+     * marks change nothing, the day written out in full for the edit
+     * sheet's title, and the sections' activity flattened into one
+     * subtitle.
+     *
+     * **Range**: the CURRENT month starts at today. Past days of the
+     * running month are not editable in practice and pushing the useful
+     * part of the list off the first two screens is the whole defect this
+     * screen exists to fix. Any other month is shown whole.
+     *
+     * @param array{
+     *   days: array<int, array{date: string, day_number: int, day_name: string, is_today: bool, is_weekend: bool}>,
+     *   states: array<string, array<int, string>>
+     * } $grid
+     * @param array<int, array{
+     *   section_id: int, label: string, color: ?string, events_by_day: array<string, string[]>
+     * }> $sectionActivity
+     * @param array<string, array{member_id: ?int, oncall_count: int}> $targets
+     * @param array<int, array{member_id: int, label: string, mobile: string}> $staffOptions
+     * @return array<int, array{
+     *   date: string, day_number: int, day_name: string, date_label: string,
+     *   is_today: bool, is_weekend: bool, activity: string[],
+     *   target_member_id: ?int, target_label: ?string, oncall_count: int
+     * }>
+     */
+    private function buildMobileDays(
+        array $grid,
+        array $sectionActivity,
+        array $targets,
+        array $staffOptions,
+        string $today
+    ): array {
+        $rows = [];
+        foreach ($grid['days'] as $day) {
+            $activity = [];
+            foreach ($sectionActivity as $column) {
+                foreach ($column['events_by_day'][$day['date']] ?? [] as $title) {
+                    $activity[] = $title;
+                }
+            }
+
+            $target = $targets[$day['date']] ?? ['member_id' => null, 'oncall_count' => 0];
+
+            $rows[] = [
+                'date' => $day['date'],
+                'day_number' => $day['day_number'],
+                'day_name' => $day['day_name'],
+                'date_label' => $this->longDateLabel($day['date']),
+                'is_today' => $day['is_today'],
+                'is_weekend' => $day['is_weekend'],
+                'activity' => array_values(array_unique($activity)),
+                'target_member_id' => $target['member_id'],
+                'target_label' => $this->labelFromOptions($staffOptions, $target['member_id']),
+                'oncall_count' => $target['oncall_count'],
+            ];
+        }
+
+        // Only the running month is trimmed, and only from its start: a
+        // month reached by navigation is shown whole, past or future.
+        $firstShown = $rows[0]['date'] ?? null;
+        $lastShown = $rows[count($rows) - 1]['date'] ?? null;
+        if ($firstShown !== null && $lastShown !== null && $firstShown <= $today && $today <= $lastShown) {
+            $rows = array_values(array_filter($rows, static fn(array $row) => $row['date'] >= $today));
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Which Staff d'U roster member the signed-in visitor IS, for the
+     * « Ma disponibilité » tab — null when they are not on the roster
+     * (an admin who is not a chef d'unité, a login linked to no member).
+     *
+     * This is a CONVENIENCE, never an authorization rule: /admin/sos stays
+     * role_min admin and the « Le mois » tab still edits anybody through
+     * the day sheet (SECURITY.md §3 — a filtered view is UI, never the
+     * boundary).
+     *
+     * @param array<int, array{member_id: int, label: string, mobile: string}> $staffOptions
+     */
+    private function resolveSignedInStaffMemberId(array $staffOptions, int $scoutYearId): ?int
+    {
+        $email = AuthSession::getEmail();
+        if ($email === null || $email === '') {
+            return null;
+        }
+
+        $rosterIds = array_map('intval', array_column($staffOptions, 'member_id'));
+        foreach ($this->memberService->getLinkedMembers($email, $scoutYearId) as $profile) {
+            if (in_array($profile->memberId, $rosterIds, true)) {
+                return $profile->memberId;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<int, array{member_id: int, label: string, mobile: string}> $staffOptions
+     */
+    private function labelFromOptions(array $staffOptions, ?int $memberId): ?string
+    {
+        if ($memberId === null) {
+            return null;
+        }
+        foreach ($staffOptions as $option) {
+            if ((int) $option['member_id'] === $memberId) {
+                return $option['label'];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * « lundi 15 juin 2026 » — the sheet's title says which day is being
+     * edited in full, since the row it was opened from is no longer on
+     * screen. The `french_date` Twig filter stops at "15 juin 2026"; the
+     * weekday is the half that matters when planning a duty.
+     */
+    private function longDateLabel(string $date): string
+    {
+        $dayNames = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'];
+        $months = [
+            1 => 'janvier', 2 => 'février', 3 => 'mars', 4 => 'avril', 5 => 'mai', 6 => 'juin',
+            7 => 'juillet', 8 => 'août', 9 => 'septembre', 10 => 'octobre', 11 => 'novembre', 12 => 'décembre',
+        ];
+
+        $day = DateInput::iso($date);
+        if ($day === null) {
+            return $date;
+        }
+
+        return sprintf(
+            '%s %d %s %s',
+            $dayNames[(int) $day->format('N') - 1],
+            (int) $day->format('j'),
+            $months[(int) $day->format('n')],
+            $day->format('Y')
+        );
     }
 
     /**

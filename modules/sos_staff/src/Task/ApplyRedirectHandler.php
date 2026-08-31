@@ -75,7 +75,11 @@ class ApplyRedirectHandler implements TaskHandlerInterface
             $context->userAccounts,
             $context->mailService,
             $context->journal,
-            $twig
+            $twig,
+            // Nullable on TaskContext, and nullable here: a scheduler run
+            // built without the notification stack still applies the
+            // redirection and simply tells nobody about it.
+            $context->notifications
         );
 
         $memberId = isset($payload['member_id']) && $payload['member_id'] !== null ? (int) $payload['member_id'] : null;

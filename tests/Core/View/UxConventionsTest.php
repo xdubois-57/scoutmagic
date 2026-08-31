@@ -221,6 +221,9 @@ final class UxConventionsTest extends TestCase
         // XLSX download of a campaign's lines — the file the filter
         // on screen selected, never a page.
         '/finance/campaigns/{id}/export',
+        // The A4 sheet of payment labels to cut out, as a PDF — a
+        // download like the export beside it, never a page.
+        '/finance/campaigns/{id}/labels',
         // The PNG of one receivable's QR, fetched by a mail client.
         '/finance/qr/{id}/{token}',
         '/finance/movements/export',
@@ -331,6 +334,24 @@ final class UxConventionsTest extends TestCase
     private static function isEmailTemplate(string $rel): bool
     {
         return str_contains($rel, '/email/') || str_contains($rel, '/emails/');
+    }
+
+    /**
+     * A template rendered into a PDF rather than into a page — the
+     * `views/pdf/` (or `templates/pdf/`) convention, the printed sibling
+     * of `/email/` above.
+     *
+     * The page conventions are about a browser: a viewport that can be
+     * narrower than the content, a stylesheet that ships Bootstrap, a
+     * visitor who scrolls. None of that reaches dompdf, which lays out a
+     * fixed sheet of paper against a stylesheet the generating service
+     * hands it. Wrapping a printed grid in `.table-responsive` would name
+     * a class the document does not carry, to obtain an overflow
+     * behaviour paper does not have.
+     */
+    private static function isPdfTemplate(string $rel): bool
+    {
+        return str_contains($rel, '/pdf/');
     }
 
     /**
@@ -610,7 +631,7 @@ final class UxConventionsTest extends TestCase
     {
         $found = [];
         foreach (self::templates() as $rel) {
-            if (self::isEmailTemplate($rel)) {
+            if (self::isEmailTemplate($rel) || self::isPdfTemplate($rel)) {
                 continue;
             }
             $source = self::templateSource($rel);

@@ -50,6 +50,16 @@ Replié en haut de la page. Trois montants, un par catégorie, saisis à la
 main, qui ne servent qu'à traduire un écart en euros. Sans eux, un écart
 s'affiche sans montant plutôt qu'avec un montant faux.
 
+Si un connecteur IA est configuré, un bouton **Chercher les montants** lit
+la page des cotisations de la fédération et remplit les trois champs pour
+vous. Il n'enregistre rien : le bloc affiche l'adresse consultée et l'année
+trouvée, vous vérifiez, puis vous cliquez sur « Enregistrer le barème ». Si
+la page annonce une autre année que celle de l'écran, rien n'est pré-rempli
+et le site vous le dit — la page de la fédération porte souvent deux années
+en même temps. Sans connecteur IA, le bouton n'existe pas et les montants se
+saisissent à la main. L'adresse de la page se corrige dans Configuration >
+Réglages, le jour où la fédération la déplace.
+
 Le site devine tout seul lequel de vos tarifs Desk signifie « couple » ou
 « famille » ; le sélecteur n'est là que s'il s'est trompé. Un membre sur
 un autre tarif — animateur, réduit, iAM — n'est jamais comparé, ni signalé

@@ -16,6 +16,8 @@ use Core\Http\Router;
 use Core\Import\MemberYearRepository;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
+use Core\Member\MemberEmailRepository;
+use Core\Member\MemberService;
 use Core\Member\SectionService;
 use Core\Member\UnitStaffSectionService;
 use Core\Scheduler\SchedulerRepository;
@@ -65,6 +67,17 @@ class SosAdminControllerTest extends TestCase
         $memberBadgeRepository = new MemberBadgeRepository($this->pdo);
         $sectionService = new SectionService($connection, $encryption, $memberBadgeRepository);
         $memberYearRepository = new MemberYearRepository($this->pdo);
+        // « Ma disponibilité » resolves which roster member the signed-in
+        // visitor is through the same linked-members lookup the rest of the
+        // site uses — the real service, not a stub, so the tab's emptiness
+        // for a login on no roster is a real answer.
+        $memberService = new MemberService(
+            $memberYearRepository,
+            $encryption,
+            $connection,
+            null,
+            new MemberEmailRepository($this->pdo, $encryption)
+        );
 
         $settingService = new SettingService(new SettingRepository($this->pdo));
         $settingService->register('transition_hour', '10:00', 'text', 'Heure', 'desc', 'sos_staff');
@@ -123,6 +136,7 @@ class SosAdminControllerTest extends TestCase
             $schedulerService,
             $scoutYearResolver,
             $journalService,
+            $memberService,
             null
         );
 
@@ -665,6 +679,208 @@ class SosAdminControllerTest extends TestCase
         $this->assertStringContainsString('pagination', $response->getBody());
         // A bare fragment — no page chrome.
         $this->assertStringNotContainsString('SOS Staff', $response->getBody());
+    }
+
+    // ------------------------------------------------------------------
+    // The phone layout (spec §3): a day list naming who really takes the
+    // calls, one edit sheet for the whole month, and the « Ma
+    // disponibilité » tab.
+    // ------------------------------------------------------------------
+
+    public function testIndexNamesThePersonWhoActuallyReceivesTheCallsOnADay(): void
+    {
+        $akela = $this->createStaffduMember('Akela', '+32470000001');
+        $today = (new \DateTimeImmutable())->format('Y-m-d');
+        $this->onCallRepository->replaceRange($today, $today, [
+            new OnCallAssignment($akela, $today, OnCallAssignment::STATE_ONCALL),
+        ]);
+
+        $body = $this->controller->index(new Request('GET', '/admin/sos', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('sos-day-list', $body);
+        $this->assertStringContainsString('data-date="' . $today . '"', $body);
+        $this->assertStringContainsString('Akela', $body);
+    }
+
+    /**
+     * Module spec §2.6: several people can be marked on call the same day
+     * and the ROSTER ORDER decides who receives the calls. The page must
+     * name that person and flag the day, never name whoever was clicked
+     * last — the resolution lives in OnCallService, not in the template.
+     */
+    public function testIndexFlagsADayWithSeveralPeopleMarkedOnCall(): void
+    {
+        $first = $this->createStaffduMember('Akela', '+32470000001');
+        $second = $this->createStaffduMember('Baloo', '+32470000002');
+        $today = (new \DateTimeImmutable())->format('Y-m-d');
+        $this->onCallRepository->replaceRange($today, $today, [
+            new OnCallAssignment($second, $today, OnCallAssignment::STATE_ONCALL),
+            new OnCallAssignment($first, $today, OnCallAssignment::STATE_ONCALL),
+        ]);
+
+        $body = $this->controller->index(new Request('GET', '/admin/sos', [], [], [], []), [])->getBody();
+
+        // The flag is drawn on every row and hidden with `d-none` — a
+        // visible one is the one without it.
+        $this->assertStringContainsString('class="bi bi-people"', $body);
+        // The roster sorts Akela before Baloo, and the FIRST one is who
+        // the calls actually reach.
+        $this->assertMatchesRegularExpression(
+            '/data-date="' . preg_quote($today, '/') . '"[^>]*>.*?data-day-target>\\s*Akela/s',
+            $body
+        );
+    }
+
+    public function testIndexDoesNotFlagADayWithASingleOnCall(): void
+    {
+        $akela = $this->createStaffduMember('Akela', '+32470000001');
+        $today = (new \DateTimeImmutable())->format('Y-m-d');
+        $this->onCallRepository->replaceRange($today, $today, [
+            new OnCallAssignment($akela, $today, OnCallAssignment::STATE_ONCALL),
+        ]);
+
+        $body = $this->controller->index(new Request('GET', '/admin/sos', [], [], [], []), [])->getBody();
+
+        $this->assertStringNotContainsString('class="bi bi-people"', $body);
+        $this->assertStringContainsString('class="bi bi-people d-none"', $body);
+    }
+
+    public function testIndexShowsTheDefaultNumberHolderOnADayWithNoOnCall(): void
+    {
+        $this->createStaffduMember('Akela', '+32470000001');
+
+        $body = $this->controller->index(new Request('GET', '/admin/sos', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Par défaut — Akela', $body);
+    }
+
+    /**
+     * The running month starts at today: past days are not editable in
+     * practice and pushing the useful part of the list off the first two
+     * screens is the defect this layout exists to fix. Only the phone
+     * layout is trimmed — the desktop grid still renders the whole month.
+     */
+    public function testIndexStartsTheCurrentMonthAtTodayOnThePhoneLayoutOnly(): void
+    {
+        $now = new \DateTimeImmutable();
+        if ((int) $now->format('j') < 3) {
+            $this->markTestSkipped('No past day in the current month to assert on.');
+        }
+        // A roster member, so the desktop grid actually has cells to
+        // compare the trimmed phone list against.
+        $this->createStaffduMember('Akela', '+32470000001');
+        $firstOfMonth = $now->format('Y-m-01');
+
+        $body = $this->controller->index(new Request('GET', '/admin/sos', [], [], [], []), [])->getBody();
+
+        $this->assertStringNotContainsString('id="sos-day-' . $firstOfMonth . '"', $body);
+        // The desktop grid is untouched: it still carries a cell for the
+        // first of the month.
+        $this->assertStringContainsString('data-date="' . $firstOfMonth . '"', $body);
+    }
+
+    public function testIndexShowsAnotherMonthWhole(): void
+    {
+        $other = (new \DateTimeImmutable())->modify('first day of next month');
+
+        $body = $this->controller
+            ->index(new Request('GET', '/admin/sos', ['month' => $other->format('Y-m')], [], [], []), [])
+            ->getBody();
+
+        $this->assertStringContainsString('id="sos-day-' . $other->format('Y-m-d') . '"', $body);
+    }
+
+    public function testIndexRendersOneEditSheetForTheWholeMonth(): void
+    {
+        $this->createStaffduMember('Akela', '+32470000001');
+
+        $body = $this->controller->index(new Request('GET', '/admin/sos', [], [], [], []), [])->getBody();
+
+        $this->assertSame(1, substr_count($body, 'id="sos-day-sheet"'));
+        $this->assertSame(1, substr_count($body, 'data-sheet-member-id="'));
+        // Three states, named in words rather than ✓ / ✗ / —.
+        $this->assertStringContainsString('>Garde</button>', $body);
+        $this->assertStringContainsString('>Indispo</button>', $body);
+        $this->assertStringContainsString('>Rien</button>', $body);
+    }
+
+    public function testIndexOffersTheTwoPhoneTabs(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/admin/sos', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Le mois', $body);
+        $this->assertStringContainsString('Ma disponibilité', $body);
+    }
+
+    /**
+     * The tab is a convenience, never an authorization rule (SECURITY.md
+     * §3): a signed-in admin who is not on the Staff d'U roster gets an
+     * empty state there and can still edit anybody from « Le mois ».
+     */
+    public function testMyAvailabilityTabIsEmptyForALoginOnNoRoster(): void
+    {
+        $this->createStaffduMember('Akela', '+32470000001');
+
+        $body = $this->controller
+            ->index(new Request('GET', '/admin/sos', ['tab' => 'me'], [], [], []), [])
+            ->getBody();
+
+        // The apostrophes of « Vous n'êtes pas… » come back HTML-escaped —
+        // the empty state renders its message escaped, as it should.
+        $this->assertStringContainsString('pas sur la liste du Staff', $body);
+        $this->assertStringNotContainsString('id="sos-my-availability"', $body);
+    }
+
+    /**
+     * The JSON island carries dates, member ids and duty states — never a
+     * phone number, and never a name either (AGENTS.md § Security
+     * checklist). The names the phone layout shows are rendered
+     * server-side, and read back out of the DOM by sos-admin.js.
+     */
+    public function testTheJsonIslandCarriesNoPhoneNumberAndNoName(): void
+    {
+        $akela = $this->createStaffduMember('Akela', '+32470111222');
+        $today = (new \DateTimeImmutable())->format('Y-m-d');
+        $this->onCallRepository->replaceRange($today, $today, [
+            new OnCallAssignment($akela, $today, OnCallAssignment::STATE_ONCALL),
+        ]);
+
+        $body = $this->controller->index(new Request('GET', '/admin/sos', [], [], [], []), [])->getBody();
+
+        $start = strpos($body, 'id="sos-admin-data"');
+        $this->assertNotFalse($start);
+        $island = substr($body, $start, strpos($body, '</script>', $start) - $start);
+
+        $this->assertStringNotContainsString('+32470111222', $island);
+        $this->assertStringNotContainsString('Akela', $island);
+        $this->assertStringContainsString('orderedMemberIds', $island);
+    }
+
+    // ------------------------------------------------------------------
+    // §4b — the default-number warning is conditional.
+    // ------------------------------------------------------------------
+
+    public function testDefaultNumberWarningIsShownWhenTodayHasNoOnCall(): void
+    {
+        $this->createStaffduMember('Akela', '+32470000001');
+
+        $body = $this->controller->index(new Request('GET', '/admin/sos', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('default-number-immediate-warning', $body);
+        $this->assertStringContainsString("Aujourd'hui n'a pas de garde attribuée", $body);
+    }
+
+    public function testDefaultNumberWarningIsHiddenWhenTodayHasAnOnCall(): void
+    {
+        $akela = $this->createStaffduMember('Akela', '+32470000001');
+        $today = (new \DateTimeImmutable())->format('Y-m-d');
+        $this->onCallRepository->replaceRange($today, $today, [
+            new OnCallAssignment($akela, $today, OnCallAssignment::STATE_ONCALL),
+        ]);
+
+        $body = $this->controller->index(new Request('GET', '/admin/sos', [], [], [], []), [])->getBody();
+
+        $this->assertStringNotContainsString('default-number-immediate-warning', $body);
     }
 
     /**

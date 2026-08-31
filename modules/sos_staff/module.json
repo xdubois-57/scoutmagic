@@ -2,7 +2,7 @@
   "id": "sos_staff",
   "name": "SOS Staff d'U",
   "description": "Planification des gardes du numéro SOS de l'unité et automatisation des changements de redirection téléphonique.",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -142,8 +142,34 @@
       "key": "email_notifications_enabled",
       "default_value": "1",
       "type": "boolean",
-      "label": "Notifications par email",
-      "description": "Envoie un email à la personne de garde (nouvelle et ancienne) à chaque changement de redirection."
+      "label": "Notifications de garde",
+      "description": "Interrupteur global des notifications de changement de garde (personne qui prend la garde, personne qui la termine). Chacune choisit ensuite ses canaux — centre de notifications, push, e-mail — dans ses préférences de notifications ; désactiver ce réglage coupe l'envoi pour tout le monde, quels que soient leurs choix."
+    }
+  ],
+  "notifications": [
+    {
+      "id": "sos_staff.oncall_started",
+      "label": "La redirection du numéro SOS pointe vers vous",
+      "description": "Quand le numéro SOS de l'unité se met à sonner sur votre téléphone, parce que votre garde commence.",
+      "group": "SOS Staff d'U",
+      "role_min": "chief",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "default_on"
+      }
+    },
+    {
+      "id": "sos_staff.oncall_ended",
+      "label": "Votre garde SOS est terminée",
+      "description": "Quand le numéro SOS de l'unité cesse d'être redirigé vers votre téléphone.",
+      "group": "SOS Staff d'U",
+      "role_min": "chief",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "default_on"
+      }
     }
   ],
   "cookies": [],
