@@ -30,6 +30,7 @@ use Modules\Gallery\Api\GalleryAlbumProvider;
 use Modules\MassMail\Api\MassMailQueryInterface;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
 
 /**
  * @group database
@@ -65,7 +66,7 @@ class MemberPageServiceTest extends TestCase
         $this->memberEmailService = new MemberEmailService(
             new MemberEmailRepository($this->pdo, $this->encryption),
             $this->createMock(\Core\Mail\MailService::class),
-            $this->createMock(\Twig\Environment::class),
+            EmailTemplateRendererFactory::overTestDatabase($this->pdo, $this->createMock(\Twig\Environment::class)),
             $this->createMock(\Core\Journal\JournalService::class),
             $this->sectionService,
             $this->memberService,

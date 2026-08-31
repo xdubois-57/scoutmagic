@@ -77,6 +77,7 @@ class InboundMailTestHelper
             to_emails_encrypted BLOB,
             body_text_encrypted BLOB NOT NULL,
             body_html_encrypted BLOB NOT NULL,
+            raw_headers_encrypted BLOB,
             sent_at TEXT NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             stored_analysis_at TEXT,

@@ -1,0 +1,58 @@
+{% extends 'base.html.twig' %}
+{% block title %}E-mails — {{ site_name }}{% endblock %}
+{% block content %}
+{% include 'partials/page_header.html.twig' with {
+    title: 'E-mails',
+    subtitle: "Tous les emails que le site envoie tout seul. Chacun peut être réécrit — sujet et corps — sauf ceux qui servent à se connecter ou à confirmer une adresse.",
+} only %}
+
+{% for group in groups %}
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5 mb-3">{{ group.label }}</h2>
+            {# Two columns, not three: « quand il part » is a full sentence and
+               a column of its own squeezed the e-mail's name to two words per
+               line at 375px. Under the name it reads as what it is — a
+               subtitle — and the row keeps its shape at every width, so the
+               table needs no horizontal scrolling here (design.md §7.1). #}
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Email</th>
+                            <th class="email-state-col">État</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for template in group.templates %}
+                            <tr>
+                                <td>
+                                    {% if template.editable %}
+                                        <a href="/config/emails/{{ template.id|url_encode }}">{{ template.label }}</a>
+                                    {% else %}
+                                        {{ template.label }}
+                                    {% endif %}
+                                    <div class="small text-body-secondary">{{ template.description }}</div>
+                                </td>
+                                <td class="email-state-col">
+                                    {% if not template.editable %}
+                                        <span class="badge text-bg-light">Non modifiable</span>
+                                    {% elseif template.customised %}
+                                        <span class="badge text-bg-primary">Personnalisé</span>
+                                    {% else %}
+                                        <span class="badge text-bg-secondary">Par défaut</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+{% else %}
+    {% include 'partials/empty_state.html.twig' with {
+        message: "Aucun email déclaré — ce qui ne devrait jamais arriver, le site en envoie forcément.",
+    } only %}
+{% endfor %}
+{% endblock %}

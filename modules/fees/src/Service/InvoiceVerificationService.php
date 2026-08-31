@@ -44,8 +44,15 @@ class InvoiceVerificationService
         private RosterSnapshotRepository $snapshots,
         private HouseholdTariffService $tariffs,
         private SectionService $sections,
-        private HouseholdDetailRepository $names
+        private HouseholdDetailRepository $names,
+        /**
+         * How a Desk formation wording is read. Defaults to the detector's
+         * own fallback reading, which is what a unit without the
+         * leadership module gets (roadmap IT-21).
+         */
+        private ?BrevetDetector $brevets = null
     ) {
+        $this->brevets ??= new BrevetDetector();
     }
 
     /**
@@ -287,7 +294,7 @@ class InvoiceVerificationService
 
         $missing = [];
         foreach ($snapshot as $member) {
-            if (isset($reduced[$member->memberId]) || !BrevetDetector::isBrevet($member->formationLevel)) {
+            if (isset($reduced[$member->memberId]) || !$this->brevets->isBrevet($member->formationLevel)) {
                 continue;
             }
             // Only where the document actually applied the reduction: a
@@ -514,7 +521,7 @@ class InvoiceVerificationService
 
             return count(array_filter(
                 $inSection,
-                static fn(RosterSnapshotMember $m): bool => BrevetDetector::isBrevet($m->formationLevel)
+                fn(RosterSnapshotMember $m): bool => $this->brevets->isBrevet($m->formationLevel)
             ));
         }
 
@@ -531,9 +538,14 @@ class InvoiceVerificationService
         ));
     }
 
+    /**
+     * Whether a line is ABOUT a brevet reduction — read from the document's
+     * own words, never through a unit's mapping of what its people's Desk
+     * wordings mean (see BrevetDetector::mentionsBrevet()).
+     */
     private static function mentionsBrevet(StoredInvoiceLine $line): bool
     {
-        return BrevetDetector::isBrevet($line->reference . ' ' . $line->descriptor);
+        return BrevetDetector::mentionsBrevet($line->reference . ' ' . $line->descriptor);
     }
 
     /** @return array<int, string> */

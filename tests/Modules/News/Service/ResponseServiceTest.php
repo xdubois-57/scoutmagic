@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Modules\News\Service;
 
+use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
+
 use Core\Badge\MemberBadgeRepository;
 use Core\Database\Connection;
 use Core\Import\MemberYearRepository;
@@ -87,7 +89,7 @@ class ResponseServiceTest extends TestCase
 
         return new ResponseService(
             $this->responseRepository, $roleResolver, $sectionService,
-            $this->mailService, $twig, $shortUrlService, 'https://example.com', 'Test Unit',
+            $this->mailService, EmailTemplateRendererFactory::shippedOnlyForModule($twig, 'news'), $shortUrlService, 'https://example.com', 'Test Unit',
             $structuredCommunication, $expectedReceivable, $sepaQrCode, $financeAccount, $journalService
         );
     }

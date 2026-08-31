@@ -207,5 +207,50 @@
     "images": {
       "role_min": "public"
     }
-  }
+  },
+  "emails": [
+    {
+      "id": "news.confirmation",
+      "label": "Confirmation d'inscription à une activité",
+      "description": "Envoyé à qui vient de répondre au formulaire d'un article, avec le récapitulatif de sa réponse.",
+      "default_subject": "Confirmation — {{ article_title }}",
+      "template": "@news/email/confirmation.html.twig",
+      "variables": [
+        {
+          "name": "article_title",
+          "label": "Titre de l'article",
+          "example": "Week-end de Pâques"
+        },
+        {
+          "name": "edit_url",
+          "label": "Lien pour modifier la réponse",
+          "example": "https://exemple.be/news/12/reponse/abc"
+        }
+      ]
+    },
+    {
+      "id": "news.digest",
+      "label": "Résumé des nouvelles réponses",
+      "description": "Envoyé à l'auteur d'un article quand de nouvelles réponses à son formulaire sont arrivées.",
+      "default_subject": "Nouvelles réponses — {{ article_title }}",
+      "template": "@news/email/digest.html.twig",
+      "variables": [
+        {
+          "name": "article_title",
+          "label": "Titre de l'article",
+          "example": "Week-end de Pâques"
+        },
+        {
+          "name": "count",
+          "label": "Nombre de nouvelles réponses",
+          "example": "3"
+        },
+        {
+          "name": "responses_url",
+          "label": "Lien vers les réponses",
+          "example": "https://exemple.be/news/12/reponses"
+        }
+      ]
+    }
+  ]
 }

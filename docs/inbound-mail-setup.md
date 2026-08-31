@@ -141,3 +141,29 @@ Rien de global. Un module ne peut demander que les messages rattachés à
 ni accès au contenu de la boîte. Un gestionnaire qui peut ouvrir une
 réservation ne gagne pas pour autant une fenêtre sur la correspondance de
 l'unité.
+
+## 10. Les sondes de diagnostic, sur l'installation de support
+
+Cette section ne concerne que l'installation qui **reçoit** les tickets de
+support : sur une unité ordinaire, rien de tout ceci ne s'affiche.
+
+Le module Tableau de bord support relève les boîtes déjà configurées ici
+pour y reconnaître un seul type de message : une **sonde**, envoyée par une
+installation qui teste l'acheminement de ses e-mails. Le sujet porte une clé
+`SMP-…` que ce receveur a lui-même émise ; tout autre message de la boîte
+reste le courrier de quelqu'un d'autre et n'est pas touché.
+
+Deux points valent d'être connus :
+
+- **Seuls les en-têtes sont conservés**, jamais le corps. Le diagnostic,
+  c'est SPF, DKIM, DMARC et la chaîne des relais — une sonde n'a pas de
+  contenu que quiconque ait besoin de relire.
+- **Aucune boîte configurée, aucune sonde possible.** Le receveur répond
+  alors « aucune boîte » aux installations qui demandent, ce qui est la
+  vérité et non une panne : ajoutez une boîte ici pour que la fonction
+  existe.
+
+Le résultat — réception, délai, verdicts d'authentification, chaîne de
+relais — se lit dans le détail d'une installation sur le tableau de bord
+support, réservé aux super-administrateurs : ces lignes contiennent des
+adresses IP et des noms de serveurs.

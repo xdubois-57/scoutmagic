@@ -15,6 +15,7 @@
       "label": "Finances",
       "menu_icon": "bi-cash-coin",
       "menu_group": "gestion",
+      "menu_order": 10,
       "breadcrumb": { "label": "Finances", "parents": ["Espace animateurs"] }
     },
     {

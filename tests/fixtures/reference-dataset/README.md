@@ -353,9 +353,9 @@ construire (§8.4).
 | Contrôle | Valeur |
 |---|---|
 | Membres actifs | 178 / 180 / 180 |
-| Fonctions inédites | `à constater` — `Chef de section` s'ajoute aux 5 de A1 |
-| Fonctions confirmées | 8 (`UnitBlueprint::FUNCTIONS`) |
-| Staff d'U (rôle admin confirmé) | 13 rattachements sur les trois années |
+| Fonctions inédites | `à constater` — le vocabulaire réel en compte davantage qu'avant |
+| Fonctions confirmées | 9 (`UnitBlueprint::FUNCTIONS`), plus une laissée non confirmée : `Délégué de branche` |
+| Staff d'U (rôle admin confirmé) | un rattachement par membre de niveau unité et par année ; au moins trois par année, et les trois fonctions d'unité représentées |
 | Modules activés | `à constater` — tous ceux présents sur le disque |
 | Mouvements financiers importés | 125 pour les six relevés, `à constater` avec le septième |
 | Doublons reconnus | 12 — les 2 comptes × 2 années × 3 lignes de recouvrement |
@@ -599,12 +599,65 @@ moteur et non une promesse — il a déjà changé une fois — et que `--check`
 
 | Année | Membres | Lignes |
 |---|---|---|
-| 2024-2025 | 178 | 266 |
-| 2025-2026 | 180 | 274 |
-| 2026-2027 | 180 | 278 |
+| 2024-2025 | 176 | 266 |
+| 2025-2026 | 178 | 276 |
+| 2026-2027 | 178 | 279 |
 
 Une ligne par (fonction × adresse) : les adresses sont dédupliquées par
-`Type d'adresse` dans le parseur, les fonctions ne le sont pas.
+`Type d'adresse` dans le parseur, les fonctions ne le sont pas — le parseur
+rend bien deux `ParsedFunction` identiques. C'est `DeskImportService` qui les
+réduit à une seule ligne `member_functions`, juste avant l'écriture : deux
+lignes identiques en tous points décrivent une fonction dite deux fois. Deux
+lignes qui diffèrent sur n'importe quel champ (« Animateur / Louveteaux » et
+« Animateur / Baladins ») restent deux fonctions.
+
+#### Le vocabulaire des FONCTION
+
+Ce sont les libellés qu'un vrai export Desk d'unité belge porte, au caractère
+près. La table `UnitBlueprint::FUNCTIONS` en donne le rôle que Config Desk sera
+prié de confirmer — le CSV, lui, ne porte jamais de rôle.
+
+| Niveau | Fonction | Rôle confirmé |
+|---|---|---|
+| Section | `Animé` | `identified` |
+| Section | `Animateur` | `chief` |
+| Section | `Candidat animateur` | `chief` |
+| Section | `Animateur responsable` | `chief` |
+| Section | `Intendant` | `intendant` |
+| Section | `Candidat intendant` | `intendant` |
+| Unité | `Animateur d'unité` | `admin` |
+| Unité | `Équipier d'unité` | `admin` |
+| Unité | `Collaborateur d'unité` | `admin` |
+
+Le jeu inventait auparavant quatre libellés que Desk ne produit pas — `Chef
+d'unité`, `Intendant d'unité`, `Trésorier d'unité`, `Accompagnateur d'unité`.
+Deux conséquences étaient invisibles : rien ne portait `Animateur responsable`,
+donc le drapeau *responsable* du trombinoscope et
+`Core\Module\SectionResponsableProvider` n'avaient aucune donnée du tout ; et
+`Trésorier d'unité` disait dans une FONCTION ce que l'application modélise par
+un **badge** (`Core\Badge`, que `ExtrasBlueprint` attribue déjà à `T0017` les
+trois années), soit le même fait sous deux formes qui pouvaient diverger.
+
+L'orthographe compte : **`Candidat animateur`**, le mot « candidat » d'abord.
+`CandidateDetector` cherche la sous-chaîne « candidat » sans tenir compte de la
+casse ni des accents, donc l'ordre des mots lui est indifférent — il est fixé
+ici par fidélité, pas par contrainte technique. `FunctionRepository::findAll()`
+trie par libellé : les deux `Candidat …` se rangent sous C, loin d'`Animateur`,
+et c'est le comportement voulu.
+
+Trois règles que le générateur tient :
+
+- **exactement un `Animateur responsable` par section et par année** — c'est le
+  responsable désigné, celui que la page publique Sections nomme, que la fiche
+  membre affiche avec son adresse postale et que le trombinoscope met en avant ;
+- **les trois fonctions d'unité tournent** — `UNIT_STAFF_SIZE` vaut 4 ou 5 par
+  an et la rotation garantit au moins un exemplaire de chacune, donc Staff d'U
+  est un staff et non quatre copies du même intitulé ;
+- **une FONCTION reste délibérément hors de la table** —
+  `UnitBlueprint::BRAND_NEW_FUNCTION` (`Délégué de branche`), qui n'apparaît
+  qu'en A3. `DeskImportReplay::confirmFunctionRoles()` la laisse non confirmée,
+  ce qui est le cas « une fonction toute neuve qu'aucun chef n'a encore vue dans
+  Config Desk ». Sans elle, ce cas disparaîtrait du jeu.
 
 ### 9.2 Les scénarios
 
@@ -698,8 +751,8 @@ production** — voir l'avertissement en tête de ce fichier.
 | Compte | Adresse | Ce qu'il montre |
 |---|---|---|
 | superadmin | `superadmin@example.com` | Le seul compte sans membre derrière : celui de l'installation. |
-| chef d'unité | l'email de `T0015` | Animateur en A1, Chef d'unité ensuite (scénario 10) — le membre par qui Staff d'U se peuple. |
-| intendant | l'email de `T0016` | Intendant d'unité les trois années (scénario 11) : voit les Finances sans être chef. |
+| chef d'unité | l'email de `T0015` | Animateur en A1, Animateur d'unité ensuite (scénario 10) — l'un des membres par qui Staff d'U se peuple. |
+| intendant | l'email de `T0016` | Intendant des Pionniers les trois années (scénario 11) : voit les Finances sans être chef. |
 | chef de section | l'email de `T0014` | Animateur qui change de section entre A1 et A2 (scénario 9). |
 | animé | l'email de `T0012` | Éclaireur qui gagne son totem entre A1 et A2 (scénario 7). |
 | parent | l'email de `T0020` | Aîné d'une fratrie de trois partageant l'email d'un parent (scénario 17). |

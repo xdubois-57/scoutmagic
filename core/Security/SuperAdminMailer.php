@@ -10,7 +10,7 @@ namespace Core\Security;
 
 use Core\Mail\MailException;
 use Core\Mail\MailService;
-use Twig\Environment;
+use Core\Mail\Template\EmailTemplateRenderer;
 
 /**
  * The three emails a change to a super-admin access owes the person it
@@ -45,7 +45,7 @@ class SuperAdminMailer
 {
     public function __construct(
         private MailService $mailService,
-        private Environment $twig,
+        private EmailTemplateRenderer $renderer,
         private string $siteName,
         private string $baseUrl
     ) {
@@ -59,37 +59,43 @@ class SuperAdminMailer
      */
     public function sendGranted(string $to, ?string $grantedByLabel): void
     {
-        $this->send($to, 'Vous êtes administrateur du site', 'super_admin_granted', [
-            'granted_by' => $grantedByLabel,
-        ]);
+        $this->send('super_admin_granted', $to, ['granted_by' => $grantedByLabel]);
     }
 
     public function sendRevoked(string $to): void
     {
-        $this->send($to, "Votre accès administrateur a été retiré", 'super_admin_revoked', []);
+        $this->send('super_admin_revoked', $to, []);
     }
 
     public function sendDeactivated(string $to): void
     {
-        $this->send($to, 'Votre accès au site a été suspendu', 'super_admin_deactivated', []);
+        $this->send('super_admin_deactivated', $to, []);
     }
 
     /**
-     * @param array<string, mixed> $context
+     * The subject and both bodies come from
+     * Core\Mail\Template\EmailTemplateRenderer, so an administrator who
+     * reworded one of these three on Configuration > E-mails is obeyed —
+     * and, with nothing customised, the rendering is the same Twig call
+     * this method used to make itself.
+     *
+     * @param array<string, scalar|null> $context
      */
-    private function send(string $to, string $subject, string $template, array $context): void
+    private function send(string $templateId, string $to, array $context): void
     {
         $context += [
             'site_name' => $this->siteName,
             'login_url' => rtrim($this->baseUrl, '/') . '/login',
         ];
 
+        $email = $this->renderer->render($templateId, $context);
+
         try {
             $this->mailService->send(
                 to: $to,
-                subject: $subject,
-                bodyHtml: $this->twig->render("email/{$template}.html.twig", $context),
-                bodyText: $this->twig->render("email/{$template}.text.twig", $context)
+                subject: $email->subject,
+                bodyHtml: $email->bodyHtml,
+                bodyText: $email->bodyText
             );
         } catch (MailException) {
             // Deliberately swallowed — see the class docblock. The change

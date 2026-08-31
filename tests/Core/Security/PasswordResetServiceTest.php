@@ -13,6 +13,7 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Twig\Environment;
 use Twig\Loader\ArrayLoader;
+use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
 
 /**
  * Mirrors Tests\Core\Security\AuthServiceTest's structure/conventions for
@@ -56,7 +57,7 @@ class PasswordResetServiceTest extends TestCase
         $connection->method('getPdo')->willReturn($this->pdo);
 
         $this->service = new PasswordResetService(
-            $connection, $this->encryption, $mailService, $twig, 'https://example.com', 'Test Unit'
+            $connection, $this->encryption, $mailService, EmailTemplateRendererFactory::overTestDatabase($this->pdo, $twig), 'https://example.com', 'Test Unit'
         );
     }
 

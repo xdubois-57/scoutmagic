@@ -45,7 +45,13 @@ class InboundMailService implements InboundMailInterface
          * message that leaves a booking has to take the documents it
          * created there with it (`onUnlinked()`).
          */
-        private ?MessageConsumerRegistry $consumerRegistry = null
+        private ?MessageConsumerRegistry $consumerRegistry = null,
+        /**
+         * Which consumers a box is open to. Optional like the registry
+         * above and for the same reason: only `probeAddressesFor()` needs
+         * it, and a caller that only reads a thread never builds one.
+         */
+        private ?MailboxScopeService $scopeService = null
     ) {
     }
 
@@ -541,6 +547,34 @@ class InboundMailService implements InboundMailInterface
         }
 
         return $summaries;
+    }
+
+    public function probeAddressesFor(string $consumerId): array
+    {
+        $addresses = [];
+        foreach ($this->mailboxRepository->findEnabled() as $mailbox) {
+            // A box's IMAP username is its address on every provider this
+            // module supports, but it is not *required* to be one — some
+            // servers authenticate on a bare account name. A bare name is
+            // not a destination, and offering it would produce a bounce
+            // rather than a diagnosis, so it is left out rather than
+            // guessed at.
+            if (filter_var($mailbox->username, FILTER_VALIDATE_EMAIL) === false) {
+                continue;
+            }
+
+            // Only the boxes this consumer may actually analyse: probing a
+            // box it never reads would produce a message nobody claims and
+            // a « jamais reçu » that means nothing.
+            foreach ($this->scopeService?->analyzingConsumers($mailbox) ?? [] as $consumer) {
+                if ($consumer->consumerId() === $consumerId) {
+                    $addresses[] = $mailbox->username;
+                    break;
+                }
+            }
+        }
+
+        return array_values(array_unique($addresses));
     }
 
     public function isCollecting(): bool

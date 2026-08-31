@@ -113,7 +113,7 @@ class PassageService
      *     member_id: int, name: string, branch_year_label: string,
      *     household: array<int, array{name: string, section_label: ?string}>,
      *     destination_section_id: ?int,
-     *     destination_options: array<int, array{id: int, name: ?string, desk_code: string}>
+     *     destination_options: array<int, array{id: int, desk_code: string, name: ?string, email: ?string, age_branch_id: int, branch_name: string, branch_sort_order: int, is_visible: bool, is_active: bool, color: ?string}>
      *   }>
      * }>
      */
@@ -223,10 +223,20 @@ class PassageService
      * lives here and is shared with getBranchChanges(), so the two can never
      * disagree about who may go where.
      *
-     * @return array<int, array{id: int, name: ?string, desk_code: string}>
+     * The rows are Core\Member\SectionService::getAllWithBranches()'s own,
+     * passed through untouched — narrowing them here to the three keys the
+     * Passage page happens to print made `age_branch_id` invisible to a
+     * caller that legitimately needs it (roadmap IT-17 scopes name
+     * matching to the arrival BRANCH, which is what these sections are of).
+     *
+     * @return array<int, array{id: int, desk_code: string, name: ?string, email: ?string, age_branch_id: int, branch_name: string, branch_sort_order: int, is_visible: bool, is_active: bool, color: ?string}>
      */
-    public function arrivalSectionsForMember(int $memberId, int $currentPublicYearId, string $currentPublicYearLabel): array
-    {
+    public function arrivalSectionsForMember(
+        int $memberId,
+        int $currentPublicYearId,
+        string $currentPublicYearLabel,
+        bool $includeHidden = true
+    ): array {
         $stmt = $this->pdo->prepare(
             "SELECT my.birth_date_encrypted, my.scout_year_offset
              FROM member_years my
@@ -252,8 +262,13 @@ class PassageService
             return [];
         }
 
+        // includeHidden TRUE for the Passage page, which offers a
+        // hidden-but-active section as an ordinary destination; FALSE for
+        // the family form, where the question « dans quelle section ? » is
+        // only asked when the family has a real choice among the sections
+        // they can actually see (roadmap IT-14).
         $sections = [];
-        foreach ($this->sectionService->getAllWithBranches(true) as $section) {
+        foreach ($this->sectionService->getAllWithBranches($includeHidden) as $section) {
             if ($section['branch_sort_order'] === $nextSortOrder) {
                 $sections[] = $section;
             }
@@ -374,17 +389,31 @@ class PassageService
      * than only the current public one — one query, two callers, never a
      * second near-copy of this SQL.
      *
+     * `$includeLeaving` is the ONE axis on which callers legitimately
+     * differ, and it exists because the reenrollment campaign (roadmap
+     * IT-16) turned the departure flag into something a family can set
+     * themselves. For Passage and Prévisions a child marked as leaving is
+     * not a candidate for anything and must stay out. For the campaign the
+     * flag may BE that family's own answer, so excluding them would make
+     * the campaign forget precisely the families who answered: their card
+     * would vanish from « Réinscription » the moment they said « il ne
+     * revient pas », leaving them unable to see or change what they had
+     * just told the unit, and the tracking total would shrink by one with
+     * every departure answer received.
+     *
      * @return array<int, array<string, mixed>>
      */
-    public function getAnimeMemberYears(int $scoutYearId): array
+    public function getAnimeMemberYears(int $scoutYearId, bool $includeLeaving = false): array
     {
+        $leavingFilter = $includeLeaving ? '' : ' AND my.leaving = 0';
+
         $stmt = $this->pdo->prepare(
             "SELECT my.id AS member_year_id, my.member_id, my.first_name_encrypted, my.last_name_encrypted,
                     my.birth_date_encrypted, my.gender_encrypted, my.scout_year_offset, mf.section_id
              FROM member_years my
              JOIN member_functions mf ON mf.member_year_id = my.id
              JOIN functions f ON mf.function_id = f.id
-             WHERE my.scout_year_id = ? AND my.is_active = 1 AND my.leaving = 0
+             WHERE my.scout_year_id = ? AND my.is_active = 1{$leavingFilter}
                AND f.role NOT IN ('chief', 'admin', 'intendant') AND mf.section_id IS NOT NULL
              ORDER BY my.id, mf.is_main_function DESC, mf.id ASC"
         );
@@ -416,6 +445,45 @@ class PassageService
      * @return array<int, array<int, array{name: string, section_label: ?string}>> keyed by member_year_id
      */
     private function resolveHouseholds(array $memberYearIds, int $scoutYearId): array
+    {
+        $neighbours = $this->householdMemberYearIds($memberYearIds, $scoutYearId);
+        if ($neighbours === []) {
+            return [];
+        }
+
+        $everybody = [];
+        foreach ($neighbours as $ids) {
+            foreach ($ids as $id) {
+                $everybody[$id] = true;
+            }
+        }
+        $labels = $this->resolveMemberYearNamesAndSections(array_keys($everybody));
+
+        $households = [];
+        foreach ($neighbours as $memberYearId => $ids) {
+            foreach ($ids as $id) {
+                $households[$memberYearId][] = $labels[$id] ?? ['name' => '?', 'section_label' => null];
+            }
+        }
+
+        return $households;
+    }
+
+    /**
+     * The same « même adresse » link, as IDS rather than as names.
+     *
+     * Split out of resolveHouseholds() rather than copied (roadmap IT-18):
+     * the optimiser needs to know which of the people it is placing share
+     * an address, and a second query answering that question its own way
+     * would be a second definition of « même adresse » — the one notion
+     * this page is most careful never to call « fratrie ».
+     *
+     * @param array<int> $memberYearIds
+     * @return array<int, array<int, int>> member_year_id => the OTHER
+     *         member_year ids at one of its addresses; a member with no
+     *         neighbour is absent, never present with an empty list
+     */
+    public function householdMemberYearIds(array $memberYearIds, int $scoutYearId): array
     {
         $memberYearIds = array_values(array_unique($memberYearIds));
         if ($memberYearIds === []) {
@@ -461,8 +529,6 @@ class PassageService
             $allOccupantIds[$occupantId] = true;
         }
 
-        $labels = $this->resolveMemberYearNamesAndSections(array_keys($allOccupantIds));
-
         $households = [];
         foreach ($blindsByMemberYear as $memberYearId => $blinds) {
             $seen = [];
@@ -474,7 +540,7 @@ class PassageService
                         continue;
                     }
                     $seen[$occupantId] = true;
-                    $households[$memberYearId][] = $labels[$occupantId] ?? ['name' => '?', 'section_label' => null];
+                    $households[$memberYearId][] = $occupantId;
                 }
             }
         }

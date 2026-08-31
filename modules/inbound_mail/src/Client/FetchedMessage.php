@@ -49,7 +49,20 @@ class FetchedMessage
          * with `Precedence: bulk`, and a flag that suppressed analysis
          * would quietly lose a unit its rental enquiries.
          */
-        public readonly bool $isBulk = false
+        public readonly bool $isBulk = false,
+        /**
+         * The message's raw header block, verbatim, exactly as it arrived
+         * — every folded line, in order, with nothing decoded.
+         *
+         * Carried for the consumers that asked to keep it
+         * (Api\MessageRetentionPreference, roadmap IT-22): the
+         * authentication verdict and the relay chain are only readable
+         * here, since everything else on this object is the parse's
+         * conclusions rather than what was written. Empty when a client
+         * cannot supply it, which is a complete answer — the column is
+         * then simply left NULL.
+         */
+        public readonly string $rawHeaders = ''
     ) {
     }
 }

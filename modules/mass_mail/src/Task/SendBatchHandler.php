@@ -280,10 +280,20 @@ class SendBatchHandler implements TaskHandlerInterface
         // this particular call path). Same TwigFactory::create()
         // task-context pattern as Modules\News\Task\SendResponseDigestHandler.
         $twig = \Core\View\TwigFactory::create(dirname(__DIR__, 4) . '/core/View/templates');
+        // Core templates only, like the notification-e-mail handler: the
+        // unsubscribe e-mails this service sends are core's, so there is
+        // no module manifest to aggregate on this path. A customisation of
+        // them is still honoured — that lives in the database.
+        $emailTemplateRenderer = new \Core\Mail\Template\EmailTemplateRenderer(
+            $twig,
+            new \Core\Mail\Template\EmailTemplateRegistry(),
+            new \Core\Mail\Template\EmailTemplateOverrideRepository($pdo),
+            $context->journal
+        );
         $memberEmailService = new \Core\Member\MemberEmailService(
             new \Core\Member\MemberEmailRepository($pdo, $context->encryption),
             $context->mailService,
-            $twig,
+            $emailTemplateRenderer,
             $context->journal,
             $sectionService,
             $memberService,

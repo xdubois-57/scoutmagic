@@ -8,6 +8,9 @@ declare(strict_types=1);
 
 namespace Core\Notification\Task;
 
+use Core\Mail\Template\EmailTemplateOverrideRepository;
+use Core\Mail\Template\EmailTemplateRegistry;
+use Core\Mail\Template\EmailTemplateRenderer;
 use Core\Notification\NotificationMailer;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
@@ -55,9 +58,19 @@ class SendNotificationEmailsHandler implements TaskHandlerInterface
         // (§8.17's create_backup lesson). Core templates only: a
         // notification's email body is core's, whatever module declared
         // the type.
+        // The renderer is built here too, and deliberately with the CORE
+        // registry only: a notification's e-mail body is core's, whatever
+        // module declared the type, so there is no module manifest to
+        // aggregate on this path. A customisation of it is still honoured
+        // — that lives in the database, not in a manifest.
         $mailer = new NotificationMailer(
             $context->mailService,
-            TwigFactory::create(dirname(__DIR__, 3) . '/core/View/templates'),
+            new EmailTemplateRenderer(
+                TwigFactory::create(dirname(__DIR__, 3) . '/core/View/templates'),
+                new EmailTemplateRegistry(),
+                new EmailTemplateOverrideRepository($context->connection->getPdo()),
+                $context->journal
+            ),
             (string) ($context->settings->get('site_name') ?: 'Unité scoute'),
             (string) ($context->settings->get('base_url') ?? '')
         );

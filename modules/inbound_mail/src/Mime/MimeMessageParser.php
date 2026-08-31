@@ -74,7 +74,11 @@ class MimeMessageParser
             bodyText: $bodyText,
             bodyHtml: $bodyHtml,
             attachments: $attachments,
-            isBulk: $this->bulkDetector->detect($headers, $fromEmail)
+            isBulk: $this->bulkDetector->detect($headers, $fromEmail),
+            // Verbatim, undecoded and unfolded — the block as it arrived.
+            // Whether any of it is kept is decided later, by the consumers
+            // that claim the message (roadmap IT-22).
+            rawHeaders: $headerBlock
         );
     }
 

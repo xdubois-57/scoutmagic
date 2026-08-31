@@ -18,6 +18,7 @@ use Core\Member\SectionStaffAuthorizationService;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Modules\Registration\Service\ReenrollmentDepartureService;
 use Twig\Environment;
 
 /**
@@ -40,7 +41,8 @@ class DeparturesController extends AbstractController
         private SectionStaffAuthorizationService $sectionStaffAuthorizationService,
         private SectionService $sectionService,
         private DepartureService $departureService,
-        private ScoutYearResolver $scoutYearResolver
+        private ScoutYearResolver $scoutYearResolver,
+        private ReenrollmentDepartureService $reenrollmentDepartureService
     ) {
     }
 
@@ -62,6 +64,7 @@ class DeparturesController extends AbstractController
                 'selected_section' => null,
                 'rows' => [],
                 'scout_year_label' => $effectiveYear->label,
+                'reenrollment' => ['visible' => false, 'divergences' => 0, 'unanswered' => 0, 'target_year_label' => null],
                 'csrf_token' => CsrfGuard::generateToken(),
             ]);
         }
@@ -86,11 +89,23 @@ class DeparturesController extends AbstractController
             ];
         }
 
+        // What the family said about each of these children, and the two
+        // numbers a chief needs before reading the list (roadmap IT-16).
+        // The page renders the answers; it never writes one, and nothing
+        // it offers can edit or erase one.
+        $annotated = $this->reenrollmentDepartureService->annotate($rows, $effectiveYear->label);
+
         return $this->render('@registration/departures.html.twig', [
             'sections' => $staffedSections,
             'selected_section' => $selectedSection,
-            'rows' => $rows,
+            'rows' => $annotated['rows'],
             'scout_year_label' => $effectiveYear->label,
+            'reenrollment' => [
+                'visible' => $annotated['visible'],
+                'divergences' => $annotated['divergences'],
+                'unanswered' => $annotated['unanswered'],
+                'target_year_label' => $annotated['target_year_label'],
+            ],
             'csrf_token' => CsrfGuard::generateToken(),
         ]);
     }

@@ -15,11 +15,16 @@ use Core\Http\Response;
 use Core\Member\MemberYearService;
 use Core\Member\SectionService;
 use Core\ScoutYear\ScoutYearResolver;
+use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Modules\Registration\Repository\AgeBracketRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\SectionTransferRepository;
 use Modules\Registration\Service\PassageService;
+use Modules\Registration\Service\PassageCommentReviewService;
+use Modules\Registration\Service\PassageOptimizationService;
+use Modules\Registration\Service\PassagePlanningService;
+use Modules\Registration\Service\PassageStatisticsService;
 use Modules\Registration\Service\SlotMath;
 use Modules\Registration\Service\SlotService;
 use Twig\Environment;
@@ -51,7 +56,13 @@ class PassageController extends AbstractController
         private AgeBracketRepository $ageBracketRepository,
         private SlotService $slotService,
         private ScoutYearResolver $scoutYearResolver,
-        private ScoutYearService $scoutYearService
+        private ScoutYearService $scoutYearService,
+        private PassageStatisticsService $statisticsService,
+        private PassagePlanningService $planningService,
+        private \Modules\Registration\Repository\PassageNoteRepository $passageNoteRepository,
+        private \Modules\Registration\Repository\ReenrollmentRepository $reenrollmentRepository,
+        private ?PassageCommentReviewService $commentReview = null,
+        private ?PassageOptimizationService $optimizationService = null
     ) {
     }
 
@@ -76,11 +87,49 @@ class PassageController extends AbstractController
             (int) $publicYear['id'], (string) $publicYear['label'], (int) $targetYear['id']
         );
 
+        // IT-17 — what the families answered, beside the decision each
+        // line is about. The arrival branch travels with each row because
+        // it is what a typed « Léo » is looked for among: the sections
+        // already computed for the row ARE that branch's, so nothing is
+        // recomputed to know it.
+        $branchByRequest = [];
+        foreach ($newRegistrations as $row) {
+            $branchByRequest[$row['request']->id] = $row['slot']['age_branch_id'] ?? null;
+        }
+        $branchByMember = [];
+        foreach ($branchChanges as $group) {
+            foreach ($group['members'] as $member) {
+                $branchByMember[$member['member_id']] = $member['destination_options'][0]['age_branch_id'] ?? null;
+            }
+        }
+
         return $this->render('@registration/passage.html.twig', [
             'target_year_label' => $targetYear['label'],
             'current_year_label' => $publicYear['label'],
             'new_registrations' => $newRegistrations,
             'branch_changes' => $branchChanges,
+            'planning_requests' => $this->planningService->forRequests(
+                $branchByRequest,
+                (int) $publicYear['id'],
+                (int) $targetYear['id']
+            ),
+            'planning_members' => $this->planningService->forMembers(
+                $branchByMember,
+                (int) $publicYear['id'],
+                (int) $targetYear['id']
+            ),
+            'statistics' => $this->statisticsService->forTargetYear((int) $targetYear['id']),
+            // IT-17 — the optional AI re-reading. Absent module, absent
+            // provider, absent block: the page must not mention a feature
+            // this unit does not have (ARCHITECTURE.md §7.5).
+            'ai_available' => $this->commentReview !== null && $this->commentReview->isAvailable(),
+            'ai_pending' => $this->commentReview !== null ? $this->commentReview->pendingCount((int) $targetYear['id']) : 0,
+            // IT-18 — what the « Optimiser » dialog says before anybody
+            // presses anything: how many lines are already settled and how
+            // many are still to place.
+            'optimization' => $this->optimizationService !== null
+                ? $this->optimizationService->counts($newRegistrations, $branchChanges)
+                : ['kept' => 0, 'to_place' => 0],
             'csrf_token' => CsrfGuard::generateToken(),
         ]);
     }
@@ -122,7 +171,11 @@ class PassageController extends AbstractController
 
         $this->requestRepository->updateIntendedSection($registrationRequest->id, $sectionId);
 
-        return $this->json(['success' => true, 'intended_section_id' => $sectionId]);
+        return $this->json([
+            'success' => true,
+            'intended_section_id' => $sectionId,
+            'statistics_html' => $this->renderStatistics(),
+        ]);
     }
 
     /**
@@ -162,7 +215,11 @@ class PassageController extends AbstractController
         if ($submittedSectionId === 0) {
             $this->transferRepository->clearDestination($memberId, (int) $targetYear['id']);
 
-            return $this->json(['success' => true, 'destination_section_id' => null]);
+            return $this->json([
+                'success' => true,
+                'destination_section_id' => null,
+                'statistics_html' => $this->renderStatistics((int) $targetYear['id']),
+            ]);
         }
 
         $allowedSectionIds = $this->arrivalSectionIdsForMember($memberId, (int) $publicYear['id'], (string) $publicYear['label']);
@@ -175,7 +232,399 @@ class PassageController extends AbstractController
 
         $this->transferRepository->setDestination($memberId, (int) $targetYear['id'], $submittedSectionId);
 
-        return $this->json(['success' => true, 'destination_section_id' => $submittedSectionId]);
+        return $this->json([
+            'success' => true,
+            'destination_section_id' => $submittedSectionId,
+            'statistics_html' => $this->renderStatistics((int) $targetYear['id']),
+        ]);
+    }
+
+    /**
+     * POST /passage/membre/{id}/souhait — the section the STAFF read the
+     * family as wanting (roadmap IT-17).
+     *
+     * A value of the staff's own, in a table of their own, never a write
+     * into the family's answer: every reader of registration_reenrollments
+     * takes a row there as « this family has answered », so a chief
+     * recording a wish for a silent family would take them out of the
+     * reminder list by typing about them. It is also why a chief may fill
+     * this in for a family who never answered at all, which is exactly
+     * what the roadmap asks for.
+     *
+     * Not a destination: the destination is the decision, saved by
+     * saveDestination() above and constrained to the arrival branch. This
+     * is the wish that informs it.
+     *
+     * @param array<string, string> $params
+     */
+    public function savePreferredSection(Request $request, array $params): Response
+    {
+        $data = $this->decodeJsonBody($request);
+        if ($data === null) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+        if (($guard = $this->guardCsrfJson($request, (string) ($data['_csrf_token'] ?? ''))) !== null) {
+            return $guard;
+        }
+
+        $memberId = (int) ($params['id'] ?? 0);
+        if ($memberId <= 0) {
+            return $this->json(['success' => false, 'error' => 'Membre introuvable.'], 404);
+        }
+
+        [$publicYear, $targetYear] = $this->resolveYears();
+        $sectionId = (int) ($data['preferred_section_id'] ?? 0);
+
+        if ($sectionId !== 0) {
+            $allowed = $this->arrivalSectionIdsForMember($memberId, (int) $publicYear['id'], (string) $publicYear['label']);
+            if (!in_array($sectionId, $allowed, true)) {
+                return $this->json(
+                    ['success' => false, 'error' => "Cette section n'appartient pas à la branche d'arrivée de ce membre."],
+                    422
+                );
+            }
+        }
+
+        $this->passageNoteRepository->setPreferredSection(
+            $memberId,
+            (int) $targetYear['id'],
+            $sectionId !== 0 ? $sectionId : null,
+            AuthSession::getUserAccountId()
+        );
+
+        return $this->json(['success' => true, 'preferred_section_id' => $sectionId !== 0 ? $sectionId : null]);
+    }
+
+    /**
+     * POST /passage/membre/{id}/note — the staff's internal note.
+     *
+     * A write of its own, separate from the section above it, for the same
+     * reason « Départs » splits its checkbox from its comment: the page
+     * saves each field as it is edited, and one save must never clobber
+     * the other's field.
+     *
+     * Never journaled and never returned in anything a family receives:
+     * this is a note about a child, written by the staff, for the staff
+     * (SECURITY.md §11 — count, do not name).
+     *
+     * @param array<string, string> $params
+     */
+    public function saveStaffNote(Request $request, array $params): Response
+    {
+        $data = $this->decodeJsonBody($request);
+        if ($data === null) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+        if (($guard = $this->guardCsrfJson($request, (string) ($data['_csrf_token'] ?? ''))) !== null) {
+            return $guard;
+        }
+
+        $memberId = (int) ($params['id'] ?? 0);
+        if ($memberId <= 0) {
+            return $this->json(['success' => false, 'error' => 'Membre introuvable.'], 404);
+        }
+
+        [, $targetYear] = $this->resolveYears();
+
+        $this->passageNoteRepository->setStaffNote(
+            $memberId,
+            (int) $targetYear['id'],
+            (string) ($data['note'] ?? ''),
+            AuthSession::getUserAccountId()
+        );
+
+        return $this->json(['success' => true]);
+    }
+
+    /**
+     * POST /passage/souhait/{id}/rattacher — a chief deciding which of
+     * several candidates a typed name meant.
+     *
+     * The raw name is untouched: what a parent wrote is what a parent
+     * wrote, and this records a second fact beside it. The chosen member
+     * is re-checked against the wish's OWN candidate list rather than
+     * trusted from the body — a member id in a request is not a boundary,
+     * and a forged one would attach a child nobody named.
+     *
+     * @param array<string, string> $params
+     */
+    public function resolveWish(Request $request, array $params): Response
+    {
+        $data = $this->decodeJsonBody($request);
+        if ($data === null) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+        if (($guard = $this->guardCsrfJson($request, (string) ($data['_csrf_token'] ?? ''))) !== null) {
+            return $guard;
+        }
+
+        $wishId = (int) ($params['id'] ?? 0);
+        $chosen = (int) ($data['matched_member_id'] ?? 0);
+        if ($wishId <= 0 || $chosen <= 0) {
+            return $this->json(['success' => false, 'error' => 'Souhait introuvable.'], 404);
+        }
+
+        $owner = $this->reenrollmentRepository->findWishOwner($wishId);
+        if ($owner === null) {
+            return $this->json(['success' => false, 'error' => 'Souhait introuvable.'], 404);
+        }
+
+        [$publicYear, $targetYear] = $this->resolveYears();
+        if ($owner['scout_year_id'] !== (int) $targetYear['id']) {
+            return $this->json(['success' => false, 'error' => "Ce souhait ne concerne pas l'année préparée."], 422);
+        }
+
+        $label = $this->planningService->resolveWish(
+            $wishId,
+            $chosen,
+            (int) $publicYear['id'],
+            (int) $targetYear['id'],
+            $this->arrivalBranchIdForMember($owner['member_id'], (int) $publicYear['id'], (string) $publicYear['label'])
+        );
+
+        if ($label === null) {
+            return $this->json(
+                ['success' => false, 'error' => 'Ce membre ne fait pas partie des correspondances possibles.'],
+                422
+            );
+        }
+
+        return $this->json(['success' => true, 'label' => $label]);
+    }
+
+    /**
+     * POST /passage/optimiser — distribute everybody nobody has placed yet
+     * (roadmap IT-18, spec §14).
+     *
+     * Synchronous, in this answer. No task, no polling, no waiting banner:
+     * the algorithm is bounded so that it can be, and the response carries
+     * the recomputed statistics box exactly like a single save does.
+     *
+     * The whole plan is written in ONE transaction. A distribution half
+     * applied is worse than none: a chief would be looking at a page where
+     * some children moved and some did not, with nothing saying which.
+     *
+     * @param array<string, string> $params
+     */
+    public function optimize(Request $request, array $params): Response
+    {
+        $data = $this->decodeJsonBody($request);
+        if ($data === null) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+        if (($guard = $this->guardCsrfJson($request, (string) ($data['_csrf_token'] ?? ''))) !== null) {
+            return $guard;
+        }
+        if ($this->optimizationService === null) {
+            return $this->json(['success' => false, 'error' => "L'optimisation n'est pas disponible."], 422);
+        }
+
+        // Anything that is not « respecter les souhaits » is the default
+        // method, so a body naming something unknown gets the balanced run
+        // rather than an error page.
+        $method = (string) ($data['method'] ?? PassageOptimizationService::METHOD_BALANCED) === PassageOptimizationService::METHOD_WISHES
+            ? PassageOptimizationService::METHOD_WISHES
+            : PassageOptimizationService::METHOD_BALANCED;
+
+        [$publicYear, $targetYear] = $this->resolveYears();
+        [$newRegistrations, $branchChanges] = $this->passagePopulation($publicYear, $targetYear);
+
+        $outcome = $this->optimizationService->plan(
+            $newRegistrations,
+            $branchChanges,
+            (int) $publicYear['id'],
+            (int) $targetYear['id'],
+            $method
+        );
+        $this->optimizationService->apply($outcome, (int) $targetYear['id']);
+
+        return $this->json([
+            'success' => true,
+            'placed' => $outcome->placedCount,
+            'kept' => $outcome->keptCount,
+            'warnings' => $outcome->warnings,
+            'statistics_html' => $this->renderStatistics((int) $targetYear['id']),
+        ]);
+    }
+
+    /**
+     * POST /passage/reinitialiser — empty every destination of the target
+     * year, then put back the ones that were never a choice.
+     *
+     * Deliberately the behaviour that was already there, with no notion of
+     * where an assignment came from: a reset that kept part of the previous
+     * answer would be a different word. A branch with one section gets it
+     * back at once, which is Task\AutoAssignPassageHandler's own rule and
+     * not a second one.
+     *
+     * @param array<string, string> $params
+     */
+    public function resetAssignments(Request $request, array $params): Response
+    {
+        $data = $this->decodeJsonBody($request);
+        if ($data === null) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+        if (($guard = $this->guardCsrfJson($request, (string) ($data['_csrf_token'] ?? ''))) !== null) {
+            return $guard;
+        }
+        if ($this->optimizationService === null) {
+            return $this->json(['success' => false, 'error' => "La réinitialisation n'est pas disponible."], 422);
+        }
+
+        [$publicYear, $targetYear] = $this->resolveYears();
+        [, $branchChanges] = $this->passagePopulation($publicYear, $targetYear);
+
+        $reassigned = $this->optimizationService->reset($branchChanges, (int) $targetYear['id']);
+
+        return $this->json([
+            'success' => true,
+            'reassigned' => $reassigned,
+            'statistics_html' => $this->renderStatistics((int) $targetYear['id']),
+        ]);
+    }
+
+    /**
+     * The two blocks of the page, built the one way index() builds them.
+     *
+     * A private helper rather than three call sites repeating the same
+     * four arguments: the reference month-day and the year pair are easy
+     * to get subtly wrong, and an optimiser working on a different roster
+     * from the page it answers would be very hard to see.
+     *
+     * @param array{id: int, label: string} $publicYear
+     * @param array{id: int, label: string} $targetYear
+     * @return array{0: array<int, array<string, mixed>>, 1: array<string, array{section_label: string, members: array<int, array<string, mixed>>}>}
+     */
+    private function passagePopulation(array $publicYear, array $targetYear): array
+    {
+        $referenceMonthDay = $this->slotService->referenceMonthDay();
+
+        return [
+            $this->passageService->getNewRegistrations(
+                (int) $targetYear['id'],
+                (string) $targetYear['label'],
+                $referenceMonthDay,
+                (int) $publicYear['id']
+            ),
+            $this->passageService->getBranchChanges(
+                (int) $publicYear['id'],
+                (string) $publicYear['label'],
+                (int) $targetYear['id']
+            ),
+        ];
+    }
+
+    /**
+     * POST /passage/relire-commentaires — a chief asking the model to read
+     * the free comments that have not been read yet (roadmap IT-17).
+     *
+     * A gesture, never a page load: a family comment sent to an external
+     * provider is a transmission of personal data, and it happens because
+     * somebody asked for it. Idempotent by construction — a comment whose
+     * hash is already on file is skipped, so a double click costs one round
+     * and then nothing.
+     *
+     * @param array<string, string> $params
+     */
+    public function reviewComments(Request $request, array $params): Response
+    {
+        $data = $this->decodeJsonBody($request);
+        if ($data === null) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+        if (($guard = $this->guardCsrfJson($request, (string) ($data['_csrf_token'] ?? ''))) !== null) {
+            return $guard;
+        }
+
+        if ($this->commentReview === null || !$this->commentReview->isAvailable()) {
+            return $this->json(['success' => false, 'error' => "La relecture par IA n'est pas disponible."], 422);
+        }
+
+        [, $targetYear] = $this->resolveYears();
+        $reviewed = $this->commentReview->reviewPending((int) $targetYear['id']);
+
+        return $this->json(['success' => true, 'reviewed' => $reviewed]);
+    }
+
+    /**
+     * POST /passage/membre/{id}/ia — the chief validating, or taking back,
+     * what the model read into a family's comment.
+     *
+     * Until this is set, the suggestion is a sentence on a screen and
+     * nothing else: the optimiser (IT-18) reads only confirmed ones. There
+     * is deliberately no way to EDIT the suggestion here — a chief who
+     * disagrees writes their own internal note, which is theirs, rather
+     * than rewriting a machine's reading into something that then looks
+     * like one.
+     *
+     * @param array<string, string> $params
+     */
+    public function confirmAiSuggestion(Request $request, array $params): Response
+    {
+        $data = $this->decodeJsonBody($request);
+        if ($data === null) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+        if (($guard = $this->guardCsrfJson($request, (string) ($data['_csrf_token'] ?? ''))) !== null) {
+            return $guard;
+        }
+
+        $memberId = (int) ($params['id'] ?? 0);
+        if ($memberId <= 0) {
+            return $this->json(['success' => false, 'error' => 'Membre introuvable.'], 404);
+        }
+
+        [, $targetYear] = $this->resolveYears();
+        $this->passageNoteRepository->confirmAiSuggestion(
+            $memberId,
+            (int) $targetYear['id'],
+            ($data['confirmed'] ?? false) === true
+        );
+
+        return $this->json(['success' => true]);
+    }
+
+    /**
+     * The branch a member is heading into — the population a typed name is
+     * looked for among. Read off the same arrivalSectionsForMember() the
+     * destination picker is built from, so the candidate list a chief is
+     * offered can never be drawn from a different branch than the one the
+     * page put them in.
+     */
+    private function arrivalBranchIdForMember(int $memberId, int $publicYearId, string $publicYearLabel): ?int
+    {
+        foreach ($this->passageService->arrivalSectionsForMember($memberId, $publicYearId, $publicYearLabel) as $section) {
+            return (int) $section['age_branch_id'];
+        }
+
+        return null;
+    }
+
+    /**
+     * The statistics box, re-rendered, for a save response to carry back.
+     *
+     * **In the save's own answer, never behind an endpoint of its own**
+     * (roadmap IT-12): one round trip, and no question of when a cached
+     * box goes stale — the numbers a chief sees are the numbers as of the
+     * decision they just made.
+     *
+     * Rendered here rather than reassembled in the browser so the box has
+     * ONE template. A second renderer in JavaScript would be a second
+     * place for « 3 G · 2 F » to be formatted, and the two would drift.
+     *
+     * Computed once per request, over the whole unit — never once per row.
+     */
+    private function renderStatistics(?int $targetYearId = null): string
+    {
+        if ($targetYearId === null) {
+            [, $targetYear] = $this->resolveYears();
+            $targetYearId = (int) $targetYear['id'];
+        }
+
+        return $this->renderToString('@registration/_passage_statistics.html.twig', [
+            'statistics' => $this->statisticsService->forTargetYear($targetYearId),
+        ]);
     }
 
     /**

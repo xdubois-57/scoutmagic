@@ -23,6 +23,8 @@ use Core\Service\DateInput;
 use Modules\Registration\Repository\AgeBracketRepository;
 use Modules\Registration\Service\RegistrationService;
 use Modules\Registration\Service\RegistrationSubmissionReceipt;
+use Modules\Registration\Repository\ReenrollmentRepository;
+use Modules\Registration\Service\ReenrollmentService;
 use Modules\Registration\Service\RegistrationYearCodeSession;
 use Modules\Registration\Service\SlotMath;
 use Modules\Registration\Service\SlotService;
@@ -67,7 +69,13 @@ class PublicRegistrationController extends AbstractController
         private ScoutYearResolver $scoutYearResolver,
         private MemberService $memberService,
         private SettingService $settingService,
-        private ?HumanCheckService $humanCheck = null
+        private ?HumanCheckService $humanCheck = null,
+        // IT-14's « avec qui » on the public form. Nullable so an
+        // installation composed before this existed — and every test that
+        // builds this controller for another reason — goes on working with
+        // the question simply not stored.
+        private ?ReenrollmentService $reenrollmentService = null,
+        private ?ReenrollmentRepository $reenrollmentRepository = null
     ) {
     }
 
@@ -182,6 +190,25 @@ class PublicRegistrationController extends AbstractController
         // "Confirmer le renvoi du formulaire ?", and the unit gets a
         // second inscription for the same child that looks exactly like a
         // real one.
+        // IT-14 — the « avec qui » names, stored the same way and under
+        // the same cap as the reenrollment form's, and resolved by the
+        // same matcher so « Léo » means the same thing on both forms.
+        // Written after the request exists, and never allowed to sink a
+        // submission: a family whose inscription went through must not be
+        // told it failed because a wish could not be filed.
+        // Resolved against the CURRENT public year: a family names a child
+        // who is a member NOW, not one who will exist in a year nobody has
+        // imported yet.
+        $this->storeFriendWishes(
+            $request,
+            $requestId,
+            (int) $this->scoutYearResolver->getCurrentPublicYear()['id'],
+            // IT-17 — the branch the birth date puts this child in, which
+            // is the population a typed name is looked for among.
+            $slot !== null ? (int) $slot['age_branch_id'] : null,
+            (int) $target['id']
+        );
+
         RegistrationSubmissionReceipt::remember((string) $fields['child_first_name'], $requestId);
 
         return $this->redirect('/inscriptions/envoyee');
@@ -271,6 +298,23 @@ class PublicRegistrationController extends AbstractController
 
         $sections = $this->sectionService->getAllWithBranches();
 
+        // IT-14 — the « avec qui » question is asked only where there is a
+        // real choice: a branch with one visible, active section places
+        // every child of that age in the same place, and asking who they
+        // would like to be with would be asking a question with one
+        // answer. Keyed by branch LABEL because that is what the browser
+        // has once the birth date is typed (Service\SlotService::
+        // birthYearSlotsForPublic() names the branch, it does not id it).
+        $sectionsPerBranchLabel = [];
+        foreach ($sections as $section) {
+            $label = (string) $section['branch_name'];
+            $sectionsPerBranchLabel[$label] = ($sectionsPerBranchLabel[$label] ?? 0) + 1;
+        }
+        $friendWishBranchLabels = array_keys(array_filter(
+            $sectionsPerBranchLabel,
+            static fn (int $count): bool => $count > 1
+        ));
+
         $identified = AuthSession::isAuthenticated();
         $siblingCandidates = [];
         if ($identified) {
@@ -303,6 +347,8 @@ class PublicRegistrationController extends AbstractController
                 (int) $publicYear['id'],
                 $waitlistEnabled
             ),
+            'friend_wish_branch_labels' => $friendWishBranchLabels,
+            'friend_wish_limit' => $this->friendWishLimit(),
             'form_open' => $availability['form_open'],
             'session_unlocked' => $availability['session_unlocked'],
             'form_available' => $availability['form_available'],
@@ -414,6 +460,74 @@ class PublicRegistrationController extends AbstractController
         }
 
         return null;
+    }
+
+    /**
+     * The « avec qui » cap, read exactly as Service\ReenrollmentService
+     * reads it — same setting, same fallback. Two readings of one number
+     * that could disagree would let the public form offer four fields and
+     * the server keep three.
+     */
+    private function friendWishLimit(): int
+    {
+        $raw = $this->settingService->get(ReenrollmentService::SETTING_FRIEND_WISH_LIMIT, 'registration');
+
+        return max(0, is_numeric($raw) ? (int) $raw : 3);
+    }
+
+    /**
+     * The « avec qui » entries of a public submission.
+     *
+     * Best-effort by construction: the inscription itself is already
+     * recorded by the time this runs, and a family whose request went
+     * through must not be told it failed because a wish could not be
+     * filed. The failure is swallowed here and the request stands.
+     */
+    private function storeFriendWishes(
+        Request $request,
+        int $requestId,
+        int $currentScoutYearId,
+        ?int $arrivalBranchId,
+        int $targetScoutYearId
+    ): void {
+        $submitted = $request->getBody('friend_names', []);
+        if (!is_array($submitted) || $submitted === []) {
+            return;
+        }
+
+        $names = [];
+        foreach ($submitted as $name) {
+            if (is_scalar($name) && trim((string) $name) !== '') {
+                $names[] = (string) $name;
+            }
+        }
+        if ($names === []) {
+            return;
+        }
+
+        // The cap is the server's, applied here exactly as
+        // Service\ReenrollmentService applies it to the other form: a
+        // browser that posted more fields than the setting allows has the
+        // extra ones dropped, never refused.
+        $names = array_slice($names, 0, $this->friendWishLimit());
+
+        if ($this->reenrollmentService === null || $this->reenrollmentRepository === null) {
+            return;
+        }
+
+        try {
+            $this->reenrollmentRepository->saveRequestWishes(
+                $requestId,
+                $this->reenrollmentService->resolveNames(
+                    $names,
+                    $currentScoutYearId,
+                    $arrivalBranchId,
+                    $targetScoutYearId
+                )
+            );
+        } catch (\Throwable) {
+            // Deliberately silent: see the docblock.
+        }
     }
 
     /**

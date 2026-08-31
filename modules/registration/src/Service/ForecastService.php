@@ -107,6 +107,64 @@ class ForecastService
         string $targetYearLabel,
         string $referenceMonthDay
     ): array {
+        $collected = $this->collectProjectedRows(
+            $currentYearId,
+            $currentYearLabel,
+            $targetYearId,
+            $targetYearLabel,
+            $referenceMonthDay
+        );
+
+        return $this->buildViewModel(
+            $collected['rows'],
+            $collected['sections'],
+            $this->countCurrentAnimes($currentYearId),
+            $this->countDeparturesForYear($currentYearId),
+            $collected['aging_out'],
+            $collected['new_registrations']
+        );
+    }
+
+    /**
+     * The projected population itself, one row per person, as
+     * `Api\ProjectedPopulationProvider` hands it to another module.
+     *
+     * The SAME rows getForecast() counts — this is the extraction that
+     * made the interface possible, not a second computation. Two consumers
+     * disagreeing about how many children are expected next year would be
+     * worse than either of them being wrong alone, so there is one place
+     * that decides who is in the projection and one place that decides
+     * where each row lands (buildViewModel), and both invariants in this
+     * class's docblock still hold over exactly this list.
+     *
+     * @return array<int, array{member_id: ?int, request_id: ?int, section_id: ?int, year_in_branch: ?int, gender: string, birth_year: ?int, certain: bool, origin: string}>
+     */
+    public function projectedRows(
+        int $currentYearId,
+        string $currentYearLabel,
+        int $targetYearId,
+        string $targetYearLabel,
+        string $referenceMonthDay
+    ): array {
+        return $this->collectProjectedRows(
+            $currentYearId,
+            $currentYearLabel,
+            $targetYearId,
+            $targetYearLabel,
+            $referenceMonthDay
+        )['rows'];
+    }
+
+    /**
+     * @return array{rows: array<int, array<string, mixed>>, sections: array<int, array<string, mixed>>, aging_out: int, new_registrations: int}
+     */
+    private function collectProjectedRows(
+        int $currentYearId,
+        string $currentYearLabel,
+        int $targetYearId,
+        string $targetYearLabel,
+        string $referenceMonthDay
+    ): array {
         // includeHidden: TRUE deliberately, and it must stay that way. The
         // Passage page offers destinations (and the fiche offers a "section
         // prévue") from getAllWithBranches(TRUE) — a hidden-but-active
@@ -142,6 +200,8 @@ class ForecastService
             }
 
             $projected[] = [
+                'member_id' => $memberId,
+                'request_id' => null,
                 'section_id' => $row['section_id'] !== null ? (int) $row['section_id'] : null,
                 'year_in_branch' => $effectiveAge->yearInBranch,
                 'gender' => $this->classifyGender(
@@ -190,6 +250,8 @@ class ForecastService
             }
 
             $projected[] = [
+                'member_id' => $memberId,
+                'request_id' => null,
                 'section_id' => $row['section_id'] !== null ? (int) $row['section_id'] : null,
                 'year_in_branch' => $projectedAge->yearInBranch,
                 'gender' => $this->classifyGender(
@@ -230,6 +292,12 @@ class ForecastService
                     'certain' => false,
                     'origin' => 'passage',
                     'member_id' => (int) $member['member_id'],
+                    'request_id' => null,
+                    // The marker resolveDeferredMemberData() looks for.
+                    // It used to key on the presence of `member_id`, which
+                    // stopped working the moment every row carried one for
+                    // Api\ProjectedPopulationProvider's benefit.
+                    'needs_resolution' => true,
                 ];
             }
         }
@@ -243,6 +311,8 @@ class ForecastService
             $request = $row['request'];
 
             $projected[] = [
+                'member_id' => null,
+                'request_id' => $request->id,
                 // Still counted in the unit total and the pyramid when
                 // unassigned (null here) — see the matching (c) comment above.
                 'section_id' => $request->intendedSectionId,
@@ -259,14 +329,12 @@ class ForecastService
         // point decrypting the same row twice); resolve them now in one pass.
         $projected = $this->resolveDeferredMemberData($projected, $currentYearId, $targetReferenceYear);
 
-        return $this->buildViewModel(
-            $projected,
-            $sections,
-            $this->countCurrentAnimes($currentYearId),
-            $this->countDeparturesForYear($currentYearId),
-            $agingOut,
-            count($newRegistrations)
-        );
+        return [
+            'rows' => $projected,
+            'sections' => $sections,
+            'aging_out' => $agingOut,
+            'new_registrations' => count($newRegistrations),
+        ];
     }
 
     /**
@@ -383,7 +451,7 @@ class ForecastService
     {
         $memberIds = [];
         foreach ($projected as $row) {
-            if (array_key_exists('member_id', $row)) {
+            if (($row['needs_resolution'] ?? false) === true) {
                 $memberIds[] = $row['member_id'];
             }
         }
@@ -404,7 +472,7 @@ class ForecastService
         }
 
         foreach ($projected as &$row) {
-            if (!array_key_exists('member_id', $row)) {
+            if (($row['needs_resolution'] ?? false) !== true) {
                 continue;
             }
             $source = $byMemberId[$row['member_id']] ?? null;
@@ -420,7 +488,7 @@ class ForecastService
                     ->getEffectiveAge($birthYear, (int) $source['scout_year_offset'], $targetReferenceYear)
                     ->yearInBranch
                 : null;
-            unset($row['member_id']);
+            unset($row['needs_resolution']);
         }
         unset($row);
 

@@ -42,6 +42,40 @@ class DepartureService
         $this->log('member_leaving_unmarked', 'Marquage de départ retiré', $memberYearId, $actingUserAccountId);
     }
 
+    /**
+     * The departure flag as a family's own answer about next year sets
+     * it — never a staff gesture (roadmap IT-16, spec §11.8).
+     *
+     * Two things separate it from markLeaving()/unmarkLeaving():
+     *
+     * - it writes the FLAG ONLY. The comment beside it is the staff's
+     *   internal note, and a family's answer has no business erasing it;
+     *   the family's own words live in the registration module's own
+     *   table and never come here.
+     * - it says so in the journal. `member_leaving_set_by_family` and
+     *   its counterpart are what tells a chief reading the journal that
+     *   a box moved without anybody on the staff touching it — with the
+     *   member id and nothing else, like every other entry here
+     *   (SECURITY.md §11).
+     *
+     * WHO decides when this is called at all is not core's business: the
+     * "the staff has the last word" rule lives with the answers, in
+     * Modules\Registration\Service\ReenrollmentDepartureService, which
+     * is this method's only caller.
+     */
+    public function setLeavingFromFamilyAnswer(int $memberYearId, bool $leaving, ?int $actingUserAccountId = null): void
+    {
+        $this->repository->updateLeaving($memberYearId, $leaving);
+        $this->log(
+            $leaving ? 'member_leaving_set_by_family' : 'member_leaving_cleared_by_family',
+            $leaving
+                ? 'Départ marqué par la réponse de la famille'
+                : 'Marquage de départ retiré par la réponse de la famille',
+            $memberYearId,
+            $actingUserAccountId
+        );
+    }
+
     public function getStatus(int $memberYearId): ?DepartureStatus
     {
         return $this->repository->getStatus($memberYearId);

@@ -11,7 +11,7 @@ namespace Core\Security;
 use Core\Database\Connection;
 use Core\Journal\JournalService;
 use Core\Mail\MailService;
-use Twig\Environment;
+use Core\Mail\Template\EmailTemplateRenderer;
 
 /**
  * "Mot de passe oublié" flow — same token generation/hashing convention as
@@ -33,7 +33,7 @@ class PasswordResetService
         private Connection $connection,
         private EncryptionService $encryption,
         private MailService $mailService,
-        private Environment $twig,
+        private EmailTemplateRenderer $emailTemplateRenderer,
         private string $baseUrl,
         private string $siteName
     ) {
@@ -157,14 +157,17 @@ class PasswordResetService
             'expiry_minutes' => self::TOKEN_EXPIRY_MINUTES,
         ];
 
-        $bodyHtml = $this->twig->render('email/password_reset.html.twig', $context);
-        $bodyText = $this->twig->render('email/password_reset.text.twig', $context);
+        // Through the e-mail register (Core\Mail\Template). Declared
+        // `editable: false`, so this always renders the shipped template —
+        // see AuthService::sendMagicLinkEmail() for why it goes through the
+        // renderer regardless.
+        $email = $this->emailTemplateRenderer->render('password_reset', $context);
 
         $this->mailService->send(
             to: $to,
-            subject: 'Réinitialisation de votre mot de passe',
-            bodyHtml: $bodyHtml,
-            bodyText: $bodyText
+            subject: $email->subject,
+            bodyHtml: $email->bodyHtml,
+            bodyText: $email->bodyText
         );
     }
 }

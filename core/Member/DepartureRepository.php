@@ -63,6 +63,32 @@ class DepartureRepository
         $stmt->execute([$commentEncrypted, $memberYearId]);
     }
 
+    /**
+     * Updates ONLY the flag and the date that goes with it, leaving the
+     * comment exactly where it was — the mirror image of updateComment()
+     * above.
+     *
+     * markLeaving()/unmarkLeaving() rewrite leaving_comment_encrypted
+     * along with the flag, which is right for a chief typing the reason
+     * as they tick the box and wrong for a decision that is not theirs: a
+     * family answering « il ne revient pas » must not erase the note a
+     * chief wrote about that child, which is the whole point of the two
+     * being separate fields (roadmap IT-16).
+     * Core\Member\DepartureService::setLeavingFromFamilyAnswer() is the
+     * only caller, and the reason this method exists.
+     */
+    public function updateLeaving(int $memberYearId, bool $leaving): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE member_years SET leaving = ?, leaving_marked_at = ? WHERE id = ?'
+        );
+        $stmt->execute([
+            $leaving ? 1 : 0,
+            $leaving ? (new \DateTimeImmutable())->format('Y-m-d H:i:s') : null,
+            $memberYearId,
+        ]);
+    }
+
     public function getStatus(int $memberYearId): ?DepartureStatus
     {
         $stmt = $this->pdo->prepare(

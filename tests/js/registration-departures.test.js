@@ -10,15 +10,21 @@
 // one member already marked as leaving (comment row visible) and one not.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-function member(id, leaving) {
+function member(id, leaving, hasAnswer = false) {
     return `
         <tr>
             <td><input type="checkbox" class="departure-checkbox"
                        data-member-year-id="${id}" ${leaving ? 'checked' : ''}></td>
         </tr>
         <tr class="departure-comment-row" data-member-year-id="${id}"
-            style="${leaving ? '' : 'display:none;'}">
-            <td><textarea class="departure-comment" data-member-year-id="${id}"></textarea></td>
+            data-has-answer="${hasAnswer ? '1' : '0'}"
+            style="${leaving || hasAnswer ? '' : 'display:none;'}">
+            <td>
+                ${hasAnswer ? '<blockquote>Nous déménageons.</blockquote>' : ''}
+                <div class="departure-staff-note" style="${leaving ? '' : 'display:none;'}">
+                    <textarea class="departure-comment" data-member-year-id="${id}"></textarea>
+                </div>
+            </td>
         </tr>`;
 }
 
@@ -46,6 +52,7 @@ describe('registration-departures.js', () => {
     const commentRow = (id) =>
         document.querySelector(`.departure-comment-row[data-member-year-id="${id}"]`);
     const comment = (id) => document.querySelector(`.departure-comment[data-member-year-id="${id}"]`);
+    const staffNote = (id) => commentRow(id).querySelector('.departure-staff-note');
     const lastRequest = () => {
         const [url, opts] = fetch.mock.calls[fetch.mock.calls.length - 1];
         return { url, body: JSON.parse(opts.body) };
@@ -88,6 +95,33 @@ describe('registration-departures.js', () => {
 
             expect(commentRow('32').style.display).toBe('none');
             await vi.waitFor(() => expect(lastRequest().body.leaving).toBe(false));
+        });
+
+        it('KEEPS THE FAMILY ANSWER ON SCREEN when the departure is taken back', async () => {
+            // Unticking is a chief saying « si, il revient ». It hides
+            // THEIR note; it has no business hiding what a parent wrote
+            // (roadmap IT-16), and the row carrying an answer stays.
+            document.body.innerHTML = `<table><tbody>${member('33', true, true)}</tbody></table>`;
+            await boot();
+
+            box('33').checked = false;
+            box('33').dispatchEvent(new Event('change'));
+
+            expect(commentRow('33').style.display).toBe('');
+            expect(staffNote('33').style.display).toBe('none');
+            await vi.waitFor(() => expect(lastRequest().body.leaving).toBe(false));
+        });
+
+        it('brings the staff note back when the box is ticked again', async () => {
+            document.body.innerHTML = `<table><tbody>${member('33', false, true)}</tbody></table>`;
+            await boot();
+            expect(staffNote('33').style.display).toBe('none');
+
+            box('33').checked = true;
+            box('33').dispatchEvent(new Event('change'));
+
+            expect(commentRow('33').style.display).toBe('');
+            expect(staffNote('33').style.display).toBe('');
         });
 
         it('says nothing on success — this is a list gone down one row at a time', async () => {

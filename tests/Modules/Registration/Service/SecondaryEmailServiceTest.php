@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Modules\Registration\Service;
 
+use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
+
 use Core\Journal\JournalService;
 use Core\Mail\MailService;
 use Core\Security\EncryptionService;
@@ -35,12 +37,24 @@ class SecondaryEmailServiceTest extends TestCase
 
         $this->repository = new RegistrationSecondaryEmailRepository($this->pdo, $encryption);
         $this->mailService = $this->createMock(MailService::class);
-        $twig = $this->createMock(\Twig\Environment::class);
-        $twig->method('render')->willReturn('<html></html>');
         $journalService = $this->createMock(JournalService::class);
 
+        // The real renderer over the shipped templates, not a mock: this
+        // e-mail is declared `editable: false`, and a mocked renderer
+        // would let that stop being true without a test noticing.
+        $twig = \Core\View\TwigFactory::create(
+            dirname(__DIR__, 4) . '/core/View/templates',
+            false,
+            ['registration' => dirname(__DIR__, 4) . '/modules/registration/views']
+        );
+
         $this->service = new SecondaryEmailService(
-            $this->repository, $this->mailService, $twig, $journalService, 'https://example.com', 'Unité Test'
+            $this->repository,
+            $this->mailService,
+            EmailTemplateRendererFactory::shippedOnlyForModule($twig, 'registration'),
+            $journalService,
+            'https://example.com',
+            'Unité Test'
         );
 
         $scoutYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');

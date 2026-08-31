@@ -12,6 +12,16 @@
                 <button type="button" class="btn btn-sm btn-primary" id="cfg-new-list-btn"><i class="bi bi-plus-lg" aria-hidden="true"></i> Nouvelle liste</button>
             </div>
 
+            {# A list has no scout year of its own — it is a set of criteria,
+               and the year is chosen at composition. Saying so here is what
+               makes the warning in the compose dialog make sense when it
+               appears (it names the year, which is not a property of
+               anything on this page). #}
+            <p class="text-body-secondary small">
+                Une liste ne vise aucune année scoute : elle décrit qui recevoir, et l'année se choisit au moment
+                d'écrire l'email. {% if future_audience_notice %}{{ future_audience_notice }}{% endif %}
+            </p>
+
             <ul class="list-group mb-2">
                 {% for list in default_lists %}
                     <li class="list-group-item">

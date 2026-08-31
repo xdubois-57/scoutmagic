@@ -10,9 +10,9 @@
 -- is no invalidation bug available to it.
 --
 -- What IS stored is a vocabulary decision a human made: which normalised step
--- (none / t1 / t2 / t3 / brevet) a raw Desk `member_years.formation_level`
--- string means. Desk exports the federation's own wording, which differs
--- between exports and changes between years, and no heuristic will ever
+-- (none / t1 / pi_days / t2 / t3 / bacv / woodbadge / brevet) a raw Desk
+-- `member_years.formation_level` string means. Desk exports the federation's
+-- own wording, which differs between exports and changes between years, and no heuristic will ever
 -- recognise all of it — so a chief d'unité maps the leftovers by hand from
 -- the Formations page, and that decision is what survives here.
 --
@@ -33,9 +33,12 @@ CREATE TABLE IF NOT EXISTS leadership_formation_levels (
     -- "animateur brevete" are one decision instead of two rows able to
     -- contradict each other.
     raw_value_key VARCHAR(100) NOT NULL,
-    -- One of: none, t1, t2, t3, brevet. Never 'unknown' — unknown is what the
-    -- site says when nobody has decided, not a decision somebody can record
-    -- (Modules\Leadership\FormationStep::assignable()).
+    -- One of: none, t1, pi_days, t2, t3, bacv, woodbadge, brevet. 'brevet' is
+    -- the legacy box (« Brevet non précisé ») kept because rows point at it —
+    -- a brevet whose kind nobody recorded, which is why it counts for the
+    -- federation discount but not for the ONE ratio. Never 'unknown' — unknown
+    -- is what the site says when nobody has decided, not a decision somebody
+    -- can record (Modules\Leadership\FormationStep::assignable()).
     step VARCHAR(10) NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NULL,

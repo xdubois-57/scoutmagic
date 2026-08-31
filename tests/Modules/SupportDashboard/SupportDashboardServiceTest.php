@@ -83,6 +83,69 @@ class SupportDashboardServiceTest extends TestCase
         return array_map(static fn(array $row): string => (string) $row['instance_url'], $view['rows']);
     }
 
+    /**
+     * Roadmap IT-24: a row created because an installation opened a ticket
+     * without ever agreeing to report is not a silent installation — it
+     * never spoke. It gets a state of its own rather than reading as
+     * « Obsolète », which would send a maintainer chasing a silence that
+     * is a decision.
+     */
+    public function testAnInstallationWithoutTelemetryIsNeitherActiveNorStale(): void
+    {
+        $this->installations->register(
+            'sans-telemetrie',
+            password_hash('secret', PASSWORD_DEFAULT),
+            '',
+            [],
+            false
+        );
+
+        $rows = $this->service->buildView(SupportDashboardFilters::fromQuery(['status' => SupportDashboardFilters::STATUS_ALL]))['rows'];
+        $row = array_values(array_filter(
+            $rows,
+            static fn(array $r): bool => $r['installation_id'] === 'sans-telemetrie'
+        ))[0];
+
+        $this->assertFalse($row['telemetry_enabled']);
+        $this->assertNull($row['is_active'], 'neither « Active » nor « Obsolète »');
+
+        // And it stays out of both filtered readings, since it answers
+        // neither question.
+        $this->assertNotContains(
+            'sans-telemetrie',
+            array_column($this->service->buildView(SupportDashboardFilters::fromQuery([]))['rows'], 'installation_id')
+        );
+        $this->assertNotContains(
+            'sans-telemetrie',
+            array_column(
+                $this->service->buildView(SupportDashboardFilters::fromQuery(['status' => SupportDashboardFilters::STATUS_STALE]))['rows'],
+                'installation_id'
+            )
+        );
+    }
+
+    /**
+     * The day a real report arrives the mark goes: the reason for it has
+     * gone, and a row that kept saying « sans télémétrie » from the second
+     * report onwards would be lying.
+     */
+    public function testAReportClearsTheMark(): void
+    {
+        $id = $this->installations->register(
+            'sans-telemetrie',
+            password_hash('secret', PASSWORD_DEFAULT),
+            '',
+            [],
+            false
+        );
+
+        $this->installations->recordReport($id, '{}', []);
+
+        $row = $this->installations->findById($id);
+        $this->assertNotNull($row);
+        $this->assertSame(1, (int) $row['telemetry_enabled']);
+    }
+
     // --- default view ---
 
     public function testTheDefaultViewShowsActiveInstallationsOnly(): void

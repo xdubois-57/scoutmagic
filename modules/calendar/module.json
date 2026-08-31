@@ -269,5 +269,36 @@
       "match": "exact",
       "role_min": "public"
     }
+  ],
+  "emails": [
+    {
+      "id": "calendar.multiday_event_reminder",
+      "label": "Rappel d'évènement sur plusieurs jours",
+      "description": "Envoyé au staff de la section quelques jours avant un évènement qui dure plus d'une journée.",
+      "default_subject": "Rappel — {{ event_title }}",
+      "template": "@calendar/email/multiday_event_reminder.html.twig",
+      "variables": [
+        {
+          "name": "display_name",
+          "label": "Nom affiché du destinataire",
+          "example": "Akéla"
+        },
+        {
+          "name": "event_title",
+          "label": "Titre de l'évènement",
+          "example": "Week-end de section"
+        },
+        {
+          "name": "start_date",
+          "label": "Date de début",
+          "example": "14 mars 2027"
+        },
+        {
+          "name": "end_date",
+          "label": "Date de fin",
+          "example": "16 mars 2027"
+        }
+      ]
+    }
   ]
 }

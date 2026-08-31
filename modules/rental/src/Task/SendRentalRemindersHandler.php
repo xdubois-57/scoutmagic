@@ -162,11 +162,7 @@ class SendRentalRemindersHandler implements TaskHandlerInterface
             // MultidayEventReminderHandler).
             new \Modules\Rental\Service\RentalBookingMailService(
                 $context->mailService,
-                TwigFactory::create(
-                    dirname(__DIR__, 4) . '/core/View/templates',
-                    false,
-                    ['rental' => dirname(__DIR__, 4) . '/modules/rental/views']
-                ),
+                self::emailTemplateRenderer($context),
                 $context->settings,
                 $context->journal
             )
@@ -185,6 +181,33 @@ class SendRentalRemindersHandler implements TaskHandlerInterface
             self::TASK_KEY,
             self::REFERENCE,
             new \DateTimeImmutable('+' . self::INTERVAL_SECONDS . ' seconds')
+        );
+    }
+
+    /**
+     * The renderer this module's mailing service needs, built the way a
+     * handler has to build one: TaskContext carries no Twig and no
+     * ModuleManager, so the templates and the manifest are both loaded
+     * here — core's declared e-mails plus this module's own
+     * (ARCHITECTURE.md §8.7bis). A customisation is honoured all the same;
+     * it lives in the database, not in the registry.
+     */
+    private static function emailTemplateRenderer(TaskContext $context): \Core\Mail\Template\EmailTemplateRenderer
+    {
+        $registry = new \Core\Mail\Template\EmailTemplateRegistry();
+        $registry->registerModuleManifest(
+            \Core\Module\ModuleManifest::fromFile(dirname(__DIR__, 2) . '/module.json')
+        );
+
+        return new \Core\Mail\Template\EmailTemplateRenderer(
+            TwigFactory::create(
+                dirname(__DIR__, 4) . '/core/View/templates',
+                false,
+                ['rental' => dirname(__DIR__, 4) . '/modules/rental/views']
+            ),
+            $registry,
+            new \Core\Mail\Template\EmailTemplateOverrideRepository($context->connection->getPdo()),
+            $context->journal
         );
     }
 }

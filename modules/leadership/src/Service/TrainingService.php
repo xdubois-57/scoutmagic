@@ -209,14 +209,53 @@ class TrainingService
      * Whether this step means the person is already somewhere on the path
      * or past it.
      *
-     * NONE and UNKNOWN are not: NONE is Desk saying the column is empty,
-     * which is the very profile "à convaincre" is about, and UNKNOWN is
-     * the site saying it does not know — which this module never turns
-     * into a conclusion in either direction.
+     * NONE and UNKNOWN are not, and they are the ONLY two that are not:
+     * NONE is Desk saying the column is empty, which is the very profile
+     * "à convaincre" is about, and UNKNOWN is the site saying it does not
+     * know — which this module never turns into a conclusion in either
+     * direction. Everything else means somebody has done some training,
+     * the Woodbadge included: it is off the animator path, but printing
+     * "à convaincre de commencer" beside a Woodbadge holder would be
+     * plainly wrong. Staying off the « parcours à terminer » list is a
+     * different question, and toFinish() answers it with
+     * `isPathInProgress()`.
      */
     private static function hasStartedThePath(FormationStep $step): bool
     {
-        return $step->isPathInProgress() || $step === FormationStep::BREVET;
+        return $step !== FormationStep::NONE && $step !== FormationStep::UNKNOWN;
+    }
+
+    /**
+     * How many animateurs carry the legacy box — a brevet whose kind
+     * nobody recorded (roadmap IT-20).
+     *
+     * They stopped counting towards the ONE ratio the day the BACV and the
+     * Woodbadge got boxes of their own, because only the BACV is
+     * recognised and an unspecified brevet cannot be asserted to be one.
+     * The figure therefore FELL on that day for the units concerned, which
+     * is exactly the kind of silent change that destroys trust in a page —
+     * so the count exists to say so above the ratio, with the one action
+     * that fixes it. Without the sentence, not changing the number at all
+     * would have been the better option.
+     *
+     * One entry per person, like every other count on this page: two
+     * animation functions is one animateur.
+     *
+     * @param list<\Modules\Leadership\Value\StaffFunctionRow> $staff
+     */
+    public function unspecifiedBrevetCount(array $staff, FormationLevelResolver $resolver): int
+    {
+        $seen = [];
+        foreach ($staff as $row) {
+            if (!$row->isAnimation() || isset($seen[$row->memberId])) {
+                continue;
+            }
+            if ($resolver->resolve($row->formationLevel) === FormationStep::BREVET) {
+                $seen[$row->memberId] = true;
+            }
+        }
+
+        return count($seen);
     }
 
     /**

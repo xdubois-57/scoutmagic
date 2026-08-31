@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Modules\News\Service;
 
+use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
+
 use Core\Mail\MailService;
 use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
@@ -60,7 +62,7 @@ class DigestServiceTest extends TestCase
         return new DigestService(
             $this->formRepository, $this->responseRepository, $this->articleRepository,
             new UserAccountRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))),
-            $mailService ?? $this->mailService, $twig, 'Test Unit', 'https://example.com'
+            $mailService ?? $this->mailService, EmailTemplateRendererFactory::shippedOnlyForModule($twig, 'news'), 'Test Unit', 'https://example.com'
         );
     }
 

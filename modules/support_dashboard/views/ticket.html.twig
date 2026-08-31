@@ -1,0 +1,184 @@
+{% extends 'base.html.twig' %}
+{% block title %}Ticket {{ ticket.reference }} — {{ site_name }}{% endblock %}
+
+{# Les blocs <pre> de cette page (description, note, analyse, JSON brut)
+   sont mis en forme dans components.css, que base.html.twig ne charge
+   délibérément pas. Sans ce lien, une seule ligne longue pousse toute la
+   page de côté à 375px. #}
+{% block stylesheets %}
+<link rel="stylesheet" href="{{ asset('/assets/css/components.css') }}">
+{% endblock %}
+
+{% macro field(label, value) %}
+    <div class="col-12 col-md-6">
+        <p class="small text-body-secondary mb-0">{{ label }}</p>
+        <p class="mb-2">{% if value is null or value == '' %}<span class="text-body-secondary">Non renseigné</span>{% else %}{{ value }}{% endif %}</p>
+    </div>
+{% endmacro %}
+
+{% block content %}
+{% import _self as detail %}
+
+{% include 'partials/page_header.html.twig' with {
+    title: 'Ticket ' ~ ticket.reference,
+    badge: ticket.status == 'closed' ? 'Clôturé' : 'Ouvert',
+} only %}
+
+<div class="card mb-3">
+    <div class="card-body">
+        <div class="row">
+            {{ detail.field('Catégorie', ticket.category ? ticket.category.label : null) }}
+            {{ detail.field('Statut', ticket.status == 'closed' ? 'Clôturé' : 'Ouvert') }}
+            {{ detail.field('Reçu le', ticket.created_at) }}
+            {{ detail.field('Clôturé le', ticket.closed_at) }}
+            {{ detail.field('Adresse de contact', ticket.contact_email) }}
+            {{ detail.field('Version du site déclarée', ticket.site_version) }}
+            {{ detail.field('Version de PHP déclarée', ticket.php_version) }}
+        </div>
+
+        <h2 class="h6 mt-2">Description</h2>
+        {# Le texte tel qu'il a été écrit, échappé par Twig et jamais rendu
+           comme du balisage : c'est la phrase de quelqu'un, pas un gabarit. #}
+        <pre class="border rounded p-3 bg-body-tertiary small mb-0 support-ticket-description">{{ ticket.description }}</pre>
+    </div>
+</div>
+
+{# Ce que le receveur sait de l'installation, joint depuis sa ligne
+   d'installation : un ticket porte une catégorie et une phrase, et « quelle
+   version, quel hébergement, combien de membres » est l'autre moitié de
+   toute réponse. C'est ce rapprochement qui justifiait de réutiliser
+   l'identité des statistiques (roadmap IT-28). #}
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h5 mb-3">L'installation, aux dernières nouvelles</h2>
+
+        {% if ticket.installation.public_id is null %}
+            <p class="small text-body-secondary mb-0">
+                L'enregistrement de cette installation n'existe plus : sa rétention l'a supprimé, ou
+                elle n'a jamais envoyé de rapport. Le ticket, lui, reste lisible.
+            </p>
+        {% else %}
+            <div class="row">
+                {{ detail.field('Instance', ticket.installation.instance_url) }}
+                {{ detail.field("Identifiant d'installation", ticket.installation.public_id) }}
+                {{ detail.field('Version rapportée', ticket.installation.scoutmagic_version) }}
+                {{ detail.field('Membres actifs', ticket.installation.active_members) }}
+                {{ detail.field('Sections actives', ticket.installation.active_sections) }}
+                {{ detail.field("Méthode d'installation", ticket.installation.installation_method) }}
+                {{ detail.field('PHP rapporté', ticket.installation.php_version) }}
+                {{ detail.field('Base de données', ticket.installation.database_version) }}
+            </div>
+            <p class="small text-body-secondary mb-0">
+                Ces valeurs viennent du dernier rapport d'utilisation accepté, pas du ticket : elles
+                peuvent être plus récentes ou plus anciennes que lui.
+            </p>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h5 mb-3">Archive de diagnostic</h2>
+
+        {% if ticket.archive_file_id %}
+            <p class="small mb-2">
+                {% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Transmise' } only %}
+                {% if ticket.archive_received_at %}— reçue le {{ ticket.archive_received_at }}{% endif %}
+            </p>
+            <a class="btn btn-outline-primary" href="/files/{{ ticket.archive_file_id }}">
+                Télécharger l'archive
+            </a>
+            <p class="small text-body-secondary mb-0 mt-2">
+                Supprimée automatiquement 90 jours après la clôture, et au plus tard un an après la
+                réception du ticket. Le ticket et sa note de résolution, eux, sont conservés deux ans.
+            </p>
+        {% else %}
+            <p class="small text-body-secondary mb-0">
+                Aucune archive : l'administrateur n'en a pas transmis, ou sa rétention l'a déjà supprimée.
+            </p>
+        {% endif %}
+    </div>
+</div>
+
+{% if ticket.probes is not empty %}
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h5 mb-3">Sondes e-mail de cette installation</h2>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle small">
+                <thead>
+                    <tr>
+                        <th scope="col">Boîte</th>
+                        <th scope="col">Émise</th>
+                        <th scope="col">Réception</th>
+                        <th scope="col">SPF</th>
+                        <th scope="col">DKIM</th>
+                        <th scope="col">DMARC</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for probe in ticket.probes %}
+                        <tr>
+                            <td>{{ probe.mailbox_address }}</td>
+                            <td>{{ probe.issued_at }}</td>
+                            <td>
+                                {% if probe.received_at %}
+                                    {% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Reçue' } only %}
+                                    {{ probe.received_at }}
+                                {% else %}
+                                    {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'Jamais reçue' } only %}
+                                {% endif %}
+                            </td>
+                            {% for mechanism in ['spf', 'dkim', 'dmarc'] %}
+                                <td>
+                                    {% if probe.authentication is null %}
+                                        <span class="text-body-secondary">—</span>
+                                    {% else %}
+                                        {{ probe.authentication[mechanism]|default('absent') }}
+                                    {% endif %}
+                                </td>
+                            {% endfor %}
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div class="card">
+    <div class="card-body">
+        <h2 class="h5 mb-3">Résolution</h2>
+
+        {% if ticket.status == 'closed' %}
+            {% if ticket.resolution_note %}
+                <pre class="border rounded p-3 bg-body-tertiary small mb-0 support-ticket-description">{{ ticket.resolution_note }}</pre>
+            {% else %}
+                <p class="small text-body-secondary mb-0">Clôturé sans note de résolution.</p>
+            {% endif %}
+        {% else %}
+            {# Le ticket est à sens unique : il n'y a pas de fil, et rien ne
+               remonte vers l'instance. Cette note est donc le seul endroit
+               où ce qui s'est réellement passé est écrit (roadmap IT-28). #}
+            <p class="small text-body-secondary">
+                Le ticket est à sens unique : la réponse part de votre propre messagerie. Cette note
+                reste ici, et c'est elle qui rendra le corpus exploitable plus tard.
+            </p>
+            <form method="post" action="/support-dashboard/tickets/{{ ticket.id }}/close">
+                {{ csrf_field()|raw }}
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'resolution_note',
+                    field_name: 'resolution_note',
+                    label: 'Note de résolution',
+                    type: 'textarea',
+                    rows: 5,
+                    help: "Ce qui s'est passé et ce qui l'a réglé. Facultatif, mais c'est ce qui se relit dans un an.",
+                } only %}
+                <button type="submit" class="btn btn-primary">Clôturer le ticket</button>
+            </form>
+        {% endif %}
+    </div>
+</div>
+
+{% endblock %}

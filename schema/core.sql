@@ -666,7 +666,17 @@ CREATE TABLE event_log (
     -- throwable, so a crash is consultable from /admin/journal and not
     -- only from whatever file error_log() happens to write to on a
     -- shared host (ARCHITECTURE.md §8.6).
-    level ENUM('info', 'security', 'error') NOT NULL DEFAULT 'info',
+    --
+    -- 'warning' was added later, and not as a nicety: fourteen call sites
+    -- across core and five modules were already writing it — a rejected
+    -- statistics report, a booking mail that would not send, a mailbox
+    -- over quota — and MySQL under STRICT_TRANS_TABLES refuses a value
+    -- outside an ENUM, so every one of those paths threw a PDOException
+    -- on a real installation while passing in tests, where SQLite's
+    -- `level` is a plain TEXT. The endpoint that made it visible is the
+    -- worst of them: the statistics intake is `role_min: public`, so its
+    -- rejection path turned a bad request into a 500.
+    level ENUM('info', 'warning', 'security', 'error') NOT NULL DEFAULT 'info',
     description VARCHAR(500) NOT NULL,
     context JSON,
     INDEX idx_logged_at (logged_at),
@@ -1226,4 +1236,45 @@ CREATE TABLE IF NOT EXISTS member_notes (
     INDEX idx_member_notes_member (member_id, created_at),
     CONSTRAINT fk_member_notes_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE,
     CONSTRAINT fk_member_notes_author FOREIGN KEY (created_by) REFERENCES user_accounts(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Customised automatic e-mails (Core\Mail\Template, ARCHITECTURE.md
+-- §8.7bis).
+--
+-- **No row means no customisation**, and that is the whole design: the
+-- e-mail is then rendered from the Twig template shipped with the
+-- application, so it keeps benefiting from every update. A row exists
+-- only once an administrator has changed something, and from then on it
+-- wins, definitively and silently — « Revenir au gabarit par défaut »
+-- deletes it and puts the e-mail back on the update path. Nothing is
+-- versioned, nothing is diffed, and there is no third state.
+--
+-- `template_id` is the registry's own id — `magic_link`,
+-- `rental.acknowledgement` — and is UNIQUE because one e-mail has one
+-- customisation. It carries no foreign key on purpose: a module's
+-- e-mails are declared in its manifest, not in a table, and disabling
+-- the module must leave its customisation alone rather than destroy it.
+--
+-- Not personal data and not encrypted: these are template texts an
+-- administrator typed, the same kind of content as an editable page
+-- block. `body_html` is sanitised (Core\Security\HtmlSanitizer) BEFORE
+-- it is written, like every other rich text (SECURITY.md §7), and is
+-- never evaluated as Twig on the way out — it is substituted as a
+-- string, which is the only thing standing between an administration
+-- page and code execution.
+CREATE TABLE IF NOT EXISTS email_template_overrides (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    template_id VARCHAR(120) NOT NULL,
+    subject VARCHAR(255) NOT NULL,
+    body_html MEDIUMTEXT NOT NULL,
+    -- Set explicitly by the Repository on edit — no "ON UPDATE
+    -- CURRENT_TIMESTAMP", which the migration system's ColumnDefinition
+    -- does not model (same note as member_notes.updated_at).
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- ON DELETE SET NULL rather than CASCADE: losing the account that
+    -- last edited an e-mail must never delete the wording the unit is
+    -- sending.
+    updated_by INT UNSIGNED NULL,
+    UNIQUE KEY uniq_email_template_overrides_template (template_id),
+    CONSTRAINT fk_email_template_overrides_author FOREIGN KEY (updated_by) REFERENCES user_accounts(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

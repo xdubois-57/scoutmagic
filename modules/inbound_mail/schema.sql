@@ -134,8 +134,8 @@ CREATE TABLE IF NOT EXISTS inbound_mailbox_cursors (
 -- made "one message, two owners" unrepresentable: a renter's email that is
 -- also an invoice had to be stored twice or belong to one module only.
 --
--- Everything a sender wrote is encrypted at rest: subject, addresses and
--- both bodies. message_id_blind_index is the searchable form of the
+-- Everything a sender wrote is encrypted at rest: subject, addresses,
+-- both bodies and — when a consumer asked for them — the raw headers. message_id_blind_index is the searchable form of the
 -- Message-ID, used for deduplication and for threading a reply onto the
 -- message it answers, since an encrypted column cannot be compared.
 CREATE TABLE IF NOT EXISTS inbound_messages (
@@ -179,6 +179,21 @@ CREATE TABLE IF NOT EXISTS inbound_messages (
     -- before it was written (§7.9). The raw HTML is never stored: keeping it
     -- would mean every future reader has to remember to sanitise.
     body_html_encrypted BLOB NOT NULL,
+
+    -- The message's raw header block, kept ONLY when a consumer that
+    -- claimed the message asked for it (Api\MessageRetentionPreference,
+    -- roadmap IT-22). NULL — the ordinary case — means nobody asked.
+    --
+    -- This is where a mail diagnosis lives: Authentication-Results,
+    -- Received-SPF, DKIM-Signature and the chain of Received lines say
+    -- whether a message was authenticated and what path it took. It is
+    -- also where the IP addresses and server names are, which is why it
+    -- is encrypted like everything else here and why it is opt-in rather
+    -- than kept for every message that arrives. Truncated on write
+    -- (Repository\InboundMessageRepository::MAX_RAW_HEADERS_BYTES) with
+    -- the truncation declared inside the stored value, the way the
+    -- support-package collectors declare theirs.
+    raw_headers_encrypted BLOB NULL,
 
     sent_at DATETIME NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

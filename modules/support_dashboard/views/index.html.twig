@@ -1,6 +1,14 @@
 {% extends 'base.html.twig' %}
 {% block title %}Tableau de bord support — {{ site_name }}{% endblock %}
 
+{# Les blocs <pre> de cette page (description, note, analyse, JSON brut)
+   sont mis en forme dans components.css, que base.html.twig ne charge
+   délibérément pas. Sans ce lien, une seule ligne longue pousse toute la
+   page de côté à 375px. #}
+{% block stylesheets %}
+<link rel="stylesheet" href="{{ asset('/assets/css/components.css') }}">
+{% endblock %}
+
 {% macro value_or_missing(value) %}{% if value is null or value == '' %}<span class="text-body-secondary">Non renseigné</span>{% else %}{{ value }}{% endif %}{% endmacro %}
 
 {% block content %}
@@ -297,10 +305,21 @@
                             </td>
                             <td>{{ display.value_or_missing(row.last_upgraded_at) }}</td>
                             <td class="d-none d-md-table-cell">
-                                {% include 'partials/status_badge.html.twig' with {
-                                    status: row.is_active ? 'active' : 'inactive',
-                                    label: row.is_active ? 'Active' : 'Obsolète',
-                                } only %}
+                                {# Three states, not two: a row created for a
+                                   ticket by an installation that never agreed
+                                   to report is not silent, it never spoke
+                                   (roadmap IT-24). #}
+                                {% if not row.telemetry_enabled %}
+                                    {% include 'partials/status_badge.html.twig' with {
+                                        status: 'neutral',
+                                        label: 'Sans télémétrie',
+                                    } only %}
+                                {% else %}
+                                    {% include 'partials/status_badge.html.twig' with {
+                                        status: row.is_active ? 'active' : 'inactive',
+                                        label: row.is_active ? 'Active' : 'Obsolète',
+                                    } only %}
+                                {% endif %}
                             </td>
                             <td class="d-none d-md-table-cell">{{ display.value_or_missing(row.last_received_at) }}</td>
                             <td class="d-none d-lg-table-cell">{{ display.value_or_missing(row.active_members) }}</td>

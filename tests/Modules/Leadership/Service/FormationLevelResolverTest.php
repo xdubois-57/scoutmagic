@@ -26,6 +26,17 @@ class FormationLevelResolverTest extends TestCase
             'spelled out, ordinal' => ['3e étape', FormationStep::T3],
             'brevet' => ['Breveté', FormationStep::BREVET],
             'brevet, uppercase' => ['ANIMATEUR BREVETE', FormationStep::BREVET],
+            // The two named brevets, and the second entrance to the path
+            // (roadmap IT-19). Each has its own box now, so the ONE ratio
+            // can count the BACV without counting the Woodbadge.
+            'bacv' => ['BACV', FormationStep::BACV],
+            'bacv inside a longer label' => ['Animateur BACV 2025', FormationStep::BACV],
+            'woodbadge, one word' => ['Woodbadge', FormationStep::WOODBADGE],
+            'woodbadge, two words' => ['Wood Badge', FormationStep::WOODBADGE],
+            'pi-days' => ['Pi-days', FormationStep::PI_DAYS],
+            'pi days, spelled out' => ['Journées Pi', FormationStep::PI_DAYS],
+            'journee pi, singular' => ['Journée Pi', FormationStep::PI_DAYS],
+
             'explicitly none' => ['Aucune formation', FormationStep::NONE],
             'nothing recorded' => [null, FormationStep::NONE],
             'empty string' => ['', FormationStep::NONE],
@@ -51,6 +62,43 @@ class FormationLevelResolverTest extends TestCase
     public function testResolvesTheFederationVocabulary(?string $raw, FormationStep $expected): void
     {
         $this->assertSame($expected, (new FormationLevelResolver())->resolve($raw));
+    }
+
+    /**
+     * A named brevet is tested before the generic one: « brevet BACV » is
+     * a BACV, and reading it as an unspecified brevet would lose exactly
+     * the distinction the ONE ratio is built on.
+     */
+    public function testANamedBrevetWinsOverTheGenericWord(): void
+    {
+        $resolver = new FormationLevelResolver();
+
+        $this->assertSame(FormationStep::BACV, $resolver->resolve('Brevet BACV'));
+        $this->assertSame(FormationStep::WOODBADGE, $resolver->resolve('Brevet Woodbadge'));
+        $this->assertSame(FormationStep::BREVET, $resolver->resolve('Brevet d\'animateur'));
+    }
+
+    /**
+     * Pi-days is an entrance equivalent to T1, so a label naming both is
+     * the Pi-days one — the same reasoning as the brevet above, one rung
+     * lower.
+     */
+    public function testPiDaysWinsOverTheEquivalentTStep(): void
+    {
+        $this->assertSame(FormationStep::PI_DAYS, (new FormationLevelResolver())->resolve('Pi-days (T1)'));
+    }
+
+    /**
+     * « en cours » still wins over everything, the new boxes included: a
+     * BACV being prepared is not a BACV, and SupervisionCalculator's floor
+     * argument depends on never reading it as one.
+     */
+    public function testABacvUnderWayIsNotABacv(): void
+    {
+        $resolver = new FormationLevelResolver();
+
+        $this->assertSame(FormationStep::UNKNOWN, $resolver->resolve('BACV en cours'));
+        $this->assertSame(FormationStep::UNKNOWN, $resolver->resolve('Pi-days prévu'));
     }
 
     /**

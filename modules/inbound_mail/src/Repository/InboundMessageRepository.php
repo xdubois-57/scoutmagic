@@ -50,6 +50,46 @@ class InboundMessageRepository
      */
     public const UNLINK_GRACE_DAYS = 30;
 
+    /**
+     * How much of a raw header block is kept. A message that crossed
+     * several relays carries a long chain of `Received` lines, and there
+     * is no useful ceiling on how long — one crossing a mailing list and
+     * three forwarders can run to tens of kilobytes, per message, on a box
+     * that keeps months of mail.
+     *
+     * 16 KiB holds the whole chain of anything ordinary. Past it the value
+     * is cut and **says so inside itself**, the way the support package's
+     * collectors declare their own truncation: a diagnosis read from a
+     * silently shortened header block is a diagnosis of the wrong message.
+     */
+    public const MAX_RAW_HEADERS_BYTES = 16384;
+
+    /** The marker a truncated header block ends with. */
+    public const RAW_HEADERS_TRUNCATION_MARKER = '(… en-têtes tronqués à ';
+
+    /**
+     * Bound a raw header block, declaring the cut inside the value itself.
+     *
+     * Cut on a line boundary where there is one within reach, so the last
+     * header kept is a whole header rather than half of one that a reader
+     * would parse as something else.
+     */
+    private static function boundHeaders(string $rawHeaders): string
+    {
+        if (strlen($rawHeaders) <= self::MAX_RAW_HEADERS_BYTES) {
+            return $rawHeaders;
+        }
+
+        $cut = substr($rawHeaders, 0, self::MAX_RAW_HEADERS_BYTES);
+        $lastBreak = strrpos($cut, "\n");
+        if ($lastBreak !== false && $lastBreak > 0) {
+            $cut = substr($cut, 0, $lastBreak);
+        }
+
+        return $cut . "\n" . self::RAW_HEADERS_TRUNCATION_MARKER
+            . self::MAX_RAW_HEADERS_BYTES . ' octets)';
+    }
+
     public function __construct(
         private \PDO $pdo,
         private EncryptionService $encryption
@@ -59,6 +99,10 @@ class InboundMessageRepository
     /**
      * Write the message itself. It belongs to nobody yet — `addLink()` is
      * what associates it with something.
+     *
+     * `$rawHeaders` is written only when a consumer that claimed the
+     * message asked for it (roadmap IT-22); null and empty both mean "keep
+     * nothing", which is the ordinary case and leaves the column NULL.
      *
      * @param string[] $toEmails
      */
@@ -76,7 +120,8 @@ class InboundMessageRepository
         string $bodyHtml,
         \DateTimeImmutable $sentAt,
         array $toEmails = [],
-        bool $isBulk = false
+        bool $isBulk = false,
+        ?string $rawHeaders = null
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO inbound_messages
@@ -84,8 +129,8 @@ class InboundMessageRepository
                  message_id_blind_index, in_reply_to_blind_index, from_email_blind_index,
                  subject_encrypted, from_email_encrypted, from_name_encrypted, message_id_encrypted,
                  in_reply_to_encrypted, to_emails_encrypted, body_text_encrypted, body_html_encrypted,
-                 sent_at, is_bulk)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                 raw_headers_encrypted, sent_at, is_bulk)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $mailboxId,
@@ -105,6 +150,9 @@ class InboundMessageRepository
                 : null,
             $this->encryption->encrypt($bodyText, 'inbound_messages.body_text'),
             $this->encryption->encrypt($bodyHtml, 'inbound_messages.body_html'),
+            $rawHeaders === null || $rawHeaders === ''
+                ? null
+                : $this->encryption->encrypt(self::boundHeaders($rawHeaders), 'inbound_messages.raw_headers'),
             $sentAt->format('Y-m-d H:i:s'),
             $isBulk ? 1 : 0,
         ]);
@@ -1551,7 +1599,10 @@ class InboundMessageRepository
             toEmails: $toEmails,
             attachments: $attachments,
             links: $links,
-            omittedAttachments: $omittedAttachments
+            omittedAttachments: $omittedAttachments,
+            rawHeaders: ($row['raw_headers_encrypted'] ?? null) !== null
+                ? $this->encryption->decrypt((string) $row['raw_headers_encrypted'], 'inbound_messages.raw_headers')
+                : null
         );
     }
 

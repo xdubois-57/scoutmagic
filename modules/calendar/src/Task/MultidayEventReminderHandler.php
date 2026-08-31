@@ -71,27 +71,43 @@ class MultidayEventReminderHandler implements TaskHandlerInterface
             null
         );
 
+        // Core's templates plus this module's own: a handler runs outside
+        // the composition root, so nothing has aggregated the manifests
+        // for it (ARCHITECTURE.md §8.7bis). A customisation is honoured
+        // all the same — that lives in the database, not in the registry.
+        $registry = new \Core\Mail\Template\EmailTemplateRegistry();
+        $registry->registerModuleManifest(
+            \Core\Module\ModuleManifest::fromFile(dirname(__DIR__, 2) . '/module.json')
+        );
+        $renderer = new \Core\Mail\Template\EmailTemplateRenderer(
+            $twig,
+            $registry,
+            new \Core\Mail\Template\EmailTemplateOverrideRepository($context->connection->getPdo()),
+            $context->journal
+        );
+
         foreach ($staff as $profile) {
             if ($profile->email === null || $profile->email === '') {
                 continue;
             }
 
             try {
+                // The declared subject is « Rappel — {{ event_title }} »,
+                // so with nothing customised this is the same message as
+                // the direct Twig renders it replaces — recipient by
+                // recipient, since display_name differs for each.
+                $email = $renderer->render('calendar.multiday_event_reminder', [
+                    'display_name' => $profile->getDisplayName(),
+                    'event_title' => $event->title,
+                    'start_date' => $event->startDate,
+                    'end_date' => $event->endDate,
+                ]);
+
                 $context->mailService->send(
                     to: $profile->email,
-                    subject: "Rappel — {$event->title}",
-                    bodyHtml: $twig->render('@calendar/email/multiday_event_reminder.html.twig', [
-                        'display_name' => $profile->getDisplayName(),
-                        'event_title' => $event->title,
-                        'start_date' => $event->startDate,
-                        'end_date' => $event->endDate,
-                    ]),
-                    bodyText: $twig->render('@calendar/email/multiday_event_reminder.text.twig', [
-                        'display_name' => $profile->getDisplayName(),
-                        'event_title' => $event->title,
-                        'start_date' => $event->startDate,
-                        'end_date' => $event->endDate,
-                    ])
+                    subject: $email->subject,
+                    bodyHtml: $email->bodyHtml,
+                    bodyText: $email->bodyText
                 );
             } catch (MailException $e) {
                 // Best-effort per recipient — one bad address must never

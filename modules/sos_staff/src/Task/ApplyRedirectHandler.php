@@ -68,6 +68,15 @@ class ApplyRedirectHandler implements TaskHandlerInterface
             ['sos_staff' => dirname(__DIR__, 4) . '/modules/sos_staff/views']
         );
 
+        // Core's templates plus this module's own: a handler runs outside
+        // the composition root, so nothing has aggregated the manifests
+        // for it (ARCHITECTURE.md §8.7bis). A customisation is still
+        // honoured — that lives in the database, not in the registry.
+        $emailTemplateRegistry = new \Core\Mail\Template\EmailTemplateRegistry();
+        $emailTemplateRegistry->registerModuleManifest(
+            \Core\Module\ModuleManifest::fromFile(dirname(__DIR__, 2) . '/module.json')
+        );
+
         $redirectService = new RedirectService(
             $providerConfigService,
             $settingsService,
@@ -75,7 +84,12 @@ class ApplyRedirectHandler implements TaskHandlerInterface
             $context->userAccounts,
             $context->mailService,
             $context->journal,
-            $twig,
+            new \Core\Mail\Template\EmailTemplateRenderer(
+                $twig,
+                $emailTemplateRegistry,
+                new \Core\Mail\Template\EmailTemplateOverrideRepository($pdo),
+                $context->journal
+            ),
             // Nullable on TaskContext, and nullable here: a scheduler run
             // built without the notification stack still applies the
             // redirection and simply tells nobody about it.

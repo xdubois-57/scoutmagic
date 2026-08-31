@@ -2,7 +2,7 @@
   "id": "registration",
   "name": "Inscriptions",
   "description": "Parcours d'inscription complet : page publique avec disponibilité des places et gestion des listes d'attente, formulaire de demande, accusés de réception par email, page de suivi pour les familles, gestion des demandes côté staff (acceptation, refus, rapprochement automatique à l'import Desk, rétention), préparation de l'année suivante (départs, passage entre sections, prévisions d'effectifs), veto sur la bascule d'année scoute tant que des demandes restent ouvertes, et liste de diffusion pour le module d'envoi de mails.",
-  "version": "6.3.0",
+  "version": "6.7.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -69,6 +69,54 @@
       "role_min": "identified",
       "label": "",
       "breadcrumb": { "label": "Ma demande", "parents": ["Espace membres"] }
+    },
+    {
+      "path": "/config/reinscription",
+      "method": "GET",
+      "controller": "Modules\\Registration\\Controller\\ReenrollmentConfigController",
+      "action": "index",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": "Réinscription",
+      "menu_icon": "bi-arrow-repeat",
+      "breadcrumb": { "label": "Réinscription", "parents": ["Configuration"] }
+    },
+    {
+      "path": "/config/reinscription",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\ReenrollmentConfigController",
+      "action": "save",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/config/reinscription/relance",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\ReenrollmentConfigController",
+      "action": "remind",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/reinscription",
+      "method": "GET",
+      "controller": "Modules\\Registration\\Controller\\ReenrollmentController",
+      "action": "index",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": { "label": "Réinscription", "parents": ["Espace membres"] }
+    },
+    {
+      "path": "/reinscription",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\ReenrollmentController",
+      "action": "save",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
     },
     {
       "path": "/inscriptions/suivi/{id}/{token}",
@@ -368,6 +416,69 @@
       "label": ""
     },
     {
+      "path": "/passage/membre/{id}/souhait",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\PassageController",
+      "action": "savePreferredSection",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/passage/membre/{id}/note",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\PassageController",
+      "action": "saveStaffNote",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/passage/souhait/{id}/rattacher",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\PassageController",
+      "action": "resolveWish",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/passage/optimiser",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\PassageController",
+      "action": "optimize",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/passage/reinitialiser",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\PassageController",
+      "action": "resetAssignments",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/passage/relire-commentaires",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\PassageController",
+      "action": "reviewComments",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/passage/membre/{id}/ia",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\PassageController",
+      "action": "confirmAiSuggestion",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
       "path": "/previsions",
       "method": "GET",
       "controller": "Modules\\Registration\\Controller\\ForecastController",
@@ -376,7 +487,8 @@
       "role_min": "chief",
       "label": "Prévisions",
       "menu_icon": "bi-graph-up-arrow",
-      "menu_group": "ma_section",
+      "menu_group": "gestion",
+      "menu_order": 30,
       "breadcrumb": {
         "label": "Prévisions",
         "parents": [
@@ -483,6 +595,62 @@
       "type": "number",
       "label": "Suppression définitive (années)",
       "description": "Nombre d'années après le passage d'une demande dans son état final (encodée dans Desk, refusée ou retirée) avant sa suppression définitive et irréversible. Une demande non finalisée n'est jamais supprimée."
+    },
+    {
+      "key": "registration_reenrollment_open_at",
+      "default_value": "03-01",
+      "type": "text",
+      "label": "Ouverture de la campagne de réinscription",
+      "description": "Jour et mois (MM-JJ) auxquels la campagne de réinscription s'ouvre automatiquement, chaque année (par défaut le 1er mars, 03-01) — jamais d'année à indiquer. Même ordre mois-jour que les autres dates de ce module. Une campagne ne rattrape jamais une ouverture manquée : si la date est passée, elle ne s'ouvre pas rétroactivement."
+    },
+    {
+      "key": "registration_reenrollment_close_at",
+      "default_value": "05-15",
+      "type": "text",
+      "label": "Fermeture de la campagne de réinscription",
+      "description": "Jour et mois (MM-JJ) auxquels la campagne de réinscription se ferme automatiquement, chaque année (par défaut le 15 mai, 05-15) — jamais d'année à indiquer."
+    },
+    {
+      "key": "registration_reenrollment_open",
+      "default_value": "0",
+      "type": "boolean",
+      "label": "Campagne de réinscription ouverte",
+      "description": "Interrupteur manuel de forçage : quand il est actif, la campagne est ouverte quelles que soient les dates programmées ci-dessus. Sert à ouvrir plus tôt, ou à rouvrir après la fermeture pour une famille en retard."
+    },
+    {
+      "key": "registration_reenrollment_reminder_1_days",
+      "default_value": "14",
+      "type": "number",
+      "label": "Premier rappel (jours avant la fermeture)",
+      "description": "Nombre de jours avant la fermeture auquel le premier rappel part, aux familles qui n'ont pas encore répondu. Un rappel dont la date calculée tombe avant l'ouverture est sauté, jamais envoyé en retard."
+    },
+    {
+      "key": "registration_reenrollment_reminder_2_days",
+      "default_value": "2",
+      "type": "number",
+      "label": "Second rappel (jours avant la fermeture)",
+      "description": "Nombre de jours avant la fermeture auquel le second rappel part, aux familles qui n'ont toujours pas répondu. Une famille qui a répondu ne reçoit jamais de rappel."
+    },
+    {
+      "key": "registration_friend_wish_limit",
+      "default_value": "3",
+      "type": "number",
+      "label": "Nombre de souhaits « avec qui » par enfant",
+      "description": "Combien d'amis une famille peut citer. Le plafond est revalidé côté serveur : ce qui dépasse est ignoré, jamais refusé avec une erreur. Baisser ce nombre n'efface rien de ce qui a déjà été saisi — les entrées au-delà cessent simplement d'être affichées et utilisées."
+    },
+    {
+      "key": "passage_max_section_imbalance_percent",
+      "default_value": "30",
+      "type": "number",
+      "label": "Écart maximum entre sections d'une même branche (%)",
+      "description": "Écart toléré, en pourcentage, entre deux sections d'une même branche — à la fois sur l'effectif total et sur le nombre de premières années. En cas de conflit entre les deux, la limite « premières années » prime et l'écart d'effectif total peut dépasser ce seuil, ce qui est alors affiché explicitement."
+    },
+    {
+      "key": "passage_keep_siblings_together",
+      "default_value": "1",
+      "type": "boolean",
+      "label": "Garder les frères et sœurs dans la même section",
+      "description": "Quand actif, la répartition automatique place dans la même section les enfants qui partagent une adresse. C'est une priorité, pas une garantie : la limite d'écart entre sections passe avant."
     }
   ],
   "cookies": [],
@@ -502,6 +670,14 @@
     {
       "key": "auto_assign_passage",
       "handler": "Modules\\Registration\\Task\\AutoAssignPassageHandler"
+    },
+    {
+      "key": "reenrollment_campaign",
+      "handler": "Modules\\Registration\\Task\\ReenrollmentCampaignHandler"
+    },
+    {
+      "key": "send_reenrollment_emails",
+      "handler": "Modules\\Registration\\Task\\SendReenrollmentEmailsHandler"
     }
   ],
   "storage": {},
@@ -511,6 +687,124 @@
       "label": "Prévisions",
       "match": "exact",
       "role_min": "chief"
+    }
+  ],
+  "emails": [
+    {
+      "id": "registration.secondary_email_confirmation",
+      "label": "Confirmation d'une adresse ajoutée à une demande",
+      "description": "Envoyé à une adresse qu'une famille vient d'ajouter au suivi de sa demande d'inscription, pour qu'elle la confirme.",
+      "default_subject": "Confirmez votre adresse email",
+      "template": "@registration/email/secondary_email_confirmation.html.twig",
+      "editable": false,
+      "variables": [
+        {
+          "name": "confirm_url",
+          "label": "Lien de confirmation",
+          "example": "https://exemple.be/inscriptions/suivi/emails/confirm/7"
+        },
+        {
+          "name": "expiry_hours",
+          "label": "Durée de validité (heures)",
+          "example": "48"
+        }
+      ]
+    },
+    {
+      "id": "registration.reenrollment_opening",
+      "label": "Réinscription — ouverture de la campagne",
+      "description": "Envoyé à toutes les familles d'animés au moment où la campagne de réinscription s'ouvre. Un email par adresse, listant les enfants concernés — jamais un email par enfant.",
+      "default_subject": "Réinscription {{ target_year_label }}",
+      "template": "@registration/email/reenrollment_opening.html.twig",
+      "variables": [
+        {
+          "name": "target_year_label",
+          "label": "Année scoute visée",
+          "example": "2027-2028"
+        },
+        {
+          "name": "close_date",
+          "label": "Date de clôture de la campagne",
+          "example": "15 mai 2027"
+        },
+        {
+          "name": "reenrollment_url",
+          "label": "Lien vers la page de réinscription",
+          "example": "https://exemple.be/reinscription"
+        }
+      ]
+    },
+    {
+      "id": "registration.reenrollment_reminder_1",
+      "label": "Réinscription — premier rappel",
+      "description": "Envoyé quelques jours avant la clôture, aux seules familles qui n'ont pas encore répondu pour tous leurs enfants. Un rappel dont la date calculée tombe avant l'ouverture est sauté, jamais envoyé en retard.",
+      "default_subject": "Il reste un peu de temps pour répondre",
+      "template": "@registration/email/reenrollment_reminder_1.html.twig",
+      "variables": [
+        {
+          "name": "target_year_label",
+          "label": "Année scoute visée",
+          "example": "2027-2028"
+        },
+        {
+          "name": "close_date",
+          "label": "Date de clôture de la campagne",
+          "example": "15 mai 2027"
+        },
+        {
+          "name": "reenrollment_url",
+          "label": "Lien vers la page de réinscription",
+          "example": "https://exemple.be/reinscription"
+        }
+      ]
+    },
+    {
+      "id": "registration.reenrollment_reminder_2",
+      "label": "Réinscription — dernier rappel",
+      "description": "Envoyé juste avant la clôture, aux seules familles qui n'ont toujours pas répondu.",
+      "default_subject": "Dernier rappel — réinscription {{ target_year_label }}",
+      "template": "@registration/email/reenrollment_reminder_2.html.twig",
+      "variables": [
+        {
+          "name": "target_year_label",
+          "label": "Année scoute visée",
+          "example": "2027-2028"
+        },
+        {
+          "name": "close_date",
+          "label": "Date de clôture de la campagne",
+          "example": "15 mai 2027"
+        },
+        {
+          "name": "reenrollment_url",
+          "label": "Lien vers la page de réinscription",
+          "example": "https://exemple.be/reinscription"
+        }
+      ]
+    },
+    {
+      "id": "registration.reenrollment_closing",
+      "label": "Réinscription — clôture",
+      "description": "Envoyé à la clôture de la campagne, aux seules familles qui n'ont pas répondu — que la clôture soit programmée ou forcée à la main.",
+      "default_subject": "La réinscription {{ target_year_label }} est clôturée",
+      "template": "@registration/email/reenrollment_closing.html.twig",
+      "variables": [
+        {
+          "name": "target_year_label",
+          "label": "Année scoute visée",
+          "example": "2027-2028"
+        },
+        {
+          "name": "close_date",
+          "label": "Date de clôture de la campagne",
+          "example": "15 mai 2027"
+        },
+        {
+          "name": "reenrollment_url",
+          "label": "Lien vers la page de réinscription",
+          "example": "https://exemple.be/reinscription"
+        }
+      ]
     }
   ]
 }

@@ -57,13 +57,13 @@ class ModuleSchedulingTest extends TestCase
         $this->declaredTasks = $tasks;
     }
 
-    public function testTheManifestStillDeclaresTheThreeTasksThisModuleNeeds(): void
+    public function testTheManifestStillDeclaresTheFourTasksThisModuleNeeds(): void
     {
         $keys = array_map(static fn(array $task): string => $task['key'], $this->declaredTasks);
         sort($keys);
 
         $this->assertSame(
-            ['finalize_monthly_aggregate', 'purge_installations', 'purge_rate_limits'],
+            ['finalize_monthly_aggregate', 'purge_installations', 'purge_rate_limits', 'purge_tickets'],
             $keys
         );
     }

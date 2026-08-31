@@ -275,5 +275,31 @@
       "handler": "Modules\\Retro\\Task\\PurgeRateLimitHandler"
     }
   ],
-  "storage": {}
+  "storage": {},
+  "emails": [
+    {
+      "id": "retro.board_closed",
+      "label": "Rétrospective clôturée",
+      "description": "Envoyé aux animateurs concernés quand un tableau de rétrospective est clôturé, avec sa synthèse.",
+      "default_subject": "Rétrospective clôturée : {{ board_title }}",
+      "template": "@retro/email/board_closed.html.twig",
+      "variables": [
+        {
+          "name": "board_title",
+          "label": "Titre du tableau",
+          "example": "Week-end de section"
+        },
+        {
+          "name": "board_date",
+          "label": "Date du tableau",
+          "example": "14 mars 2027"
+        },
+        {
+          "name": "board_url",
+          "label": "Lien vers le tableau",
+          "example": "https://exemple.be/retro/12"
+        }
+      ]
+    }
+  ]
 }

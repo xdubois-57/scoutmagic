@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Modules\News\Controller;
 
+use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
+
 use Core\Badge\MemberBadgeRepository;
 use Core\Config\ScoutYearService;
 use Core\Config\SettingRepository;
@@ -106,7 +108,7 @@ class NewsFormHumanCheckTest extends TestCase
         $twig->addGlobal('current_path', '/news');
 
         $responseService = new ResponseService(
-            $responseRepository, $roleResolver, $sectionService, $mailService, $twig, $shortUrlService,
+            $responseRepository, $roleResolver, $sectionService, $mailService, EmailTemplateRendererFactory::shippedOnlyForModule($twig, 'news'), $shortUrlService,
             'https://example.com', 'Test Unit'
         );
 

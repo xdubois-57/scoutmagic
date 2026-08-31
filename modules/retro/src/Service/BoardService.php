@@ -10,6 +10,7 @@ namespace Modules\Retro\Service;
 
 use Core\Journal\JournalService;
 use Core\Mail\MailService;
+use Core\Mail\Template\EmailTemplateRenderer;
 use Core\Member\MemberService;
 use Core\Member\SectionService;
 use Core\Scheduler\SchedulerService;
@@ -25,7 +26,6 @@ use Modules\Retro\Api\RetroLinkSummary;
 use Modules\Retro\Repository\Board;
 use Modules\Retro\Repository\BoardRepository;
 use Modules\Retro\Repository\CommentRepository;
-use Twig\Environment;
 
 /**
  * Board lifecycle (create/update/close/regenerate link). Unlike
@@ -55,7 +55,7 @@ class BoardService implements RetroEventLinkLookupInterface
         private SchedulerService $schedulerService,
         private JournalService $journalService,
         private MailService $mailService,
-        private Environment $twig,
+        private EmailTemplateRenderer $emailTemplateRenderer,
         private string $siteName,
         private string $baseUrl,
         private ?ShortUrlService $shortUrlService = null,
@@ -650,14 +650,17 @@ class BoardService implements RetroEventLinkLookupInterface
         ];
 
         try {
-            $bodyHtml = $this->twig->render('@retro/email/board_closed.html.twig', $context);
-            $bodyText = $this->twig->render('@retro/email/board_closed.text.twig', $context);
+            // Through the register (ARCHITECTURE.md §8.7bis): the declared
+            // subject is « Rétrospective clôturée : {{ board_title }} », so
+            // with nothing customised this produces the same subject and
+            // the same two bodies as the direct Twig renders it replaces.
+            $email_ = $this->emailTemplateRenderer->render('retro.board_closed', $context);
 
             $this->mailService->send(
                 to: $email,
-                subject: 'Rétrospective clôturée : ' . $board->title,
-                bodyHtml: $bodyHtml,
-                bodyText: $bodyText
+                subject: $email_->subject,
+                bodyHtml: $email_->bodyHtml,
+                bodyText: $email_->bodyText
             );
         } catch (\Throwable $e) {
             $this->journalService->log(

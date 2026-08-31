@@ -1,0 +1,119 @@
+{% extends 'base.html.twig' %}
+{% block title %}{{ template.label }} — E-mails — {{ site_name }}{% endblock %}
+{% block content %}
+{% include 'partials/page_header.html.twig' with {
+    title: template.label,
+    subtitle: template.description,
+} only %}
+
+{% if customised %}
+    <div class="alert alert-info">
+        Cet email est personnalisé. Il ne suivra plus les améliorations apportées au gabarit livré
+        avec le site tant que vous ne l'aurez pas remis par défaut.
+    </div>
+{% endif %}
+
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h5 mb-3">Sujet</h2>
+        <form method="post" action="/config/emails/{{ template.id|url_encode }}/sujet">
+            {{ csrf_field()|raw }}
+            <div class="mb-2">
+                <label for="email-subject" class="form-label">Sujet de l'email</label>
+                <input type="text" class="form-control" id="email-subject" name="subject"
+                       value="{{ subject }}" maxlength="255" required
+                       data-variable-target>
+                <div class="form-text">
+                    Le nom de l'unité est ajouté automatiquement devant le sujet à l'envoi.
+                </div>
+            </div>
+            {% include 'partials/email_variable_buttons.html.twig' with {
+                variables: template.variables,
+                target: 'email-subject',
+            } only %}
+            <button type="submit" class="btn btn-primary mt-3">Enregistrer le sujet</button>
+        </form>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start gap-2 mb-3">
+            <h2 class="h5 mb-0">Corps du message</h2>
+            {% include 'partials/rich_text_edit_button.html.twig' with {
+                content_key: 'email_body',
+                save_url: '/config/emails/' ~ template.id|url_encode ~ '/corps',
+            } only %}
+        </div>
+
+        {# The shared preview element the modal reads from and writes back
+           to (partials/rich_text_field.html.twig), matched by data-key. #}
+        <div class="rich-text-field-preview rich-text border rounded p-3 email-body-editor" data-key="email_body">
+            {{ body_html|raw }}
+        </div>
+
+        <div class="mt-3">
+            <p class="form-label mb-2">Variables disponibles — cliquez pour copier, puis collez dans le message :</p>
+            {% include 'partials/email_variable_buttons.html.twig' with {
+                variables: template.variables,
+                target: null,
+            } only %}
+        </div>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h5 mb-3">Aperçu</h2>
+        <p class="small text-body-secondary">
+            Avec des valeurs d'exemple. L'en-tête et le pied de page du site sont ajoutés à l'envoi et
+            ne sont pas modifiables.
+        </p>
+        <p class="mb-2"><strong>Sujet :</strong> {{ preview.subject }}</p>
+        <div class="rich-text border rounded p-3 bg-body-tertiary">{{ preview.body_html|raw }}</div>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h5 mb-3">M'envoyer un test</h2>
+        <p class="small text-body-secondary">
+            L'email vous est envoyé à {{ test_recipient }}, avec les mêmes valeurs d'exemple que
+            l'aperçu. Il part par le même chemin que les vrais emails du site : si vos envois sont
+            en mode local ou en bac à sable, le test y arrive aussi — c'est justement ce qu'on
+            vérifie. Un test toutes les 30 secondes au maximum.
+        </p>
+        <form method="post" action="/config/emails/{{ template.id|url_encode }}/test">
+            {{ csrf_field()|raw }}
+            <button type="submit" class="btn btn-outline-primary">M'envoyer un test</button>
+        </form>
+    </div>
+</div>
+
+{% if customised %}
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5 mb-3">Revenir au gabarit par défaut</h2>
+            <p class="small text-body-secondary">
+                Votre texte est supprimé et l'email repart du gabarit livré avec le site — il suivra
+                à nouveau ses améliorations.
+            </p>
+            {# design.md §7.5: the confirmation is data-confirm on the FORM,
+               and it names the email so a mis-click is visible. #}
+            <form method="post" action="/config/emails/{{ template.id|url_encode }}/defaut"
+                  data-confirm="Remettre l'email « {{ template.label }} » au gabarit par défaut ? Votre texte sera supprimé."
+                  data-confirm-label="Remettre par défaut">
+                {{ csrf_field()|raw }}
+                <button type="submit" class="btn btn-outline-danger">Revenir au gabarit par défaut</button>
+            </form>
+        </div>
+    </div>
+{% endif %}
+
+{% include 'partials/rich_text_editor.html.twig' %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ asset('/assets/js/rich-text-field.js') }}" defer></script>
+<script src="{{ asset('/assets/js/email-variables.js') }}" defer></script>
+{% endblock %}

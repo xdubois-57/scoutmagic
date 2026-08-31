@@ -102,12 +102,40 @@ class RegistrationChefsRbacTest extends TestCase
         $twig->addGlobal('csp_nonce', 'test-nonce');
         $this->twig = $twig;
 
-        $this->departuresController = new DeparturesController($twig, $sectionStaffAuth, $sectionService, $departureService, $scoutYearResolver);
-        $this->passageController = new PassageController(
-            $twig, $passageService, $requestRepository, $transferRepository, $sectionService,
-            $ageBracketRepository, $slotService, $scoutYearResolver, $scoutYearService
+        $this->departuresController = new DeparturesController(
+            $twig, $sectionStaffAuth, $sectionService, $departureService, $scoutYearResolver,
+            RegistrationTestHelper::departureLink($this->pdo, $encryption, $settingService)
         );
         $forecastService = new ForecastService($this->pdo, $encryption, $sectionService, $passageService);
+        $this->passageController = new PassageController(
+            $twig, $passageService, $requestRepository, $transferRepository, $sectionService,
+            $ageBracketRepository, $slotService, $scoutYearResolver, $scoutYearService,
+            // This test is about the RBAC floor, not about the numbers —
+            // but the box is part of the page it renders, so the real
+            // projection is wired rather than a stub that could quietly
+            // stop matching.
+            new \Modules\Registration\Service\PassageStatisticsService(
+                $sectionService,
+                new \Modules\Registration\Service\ProjectedPopulationService(
+                    $forecastService,
+                    $slotService,
+                    $scoutYearService,
+                    $sectionService,
+                    $requestRepository,
+                    new \Modules\Registration\Repository\ProjectedMemberEmailRepository($this->pdo, $encryption)
+                )
+            ),
+            // IT-17 — the planning block the page now renders under each
+            // line. Real, for the same reason the projection above is.
+            RegistrationTestHelper::passagePlanning(
+                $this->pdo,
+                $encryption,
+                $settingService,
+                RegistrationTestHelper::reenrollmentService($this->pdo, $encryption, $settingService)
+            ),
+            new \Modules\Registration\Repository\PassageNoteRepository($this->pdo, $encryption),
+            new \Modules\Registration\Repository\ReenrollmentRepository($this->pdo, $encryption)
+        );
         $this->forecastController = new ForecastController($twig, $forecastService, $scoutYearResolver, $scoutYearService, $slotService);
 
         if (session_status() === PHP_SESSION_NONE) {

@@ -39,6 +39,7 @@ use Modules\MassMail\Service\SenderAuthorization;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\MassMail\MassMailTestHelper;
+use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
 
 /**
  * @group database
@@ -157,7 +158,7 @@ class MassMailServiceTest extends TestCase
         return new MemberEmailService(
             new MemberEmailRepository($this->pdo, $encryption),
             $this->createMock(MailService::class),
-            $this->createMock(\Twig\Environment::class),
+            EmailTemplateRendererFactory::overTestDatabase($this->pdo, $this->createMock(\Twig\Environment::class)),
             new JournalService(new JournalRepository($this->pdo)),
             $sectionService,
             $memberService,

@@ -56,12 +56,12 @@ final class DemoAccounts
         'chef_unite' => [
             'tiers' => 'T0015',
             'role' => 'admin',
-            'why' => 'Animateur en A1, Chef d\'unité ensuite — le parcours du scénario 10, et le membre par qui Staff d\'U se peuple.',
+            'why' => 'Animateur en A1, Animateur d\'unité ensuite — le parcours du scénario 10, et l\'un des membres par qui Staff d\'U se peuple.',
         ],
         'intendant' => [
             'tiers' => 'T0016',
             'role' => 'intendant',
-            'why' => 'Intendant d\'unité les trois années (scénario 11) : le rôle qui voit les Finances sans être chef.',
+            'why' => 'Intendant des Pionniers les trois années (scénario 11) : le rôle qui voit les Finances sans être chef.',
         ],
         'chef_section' => [
             'tiers' => 'T0014',

@@ -11,8 +11,8 @@ namespace Core\Security;
 use Core\Database\Connection;
 use Core\Journal\JournalService;
 use Core\Mail\MailService;
+use Core\Mail\Template\EmailTemplateRenderer;
 use Core\Member\MemberEmailRepository;
-use Twig\Environment;
 
 class AuthService
 {
@@ -28,7 +28,7 @@ class AuthService
         private Connection $connection,
         private EncryptionService $encryption,
         private MailService $mailService,
-        private Environment $twig,
+        private EmailTemplateRenderer $emailTemplateRenderer,
         private string $baseUrl,
         private string $siteName
     ) {
@@ -322,14 +322,18 @@ class AuthService
             'expiry_minutes' => self::TOKEN_EXPIRY_MINUTES,
         ];
 
-        $bodyHtml = $this->twig->render('email/magic_link.html.twig', $context);
-        $bodyText = $this->twig->render('email/magic_link.text.twig', $context);
+        // Through the e-mail register (Core\Mail\Template), which for this
+        // one can only ever answer with the shipped template: the magic
+        // link is declared `editable: false`, so no customisation of it can
+        // exist to be found. Routing it here anyway keeps one rendering
+        // path rather than two.
+        $email = $this->emailTemplateRenderer->render('magic_link', $context);
 
         $this->mailService->send(
             to: $to,
-            subject: 'Votre lien de connexion',
-            bodyHtml: $bodyHtml,
-            bodyText: $bodyText
+            subject: $email->subject,
+            bodyHtml: $email->bodyHtml,
+            bodyText: $email->bodyText
         );
     }
 }

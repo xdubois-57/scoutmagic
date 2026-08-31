@@ -60,6 +60,193 @@
     </div>
 </div>
 
+{% if ticket_available %}
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h5 mb-3">Contacter le support</h2>
+
+        <p class="small text-body-secondary">
+            Décrivez le problème rencontré. Le ticket part vers l'équipe qui développe ScoutMagic ;
+            la réponse vous arrivera par e-mail, à l'adresse indiquée ci-dessous. Il n'y a pas de fil
+            de discussion sur ce site.
+        </p>
+
+        {# Ce qui part automatiquement, dit avant l'envoi et non après :
+           l'identité de l'installation est ce qui permet au mainteneur de
+           savoir de quel site on parle, et une case à cocher rétrospective
+           ne serait pas un consentement (roadmap IT-25). #}
+        <div class="alert alert-info small">
+            <strong>Partent avec votre message :</strong> l'identifiant de cette installation,
+            la version du site et la version de PHP. Rien d'autre — aucune donnée de membre,
+            aucun journal, aucun fichier.
+            {% if not ticket_telemetry_enabled %}
+                L'envoi quotidien de statistiques reste désactivé : ouvrir un ticket ne l'active pas.
+            {% endif %}
+        </div>
+
+        {% if ticket_guard %}
+            <div class="alert alert-warning small mb-0">
+                {% if ticket_guard == 'no_destination' %}
+                    Aucune destination de support n'est configurée sur cette installation : le formulaire est indisponible.
+                {% elseif ticket_guard == 'insecure_destination' %}
+                    La destination du support n'est pas en HTTPS : le formulaire est indisponible.
+                {% else %}
+                    La destination du support n'est pas un nom public : le formulaire est indisponible.
+                {% endif %}
+            </div>
+        {% else %}
+            <form method="post" action="/config/support/ticket">
+                {{ csrf_field()|raw }}
+
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'ticket_category',
+                    field_name: 'ticket_category',
+                    label: 'Catégorie',
+                    type: 'select',
+                    required: true,
+                    options: ticket_categories|map(c => {
+                        value: c.value,
+                        label: c.label,
+                        selected: ticket_form.category is defined and ticket_form.category == c.value,
+                    }),
+                } only %}
+
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'ticket_description',
+                    field_name: 'ticket_description',
+                    label: 'Description',
+                    type: 'textarea',
+                    rows: 6,
+                    required: true,
+                    value: ticket_form.description|default(''),
+                    help: "Ce que vous avez fait, ce que vous attendiez, ce qui s'est passé.",
+                } only %}
+
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'ticket_contact_email',
+                    field_name: 'ticket_contact_email',
+                    label: 'Adresse de contact',
+                    type: 'email',
+                    required: true,
+                    value: ticket_form.contact_email|default(ticket_contact_default),
+                    help: "C'est à cette adresse que la réponse arrivera.",
+                } only %}
+
+                <button type="submit" class="btn btn-primary">Envoyer le ticket</button>
+            </form>
+        {% endif %}
+
+        {% if ticket_last_sent %}
+            <hr>
+            <h3 class="h6">Dernier ticket</h3>
+            <p class="small mb-0">
+                {% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Envoyé' } only %}
+                Référence <code>{{ ticket_last_sent.reference }}</code>
+                {% if ticket_last_sent.sent_at %}— {{ ticket_last_sent.sent_at }}{% endif %}
+            </p>
+            <p class="small text-body-secondary mb-0 mt-1">
+                Le site n'interroge pas le serveur ensuite : la suite se passe par e-mail.
+            </p>
+
+            {% if archive_available %}
+                <h3 class="h6 mt-3">Joindre l'archive de diagnostic</h3>
+
+                {% if archive_transmitted %}
+                    <p class="small mb-0">
+                        {% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Archive transmise' } only %}
+                        {% if archive_transmitted_at %}— {{ archive_transmitted_at }}{% endif %}
+                    </p>
+                {% elseif archive_size_bytes is null %}
+                    <p class="small text-body-secondary mb-0">
+                        {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'Archive non transmise' } only %}
+                        Générez d'abord une archive de support ci-dessous, puis revenez ici.
+                    </p>
+                {% else %}
+                    {# La liste et la taille AVANT la case, jamais après :
+                       accepter de transmettre « quelque chose » n'est pas
+                       accepter de transmettre ceci (roadmap IT-26). #}
+                    <p class="small text-body-secondary mb-1">
+                        {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'Archive non transmise' } only %}
+                        L'archive conservée pèse
+                        <strong>{{ (archive_size_bytes / 1048576)|number_format(1, ',', ' ') }} Mo</strong>
+                        et contient :
+                    </p>
+                    <ul class="small text-body-secondary">
+                        {% for entry in archive_contents %}
+                            <li>{{ entry.description }}</li>
+                        {% endfor %}
+                    </ul>
+
+                    <form method="post" action="/config/support/ticket/archive">
+                        {{ csrf_field()|raw }}
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="checkbox" value="1"
+                                   id="archive_acknowledged" name="archive_acknowledged" required>
+                            <label class="form-check-label small" for="archive_acknowledged">
+                                J'ai pris connaissance du contenu de cette archive et j'accepte de la transmettre
+                                à {{ archive_destination }}.
+                            </label>
+                        </div>
+                        <button type="submit" class="btn btn-outline-primary">
+                            Transmettre l'archive au support
+                        </button>
+                    </form>
+                {% endif %}
+            {% endif %}
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+{% if probe_available %}
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h5 mb-3">Tester l'acheminement des e-mails</h2>
+
+        <p class="small text-body-secondary">
+            Le bouton « Envoyer un e-mail de test » de la page Courriel prouve que votre serveur a
+            <em>accepté</em> le message. Il ne dit rien de la suite : SPF, DKIM, DMARC, un délai de
+            mise en quarantaine, ou un message supprimé sans avertissement. Cette sonde envoie un
+            message vers une boîte du support, qui vous dira ce qui est arrivé et dans quel état.
+        </p>
+
+        <div class="alert alert-info small">
+            <strong>Ce que la sonde contient :</strong> une clé de corrélation et rien d'autre.
+            Aucune donnée personnelle, aucun nom, aucune adresse de membre.
+        </div>
+
+        <form method="post" action="/config/support/mail-probe">
+            {{ csrf_field()|raw }}
+            <button type="submit" class="btn btn-outline-primary"
+                    {% if probe_rate_limited_until %}disabled{% endif %}>
+                Envoyer une sonde de diagnostic
+            </button>
+            {# Un bouton grisé sans motif est exactement le silence que
+               cette fonction sert à lever : la page dit quand il revient. #}
+            {% if probe_rate_limited_until %}
+                <p class="small text-body-secondary mb-0 mt-2">
+                    Une sonde a déjà été envoyée il y a moins d'une heure : réessayez à partir de
+                    {{ probe_rate_limited_until }}.
+                </p>
+            {% endif %}
+        </form>
+
+        {% if probe_last_run %}
+            <hr>
+            <h3 class="h6">Dernière sonde</h3>
+            <p class="small mb-0">
+                Clé <code>{{ probe_last_run.key }}</code>
+                {% if probe_last_run.sent_at %}— {{ probe_last_run.sent_at }}{% endif %}
+            </p>
+            <p class="small text-body-secondary mb-0 mt-1">
+                Le résultat — réception, délai, SPF, DKIM, DMARC — se lit chez le support, pas ici :
+                c'est lui qui reçoit le message.
+            </p>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
 <div class="card mb-3">
     <div class="card-body">
         <h2 class="h5 mb-3">État des envois</h2>
@@ -149,7 +336,9 @@
             L'archive est générée en tâche de fond, conservée chiffrée sur le serveur, accessible aux seuls
             super-administrateurs, et supprimée automatiquement après {{ package_retention_days }} jours. Une seule
             archive est conservée : en générer une nouvelle remplace la précédente. Rien n'est jamais transmis
-            automatiquement.
+            automatiquement : ni tâche planifiée, ni courriel, ni envoi déclenché par le site. Vous pouvez en
+            revanche la transmettre vous-même, en la joignant à un ticket depuis « Contacter le support » —
+            son contenu et sa taille sont affichés avant que vous acceptiez.
         </p>
 
         <div class="d-flex flex-wrap gap-2 align-items-center">

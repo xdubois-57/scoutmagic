@@ -276,6 +276,47 @@ class LeadershipRbacTest extends TestCase
      * One Desk value nobody has decided about, and one that has already
      * been mapped — the two states the mapping block exists to show.
      */
+    /**
+     * Roadmap IT-20: only the BACV counts towards the ONE ratio, so a
+     * brevet whose kind nobody recorded stopped counting — and the figure
+     * fell on the day of the update. The sentence above the ratio is what
+     * makes that fall understandable; shipping the change without it would
+     * have been worse than not changing the number at all.
+     */
+    public function testTheRatioSaysWhoStoppedCountingAndWhereToFixIt(): void
+    {
+        AuthSession::login(1, 'chef-unite@test.be', 'admin');
+        // Maps « Wording maison » to the legacy box, on one animateur.
+        $this->seedFormationLevels();
+
+        $body = (string) preg_replace('/\s+/', ' ', (string) $this->frontController(
+            '/admin/leadership/training',
+            'LeadershipController',
+            'training'
+        )->handle(new Request('GET', '/admin/leadership/training', [], [], [], []))->getBody());
+
+        $this->assertStringContainsString('1 animateur a un niveau de formation à préciser', $body);
+        $this->assertStringContainsString("Il n'est pas compté dans le ratio ONE", $body);
+        $this->assertStringContainsString('/admin/leadership/training?mapping=1#formation-mapping', $body);
+    }
+
+    /**
+     * No legacy box anywhere, no sentence: a warning that shows when there
+     * is nothing to do is a warning readers learn to skip.
+     */
+    public function testNothingToPreciseMeansNoSentenceAboveTheRatio(): void
+    {
+        AuthSession::login(1, 'chef-unite@test.be', 'admin');
+
+        $body = (string) preg_replace('/\s+/', ' ', (string) $this->frontController(
+            '/admin/leadership/training',
+            'LeadershipController',
+            'training'
+        )->handle(new Request('GET', '/admin/leadership/training', [], [], [], []))->getBody());
+
+        $this->assertStringNotContainsString('niveau de formation à préciser', $body);
+    }
+
     private function seedFormationLevels(): void
     {
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
