@@ -4,6 +4,9 @@ title: Participer aux groupes de discussion
 summary: Lire, publier, réagir et répondre aux sondages dans vos groupes.
 category: Espace membres
 role_min: identified
+question: Comment écrire un message dans un groupe ?
+question: Comment répondre à un sondage du staff ?
+question: Comment corriger un message que je viens de publier ?
 paths: /groups, /groups/*, /groups/archives, /groups/*/posts/*
 related: pages-d-un-groupe, signalements-groupe, animer-un-groupe, notifications-preferences
 ---

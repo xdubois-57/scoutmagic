@@ -4,6 +4,8 @@ title: Trouver de l'aide sur le site
 summary: Le bouton d'aide, le panneau contextuel et la liste de tous les sujets.
 category: Premiers pas
 role_min: public
+question: Où trouver de l'aide sur la page que je consulte ?
+question: Comment chercher un sujet dans l'aide ?
 paths: /aide, /aide/*
 ---
 

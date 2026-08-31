@@ -233,6 +233,83 @@ moteur (ARCHITECTURE.md §8.64).
 
 ---
 
+## IT-03 — Premiers pas + Espace membres (33 sujets)
+
+**Livré.**
+
+- **2 à 4 `question:` sur chacun des 33 sujets** des catégories
+  « Premiers pas » (16) et « Espace membres » (17) — 82 questions au
+  total sur le corpus, formulées comme un parent ou un animateur les
+  taperait, pas comme un sommaire : « Combien dois-je payer pour
+  l'inscription de mon enfant ? », « J'ai payé, pourquoi le montant
+  s'affiche-t-il toujours ? », « Est-ce que mon message de rétrospective
+  est anonyme ? ». Chaque sujet en a trouvé au moins deux vraies : aucun
+  ne décrivait un écran au lieu de documenter une tâche, donc aucun n'a
+  eu à être réécrit.
+- **Une correction de contenu** : `cookies` citait les trois catégories
+  comme « Strictement nécessaires », « Fonctionnels » et « D'analyse »
+  alors que l'écran affiche « Cookies strictement nécessaires »,
+  « Cookies fonctionnels » et « Cookies d'analyse »
+  (`CookieConsentService`). Alignées.
+- **Une correction dans la recherche**, révélée par le corpus enrichi et
+  pas par un test : voir « Décision autonome 2 » ci-dessous.
+
+**Audit — ce qui a été vérifié et n'a rien donné.**
+
+- **Les libellés cités.** Les 33 corps ont été passés au crible, chaque
+  libellé entre guillemets français confronté aux vues Twig, au JS et aux
+  sources PHP. En dehors des cookies, tous existent. Les neuf
+  « manquants » restants sont des faux positifs à retenir pour IT-07 :
+  un libellé coupé par une balise (`J'accepte la <a>politique de
+  protection des données</a>` sur la page de connexion), un libellé de
+  navigateur ou de système (« Ajouter à l'écran d'accueil »), un titre de
+  sujet d'aide cité comme tel, une valeur d'exemple
+  (« Téléphone de Marie »), un gabarit à variable (« Il reste N places »),
+  et un glyphe (« ⋮ »). **Le test de dérive d'IT-07 devra dépouiller les
+  balises avant de comparer**, sinon il produira exactement ces
+  faux positifs.
+- **Les `role_min`.** Comparés au plancher réel de chaque route exacte
+  couverte : un seul écart, `mes-paiements` (`identified`) sur `/`
+  (`public`). Il est volontaire et correct — la page d'accueil est
+  publique, le bandeau de paiement qu'elle documente n'existe que pour
+  une famille connectée.
+
+**Décisions autonomes.**
+
+1. **Les questions sont insérées après `role_min`**, avant `paths` et
+   `related` : le bloc de front matter se lit alors identité (id, titre,
+   résumé, catégorie, rôle), puis ce que la personne cherche, puis le
+   câblage technique.
+2. **Un mot que le corpus n'emploie nulle part ne compte plus contre la
+   couverture.** « empreinte digitale » ne répondait rien alors qu'un
+   sujet dit « se connecter avec l'empreinte » : « digitale » n'existe
+   dans aucun sujet, donc il ne discrimine rien, mais il faisait échouer
+   la règle « deux mots, les deux doivent tomber ». Il est désormais
+   écarté avant de mesurer la couverture — ce qui reste **différent** d'un
+   mot que d'autres sujets portent et pas celui-ci, qui lui compte
+   toujours contre lui. Défaut trouvé en interrogeant le vrai corpus, pas
+   en théorie ; deux cas Vitest le tiennent.
+3. **La liste de mots vides s'allonge de ce qui ouvre une question** :
+   « où » (replié en « ou »), « quand », « pourquoi », plus « tous »,
+   « tout », « toutes » et « tou » (ce que le désuffixage fait de
+   « tous »). Sans eux, « pourquoi je ne reçois plus les mails » ne
+   trouvait pas le sujet de désinscription.
+
+**Vérifié sur le vrai corpus.** La vraie `help-search.js` exécutée sur le
+vrai index d'un chef : « photos du camp » → la galerie ; « mot de passe
+oublié » → se connecter, puis Mon compte ; « combien je dois payer » →
+le sujet des paiements ; « pourquoi je ne reçois plus les mails » → la
+désinscription ; « zzz » → rien.
+
+**Reporté.**
+
+- « Espace animateurs » (34), « Espace chefs d'U » (28) et
+  « Configuration » (25) : IT-04, IT-05 et IT-06.
+- La règle « tout sujet doit porter 2 à 4 questions » reste inactive
+  jusqu'à IT-07.
+
+---
+
 ## Note transverse — la suite n'est plus verte, et ce n'est pas ce chantier
 
 Constaté pendant IT-02, à consigner parce que le critère « fait quand » de

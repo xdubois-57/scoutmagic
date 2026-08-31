@@ -4,6 +4,8 @@ title: Lire ses notifications
 summary: La cloche, la liste des notifications et le marquage comme lu.
 category: Espace membres
 role_min: identified
+question: Où voir les notifications que j'ai reçues ?
+question: Comment marquer toutes mes notifications comme lues ?
 paths: /notifications
 related: notifications-preferences, mon-compte
 ---

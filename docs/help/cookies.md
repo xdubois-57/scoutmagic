@@ -4,6 +4,9 @@ title: Choisir ses cookies
 summary: Le bandeau, les trois catégories et ce que change un refus.
 category: Premiers pas
 role_min: public
+question: Comment changer mon choix sur les cookies ?
+question: Que se passe-t-il si je refuse les cookies ?
+question: Où revoir le bandeau des cookies ?
 paths: /cookies
 related: donnees-personnelles, installer-application
 ---
@@ -15,15 +18,15 @@ simple qu'accepter, et le site fonctionne dans les deux cas.
 
 ## Les trois catégories
 
-- **Strictement nécessaires** : toujours actifs, ils font tenir la
-  connexion et protègent les formulaires. Sans eux le site ne
+- **Cookies strictement nécessaires** : toujours actifs, ils font tenir
+  la connexion et protègent les formulaires. Sans eux le site ne
   fonctionne pas, c'est pourquoi ils ne se désactivent pas.
-- **Fonctionnels** : ils mémorisent vos préférences de confort — votre
-  dernière méthode de connexion, le thème clair ou sombre, et la copie
-  locale des pages pour la consultation hors connexion dans
+- **Cookies fonctionnels** : ils mémorisent vos préférences de confort —
+  votre dernière méthode de connexion, le thème clair ou sombre, et la
+  copie locale des pages pour la consultation hors connexion dans
   l'application installée.
-- **D'analyse** : des mesures de fréquentation anonymes, si votre site
-  en utilise.
+- **Cookies d'analyse** : des mesures de fréquentation anonymes, si
+  votre site en utilise.
 
 Sous chaque catégorie, un tableau liste les cookies réellement posés,
 avec leur finalité et leur durée. Cette liste s'adapte à ce que votre

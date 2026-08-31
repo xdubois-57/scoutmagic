@@ -4,6 +4,9 @@ title: Louer un local ou du matériel de l'unité
 summary: Les biens à louer, le calendrier, l'estimation et la demande.
 category: Premiers pas
 role_min: public
+question: Quels locaux l'unité met-elle en location ?
+question: Combien coûte la location d'un local pour un week-end ?
+question: Comment savoir si le local est libre à mes dates ?
 paths: /locations, /locations/*
 related: gerer-les-locations, locations-demande, locations-suivi
 ---

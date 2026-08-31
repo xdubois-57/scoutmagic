@@ -103,24 +103,41 @@ describe('scoring', () => {
     });
 
     it('drops a topic that covers only part of a two-word query', () => {
-        // "photo" matches one topic; "inconnue" matches nothing. With one
-        // or two words the visitor is being specific, so both must land.
-        expect(helpSearch.search(CORPUS, 'photo inconnue')).toEqual([]);
+        // Both words exist in the corpus, on different topics: with one
+        // or two words the visitor is being specific, so both must land
+        // on the SAME topic. Only the camp album topic carries each.
         expect(ids(helpSearch.search(CORPUS, 'photo camp'))).toEqual(['envoyer-une-photo']);
+        expect(helpSearch.search(CORPUS, 'photo brevet')).toEqual([]);
+    });
+
+    it('ignores a word the corpus does not use anywhere, rather than answering nothing', () => {
+        // A term NO topic carries discriminates nothing. Counting it
+        // against every topic is what made « empreinte digitale » answer
+        // nothing at all while one topic said « se connecter avec
+        // l'empreinte » — found on the real corpus, not in theory.
+        expect(ids(helpSearch.search(CORPUS, 'photo zzzinconnu')))
+            .toEqual(ids(helpSearch.search(CORPUS, 'photo')));
+        // …but only when nobody has it: a word other topics DO carry and
+        // this one does not still counts against it (the case above).
     });
 
     it('tolerates one unmatched word once the query is a sentence', () => {
-        // Four content words after stop-word removal, three of which
-        // publipostage carries — a sentence must not be thrown away by
-        // one word the corpus happens not to use.
-        expect(ids(helpSearch.search(CORPUS, 'envoyer un mail personnalise aux parents')))
+        // Every one of these words exists somewhere in the corpus, and
+        // publipostage carries most but not all of them — a sentence must
+        // not be thrown away because one topic misses one word of it.
+        expect(ids(helpSearch.search(CORPUS, 'envoyer un mail personnalise depuis excel brevet')))
             .toContain('publipostage');
     });
 
     it('answers nothing for a query made only of stop words', () => {
         expect(helpSearch.search(CORPUS, 'comment')).toEqual([]);
         expect(helpSearch.search(CORPUS, 'comment le pour')).toEqual([]);
+        expect(helpSearch.search(CORPUS, 'pourquoi tous')).toEqual([]);
         expect(helpSearch.search(CORPUS, '   ')).toEqual([]);
+    });
+
+    it('answers nothing when not one word of the query exists in the corpus', () => {
+        expect(helpSearch.search(CORPUS, 'zzzinconnu wwwautre')).toEqual([]);
     });
 
     it('weights the four fields in order — title, questions, summary, category', () => {
@@ -162,6 +179,10 @@ describe('tokenize', () => {
     it('drops stop words and de-suffixes what is left', () => {
         expect(helpSearch.tokenize('Comment envoyer les photos du camp ?'))
             .toEqual(['envoyer', 'photo', 'camp']);
+    });
+
+    it('drops the words every question opens with', () => {
+        expect(helpSearch.tokenize('Où ? Quand ? Pourquoi ? Comment ? Tous ? Tout ?')).toEqual([]);
     });
 
     it('keeps a short word whose final s is not a plural', () => {

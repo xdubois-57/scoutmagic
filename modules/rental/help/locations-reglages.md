@@ -4,6 +4,9 @@ title: Les réglages d'un bien
 summary: Ce qu'un visiteur peut demander, ce que ça coûte, et ce qui est attendu à l'avance.
 category: Espace membres
 role_min: identified
+question: Comment fixer le prix de location d'un local ?
+question: Comment imposer une durée minimum de réservation ?
+question: Comment demander une caution sur une location ?
 paths: /mes-locations/*/reglages
 related: gerer-les-locations, config-locations, locations-conformite
 ---

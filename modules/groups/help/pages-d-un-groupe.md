@@ -4,6 +4,8 @@ title: Membres, galerie et recherche d'un groupe
 summary: Les trois pages qui accompagnent la conversation d'un groupe.
 category: Espace membres
 role_min: identified
+question: Qui fait partie de ce groupe de discussion ?
+question: Comment retrouver une photo publiée dans un groupe ?
 paths: /groups/*/members, /groups/*/gallery, /groups/*/search
 related: groupes, animer-un-groupe
 ---

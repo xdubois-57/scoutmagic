@@ -4,6 +4,8 @@ title: Le registre de conformité d'un bien
 summary: Les papiers du bien, leur échéance, et le rappel avant qu'elle ne tombe.
 category: Espace membres
 role_min: identified
+question: Où noter les contrôles obligatoires d'un bâtiment ?
+question: Quand le contrôle des extincteurs est-il à refaire ?
 paths: /mes-locations/*/conformite
 related: gerer-les-locations, locations-reglages
 ---

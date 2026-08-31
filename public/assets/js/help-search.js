@@ -49,15 +49,18 @@
 
     // French stop words, kept short on purpose — this is the list that
     // stops « comment », « le » and « pour » from matching every topic in
-    // the corpus, not an attempt at linguistics. « comment » is in it
-    // because every `question:` line starts with a word like it.
+    // the corpus, not an attempt at linguistics. « comment », « où »
+    // (folded to « ou »), « quand » and « pourquoi » are in it because a
+    // `question:` line opens with one of them; « tou » is there because
+    // de-suffixing turns « tous » into it.
     var STOP_WORDS = [
         'a', 'au', 'aux', 'avec', 'ce', 'ces', 'cet', 'cette', 'comment', 'dans',
         'de', 'des', 'du', 'elle', 'en', 'est', 'et', 'eux', 'il', 'ils', 'je',
         'la', 'le', 'les', 'leur', 'lui', 'ma', 'mais', 'mes', 'mon', 'ne', 'nos',
-        'notre', 'nous', 'on', 'ou', 'par', 'pas', 'pour', 'qu', 'que', 'qui',
-        'quoi', 'sa', 'se', 'ses', 'son', 'sur', 'ta', 'te', 'tes', 'toi', 'ton',
-        'tu', 'un', 'une', 'vos', 'votre', 'vous', 'y'
+        'notre', 'nous', 'on', 'ont', 'ou', 'par', 'pas', 'plus', 'pour',
+        'pourquoi', 'qu', 'quand', 'que', 'qui', 'quoi', 'sa', 'se', 'ses', 'son',
+        'sont', 'sur', 'ta', 'te', 'tes', 'toi', 'ton', 'tou', 'tous', 'tout',
+        'toute', 'toutes', 'tu', 'un', 'une', 'vos', 'votre', 'vous', 'y'
     ];
 
     /**
@@ -121,13 +124,14 @@
 
     /**
      * How many of the query's terms a topic has to carry to be shown at
-     * all.
+     * all — counted over the terms the CORPUS knows, see search().
      *
      * One or two words means the visitor is being specific, so every one
-     * of them must land — « photo inconnue » must not answer with every
-     * photo topic. From three words up they are typing a sentence (which
-     * is exactly what the `question:` field invites), and one word the
-     * corpus happens not to use must not throw the whole thing away.
+     * of them must land: « photo camp » answers with the camp album
+     * topic, not with every topic mentioning a photo. From three words up
+     * they are typing a sentence — which is exactly what the `question:`
+     * field invites — and one word this particular topic happens not to
+     * use must not throw it away.
      *
      * @param {number} termCount
      * @returns {number}
@@ -195,6 +199,43 @@
     }
 
     /**
+     * What one term is worth against one prepared entry: the best score
+     * any of its four fields gives it, zero when none of them does.
+     *
+     * @param {string} term
+     * @param {{entry: HelpSearchEntry, fields: Object<string, string[]>}} prepared
+     * @returns {number}
+     */
+    function scoreTerm(term, prepared) {
+        var best = 0;
+        for (var field in FIELD_WEIGHTS) {
+            if (!Object.prototype.hasOwnProperty.call(FIELD_WEIGHTS, field)) {
+                continue;
+            }
+            best = Math.max(best, scoreTermAgainstField(term, prepared.fields[field], FIELD_WEIGHTS[field]));
+        }
+
+        return best;
+    }
+
+    /**
+     * Whether any entry in the corpus carries this term at all.
+     *
+     * @param {string} term
+     * @param {Array<{entry: HelpSearchEntry, fields: Object<string, string[]>}>} prepared
+     * @returns {boolean}
+     */
+    function matchesAnywhere(term, prepared) {
+        for (var i = 0; i < prepared.length; i++) {
+            if (scoreTerm(term, prepared[i]) > 0) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * The ranked answer to one query: at most MAX_RESULTS entries, best
      * first, ties broken by title so the same query always renders the
      * same list.
@@ -204,30 +245,45 @@
      * @returns {HelpSearchEntry[]} the matching entries, in order
      */
     function search(index, query) {
-        var terms = tokenize(query);
-        if (terms.length === 0) {
+        var typed = tokenize(query);
+        if (typed.length === 0) {
             // A query made only of stop words ("comment", "le pour")
             // carries no term to match — answering with the whole corpus
             // ranked arbitrarily would be worse than answering nothing.
             return [];
         }
 
+        var prepared = [];
+        for (var p = 0; p < index.length; p++) {
+            prepared.push(prepare(index[p]));
+        }
+
+        // A term NO topic carries is a word the corpus does not use, and
+        // it discriminates nothing: counting it against every topic is
+        // how « empreinte digitale » ends up answering nothing at all,
+        // when one topic says « se connecter avec l'empreinte ». Dropped
+        // before coverage is measured — which is different from a term
+        // other topics DO carry and this one does not, and that one still
+        // counts against it.
+        var terms = [];
+        for (var t = 0; t < typed.length; t++) {
+            if (matchesAnywhere(typed[t], prepared)) {
+                terms.push(typed[t]);
+            }
+        }
+        if (terms.length === 0) {
+            return [];
+        }
+
         var needed = requiredCoverage(terms.length);
         var scored = [];
 
-        for (var i = 0; i < index.length; i++) {
-            var prepared = prepare(index[i]);
+        for (var i = 0; i < prepared.length; i++) {
             var score = 0;
             var covered = 0;
 
-            for (var t = 0; t < terms.length; t++) {
-                var best = 0;
-                for (var field in FIELD_WEIGHTS) {
-                    if (!Object.prototype.hasOwnProperty.call(FIELD_WEIGHTS, field)) {
-                        continue;
-                    }
-                    best = Math.max(best, scoreTermAgainstField(terms[t], prepared.fields[field], FIELD_WEIGHTS[field]));
-                }
+            for (var k = 0; k < terms.length; k++) {
+                var best = scoreTerm(terms[k], prepared[i]);
                 if (best > 0) {
                     covered++;
                     score += best;
@@ -235,7 +291,7 @@
             }
 
             if (covered >= needed) {
-                scored.push({ entry: prepared.entry, score: score, title: normalize(prepared.entry.title) });
+                scored.push({ entry: prepared[i].entry, score: score, title: normalize(prepared[i].entry.title) });
             }
         }
 

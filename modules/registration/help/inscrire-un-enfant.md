@@ -4,6 +4,9 @@ title: Inscrire un enfant dans l'unité
 summary: Le formulaire de demande d'inscription et ce qui se passe ensuite.
 category: Premiers pas
 role_min: public
+question: Comment inscrire mon enfant chez les scouts ?
+question: Reste-t-il de la place dans la section ?
+question: Que se passe-t-il après l'envoi de ma demande ?
 paths: /inscriptions, /inscriptions/envoyee
 related: suivre-une-demande, decouvrir-le-site
 ---

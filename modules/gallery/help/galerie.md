@@ -4,6 +4,8 @@ title: Regarder et enregistrer les photos
 summary: Les albums de la galerie, la visionneuse et les téléchargements.
 category: Espace membres
 role_min: identified
+question: Où voir les photos du camp ?
+question: Comment télécharger toutes les photos d'un album ?
 paths: /gallery, /gallery/*
 related: gerer-la-galerie, page-membre
 ---
