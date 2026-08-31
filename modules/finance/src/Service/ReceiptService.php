@@ -270,21 +270,6 @@ class ReceiptService
     }
 
     /**
-     * How many movement associations reassign() would drop — what the
-     * confirmation dialog needs in order to say so before anybody agrees
-     * to it.
-     */
-    public function countAssociationsLostOnReassign(int $attachmentId, ?int $newAccountId): int
-    {
-        $attachment = $this->attachmentRepository->findById($attachmentId);
-        if ($attachment === null || $attachment->accountId === $newAccountId) {
-            return 0;
-        }
-
-        return count($this->transactionAttachmentRepository->findTransactionIdsForAttachment($attachmentId));
-    }
-
-    /**
      * The hierarchical floor stamped on a receipt's file: its account's
      * own, or the sorting pile's when it has no account.
      */

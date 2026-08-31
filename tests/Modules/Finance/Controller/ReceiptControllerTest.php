@@ -492,6 +492,118 @@ class ReceiptControllerTest extends TestCase
         return $this->transactionRepository->create($this->accountId, $fiscalYearId, 'ref-' . uniqid(), '2026-10-01', 'x', -1.0, null, null, 'manual', null);
     }
 
+    // ── La corbeille sur la page ────────────────────────────────────────
+
+    public function testTheAccountPickerOffersTheSortingPileWithItsCount(): void
+    {
+        $this->givenAReceiptInTheSortingPile();
+
+        $body = (string) $this->controller->list(
+            new Request('GET', '/finance/receipts', ['account_id' => (string) $this->accountId], [], [], []),
+            []
+        )->getBody();
+
+        $this->assertStringContainsString('Compte inconnu (1)', $body);
+    }
+
+    public function testTheSortingPileIsAddressedByNameAndListsOnlyUnclaimedReceipts(): void
+    {
+        $piled = $this->givenAReceiptInTheSortingPile();
+        $this->controller->upload($this->uploadRequest($this->tmpPdfFile(), $this->csrfToken()), []);
+
+        $body = (string) $this->controller->list(
+            new Request('GET', '/finance/receipts', ['account_id' => 'unassigned'], [], [], []),
+            []
+        )->getBody();
+
+        $this->assertStringContainsString('data-account-id="unassigned"', $body);
+        $this->assertStringContainsString('data-receipt-id="' . $piled . '"', $body);
+        $this->assertSame(1, substr_count($body, 'data-receipt-id='), 'the account\'s own receipt must not be listed here');
+    }
+
+    public function testThePileOffersNoAssociateButtonBecauseItHasNoMovements(): void
+    {
+        $this->givenAReceiptInTheSortingPile();
+
+        $body = (string) $this->controller->list(
+            new Request('GET', '/finance/receipts', ['account_id' => 'unassigned'], [], [], []),
+            []
+        )->getBody();
+
+        // ReceiptService::associate() refuses a movement from another
+        // account, and the pile is not one. Offering the button would offer
+        // a gesture the server always refuses.
+        $this->assertStringNotContainsString('associate-btn', $body);
+        $this->assertStringContainsString('change-account-btn', $body);
+    }
+
+    public function testEveryReceiptOffersToChangeAccountEvenOnARealAccount(): void
+    {
+        $this->controller->upload($this->uploadRequest($this->tmpPdfFile(), $this->csrfToken()), []);
+
+        $body = (string) $this->controller->list(
+            new Request('GET', '/finance/receipts', ['account_id' => (string) $this->accountId], [], [], []),
+            []
+        )->getBody();
+
+        $this->assertStringContainsString('change-account-btn', $body);
+    }
+
+    public function testTheSearchEndpointServesThePileWhenAskedForItByName(): void
+    {
+        $this->givenAReceiptInTheSortingPile();
+
+        $response = $this->controller->search(
+            new Request('GET', '/finance/receipts/search', ['account_id' => 'unassigned'], [], [], []),
+            []
+        );
+
+        $payload = json_decode((string) $response->getBody(), true);
+        $this->assertTrue($payload['success']);
+        $this->assertCount(1, $payload['receipts']);
+    }
+
+    public function testTheSearchEndpointNeverFallsBackToThePile(): void
+    {
+        $this->givenAReceiptInTheSortingPile();
+
+        // An unknown account must not quietly become « tous les reçus que
+        // personne ne réclame ». The pile is reached by asking for it.
+        $response = $this->controller->search(
+            new Request('GET', '/finance/receipts/search', ['account_id' => '9999'], [], [], []),
+            []
+        );
+
+        $payload = json_decode((string) $response->getBody(), true);
+        $this->assertTrue($payload['success'], 'an unknown id falls back to the first visible ACCOUNT');
+        $this->assertCount(0, $payload['receipts']);
+    }
+
+    public function testARoleThatMayNotSortThePileIsNotOfferedIt(): void
+    {
+        $this->givenAReceiptInTheSortingPile();
+        AuthSession::login(1, 'anime@test.be', 'identified');
+
+        $body = (string) $this->controller->list(
+            new Request('GET', '/finance/receipts', ['account_id' => 'unassigned'], [], [], []),
+            []
+        )->getBody();
+
+        $this->assertStringNotContainsString('Compte inconnu', $body);
+    }
+
+    /**
+     * @return int the id of a receipt no account claims
+     */
+    private function givenAReceiptInTheSortingPile(): int
+    {
+        $this->controller->upload($this->uploadRequest($this->tmpPdfFile(), $this->csrfToken()), []);
+        $attachment = $this->attachmentRepository->findActiveOrdered()[0];
+        $this->pdo->prepare('UPDATE finance_attachments SET account_id = NULL WHERE id = ?')->execute([$attachment->id]);
+
+        return $attachment->id;
+    }
+
     // ── Changer un reçu de compte ───────────────────────────────────────
 
     public function testChangingAccountMovesTheReceiptAndItsFileTogether(): void

@@ -15,6 +15,21 @@
         d'être traités.
     </p>
 
+    {# One list, built once: the filter bar's picker and the « Changer de
+       compte » dialog must offer exactly the same places, or a receipt
+       could be sent somewhere the page cannot then show it. #}
+    {% set account_options = accounts|default([])|map(account => {
+        value: account.id, label: account.name,
+        selected: selected_account and account.id == selected_account.id,
+    }) %}
+    {% if may_sort_the_pile|default(false) %}
+        {% set account_options = account_options|merge([{
+            value: 'unassigned',
+            label: 'Compte inconnu' ~ (unassigned_count > 0 ? ' (' ~ unassigned_count ~ ')' : ''),
+            selected: selected_account is not defined or not selected_account,
+        }]) %}
+    {% endif %}
+
     {% if not no_accounts %}
         {# « Ajouter un reçu » is still the page's one primary action, but it
            sits BELOW the sub-navigation rather than riding page_header's
@@ -23,12 +38,18 @@
            pushed the rail away from the <h1> it navigates. Same right-
            aligned row as the « Nouveau compte » action on
            @finance/config/accounts.html.twig. #}
-        <div class="d-flex justify-content-end mb-3">
-            <a href="/finance/receipts/new?account_id={{ selected_account.id }}"
-               class="btn btn-primary w-100 w-sm-auto">
-                <i class="bi bi-plus-lg" aria-hidden="true"></i> Ajouter un reçu
-            </a>
-        </div>
+        {# A receipt is always added ONTO an account: there is no "add to
+           the sorting pile" gesture, because the pile is where things land
+           when nobody could say where they belong, never somewhere anybody
+           files on purpose. #}
+        {% if selected_account %}
+            <div class="d-flex justify-content-end mb-3">
+                <a href="/finance/receipts/new?account_id={{ selected_account.id }}"
+                   class="btn btn-primary w-100 w-sm-auto">
+                    <i class="bi bi-plus-lg" aria-hidden="true"></i> Ajouter un reçu
+                </a>
+            </div>
+        {% endif %}
     {% endif %}
 
     {% if no_accounts %}
@@ -37,7 +58,16 @@
             icon: 'bi-wallet2',
         } only %}
     {% else %}
-    <h2 class="h5 mb-3">{{ selected_account.name }}</h2>
+    {% if selected_account %}
+        <h2 class="h5 mb-3">{{ selected_account.name }}</h2>
+    {% else %}
+        <h2 class="h5 mb-1">Compte inconnu</h2>
+        <p class="text-body-secondary small mb-3">
+            Des reçus arrivés par courrier que rien n'a permis de rattacher : ni IBAN d'un de vos comptes
+            dans le message, ni adresse d'un animateur d'un seul staff. Donnez-leur un compte avec
+            « Changer de compte » — vous pourrez ensuite les associer à un mouvement de ce compte.
+        </p>
+    {% endif %}
 
     <div class="row g-2 align-items-end mb-3">
         {# No `field_name`: finance-receipts.js reads these by id and drives
@@ -46,10 +76,7 @@
             {% include 'partials/form_field.html.twig' with {
                 field_id: 'receipts-account', label: 'Compte', type: 'select',
                 size: 'sm', wrapper_class: '',
-                options: accounts|default([])|map(account => {
-                    value: account.id, label: account.name,
-                    selected: selected_account and account.id == selected_account.id,
-                }),
+                options: account_options,
             } only %}
         </div>
         <div class="col-12 col-md-5">
@@ -76,7 +103,10 @@
         </div>
     </div>
 
-    <div id="receipts-grid" data-account-id="{{ selected_account.id }}">
+    {# The account key, not the id: 'unassigned' is a place with no id, and
+       finance-receipts.js passes this string through to
+       /finance/receipts/search verbatim. #}
+    <div id="receipts-grid" data-account-id="{{ selected_key }}">
         {% include '@finance/receipts/_grid.html.twig' %}
     </div>
 
@@ -90,6 +120,28 @@
     {% embed 'partials/modal.html.twig' with { id: 'movements-modal', title: 'Mouvements liés' } only %}
         {% block body %}
             <div id="movements-list" class="d-flex flex-column gap-2"></div>
+        {% endblock %}
+    {% endembed %}
+
+    {% embed 'partials/modal.html.twig' with {
+        id: 'change-account-modal',
+        title: 'Changer le compte du reçu',
+        options: account_options,
+    } only %}
+        {% block body %}
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'change-account-select', label: 'Nouveau compte', type: 'select',
+                size: 'sm', wrapper_class: '', options: options,
+            } only %}
+            {# Filled by finance-receipts.js from the card's own movement
+               count — no round-trip, and the number is the one the reader
+               is looking at. Hidden when there is nothing to lose: a
+               warning shown every time is a warning nobody reads. #}
+            <div class="alert alert-warning mt-3 d-none" id="change-account-warning" role="alert"></div>
+        {% endblock %}
+        {% block footer %}
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+            <button type="button" class="btn btn-primary" id="change-account-confirm">Déplacer le reçu</button>
         {% endblock %}
     {% endembed %}
     {% endif %}

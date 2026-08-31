@@ -5,7 +5,7 @@ summary: Déposer des reçus, les associer aux mouvements, avec l'aide de l'IA.
 category: Espace animateurs
 role_min: intendant
 paths: /finance/receipts, /finance/receipts/new
-related: finances, importer-extraits, badges
+related: finances, recus-compte, importer-extraits, badges
 ---
 
 Chaque dépense mérite son justificatif : un ticket photographié, une
