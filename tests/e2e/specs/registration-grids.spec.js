@@ -191,10 +191,24 @@ test('the departures and passage grids save on change, with no save button anywh
     await page.getByRole('row', { name: /Zoé/ }).first().getByRole('link', { name: 'Ouvrir' }).click();
     await page.waitForURL(/\/config\/inscriptions\/demandes\/\d+$/, { waitUntil: 'domcontentloaded' });
 
+    // Waited for by the STATUS each POST produces, not by the URL.
+    //
+    // Both actions redirect back to this same address, so
+    // waitForURL(/\/config\/inscriptions\/demandes\/\d+$/) matched the page
+    // already on screen and returned without waiting for anything at all.
+    // The next click then went out against a page whose POST had not
+    // landed: the acceptance was lost, the child never reached /passage,
+    // and the failure surfaced twenty lines below as a row that does not
+    // exist — with the two specs after this one failing in turn, since
+    // they inherit its request.
+    //
+    // request_detail.html.twig renders the state as a badge, so waiting
+    // for the badge waits for the fact rather than for an address that
+    // never changed.
     await page.getByRole('button', { name: 'Revenir en attente' }).click();
-    await page.waitForURL(/\/config\/inscriptions\/demandes\/\d+$/, { waitUntil: 'domcontentloaded' });
+    await expect(page.getByText('En attente', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Accepter', exact: true }).click();
-    await page.waitForURL(/\/config\/inscriptions\/demandes\/\d+$/, { waitUntil: 'domcontentloaded' });
+    await expect(page.getByText('Acceptée', { exact: true })).toBeVisible();
 
     await page.goto('/passage', { waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('heading', { level: 1, name: 'Passage' })).toBeVisible();
