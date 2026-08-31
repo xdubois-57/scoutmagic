@@ -135,6 +135,23 @@ class ReenrollmentService
     }
 
     /**
+     * The same resolution, for a caller that has no member of its own to
+     * exclude — the public registration form, where the child being
+     * registered is not a member yet.
+     *
+     * Public because the two forms ask the identical question and must
+     * answer it identically: a second matcher would be a second set of
+     * rules about who « Léo » is.
+     *
+     * @param array<int, string> $friendNames
+     * @return array<int, array{raw_name: string, matched_member_id: ?int, match_state: string}>
+     */
+    public function resolveNames(array $friendNames, int $currentScoutYearId): array
+    {
+        return $this->resolveWishes($friendNames, $currentScoutYearId, 0);
+    }
+
+    /**
      * @param array<int, string> $friendNames
      * @return array<int, array{raw_name: string, matched_member_id: ?int, match_state: string}>
      */

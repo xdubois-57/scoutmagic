@@ -330,3 +330,27 @@ CREATE TABLE registration_friend_wishes (
     CONSTRAINT fk_rfw_reenrollment FOREIGN KEY (reenrollment_id) REFERENCES registration_reenrollments(id) ON DELETE CASCADE,
     CONSTRAINT fk_rfw_member FOREIGN KEY (matched_member_id) REFERENCES members(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- The same « avec qui » question, asked on the PUBLIC registration form.
+--
+-- A separate table rather than a nullable second foreign key on
+-- registration_friend_wishes: a request is not a member and has no
+-- member_id, and a column that is null for half the rows is a column
+-- nobody can read without knowing which half they are looking at. The two
+-- tables hold the same shape and the same encryption, and they are read at
+-- two different moments of a child's life.
+--
+-- The name is a THIRD PARTY, exactly as in registration_friend_wishes:
+-- encrypted at rest, no blind index, never shown to the family named, and
+-- resolved once server-side by the same matcher.
+CREATE TABLE registration_request_friend_wishes (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    registration_request_id INT UNSIGNED NOT NULL,
+    position INT UNSIGNED NOT NULL,
+    raw_name_encrypted BLOB NOT NULL,
+    matched_member_id INT UNSIGNED NULL,
+    match_state VARCHAR(20) NOT NULL,
+    INDEX idx_rrfw_request (registration_request_id),
+    CONSTRAINT fk_rrfw_request FOREIGN KEY (registration_request_id) REFERENCES registration_requests(id) ON DELETE CASCADE,
+    CONSTRAINT fk_rrfw_member FOREIGN KEY (matched_member_id) REFERENCES members(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

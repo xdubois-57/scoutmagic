@@ -1,0 +1,140 @@
+{% extends 'base.html.twig' %}
+{% block title %}Réinscription {{ target_year_label }} — {{ site_name }}{% endblock %}
+{% block content %}
+{% include 'partials/page_header.html.twig' with {
+    title: 'Réinscription ' ~ target_year_label,
+    subtitle: "Dites-nous si votre enfant revient l'année prochaine. Vous pouvez revenir sur votre réponse tant que la campagne est ouverte.",
+} only %}
+
+{% if cards is empty %}
+    {% include 'partials/empty_state.html.twig' with {
+        message: "Aucun animé n'est rattaché à votre adresse pour l'année " ~ current_year_label ~ ". Si vous pensez que c'est une erreur, contactez le Staff d'U.",
+    } only %}
+{% endif %}
+
+{% for card in cards %}
+    {% set answered = card.answer is not null %}
+    {% set leaving = answered and card.answer.decision == 'leaving' %}
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="d-flex flex-wrap justify-content-between align-items-baseline gap-2 mb-1">
+                <h2 class="h5 mb-0">{{ card.display_name }}</h2>
+                {% if answered %}
+                    {% if leaving %}
+                        <span class="badge text-bg-secondary">Quitte l'unité</span>
+                    {% else %}
+                        <span class="badge text-bg-success">Réinscrit</span>
+                    {% endif %}
+                {% else %}
+                    <span class="badge text-bg-warning">Sans réponse</span>
+                {% endif %}
+            </div>
+
+            <p class="small text-body-secondary">
+                {% if card.current_section_label %}Actuellement chez les {{ card.current_section_label }}.{% endif %}
+                {% if card.changes_branch %}
+                    L'année prochaine, {{ card.display_name }} change de branche.
+                {% else %}
+                    L'année prochaine, {{ card.display_name }} reste dans sa section.
+                {% endif %}
+            </p>
+
+            <form method="post" action="/reinscription" class="reenrollment-form" data-member="{{ card.member_id }}">
+                {{ csrf_field()|raw }}
+                <input type="hidden" name="member_id" value="{{ card.member_id }}">
+
+                <fieldset class="mb-3">
+                    <legend class="form-label">Votre réponse</legend>
+                    <div class="form-check">
+                        <input class="form-check-input reenrollment-decision" type="radio"
+                               name="decision" value="reenrolled" id="decision-in-{{ card.member_id }}"
+                               {{ answered and not leaving ? 'checked' : '' }} required>
+                        <label class="form-check-label" for="decision-in-{{ card.member_id }}">
+                            Je le/la réinscris
+                        </label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input reenrollment-decision" type="radio"
+                               name="decision" value="leaving" id="decision-out-{{ card.member_id }}"
+                               {{ leaving ? 'checked' : '' }}>
+                        <label class="form-check-label" for="decision-out-{{ card.member_id }}">
+                            Il/elle quitte l'unité
+                        </label>
+                    </div>
+                </fieldset>
+
+                {# Shown only for « Je le/la réinscris » — registration-reenrollment.js
+                   toggles it, and the server ignores both fields for a departure
+                   anyway, so a browser with no JavaScript cannot post something
+                   contradictory. #}
+                <div class="reenrollment-when-staying" {{ leaving ? 'hidden' : '' }}>
+                    {% if card.asks_section %}
+                        <div class="mb-3">
+                            <label class="form-label" for="section-{{ card.member_id }}">Section souhaitée</label>
+                            <select class="form-select" id="section-{{ card.member_id }}" name="preferred_section_id">
+                                <option value="0">Peu importe</option>
+                                {% for section in card.arrival_sections %}
+                                    <option value="{{ section.id }}"
+                                            {{ answered and card.answer.preferredSectionId == section.id ? 'selected' : '' }}>
+                                        {{ section.label }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    {% elseif card.changes_branch and card.arrival_sections|length == 1 %}
+                        <p class="small text-body-secondary">
+                            {{ card.display_name }} rejoindra les {{ card.arrival_sections[0].label }} : c'est la seule
+                            section de sa nouvelle branche, il n'y a donc rien à choisir.
+                        </p>
+                    {% endif %}
+
+                    {% if card.asks_friends %}
+                        <div class="mb-3">
+                            <div class="form-label">Avec qui ?</div>
+                            <p class="form-text mt-0">
+                                Vous pouvez citer jusqu'à {{ card.friend_wish_limit }}
+                                {{ card.friend_wish_limit > 1 ? 'enfants' : 'enfant' }} avec
+                                {{ card.friend_wish_limit > 1 ? 'qui' : 'qui' }} {{ card.display_name }} aimerait être.
+                                Nous ferons de notre mieux, sans pouvoir le garantir.
+                            </p>
+                            {# Plain text fields: no autocompletion, no validation, no
+                               feedback of any kind. The form behaves identically whether
+                               or not the name matches somebody — anything else would tell
+                               one family who the other families' children are. #}
+                            <div class="reenrollment-friends" data-limit="{{ card.friend_wish_limit }}">
+                                {% set wishes = answered ? card.answer.friendWishesWithin(card.friend_wish_limit) : [] %}
+                                {% for index in 0..(card.friend_wish_limit - 1) %}
+                                    <div class="mb-2">
+                                        <label class="visually-hidden" for="friend-{{ card.member_id }}-{{ index }}">
+                                            Ami {{ index + 1 }} de {{ card.display_name }}
+                                        </label>
+                                        <input type="text" class="form-control" name="friend_names[]"
+                                               id="friend-{{ card.member_id }}-{{ index }}"
+                                               maxlength="120" autocomplete="off"
+                                               placeholder="Prénom et nom"
+                                               value="{{ wishes[index] is defined ? wishes[index].rawName : '' }}">
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    {% endif %}
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label" for="comment-{{ card.member_id }}">
+                        Un mot pour le Staff <span class="text-body-secondary">(facultatif)</span>
+                    </label>
+                    <textarea class="form-control" id="comment-{{ card.member_id }}" name="family_comment"
+                              rows="3" maxlength="1000">{{ answered ? card.answer.familyComment : '' }}</textarea>
+                </div>
+
+                <button type="submit" class="btn btn-primary">Enregistrer ma réponse</button>
+            </form>
+        </div>
+    </div>
+{% endfor %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ asset('/assets/js/registration-reenrollment.js') }}" defer nonce="{{ csp_nonce }}"></script>
+{% endblock %}

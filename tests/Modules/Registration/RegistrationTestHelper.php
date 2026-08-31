@@ -124,6 +124,16 @@ class RegistrationTestHelper
             match_state TEXT NOT NULL
         )');
         $pdo->exec('CREATE INDEX idx_rfw_reenrollment ON registration_friend_wishes (reenrollment_id)');
+
+        $pdo->exec('CREATE TABLE registration_request_friend_wishes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            registration_request_id INTEGER NOT NULL,
+            position INTEGER NOT NULL,
+            raw_name_encrypted BLOB NOT NULL,
+            matched_member_id INTEGER,
+            match_state TEXT NOT NULL
+        )');
+        $pdo->exec('CREATE INDEX idx_rrfw_request ON registration_request_friend_wishes (registration_request_id)');
     }
 
     /**

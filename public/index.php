@@ -4295,11 +4295,26 @@ if ($isEnabled('registration')) {
     $registrationReconciliation = new \Modules\Registration\Service\ReconciliationService(
         $pdo, $registrationRequestRepo, $encryptionService, $registrationMigrationService, $journalService
     );
+    // IT-14 — « Réinscription » in the Espace des animés: what a family
+    // answers about next year. The form's view model is a service of its
+    // own because BOTH the page and its menu entry ask it the same
+    // question (« has this account any animé, and has it answered? »), so
+    // the two can never disagree.
+    $registrationReenrollmentRepository = new \Modules\Registration\Repository\ReenrollmentRepository($pdo, $encryptionService);
+    $registrationReenrollmentService = new \Modules\Registration\Service\ReenrollmentService(
+        $registrationReenrollmentRepository,
+        $settingService,
+        $memberService
+    );
     $frontController->registerController(
         \Modules\Registration\Controller\PublicRegistrationController::class,
         new \Modules\Registration\Controller\PublicRegistrationController(
             $twig, $registrationService, $registrationSlotService, $sectionService, $registrationAgeBracketRepo,
-            $scoutYearResolver, $memberService, $settingService, $humanCheckService
+            $scoutYearResolver, $memberService, $settingService, $humanCheckService,
+            // IT-14 — the « avec qui » names a family may type on the
+            // public form, resolved and stored the same way the
+            // reenrollment form's are.
+            $registrationReenrollmentService, $registrationReenrollmentRepository
         )
     );
     $frontController->registerController(
@@ -4401,6 +4416,28 @@ if ($isEnabled('registration')) {
         $sectionService,
         $registrationRequestRepo,
         new \Modules\Registration\Repository\ProjectedMemberEmailRepository($pdo, $encryptionService)
+    );
+
+    // The form's view model needs PassageService, which only exists this
+    // far down — so it is built here, while the repository and the service
+    // above it are built early enough for the PUBLIC form, which asks the
+    // same « avec qui » question of a child who is not a member yet.
+    $registrationReenrollmentForm = new \Modules\Registration\Service\ReenrollmentFormService(
+        $memberService,
+        $registrationPassageService,
+        $registrationReenrollmentService
+    );
+    $registrationReenrollmentMenuHook = new \Modules\Registration\Service\ReenrollmentMenuHookService(
+        $registrationReenrollmentForm,
+        $scoutYearResolver,
+        $scoutYearService
+    );
+    $frontController->registerController(
+        \Modules\Registration\Controller\ReenrollmentController::class,
+        new \Modules\Registration\Controller\ReenrollmentController(
+            $twig, $registrationReenrollmentForm, $registrationReenrollmentService,
+            $scoutYearResolver, $scoutYearService
+        )
     );
 
     // IT-12 — the Passage page's statistics box. Reads the projection
@@ -4516,7 +4553,7 @@ if ($isEnabled('registration')) {
     // entries, carrying the earlier scan's best match forward.
     $registrationMenuEntries = $dynamicMenuRegistrar->register(
         $menuBuilder,
-        [$registrationMenuHookService],
+        [$registrationMenuHookService, $registrationReenrollmentMenuHook],
         AuthSession::isAuthenticated() ? AuthSession::getEmail() : null
     );
     if ($registrationMenuEntries !== []) {

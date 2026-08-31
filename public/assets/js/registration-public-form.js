@@ -42,10 +42,36 @@
     var waitlistEnabled = data.waitlistEnabled === true;
     var targetYearLabel = data.targetYearLabel || '';
 
+    // The branches that have more than one visible, active section — the
+    // only ones where « avec qui » is a real question. Decided on the
+    // server (Controller\PublicRegistrationController), never counted
+    // here: the browser has no section list and must not grow one.
+    var friendWishBranchLabels = data.friendWishBranchLabels || [];
+    var friendWishesZone = document.getElementById('friend-wishes-zone');
+
+    /**
+     * Show the « avec qui » fields for a branch that has a choice to
+     * offer, hide them otherwise.
+     *
+     * Hidden rather than removed, and never cleared: a family who typed
+     * two names and then corrected the birth date should not silently
+     * lose them, and the server ignores the field for a branch that has
+     * one section anyway.
+     *
+     * @param {string|null} branchLabel
+     */
+    function updateFriendWishes(branchLabel) {
+        if (!friendWishesZone) return;
+
+        var offers = branchLabel !== null && friendWishBranchLabels.indexOf(branchLabel) !== -1;
+        friendWishesZone.classList.toggle('d-none', !offers);
+    }
+
     function updateHint() {
         var year = parseInt((birthDateInput.value || '').slice(0, 4), 10);
         if (!year || String(year).length !== 4) {
             hint.textContent = '';
+            updateFriendWishes(null);
             return;
         }
 
@@ -55,6 +81,7 @@
         if (!match) {
             hint.textContent = "Hors des tranches d'âge de l'unité pour l'année "
                 + targetYearLabel + '.';
+            updateFriendWishes(null);
             return;
         }
 
@@ -65,6 +92,7 @@
         }
         // textContent, not innerHTML: a branch label is configured text.
         hint.textContent = text;
+        updateFriendWishes(match.branch_label);
     }
 
     birthDateInput.addEventListener('change', updateHint);

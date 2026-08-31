@@ -225,8 +225,12 @@ class PassageService
      *
      * @return array<int, array{id: int, name: ?string, desk_code: string}>
      */
-    public function arrivalSectionsForMember(int $memberId, int $currentPublicYearId, string $currentPublicYearLabel): array
-    {
+    public function arrivalSectionsForMember(
+        int $memberId,
+        int $currentPublicYearId,
+        string $currentPublicYearLabel,
+        bool $includeHidden = true
+    ): array {
         $stmt = $this->pdo->prepare(
             "SELECT my.birth_date_encrypted, my.scout_year_offset
              FROM member_years my
@@ -252,8 +256,13 @@ class PassageService
             return [];
         }
 
+        // includeHidden TRUE for the Passage page, which offers a
+        // hidden-but-active section as an ordinary destination; FALSE for
+        // the family form, where the question « dans quelle section ? » is
+        // only asked when the family has a real choice among the sections
+        // they can actually see (roadmap IT-14).
         $sections = [];
-        foreach ($this->sectionService->getAllWithBranches(true) as $section) {
+        foreach ($this->sectionService->getAllWithBranches($includeHidden) as $section) {
             if ($section['branch_sort_order'] === $nextSortOrder) {
                 $sections[] = $section;
             }

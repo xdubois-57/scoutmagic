@@ -146,6 +146,50 @@ class ReenrollmentRepository
         return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
     }
 
+    /**
+     * The public form's own « avec qui » entries, for a request that has
+     * no member id yet.
+     *
+     * Rewritten wholesale like the reenrollment ones, and for the same
+     * reason: they are one answer to one question.
+     *
+     * @param array<int, array{raw_name: string, matched_member_id: ?int, match_state: string}> $friendWishes
+     *        already resolved and already capped by the caller
+     */
+    public function saveRequestWishes(int $registrationRequestId, array $friendWishes): void
+    {
+        $delete = $this->pdo->prepare('DELETE FROM registration_request_friend_wishes WHERE registration_request_id = ?');
+        $delete->execute([$registrationRequestId]);
+
+        $insert = $this->pdo->prepare(
+            'INSERT INTO registration_request_friend_wishes (registration_request_id, position, raw_name_encrypted, matched_member_id, match_state)
+             VALUES (?, ?, ?, ?, ?)'
+        );
+        $position = 0;
+        foreach ($friendWishes as $wish) {
+            $insert->execute([
+                $registrationRequestId,
+                $position++,
+                $this->encryption->encrypt($wish['raw_name'], 'registration_friend_wishes.raw_name'),
+                $wish['matched_member_id'],
+                $wish['match_state'],
+            ]);
+        }
+    }
+
+    /**
+     * @return array<int, FriendWish>
+     */
+    public function findRequestWishes(int $registrationRequestId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM registration_request_friend_wishes WHERE registration_request_id = ? ORDER BY position ASC'
+        );
+        $stmt->execute([$registrationRequestId]);
+
+        return $this->hydrateWishes($stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
     private function findAnswerId(int $memberId, int $scoutYearId): ?int
     {
         $stmt = $this->pdo->prepare(
@@ -189,8 +233,17 @@ class ReenrollmentRepository
         );
         $stmt->execute([$reenrollmentId]);
 
+        return $this->hydrateWishes($stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, FriendWish>
+     */
+    private function hydrateWishes(array $rows): array
+    {
         $wishes = [];
-        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+        foreach ($rows as $row) {
             $wishes[] = new FriendWish(
                 id: (int) $row['id'],
                 position: (int) $row['position'],
