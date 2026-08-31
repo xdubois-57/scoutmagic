@@ -513,5 +513,27 @@
       "match": "exact",
       "role_min": "chief"
     }
+  ],
+  "emails": [
+    {
+      "id": "registration.secondary_email_confirmation",
+      "label": "Confirmation d'une adresse ajoutée à une demande",
+      "description": "Envoyé à une adresse qu'une famille vient d'ajouter au suivi de sa demande d'inscription, pour qu'elle la confirme.",
+      "default_subject": "Confirmez votre adresse email",
+      "template": "@registration/email/secondary_email_confirmation.html.twig",
+      "editable": false,
+      "variables": [
+        {
+          "name": "confirm_url",
+          "label": "Lien de confirmation",
+          "example": "https://exemple.be/inscriptions/suivi/emails/confirm/7"
+        },
+        {
+          "name": "expiry_hours",
+          "label": "Durée de validité (heures)",
+          "example": "48"
+        }
+      ]
+    }
   ]
 }

@@ -970,5 +970,156 @@
         "email": "off"
       }
     }
+  ],
+  "emails": [
+    {
+      "id": "rental.acknowledgement",
+      "label": "Accusé de réception d'une demande de location",
+      "description": "Envoyé au demandeur dès qu'une demande de location est reçue, avec son lien de suivi.",
+      "default_subject": "Votre demande de location",
+      "template": "@rental/email/acknowledgement.html.twig",
+      "variables": [
+        {
+          "name": "reference",
+          "label": "Référence de la réservation",
+          "example": "LOC-2027-0042"
+        },
+        {
+          "name": "asset_name",
+          "label": "Nom du bien",
+          "example": "Ferme de La Hulpe"
+        },
+        {
+          "name": "tracking_url",
+          "label": "Lien de suivi",
+          "example": "https://exemple.be/locations/suivi/42/abc"
+        }
+      ]
+    },
+    {
+      "id": "rental.decision",
+      "label": "Réponse à une demande de location",
+      "description": "Envoyé au demandeur quand les gestionnaires acceptent ou refusent sa demande.",
+      "default_subject": "Votre demande de location",
+      "template": "@rental/email/decision.html.twig",
+      "variables": [
+        {
+          "name": "reference",
+          "label": "Référence de la réservation",
+          "example": "LOC-2027-0042"
+        },
+        {
+          "name": "asset_name",
+          "label": "Nom du bien",
+          "example": "Ferme de La Hulpe"
+        },
+        {
+          "name": "announcement",
+          "label": "Annonce de la décision",
+          "example": "Votre demande est acceptée."
+        },
+        {
+          "name": "tracking_url",
+          "label": "Lien de suivi",
+          "example": "https://exemple.be/locations/suivi/42/abc"
+        }
+      ]
+    },
+    {
+      "id": "rental.manager_notification",
+      "label": "Avis aux gestionnaires d'une nouvelle demande",
+      "description": "Envoyé aux gestionnaires du bien quand une nouvelle demande de location arrive.",
+      "default_subject": "Nouvelle demande de location",
+      "template": "@rental/email/manager_notification.html.twig",
+      "variables": [
+        {
+          "name": "reference",
+          "label": "Référence de la réservation",
+          "example": "LOC-2027-0042"
+        },
+        {
+          "name": "asset_name",
+          "label": "Nom du bien",
+          "example": "Ferme de La Hulpe"
+        },
+        {
+          "name": "manage_url",
+          "label": "Lien vers la réservation",
+          "example": "https://exemple.be/admin/locations/reservations/42"
+        }
+      ]
+    },
+    {
+      "id": "rental.document",
+      "label": "Envoi d'un document de location",
+      "description": "Envoyé au demandeur avec un contrat, une facture ou un décompte en pièce jointe.",
+      "default_subject": "Votre document",
+      "template": "@rental/email/document.html.twig",
+      "variables": [
+        {
+          "name": "reference",
+          "label": "Référence de la réservation",
+          "example": "LOC-2027-0042"
+        },
+        {
+          "name": "asset_name",
+          "label": "Nom du bien",
+          "example": "Ferme de La Hulpe"
+        },
+        {
+          "name": "document_label",
+          "label": "Nom du document",
+          "example": "Contrat de location"
+        }
+      ]
+    },
+    {
+      "id": "rental.practical_info",
+      "label": "Informations pratiques avant le séjour",
+      "description": "Envoyé au demandeur quelques jours avant son arrivée.",
+      "default_subject": "Informations pratiques avant votre séjour",
+      "template": "@rental/email/practical_info.html.twig",
+      "variables": [
+        {
+          "name": "reference",
+          "label": "Référence de la réservation",
+          "example": "LOC-2027-0042"
+        },
+        {
+          "name": "asset_name",
+          "label": "Nom du bien",
+          "example": "Ferme de La Hulpe"
+        },
+        {
+          "name": "contact",
+          "label": "Contact sur place",
+          "example": "Akéla — 0470 11 22 33"
+        }
+      ]
+    },
+    {
+      "id": "rental.tracking_link",
+      "label": "Nouveau lien de suivi",
+      "description": "Envoyé au demandeur quand son lien de suivi est régénéré, l'ancien cessant alors de fonctionner.",
+      "default_subject": "Votre nouveau lien de suivi",
+      "template": "@rental/email/tracking_link.html.twig",
+      "variables": [
+        {
+          "name": "reference",
+          "label": "Référence de la réservation",
+          "example": "LOC-2027-0042"
+        },
+        {
+          "name": "asset_name",
+          "label": "Nom du bien",
+          "example": "Ferme de La Hulpe"
+        },
+        {
+          "name": "tracking_url",
+          "label": "Lien de suivi",
+          "example": "https://exemple.be/locations/suivi/42/abc"
+        }
+      ]
+    }
   ]
 }

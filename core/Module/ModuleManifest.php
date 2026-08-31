@@ -55,6 +55,7 @@ class ModuleManifest
      * @param array<int, array{path: string, label: string, match: string, role_min: string}> $offline
      * @param array<int, string> $requires
      * @param array<int, string> $visibleWhen
+     * @param array<int, array{id: string, label: string, description: string, default_subject: string, template: string, editable: bool, variables: array<int, array{name: string, label: string, example: string}>}> $emails
      */
     public function __construct(
         public readonly string $id,
@@ -96,7 +97,15 @@ class ModuleManifest
         // (module.json's `help.dir`, ARCHITECTURE.md §8.64). Null means
         // the default: ModuleManager scans `help/` when it exists. Same
         // "last parameter with a default" rule as the two above.
-        public readonly ?string $helpDirectory = null
+        public readonly ?string $helpDirectory = null,
+        // The automatic e-mails this module sends (module.json's `emails`
+        // section, aggregated by ModuleManager into
+        // Core\Mail\Template\EmailTemplateRegistry). Empty means the
+        // module sends none, which is most of them. Same "last parameter
+        // with a default" rule as the three above, and for the same
+        // reason: discoverModules() builds placeholder manifests
+        // positionally.
+        public readonly array $emails = []
     ) {
     }
 
@@ -314,7 +323,23 @@ class ModuleManifest
             $helpDirectory = $dir;
         }
 
-        return new self($id, $data['name'], $data['version'], $routes, $settings, $cookies, $scheduledTasks, $storage, $enabledByDefault, $description, $notifications, $offline, $requires, $visibleWhen, $helpDirectory);
+        // Validate emails (Core\Mail\Template\EmailTemplateRegistry
+        // aggregation). Same posture as `notifications` above: a malformed
+        // section is a load-time ModuleException naming the offending
+        // entry, never a silently skipped declaration — an e-mail that
+        // quietly fails to appear in the inventory is exactly the kind of
+        // omission nobody notices.
+        $emails = [];
+        if (isset($data['emails'])) {
+            if (!is_array($data['emails'])) {
+                throw new ModuleException("Module '{$id}' emails must be an array");
+            }
+            foreach ($data['emails'] as $i => $email) {
+                $emails[] = self::validateEmail($id, $email, $i);
+            }
+        }
+
+        return new self($id, $data['name'], $data['version'], $routes, $settings, $cookies, $scheduledTasks, $storage, $enabledByDefault, $description, $notifications, $offline, $requires, $visibleWhen, $helpDirectory, $emails);
     }
 
     /**
@@ -763,6 +788,93 @@ class ModuleManifest
             'role_min' => $notification['role_min'],
             'channels' => $channels,
             'default_on_role_min' => $defaultOnRoleMin,
+        ];
+    }
+
+    /**
+     * One entry of a module's `emails` section — an automatic e-mail the
+     * module sends, declared so it appears in the inventory and can be
+     * customised (Core\Mail\Template\EmailTemplate).
+     *
+     * The rules mirror validateNotification()'s: every text field is
+     * required and non-empty, and the id must be prefixed with the module
+     * id so two modules can never collide and so the page can group by
+     * module without parsing anything else.
+     *
+     * `editable` is optional and defaults to TRUE, because most e-mails
+     * are; an authentication e-mail declares `false` explicitly, which is
+     * the reading anybody scanning a manifest should get.
+     *
+     * A variable's `name` is what goes between the braces, so it is held
+     * to an identifier shape: anything else could not be written as
+     * `{{ … }}` and substituted back reliably.
+     *
+     * @param array<string, mixed>|mixed $email
+     * @return array{id: string, label: string, description: string, default_subject: string, template: string, editable: bool, variables: array<int, array{name: string, label: string, example: string}>}
+     */
+    private static function validateEmail(string $moduleId, mixed $email, int $index): array
+    {
+        if (!is_array($email)) {
+            throw new ModuleException("Module '{$moduleId}' emails[{$index}] must be an object");
+        }
+
+        $required = ['id', 'label', 'description', 'default_subject', 'template'];
+        foreach ($required as $field) {
+            if (empty($email[$field]) || !is_string($email[$field])) {
+                throw new ModuleException("Module '{$moduleId}' emails[{$index}] missing or invalid '{$field}'");
+            }
+        }
+
+        if (!str_starts_with($email['id'], $moduleId . '.')) {
+            throw new ModuleException("Module '{$moduleId}' emails[{$index}] id '{$email['id']}' must be prefixed '{$moduleId}.'");
+        }
+
+        if (isset($email['editable']) && !is_bool($email['editable'])) {
+            throw new ModuleException("Module '{$moduleId}' emails[{$index}] 'editable' must be a boolean");
+        }
+
+        $variables = [];
+        if (isset($email['variables'])) {
+            if (!is_array($email['variables']) || !array_is_list($email['variables'])) {
+                throw new ModuleException("Module '{$moduleId}' emails[{$index}] variables must be a list");
+            }
+
+            foreach ($email['variables'] as $j => $variable) {
+                if (!is_array($variable)) {
+                    throw new ModuleException("Module '{$moduleId}' emails[{$index}] variables[{$j}] must be an object");
+                }
+                foreach (['name', 'label', 'example'] as $field) {
+                    if (!isset($variable[$field]) || !is_string($variable[$field]) || $variable[$field] === '') {
+                        throw new ModuleException("Module '{$moduleId}' emails[{$index}] variables[{$j}] missing or invalid '{$field}'");
+                    }
+                }
+                if (preg_match('/^[a-z][a-z0-9_]*$/', $variable['name']) !== 1) {
+                    throw new ModuleException(
+                        "Module '{$moduleId}' emails[{$index}] variables[{$j}] name '{$variable['name']}' must be a lowercase identifier"
+                    );
+                }
+                foreach ($variables as $existing) {
+                    if ($existing['name'] === $variable['name']) {
+                        throw new ModuleException("Module '{$moduleId}' emails[{$index}] declares variable '{$variable['name']}' twice");
+                    }
+                }
+
+                $variables[] = [
+                    'name' => $variable['name'],
+                    'label' => $variable['label'],
+                    'example' => $variable['example'],
+                ];
+            }
+        }
+
+        return [
+            'id' => $email['id'],
+            'label' => $email['label'],
+            'description' => $email['description'],
+            'default_subject' => $email['default_subject'],
+            'template' => $email['template'],
+            'editable' => (bool) ($email['editable'] ?? true),
+            'variables' => $variables,
         ];
     }
 

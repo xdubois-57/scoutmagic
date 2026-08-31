@@ -119,6 +119,18 @@ The directory name **must** match the `id` field in `module.json`.
       "channels": { "in_app": "default_on", "push": "default_on", "email": "default_off" }
     }
   ],
+  "emails": [
+    {
+      "id": "calendar.multiday_event_reminder",
+      "label": "Rappel d'évènement sur plusieurs jours",
+      "description": "Envoyé au staff de la section quelques jours avant un évènement qui dure plus d'une journée.",
+      "default_subject": "Rappel — {{ event_title }}",
+      "template": "@calendar/email/multiday_event_reminder.html.twig",
+      "variables": [
+        { "name": "event_title", "label": "Titre de l'évènement", "example": "Week-end de section" }
+      ]
+    }
+  ],
   "offline": [
     {
       "path": "/calendar",
@@ -190,6 +202,10 @@ Two modules use it today: `support_dashboard` (`["statistics_receiver"]`) and `t
   - `role_min`: same role list as routes — the minimum role a recipient must currently hold to actually receive it (re-checked at send time, not at whatever moment the caller built the recipient list).
   - `channels`: an object with exactly the keys `in_app`, `push`, `email`, each one of `on` (always sent, member can't opt out), `off` (never sent, member can't opt in), `default_on`/`default_off` (member can override on the preferences page). See the Notifications section below.
   - `default_on_role_min`: optional, must be at or above `role_min`. The role from which this type's `default_on` channels actually start on — below it the type still appears on the preferences page with the same switches, all starting off. For a type that is genuinely useful to two audiences with opposite expectations: core's `core.update_installed` is `role_min: "admin"` + `default_on_role_min: "superadmin"`, so whoever runs the site is told automatic updates happened without asking, and an admin can ask. Omit it (the usual case) and the declared defaults apply to everybody the type is offered to.
+- **emails**: optional, each entry must have `id`, `label`, `description`, `default_subject`, `template`.
+  - `id`: must be prefixed `"{module_id}."` (e.g. `calendar.multiday_event_reminder`).
+  - `editable`: optional boolean, defaults to `true`. `false` for any authentication e-mail — the refusal is enforced server-side, not by hiding a button.
+  - `variables`: optional list of `{name, label, example}`. `name` is a lowercase identifier, unique within the entry; it is substituted as a plain string and never evaluated. See the E-mails section below.
 - **offline**: optional, each entry must have `path`, `label`, `role_min`. See the Offline pages section below.
 - **requires**: optional array of module ids this module cannot function without (hard dependencies). Must be non-empty strings, without duplicates, and never the module's own id. See the Hard dependencies section below.
 - **enabled_by_default**: optional boolean, defaults to `false`. When `true`, the module is activated automatically the very first time it is discovered on disk (no `module_registry` row yet) — no admin action needed. An admin's later explicit deactivation always sticks; this never re-activates a module that already has a registry row.
@@ -845,6 +861,36 @@ $notificationService->dispatch(
 - **A notification a member can trigger repeatedly needs a debounce.** A reaction, a "like", anything one tap wide will otherwise produce one notification per tap: a post with twelve reactions becomes twelve entries and twelve buzzes for its author. Keep the timing in a small table of your own, keyed by item, and **never read core's `notifications` table** to work out what was already sent — that table is core's. Make the window a `SettingService` key rather than a constant, so "make it stop" has an answer that is not a code change.
 - **A type nobody individually opted into needs `recipientsForType()`, not `findAllIds()`.** `dispatch()` always writes the in-app row (above), so handing it every account would put a row in the centre of somebody who had switched the type off. `NotificationService::recipientsForType('your.type')` returns exactly the accounts the type's `role_min` allows whose in-app channel resolves enabled for their own role and preferences — the recipient list for an announcement with no requester to answer (`Core\Maintenance\Task\InstallUpdateHandler` uses it for an update nobody asked for). It is not for a type whose audience is a membership or an ownership: that is still yours to resolve, per the `role_min` floor rule above.
 - A handful of pre-existing, out-of-scope Maintenance task types (reset/restore) use the older, simpler `notify($userAccountId, $title, $body, $url)` instead — single recipient, immediate, no role/channel/quiet-hours resolution. The update handler still uses it for the one case it fits, a manual install answering its own requester, and `dispatch()` for everything else. New module types should use `dispatch()`.
+
+## E-mails
+
+Every automatic e-mail your module sends must be declared in `module.json` under the `emails` section. The declaration is aggregated with core's own (`Core\Mail\Template\EmailTemplateRegistry`) into one list — the inventory an administrator reads, and the source the renderer answers from once your sender is migrated onto it.
+
+```json
+"emails": [
+  {
+    "id": "calendar.multiday_event_reminder",
+    "label": "Rappel d'évènement sur plusieurs jours",
+    "description": "Envoyé au staff de la section quelques jours avant un évènement qui dure plus d'une journée.",
+    "default_subject": "Rappel — {{ event_title }}",
+    "template": "@calendar/email/multiday_event_reminder.html.twig",
+    "editable": true,
+    "variables": [
+      { "name": "event_title", "label": "Titre de l'évènement", "example": "Week-end de section" },
+      { "name": "start_date",  "label": "Date de début",        "example": "14 mars 2027" }
+    ]
+  }
+]
+```
+
+- **`id` must be prefixed with your module id**, exactly like a notification type. Two modules can then never collide, and the page groups by module without parsing anything else. An unprefixed id is a load-time `ModuleException`.
+- **`description` is required and is French prose saying *when* the e-mail goes out**, not what it contains. It is the only thing an administrator has to decide whether the e-mail they are about to reword is the one they meant.
+- **`template` is the Twig file you ship**, under your module's Twig namespace (`@your_module/email/…`). It stays what is rendered as long as nobody has customised the e-mail. Ship the `.text.twig` twin beside it as before — multipart is mandatory (`SECURITY.md` §8).
+- **`variables` are the placeholders an administrator may insert**, written `{{ name }}` and substituted as **plain strings** — the stored content is never evaluated as Twig. Give each a French `label` (the wording of the insertion button) and a realistic `example` (what the preview and the test send show). A `name` is a lowercase identifier; anything else is refused at load time.
+- **Declare flat, substitutable values.** `{{ reference }}`, not `{{ booking.reference }}`: string substitution has no notion of an object, so a variable an administrator can insert has to be a value you can hand over as a string.
+- **Never declare `site_name`.** The header, the footer and the unit's name belong to `email/base.html.twig`, which stays code and is not customisable.
+- **`editable` is optional and defaults to `true`.** Declare `false` for an authentication e-mail — anything carrying a login link, a password reset or an address confirmation. An administrator who broke one would shut somebody out with no way back in, and the refusal is enforced on the server, not merely by hiding a button.
+- Declaring an e-mail changes nothing about how you send it: keep rendering your Twig and calling `MailService::send()`. The declaration is what puts it in the inventory.
 
 ## Offline pages (`Core\Offline\OfflineWhitelist`)
 

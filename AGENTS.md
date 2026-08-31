@@ -85,6 +85,7 @@ When creating a new module:
 2. ☐ `schema.sql` with complete table definitions.
 3. ☐ `settings` section with `description` (NOT NULL) on every parameter.
 4. ☐ `cookies` section declaring every cookie the module uses, with category, purpose, and duration.
+4bis. ☐ `emails` section declaring every automatic e-mail the module sends, with a French description of *when* it goes out and the variables an administrator may insert (`docs/module-development.md` § E-mails). An authentication e-mail declares `editable: false`.
 5. ☐ Controllers in `src/Controller/`, Services in `src/Service/`, Repositories in `src/Repository/`.
 6. ☐ Views in `views/` with `@module_name` namespace.
 7. ☐ Scheduled tasks declared in `scheduled_tasks` section with handler class.

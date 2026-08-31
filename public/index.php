@@ -1625,6 +1625,14 @@ $helpRegistry = new \Core\Help\HelpRegistry(
 );
 $helpService = new \Core\Help\HelpService($helpRegistry);
 
+// Automatic e-mails (Core\Mail\Template\EmailTemplateRegistry) — same
+// single-shared-instance reasoning as $offlineWhitelist and $helpRegistry
+// above: core declares its own, ModuleManager hands it each enabled
+// module's `emails` section as that module loads, and one list answers
+// for both. Holding it is an inventory, not a behaviour change: every
+// service goes on sending exactly as it did.
+$emailTemplateRegistry = new \Core\Mail\Template\EmailTemplateRegistry();
+
 // Create ModuleManager (modules loaded after core routes are registered)
 $modulesDir = __DIR__ . '/../modules';
 $moduleRegistryRepo = new ModuleRegistryRepository($pdo);
@@ -1643,7 +1651,8 @@ $moduleManager = new ModuleManager(
     $helpRegistry,
     // Manifest cache (mtime-keyed): saves re-reading and re-validating
     // every module.json on every request.
-    dirname(__DIR__) . '/storage/temp'
+    dirname(__DIR__) . '/storage/temp',
+    $emailTemplateRegistry
 );
 
 // Usage statistics (Core\Statistics, ARCHITECTURE.md §8.47). Built here

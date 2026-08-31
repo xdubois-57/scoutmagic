@@ -474,6 +474,46 @@ Subject prefixed `[{short_name}]`. PHPMailer: SMTP or local, DKIM signed, multip
 
 **One seam, at the delivery step only.** `MailService::send()` assembles the whole message and then hands the configured `PHPMailer` instance to a `Core\Mail\MailTransportInterface`; the default `PhpMailerTransport` calls `send()` on it. It is a constructor dependency with a real default, not a nullable one, so there is exactly one delivery path and none of `send()`'s ~95 call sites knows a transport exists. Nothing else moves into the transport — the mode, the From, the DKIM block and the subject prefix stay in `MailService`, so a message a non-default transport receives is byte-for-byte the message that would have gone out.
 
+### 8.7bis The register of automatic e-mails (`Core\Mail\Template`)
+
+Twenty-one automatic e-mails leave this site, every one of them a Twig
+template a service renders and hands to `MailService::send()`. Nothing said
+which they were: there was no list, so no page could show one, and no
+administrator could change a word of any of them.
+
+`EmailTemplateRegistry` is that list, and it is the exact parallel of
+`Core\Cookie\CookieRegistry` and `Core\Notification\NotificationRegistry` —
+core declares its own in `getCoreTemplates()`, a module declares its own in
+the **`emails` section of its `module.json`** (validated at load time by
+`ModuleManifest::validateEmail()`, same posture as `validateNotification()`:
+a malformed section is a `ModuleException` naming the entry, never a
+silently skipped declaration), and `ModuleManager::loadModule()` hands each
+enabled module's to the one shared registry the composition root built.
+One list answers for both, so nothing downstream has to know whether an
+e-mail came from core or from a module.
+
+Each declaration carries an id (prefixed `"{module_id}."` for a module,
+unprefixed for core), a French label and description, the subject as
+shipped, the path of the Twig template as shipped, the variables an
+administrator may insert (`{name, label, example}` — the example is what a
+preview and a test send render with), and `editable`.
+
+**`editable: false` is for the authentication e-mails**, and it is a
+lock rather than a "not yet": the magic link, the password reset and the two
+address confirmations. An administrator who broke one would shut themselves
+out with no way back in. They are declared all the same, because an
+inventory that omits them is an inventory that lies.
+
+**Declaring an e-mail changes nothing about how it is sent.** A service that
+renders its own Twig template goes on doing exactly that. The registry is an
+inventory first; the renderer that consumes it, the storage of
+customisations, and the page that edits them each arrive on their own, one
+sender at a time — an e-mail nobody has declared must keep working, and an
+e-mail declared but not yet migrated must keep working too.
+
+`site_name` is deliberately not a variable anywhere: the header, the footer
+and the unit's name belong to `email/base.html.twig`, which stays code.
+
 ### 8.8 SectionPicker component
 
 Reusable Twig partial (presentation layer: §8.30's `partials/select_bar.html.twig`, `mode: single` — `partials/section_picker.html.twig` is a thin mapping layer over it). Shows sections (not branches). Default: section of highest-role member linked to account. `Core\Member\SectionService::getAllWithBranches()` excludes hidden (`sections.is_visible = false`, admin toggle) and inactive (`sections.is_active = false`, automatic — see §7.4-adjacent Desk import note below) sections by default — every call site (Staffs, Trombinoscope, the public Sections page) gets this filtering for free; only the Config Desk admin page (which manages both) passes `includeHidden: true`. Name, color, and visibility are configurable from Configuration > Config Desk. `sections.color` is an explicit override (hex); when unset, `Core\Member\SectionService::colorForSection()` derives it from the section's branch (`Core\Member\MemberYearService::colorForBranchSortOrder()`), or a dedicated color for Staff d'U — every color-coded picker/list across the site (Staffs, Trombinoscope, the calendar module, statistics) calls this single source of truth.
