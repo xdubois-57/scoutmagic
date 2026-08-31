@@ -385,7 +385,9 @@ test('with money due and unread group activity at once, the home page shows one 
     // is that the band is the PAYMENT one and that it carries its own
     // demand, so the amount is asserted on that demand's row rather than
     // on a total this spec does not own.
-    await expect(paymentBand).toContainText(/restent? à payer/);
+    // `reste` or `restent` — and the optional group is `(?:nt)`, not a
+    // trailing `t?`, which would only ever match « resten ».
+    await expect(paymentBand).toContainText(/reste(?:nt)? à payer/);
     const ownDemand = paymentBand.locator('li', { hasText: CAMPAIGN_LABEL });
     await expect(ownDemand, 'its own campaign, not a leftover from another scenario').toBeVisible();
     await expect(ownDemand).toContainText('42,50');
