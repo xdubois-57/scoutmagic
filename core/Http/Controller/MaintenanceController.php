@@ -436,6 +436,13 @@ class MaintenanceController extends AbstractController
         }
 
         $progress = $this->advanceMigration($history->status);
+        if ($progress !== null) {
+            // A slice actually ran for this row, so the update is alive —
+            // and the abandoned-update watchdog measures silence, not
+            // duration (UpdateHistoryRepository::isStale()). Still nothing
+            // that advances the update itself: only its heartbeat.
+            $this->updateHistoryRepository->touch($id);
+        }
         $history = $this->updateHistoryRepository->findById($id) ?? $history;
 
         return $this->json([

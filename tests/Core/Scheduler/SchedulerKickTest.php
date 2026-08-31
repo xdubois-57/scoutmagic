@@ -141,4 +141,59 @@ class SchedulerKickTest extends TestCase
 
         $this->assertFalse(SchedulerKick::now($broken));
     }
+
+    // --- fromPdo(): the same kick, from public/index.php's
+    // pending-migration block, which has no TaskContext to offer ---
+
+    /**
+     * The hand-back after the last migration slice. Same proof as the
+     * TaskContext path: `base_url` is unset so nothing reaches a socket,
+     * and what shows the kick really happened is the fresh chain it
+     * begins.
+     */
+    public function testFromPdoGetsTheKickAllTheWayToAFreshChain(): void
+    {
+        $settings = new SettingService(new SettingRepository($this->pdo));
+        $settings->register(SchedulerContinuation::HOPS_SETTING, '0', 'number', 'hops', 'test', null, null, null, false, 900);
+        $settings->setInternal(SchedulerContinuation::HOPS_SETTING, '19');
+
+        SchedulerKick::fromPdo(
+            $this->pdo,
+            new JournalService(new JournalRepository($this->pdo)),
+            'a-secret-nobody-else-has'
+        );
+
+        $this->assertSame(
+            '0',
+            (string) (new SettingService(new SettingRepository($this->pdo)))->get(SchedulerContinuation::HOPS_SETTING),
+            'the hand-back must have reached kick(), which begins a fresh chain'
+        );
+    }
+
+    /**
+     * An installation whose continuation secret has not been generated yet
+     * — the first requests of a brand-new install. Nothing to authenticate
+     * a hop with means no hop, and the queue drains the way it always did.
+     */
+    public function testFromPdoWithNoSecretSendsNothing(): void
+    {
+        $this->assertFalse(
+            SchedulerKick::fromPdo($this->pdo, new JournalService(new JournalRepository($this->pdo)), '')
+        );
+    }
+
+    /**
+     * This one runs at the end of a migration slice, on a database that
+     * has just had DDL run against it. A throw here would turn a finished
+     * migration into a 500 on the endpoint driving the chain.
+     */
+    public function testFromPdoOnAnUnusableDatabaseIsStillNotAThrow(): void
+    {
+        $broken = new \PDO('sqlite::memory:');
+        $broken->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
+
+        $this->assertFalse(
+            SchedulerKick::fromPdo($broken, new JournalService(new JournalRepository($this->pdo)), 'a-secret')
+        );
+    }
 }
