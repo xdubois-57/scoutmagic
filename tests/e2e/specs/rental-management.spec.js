@@ -159,7 +159,16 @@ test.describe('Rentals — running an asset', () => {
 
         // ── A visitor asks for other dates, and is quoted the tariff the
         //    chief typed. ──────────────────────────────────────────────────
-        await page.goto(`/locations/${ASSET_SLUG}?arrival=${ARRIVAL}&departure=${DEPARTURE}&persons=40`);
+        // `month` pinned to the arrival's own month, the same way the
+        // confirmed-stay check below does it. Without it the calendar opens
+        // on the CURRENT month, and on the last day of a month there is no
+        // `.daygrid-day--selectable` cell left for the calendar-tap
+        // assertion further down — a failure that depends on the date the
+        // suite happens to run, and that reproduces identically on `main`.
+        await page.goto(
+            `/locations/${ASSET_SLUG}?arrival=${ARRIVAL}&departure=${DEPARTURE}&persons=40`
+            + `&month=${ARRIVAL.slice(0, 7)}`,
+        );
 
         // 3 nights × 125,50 €. The estimate comes from the same engine
         // that prices the contract, so this is the tariff arriving at the
