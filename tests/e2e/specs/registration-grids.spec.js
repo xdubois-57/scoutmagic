@@ -166,7 +166,17 @@ test('the departures and passage grids save on change, with no save button anywh
 
     // Put the member back: a standing "leaving" mark would surface in the
     // passage and forecast views every spec after this one reads.
+    // Waited for, exactly like the check() above it — unchecking saves on
+    // its own too, and reloading straight away races that request: the
+    // navigation aborts the POST, the server keeps the member marked as
+    // leaving, and the assertion below reads a box that is still checked.
+    // Harmless by hand, where nobody reloads inside the same tick; it
+    // failed in CI under the security scan, whose added latency widens the
+    // window (Playwright reports uncheck() done once the DOM reflects it,
+    // not once the save has landed).
+    const saveOfReset = page.waitForResponse((response) => response.url().includes('/departs/') && response.request().method() === 'POST');
     await page.getByRole('checkbox', { name: `Ne sera plus là l'année prochaine — ${MEMBER_NAME}` }).uncheck();
+    expect((await (await saveOfReset).json()).success, 'unchecking the box must save on its own').toBe(true);
     await page.reload({ waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('checkbox', { name: `Ne sera plus là l'année prochaine — ${MEMBER_NAME}` })).not.toBeChecked();
 
