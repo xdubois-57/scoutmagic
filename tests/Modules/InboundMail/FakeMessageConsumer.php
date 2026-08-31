@@ -52,6 +52,11 @@ class FakeMessageConsumer implements MessageConsumerInterface
         return $this->id;
     }
 
+    public function displayName(): string
+    {
+        return ucfirst($this->id);
+    }
+
     public function analyze(CandidateMessage $message): AnalysisResult
     {
         $this->offered[] = $message;

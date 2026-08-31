@@ -98,6 +98,11 @@ class RentalMessageConsumer implements MessageConsumerInterface
         return self::CONSUMER_ID;
     }
 
+    public function displayName(): string
+    {
+        return 'Locations';
+    }
+
     public function analyze(CandidateMessage $message): AnalysisResult
     {
         if (!$this->listensTo($message->mailboxId)) {

@@ -93,6 +93,11 @@ class CampsMessageConsumer implements MessageConsumerInterface
         return self::CONSUMER_ID;
     }
 
+    public function displayName(): string
+    {
+        return 'Camps';
+    }
+
     public static function referenceFor(int $campId): string
     {
         return 'camp-' . $campId;

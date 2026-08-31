@@ -10,6 +10,9 @@ namespace Modules\InboundMail\Repository;
 
 use Core\Security\EncryptionService;
 use Core\Service\DateInput;
+use Modules\InboundMail\Api\MailboxPurpose;
+use Modules\InboundMail\Api\MailboxScope;
+use Modules\InboundMail\Api\ReadMode;
 use Modules\InboundMail\Mailbox\FolderCursor;
 use Modules\InboundMail\Mailbox\Mailbox;
 use Modules\InboundMail\Mailbox\MailboxCredentials;
@@ -320,7 +323,121 @@ class InboundMailboxRepository
             syncState: SyncState::from((string) $row['sync_state']),
             lastSyncedAt: DateInput::fromStorage($row['last_synced_at'] === null ? null : (string) $row['last_synced_at']),
             lastError: $row['last_error'] !== null ? (string) $row['last_error'] : null,
-            lastErrorAt: DateInput::fromStorage($row['last_error_at'] === null ? null : (string) $row['last_error_at'])
+            lastErrorAt: DateInput::fromStorage($row['last_error_at'] === null ? null : (string) $row['last_error_at']),
+            purpose: MailboxPurpose::fromString(
+                array_key_exists('purpose', $row) ? (string) $row['purpose'] : null
+            ),
+            dedicatedTo: ($row['dedicated_to'] ?? null) !== null && (string) $row['dedicated_to'] !== ''
+                ? (string) $row['dedicated_to']
+                : null
         );
+    }
+
+    // ── What each module may do with each box (IT-05) ────────────────────
+
+    /**
+     * What the operator answered for this box, module by module.
+     *
+     * A module with no row is absent from the result rather than present
+     * and empty: « aucune ligne » is itself the answer — do nothing — and
+     * the caller that needs a scope for every registered consumer asks
+     * `Service\MailboxScopeService`, which knows the full list.
+     *
+     * @return array<string, MailboxScope>
+     */
+    public function findScopes(int $mailboxId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT consumer_id, analyze_enabled, read_mode
+               FROM inbound_mailbox_consumers WHERE mailbox_id = ?'
+        );
+        $stmt->execute([$mailboxId]);
+
+        $scopes = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $consumerId = (string) $row['consumer_id'];
+            $scopes[$consumerId] = new MailboxScope(
+                $consumerId,
+                (bool) $row['analyze_enabled'],
+                ReadMode::fromString((string) $row['read_mode'])
+            );
+        }
+
+        return $scopes;
+    }
+
+    /**
+     * Replace one module's answer on one box.
+     *
+     * An UPSERT written as delete-then-insert rather than
+     * `ON DUPLICATE KEY`, which SQLite — the test database — spells
+     * differently; the unique index is what makes it correct either way.
+     */
+    public function saveScope(int $mailboxId, MailboxScope $scope): void
+    {
+        $delete = $this->pdo->prepare(
+            'DELETE FROM inbound_mailbox_consumers WHERE mailbox_id = ? AND consumer_id = ?'
+        );
+        $delete->execute([$mailboxId, $scope->consumerId]);
+
+        $insert = $this->pdo->prepare(
+            'INSERT INTO inbound_mailbox_consumers
+                (mailbox_id, consumer_id, analyze_enabled, read_mode, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        );
+        $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
+        $insert->execute([
+            $mailboxId,
+            $scope->consumerId,
+            $scope->analyzes ? 1 : 0,
+            $scope->effectiveReadMode()->value,
+            $now,
+            $now,
+        ]);
+    }
+
+    /**
+     * Declare what a box is for. Writing the purpose is a separate call
+     * from writing the scopes on purpose: on a dedicated box the scopes are
+     * *implied* by the purpose (`Mailbox::impliedScopes()`), and letting
+     * one write set both would be two sources of truth for the same fact.
+     */
+    public function setPurpose(int $id, MailboxPurpose $purpose, ?string $dedicatedTo): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE inbound_mailboxes SET purpose = ?, dedicated_to = ?, updated_at = ? WHERE id = ?'
+        );
+        $stmt->execute([
+            $purpose->value,
+            $purpose === MailboxPurpose::DEDICATED ? $dedicatedTo : null,
+            (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
+            $id,
+        ]);
+    }
+
+    /**
+     * The boxes one consumer may read entirely — what the general listing
+     * of IT-07 needs, and the only query here that is keyed by consumer
+     * rather than by box.
+     *
+     * A dedicated box counts through its `dedicated_to`, without needing a
+     * row: the purpose is the source of truth there.
+     *
+     * @return int[]
+     */
+    public function mailboxIdsReadableInFull(string $consumerId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT m.id
+               FROM inbound_mailboxes m
+               LEFT JOIN inbound_mailbox_consumers c
+                      ON c.mailbox_id = m.id AND c.consumer_id = ?
+              WHERE m.dedicated_to = ?
+                 OR (m.purpose <> ? AND c.analyze_enabled = 1 AND c.read_mode = ?)
+           ORDER BY m.id ASC'
+        );
+        $stmt->execute([$consumerId, $consumerId, MailboxPurpose::DEDICATED->value, ReadMode::ALL->value]);
+
+        return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
     }
 }

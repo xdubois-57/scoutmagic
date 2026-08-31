@@ -2857,6 +2857,29 @@ if ($isEnabled('inbound_mail')) {
         $inboundReadConsumers
     );
 
+    // What each box lets each module do (IT-05). It reads the SAME
+    // registry the file guard uses, so the answers a superadmin gives on
+    // the configuration screen and the answers the access check acts on
+    // cannot come apart — one registry, filled by factories, built at most
+    // once per request and only when something actually asks.
+    $inboundScopeService = new \Modules\InboundMail\Service\MailboxScopeService(
+        $inboundMailboxRepository,
+        $inboundReadConsumers
+    );
+
+    // One-time reprise of the Camps module's own list of dedicated boxes
+    // (A8). Unlike the retention, which stays a live read so a unit keeps
+    // the duration it chose, this one is migrated once: it is a structural
+    // answer the new screen now owns, and two places declaring a box
+    // dedicated would disagree the first time somebody used the screen.
+    if ($settingService->get(
+        \Modules\InboundMail\Service\MailboxScopeService::REPRISE_DONE_SETTING,
+        'inbound_mail',
+        ''
+    ) !== '1') {
+        $inboundScopeService->repriseCampsDedicatedBoxes($settingService, $settingRepo);
+    }
+
     $frontController->registerController(
         \Modules\InboundMail\Controller\InboundMailConfigController::class,
         new \Modules\InboundMail\Controller\InboundMailConfigController(
@@ -2864,9 +2887,37 @@ if ($isEnabled('inbound_mail')) {
             new \Modules\InboundMail\Service\MailboxAdminService(
                 $inboundMailboxRepository,
                 new \Modules\InboundMail\Service\MailboxClientFactory(),
-                new \Modules\InboundMail\Service\MailboxErrorFormatter()
+                new \Modules\InboundMail\Service\MailboxErrorFormatter(),
+                $inboundMessageRepository,
+                $settingService
             ),
-            $journalService
+            $journalService,
+            $inboundScopeService,
+            $inboundReadConsumers,
+            // « Rafraîchir maintenant » assembles a synchronisation graph,
+            // which is the one thing an ordinary page view must never do —
+            // so it goes in as a CLOSURE, resolved only when that button is
+            // actually pressed. Same reasoning as the sync task's own lazy
+            // factory in scheduler-bootstrap.php.
+            new \Modules\InboundMail\Service\ManualRefreshService(
+                static fn(): \Modules\InboundMail\Service\MailboxSyncService
+                    => new \Modules\InboundMail\Service\MailboxSyncService(
+                        $inboundMailboxRepository,
+                        $inboundMessageRepository,
+                        $inboundReadConsumers,
+                        new \Modules\InboundMail\Service\MessageContentSanitizer(new \Core\Security\HtmlSanitizer()),
+                        new \Modules\InboundMail\Service\AttachmentPolicy(),
+                        new \Modules\InboundMail\Service\MailboxErrorFormatter(),
+                        new \Modules\InboundMail\Service\MailboxClientFactory(),
+                        new \Modules\InboundMail\Service\AnalysisResultApplier($inboundMessageRepository),
+                        new \Core\File\UploadHandler(new \Core\File\FileRepository($pdo), $storagePath),
+                        null,
+                        new \Core\File\FileRepository($pdo),
+                        $inboundScopeService
+                    ),
+                $settingService,
+                $settingRepo
+            )
         )
     );
 

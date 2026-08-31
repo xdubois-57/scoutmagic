@@ -211,14 +211,20 @@ class MailboxSyncServiceTest extends TestCase
         $this->assertSame(10, $cursor->lastUid);
     }
 
-    public function testNothingIsStoredWhenNoConsumerIsRegisteredAtAll(): void
+    public function testABoxNoModuleSortsIsStillReadAndStillKept(): void
     {
+        // This used to skip the connection entirely, on the reasoning that
+        // every message would be read and dropped anyway. Now that
+        // everything read is stored, a box no module sorts is exactly the
+        // case the general mailbox exists for — and the configuration
+        // screen says so: « Aucun module — le courrier est conservé mais
+        // rien ne le classe ».
         $this->addMessage(10);
 
         $outcome = $this->sync();
 
-        $this->assertSame(0, $this->countMessages());
-        $this->assertFalse($outcome->connected, 'There is no point connecting when nothing could claim anything.');
+        $this->assertSame(1, $this->countMessages());
+        $this->assertTrue($outcome->connected);
     }
 
     public function testAClaimedMessageIsStoredWithItsOrigin(): void

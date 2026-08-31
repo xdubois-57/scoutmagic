@@ -295,6 +295,101 @@ par construction un réglage non éditable.
 
 ## IT-05 — les libellés des trois modes
 
+### Deux questions, jamais une
+
+L'écran v1 posait une case à cocher et trois boutons radio dont les sens se
+recouvraient. La v2 sépare franchement : **analyser** (ce module
+reconnaît-il ce courrier ?) et **qui peut lire** (ses utilisateurs
+obtiennent-ils une liste, et jusqu'où ?). Ce sont deux pouvoirs différents —
+un module peut très bien rattacher un message à une réservation sans que ses
+utilisateurs aient à voir le reste de la boîte.
+
+`MailboxScope::effectiveReadMode()` fait respecter la dépendance dans le
+seul sens qui existe : un module qui n'analyse pas ne lit pas. Les deux
+colonnes sont écrites indépendamment, et « personne ne classe ce courrier
+mais tout le monde peut le lire » n'est pas un état que l'écran peut
+produire ni que quiconque a voulu.
+
+### L'usage est stocké, pas déduit
+
+Une boîte dédiée s'exprime pourtant en termes de portées : un module qui
+analyse avec `ReadMode::ALL`, les autres éteints. On aurait donc pu la
+déduire. On ne le fait pas : le premier resserrement manuel d'une portée
+ferait taire l'aveu « dédiée » sans que personne comprenne pourquoi la page
+s'est réorganisée.
+
+Inversement, les portées d'une boîte dédiée sont **calculées** à partir de
+l'usage (`Mailbox::impliedScopes()`) et non relues en base. Une ligne
+périmée — laissée par une boîte autrefois partagée — ressusciterait sinon un
+module que l'exploitant a précisément mis dehors.
+
+### L'absence de ligne est une réponse
+
+« Ne rien faire ». Un module installé après la configuration d'une boîte est
+inerte dessus tant que personne ne dit le contraire. Les alternatives —
+hériter de ce que le précédent avait, ou démarrer sur « analyse tout » —
+élargissent en silence qui voit le courrier d'une unité, à l'occasion d'une
+mise à jour dont personne n'a lu les notes.
+
+### Le périmètre est un réglage, pas une suggestion
+
+`MessageConsumerRegistry::analyzeAll()` prend désormais la liste des
+consumers autorisés. On restreint **la question**, pas les réponses : un
+module ne voit jamais un message qu'il n'a pas le droit d'analyser, donc il
+ne peut pas agir dessus par erreur. Filtrer après coup aurait laissé la
+décision dans les mains du module et rendu l'écran consultatif.
+
+### La garde « aucun consumer » disparaît
+
+`MailboxSyncService` sautait la connexion quand aucun module n'était
+enregistré, au motif que tout serait lu puis jeté. Depuis IT-04 tout est
+conservé : une boîte que personne ne classe est exactement ce à quoi sert le
+courrier général, et l'écran le dit — « Aucun module — le courrier est
+conservé mais rien ne le classe ».
+
+### Reprise camps migrée une fois, contrairement à la rétention
+
+`camps_dedicated_mailbox_ids` est lu **une seule fois** et écrit dans le
+nouveau modèle, là où `camps_unsorted_retention_months` reste lu à chaud
+(IT-04). La différence n'est pas une incohérence : la rétention est une
+valeur que l'unité a choisie et qu'il serait malhonnête de raccourcir ;
+l'usage d'une boîte est une réponse structurelle dont le nouvel écran est
+désormais propriétaire. Deux endroits déclarant une boîte dédiée finiraient
+par se contredire au premier passage sur l'écran.
+
+Le marqueur est posé même quand il n'y avait rien à migrer : « rien à faire »
+est une migration terminée, et relire un réglage hérité à chaque vue de page
+jusqu'à la fin de l'installation n'en est pas une.
+
+### Le verrou de « Rafraîchir maintenant »
+
+Le bouton lance une synchronisation **dans la requête**. Deux clics à une
+seconde d'intervalle ouvriraient deux sessions IMAP sur la même boîte,
+liraient les mêmes messages et se courraient après sur le curseur — et
+l'écriture perdante le ferait reculer, de sorte que le run planifié suivant
+relirait ce qui avait déjà été lu.
+
+Le verrou est un réglage plutôt qu'une table : une ligne, aucun schéma, et
+lisible depuis le chemin planifié aussi. Il **expire** au bout de dix
+minutes, parce qu'une requête tuée par `max_execution_time` ne le libère
+jamais et qu'un bouton verrouillé pour toujours est une fonctionnalité qui a
+disparu en silence.
+
+`ManualRefreshService` reçoit une **closure** et non le service de
+synchronisation : construire ce graphe est la seule chose qu'une vue de page
+ordinaire ne doit jamais faire, et cette classe est construite à chacune
+d'elles pour que le bouton existe.
+
+### Le script de l'écran ne contrôle rien
+
+Les deux moitiés du formulaire sont rendues et soumises ; le serveur lit
+celle que l'usage choisi désigne. `inbound-mail-scopes.js` masque ce qui ne
+s'applique pas, et c'est tout — un test vérifie explicitement qu'il ne
+*désactive* jamais un champ, car un radio désactivé ne soumet rien et le
+serveur lirait « Personne » pour un module auquel l'exploitant n'a pas
+touché.
+
+
 La feuille de route se contredit sur un point, et il faut trancher avant
 d'écrire l'écran.
 

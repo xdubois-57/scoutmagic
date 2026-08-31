@@ -43,6 +43,17 @@ class SyncReport
         return array_sum(array_map(static fn(SyncOutcome $o) => $o->messagesStored, $this->outcomes));
     }
 
+    /**
+     * How many messages were read, stored or not. What « Rafraîchir
+     * maintenant » tells the operator alongside the stored count: a run
+     * that read forty and kept none is a working connection, and a run
+     * that read none is not.
+     */
+    public function totalSeen(): int
+    {
+        return array_sum(array_map(static fn(SyncOutcome $o) => $o->messagesSeen, $this->outcomes));
+    }
+
     public function failureCount(): int
     {
         return count(array_filter($this->outcomes, static fn(SyncOutcome $o) => $o->isFailure()));

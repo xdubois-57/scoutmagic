@@ -32,6 +32,24 @@ CREATE TABLE IF NOT EXISTS inbound_mailboxes (
     -- means INBOX.
     folders TEXT NULL,
     is_enabled TINYINT(1) NOT NULL DEFAULT 1,
+    -- 'shared' | 'dedicated'. **The first question the configuration
+    -- screen asks, and the one that determines every other answer.**
+    --
+    -- A dedicated box is an address created for one purpose, whose entire
+    -- content concerns one module: that module reads and files all of it,
+    -- and no other module looks at it. A shared box is the unit's public
+    -- address, where a parent's question sits next to a supplier's invoice
+    -- and a medical certificate — there, each module is told what it may
+    -- analyse and what its users may read, one answer per module.
+    --
+    -- Stored rather than derived, because the two produce identical
+    -- per-module rows and only the operator knows which of the two they
+    -- meant. Reading « dédiée » back off the rows would make the screen
+    -- flip its own answer the first time somebody narrowed one scope.
+    purpose VARCHAR(20) NOT NULL DEFAULT 'shared',
+    -- The consumer a dedicated box belongs to. NULL on a shared box, and
+    -- meaningless there.
+    dedicated_to VARCHAR(50) NULL,
     -- 'never' | 'ok' | 'error'. 'never' is a real state, distinct from
     -- 'ok': a box that has not once connected must not look healthy.
     sync_state VARCHAR(20) NOT NULL DEFAULT 'never',
@@ -43,6 +61,51 @@ CREATE TABLE IF NOT EXISTS inbound_mailboxes (
     last_error_at DATETIME NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- inbound_mailbox_consumers: what each module may do with each box.
+--
+-- **Two separate questions, deliberately not one.** « Analyser » is whether
+-- the module is asked to recognise this box's mail at all; « qui peut
+-- lire » is whether its users get a list of that mail and how much of it.
+-- The first screen conflated them into one checkbox plus three radios that
+-- overlapped, and an operator could not tell which combination meant what.
+--
+-- read_mode is 'none' | 'relevant' | 'all':
+--
+--   none      the module files mail automatically but opens no list. The
+--             messages stay visible from the record they are attached to,
+--             which is where somebody already has the right to be.
+--   relevant  the module's users see the messages it attached to something
+--             they manage, AND the ones it merely proposed. A proposition
+--             is shown because the whole point is that somebody confirms
+--             or dismisses it.
+--   all       the module's users read EVERY message of the box. On a
+--             dedicated box that is the normal answer. On a shared one it
+--             is a heavy choice, and the screen says so in as many words:
+--             it hands a module's audience the parents' questions, the
+--             medical documents and the applications too.
+--
+-- A missing row means « ne rien faire » — no analysis, no reading. A module
+-- installed later is therefore inert on every existing box until somebody
+-- says otherwise, which is the right default for a screen whose whole
+-- subject is who sees what.
+CREATE TABLE IF NOT EXISTS inbound_mailbox_consumers (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    mailbox_id INT UNSIGNED NOT NULL,
+    -- Api\MessageConsumerInterface::consumerId(). Not a foreign key: a
+    -- module can be deactivated and reactivated, and losing its
+    -- configuration in between would be a surprise.
+    consumer_id VARCHAR(50) NOT NULL,
+    -- Named analyze_enabled rather than `analyze`, which is a keyword in
+    -- more than one engine this schema has to survive.
+    analyze_enabled TINYINT(1) NOT NULL DEFAULT 0,
+    read_mode VARCHAR(20) NOT NULL DEFAULT 'none',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE INDEX idx_mailbox_consumer (mailbox_id, consumer_id),
+    INDEX idx_consumer_scope (consumer_id, read_mode),
+    CONSTRAINT fk_scope_mailbox FOREIGN KEY (mailbox_id) REFERENCES inbound_mailboxes(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- inbound_mailbox_cursors: how far each watched folder has been read.

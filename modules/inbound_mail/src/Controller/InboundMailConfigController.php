@@ -14,8 +14,13 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Security\CsrfGuard;
+use Modules\InboundMail\Api\MailboxPurpose;
+use Modules\InboundMail\Api\ReadMode;
 use Modules\InboundMail\Mailbox\Mailbox;
 use Modules\InboundMail\Service\MailboxAdminService;
+use Modules\InboundMail\Service\MailboxScopeService;
+use Modules\InboundMail\Service\ManualRefreshService;
+use Modules\InboundMail\Service\MessageConsumerRegistry;
 use Twig\Environment;
 
 /**
@@ -39,7 +44,21 @@ class InboundMailConfigController extends AbstractController
     public function __construct(
         protected Environment $twig,
         private MailboxAdminService $adminService,
-        private JournalService $journalService
+        private JournalService $journalService,
+        /**
+         * What each module may do with each box (IT-05). Optional because
+         * the technical half of this screen — hosts, ports, credentials —
+         * works without a single consumer being registered, and a fresh
+         * installation has none.
+         */
+        private ?MailboxScopeService $scopeService = null,
+        private ?MessageConsumerRegistry $consumerRegistry = null,
+        /**
+         * Runs a synchronisation on demand for « Rafraîchir maintenant ».
+         * Null means the button is not offered rather than offered and
+         * inert — a button that does nothing is worse than none.
+         */
+        private ?ManualRefreshService $refreshService = null
     ) {
     }
 
@@ -48,10 +67,183 @@ class InboundMailConfigController extends AbstractController
      */
     public function index(Request $request, array $params): Response
     {
+        $mailboxes = $this->adminService->listMailboxes();
+
+        // One summary row per box, assembled here rather than in the
+        // template: « quels modules, et jusqu'où » is three joins deep and
+        // a template that reached for it would be querying inside a loop.
+        $summaries = [];
+        foreach ($mailboxes as $mailbox) {
+            $summaries[$mailbox->id] = $this->scopeSummary($mailbox);
+        }
+
         return $this->render('@inbound_mail/config/index.html.twig', [
-            'mailboxes' => $this->adminService->listMailboxes(),
+            'mailboxes' => $mailboxes,
+            'scope_summaries' => $summaries,
+            'stored_counts' => $this->adminService->storedMessageCounts(),
+            'can_refresh' => $this->refreshService !== null,
             'csrf_token' => CsrfGuard::generateToken(),
         ]);
+    }
+
+    /**
+     * GET /config/courrier-entrant/boites/{id}/portee
+     *
+     * @param array<string, string> $params
+     */
+    public function editScopes(Request $request, array $params): Response
+    {
+        $mailbox = $this->adminService->findById((int) ($params['id'] ?? 0));
+        if ($mailbox === null || $this->scopeService === null || $this->consumerRegistry === null) {
+            return $this->notFound();
+        }
+
+        return $this->render('@inbound_mail/config/mailbox_scopes.html.twig', [
+            'mailbox' => $mailbox,
+            'consumers' => $this->consumerRegistry->all(),
+            'scopes' => $this->scopeService->scopesFor($mailbox),
+            'read_modes' => ReadMode::cases(),
+            'retention_days' => $this->adminService->retentionDays(),
+            'breadcrumb_trail' => [
+                ['label' => 'Courrier entrant', 'url' => '/config/courrier-entrant'],
+            ],
+            'csrf_token' => CsrfGuard::generateToken(),
+        ]);
+    }
+
+    /**
+     * POST /config/courrier-entrant/boites/{id}/portee
+     *
+     * The purpose decides which half of the form is read. Both halves are
+     * always submitted — the page shows one and hides the other rather than
+     * removing it, so that the choice still works without JavaScript — and
+     * the server picks, because the server is the only place that choice
+     * can be enforced.
+     *
+     * @param array<string, string> $params
+     */
+    public function saveScopes(Request $request, array $params): Response
+    {
+        $id = (int) ($params['id'] ?? 0);
+        $back = '/config/courrier-entrant/boites/' . $id . '/portee';
+
+        if (($guard = $this->guardCsrf($request, $back)) !== null) {
+            return $guard;
+        }
+
+        $mailbox = $this->adminService->findById($id);
+        if ($mailbox === null || $this->scopeService === null || $this->consumerRegistry === null) {
+            return $this->notFound();
+        }
+
+        $purpose = MailboxPurpose::fromString((string) $request->getBody('purpose', ''));
+
+        if ($purpose === MailboxPurpose::DEDICATED) {
+            $dedicatedTo = trim((string) $request->getBody('dedicated_to', ''));
+            if ($this->consumerRegistry->find($dedicatedTo) === null) {
+                FlashMessage::set('error', 'Choisissez le module auquel cette boîte est dédiée.');
+
+                return $this->redirect($back);
+            }
+
+            $this->scopeService->saveDedicated($id, $dedicatedTo);
+        } else {
+            $raw = $request->getBody('scope');
+            $this->scopeService->saveSharedScopes($id, is_array($raw) ? self::normalizeAnswers($raw) : []);
+        }
+
+        // The mailbox by id and by the name its operator gave it, and the
+        // purpose. Never the account, never the host (§7.4).
+        $this->journalService->log(
+            'inbound_mail',
+            'inbound_mailbox_scopes_saved',
+            'info',
+            'Portée des modules mise à jour pour la boîte : ' . $mailbox->name,
+            ['mailbox_id' => $id, 'purpose' => $purpose->value]
+        );
+        FlashMessage::set('success', 'Portée enregistrée.');
+
+        return $this->redirect('/config/courrier-entrant');
+    }
+
+    /**
+     * POST /config/courrier-entrant/rafraichir
+     *
+     * A synchronisation on demand, so a superadmin who has just configured
+     * a box does not have to wait a quarter of an hour to find out whether
+     * it works.
+     *
+     * **Behind a lock**, because it runs inside the request: two clicks a
+     * second apart would open two IMAP sessions on the same box, read the
+     * same messages twice and race each other on the cursor. The lock is a
+     * setting rather than a table — one row, no schema, and readable from
+     * the scheduled path too.
+     *
+     * @param array<string, string> $params
+     */
+    public function refreshNow(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, '/config/courrier-entrant')) !== null) {
+            return $guard;
+        }
+
+        if ($this->refreshService === null) {
+            return $this->notFound();
+        }
+
+        $outcome = $this->refreshService->refresh(new \DateTimeImmutable());
+
+        FlashMessage::set($outcome['ok'] ? 'success' : 'warning', $outcome['message']);
+
+        return $this->redirect('/config/courrier-entrant');
+    }
+
+    /**
+     * @return array<string, array{analyze: bool, read: string}>
+     */
+    private static function normalizeAnswers(mixed $raw): array
+    {
+        $answers = [];
+        foreach (is_array($raw) ? $raw : [] as $consumerId => $answer) {
+            if (!is_array($answer)) {
+                continue;
+            }
+
+            $answers[(string) $consumerId] = [
+                // A checkbox absent from the body is a checkbox unchecked.
+                'analyze' => ($answer['analyze'] ?? null) !== null,
+                'read' => (string) ($answer['read'] ?? ReadMode::NONE->value),
+            ];
+        }
+
+        return $answers;
+    }
+
+    /**
+     * The pills of one row of the index: which modules sort this box, and
+     * how far each one's users may read.
+     *
+     * @return array<int, array{name: string, read: ReadMode}>
+     */
+    private function scopeSummary(Mailbox $mailbox): array
+    {
+        if ($this->scopeService === null || $this->consumerRegistry === null) {
+            return [];
+        }
+
+        $scopes = $this->scopeService->scopesFor($mailbox);
+        $summary = [];
+
+        foreach ($this->consumerRegistry->all() as $consumer) {
+            $scope = $scopes[$consumer->consumerId()] ?? null;
+            if ($scope === null || !$scope->analyzes) {
+                continue;
+            }
+
+            $summary[] = ['name' => $consumer->displayName(), 'read' => $scope->effectiveReadMode()];
+        }
+
+        return $summary;
     }
 
     /**
