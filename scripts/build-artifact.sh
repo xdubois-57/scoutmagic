@@ -69,7 +69,11 @@ trap 'rm -f "${LISTING_FILE:-}"; echo "Restoring dev dependencies (composer inst
 
 LISTING_FILE=""
 
-composer install --no-dev --optimize-autoloader --no-interaction --quiet
+# --prefer-dist matters beyond speed: a package installed from SOURCE
+# carries its whole upstream .git (612 MB for aws-sdk-php, measured), and
+# the "*/.git" exclusions below are the belt to this suspender for a
+# builder whose vendor/ predates this script.
+composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction --quiet
 
 # An artifact left over from a previous run would otherwise be updated in
 # place by `zip -r` rather than rebuilt, keeping entries that no longer
@@ -106,12 +110,23 @@ rm -f "${ARTIFACT}"
 # docs/ is deliberately NOT excluded: the contextual help ships as
 # Markdown under docs/help/ and is read at runtime (ARCHITECTURE.md
 # §8.64).
+# The bare ".git" entry needs excluding separately from ".git/*": zip's
+# pattern matches the directory's CONTENTS, not the directory entry
+# itself, and an empty .git/ extracted onto a production webroot is how
+# every install ended up with one. Same story for the local tool
+# droppings (".phpunit.result.cache" from release.sh's own test gate,
+# ".sonar-token", ".lane-env", dast-report/) — none of them is tracked,
+# all of them were observed shipped to scoutmagic.be inside release
+# artifacts built from a working checkout.
 zip -r "${ARTIFACT}" . \
-    -x ".git/*" ".github/*" "tests/*" "storage/*" \
+    -x ".git" ".git/*" ".github/*" "tests/*" "storage/*" \
        "config/app.php" ".gitignore" ".env" "*.zip" \
        "bootstrap/*" ".claude/*" ".idea/*" ".vscode/*" "*.DS_Store" \
        "node_modules/*" "coverage/*" "package.json" "package-lock.json" \
-       "vitest.config.js"
+       "vitest.config.js" \
+       ".phpunit.result.cache" ".sonar-token" ".lane-env" \
+       "dast-report" "dast-report/*" "coverage*.xml" \
+       "*/.git" "*/.git/*"
 
 # Listed to a real file rather than piped live into grep -q: with
 # `set -o pipefail` (line 2), a `grep -q` that matches early closes its

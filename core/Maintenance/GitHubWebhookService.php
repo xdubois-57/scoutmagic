@@ -58,7 +58,7 @@ class GitHubWebhookService
      * builds, and it is a property of the workflow, restated here so the
      * two halves of the contract are readable together.
      */
-    private const DEV_BUILD_TAG = 'dev-build';
+    public const DEV_BUILD_TAG = 'dev-build';
 
     /**
      * How long Task\InstallUpdateHandler may keep waiting for that
@@ -70,7 +70,7 @@ class GitHubWebhookService
      * several times the observed build time and still short enough that a
      * genuinely failed build is reported the same morning.
      */
-    private const ARTIFACT_WAIT_SECONDS = 600;
+    public const ARTIFACT_WAIT_SECONDS = 600;
 
     // Wall-clock timezone the admin's auto_update_day/auto_update_time are
     // expressed in: the application clock, named explicitly rather than
@@ -388,8 +388,7 @@ class GitHubWebhookService
         // "{owner}-{repo}-{sha}/" directory — which is why source_type is
         // 'release' and not 'branch': resolveBranchArchiveRoot() exists
         // for the zipball's shape and must never be applied to this one.
-        $downloadUrl = "https://github.com/{$repoFullName}/releases/download/"
-            . self::DEV_BUILD_TAG . "/scoutmagic-dev-{$shortSha}.zip";
+        $downloadUrl = self::devArtifactUrl($repoFullName, $sha);
         $installedVersion = VersionFile::read($this->basePath);
 
         // Used to be hardcoded false, which made the "dépendances mises à
@@ -566,6 +565,21 @@ class GitHubWebhookService
      *        never turn a GitHub API hiccup into an alarming update
      *        history row.
      */
+    /**
+     * The one place the dev artifact's address is spelled out.
+     *
+     * Two callers install from the dev channel — the push webhook here and
+     * the manual « Installer maintenant » in Http\Controller\
+     * MaintenanceController::installDevBranchUpdate() — and both must point
+     * at the exact asset .github/workflows/dev-build.yml publishes, or one
+     * of them quietly drifts back to the git zipball this channel replaced.
+     */
+    public static function devArtifactUrl(string $repoFullName, string $sha): string
+    {
+        return "https://github.com/{$repoFullName}/releases/download/"
+            . self::DEV_BUILD_TAG . '/scoutmagic-dev-' . substr($sha, 0, 7) . '.zip';
+    }
+
     private function composerLockChanged(string $installedVersion, string $head, bool $fallbackOnFailure = true): bool
     {
         // A dev/branch build's git ref is the commit sha inside its

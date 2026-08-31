@@ -845,7 +845,7 @@ sur cette ligne » plutôt que d'un battement de cœur : une tâche restée en
 la grille aurait alors retenu les visiteurs indéfiniment — exactement ce
 que ce seuil existe pour éviter.
 
-### Le canal de développement installait l'arbre git, pas une application
+## IT-09 — Le canal de développement installait l'arbre git, pas une application
 
 Le mode développement (`auto_update_level = dev`) installait, à chaque
 push sur la branche suivie, `https://api.github.com/repos/{repo}/zipball/{sha}`
@@ -869,7 +869,7 @@ quelque chose que l'ancienne dépendance n'a pas.
 documentés et son constructeur CLI qui écrit massivement en base),
 `.github/`, `bootstrap/` et `scripts/` sur une racine web de production.
 
-#### Fait
+### Fait
 
 - `scripts/build-artifact.sh` — l'unique implémentation de « ce qu'est un
   artefact ScoutMagic installable » : `composer install --no-dev
@@ -897,7 +897,7 @@ documentés et son constructeur CLI qui écrit massivement en base),
 - `BackupService` — la sauvegarde de sécurité archive `vendor/` et
   `schema/`, et `RESTORABLE_TOP_LEVEL` les accepte.
 
-#### Surpris
+### Surpris
 
 **La préversion n'est pas un détail de présentation, c'est la séparation
 des deux canaux.** `GitHubReleaseClient` lit
@@ -945,25 +945,20 @@ mixte qu'IT-07, atteint par l'autre bout. `RESTORABLE_TOP_LEVEL` reste un
 contrôle de sur-ensemble, donc une archive antérieure se restaure
 exactement comme avant.
 
-#### Écarté
+### Écarté
 
-- **Un répertoire de build séparé** pour le `composer install --no-dev`,
-  au lieu de l'exécuter contre le `vendor/` du dépôt courant. Ç'aurait
-  évité le `trap` de restauration — mais `release.sh` fait ainsi depuis
-  toujours, et changer la mécanique de construction dans le même
-  changement que le partage du script aurait rendu impossible de dire
-  laquelle des deux modifications a cassé une release.
-- **Ajouter `vendor/` à `createFullBackup()`** (la sauvegarde
-  téléchargeable par l'opérateur) au nom de la symétrie. Chaque entrée y
-  est chiffrée AES-256 individuellement : payer ce coût sur des milliers
-  de petits fichiers, sur l'hébergement mutualisé auquel cette
-  fonctionnalité est destinée, pour un arbre que l'opérateur réinstalle
-  depuis n'importe quel artefact de release. La sauvegarde qui doit être
-  complète est celle dont une restauration automatique se sert, et elle
-  n'est pas chiffrée.
-- **Migrer aussi le chemin manuel** « Installer maintenant » du canal dev
-  (`MaintenanceController::installDevBranchUpdate()`), qui construit
-  encore une URL de zipball. C'est le même défaut, mais un commit qui
-  vient d'être poussé n'a pas forcément d'artefact publié, et faire
-  attendre un administrateur devant sa page en sondant une préversion est
-  une décision d'interface, pas de plomberie. À traiter séparément.
+- Rien, finalement, sur le second point d'entrée du canal dev : la
+  relecture a aligné « Installer maintenant »
+  (`MaintenanceController::installDevBranchUpdate()`) sur le webhook —
+  même URL d'artefact (helper partagé `devArtifactUrl()`), même
+  `source_type`, même délai d'attente de l'artefact. Un commit tout juste
+  poussé sans artefact publié suit le même chemin : la tâche réessaie en
+  arrière-plan puis échoue proprement, au lieu de faire attendre
+  l'administrateur devant sa page.
+- L'archive pesait 692 Mo mesurée localement : 612 Mo de `.git` interne à
+  `aws-sdk-php` (installation depuis les sources) et le reste en
+  définitions de services AWS inutilisés. `--prefer-dist`, l'exclusion
+  des `.git` imbriqués et l'élagage Composer du SDK (`extra:
+  aws/aws-sdk-php: ["S3"]` — seul S3 est utilisé, par la galerie) la
+  ramènent à 31 Mo pour 12 000 entrées, mesuré sur une construction
+  réelle. Le canal stable en profite à l'identique.

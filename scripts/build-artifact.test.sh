@@ -126,7 +126,7 @@ else
     fail "the archive is flat — entries start at the repository root"
 fi
 
-assert_contains "${COMPOSER_CALL_LOG}" 'install --no-dev --optimize-autoloader' "a production vendor/ is resolved before zipping"
+assert_contains "${COMPOSER_CALL_LOG}" 'install --no-dev --prefer-dist --optimize-autoloader' "a production vendor/ is resolved before zipping, from dist (a source install drags each package's upstream .git into the tree)"
 assert_contains "${COMPOSER_CALL_LOG}" '^install --no-interaction' "dev dependencies are restored on exit, so the caller's tree still works"
 
 echo "── A tree that would ship a root .htaccess ─────────────────────────"
