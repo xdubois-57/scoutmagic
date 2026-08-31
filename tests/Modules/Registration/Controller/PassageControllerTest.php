@@ -44,6 +44,8 @@ class PassageControllerTest extends TestCase
     private RegistrationRequestRepository $requestRepository;
     private SectionTransferRepository $transferRepository;
     private PassageService $passageService;
+    private \Modules\Registration\Service\ForecastService $forecastService;
+    private \Modules\Registration\Service\ProjectedPopulationService $projection;
     private int $currentYearId;
     private int $targetYearId;
     private int $louveteauxSectionId;
@@ -108,9 +110,25 @@ class PassageControllerTest extends TestCase
         $twig->addGlobal('current_path', '/passage');
         $twig->addGlobal('csp_nonce', 'test-nonce');
 
+        // The real projection, not a stub: the statistics box the save
+        // response carries back is the projection's own numbers, and a
+        // stub here would let the two stop agreeing.
+        $this->forecastService = new \Modules\Registration\Service\ForecastService(
+            $this->pdo, $encryption, $sectionService, $passageService
+        );
+        $this->projection = new \Modules\Registration\Service\ProjectedPopulationService(
+            $this->forecastService,
+            $slotService,
+            $scoutYearService,
+            $sectionService,
+            $this->requestRepository,
+            new \Modules\Registration\Repository\ProjectedMemberEmailRepository($this->pdo, $encryption)
+        );
+
         $this->controller = new PassageController(
             $twig, $passageService, $this->requestRepository, $this->transferRepository, $sectionService,
-            $ageBracketRepository, $slotService, $scoutYearResolver, $scoutYearService
+            $ageBracketRepository, $slotService, $scoutYearResolver, $scoutYearService,
+            new \Modules\Registration\Service\PassageStatisticsService($sectionService, $this->projection)
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -325,6 +343,87 @@ class PassageControllerTest extends TestCase
      * inline event handler reintroduced here would break saving again
      * without failing a single controller test.
      */
+    // ── IT-12: the statistics box ─────────────────────────────────────
+
+    public function testTheSaveResponseCarriesTheRecomputedStatistics(): void
+    {
+        $member = $this->createLouveteauLastRank();
+
+        $response = $this->controller->saveDestination(
+            $this->jsonBodyRequest('POST', "/passage/membre/{$member['member_id']}/destination", ['destination_section_id' => (string) $this->eclaireursSectionId]),
+            ['id' => (string) $member['member_id']]
+        );
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+        $this->assertArrayHasKey(
+            'statistics_html',
+            $decoded,
+            'The box travels in the save\'s own answer — one round trip, and no cached box to invalidate.'
+        );
+        $this->assertStringContainsString('id="passage-statistics"', $decoded['statistics_html']);
+        // Recomputed, not the page-load copy: the member has just arrived
+        // in Éclaireurs A, and the box says so.
+        $this->assertStringContainsString('Éclaireurs A', $decoded['statistics_html']);
+    }
+
+    public function testClearingADestinationAlsoRefreshesTheBox(): void
+    {
+        $member = $this->createLouveteauLastRank();
+        $this->transferRepository->setDestination($member['member_id'], $this->targetYearId, $this->eclaireursSectionId);
+
+        $response = $this->controller->saveDestination(
+            $this->jsonBodyRequest('POST', "/passage/membre/{$member['member_id']}/destination", ['destination_section_id' => '0']),
+            ['id' => (string) $member['member_id']]
+        );
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertArrayHasKey('statistics_html', $decoded);
+        $this->assertStringNotContainsString(
+            'Éclaireurs A',
+            $decoded['statistics_html'],
+            'Taking a destination back must empty the section it was in, not leave a stale figure.'
+        );
+    }
+
+    public function testSavingAnIntendedSectionRefreshesTheBoxToo(): void
+    {
+        $created = $this->requestRepository->create($this->targetYearId, [
+            'parent_name' => 'P', 'child_last_name' => 'Nouveau', 'child_first_name' => 'Enfant',
+            'gender' => 'F', 'birth_date' => '2019-06-01', 'street' => 'S', 'number' => '1',
+            'postal_code' => '1000', 'city' => 'V', 'email' => 'enfant@example.com',
+            'phone1' => '000', 'phone2' => null, 'remarks' => null,
+        ], null, []);
+        $this->requestRepository->updateStatus($created['id'], 'accepted', null);
+
+        $response = $this->controller->saveIntendedSection(
+            $this->jsonBodyRequest('POST', "/passage/inscription/{$created['id']}/section", ['intended_section_id' => (string) $this->louveteauxSectionId]),
+            ['id' => (string) $created['id']]
+        );
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertArrayHasKey('statistics_html', $decoded);
+        $this->assertStringContainsString('Louveteaux', $decoded['statistics_html']);
+    }
+
+    public function testTheBoxOnThePageCarriesBothScopesAndTheArrivalsWarning(): void
+    {
+        // With nobody placed anywhere the box has no branch to draw and
+        // says so instead; a destination is what gives it something to
+        // show, which is the state this test is about.
+        $member = $this->createLouveteauLastRank();
+        $this->transferRepository->setDestination($member['member_id'], $this->targetYearId, $this->eclaireursSectionId);
+
+        $body = $this->controller->index(new Request('GET', '/passage', [], [], [], []), [])->getBody();
+
+        // Both scopes are rendered at once and the switch only shows one:
+        // flipping it must not cost a request, and half a stale box would
+        // be worse than either half.
+        $this->assertStringContainsString('data-scope="projected"', $body);
+        $this->assertStringContainsString('data-scope="arrivals"', $body);
+        $this->assertStringContainsString('Les animés qui restent dans leur section ne sont pas comptés ici', $body);
+    }
+
     public function testRenderedPageCarriesNoInlineEventHandler(): void
     {
         $this->createLouveteauLastRank();

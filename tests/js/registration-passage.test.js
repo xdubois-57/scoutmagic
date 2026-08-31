@@ -24,7 +24,27 @@ function row(endpoint, field, id) {
         </td></tr>`;
 }
 
-const PAGE = `<table><tbody>
+/**
+ * The statistics box (spec §8), as the server renders it: BOTH scopes
+ * present, one of them hidden, and the arrivals warning next to the
+ * switch. The browser never builds this — it only decides which half is
+ * visible — so the fixture is markup, not a data structure.
+ *
+ * @param {string} projectedText
+ * @param {string} arrivalsText
+ */
+function statisticsBox(projectedText = 'Louveteaux A · 12', arrivalsText = 'Louveteaux A · 3') {
+    return `
+        <div id="passage-statistics">
+            <input type="radio" name="passage-stats-scope" id="passage-scope-projected" value="projected" checked>
+            <input type="radio" name="passage-stats-scope" id="passage-scope-arrivals" value="arrivals">
+            <div class="alert d-none" id="passage-arrivals-warning">Les animés qui restent…</div>
+            <div class="passage-stats-scope" data-scope="projected">${projectedText}</div>
+            <div class="passage-stats-scope" data-scope="arrivals" hidden>${arrivalsText}</div>
+        </div>`;
+}
+
+const PAGE = `${statisticsBox()}<table><tbody>
     ${row('/passage/inscription/12/section', 'intended_section_id', 4)}
     ${row('/passage/membre/77/destination', 'destination_section_id', 9)}
 </tbody></table>`;
@@ -145,6 +165,83 @@ describe('registration-passage.js', () => {
             global.fetch = vi.fn(() => jsonResponse({ success: true }));
             saveIn(0).click();
             await vi.waitFor(() => expect(feedbackIn(0).textContent).toBe('Enregistré.'));
+        });
+    });
+
+    describe('the statistics box', () => {
+        const scopeBlock = (scope) => document.querySelector(`.passage-stats-scope[data-scope="${scope}"]`);
+        const scopeRadio = (scope) => document.querySelector(`input[name="passage-stats-scope"][value="${scope}"]`);
+        const warning = () => document.getElementById('passage-arrivals-warning');
+
+        it('shows « Effectif projeté » and hides the other scope on load', async () => {
+            await boot();
+
+            expect(scopeBlock('projected').hidden).toBe(false);
+            expect(scopeBlock('arrivals').hidden).toBe(true);
+            expect(warning().classList.contains('d-none')).toBe(true);
+        });
+
+        it('swaps the visible scope and raises the warning with « Arrivées seules »', async () => {
+            await boot();
+
+            scopeRadio('arrivals').checked = true;
+            scopeRadio('arrivals').dispatchEvent(new Event('change', { bubbles: true }));
+
+            expect(scopeBlock('arrivals').hidden).toBe(false);
+            expect(scopeBlock('projected').hidden).toBe(true);
+            expect(warning().classList.contains('d-none')).toBe(false);
+        });
+
+        it('replaces the whole box with what the save answered', async () => {
+            global.fetch = vi.fn(() => jsonResponse({
+                success: true,
+                statistics_html: statisticsBox('Louveteaux A · 13', 'Louveteaux A · 4'),
+            }));
+            await boot();
+
+            saveIn(0).click();
+            await vi.waitFor(() => expect(scopeBlock('projected').textContent).toBe('Louveteaux A · 13'));
+        });
+
+        it('puts the reader back in the scope they were reading', async () => {
+            // A chief working in « Arrivées seules » must not be thrown out
+            // of it on every save — and the server always re-renders on the
+            // default scope, so the choice has to be restored here.
+            global.fetch = vi.fn(() => jsonResponse({
+                success: true,
+                statistics_html: statisticsBox('projeté frais', 'arrivées fraîches'),
+            }));
+            await boot();
+
+            scopeRadio('arrivals').checked = true;
+            scopeRadio('arrivals').dispatchEvent(new Event('change', { bubbles: true }));
+
+            saveIn(0).click();
+            await vi.waitFor(() => expect(scopeBlock('arrivals').textContent).toBe('arrivées fraîches'));
+            expect(scopeRadio('arrivals').checked).toBe(true);
+            expect(scopeBlock('arrivals').hidden).toBe(false);
+            expect(scopeBlock('projected').hidden).toBe(true);
+            expect(warning().classList.contains('d-none')).toBe(false);
+        });
+
+        it('leaves the box alone when the answer carries none', async () => {
+            // A save that did not bring statistics back (an older response
+            // shape, a refusal) must not blank the box.
+            global.fetch = vi.fn(() => jsonResponse({ success: true }));
+            await boot();
+
+            saveIn(0).click();
+            await vi.waitFor(() => expect(feedbackIn(0).textContent).toBe('Enregistré.'));
+            expect(scopeBlock('projected').textContent).toBe('Louveteaux A · 12');
+        });
+
+        it('does not break a page that has no box at all', async () => {
+            document.body.innerHTML = `<table><tbody>${row('/passage/inscription/12/section', 'intended_section_id', 4)}</tbody></table>`;
+            global.fetch = vi.fn(() => jsonResponse({ success: true, statistics_html: statisticsBox() }));
+
+            await expect(boot()).resolves.not.toThrow();
+            document.querySelector('.passage-save').click();
+            await vi.waitFor(() => expect(document.querySelector('.passage-feedback').textContent).toBe('Enregistré.'));
         });
     });
 

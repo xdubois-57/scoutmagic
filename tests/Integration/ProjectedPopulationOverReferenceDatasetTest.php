@@ -19,6 +19,7 @@ use Modules\Registration\Repository\SectionTransferRepository;
 use Modules\Registration\Repository\SlotCapacityRepository;
 use Modules\Registration\Service\ForecastService;
 use Modules\Registration\Service\PassageService;
+use Modules\Registration\Service\PassageStatisticsService;
 use Modules\Registration\Service\ProjectedPopulationService;
 use Modules\Registration\Service\SlotService;
 use PHPUnit\Framework\TestCase;
@@ -47,6 +48,7 @@ final class ProjectedPopulationOverReferenceDatasetTest extends TestCase
     private \PDO $pdo;
     private ForecastService $forecastService;
     private ProjectedPopulationService $provider;
+    private SectionService $sectionService;
 
     /** @var array<string, int> */
     private array $yearIds;
@@ -77,6 +79,7 @@ final class ProjectedPopulationOverReferenceDatasetTest extends TestCase
 
         $connection = Connection::withPdo($this->pdo);
         $sectionService = new SectionService($connection, $encryption, new MemberBadgeRepository($this->pdo));
+        $this->sectionService = $sectionService;
         $ageBracketRepository = new AgeBracketRepository($this->pdo);
         $requestRepository = new RegistrationRequestRepository($this->pdo, $encryption);
 
@@ -203,6 +206,63 @@ final class ProjectedPopulationOverReferenceDatasetTest extends TestCase
         }
 
         self::assertLessThanOrEqual(count($projected), count($recipients));
+    }
+
+    /**
+     * IT-12's own requirement: the Passage page's statistics box must show
+     * the section totals the Prévisions page shows for the same target
+     * year. Two pages of one site disagreeing about next year's Louveteaux
+     * is the failure this whole Api\ layer exists to make impossible, and
+     * a fixture of four people would not catch a drift of one.
+     */
+    public function testThePassageBoxAgreesWithThePrevisionsPageSectionBySection(): void
+    {
+        $box = (new PassageStatisticsService($this->sectionService, $this->provider))
+            ->forTargetYear($this->targetYearId());
+
+        $expected = [];
+        foreach ($this->forecast()['sections'] as $section) {
+            if ($section['total'] > 0) {
+                $expected[$section['id']] = $section['total'];
+            }
+        }
+        self::assertNotSame([], $expected);
+
+        $actual = [];
+        foreach ($box['branches'] as $branch) {
+            foreach ($branch['sections'] as $section) {
+                $actual[$section['id']] = $section['scopes'][PassageStatisticsService::SCOPE_PROJECTED]['total'];
+            }
+        }
+        ksort($expected);
+        ksort($actual);
+
+        self::assertSame($expected, $actual);
+    }
+
+    public function testThePassageBoxCountsTheSameUnassignedPeopleAsThePrevisionsPage(): void
+    {
+        $box = (new PassageStatisticsService($this->sectionService, $this->provider))
+            ->forTargetYear($this->targetYearId());
+
+        self::assertSame(
+            $this->forecast()['unassigned']['total'],
+            $box['unassigned'][PassageStatisticsService::SCOPE_PROJECTED]
+        );
+    }
+
+    public function testArrivalsOnlyIsASubsetOfTheProjectedScopeOnARealUnit(): void
+    {
+        $box = (new PassageStatisticsService($this->sectionService, $this->provider))
+            ->forTargetYear($this->targetYearId());
+
+        foreach ($box['branches'] as $branch) {
+            self::assertLessThanOrEqual(
+                $branch['scopes'][PassageStatisticsService::SCOPE_PROJECTED]['total'],
+                $branch['scopes'][PassageStatisticsService::SCOPE_ARRIVALS]['total'],
+                "« Arrivées seules » can never hold more people than the whole projection."
+            );
+        }
     }
 
     // ── helpers ───────────────────────────────────────────────────────

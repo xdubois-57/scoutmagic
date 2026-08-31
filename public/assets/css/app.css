@@ -793,3 +793,32 @@ body:has(> #cookie-banner) {
 .email-body-editor {
     min-height: 6rem;
 }
+
+/* Passage statistics box (modules/registration/views/
+   _passage_statistics.html.twig, spec §8).
+
+   Two track heights, because the two bars answer different questions and
+   should not read as one control: the total is a comparison BETWEEN the
+   sections of a branch and gets the taller track; the gender split is a
+   100% bar whose numbers are written out beside it, so the bar itself is
+   a glance rather than a measurement.
+
+   Classes rather than inline style attributes for the static half
+   (SECURITY.md §34); the widths and the section colour stay inline
+   because they are computed per section and there is nothing to hoist.
+   In app.css for the same reason as .passage-assign-col above —
+   base.html.twig loads it on every page, components.css only on the pages
+   that opt in. */
+.passage-stats-track {
+    height: 0.5rem;
+    background-color: var(--bs-secondary-bg);
+    overflow: hidden;
+}
+
+.passage-stats-fill {
+    height: 100%;
+}
+
+.passage-stats-gender {
+    height: 0.375rem;
+}

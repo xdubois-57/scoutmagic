@@ -1,0 +1,128 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  The Passage page's statistics box (spec §8) — one card per branch,
+  refreshed by the SAVE round trip rather than by an endpoint of its own
+  (Modules\Registration\Controller\PassageController::saveIntendedSection()
+  and saveDestination() both return this fragment re-rendered). One trip,
+  and no cache to invalidate.
+
+  Both scopes are rendered at once and the switch only shows one of them:
+  a scope flip must not cost a request, and half the box being stale would
+  be worse than either half.
+
+  Every figure comes from Api\ProjectedPopulationProvider — the same
+  projection the Prévisions page shows. Nothing is computed here.
+
+  Usage:
+  {% include '@registration/_passage_statistics.html.twig' with {
+      statistics: statistics,
+  } only %}
+#}
+<div id="passage-statistics">
+    {% if not statistics.available or statistics.branches is empty %}
+        {% include 'partials/empty_state.html.twig' with {
+            message: "Rien à projeter pour l'instant — les statistiques apparaîtront dès qu'une arrivée ou un passage sera connu.",
+            compact: true,
+        } only %}
+    {% else %}
+        <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+            <div class="btn-group btn-group-sm" role="group" aria-label="Portée des statistiques">
+                <input type="radio" class="btn-check" name="passage-stats-scope" id="passage-scope-projected"
+                       value="projected" autocomplete="off" checked>
+                <label class="btn btn-outline-primary" for="passage-scope-projected">Effectif projeté</label>
+
+                <input type="radio" class="btn-check" name="passage-stats-scope" id="passage-scope-arrivals"
+                       value="arrivals" autocomplete="off">
+                <label class="btn btn-outline-primary" for="passage-scope-arrivals">Arrivées seules</label>
+            </div>
+
+            {% if statistics.unassigned.projected > 0 %}
+                <span class="badge text-bg-warning">
+                    {{ statistics.unassigned.projected }} personne{{ statistics.unassigned.projected > 1 ? 's' : '' }}
+                    sans section
+                </span>
+            {% endif %}
+        </div>
+
+        {# Shown only in « Arrivées seules » — the numbers there answer a
+           different question, and a reader who missed the switch would draw
+           exactly the wrong conclusion from them. #}
+        <div class="alert alert-info small py-2 d-none" id="passage-arrivals-warning">
+            Les animés qui restent dans leur section ne sont pas comptés ici. Cette vue sert à vérifier que les
+            arrivées se répartissent bien, jamais à juger l'équilibre des sections.
+        </div>
+
+        {# One column per branch on a wide screen, stacked on a phone: three
+           branches side by side do not fit at 375px (design.md §7.1). #}
+        <div class="row row-cols-1 row-cols-lg-2 row-cols-xl-3 g-3 mb-4">
+            {% for branch in statistics.branches %}
+                <div class="col">
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <h3 class="h6 mb-3">{{ branch.label }}</h3>
+
+                            {% for scope in ['projected', 'arrivals'] %}
+                                <div class="passage-stats-scope" data-scope="{{ scope }}"
+                                     {{ scope == 'arrivals' ? 'hidden' : '' }}>
+                                    {% if branch.scopes[scope].total == 0 %}
+                                        <p class="small text-body-secondary mb-0">
+                                            {{ scope == 'arrivals' ? 'Aucune arrivée dans cette branche.' : 'Personne de projeté dans cette branche.' }}
+                                        </p>
+                                    {% else %}
+                                        {% for section in branch.sections %}
+                                            {% set counts = section.scopes[scope] %}
+                                            <div class="mb-3">
+                                                {# flex-wrap, so on a phone the count drops to its own line
+                                                   instead of squeezing « Louveteaux A » onto two. #}
+                                                <div class="d-flex flex-wrap justify-content-between align-items-baseline gap-2">
+                                                    <span class="small fw-semibold">{{ section.label }}</span>
+                                                    <span class="small text-body-secondary text-nowrap">
+                                                        {{ counts.total }}
+                                                        {#- The split is worth writing only when the section really
+                                                            holds both. « 0 certain / 9 hypothèses » is noise, and in
+                                                            « Arrivées seules » it would be on every line: an arrival
+                                                            is a hypothesis by construction. -#}
+                                                        {%- if counts.certain > 0 and counts.hypothesis > 0 %} · {{ counts.certain }} certain{{ counts.certain > 1 ? 's' : '' }} / {{ counts.hypothesis }} hypothèse{{ counts.hypothesis > 1 ? 's' : '' }}
+                                                        {%- elseif counts.hypothesis > 0 %} · hypothèse{{ counts.hypothesis > 1 ? 's' : '' }}
+                                                        {%- else %} · certain{{ counts.certain > 1 ? 's' : '' }}{% endif %}
+                                                    </span>
+                                                </div>
+
+                                                {# Total, on a scale shared by this branch's sections so two
+                                                   bars in one card are comparable to each other. #}
+                                                <div class="passage-stats-track rounded-pill mt-1"
+                                                     role="img"
+                                                     aria-label="{{ section.label }} : {{ counts.total }} personne{{ counts.total > 1 ? 's' : '' }}">
+                                                    <div class="passage-stats-fill rounded-pill"
+                                                         style="width: {{ branch.scopes[scope].max > 0 ? (counts.total / branch.scopes[scope].max * 100)|round : 0 }}%; background-color: {{ section.color }};"></div>
+                                                </div>
+
+                                                {% if counts.total > 0 %}
+                                                    {# Gender, as a 100% bar WITH the plain numbers beside it:
+                                                       a percentage alone hides that "50 %" can be one child. #}
+                                                    <div class="d-flex rounded overflow-hidden mt-1 passage-stats-gender" role="img"
+                                                         aria-label="Répartition par genre pour {{ section.label }} : {{ counts.male }} garçon{{ counts.male > 1 ? 's' : '' }}, {{ counts.female }} fille{{ counts.female > 1 ? 's' : '' }}, {{ counts.unknown }} non renseigné{{ counts.unknown > 1 ? 's' : '' }}">
+                                                        {% if counts.male > 0 %}<div class="bg-info" style="width: {{ (counts.male / counts.total * 100)|round }}%;"></div>{% endif %}
+                                                        {% if counts.female > 0 %}<div class="bg-danger" style="width: {{ (counts.female / counts.total * 100)|round }}%;"></div>{% endif %}
+                                                        {% if counts.unknown > 0 %}<div class="bg-secondary" style="width: {{ (counts.unknown / counts.total * 100)|round }}%;"></div>{% endif %}
+                                                    </div>
+                                                    <div class="small text-body-secondary mt-1">
+                                                        {{ counts.male }} G · {{ counts.female }} F
+                                                        {%- if counts.unknown > 0 %} · {{ counts.unknown }} non renseigné{{ counts.unknown > 1 ? 's' : '' }}{% endif %}
+                                                    </div>
+                                                {% endif %}
+                                            </div>
+                                        {% endfor %}
+                                    {% endif %}
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+</div>

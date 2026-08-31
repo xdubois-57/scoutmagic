@@ -103,11 +103,26 @@ class RegistrationChefsRbacTest extends TestCase
         $this->twig = $twig;
 
         $this->departuresController = new DeparturesController($twig, $sectionStaffAuth, $sectionService, $departureService, $scoutYearResolver);
+        $forecastService = new ForecastService($this->pdo, $encryption, $sectionService, $passageService);
         $this->passageController = new PassageController(
             $twig, $passageService, $requestRepository, $transferRepository, $sectionService,
-            $ageBracketRepository, $slotService, $scoutYearResolver, $scoutYearService
+            $ageBracketRepository, $slotService, $scoutYearResolver, $scoutYearService,
+            // This test is about the RBAC floor, not about the numbers —
+            // but the box is part of the page it renders, so the real
+            // projection is wired rather than a stub that could quietly
+            // stop matching.
+            new \Modules\Registration\Service\PassageStatisticsService(
+                $sectionService,
+                new \Modules\Registration\Service\ProjectedPopulationService(
+                    $forecastService,
+                    $slotService,
+                    $scoutYearService,
+                    $sectionService,
+                    $requestRepository,
+                    new \Modules\Registration\Repository\ProjectedMemberEmailRepository($this->pdo, $encryption)
+                )
+            )
         );
-        $forecastService = new ForecastService($this->pdo, $encryption, $sectionService, $passageService);
         $this->forecastController = new ForecastController($twig, $forecastService, $scoutYearResolver, $scoutYearService, $slotService);
 
         if (session_status() === PHP_SESSION_NONE) {

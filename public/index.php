@@ -4284,13 +4284,9 @@ if ($isEnabled('registration')) {
     $registrationPassageService = new \Modules\Registration\Service\PassageService(
         $pdo, $encryptionService, $sectionService, $registrationSectionTransferRepo, $registrationRequestRepo, $registrationAgeBracketRepo
     );
-    $frontController->registerController(
-        \Modules\Registration\Controller\PassageController::class,
-        new \Modules\Registration\Controller\PassageController(
-            $twig, $registrationPassageService, $registrationRequestRepo, $registrationSectionTransferRepo, $sectionService,
-            $registrationAgeBracketRepo, $registrationSlotService, $scoutYearResolver, $scoutYearService
-        )
-    );
+    // PassageController is registered further down, once the projection
+    // exists: IT-12's statistics box reads Api\ProjectedPopulationProvider,
+    // which is a façade over the ForecastService built below.
 
     // Iteration 7 — the year-transition veto (Api\
     // ScoutYearTransitionVetoProvider, ARCHITECTURE.md §7.5/§8.38): Core\
@@ -4344,6 +4340,20 @@ if ($isEnabled('registration')) {
         $sectionService,
         $registrationRequestRepo,
         new \Modules\Registration\Repository\ProjectedMemberEmailRepository($pdo, $encryptionService)
+    );
+
+    // IT-12 — the Passage page's statistics box. Reads the projection
+    // through its own module's public contract like any other consumer
+    // would, rather than reaching into ForecastService: one projection,
+    // and the box can never disagree with the Prévisions page about next
+    // year's Louveteaux.
+    $frontController->registerController(
+        \Modules\Registration\Controller\PassageController::class,
+        new \Modules\Registration\Controller\PassageController(
+            $twig, $registrationPassageService, $registrationRequestRepo, $registrationSectionTransferRepo, $sectionService,
+            $registrationAgeBracketRepo, $registrationSlotService, $scoutYearResolver, $scoutYearService,
+            new \Modules\Registration\Service\PassageStatisticsService($sectionService, $registrationProjectedPopulation)
+        )
     );
 
     // Re-registers ImportController with the real reconciliation trigger —

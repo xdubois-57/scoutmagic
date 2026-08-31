@@ -8,6 +8,13 @@
                 l'année " ~ target_year_label ~ " (l'année publique + 1), quelle que soit l'année actuellement prévisualisée.",
         } only %}
 
+        {# Spec §8 — where the evening's decisions land, above the tables
+           that make them. Refreshed by the save round trip itself
+           (registration-passage.js), never by a request of its own. #}
+        {% include '@registration/_passage_statistics.html.twig' with {
+            statistics: statistics,
+        } only %}
+
         <div class="card mb-4">
             <div class="card-body">
                 <h2 class="h5 mb-3">Nouvelles inscriptions — année {{ target_year_label }}</h2>

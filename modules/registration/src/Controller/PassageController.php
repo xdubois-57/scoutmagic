@@ -20,6 +20,7 @@ use Modules\Registration\Repository\AgeBracketRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\SectionTransferRepository;
 use Modules\Registration\Service\PassageService;
+use Modules\Registration\Service\PassageStatisticsService;
 use Modules\Registration\Service\SlotMath;
 use Modules\Registration\Service\SlotService;
 use Twig\Environment;
@@ -51,7 +52,8 @@ class PassageController extends AbstractController
         private AgeBracketRepository $ageBracketRepository,
         private SlotService $slotService,
         private ScoutYearResolver $scoutYearResolver,
-        private ScoutYearService $scoutYearService
+        private ScoutYearService $scoutYearService,
+        private PassageStatisticsService $statisticsService
     ) {
     }
 
@@ -81,6 +83,7 @@ class PassageController extends AbstractController
             'current_year_label' => $publicYear['label'],
             'new_registrations' => $newRegistrations,
             'branch_changes' => $branchChanges,
+            'statistics' => $this->statisticsService->forTargetYear((int) $targetYear['id']),
             'csrf_token' => CsrfGuard::generateToken(),
         ]);
     }
@@ -122,7 +125,11 @@ class PassageController extends AbstractController
 
         $this->requestRepository->updateIntendedSection($registrationRequest->id, $sectionId);
 
-        return $this->json(['success' => true, 'intended_section_id' => $sectionId]);
+        return $this->json([
+            'success' => true,
+            'intended_section_id' => $sectionId,
+            'statistics_html' => $this->renderStatistics(),
+        ]);
     }
 
     /**
@@ -162,7 +169,11 @@ class PassageController extends AbstractController
         if ($submittedSectionId === 0) {
             $this->transferRepository->clearDestination($memberId, (int) $targetYear['id']);
 
-            return $this->json(['success' => true, 'destination_section_id' => null]);
+            return $this->json([
+                'success' => true,
+                'destination_section_id' => null,
+                'statistics_html' => $this->renderStatistics((int) $targetYear['id']),
+            ]);
         }
 
         $allowedSectionIds = $this->arrivalSectionIdsForMember($memberId, (int) $publicYear['id'], (string) $publicYear['label']);
@@ -175,7 +186,37 @@ class PassageController extends AbstractController
 
         $this->transferRepository->setDestination($memberId, (int) $targetYear['id'], $submittedSectionId);
 
-        return $this->json(['success' => true, 'destination_section_id' => $submittedSectionId]);
+        return $this->json([
+            'success' => true,
+            'destination_section_id' => $submittedSectionId,
+            'statistics_html' => $this->renderStatistics((int) $targetYear['id']),
+        ]);
+    }
+
+    /**
+     * The statistics box, re-rendered, for a save response to carry back.
+     *
+     * **In the save's own answer, never behind an endpoint of its own**
+     * (roadmap IT-12): one round trip, and no question of when a cached
+     * box goes stale — the numbers a chief sees are the numbers as of the
+     * decision they just made.
+     *
+     * Rendered here rather than reassembled in the browser so the box has
+     * ONE template. A second renderer in JavaScript would be a second
+     * place for « 3 G · 2 F » to be formatted, and the two would drift.
+     *
+     * Computed once per request, over the whole unit — never once per row.
+     */
+    private function renderStatistics(?int $targetYearId = null): string
+    {
+        if ($targetYearId === null) {
+            [, $targetYear] = $this->resolveYears();
+            $targetYearId = (int) $targetYear['id'];
+        }
+
+        return $this->renderToString('@registration/_passage_statistics.html.twig', [
+            'statistics' => $this->statisticsService->forTargetYear($targetYearId),
+        ]);
     }
 
     /**
