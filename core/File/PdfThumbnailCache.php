@@ -19,8 +19,9 @@ namespace Core\File;
  * thumbnail is a pure cache (rebuilt on the next preview), so deleting a
  * still-referenced one costs a single re-rasterization, while tracking
  * which file ids still exist would couple this directory to the files
- * table for no gain. Called from the two scheduler tails (public/cron.php
- * and index.php's poor-man's cron), next to the journal's own cleanup.
+ * table for no gain. Called from public/cron.php, next to the journal's
+ * own cleanup — as it used to be from public/index.php's poor man's cron
+ * too, before a real crontab became a requirement and that tail went.
  */
 final class PdfThumbnailCache
 {

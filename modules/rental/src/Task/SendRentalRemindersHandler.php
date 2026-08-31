@@ -59,7 +59,7 @@ class SendRentalRemindersHandler implements TaskHandlerInterface
      * entry points — and the two constructions drifted, `public/cron.php`
      * assembling it WITHOUT Finance while the web path assembled it WITH.
      * The same task said nothing about money under a real crontab and
-     * everything about it under the poor man's cron. Finance now arrives
+     * everything about it on the web path. Finance now arrives
      * through `TaskContext::getOptional()` (ARCHITECTURE.md §7.5 on the
      * scheduled path), so there is exactly ONE construction and the
      * drift cannot recur.

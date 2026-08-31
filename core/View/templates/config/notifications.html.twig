@@ -15,9 +15,9 @@
 
         {% if not cron_detected %}
             <div class="alert alert-warning mt-3 mb-0">
-                Aucun passage de cron réel n'a été détecté récemment. Sans crontab configuré sur le serveur
-                (<code>* * * * * php public/cron.php</code>), les notifications ne sont envoyées que lorsqu'un
-                membre visite le site (pseudo-cron) — les rappels peuvent donc être en retard, voire ne jamais partir.
+                Aucun passage de cron réel n'a été détecté récemment. Le crontab du serveur
+                (<code>* * * * * php public/cron.php</code>) est le seul mécanisme qui envoie les notifications :
+                sans lui, aucun rappel et aucune notification ne partira, jamais.
             </div>
         {% endif %}
     </div>

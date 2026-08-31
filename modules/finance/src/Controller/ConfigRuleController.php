@@ -160,7 +160,7 @@ class ConfigRuleController extends AbstractController
 
             case 'run_on_uncategorized': {
                 // Runs in the background (Service\BulkCategorizationService::
-                // scheduleBackgroundRun(), picked up by the poor man's cron —
+                // scheduleBackgroundRun(), picked up by the next cron pass —
                 // public/index.php) rather than inline here: the AI rule
                 // makes one LLM call per uncategorized movement, which could
                 // otherwise make this request hang for a very long time.

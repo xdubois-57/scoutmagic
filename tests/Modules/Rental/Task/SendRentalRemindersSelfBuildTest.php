@@ -35,8 +35,8 @@ use Tests\DatabaseTestHelper;
  * capabilities resolve — no matter which entry point fired the task.
  * Before this, `public/cron.php` assembled the reminder service without
  * Finance while the web path assembled it with: the same relance said
- * nothing about money under a real crontab and everything about it under
- * the poor man's cron.
+ * nothing about money under a real crontab and everything about it on the
+ * web path.
  */
 class SendRentalRemindersSelfBuildTest extends TestCase
 {

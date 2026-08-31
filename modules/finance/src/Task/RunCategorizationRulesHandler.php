@@ -32,8 +32,8 @@ use Modules\LlmConnector\Api\LlmConnectorInterface;
  * mouvements non catégorisés" in the background (module spec follow-up)
  * — scheduled with a 0-second delay right when the config page's button
  * is clicked (Controller\ConfigRuleController), then actually picked up
- * by the "poor man's cron" the next time any page load is more than a
- * minute after the last one (public/index.php) — same async pattern as
+ * by the next crontab pass, at most a minute later (public/cron.php) —
+ * same async pattern as
  * Task\ExtractReceiptDataHandler, just for a potentially much longer-
  * running batch (one LLM call per uncategorized movement when the AI
  * rule is on), which is exactly why this must never run inline within

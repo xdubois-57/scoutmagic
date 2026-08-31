@@ -18,15 +18,19 @@ use Core\Support\SupportCollectorInterface;
  * `cron-cadence.txt` — is a real cron driving this installation, how often,
  * and how late do tasks actually run.
  *
- * The two stamps this reads have existed for a long time and were reported
- * nowhere: `cron_last_run`, written only by `public/cron.php`, and
+ * There used to be a second stamp beside `cron_last_run` here:
  * `scheduler_last_run`, written by the poor man's cron in
- * `public/index.php` on every web hit. Together they answer the question
- * that decides how a support conversation goes — is anything driving the
- * queue other than visitors? — and separately neither of them answers
- * *how often*, because both are single stamps overwritten on every pass.
- * Hence the ring buffer (`Core\Scheduler\CronRunHistory`), which is the
- * only source of an interval.
+ * `public/index.php` on every web hit, and the two together answered
+ * whether anything other than visitors was driving the queue. That
+ * question no longer has two possible answers — a real crontab is a
+ * requirement, verified before a first install can complete, and
+ * `public/cron.php` is the only thing that turns the queue at all — so
+ * the stamp and the mechanism behind it are both gone. What remains is
+ * `cron_last_run`, which does not answer *how often* because it is a
+ * single stamp overwritten on every pass. Hence the ring buffer
+ * (`Core\Scheduler\CronRunHistory`), which is the only source of an
+ * interval, and the heartbeat, which is the only trace that separates
+ * "the crontab never fired" from "the pass died".
  *
  * **The scheduling latency is the reason this file exists at all.** Six
  * production update failures all read "stuck at *migrating* for more than
@@ -80,7 +84,6 @@ class CronCadenceCollector implements SupportCollectorInterface
         $now = time();
 
         $cronLastRun = (int) ($settings->get('cron_last_run') ?? 0);
-        $schedulerLastRun = (int) ($settings->get('scheduler_last_run') ?? 0);
         $history = CronRunHistory::read($settings);
 
         // The verdict below is Core\Scheduler\CronHealth's, not this
@@ -92,8 +95,6 @@ class CronCadenceCollector implements SupportCollectorInterface
         $lines[] = '## Horodatages bruts';
         $lines[] = 'cron_last_run : ' . $this->stamp($cronLastRun, $now)
             . '  (écrit uniquement par public/cron.php — un vrai crontab)';
-        $lines[] = 'scheduler_last_run : ' . $this->stamp($schedulerLastRun, $now)
-            . '  (écrit par le pseudo-cron de public/index.php, à chaque visite)';
         $lines[] = 'battement de cœur (storage/' . CronHealth::HEARTBEAT_FILE . ') : '
             . $this->stamp($status->lastHeartbeatAt ?? 0, $now)
             . '  (écrit tout en haut de public/cron.php, avant même l\'autoloader)';
@@ -115,8 +116,8 @@ class CronCadenceCollector implements SupportCollectorInterface
         $sinceLastSeen = $status->secondsSinceLastSeen();
         if ($status->state === CronStatus::STATE_NEVER) {
             $lines[] = 'VRAI CRON : jamais détecté. public/cron.php n\'a jamais tourné sur cette installation.';
-            $lines[] = 'La file n\'avance donc que sur les visites (pseudo-cron), et depuis la continuation';
-            $lines[] = 'de l\'ordonnanceur, sur les sauts que celle-ci enchaîne.';
+            $lines[] = 'Rien ne fait donc avancer la file : aucune sauvegarde, aucune mise à jour, aucune';
+            $lines[] = 'notification, aucun rappel ne part. Le crontab est une exigence, pas une option.';
         } elseif ($status->isSilentBeyond(CronHealth::STALE_AFTER_SECONDS)) {
             $lines[] = 'VRAI CRON : configuré mais SILENCIEUX depuis ' . $this->duration((int) $sinceLastSeen) . '.';
             $lines[] = 'Il a tourné par le passé et ne tourne plus — panne d\'hébergeur, tâche supprimée,';
@@ -135,11 +136,6 @@ class CronCadenceCollector implements SupportCollectorInterface
             $context->addNote('Le crontab se déclenche mais aucun passage complet n\'atteint la base.');
         }
 
-        if ($schedulerLastRun === 0) {
-            $lines[] = 'PSEUDO-CRON : jamais déclenché.';
-        } else {
-            $lines[] = 'PSEUDO-CRON : dernier déclenchement il y a ' . $this->duration($now - $schedulerLastRun) . '.';
-        }
         $lines[] = '';
 
         return $history;

@@ -111,6 +111,45 @@ class SettingRepository
     }
 
     /**
+     * Deletes named CORE settings rows (`module_id IS NULL`) outright.
+     *
+     * Core settings have no pruning mechanism at all: the one that exists
+     * (deleteUndeclaredEditable() above, driven by
+     * Core\Module\ModuleManager) is scoped to a module_id, and nothing
+     * anywhere removes a `module_id IS NULL` row that stopped being
+     * registered by the composition root. So a core setting that is
+     * removed from public/index.php lives on forever in every installed
+     * site's table — and, when it was editable, keeps rendering as a row
+     * on Configuration > Réglages that no longer does anything.
+     *
+     * This is the deliberate, named counterpart: the caller lists exactly
+     * the keys it is retiring, in a one-time guarded block (the
+     * `scheduler_chain_settings_pruned` cleanup in public/index.php is the
+     * first). Never call it with a list built by difference against what
+     * is currently registered — the registration order in the composition
+     * root is not a manifest, and half of it runs behind module-enabled
+     * conditions.
+     *
+     * Returns the number of rows actually removed.
+     *
+     * @param string[] $keys
+     */
+    public function deleteCoreSettings(array $keys): int
+    {
+        if ($keys === []) {
+            return 0;
+        }
+
+        $placeholders = implode(', ', array_fill(0, count($keys), '?'));
+        $stmt = $this->pdo->prepare(
+            "DELETE FROM settings WHERE module_id IS NULL AND setting_key IN ({$placeholders})"
+        );
+        $stmt->execute(array_values($keys));
+
+        return $stmt->rowCount();
+    }
+
+    /**
      * Deletes a module's `settings` rows that its manifest no longer
      * declares — the rows a removed setting leaves behind. Without this, a
      * setting dropped from a module.json stayed in the table forever and

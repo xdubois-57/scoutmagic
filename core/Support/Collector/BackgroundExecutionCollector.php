@@ -8,7 +8,6 @@ declare(strict_types=1);
 
 namespace Core\Support\Collector;
 
-use Core\Scheduler\SchedulerContinuation;
 use Core\Support\SupportCollectorContext;
 use Core\Support\SupportCollectorInterface;
 use Core\System\ShellExecutor;
@@ -21,40 +20,29 @@ use Core\System\ShellExecutor;
  * the reference host could and could not do: the self-directed HTTP loop
  * works there, on every target, while a detached CLI spawn does not —
  * `system`, `passthru`, `proc_open` and `popen` are all in
- * `disable_functions`. Those two facts decided the whole design of the
- * scheduler's continuation, and neither of them was visible in a support
- * package. Now that chained continuation is in production, "pourquoi la
- * file n'avance pas chez cette unité" is the first question support will
- * be asked, and this file is the answer to it.
+ * `disable_functions`. Those two facts decided how this project drives
+ * background work, and neither of them was visible in a support package.
  *
- * Its companion is `cron-cadence.txt`, which answers what has actually
- * been happening; this one answers what is possible here. Both targets of
- * the loop are tried and both are reported, never just the first that
- * works: loopback and the public name fail for different reasons, and
- * knowing which of the two answers is what turns a report into a fix.
- *
- * **The continuation secret is reported as present or absent and never
- * printed.** It authenticates a request to this site's own scheduler
- * endpoint, and this archive leaves the installation — it is transmitted
- * to support over an API. A token in a support package is a token in
- * every hand and every store that package passes through
- * (`Core\Security\CapabilityToken`, contract point 2). `base_url` is printed, because it is the site's public address and
- * the archive already carries it in a dozen places.
+ * **What it answers has narrowed, on purpose.** It used to describe the
+ * transport of a live mechanism: the scheduler continued itself over that
+ * HTTP loop, so « pourquoi la file n'avance pas chez cette unité » was
+ * usually a question about the loop. A real crontab is now a requirement,
+ * verified before a first install can complete, and `public/cron.php` is
+ * the only engine — so the queue's health is `cron-cadence.txt`'s
+ * subject, and this file is the environment underneath it: what this host
+ * allows a PHP process to do, and whether the site can reach itself at
+ * all, which still decides whether a webhook, an update download or an
+ * external probe has any chance of working here.
  */
 class BackgroundExecutionCollector implements SupportCollectorInterface
 {
-    /**
-     * A support package must never hang on a socket. Two seconds is the
-     * same budget SchedulerContinuation gives a real hop.
-     */
+    /** A support package must never hang on a socket. */
     private const CONNECT_TIMEOUT_SECONDS = 2.0;
 
     /**
-     * The loopback test asks for this rather than the continuation
-     * endpoint: it is public, cheap, and has NO side effect. Probing the
-     * continuation endpoint would either run scheduler work or — with a
-     * wrong secret — write a `security` journal entry every time somebody
-     * generates a support package.
+     * Public, cheap, and with NO side effect: generating a support package
+     * must never be a way to make the installation do work, nor to make it
+     * write a journal entry.
      */
     private const PROBE_PATH = '/api/version';
 
@@ -89,17 +77,17 @@ class BackgroundExecutionCollector implements SupportCollectorInterface
 
         $lines[] = '## Mécanismes disponibles';
         $lines[] = 'fastcgi_finish_request : ' . (function_exists('fastcgi_finish_request') ? 'oui' : 'non')
-            . ' — sans elle, l\'ordonnanceur déclenché par une visite fait attendre ce visiteur';
+            . ' — sans elle, tout travail effectué après la réponse fait attendre le visiteur';
         $lines[] = 'stream_socket_client : ' . (function_exists('stream_socket_client') ? 'oui' : 'non')
-            . ' — sans elle, aucun saut de continuation ne peut être émis';
+            . ' — sans elle, le site ne peut ouvrir aucune connexion sortante lui-même';
         $lines[] = 'Exécution shell vérifiée : ' . ($shell['works'] ? 'oui' : 'NON')
             . ' (' . ($shell['function'] ?? 'aucune fonction') . ' — ' . $shell['detail'] . ')';
         $lines[] = 'SAPI : ' . PHP_SAPI;
         $lines[] = '';
         $lines[] = 'Note : le spawn d\'un processus CLI détaché n\'est délibérément pas tenté, ici comme';
         $lines[] = 'ailleurs — il est mesuré non fonctionnel sur l\'hébergement de référence et resterait';
-        $lines[] = 'exposé au ramassage des processus orphelins. Ce que ScoutMagic utilise, c\'est la';
-        $lines[] = 'boucle HTTP testée plus bas.';
+        $lines[] = 'exposé au ramassage des processus orphelins. Le travail de fond de ScoutMagic est';
+        $lines[] = 'entièrement porté par le crontab de l\'hébergeur (voir cron-cadence.txt).';
         $lines[] = '';
     }
 
@@ -127,10 +115,9 @@ class BackgroundExecutionCollector implements SupportCollectorInterface
 
     /**
      * Can this site reach itself over HTTP? Measured, per target, because
-     * that loop is the engine of the whole continuation mechanism: without
-     * it a queue only advances when somebody visits, and "pourquoi la file
-     * n'avance pas chez cette unité" is the first support question a
-     * chained scheduler produces.
+     * a host on which the site cannot reach its own public name is a host
+     * on which a whole class of things quietly does not work — and none
+     * of them ever reports the reason.
      *
      * Both targets are tried and both are reported, never just the first
      * that works: loopback and the public name fail for different reasons
@@ -251,42 +238,26 @@ class BackgroundExecutionCollector implements SupportCollectorInterface
     }
 
     /**
+     * The one setting this file has left to report, and the only one it
+     * ever really needed: where this installation believes it lives.
+     *
+     * The scheduler's own settings used to be printed here — the slice
+     * budget, the hop ceiling, the current hop counter and whether the
+     * continuation secret existed. They are gone with the mechanism they
+     * steered. What is left is `base_url`, which is what the loopback test
+     * above aims at, and which is never derived from `HTTP_HOST`.
+     *
      * @param array<int, string> $lines
      */
     private function settings(array &$lines, SupportCollectorContext $context): void
     {
-        $settings = $context->settings();
+        $baseUrl = trim((string) ($context->settings()->get('base_url') ?? ''));
 
-        $baseUrl = trim((string) ($settings->get('base_url') ?? ''));
-        $maxHops = (string) ($settings->get(SchedulerContinuation::MAX_HOPS_SETTING) ?? '(non défini)');
-
-        $lines[] = '## Réglages de l\'ordonnanceur';
-        $lines[] = 'base_url : ' . ($baseUrl === '' ? '(vide — aucun saut ne peut partir)' : $baseUrl);
-        $lines[] = 'Budget d\'une tranche (' . SchedulerContinuation::BUDGET_SETTING . ') : '
-            . (string) ($settings->get(SchedulerContinuation::BUDGET_SETTING) ?? '(non défini)') . ' s';
-        $lines[] = 'Plafond de sauts (' . SchedulerContinuation::MAX_HOPS_SETTING . ') : ' . $maxHops
-            . ($maxHops === '0' ? ' — la continuation est DÉSACTIVÉE sur cette installation' : '');
-        $lines[] = 'Compteur de sauts courant (' . SchedulerContinuation::HOPS_SETTING . ') : '
-            . (string) ($settings->get(SchedulerContinuation::HOPS_SETTING) ?? '(non défini)');
-
-        // Presence only, never the value: this authenticates a request to
-        // the site's own scheduler endpoint, and this archive leaves the
-        // installation.
-        $lines[] = 'Secret de continuation : ' . ($this->hasContinuationSecret($context) ? 'présent' : 'ABSENT — aucun saut ne peut être authentifié');
+        $lines[] = '## Adresse de référence';
+        $lines[] = 'base_url : ' . ($baseUrl === '' ? '(vide — le site ne sait pas comment il s\'appelle)' : $baseUrl);
         $lines[] = '';
-    }
-
-    private function hasContinuationSecret(SupportCollectorContext $context): bool
-    {
-        try {
-            $secrets = (new \Core\Security\SecretManager(
-                $context->storagePath() . '/keys/master.key',
-                $context->storagePath() . '/config/secrets.enc'
-            ))->readSecrets();
-
-            return trim((string) ($secrets['scheduler_continuation_secret'] ?? '')) !== '';
-        } catch (\Throwable) {
-            return false;
-        }
+        $lines[] = 'C\'est la SEULE source de l\'adresse du site, ici comme ailleurs : jamais HTTP_HOST,';
+        $lines[] = 'qui est fourni par l\'appelant. Elle est figée à l\'installation.';
+        $lines[] = '';
     }
 }

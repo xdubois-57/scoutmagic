@@ -32,10 +32,10 @@ namespace Core\Maintenance;
  * `GitHubWebhookService::processPushEvent()` records that it has corrupted
  * an in-progress install in practice.
  *
- * Same shape as `Database\MigrationRunner` and `Scheduler\
- * SchedulerContinuation`: a named `GET_LOCK`, **timeout 0, never
- * anything else** — the loser must find out immediately and stand down,
- * not queue up behind a file copy and start its own the moment it ends.
+ * Same shape as `Database\MigrationRunner` and `Scheduler\CronPassLock`:
+ * a named `GET_LOCK`, **timeout 0, never anything else** — the loser must
+ * find out immediately and stand down, not queue up behind a file copy and
+ * start its own the moment it ends.
  */
 final class InstallLock
 {

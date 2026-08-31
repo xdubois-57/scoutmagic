@@ -13,9 +13,8 @@ declare(strict_types=1);
 // web request must never reach it: public/.htaccess only rewrites paths
 // that do NOT exist on disk, so GET /cron.php would otherwise execute the
 // full scheduler pass — backups, updates, resets, journal purge — for any
-// anonymous visitor, with none of the once-per-60s throttle the in-request
-// scheduler tail in public/index.php applies. There is nothing to serve to
-// a browser here, so a non-CLI entry is a flat 404.
+// anonymous visitor, at whatever rate they cared to ask for it. There is
+// nothing to serve to a browser here, so a non-CLI entry is a flat 404.
 if (PHP_SAPI !== 'cli') {
     http_response_code(404);
     exit;
@@ -128,14 +127,15 @@ $encryptionService = EncryptionService::fromEncodedKeys(
 // Create services
 $settingService = new SettingService(new SettingRepository($pdo));
 
-// Marks that THIS entry point (a real crontab), not just the poor-man's-
-// cron in public/index.php (which stamps its own 'scheduler_last_run' on
-// every web hit), actually ran — Core\Http\Controller\
-// NotificationConfigController warns on /config/notifications when this
-// is missing or stale, since a member-facing push relying solely on the
-// poor-man's-cron only ever fires on someone's next page view.
+// Marks that a full pass of THIS entry point completed. It is written
+// here and nowhere else, which is what makes it evidence: a web request
+// cannot produce it. Core\Http\Controller\NotificationConfigController
+// warns on /config/notifications when it is missing or stale, and
+// Core\Scheduler\CronHealth reads it beside the heartbeat and the ring
+// buffer — a crontab is a requirement now, and this is one of the three
+// traces that says whether the installation actually has one.
 $settingService->register('cron_last_run', '0', 'number', 'Dernier passage du cron réel',
-    'Horodatage (timestamp Unix) du dernier passage de public/cron.php — jamais mis à jour par le pseudo-cron. Lecture seule.',
+    'Horodatage (timestamp Unix) du dernier passage complet de public/cron.php — écrit par lui seul. Lecture seule.',
     null, null, null, false, 999);
 $cronSettingRepository = new SettingRepository($pdo);
 $cronSettingRepository->updateValue(null, 'cron_last_run', (string) time());

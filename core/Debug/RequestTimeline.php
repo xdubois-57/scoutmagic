@@ -15,9 +15,9 @@ namespace Core\Debug;
  * caller, not this class, since role resolution happens well after this
  * needs to start recording). A plain static accumulator rather than an
  * injected service: the thing being measured is the whole request,
- * starting before most services exist, and ending after the poor-man's-
- * cron tail that runs past the point normal request-scoped objects are
- * still in scope for public/index.php to hand out.
+ * starting before most services exist, and ending past the point normal
+ * request-scoped objects are still in scope for public/index.php to hand
+ * out.
  *
  * Recording is unconditional once active (checked once, cached) — the
  * cost of a `microtime(true)` + array push per mark() call is negligible,
