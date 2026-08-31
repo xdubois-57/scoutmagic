@@ -70,6 +70,51 @@ class PendingMigrationSelfDriveTest extends TestCase
     }
 
     /**
+     * Finishing the schema is not finishing the update. Writing VERSION,
+     * closing the `update_history` row, purging old backups and notifying
+     * all live in the queued `install_update` resume task, and the chain
+     * that just migrated has no reason of its own to run it — so the block
+     * has to hand back to the scheduler on its last slice.
+     *
+     * Without it the update sits at `migrating` until an unrelated request
+     * happens to arrive, which is precisely what
+     * `UpdateHistoryRepository`'s watchdog kept beating on scoutmagic.be:
+     * six abandoned updates in forty-eight hours, the last two of them
+     * with no schema change at all.
+     */
+    public function testTheLastMigrationSliceHandsBackToTheScheduler(): void
+    {
+        $block = $this->pendingMigrationBlock();
+
+        $this->assertStringContainsString(
+            'SchedulerKick::fromPdo(',
+            $block,
+            'the slice that completes the migration must start a scheduler pass: the resume task '
+                . 'that finishes the update is queued and nothing else on this host will run it'
+        );
+
+        $kick = strpos($block, 'SchedulerKick::fromPdo(');
+        $guard = strpos($block, 'if ($stepResult->complete) {');
+        $this->assertNotFalse($guard, 'the hand-back must be guarded on the migration being complete');
+        $this->assertLessThan($kick, $guard, 'hand back only once the migration is done, not after every slice');
+    }
+
+    /**
+     * A migration slice is the one stretch of a long update that changes no
+     * status, so it is the one stretch the abandoned-update watchdog would
+     * read as silence. The endpoint stamps the heartbeat itself.
+     */
+    public function testASliceStampsTheUpdateHeartbeat(): void
+    {
+        $this->assertStringContainsString(
+            '->touchInProgress()',
+            $this->pendingMigrationBlock(),
+            'a migration slice is proof the update that queued it is alive, and '
+                . 'UpdateHistoryRepository::isStale() measures exactly that'
+        );
+    }
+
+    /**
      * The two call sites must come AFTER the response they follow has been
      * written, since each ends by writing a socket: `afterSlice()` follows
      * the JSON, `afterProgressPage()` follows the HTML. The flush itself
@@ -92,5 +137,11 @@ class PendingMigrationSelfDriveTest extends TestCase
         $this->assertNotFalse($html);
         $this->assertNotFalse($afterPage);
         $this->assertLessThan($afterPage, $html, 'write the page, then ignite');
+
+        // The hand-back writes a socket too, so it belongs after
+        // afterSlice() — which is where the response gets flushed.
+        $kick = strpos($block, 'SchedulerKick::fromPdo(');
+        $this->assertNotFalse($kick);
+        $this->assertLessThan($kick, $afterSlice, 'flush, then hand back to the scheduler');
     }
 }

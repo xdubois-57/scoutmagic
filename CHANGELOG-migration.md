@@ -782,3 +782,65 @@ La distinction est nette et non heuristique : `getJson()` répond
 jetterait une page valide à chaque clignotement du wifi — c'est le second
 test, et il tombe si l'on élargit la condition.
 
+
+## IT-08 — La grille qui bloquait le saut censé la lever
+
+### Fait
+
+- `Maintenance\MaintenanceGate` laisse passer une seule adresse pendant une
+  mise à jour : `POST /api/scheduler/continue`. Le chemin est désormais
+  passé par `Http\FrontController` et testé **avant** `findInProgress()`.
+- Le point d'entrée de tranche de migration rend la main à l'ordonnanceur
+  sur la tranche qui termine la migration (`Scheduler\SchedulerKick::
+  fromPdo()`, la même relance que `now()` pour un appelant qui n'a qu'un
+  PDO).
+- Le chien de garde des mises à jour abandonnées mesure le silence et non
+  la durée : nouvelle colonne `update_history.progress_at`, écrite à la
+  création, à chaque changement de statut, à l'entrée et à chaque sortie
+  hors budget de `resumeMigration()`, à chaque tranche de migration
+  (`touchInProgress()`) et à chaque sondage de la page Maintenance qui a
+  réellement fait avancer une tranche.
+
+### Ce qui a surpris
+
+Le mécanisme d'IT-07 était en place, déployé, et n'a rien changé : six
+mises à jour de plus abandonnées à l'étape `migrating` en quarante-huit
+heures, dont les deux dernières **sans aucun changement de schéma**. Le
+paquet de support du 31/08 le dit ligne à ligne : `dev-afd995a →
+dev-a29f7ae` met la tâche de reprise en file à 15:03:00, la tâche
+s'exécute à 15:27:35, et l'historique porte « bloquée à l'étape
+*migrating* depuis plus de 15 minutes ». Idem à 14:03:33 → 14:29:22. Et
+l'écart n'est jamais 15 minutes tout rond par hasard : `started_at` +
+15 min tombe exactement sur l'horodatage de la tâche suivante remise en
+file (15:17:50, 14:18:33, 13:37:31).
+
+La cause n'était pas la migration — il n'y en avait pas. La relance de
+`Task\InstallUpdateHandler` vise `/api/scheduler/continue`, et
+`MaintenanceGate` s'exécute avant le routage, sur **toutes** les adresses
+sans exception. Elle répondait donc au saut par la page « mise à jour en
+cours », en se fondant sur la ligne même que ce saut venait faire avancer.
+Le saut retombait ensuite sur le pseudo-cron en fin d'`index.php` — qui
+est bridé à une passe par minute et venait d'être tamponné par la passe
+qui avait lancé l'installation. Résultat : rien. Sur une installation sans
+crontab, la tâche de reprise attendait la première requête sans rapport
+qui passerait par là ; et ce qui débloquait le site, au bout du compte,
+c'était `findInProgress()` déclarant lui-même la mise à jour abandonnée —
+après quoi la reprise trouvait une ligne `failed` et renonçait.
+
+Deuxième surprise, plus discrète : terminer le schéma n'est pas terminer
+la mise à jour. `MigrationChain` mène la migration à son terme sans
+personne, puis s'arrête — alors que `VERSION`, la clôture de la ligne
+`update_history`, la purge des sauvegardes et la notification vivent dans
+la tâche de reprise, que la chaîne n'a aucune raison propre de lancer.
+
+### Ce qui a été écarté
+
+Assouplir le bridage du pseudo-cron : il protège contre le trafic qui
+déclenche l'ordonnanceur, et l'élargir aurait traité un symptôme sur une
+seule des deux voies bloquées.
+
+Faire dépendre le chien de garde de « une tâche planifiée pointe encore
+sur cette ligne » plutôt que d'un battement de cœur : une tâche restée en
+`processing` parce que le processus est mort ne redevient jamais rien, et
+la grille aurait alors retenu les visiteurs indéfiniment — exactement ce
+que ce seuil existe pour éviter.

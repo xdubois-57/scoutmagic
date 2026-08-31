@@ -23,7 +23,15 @@ class UpdateHistory
         public readonly ?int $backupId,
         public readonly ?int $requestedBy,
         public readonly string $startedAt,
-        public readonly ?string $completedAt
+        public readonly ?string $completedAt,
+        /**
+         * Last sign of life — see UpdateHistoryRepository::isStale(),
+         * the only thing that reads it. Null on a row written before the
+         * column existed, and on any construction that has no use for it
+         * (most tests), which the watchdog reads as "fall back to
+         * startedAt" rather than as "no progress".
+         */
+        public readonly ?string $progressAt = null
     ) {
     }
 }

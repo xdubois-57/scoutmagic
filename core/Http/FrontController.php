@@ -79,7 +79,10 @@ class FrontController
         // future non-web entry point) — never blocking in that case.
         if ($this->maintenanceGate !== null) {
             $bypassRequested = $request->getQuery(MaintenanceGate::BYPASS_QUERY_PARAM) !== null;
-            $blockingUpdate = $this->maintenanceGate->checkBlocking($bypassRequested);
+            // The path goes in because one route must never be gated: the
+            // scheduler's continuation endpoint, which is how an update in
+            // 'migrating' gets finished at all. See MaintenanceGate.
+            $blockingUpdate = $this->maintenanceGate->checkBlocking($bypassRequested, $request->getPath());
             if ($blockingUpdate !== null) {
                 return $this->renderMaintenanceInProgress($blockingUpdate);
             }
