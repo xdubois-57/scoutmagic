@@ -243,6 +243,14 @@ class SupportDashboardService
         $isActive = $lastReceivedTimestamp !== null
             && (time() - $lastReceivedTimestamp) < $this->activeThresholdDays() * 86400;
 
+        // A row created because an installation opened a ticket without
+        // ever agreeing to report (roadmap IT-24) is not stale — it never
+        // spoke. Calling it « Obsolète » would ask a maintainer to chase a
+        // silence that is a choice, so it gets a state of its own and is
+        // left out of the active/stale reading entirely.
+        $telemetryEnabled = !array_key_exists('telemetry_enabled', $row)
+            || (bool) $row['telemetry_enabled'];
+
         return [
             'id' => (int) $row['id'],
             'installation_id' => (string) $row['installation_id'],
@@ -270,7 +278,8 @@ class SupportDashboardService
             'last_received_at' => $lastReceivedAt,
             'last_received_timestamp' => $lastReceivedTimestamp,
             'statistics_schema_version' => self::intOrNull($row['statistics_schema_version'] ?? null),
-            'is_active' => $isActive,
+            'is_active' => $telemetryEnabled ? $isActive : null,
+            'telemetry_enabled' => $telemetryEnabled,
             'auto_update_label' => self::autoUpdateLabelOf(self::autoUpdateKey([
                 'auto_update_enabled' => self::boolOrNull($row['auto_update_enabled'] ?? null),
                 'auto_update_level' => self::stringOrNull($row['auto_update_level'] ?? null),

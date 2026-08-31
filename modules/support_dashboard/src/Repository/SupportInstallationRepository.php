@@ -70,8 +70,13 @@ class SupportInstallationRepository
      *
      * @param array<string, mixed> $denormalized
      */
-    public function register(string $installationId, string $secretHash, string $rawPayload, array $denormalized): int
-    {
+    public function register(
+        string $installationId,
+        string $secretHash,
+        string $rawPayload,
+        array $denormalized,
+        bool $telemetryEnabled = true
+    ): int {
         // Both timestamps are written from PHP rather than left to the
         // column's DEFAULT CURRENT_TIMESTAMP. recordReport() has always
         // stamped last_received_at from PHP, so leaving the first one to
@@ -83,11 +88,11 @@ class SupportInstallationRepository
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
 
         $columns = array_merge(
-            ['installation_id', 'secret_hash', 'payload', 'first_seen_at', 'last_received_at'],
+            ['installation_id', 'secret_hash', 'payload', 'first_seen_at', 'last_received_at', 'telemetry_enabled'],
             array_keys($denormalized)
         );
         $values = self::bindable(array_merge(
-            [$installationId, $secretHash, $rawPayload, $now, $now],
+            [$installationId, $secretHash, $rawPayload, $now, $now, $telemetryEnabled],
             array_values($denormalized)
         ));
 
@@ -110,7 +115,11 @@ class SupportInstallationRepository
      */
     public function recordReport(int $id, string $rawPayload, array $denormalized): void
     {
-        $assignments = ['payload = ?', 'last_received_at = ?'];
+        // A report arriving on a row that was created for a ticket clears
+        // the « sans télémétrie » mark: the reason for it has gone, and a
+        // row that keeps saying so would be lying from the second report
+        // onwards (roadmap IT-24).
+        $assignments = ['payload = ?', 'last_received_at = ?', 'telemetry_enabled = 1'];
         $values = [$rawPayload, (new \DateTimeImmutable())->format('Y-m-d H:i:s')];
 
         foreach ($denormalized as $column => $value) {

@@ -42,6 +42,17 @@ CREATE TABLE support_installations (
     scout_year_label VARCHAR(50) NULL,
     installed_at DATETIME NULL,
     last_upgraded_at DATETIME NULL,
+    -- False for a row this receiver created because an installation opened
+    -- a SUPPORT TICKET without ever sending a usage report (roadmap
+    -- IT-24). Support is not bought with data: a unit that refused
+    -- telemetry still gets an identity, provisioned on its first ticket.
+    --
+    -- The column exists so the dashboard can say so. Without it such a row
+    -- would read as an installation that has been silent for months, which
+    -- is the one thing it is not — it never agreed to speak. Set back to
+    -- true the day a real report arrives, because the reason for the mark
+    -- has gone.
+    telemetry_enabled BOOLEAN NOT NULL DEFAULT TRUE,
     INDEX idx_support_installations_last_received (last_received_at),
     INDEX idx_support_installations_version (scoutmagic_version)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

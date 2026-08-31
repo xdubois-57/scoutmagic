@@ -54,7 +54,8 @@ class SupportDashboardTestHelper
             auto_update_level TEXT NULL,
             scout_year_label TEXT NULL,
             installed_at TEXT NULL,
-            last_upgraded_at TEXT NULL
+            last_upgraded_at TEXT NULL,
+            telemetry_enabled INTEGER NOT NULL DEFAULT 1
         )');
 
         $pdo->exec('CREATE TABLE support_monthly_aggregates (

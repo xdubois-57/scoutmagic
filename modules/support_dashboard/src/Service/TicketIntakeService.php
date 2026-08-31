@@ -99,16 +99,53 @@ class TicketIntakeService
             return $this->rejectUnauthenticated($clientIp);
         }
 
-        $installation = $this->installations->findByInstallationId($installationId);
-        // An unknown installation and a wrong secret are the same answer,
-        // and both cost the same password_verify(): answering faster for an
-        // unknown id would publish which ids exist.
-        $hash = is_array($installation) ? (string) $installation['secret_hash'] : self::DUMMY_HASH;
-        if (!password_verify($secret, $hash) || !is_array($installation)) {
+        // The installation id has to look like one before it is used to
+        // create a row: the statistics intake's own rule, applied here so a
+        // first ticket cannot register a row under arbitrary text.
+        if (preg_match('/^[0-9a-zA-Z_-]{8,64}$/', $installationId) !== 1) {
             return $this->rejectUnauthenticated($clientIp);
         }
 
-        $installationRowId = (int) $installation['id'];
+        $installation = $this->installations->findByInstallationId($installationId);
+
+        if ($installation === null) {
+            // **Trust on first use, the same rule the statistics intake
+            // applies** (roadmap IT-24): a unit that refused telemetry has
+            // no row here, and requiring one would mean buying support with
+            // data. The secret it presents is hashed and kept, and every
+            // later call must match it — an attacker can register a fake
+            // installation, which is noise a superadmin deletes, but can
+            // never take over a real one.
+            //
+            // The row is marked as having no telemetry: without that it
+            // would read on the dashboard as an installation silent for
+            // months, which is the one thing it is not.
+            $installationRowId = $this->installations->register(
+                $installationId,
+                password_hash($secret, PASSWORD_DEFAULT),
+                '',
+                [],
+                false
+            );
+
+            $this->journal->log(
+                'support_dashboard',
+                'support_installation_provisioned',
+                'info',
+                'Installation enregistrée à l\'occasion de son premier ticket',
+                ['installation_id' => $installationId]
+            );
+        } else {
+            // A known installation and a wrong secret cost the same
+            // password_verify() as an unknown one did before this branch
+            // existed: answering faster for either would publish which ids
+            // exist.
+            if (!password_verify($secret, (string) $installation['secret_hash'])) {
+                return $this->rejectUnauthenticated($clientIp);
+            }
+
+            $installationRowId = (int) $installation['id'];
+        }
 
         if ($this->isRateLimited($installationRowId)) {
             return $this->refuse(TicketIntakeResult::REJECT_RATE_LIMITED, $clientIp, $installationId);
@@ -153,16 +190,6 @@ class TicketIntakeService
 
         return TicketIntakeResult::accepted($ticketId);
     }
-
-    /**
-     * A real bcrypt hash of sixteen random bytes nobody kept, so an
-     * unknown installation costs the same verification as a known one.
-     * Hard-coded rather than computed: the point is that the WORK happens
-     * on both paths, and hashing a fresh value per request would spend
-     * that work twice on the one path that has nothing to check. Nothing
-     * about it is secret — no value hashes to it that anybody knows.
-     */
-    private const DUMMY_HASH = '$2y$12$KMigOoo9nnZl6KEJMu3E4uMm2KpC7H8YKtsB2GHUr8uwkRSymy7Xy';
 
     private function isRateLimited(int $installationRowId): bool
     {

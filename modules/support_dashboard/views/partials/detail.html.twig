@@ -26,7 +26,9 @@
     {{ detail.metric('Première réception', installation.first_seen_at) }}
     {{ detail.metric('Dernière réception', installation.last_received_at) }}
     {{ detail.metric('Version de schéma des statistiques', installation.statistics_schema_version) }}
-    {{ detail.metric('Statut', installation.is_active ? 'Active' : 'Obsolète') }}
+    {{ detail.metric('Statut', installation.telemetry_enabled
+        ? (installation.is_active ? 'Active' : 'Obsolète')
+        : "Sans télémétrie — enregistrée à l'occasion d'un ticket") }}
 </div>
 
 <h3 class="h6 mt-3">Modules</h3>

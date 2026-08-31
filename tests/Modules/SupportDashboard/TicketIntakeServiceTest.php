@@ -88,11 +88,15 @@ class TicketIntakeServiceTest extends TestCase
     }
 
     /**
-     * An installation nobody has heard of answers exactly like a wrong
-     * secret: a caller must never be able to enumerate which installations
-     * this receiver knows.
+     * Roadmap IT-24: an installation nobody has heard of is registered on
+     * the spot, on the same trust-on-first-use rule the statistics intake
+     * applies. A unit that refused telemetry has no row here, and
+     * requiring one would mean buying support with data.
+     *
+     * The row it creates is marked as having no telemetry — see
+     * testAFirstTicketRegistersTheInstallationWithoutTelemetry().
      */
-    public function testAnUnknownInstallationIsIndistinguishableFromAWrongSecret(): void
+    public function testAnUnknownInstallationIsRegisteredOnItsFirstTicket(): void
     {
         $result = $this->service->receive(
             $this->body(['installation_id' => 'ffffffffffffffffffffffffffffffff']),
@@ -101,8 +105,65 @@ class TicketIntakeServiceTest extends TestCase
             true
         );
 
+        $this->assertTrue($result->accepted);
+        $this->assertSame(2, (int) $this->pdo->query('SELECT COUNT(*) FROM support_installations')->fetchColumn());
+    }
+
+    public function testAFirstTicketRegistersTheInstallationWithoutTelemetry(): void
+    {
+        $this->service->receive(
+            $this->body(['installation_id' => 'ffffffffffffffffffffffffffffffff']),
+            'Bearer ' . self::SECRET,
+            '203.0.113.1',
+            true
+        );
+
+        $row = $this->pdo->query(
+            "SELECT * FROM support_installations WHERE installation_id = 'ffffffffffffffffffffffffffffffff'"
+        )->fetch(\PDO::FETCH_ASSOC);
+
+        $this->assertIsArray($row);
+        $this->assertSame(0, (int) $row['telemetry_enabled'], 'it never agreed to report');
+        $this->assertNotSame('', (string) $row['secret_hash']);
+        $this->assertSame(
+            ['support_installation_provisioned', 'support_ticket_received'],
+            array_column($this->journalRows(), 'type')
+        );
+    }
+
+    /**
+     * The secret presented on that first ticket is the one it must present
+     * from then on: registering is trusting once, not forever.
+     */
+    public function testTheSecretOfAFirstTicketIsTheOneKept(): void
+    {
+        $body = $this->body(['installation_id' => 'ffffffffffffffffffffffffffffffff']);
+        $this->service->receive($body, 'Bearer premier-secret', '203.0.113.1', true);
+
+        $this->assertSame(
+            403,
+            $this->service->receive($body, 'Bearer un-autre-secret', '203.0.113.1', true)->statusCode
+        );
+        $this->assertTrue(
+            $this->service->receive($body, 'Bearer premier-secret', '203.0.113.1', true)->accepted
+        );
+    }
+
+    /**
+     * An id that is not shaped like one never creates a row: the intake
+     * would otherwise register an installation under arbitrary text.
+     */
+    public function testAnIdThatIsNotShapedLikeOneIsRefusedRatherThanRegistered(): void
+    {
+        $result = $this->service->receive(
+            $this->body(['installation_id' => 'nope']),
+            'Bearer ' . self::SECRET,
+            '203.0.113.1',
+            true
+        );
+
         $this->assertSame(403, $result->statusCode);
-        $this->assertSame(TicketIntakeResult::REJECT_UNAUTHENTICATED, $result->rejectionReason);
+        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM support_installations')->fetchColumn());
     }
 
     /**

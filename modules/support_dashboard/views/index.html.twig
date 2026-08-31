@@ -297,10 +297,21 @@
                             </td>
                             <td>{{ display.value_or_missing(row.last_upgraded_at) }}</td>
                             <td class="d-none d-md-table-cell">
-                                {% include 'partials/status_badge.html.twig' with {
-                                    status: row.is_active ? 'active' : 'inactive',
-                                    label: row.is_active ? 'Active' : 'Obsolète',
-                                } only %}
+                                {# Three states, not two: a row created for a
+                                   ticket by an installation that never agreed
+                                   to report is not silent, it never spoke
+                                   (roadmap IT-24). #}
+                                {% if not row.telemetry_enabled %}
+                                    {% include 'partials/status_badge.html.twig' with {
+                                        status: 'neutral',
+                                        label: 'Sans télémétrie',
+                                    } only %}
+                                {% else %}
+                                    {% include 'partials/status_badge.html.twig' with {
+                                        status: row.is_active ? 'active' : 'inactive',
+                                        label: row.is_active ? 'Active' : 'Obsolète',
+                                    } only %}
+                                {% endif %}
                             </td>
                             <td class="d-none d-md-table-cell">{{ display.value_or_missing(row.last_received_at) }}</td>
                             <td class="d-none d-lg-table-cell">{{ display.value_or_missing(row.active_members) }}</td>
