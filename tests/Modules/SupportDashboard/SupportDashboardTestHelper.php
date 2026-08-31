@@ -81,6 +81,7 @@ class SupportDashboardTestHelper
 
         $pdo->exec('CREATE TABLE support_tickets (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            reference TEXT NOT NULL UNIQUE,
             installation_id INTEGER NOT NULL,
             category TEXT NOT NULL,
             description_encrypted BLOB NOT NULL,

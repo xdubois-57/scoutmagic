@@ -857,6 +857,19 @@ $settingService->register('support_package_file_id', '', 'text', 'Paquet de supp
 $settingService->register('support_package_generated_at', '', 'text', 'Date de génération du paquet de support',
     'Horodatage de génération de l\'archive de support conservée, utilisé pour sa purge automatique. Renseigné automatiquement.',
     null, null, null, false, 289);
+// Support-ticket bookkeeping (roadmap IT-25). Three internal rows and no
+// table: what is kept locally is the reference of the last ticket, when it
+// left, and the category list the receiver last published — a ticket is
+// one-way, so there is no state to reconcile and nothing to poll.
+$settingService->register('support_last_ticket_reference', '', 'text', 'Référence du dernier ticket de support',
+    'Référence renvoyée par le serveur de support pour le dernier ticket envoyé. Renseignée automatiquement.',
+    null, null, null, false, 290);
+$settingService->register('support_last_ticket_sent_at', '', 'text', 'Date du dernier ticket de support',
+    'Horodatage du dernier ticket de support envoyé depuis cette installation. Renseigné automatiquement.',
+    null, null, null, false, 291);
+$settingService->register('support_ticket_categories', '', 'text', 'Catégories de tickets de support',
+    'Liste des catégories publiée par le serveur de support lors du dernier échange. Renseignée automatiquement.',
+    null, null, null, false, 292);
 // `installed_at` declares itself (Core\Statistics\InstallationDateService::
 // register()) because SetupController writes it before this file has ever
 // run — see that method's own comment. Backfilled here once for every
@@ -1713,6 +1726,16 @@ $installationIdentityService = new \Core\Statistics\InstallationIdentityService(
     $secretManager,
     $journalService
 );
+// The identity and destination a support ticket travels with (roadmap
+// IT-24/IT-25). Built beside the statistics identity because it IS that
+// identity: a unit that refused telemetry still gets one, provisioned on
+// its first ticket, and `statistics_enabled` is never touched here.
+$ticketIdentityService = new \Core\Support\Ticket\TicketIdentityService(
+    $settingService,
+    $installationIdentityService,
+    $journalService
+);
+
 $statisticsPayloadBuilder = new \Core\Statistics\StatisticsPayloadBuilder(
     $settingService,
     $pdo,
@@ -2092,6 +2115,10 @@ $router->addRoute('GET', '/config/support', SupportController::class, 'index', '
 $router->addRoute('POST', '/config/support/statistics', SupportController::class, 'saveStatistics', 'superadmin');
 $router->addRoute('POST', '/config/support/statistics/test', SupportController::class, 'sendTestStatistics', 'superadmin');
 $router->addRoute('POST', '/config/support/package', SupportController::class, 'generatePackage', 'superadmin');
+// One support ticket, sent now (roadmap IT-25). Same floor as the rest of
+// the page: a ticket carries this installation's identity, and who may
+// speak for the installation is a superadmin question.
+$router->addRoute('POST', '/config/support/ticket', SupportController::class, 'sendTicket', 'superadmin');
 $router->addRoute('GET', '/api/support/package-status/{id}', SupportController::class, 'packageStatus', 'superadmin');
 
 // Scheduled actions
@@ -2564,7 +2591,18 @@ $frontController->registerController(SupportController::class, new SupportContro
     $journalService,
     $statisticsPayloadBuilder,
     $schedulerService,
-    $statisticsSender
+    $statisticsSender,
+    // The ticket half of the page (roadmap IT-25). Same transport as the
+    // statistics sender above — the timeouts a page must not exceed live
+    // in one place.
+    new \Core\Support\Ticket\SupportTicketSender(
+        $settingService,
+        $ticketIdentityService,
+        new \Core\Statistics\StreamStatisticsTransport(),
+        $journalService,
+        \Core\Maintenance\VersionFile::read(dirname(__DIR__))
+    ),
+    $ticketIdentityService
 ));
 $frontController->registerController(ScheduledActionsController::class, new ScheduledActionsController($twig, $schedulerRepo));
 $frontController->registerController(ConfigGeneralController::class, new ConfigGeneralController($twig));

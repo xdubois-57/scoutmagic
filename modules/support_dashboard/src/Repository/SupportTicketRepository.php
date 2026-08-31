@@ -32,7 +32,17 @@ class SupportTicketRepository
     }
 
     /**
-     * Store one ticket. Returns its id.
+     * The alphabet a reference is drawn from: upper case, no O/0 and no
+     * I/1, because the whole point of a reference is being read out on the
+     * phone and typed back into an e-mail.
+     */
+    private const REFERENCE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    private const REFERENCE_LENGTH = 6;
+
+    /**
+     * Store one ticket. Returns its reference — never its row id, which
+     * would tell the reporting instance how many tickets this receiver
+     * has ever had.
      */
     public function create(
         int $installationId,
@@ -41,14 +51,17 @@ class SupportTicketRepository
         string $contactEmail,
         ?string $siteVersion,
         ?string $phpVersion
-    ): int {
+    ): string {
+        $reference = $this->uniqueReference();
+
         $stmt = $this->pdo->prepare(
             'INSERT INTO support_tickets
-                (installation_id, category, description_encrypted, contact_email_encrypted,
+                (reference, installation_id, category, description_encrypted, contact_email_encrypted,
                  contact_email_blind_index, site_version, php_version, status, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
+            $reference,
             $installationId,
             $category->value,
             $this->encryption->encrypt($description, 'support_tickets.description'),
@@ -60,7 +73,38 @@ class SupportTicketRepository
             (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
         ]);
 
-        return (int) $this->pdo->lastInsertId();
+        return $reference;
+    }
+
+    /**
+     * A reference nothing else carries.
+     *
+     * The UNIQUE index is what makes it true; this loop only keeps the
+     * insert from failing on the collision the index would catch. Six
+     * characters of a 32-symbol alphabet is a billion values, so the
+     * retry is theory rather than practice — and bounded, because a loop
+     * that cannot end is worse than a collision.
+     */
+    private function uniqueReference(): string
+    {
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            $reference = 'SUP-';
+            for ($i = 0; $i < self::REFERENCE_LENGTH; $i++) {
+                $reference .= self::REFERENCE_ALPHABET[random_int(0, strlen(self::REFERENCE_ALPHABET) - 1)];
+            }
+
+            $stmt = $this->pdo->prepare('SELECT 1 FROM support_tickets WHERE reference = ?');
+            $stmt->execute([$reference]);
+            if ($stmt->fetchColumn() === false) {
+                return $reference;
+            }
+        }
+
+        // Five collisions in a row is not a database this can reason
+        // about; the unique index refuses the insert and the caller sees a
+        // refusal rather than a ticket filed under somebody else's
+        // reference.
+        throw new \RuntimeException('Could not allocate a unique support ticket reference.');
     }
 
     /**
@@ -117,6 +161,7 @@ class SupportTicketRepository
     {
         return [
             'id' => (int) $row['id'],
+            'reference' => (string) $row['reference'],
             'installation_id' => (int) $row['installation_id'],
             'category' => TicketCategory::tryFromValue((string) $row['category']),
             'description' => $this->encryption->decrypt((string) $row['description_encrypted'], 'support_tickets.description'),

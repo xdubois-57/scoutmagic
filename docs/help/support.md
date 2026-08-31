@@ -31,6 +31,26 @@ reçue — c'est le moyen de vérifier que la chaîne fonctionne. Le bloc
 « État des envois » garde la date du dernier envoi réussi et du
 dernier échec, avec son motif.
 
+## Contacter le support
+
+Le bloc « Contacter le support » envoie un ticket à l'équipe qui
+développe ScoutMagic : une catégorie, une description, et l'adresse à
+laquelle la réponse doit arriver — pré-remplie avec la vôtre, modifiable.
+
+Partent avec votre message l'identifiant de cette installation, la
+version du site et la version de PHP. Rien d'autre : aucune donnée de
+membre, aucun journal, aucun fichier. Ouvrir un ticket **n'active pas**
+l'envoi quotidien de statistiques ; si votre unité l'a refusé, il le
+reste.
+
+Après l'envoi, la page affiche la **référence** du ticket et la date.
+C'est tout ce que le site en sait : la suite se passe par e-mail, le
+mainteneur répond à l'adresse indiquée. Il n'y a pas de fil de
+discussion ici, et le site n'interroge jamais le serveur ensuite.
+
+Si le serveur est injoignable, rien n'est envoyé et **votre texte reste
+à l'écran** : vous pouvez réessayer sans le retaper.
+
 ## Le paquet de support
 
 En cas de problème difficile à décrire, « Générer un paquet de

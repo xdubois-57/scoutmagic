@@ -164,7 +164,7 @@ class TicketIntakeService
             return $this->refuse(TicketIntakeResult::REJECT_MALFORMED, $clientIp, $installationId);
         }
 
-        $ticketId = $this->tickets->create(
+        $reference = $this->tickets->create(
             $installationRowId,
             $category,
             $description,
@@ -184,11 +184,11 @@ class TicketIntakeService
             [
                 'installation_id' => $installationId,
                 'category' => $category->value,
-                'ticket_id' => $ticketId,
+                'ticket_reference' => $reference,
             ]
         );
 
-        return TicketIntakeResult::accepted($ticketId);
+        return TicketIntakeResult::accepted($reference);
     }
 
     private function isRateLimited(int $installationRowId): bool

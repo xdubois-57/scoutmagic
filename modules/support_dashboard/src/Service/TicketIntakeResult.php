@@ -35,13 +35,18 @@ final class TicketIntakeResult
         public readonly bool $accepted,
         public readonly int $statusCode,
         public readonly ?string $rejectionReason = null,
-        public readonly ?int $ticketId = null
+        /**
+         * What the instance is told, and what a maintainer quotes back in
+         * their reply. Never the row id: an instance learning « ticket 41 »
+         * learns how many tickets this receiver has had.
+         */
+        public readonly ?string $ticketReference = null
     ) {
     }
 
-    public static function accepted(int $ticketId): self
+    public static function accepted(string $ticketReference): self
     {
-        return new self(true, 200, null, $ticketId);
+        return new self(true, 200, null, $ticketReference);
     }
 
     /** A refusal the caller can do something about, or nothing about. */

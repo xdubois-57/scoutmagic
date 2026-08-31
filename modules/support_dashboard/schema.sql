@@ -123,6 +123,14 @@ CREATE TABLE support_monthly_contributions (
 -- compared.
 CREATE TABLE support_tickets (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    -- What a maintainer quotes back in the e-mail they answer with, and
+    -- the only identifier the reporting instance ever sees (roadmap
+    -- IT-25). Random rather than the row id: an instance learning « your
+    -- ticket is number 41 » learns how many tickets this receiver has
+    -- had, and the reference has to survive being read out on the phone,
+    -- so it is short, upper case, and drawn from an alphabet with no
+    -- O/0 or I/1 in it.
+    reference VARCHAR(20) NOT NULL UNIQUE,
     -- The reporting installation's own row. ON DELETE CASCADE because
     -- deleting an installation from the dashboard is how a receiver
     -- forgets a unit entirely, and a ticket left behind would be a record

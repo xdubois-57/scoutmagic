@@ -20,6 +20,8 @@ use Core\Service\DateInput;
 use Core\Statistics\DestinationMatcher;
 use Core\Statistics\StatisticsPayloadBuilder;
 use Core\Statistics\StatisticsSender;
+use Core\Support\Ticket\SupportTicketSender;
+use Core\Support\Ticket\TicketIdentityService;
 use Core\Statistics\StatisticsStateSettings;
 use Core\Support\SupportPackageService;
 use Core\Support\SupportPackageState;
@@ -59,7 +61,14 @@ class SupportController extends AbstractController
         private JournalService $journalService,
         private StatisticsPayloadBuilder $payloadBuilder,
         private SchedulerService $schedulerService,
-        private StatisticsSender $statisticsSender
+        private StatisticsSender $statisticsSender,
+        /**
+         * Null when nothing wired one — the ticket section then simply
+         * does not render, the way every other optional capability of this
+         * codebase degrades.
+         */
+        private ?SupportTicketSender $ticketSender = null,
+        private ?TicketIdentityService $ticketIdentity = null
     ) {
     }
 
@@ -70,10 +79,35 @@ class SupportController extends AbstractController
      */
     public function index(Request $request, array $params): Response
     {
+        return $this->renderIndex();
+    }
+
+    /**
+     * The page, with an optional half-filled ticket form.
+     *
+     * `$ticketForm` is what an administrator had typed when a send
+     * failed: the page is re-rendered rather than redirected to, because
+     * a redirect would lose the description they just wrote and « votre
+     * saisie a disparu, réessayez » is not an error message anybody
+     * accepts (roadmap IT-25).
+     *
+     * @param array<string, string> $ticketForm
+     */
+    private function renderIndex(array $ticketForm = []): Response
+    {
         $lastSuccessAt = self::nonEmpty($this->settingService->get(self::LAST_SUCCESS_SETTING));
         $lastFailureAt = self::nonEmpty($this->settingService->get(self::LAST_FAILURE_SETTING));
 
         return $this->render('config/support.html.twig', [
+            // The ticket section, or nothing at all when no sender is
+            // wired.
+            'ticket_available' => $this->ticketSender !== null,
+            'ticket_categories' => $this->ticketSender?->categories() ?? [],
+            'ticket_last_sent' => $this->ticketSender?->lastSent(),
+            'ticket_form' => $ticketForm,
+            'ticket_contact_default' => (string) (AuthSession::getEmail() ?? ''),
+            'ticket_guard' => $this->ticketIdentity?->firstFailingGuard(),
+            'ticket_telemetry_enabled' => $this->ticketIdentity?->telemetryEnabled() ?? false,
             'statistics_enabled' => $this->settingService->get('statistics_enabled') === '1',
             // `statistics_destination` is deliberately NOT passed to the
             // view. Where the report goes is a project-level fact, not a
@@ -270,6 +304,95 @@ class SupportController extends AbstractController
         }
 
         return $this->redirect('/config/support');
+    }
+
+    /**
+     * POST /config/support/ticket — one ticket, sent now.
+     *
+     * Synchronous like the test report beside it, and for the same
+     * reason: the whole value is the answer coming back on the next page,
+     * and the call is one bounded POST with the transport's own 10 s / 20 s
+     * caps.
+     *
+     * **A failure re-renders rather than redirects.** What the
+     * administrator wrote is the one thing this page must not lose, and a
+     * redirect carries a flash message but not a form.
+     *
+     * @param array<string, string> $params
+     */
+    public function sendTicket(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, '/config/support')) !== null) {
+            return $guard;
+        }
+
+        if ($this->ticketSender === null) {
+            FlashMessage::set('error', "L'envoi de tickets n'est pas disponible sur cette installation.");
+
+            return $this->redirect('/config/support');
+        }
+
+        $category = trim((string) $request->getBody('ticket_category', ''));
+        $description = trim((string) $request->getBody('ticket_description', ''));
+        $contactEmail = trim((string) $request->getBody('ticket_contact_email', ''));
+
+        $submitted = [
+            'category' => $category,
+            'description' => $description,
+            'contact_email' => $contactEmail,
+        ];
+
+        if ($description === '' || $contactEmail === '' || $category === '') {
+            FlashMessage::set('error', 'Complétez la catégorie, la description et l\'adresse de contact.');
+
+            return $this->renderIndex($submitted);
+        }
+
+        $result = $this->ticketSender->send($category, $description, $contactEmail);
+
+        if (!$result->sent) {
+            // The reason is a category; the message is French. Neither
+            // carries a word of what was typed.
+            FlashMessage::set('error', self::ticketFailureMessage((string) $result->failureReason));
+
+            return $this->renderIndex($submitted);
+        }
+
+        FlashMessage::set('success', sprintf(
+            'Ticket envoyé. Référence : %s. Le mainteneur répondra par e-mail à %s.',
+            (string) $result->reference,
+            $contactEmail
+        ));
+
+        return $this->redirect('/config/support');
+    }
+
+    /**
+     * The French reading of a ticket that did not leave, or that the
+     * receiver refused.
+     *
+     * Every branch says what to do about it. « Échec de l'envoi » alone
+     * tells a superadmin nothing they can act on, and this is a page whose
+     * whole audience is somebody already stuck.
+     */
+    private static function ticketFailureMessage(string $reason): string
+    {
+        return match ($reason) {
+            TicketIdentityService::GUARD_NO_DESTINATION =>
+                "Aucune destination de support n'est configurée sur cette installation.",
+            TicketIdentityService::GUARD_INSECURE_DESTINATION =>
+                "La destination du support n'est pas en HTTPS : rien n'est envoyé, le secret d'installation voyagerait en clair.",
+            TicketIdentityService::GUARD_NON_PUBLIC_DESTINATION =>
+                "La destination du support n'est pas un nom public : rien n'est envoyé.",
+            SupportTicketSender::FAILURE_NO_IDENTITY =>
+                "L'identité de cette installation n'a pas pu être créée (fichier de secrets indisponible). Votre saisie est conservée ci-dessous.",
+            SupportTicketSender::FAILURE_REFUSED =>
+                "Le serveur de support a refusé le ticket. Vérifiez la catégorie, puis réessayez. Votre saisie est conservée ci-dessous.",
+            SupportTicketSender::FAILURE_MALFORMED_ANSWER =>
+                "Le serveur de support a répondu quelque chose d'inattendu. Réessayez plus tard ; votre saisie est conservée ci-dessous.",
+            default =>
+                "Le serveur de support est injoignable pour le moment. Aucun ticket n'a été créé ; votre saisie est conservée ci-dessous, vous pouvez réessayer.",
+        };
     }
 
     /**

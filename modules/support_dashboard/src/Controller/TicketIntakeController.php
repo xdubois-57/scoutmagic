@@ -55,6 +55,7 @@ class TicketIntakeController extends AbstractController
         if ($result->accepted) {
             return $this->json([
                 'status' => 'accepted',
+                'ticket_reference' => $result->ticketReference,
                 'categories' => TicketCategory::published(),
             ], 200);
         }

@@ -185,7 +185,8 @@ class TicketIntakeServiceTest extends TestCase
 
         $this->assertTrue($result->accepted);
         $this->assertSame(200, $result->statusCode);
-        $this->assertNotNull($result->ticketId);
+        $this->assertNotNull($result->ticketReference);
+        $this->assertMatchesRegularExpression('/^SUP-[A-Z2-9]{6}$/', $result->ticketReference);
         $this->assertSame(1, $this->countTickets());
     }
 
@@ -290,7 +291,7 @@ class TicketIntakeServiceTest extends TestCase
         ]);
 
         $this->assertTrue($result->accepted);
-        $ticket = $this->tickets->find((int) $result->ticketId);
+        $ticket = $this->tickets->find((int) $this->pdo->query('SELECT id FROM support_tickets')->fetchColumn());
         $this->assertNotNull($ticket);
         $this->assertSame(
             TicketIntakeService::MAX_DESCRIPTION_LENGTH,
