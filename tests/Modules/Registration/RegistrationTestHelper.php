@@ -102,6 +102,28 @@ class RegistrationTestHelper
             FOREIGN KEY (target_scout_year_id) REFERENCES scout_years(id),
             FOREIGN KEY (destination_section_id) REFERENCES sections(id)
         )');
+
+        $pdo->exec('CREATE TABLE registration_reenrollments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            member_id INTEGER NOT NULL,
+            scout_year_id INTEGER NOT NULL,
+            decision TEXT NOT NULL,
+            preferred_section_id INTEGER,
+            family_comment_encrypted BLOB,
+            answered_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            answered_by_user_account_id INTEGER
+        )');
+        $pdo->exec('CREATE UNIQUE INDEX idx_rre_member_year ON registration_reenrollments (member_id, scout_year_id)');
+
+        $pdo->exec('CREATE TABLE registration_friend_wishes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            reenrollment_id INTEGER NOT NULL,
+            position INTEGER NOT NULL,
+            raw_name_encrypted BLOB NOT NULL,
+            matched_member_id INTEGER,
+            match_state TEXT NOT NULL
+        )');
+        $pdo->exec('CREATE INDEX idx_rfw_reenrollment ON registration_friend_wishes (reenrollment_id)');
     }
 
     /**

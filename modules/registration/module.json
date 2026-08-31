@@ -2,7 +2,7 @@
   "id": "registration",
   "name": "Inscriptions",
   "description": "Parcours d'inscription complet : page publique avec disponibilité des places et gestion des listes d'attente, formulaire de demande, accusés de réception par email, page de suivi pour les familles, gestion des demandes côté staff (acceptation, refus, rapprochement automatique à l'import Desk, rétention), préparation de l'année suivante (départs, passage entre sections, prévisions d'effectifs), veto sur la bascule d'année scoute tant que des demandes restent ouvertes, et liste de diffusion pour le module d'envoi de mails.",
-  "version": "6.3.0",
+  "version": "6.4.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -484,6 +484,62 @@
       "type": "number",
       "label": "Suppression définitive (années)",
       "description": "Nombre d'années après le passage d'une demande dans son état final (encodée dans Desk, refusée ou retirée) avant sa suppression définitive et irréversible. Une demande non finalisée n'est jamais supprimée."
+    },
+    {
+      "key": "registration_reenrollment_open_at",
+      "default_value": "03-01",
+      "type": "text",
+      "label": "Ouverture de la campagne de réinscription",
+      "description": "Jour et mois (MM-JJ) auxquels la campagne de réinscription s'ouvre automatiquement, chaque année (par défaut le 1er mars, 03-01) — jamais d'année à indiquer. Même ordre mois-jour que les autres dates de ce module. Une campagne ne rattrape jamais une ouverture manquée : si la date est passée, elle ne s'ouvre pas rétroactivement."
+    },
+    {
+      "key": "registration_reenrollment_close_at",
+      "default_value": "05-15",
+      "type": "text",
+      "label": "Fermeture de la campagne de réinscription",
+      "description": "Jour et mois (MM-JJ) auxquels la campagne de réinscription se ferme automatiquement, chaque année (par défaut le 15 mai, 05-15) — jamais d'année à indiquer."
+    },
+    {
+      "key": "registration_reenrollment_open",
+      "default_value": "0",
+      "type": "boolean",
+      "label": "Campagne de réinscription ouverte",
+      "description": "Interrupteur manuel de forçage : quand il est actif, la campagne est ouverte quelles que soient les dates programmées ci-dessus. Sert à ouvrir plus tôt, ou à rouvrir après la fermeture pour une famille en retard."
+    },
+    {
+      "key": "registration_reenrollment_reminder_1_days",
+      "default_value": "14",
+      "type": "number",
+      "label": "Premier rappel (jours avant la fermeture)",
+      "description": "Nombre de jours avant la fermeture auquel le premier rappel part, aux familles qui n'ont pas encore répondu. Un rappel dont la date calculée tombe avant l'ouverture est sauté, jamais envoyé en retard."
+    },
+    {
+      "key": "registration_reenrollment_reminder_2_days",
+      "default_value": "2",
+      "type": "number",
+      "label": "Second rappel (jours avant la fermeture)",
+      "description": "Nombre de jours avant la fermeture auquel le second rappel part, aux familles qui n'ont toujours pas répondu. Une famille qui a répondu ne reçoit jamais de rappel."
+    },
+    {
+      "key": "registration_friend_wish_limit",
+      "default_value": "3",
+      "type": "number",
+      "label": "Nombre de souhaits « avec qui » par enfant",
+      "description": "Combien d'amis une famille peut citer. Le plafond est revalidé côté serveur : ce qui dépasse est ignoré, jamais refusé avec une erreur. Baisser ce nombre n'efface rien de ce qui a déjà été saisi — les entrées au-delà cessent simplement d'être affichées et utilisées."
+    },
+    {
+      "key": "passage_max_section_imbalance_percent",
+      "default_value": "30",
+      "type": "number",
+      "label": "Écart maximum entre sections d'une même branche (%)",
+      "description": "Écart toléré, en pourcentage, entre deux sections d'une même branche — à la fois sur l'effectif total et sur le nombre de premières années. En cas de conflit entre les deux, la limite « premières années » prime et l'écart d'effectif total peut dépasser ce seuil, ce qui est alors affiché explicitement."
+    },
+    {
+      "key": "passage_keep_siblings_together",
+      "default_value": "1",
+      "type": "boolean",
+      "label": "Garder les frères et sœurs dans la même section",
+      "description": "Quand actif, la répartition automatique place dans la même section les enfants qui partagent une adresse. C'est une priorité, pas une garantie : la limite d'écart entre sections passe avant."
     }
   ],
   "cookies": [],

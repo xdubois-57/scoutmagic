@@ -254,3 +254,79 @@ CREATE TABLE registration_section_transfers (
     CONSTRAINT fk_rst_year FOREIGN KEY (target_scout_year_id) REFERENCES scout_years(id) ON DELETE CASCADE,
     CONSTRAINT fk_rst_section FOREIGN KEY (destination_section_id) REFERENCES sections(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Iteration 8 — "Réinscription": a family's own answer about next scout
+-- year, and the friends the child would like to be with.
+--
+-- **The absence of a row IS "no answer yet".** There is deliberately no
+-- third `decision` value: a campaign that has to tell "still silent" from
+-- "answered" reads the same fact from the same place either way, and a
+-- 'pending' row would be a second way to say nothing — one that a
+-- reminder query could then disagree with.
+--
+-- Keyed on the permanent member_id plus the TARGET scout year, exactly
+-- like registration_section_transfers above and for the same reason: this
+-- is planning data belonging to the module, never a fact written onto the
+-- member's Desk-sourced record. The family's answer sets the departure
+-- flag; the staff may then correct it on the Départs page and their
+-- decision is what counts, but the family's own answer here is never
+-- modified or erased by that correction.
+CREATE TABLE registration_reenrollments (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    member_id INT UNSIGNED NOT NULL,
+    scout_year_id INT UNSIGNED NOT NULL,
+    decision VARCHAR(20) NOT NULL,
+    -- The section the family would like, when the child changes branch
+    -- and the arrival branch has more than one visible, active section.
+    -- NULL is ordinary: most answers do not get asked the question.
+    preferred_section_id INT UNSIGNED NULL,
+    -- Free text a family wrote about their own child — personal data, so
+    -- a BLOB encrypted through Core\Security\EncryptionService, decrypted
+    -- only in the Repository (SECURITY.md §5). No blind index: nobody
+    -- ever searches a comment by its exact text.
+    family_comment_encrypted BLOB NULL,
+    -- PHP-computed on every write (never SQL's NOW() — same portability
+    -- rule as the rest of this module, so the SQLite test database
+    -- behaves identically).
+    answered_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- Who submitted it, when a signed-in account did. NULL for an answer
+    -- that came through a family's own tracking link, which carries no
+    -- account.
+    answered_by_user_account_id INT UNSIGNED NULL,
+    UNIQUE INDEX idx_rre_member_year (member_id, scout_year_id),
+    CONSTRAINT fk_rre_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE,
+    CONSTRAINT fk_rre_year FOREIGN KEY (scout_year_id) REFERENCES scout_years(id) ON DELETE CASCADE,
+    CONSTRAINT fk_rre_section FOREIGN KEY (preferred_section_id) REFERENCES sections(id) ON DELETE SET NULL,
+    CONSTRAINT fk_rre_account FOREIGN KEY (answered_by_user_account_id) REFERENCES user_accounts(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- The « avec qui » list: free text a parent typed, plus what the server
+-- silently made of it.
+--
+-- **`raw_name_encrypted` names a THIRD PARTY** — another unit's child,
+-- written by somebody else's parent. It is personal data of the plainest
+-- kind, so it is a BLOB encrypted like the comment above, and again with
+-- no blind index: a wish is never looked up by its exact text, only read
+-- back to the family that wrote it and resolved once, server-side.
+--
+-- `matched_member_id` and `match_state` are that resolution, recorded so
+-- the optimiser does not redo it and so nobody has to guess afterwards
+-- why a wish was or was not honoured. 'ambiguous' (several members match)
+-- and 'none' are ordinary outcomes, not errors: the family typed a name,
+-- not an identifier, and the interface deliberately offers no
+-- autocompletion and no feedback about who was found.
+--
+-- `position` is the order the family typed them in, kept because the
+-- wish cap is applied to the FIRST N: lowering the cap later must stop
+-- using the extra rows without deleting what a family entered.
+CREATE TABLE registration_friend_wishes (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    reenrollment_id INT UNSIGNED NOT NULL,
+    position INT UNSIGNED NOT NULL,
+    raw_name_encrypted BLOB NOT NULL,
+    matched_member_id INT UNSIGNED NULL,
+    match_state VARCHAR(20) NOT NULL,
+    INDEX idx_rfw_reenrollment (reenrollment_id),
+    CONSTRAINT fk_rfw_reenrollment FOREIGN KEY (reenrollment_id) REFERENCES registration_reenrollments(id) ON DELETE CASCADE,
+    CONSTRAINT fk_rfw_member FOREIGN KEY (matched_member_id) REFERENCES members(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
