@@ -136,7 +136,12 @@ class ReenrollmentControllerTest extends TestCase
         );
 
         $this->repository = new ReenrollmentRepository($this->pdo, $this->encryption);
-        $reenrollmentService = new ReenrollmentService($this->repository, $this->settingService, $memberService);
+        $reenrollmentService = new ReenrollmentService(
+            $this->repository,
+            $this->settingService,
+            $memberService,
+            RegistrationTestHelper::departureLink($this->pdo, $this->encryption, $this->settingService)
+        );
 
         $twig = TwigFactory::create(
             dirname(__DIR__, 4) . '/core/View/templates',
@@ -372,6 +377,47 @@ class ReenrollmentControllerTest extends TestCase
             1,
             (int) $this->pdo->query('SELECT COUNT(*) FROM registration_reenrollments')->fetchColumn()
         );
+    }
+
+    /**
+     * IT-16 ticks the departure box from a « quitte » answer, and
+     * PassageService::getAnimeMemberYears() excludes leaving animés. Read
+     * naively that combination makes a family's card VANISH the instant
+     * they answer — they would be told « aucun animé n'est rattaché à
+     * votre adresse » about the child they had just answered for, with no
+     * way back to the answer they may still change.
+     */
+    public function testAFamilySayingTheirChildLeavesStillSeesTheirOwnAnswer(): void
+    {
+        $memberId = $this->createAnime('Alix', '2017-06-01', $this->louveteauxA, self::PARENT_EMAIL);
+
+        AuthSession::login(1, self::PARENT_EMAIL, 'identified');
+        $this->controller->save($this->post([
+            'member_id' => (string) $memberId,
+            'decision' => 'leaving',
+            'family_comment' => 'Nous déménageons.',
+        ]), []);
+
+        $body = $this->page();
+
+        $this->assertStringContainsString('Alix', $body);
+        $this->assertStringContainsString('Nous déménageons.', $body);
+        $this->assertStringNotContainsString("Aucun animé n'est rattaché", $body);
+    }
+
+    public function testSuchAFamilyMayStillChangeTheirMindBack(): void
+    {
+        $memberId = $this->createAnime('Alix', '2017-06-01', $this->louveteauxA, self::PARENT_EMAIL);
+        AuthSession::login(1, self::PARENT_EMAIL, 'identified');
+
+        $this->controller->save($this->post(['member_id' => (string) $memberId, 'decision' => 'leaving']), []);
+        $response = $this->controller->save($this->post([
+            'member_id' => (string) $memberId,
+            'decision' => 'reenrolled',
+        ]), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertTrue($this->repository->findAnswer($memberId, $this->targetYearId)?->isReenrolled());
     }
 
     public function testFriendNamesAreStoredWithoutTellingTheFamilyAnything(): void

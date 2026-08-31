@@ -293,6 +293,16 @@ CREATE TABLE registration_reenrollments (
     -- that came through a family's own tracking link, which carries no
     -- account.
     answered_by_user_account_id INT UNSIGNED NULL,
+    -- What the automatic link with the « Départs » page last wrote into
+    -- member_years.leaving for this child (roadmap IT-16). NULL means it
+    -- has never written anything.
+    --
+    -- This column is what makes « the staff has the last word » decidable
+    -- without a second history: the automation owns the box only while
+    -- the box still holds what the automation left there. The moment
+    -- member_years.leaving differs from this value, somebody on the staff
+    -- moved it, and no later family answer overwrites it.
+    applied_leaving TINYINT(1) NULL,
     UNIQUE INDEX idx_rre_member_year (member_id, scout_year_id),
     CONSTRAINT fk_rre_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE,
     CONSTRAINT fk_rre_year FOREIGN KEY (scout_year_id) REFERENCES scout_years(id) ON DELETE CASCADE,

@@ -102,7 +102,10 @@ class RegistrationChefsRbacTest extends TestCase
         $twig->addGlobal('csp_nonce', 'test-nonce');
         $this->twig = $twig;
 
-        $this->departuresController = new DeparturesController($twig, $sectionStaffAuth, $sectionService, $departureService, $scoutYearResolver);
+        $this->departuresController = new DeparturesController(
+            $twig, $sectionStaffAuth, $sectionService, $departureService, $scoutYearResolver,
+            RegistrationTestHelper::departureLink($this->pdo, $encryption, $settingService)
+        );
         $forecastService = new ForecastService($this->pdo, $encryption, $sectionService, $passageService);
         $this->passageController = new PassageController(
             $twig, $passageService, $requestRepository, $transferRepository, $sectionService,

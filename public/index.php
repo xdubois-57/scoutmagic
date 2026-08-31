@@ -4301,10 +4301,22 @@ if ($isEnabled('registration')) {
     // question (« has this account any animé, and has it answered? »), so
     // the two can never disagree.
     $registrationReenrollmentRepository = new \Modules\Registration\Repository\ReenrollmentRepository($pdo, $encryptionService);
+    // IT-16 — the link between an answer and the « Départs » box. Built
+    // BEFORE the service that records answers, because recording one and
+    // moving the box is a single gesture: nothing may hold a
+    // ReenrollmentService that cannot move the box.
+    $registrationReenrollmentDeparture = new \Modules\Registration\Service\ReenrollmentDepartureService(
+        $registrationReenrollmentRepository,
+        $memberYearRepo,
+        $departureService,
+        $scoutYearService,
+        $settingService
+    );
     $registrationReenrollmentService = new \Modules\Registration\Service\ReenrollmentService(
         $registrationReenrollmentRepository,
         $settingService,
-        $memberService
+        $memberService,
+        $registrationReenrollmentDeparture
     );
     $frontController->registerController(
         \Modules\Registration\Controller\PublicRegistrationController::class,
@@ -4352,7 +4364,8 @@ if ($isEnabled('registration')) {
     $frontController->registerController(
         \Modules\Registration\Controller\DeparturesController::class,
         new \Modules\Registration\Controller\DeparturesController(
-            $twig, $sectionStaffAuthorizationService, $sectionService, $departureService, $scoutYearResolver
+            $twig, $sectionStaffAuthorizationService, $sectionService, $departureService, $scoutYearResolver,
+            $registrationReenrollmentDeparture
         )
     );
 

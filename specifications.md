@@ -593,6 +593,19 @@ Espace animateurs, role `chief`. Scoped by section: an animateur/chief sees and 
 
 The mark applies to the current scout year only and resets itself automatically at the next Desk import — it never needs to be manually cleared from one year to the next, and the page says so explicitly. Saving is automatic (no save button); the checkbox and the comment save independently of each other, so two people editing the same section around the same time never have one field's save overwrite the other's. The comment is encrypted at rest and never appears in the audit journal, an error message, or a section its author doesn't staff.
 
+#### 18.1bis The reenrollment answer beside the box
+
+Once the reenrollment campaign (§18.5) exists there are **two** ways for the site to learn that a child will not be back — a chief ticking the box, and a parent saying so — writing the same fact. Four rules keep it one fact:
+
+- **The link runs one way.** A « quitte » answer ticks the box, a « réinscrit » answer unticks it. A chief moving the box never fabricates a family answer: an answer is something a parent said, and the family's own page reads it back to them.
+- **The staff have the last word, and it lasts.** The answer owns the box only for as long as the box still holds what the answer last put there. The moment somebody on the staff moves it, their value is what every projection uses, and no later answer overwrites it — a chief who knows the family is wrong does not have to keep winning the same argument. Putting the box back where the automation left it hands ownership back, since the rule is « is the box still where I put it? », not « has a human ever touched this row ». The rule is decidable because the last applied value is stored (`registration_reenrollments.applied_leaving`); `leaving_marked_at` cannot answer it, being NULL both for « never marked » and for « a chief unticked it ».
+- **Two comments, two fields.** The family's comment lives with their answer and is shown here **read-only and dated**, never editable or erasable from this page. `member_years.leaving_comment_encrypted` stays the staff's internal note, and its label says out loud that the family never sees it. An answer writes the flag alone, so it can never erase the note.
+- **Counts at the top, decisions on the line.** A header line gives the number of rows where the box and the answer disagree, and the number of families still silent; a disagreeing row is flagged. Both are counts — who is leaving is a decision, and decisions belong on the line they concern.
+
+The whole block is shown while a campaign is open, and afterwards for as long as answers exist. A unit that has never run one sees the page exactly as it was.
+
+An automatic write is journaled — `member_leaving_set_by_family` and `member_leaving_cleared_by_family`, level `info`, **member id only**, never a comment — because a box that moves with nobody touching it is precisely what a journal exists to explain.
+
 ### 18.2 Passage
 
 Espace chefs d'U, role `admin`, **not** scoped by section (splitting arrivals across sections needs to see the whole unit — the same reason it sits at the chef d'unité level rather than the same floor as Départs). Always targets the current public scout year **plus one** — never whatever year an admin happens to be previewing, and never a staff year override. This is a deliberate exception to the rule that otherwise governs every page on the site.

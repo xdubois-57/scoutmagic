@@ -32,7 +32,12 @@ use Modules\Registration\Repository\ReenrollmentRepository;
  *    what was just submitted and when reading what to use, never as a
  *    delete. A unit that goes from three to two stops using the third and
  *    gets it back by raising the setting again.
- * 3. **A name is resolved once, quietly.** The form offers no
+ * 3. **The departure box follows the answer, once.** « quitte » ticks it
+ *    and « réinscrit » unticks it — but only while the staff have not
+ *    taken it over, which is ReenrollmentDepartureService's rule rather
+ *    than this class's. Recording an answer and moving the box are one
+ *    gesture here so that no caller can do the first without the second.
+ * 4. **A name is resolved once, quietly.** The form offers no
  *    autocompletion and gives no feedback about who was found (module
  *    decision), so matching happens here, on the way in, and its outcome
  *    is recorded rather than reported: 'unique' when exactly one member of
@@ -52,7 +57,8 @@ class ReenrollmentService
     public function __construct(
         private ReenrollmentRepository $repository,
         private SettingService $settingService,
-        private MemberService $memberService
+        private MemberService $memberService,
+        private ReenrollmentDepartureService $departureLink
     ) {
     }
 
@@ -115,7 +121,16 @@ class ReenrollmentService
         $saved = $this->repository->findAnswer($memberId, $targetScoutYearId);
         \assert($saved !== null);
 
-        return $saved;
+        // The « Départs » box follows from here and from nowhere else
+        // (roadmap IT-16). Inside recordAnswer() rather than beside its
+        // callers: an answer recorded without its consequence would be a
+        // family telling the site their child is leaving and the site
+        // going on projecting them into next year.
+        $this->departureLink->apply($saved, $currentScoutYearId, $answeredByUserAccountId);
+
+        $reloaded = $this->repository->findAnswer($memberId, $targetScoutYearId);
+
+        return $reloaded ?? $saved;
     }
 
     public function findAnswer(int $memberId, int $targetScoutYearId): ?ReenrollmentAnswer

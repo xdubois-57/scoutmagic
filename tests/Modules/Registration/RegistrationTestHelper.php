@@ -111,7 +111,8 @@ class RegistrationTestHelper
             preferred_section_id INTEGER,
             family_comment_encrypted BLOB,
             answered_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            answered_by_user_account_id INTEGER
+            answered_by_user_account_id INTEGER,
+            applied_leaving INTEGER
         )');
         $pdo->exec('CREATE UNIQUE INDEX idx_rre_member_year ON registration_reenrollments (member_id, scout_year_id)');
 
@@ -161,5 +162,31 @@ class RegistrationTestHelper
         $stmt->execute([$deskId]);
 
         return (int) $pdo->lastInsertId();
+    }
+
+    /**
+     * The real IT-16 link between an answer and the « Départs » box, wired
+     * out of real collaborators.
+     *
+     * Real rather than a double because what it is asked to prove is a
+     * rule about two tables at once — the answer's `applied_leaving` and
+     * `member_years.leaving` — and a double would only ever confirm that
+     * the test and the test agree.
+     */
+    public static function departureLink(
+        \PDO $pdo,
+        \Core\Security\EncryptionService $encryption,
+        \Core\Config\SettingService $settingService
+    ): \Modules\Registration\Service\ReenrollmentDepartureService {
+        return new \Modules\Registration\Service\ReenrollmentDepartureService(
+            new \Modules\Registration\Repository\ReenrollmentRepository($pdo, $encryption),
+            new \Core\Import\MemberYearRepository($pdo),
+            new \Core\Member\DepartureService(
+                new \Core\Member\DepartureRepository($pdo, $encryption),
+                new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($pdo))
+            ),
+            new \Core\Config\ScoutYearService($pdo),
+            $settingService
+        );
     }
 }

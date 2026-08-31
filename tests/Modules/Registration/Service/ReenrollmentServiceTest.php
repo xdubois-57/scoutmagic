@@ -85,7 +85,12 @@ class ReenrollmentServiceTest extends TestCase
         );
 
         $this->repository = new ReenrollmentRepository($this->pdo, $this->encryption);
-        $this->service = new ReenrollmentService($this->repository, $this->settingService, $memberService);
+        $this->service = new ReenrollmentService(
+            $this->repository,
+            $this->settingService,
+            $memberService,
+            RegistrationTestHelper::departureLink($this->pdo, $this->encryption, $this->settingService)
+        );
 
         $this->members['Léo Martin'] = $this->createMember('Léo', 'Martin');
         $this->members['Zoé Martin'] = $this->createMember('Zoé', 'Martin');

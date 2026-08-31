@@ -221,8 +221,12 @@ class ReenrollmentCampaignService
         $targetLabel = ScoutYearService::nextLabel((string) $publicYear['label']);
         $targetYearId = $this->scoutYearService->ensureYear($targetLabel);
 
+        // includeLeaving: a departure answer ticks the departure box
+        // (roadmap IT-16), so without it the total would shrink by one
+        // with every « il ne revient pas » received and the answer itself
+        // would be discarded below as "no longer an animé".
         $animeMemberIds = [];
-        foreach ($this->passageService->getAnimeMemberYears((int) $publicYear['id']) as $row) {
+        foreach ($this->passageService->getAnimeMemberYears((int) $publicYear['id'], includeLeaving: true) as $row) {
             $animeMemberIds[(int) $row['member_id']] = true;
         }
 

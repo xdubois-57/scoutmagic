@@ -25,7 +25,11 @@ use Modules\Registration\Repository\ReenrollmentAnswer;
  * **Animés only.** A parent who is also an animateur sees cards for their
  * children and none for themselves. "Animé" is not redefined here: it is
  * `PassageService::getAnimeMemberYears()`'s own set, so this page and the
- * Passage page can never disagree about who is one.
+ * Passage page can never disagree about who is one — with one difference
+ * the two pages must have: `includeLeaving: true`. A family's own
+ * « il ne revient pas » ticks the departure box (roadmap IT-16), and
+ * without that flag the card would disappear the instant they answered,
+ * leaving them unable to see or change what they had just said.
  *
  * **Three situations, three forms**, and the difference is only ever
  * whether there is a real choice to offer:
@@ -74,7 +78,7 @@ class ReenrollmentFormService
         int $targetYearId
     ): array {
         $animeMemberIds = [];
-        foreach ($this->passageService->getAnimeMemberYears($publicYearId) as $row) {
+        foreach ($this->passageService->getAnimeMemberYears($publicYearId, includeLeaving: true) as $row) {
             $animeMemberIds[(int) $row['member_id']] = true;
         }
 
@@ -98,7 +102,7 @@ class ReenrollmentFormService
      */
     public function mayAnswerFor(string $email, int $memberId, int $publicYearId): bool
     {
-        foreach ($this->passageService->getAnimeMemberYears($publicYearId) as $row) {
+        foreach ($this->passageService->getAnimeMemberYears($publicYearId, includeLeaving: true) as $row) {
             if ((int) $row['member_id'] !== $memberId) {
                 continue;
             }

@@ -62,6 +62,11 @@ class ReenrollmentRecipientService
         int $afterKey = 0,
         int $limit = 0
     ): array {
+        // Leaving animés stay OUT here, deliberately, where the form and
+        // the tracking include them (roadmap IT-16): this list is who to
+        // ASK, and a child already marked as not coming back — by the
+        // staff, or by their own family's answer — is not somebody to
+        // chase for an answer.
         $animeMemberIds = [];
         foreach ($this->passageService->getAnimeMemberYears($publicYearId) as $row) {
             $animeMemberIds[(int) $row['member_id']] = true;

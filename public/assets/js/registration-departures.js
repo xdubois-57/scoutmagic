@@ -49,6 +49,15 @@
     }
 
     /**
+     * Shows or hides what hangs under one line.
+     *
+     * The detail row carries TWO things, and the box only governs one of
+     * them: the staff's own note follows the checkbox, while the family's
+     * answer stays on screen whatever the staff decide. Unticking is a
+     * chief saying « si, il revient » — a gesture that has no business
+     * hiding what a parent wrote (roadmap IT-16). A row with no family
+     * answer behaves exactly as it always has.
+     *
      * @param {string|undefined} memberYearId
      * @param {boolean} shown
      */
@@ -56,9 +65,16 @@
         var row = /** @type {HTMLElement|null} */ (document.querySelector(
             '.departure-comment-row[data-member-year-id="' + memberYearId + '"]'
         ));
-        if (row) {
-            row.style.display = shown ? '' : 'none';
+        if (!row) {
+            return;
         }
+
+        var note = /** @type {HTMLElement|null} */ (row.querySelector('.departure-staff-note'));
+        if (note) {
+            note.style.display = shown ? '' : 'none';
+        }
+
+        row.style.display = (shown || row.dataset.hasAnswer === '1') ? '' : 'none';
     }
 
     checkboxes.forEach(function (checkbox) {

@@ -383,17 +383,31 @@ class PassageService
      * than only the current public one — one query, two callers, never a
      * second near-copy of this SQL.
      *
+     * `$includeLeaving` is the ONE axis on which callers legitimately
+     * differ, and it exists because the reenrollment campaign (roadmap
+     * IT-16) turned the departure flag into something a family can set
+     * themselves. For Passage and Prévisions a child marked as leaving is
+     * not a candidate for anything and must stay out. For the campaign the
+     * flag may BE that family's own answer, so excluding them would make
+     * the campaign forget precisely the families who answered: their card
+     * would vanish from « Réinscription » the moment they said « il ne
+     * revient pas », leaving them unable to see or change what they had
+     * just told the unit, and the tracking total would shrink by one with
+     * every departure answer received.
+     *
      * @return array<int, array<string, mixed>>
      */
-    public function getAnimeMemberYears(int $scoutYearId): array
+    public function getAnimeMemberYears(int $scoutYearId, bool $includeLeaving = false): array
     {
+        $leavingFilter = $includeLeaving ? '' : ' AND my.leaving = 0';
+
         $stmt = $this->pdo->prepare(
             "SELECT my.id AS member_year_id, my.member_id, my.first_name_encrypted, my.last_name_encrypted,
                     my.birth_date_encrypted, my.gender_encrypted, my.scout_year_offset, mf.section_id
              FROM member_years my
              JOIN member_functions mf ON mf.member_year_id = my.id
              JOIN functions f ON mf.function_id = f.id
-             WHERE my.scout_year_id = ? AND my.is_active = 1 AND my.leaving = 0
+             WHERE my.scout_year_id = ? AND my.is_active = 1{$leavingFilter}
                AND f.role NOT IN ('chief', 'admin', 'intendant') AND mf.section_id IS NOT NULL
              ORDER BY my.id, mf.is_main_function DESC, mf.id ASC"
         );

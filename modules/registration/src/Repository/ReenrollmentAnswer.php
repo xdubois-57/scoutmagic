@@ -24,6 +24,10 @@ final class ReenrollmentAnswer
      * @param array<int, FriendWish> $friendWishes in the order the family
      *        typed them, the cap NOT applied — that is the reader's call,
      *        so lowering it never destroys what was entered
+     * @param ?bool $appliedLeaving what the link with the « Départs » page
+     *        last wrote into member_years.leaving for this child, null
+     *        when it never wrote anything — see the column's own comment
+     *        in schema.sql, and ReenrollmentDepartureService
      */
     public function __construct(
         public readonly int $id,
@@ -34,13 +38,25 @@ final class ReenrollmentAnswer
         public readonly ?string $familyComment,
         public readonly \DateTimeImmutable $answeredAt,
         public readonly ?int $answeredByUserAccountId,
-        public readonly array $friendWishes = []
+        public readonly array $friendWishes = [],
+        public readonly ?bool $appliedLeaving = null
     ) {
     }
 
     public function isReenrolled(): bool
     {
         return $this->decision === self::DECISION_REENROLLED;
+    }
+
+    /**
+     * What this answer says the departure box should hold: « quitte » is
+     * a departure, everything else is not. One expression, so the page
+     * that flags a divergence and the code that writes the box can never
+     * read the same answer differently.
+     */
+    public function meansLeaving(): bool
+    {
+        return $this->decision === self::DECISION_LEAVING;
     }
 
     /**

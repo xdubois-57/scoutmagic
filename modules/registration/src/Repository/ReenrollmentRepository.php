@@ -102,6 +102,22 @@ class ReenrollmentRepository
         return $id;
     }
 
+    /**
+     * Record what the link with the « Départs » page just wrote into
+     * member_years.leaving for this answer's child.
+     *
+     * A write of its own, never folded into saveAnswer(): the family
+     * answering again does not by itself change what the automation last
+     * put in the box, and an UPDATE that touched both would lose the
+     * staff-has-the-last-word rule the moment a parent edited their
+     * answer.
+     */
+    public function markAppliedLeaving(int $reenrollmentId, bool $applied): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE registration_reenrollments SET applied_leaving = ? WHERE id = ?');
+        $stmt->execute([$applied ? 1 : 0, $reenrollmentId]);
+    }
+
     public function findAnswer(int $memberId, int $scoutYearId): ?ReenrollmentAnswer
     {
         $stmt = $this->pdo->prepare(
@@ -220,6 +236,7 @@ class ReenrollmentRepository
             answeredAt: DateInput::requireFromStorage((string) $row['answered_at'], 'answered_at'),
             answeredByUserAccountId: $row['answered_by_user_account_id'] !== null ? (int) $row['answered_by_user_account_id'] : null,
             friendWishes: $this->findWishes($id),
+            appliedLeaving: $row['applied_leaving'] === null ? null : (bool) $row['applied_leaving'],
         );
     }
 

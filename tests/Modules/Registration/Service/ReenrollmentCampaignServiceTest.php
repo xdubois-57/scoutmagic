@@ -315,6 +315,33 @@ class ReenrollmentCampaignServiceTest extends TestCase
         $this->assertSame('2027-2028', $tracking['target_year_label']);
     }
 
+    /**
+     * IT-16 ticks the departure box from a « quitte » answer, and the
+     * anime roster otherwise excludes leaving members — so a total read
+     * naively would go 3 the day the campaign opens and 2 the moment one
+     * family answered, with their answer discarded as « no longer an
+     * animé ». « 1 réponse sur 2 » after two families answered, one of
+     * them a departure, is a number nobody can reconcile.
+     */
+    public function testADepartureAnswerDoesNotShrinkTheTotalItIsCountedIn(): void
+    {
+        $alix = $this->createAnime('Alix', 'famille@example.be');
+        $this->createAnime('Bo', 'famille@example.be');
+        $this->createAnime('Cléo', 'autre@example.be');
+
+        $this->repository->saveAnswer($alix, $this->targetYearId, 'leaving', null, null, null, []);
+        // What the answer does to the box, done here directly: this test
+        // is about the count, not about the link that moves it.
+        $this->pdo->exec('UPDATE member_years SET leaving = 1 WHERE member_id = ' . $alix);
+
+        $tracking = $this->campaign->tracking();
+
+        $this->assertSame(3, $tracking['total']);
+        $this->assertSame(1, $tracking['answered']);
+        $this->assertSame(1, $tracking['leaving']);
+        $this->assertSame(2, $tracking['silent']);
+    }
+
     // ── fixture ───────────────────────────────────────────────────────
 
     private function createAnime(string $firstName, ?string $email): int
