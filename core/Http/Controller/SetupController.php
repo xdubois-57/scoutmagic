@@ -25,6 +25,7 @@ use Core\Mail\DkimManager;
 use Core\Mail\DnsVerifier;
 use Core\Mail\MailServiceFactory;
 use Core\Photo\UnitLogoService;
+use Core\Scheduler\CronHealth;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\EncryptionService;
@@ -132,6 +133,11 @@ class SetupController extends AbstractController
             'has_dkim_key' => $this->dkimManager->hasKey(),
             'dkim_public_key' => $this->dkimManager->hasKey() ? $this->dkimManager->getPublicKey() : null,
             'cron_script_path' => $this->publicDir !== '' ? rtrim($this->publicDir, '/') . '/cron.php' : null,
+            // Built in ONE place (Core\Scheduler\CronHealth), shared with
+            // the maintenance page's health block — the exact line an
+            // operator copies must never exist in two spellings.
+            'cron_crontab_line' => CronHealth::crontabLine($this->publicDir),
+            'cron_state' => $this->cronHealth()->status()->state,
             // Only meaningful once initialized (see the template's own
             // is_initialized gate on the whole logo block) — false rather
             // than null when the service isn't wired yet, so the template
@@ -462,6 +468,77 @@ class SetupController extends AbstractController
     }
 
     /**
+     * `Core\Scheduler\CronHealth` for this installation.
+     *
+     * `storage/` sits beside the document root in one hosting layout and
+     * inside it in the other; `$this->publicDir` is the anchor that
+     * resolves to the same project root in both (ARCHITECTURE.md §9), and
+     * it is the same computation backupAndEmptyDatabase() already makes.
+     * The setting service is null on a first run — there is no database
+     * yet, which is exactly why the heartbeat file exists.
+     */
+    private function cronHealth(): CronHealth
+    {
+        $storagePath = $this->publicDir !== ''
+            ? rtrim(dirname(rtrim($this->publicDir, '/')), '/') . '/storage'
+            : '';
+
+        return new CronHealth($storagePath, $this->settingService);
+    }
+
+    /**
+     * GET /setup/cron-status — AJAX: does a real crontab actually run?
+     *
+     * Polled by the page every few seconds while the operator configures
+     * the cron entry with their host, so that "je l'ai mise, est-ce que ça
+     * marche ?" is answered on screen in under a minute instead of being
+     * discovered weeks later through a background task that never ran.
+     *
+     * @param array<string, string> $params
+     */
+    public function cronStatus(Request $request, array $params): Response
+    {
+        $gate = $this->denyUnlessTokenVerified();
+        if ($gate !== null) {
+            return $gate;
+        }
+
+        $status = $this->cronHealth()->status();
+
+        return $this->json([
+            'state' => $status->state,
+            'seconds_since_heartbeat' => $status->secondsSinceLastSeen(),
+        ]);
+    }
+
+    /**
+     * Re-render the wizard with what the operator actually typed.
+     *
+     * Both refusal paths in save() come back here rather than redirecting:
+     * this form is long, and throwing a database password, an SMTP
+     * password and an admin password away because one prerequisite is not
+     * met yet is its own kind of failure.
+     *
+     * @param array<string, string> $values
+     * @param array<string, string> $errors
+     */
+    private function renderFormWith(array $values, array $errors, bool $isFirstRun): Response
+    {
+        return $this->render('setup/index.html.twig', [
+            'is_initialized' => !$isFirstRun,
+            'values' => $values,
+            'errors' => $errors,
+            'csrf_token' => CsrfGuard::generateToken(),
+            'has_dkim_key' => $this->dkimManager->hasKey(),
+            'dkim_public_key' => $this->dkimManager->hasKey() ? $this->dkimManager->getPublicKey() : null,
+            'cron_script_path' => $this->publicDir !== '' ? rtrim($this->publicDir, '/') . '/cron.php' : null,
+            'cron_crontab_line' => CronHealth::crontabLine($this->publicDir),
+            'cron_state' => $this->cronHealth()->status()->state,
+            'unit_logo_is_custom' => $this->unitLogoService?->hasCustomLogo() ?? false,
+        ]);
+    }
+
+    /**
      * POST /setup/save — process the form.
      *
      * @param array<string, string> $params
@@ -477,25 +554,48 @@ class SetupController extends AbstractController
             return $guard;
         }
 
+        $isFirstRun = !$this->secretManager->isInitialized();
+
         // Collect and validate form data
         $data = $this->collectFormData($request);
-        $errors = $this->validateFormData($data, !$this->secretManager->isInitialized());
+        $errors = $this->validateFormData($data, $isFirstRun);
 
         if (!empty($errors)) {
-            $csrfToken = CsrfGuard::generateToken();
-            return $this->render('setup/index.html.twig', [
-                'is_initialized' => $this->secretManager->isInitialized(),
-                'values' => $data,
-                'errors' => $errors,
-                'csrf_token' => $csrfToken,
-                'has_dkim_key' => $this->dkimManager->hasKey(),
-                'dkim_public_key' => $this->dkimManager->hasKey() ? $this->dkimManager->getPublicKey() : null,
-            ]);
+            return $this->renderFormWith($data, $errors, $isFirstRun);
         }
 
-        $isFirstTime = !$this->secretManager->isInitialized();
+        // The cron gate, and the asymmetry it deliberately carries.
+        //
+        // On a FIRST RUN a real crontab is a hard requirement, not advice:
+        // the queue is the engine behind backups, updates, reminders and
+        // every notification, and an install finished without one silently
+        // does none of them. Verifying it here, once, while the operator is
+        // still sitting in their host's control panel, is the only moment
+        // it costs nothing — the reference installation ran for days on a
+        // crontab entry that executed nothing at all (a bare script path
+        // where the panel needed `php /htdocs/public/cron.php`), and no
+        // page anywhere said so.
+        //
+        // On an ALREADY-CONFIGURED site this same page is « Installation &
+        // serveur », the superadmin configuration page, and the check is a
+        // WARNING only — see the health block it renders. Refusing to save
+        // a database password or an SMTP host because the crontab happened
+        // to miss three minutes (a host hiccup, a load spike, a pass that
+        // overran) would break a live site's configuration page over a
+        // transient, and would be a worse problem than the one being
+        // prevented.
+        if ($isFirstRun && !$this->cronHealth()->status()->isActive()) {
+            FlashMessage::set(
+                'error',
+                'Aucune tâche cron n\'a encore été détectée. Configurez la ligne indiquée dans la section '
+                . '« Tâche cron » chez votre hébergeur, attendez que l\'état passe au vert, puis relancez '
+                . 'l\'installation.'
+            );
 
-        if ($isFirstTime) {
+            return $this->renderFormWith($data, [], $isFirstRun);
+        }
+
+        if ($isFirstRun) {
             return $this->handleFirstTimeSetup($data);
         }
 

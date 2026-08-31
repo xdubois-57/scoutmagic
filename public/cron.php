@@ -21,6 +21,29 @@ if (PHP_SAPI !== 'cli') {
     exit;
 }
 
+// Heartbeat, written before ANYTHING else — before the autoloader, before
+// SecretManager, before the database exists.
+//
+// The DB stamp further down ('cron_last_run') is written only once
+// autoload + secrets + a live connection have all succeeded, so it answers
+// "a full cron pass completed", never "the crontab fired". Those are
+// different facts, and the difference is exactly what went undiagnosed in
+// production: a crontab entry configured on the hosting panel with a bare
+// script path (no `php` prefix) executed nothing at all for days, and
+// `cron_last_run: 0` looked identical to a site whose operator had simply
+// never configured one. The setup page's cron gate needs the same
+// distinction even earlier — it runs while the site is NOT yet
+// initialized, where the database, and therefore 'cron_last_run', do not
+// exist at all.
+//
+// Best effort by construction, and never a reason for a cron pass not to
+// happen: a missing or unwritable storage/temp is silently skipped. It
+// must never fatal and must never print — anything on stdout here becomes
+// an email from the host's cron daemon on every single minute.
+if (@is_dir(__DIR__ . '/../storage/temp')) {
+    @file_put_contents(__DIR__ . '/../storage/temp/cron-heartbeat', (string) time());
+}
+
 // Marks this process as a real entry point, so the shared composition
 // files it requires (public/scheduler-bootstrap.php) refuse to run when
 // hit directly over HTTP.

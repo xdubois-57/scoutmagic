@@ -13,6 +13,14 @@ ligne, sans manipulation de fichiers. Le bloc « Mise à jour » de la
 page Maintenance affiche la version installée, ses notes de version,
 et la date de la dernière vérification.
 
+## L'état, en haut de page
+
+« Tâche cron réelle » dit si la tâche planifiée de votre hébergeur
+tourne, et à quelle cadence ; en rouge, elle affiche la ligne à
+configurer. Sans elle, rien ne s'installe tout seul. « Mise à jour
+automatique » donne la dernière version posée avec succès, et signale
+une dernière tentative échouée.
+
 ## Vérifier et installer
 
 « Vérifier maintenant » interroge la source des versions. Si une
@@ -24,23 +32,22 @@ d'elle-même.
 
 Ce bouton propose toujours la dernière version disponible, quel que
 soit le niveau choisi dans « Types de versions à installer » : ce
-réglage ne concerne que les installations automatiques, pas ce que
-vous décidez d'installer vous-même. Deux exceptions :
+réglage ne concerne que les installations automatiques. Deux
+exceptions :
 
 - en mode « Développement », c'est le dernier état de la branche
   surveillée qui est proposé, quel qu'il soit ;
 - si plusieurs versions **majeures** sont parues depuis la vôtre, le
   site propose la première d'entre elles plutôt que la toute
   dernière, et l'indique (« étape intermédiaire vers la version… »).
-  Les versions majeures s'installent ainsi une par une : chaque étape
-  a sa propre sauvegarde de sécurité et ses propres migrations de
-  données, contrôlées séparément. Relancez « Vérifier maintenant »
-  après chaque étape pour passer à la suivante.
+  Les versions majeures s'installent ainsi une par une, chacune avec
+  sa propre sauvegarde de sécurité. Relancez « Vérifier maintenant »
+  après chaque étape.
 
 Si l'installation échoue, le site se restaure automatiquement depuis
-la sauvegarde de sécurité — l'historique du bas de bloc l'indique
-alors « Échouée — restaurée automatiquement ». L'installation
-elle-même demande le rôle d'administrateur du site.
+la sauvegarde de sécurité — l'historique l'indique alors « Échouée —
+restaurée automatiquement ». Installer demande le rôle
+d'administrateur du site.
 
 ## Automatiser
 
@@ -60,9 +67,8 @@ immédiatement : il est réservé aux sites de test et le dit clairement.
 
 Chaque installation automatique se signale ensuite, réussie ou non, par
 une notification dans la cloche : active d'office pour les super
-administrateurs, éteinte et disponible pour un administrateur du site,
-dans ses préférences de notification. « Installer maintenant » ne
-prévient que vous.
+administrateurs, disponible pour un administrateur du site dans ses
+préférences. « Installer maintenant » ne prévient que vous.
 
 > Restez sur « Patch + Mineur » pour un site d'unité : vous profitez
 > des corrections et des nouveautés sans risquer un changement majeur

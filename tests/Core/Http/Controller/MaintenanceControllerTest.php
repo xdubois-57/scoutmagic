@@ -171,7 +171,11 @@ class MaintenanceControllerTest extends TestCase
 
         $this->controller = new MaintenanceController(
             $this->twig, $backupService, $this->backupRepository, $fileRepository, $this->updateHistoryRepository, $schedulerService,
-            $moduleManager, $encryption, $journalService, $this->settingService, $storagePath, $this->secretManager, $this->fakeReleaseClient
+            $moduleManager, $encryption, $journalService, $this->settingService, $storagePath, $this->secretManager, $this->fakeReleaseClient,
+            null,
+            // The health block's crontab line is spelled from the public
+            // directory, the one anchor valid in both hosting layouts.
+            dirname($storagePath) . '/public'
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -212,6 +216,94 @@ class MaintenanceControllerTest extends TestCase
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString('Maintenance', $response->getBody());
         $this->assertStringContainsString('Aucune sauvegarde', $response->getBody());
+    }
+
+    // --- Bloc « État » : cron réel + mise à jour automatique ---------------
+
+    private function writeCronHeartbeat(int $at): void
+    {
+        if (!is_dir($this->storagePath . '/temp')) {
+            mkdir($this->storagePath . '/temp', 0755, true);
+        }
+        file_put_contents($this->storagePath . '/temp/cron-heartbeat', (string) $at);
+    }
+
+    /**
+     * The failure this block exists for is the silent one: a crontab that
+     * never fires produces no error anywhere, and the reference
+     * installation ran that way for days. The page must say so, in red,
+     * with the exact line to configure — `php` prefix included, since a
+     * hosting panel handed a bare script path executes nothing at all.
+     */
+    public function testTheHealthBlockNamesAMissingCronAndShowsTheLineToConfigure(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Tâche cron réelle', $body);
+        $this->assertStringContainsString('Jamais détecté', $body);
+        $this->assertStringContainsString('* * * * * php ' . dirname($this->storagePath) . '/public/cron.php', $body);
+        $this->assertStringContainsString('maintenance-cron-warning', $body);
+    }
+
+    public function testTheHealthBlockReportsAnActiveCronWithItsCadence(): void
+    {
+        $now = time();
+        $this->writeCronHeartbeat($now - 40);
+        $this->settingService->register('cron_last_run', (string) ($now - 40), 'number', 'L', 'D', null, null, null, false, 999);
+        \Core\Scheduler\CronRunHistory::register($this->settingService);
+        $this->settingService->setInternal(
+            \Core\Scheduler\CronRunHistory::SETTING,
+            (string) json_encode([$now - 220, $now - 160, $now - 100, $now - 40])
+        );
+
+        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Actif', $body);
+        $this->assertStringContainsString('cadence ~1 min', $body);
+        // Nothing to fix, so nothing is shown to fix it with.
+        $this->assertStringNotContainsString('maintenance-cron-warning', $body);
+    }
+
+    public function testTheHealthBlockReportsAStaleCronRatherThanAMissingOne(): void
+    {
+        $this->writeCronHeartbeat(time() - 10800);
+
+        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Plus détecté', $body);
+        $this->assertStringNotContainsString('Jamais détecté', $body);
+        $this->assertStringContainsString('maintenance-cron-warning', $body);
+    }
+
+    /**
+     * A channel whose last three installs all rolled back still carries a
+     * perfectly good "dernière mise à jour réussie" date. Reading only
+     * that one is how six consecutive rollbacks stayed invisible on this
+     * very page — the MOST RECENT attempt is the other half.
+     */
+    public function testTheHealthBlockFlagsAFailedMostRecentAttemptBesideTheLastSuccess(): void
+    {
+        $succeeded = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, null);
+        $this->updateHistoryRepository->markCompleted($succeeded);
+        $failed = $this->updateHistoryRepository->create('1.1.0', '1.2.0', false, null);
+        $this->updateHistoryRepository->markRolledBack($failed, 'migration KO');
+
+        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('maintenance-auto-update-health', $body);
+        $this->assertStringContainsString('maintenance-update-last-attempt', $body);
+        $this->assertStringContainsString('restauré automatiquement', $body);
+    }
+
+    public function testTheHealthBlockStaysQuietWhenTheMostRecentAttemptSucceeded(): void
+    {
+        $id = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, null);
+        $this->updateHistoryRepository->markCompleted($id);
+
+        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('maintenance-auto-update-health', $body);
+        $this->assertStringNotContainsString('maintenance-update-last-attempt', $body);
     }
 
     /**

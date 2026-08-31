@@ -30,6 +30,7 @@ use Core\Maintenance\UpdateHistoryRepository;
 use Core\Maintenance\UpdateTargetSelector;
 use Core\Maintenance\VersionFile;
 use Core\Module\ModuleManager;
+use Core\Scheduler\CronHealth;
 use Core\Scheduler\SchedulerService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
@@ -105,7 +106,15 @@ class MaintenanceController extends AbstractController
         // Optional, and trailing, so no existing construction site moves.
         // Null simply means updateStatus() polls without advancing the
         // migration — exactly what it did before.
-        private ?MigrationRunner $migrationRunner = null
+        private ?MigrationRunner $migrationRunner = null,
+        // Absolute path of the directory holding cron.php (public/index.php
+        // passes its own __DIR__). Only ever used to spell the crontab line
+        // the health block tells the operator to configure: `storage/` sits
+        // beside the document root in one hosting layout and inside it in
+        // the other, so the public directory is the one anchor that answers
+        // in both (ARCHITECTURE.md §9). Empty renders a generic placeholder
+        // path rather than a wrong one.
+        private string $publicDir = ''
     ) {
     }
 
@@ -135,8 +144,29 @@ class MaintenanceController extends AbstractController
                 : null
         );
 
+        $cronStatus = (new CronHealth($this->storagePath, $this->settingService))->status();
+
+        // The most recent ATTEMPT, not the most recent success: a channel
+        // whose last three installs all rolled back still has a perfectly
+        // good "dernière mise à jour réussie" date, and reading only that
+        // one is how six consecutive rollbacks stayed invisible on this
+        // very page. Taken from the list the table below already fetched
+        // (newest first) rather than a second query for the same row.
+        $updateHistory = $this->updateHistoryRepository->findRecent(self::UPDATE_HISTORY_SHOWN);
+        $lastAttempt = $updateHistory[0] ?? null;
+        $lastAttemptFailed = $lastAttempt !== null
+            && in_array($lastAttempt->status, ['failed', 'rolled_back'], true);
+
         return $this->render('config/maintenance.html.twig', [
             'abandoned_migration' => $abandonedMigration,
+            // ——— Bloc « État » (haut de page) ———
+            'cron_state' => $cronStatus->state,
+            'cron_seconds_since_last_pass' => $cronStatus->secondsSinceLastSeen(),
+            'cron_median_interval_seconds' => $cronStatus->medianIntervalSeconds,
+            'cron_crontab_line' => CronHealth::crontabLine($this->publicDir),
+            'update_last_attempt_status' => $lastAttempt?->status,
+            'update_last_attempt_at' => $lastAttempt?->startedAt,
+            'update_last_attempt_failed' => $lastAttemptFailed,
             'installed_version' => $installedVersionDisplay,
             'installed_version_commit' => $installedVersionCommit,
             'installed_version_notes' => $installedNotes['notes'],
@@ -153,7 +183,7 @@ class MaintenanceController extends AbstractController
             // — every attempt failing, always at the same point — was
             // invisible to the person looking at it. A run of failures is
             // the thing this table exists to make obvious.
-            'update_history' => $this->updateHistoryRepository->findRecent(self::UPDATE_HISTORY_SHOWN),
+            'update_history' => $updateHistory,
             'backups' => $this->backupRepository->findRecent(self::KEEP_BACKUPS),
             'gallery_enabled' => in_array('gallery', $this->moduleManager->getEnabledModuleIds(), true),
             'zip_encryption_supported' => $this->backupService->supportsZipEncryption(),
