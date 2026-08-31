@@ -498,10 +498,45 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
         new Core\Database\SqlParser()
     );
 
-    $result = $migrationRunner()->migrate($schemaFiles);
+    // Driven to completion, not asked once.
+    //
+    // migrate() works to a time budget (MigrationRunner's
+    // $timeBudgetSeconds, 20 by default) and returns complete: false when
+    // it runs out — WITHOUT saving the schema hash, so the next call
+    // resumes from the checkpoint instead of restarting. That is a normal,
+    // resumable outcome by design, and it is how the migration-progress
+    // page drives the same work: public/index.php calls migrate() once per
+    // request and its script polls until `complete` comes back true.
+    //
+    // This caller used to ask exactly once and treat that outcome as a
+    // fatal error, which made provisioning fail for the one reason the
+    // budget exists to cause. It cost 3 failures in 72 samples of the DAST
+    // job — by the last batch the ONLY remaining cause, 2 of 20 — because
+    // that job runs MySQL, ZAP, a TLS terminator, PHP and Chromium on one
+    // runner, and a first slice that fits in 20 s on an idle machine does
+    // not always fit there. Nothing was wrong with the schema; the work
+    // was simply not finished being asked for.
+    //
+    // The cap is on total wall clock rather than on a number of calls: a
+    // slice that keeps making progress deserves another turn, and one that
+    // does not is caught by the isPending() check below regardless. 300 s
+    // is far beyond any real schema here (a full first migration runs in
+    // seconds) and still bounded, so a genuinely stuck migration fails the
+    // run instead of hanging it.
+    $migrationDeadline = microtime(true) + 300.0;
+    $slices = 0;
+    do {
+        $result = $migrationRunner()->migrate($schemaFiles);
+        $slices++;
+    } while (!$result->complete && microtime(true) < $migrationDeadline);
 
     if (!$result->complete) {
-        fwrite(STDERR, "E2E provisioning failed: schema migration did not complete.\n");
+        fwrite(
+            STDERR,
+            "E2E provisioning failed: schema migration did not complete after {$slices} slice(s) "
+            . "and 300 s. This is no longer a time-budget slice running out — that is resumed above — "
+            . "so treat it as a migration that cannot finish.\n"
+        );
         exit(1);
     }
 
