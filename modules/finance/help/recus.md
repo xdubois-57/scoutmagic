@@ -4,6 +4,8 @@ title: Gérer les justificatifs de dépenses
 summary: Déposer des reçus, les associer aux mouvements, avec l'aide de l'IA.
 category: Espace animateurs
 role_min: intendant
+question: Où déposer les tickets de caisse des achats de l'unité ?
+question: Comment relier un reçu au mouvement bancaire correspondant ?
 paths: /finance/receipts, /finance/receipts/new
 related: finances, importer-extraits, badges
 ---

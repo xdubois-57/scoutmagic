@@ -4,6 +4,8 @@ title: Faire un publipostage depuis Excel
 summary: Un e-mail personnalisé par ligne d'un fichier Excel, variables comprises.
 category: Espace animateurs
 role_min: chief
+question: Comment envoyer un mail personnalisé depuis un fichier Excel ?
+question: Comment mettre le prénom de chacun dans un e-mail groupé ?
 paths: /mass-mail
 related: envoi-de-mails, membres-admin, publier-une-actualite
 ---

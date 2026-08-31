@@ -4,6 +4,8 @@ title: Corriger un séjour ou un lieu
 summary: Ce qu'on peut changer après coup, et ce que la correction laisse derrière elle.
 category: Espace animateurs
 role_min: chief
+question: Comment corriger les dates d'un camp déjà encodé ?
+question: Comment changer l'adresse d'un lieu de camp ?
 paths: /chefs/camps/lieux/*/modifier, /chefs/camps/sejours/*/modifier
 related: camps, camps-encoder, camps-fusionner
 ---

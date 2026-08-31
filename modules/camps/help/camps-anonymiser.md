@@ -4,6 +4,8 @@ title: Anonymiser un contact
 summary: Effacer les coordonnées d'une personne à sa demande, et ce que le site garde malgré tout.
 category: Espace animateurs
 role_min: admin
+question: Un propriétaire demande d'effacer ses coordonnées, que faire ?
+question: Que reste-t-il d'un contact après son anonymisation ?
 paths: /chefs/camps/contacts/*/anonymiser
 related: camps, camps-documents
 ---

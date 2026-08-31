@@ -310,6 +310,58 @@ désinscription ; « zzz » → rien.
 
 ---
 
+## IT-04 — Espace animateurs (34 sujets)
+
+**Livré.**
+
+- **2 à 4 `question:` sur chacun des 34 sujets** — 76 questions, dont le
+  vocabulaire réel des gens plutôt que celui des titres : « Un parent a
+  payé pour trois enfants en un virement, que faire ? » pour
+  `rapprochement`, « Le même terrain existe deux fois, comment les
+  recoller ? » pour `camps-fusionner`, « Comment se tester soi-même avant
+  un envoi groupé ? » pour `envoi-de-mails`. Le sujet `publipostage`
+  reçoit exactement la question que le document de chantier cite en
+  exemple.
+- **Une quatrième question sur `envoi-de-mails`**, ajoutée après coup :
+  interrogé sur la question modèle du §6 du document — « Comment prévenir
+  tous les parents d'une section ? » — le corpus enrichi répondait le
+  calendrier et les documents de section, pas l'envoi groupé. Le sujet
+  disait « écrire à », la personne dit « prévenir ». C'est exactement ce
+  que le champ existe pour rattraper, donc la formulation a rejoint le
+  sujet plutôt que d'être laissée au hasard du classement.
+- **Une correction de contenu** : `importer-extraits` citait le filtre
+  « à catégoriser » alors que le tableau de bord affiche
+  « À catégoriser » (`dashboard.html.twig`). Aligné.
+
+**Audit — ce qui a été vérifié.**
+
+- **Les libellés.** Dix-sept citations n'ont pas été retrouvées telles
+  quelles ; une seule était une vraie dérive (ci-dessus). Les seize
+  autres ajoutent **deux familles de faux positifs** à celles d'IT-03, et
+  IT-07 devra les traiter :
+  - **Les entités HTML.** « Affiche & QR code » existe bien, écrit
+    `Affiche &amp; QR code` dans `editor.html.twig` — le test devra
+    décoder avant de comparer.
+  - **Les renvois vers un autre sujet d'aide.** « Rapprocher un paiement
+    qui tombe de travers », « L'écran du courrier des camps », « Qui voit
+    quels comptes » : ce sont des titres de sujets ou des titres de
+    section, pas des libellés d'écran. Le test devra les reconnaître, ou
+    ils iront dans l'ALLOWLIST.
+  Le reste est de la prose en gras et un exemple de texte saisi par un
+  humain (« On est allés là en 2012 »).
+- **Les `role_min`.** Deux écarts avec le plancher de la route, tous deux
+  volontaires et corrects : `documents-de-section` (`chief`) sur
+  `/chefs/staffs` (`intendant`) et `animer-un-groupe` (`chief`) sur
+  `/groups` (`identified`). C'est le motif « deux sujets sur une page, à
+  deux planchers » : `staffs` et `groupes` documentent ce qu'on y
+  regarde, les deux autres ce qu'un animateur y fait. Un intendant garde
+  donc de l'aide sur la page qu'il peut ouvrir.
+
+**Reporté.** « Espace chefs d'U » (28) et « Configuration » (25) :
+IT-05 et IT-06.
+
+---
+
 ## Note transverse — la suite n'est plus verte, et ce n'est pas ce chantier
 
 Constaté pendant IT-02, à consigner parce que le critère « fait quand » de

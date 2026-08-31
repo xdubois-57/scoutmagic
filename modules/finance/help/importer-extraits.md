@@ -4,6 +4,8 @@ title: Importer un extrait bancaire
 summary: Charger le relevé CSV de la banque et garder les soldes justes.
 category: Espace animateurs
 role_min: intendant
+question: Comment charger le relevé bancaire du mois ?
+question: Pourquoi mon solde ne correspond-il pas à celui de la banque ?
 paths: /finance/import
 related: finances, recus
 ---
@@ -46,4 +48,4 @@ la page vous invite à vérifier qu'aucune période ne manque.
 Les règles de catégorisation passent automatiquement sur les nouvelles
 lignes, et les justificatifs en attente sont confrontés aux nouveaux
 mouvements. Il ne reste qu'à traiter ce que le tableau de bord signale
-encore « à catégoriser ».
+encore « À catégoriser ».

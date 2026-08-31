@@ -4,6 +4,8 @@ title: Une facture reçue par e-mail
 summary: Quand le site propose de classer une pièce jointe en reçu, et pourquoi il ne le fait jamais tout seul.
 category: Espace animateurs
 role_min: intendant
+question: Une facture est arrivée par e-mail, comment la classer ?
+question: Pourquoi une pièce jointe n'est-elle pas classée toute seule ?
 paths: /finance/receipts
 related: courrier-entrant, courrier-unite
 ---

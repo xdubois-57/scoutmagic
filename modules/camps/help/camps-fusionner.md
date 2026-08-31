@@ -4,6 +4,8 @@ title: Fusionner deux lieux ou deux séjours
 summary: Quand un même terrain a fini par exister en double, et comment les recoller sans rien perdre.
 category: Espace animateurs
 role_min: chief
+question: Le même terrain existe deux fois, comment les recoller ?
+question: Comment supprimer un séjour créé en double ?
 paths: /chefs/camps/lieux/*, /chefs/camps/sejours/*, /chefs/camps/lieux/*/fusionner, /chefs/camps/sejours/*/fusionner
 related: camps, camps-carte
 ---

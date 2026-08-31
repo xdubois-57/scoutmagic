@@ -4,6 +4,8 @@ title: Déposer des documents de section
 summary: Ajouter, renommer, ordonner et supprimer les documents d'une section.
 category: Espace animateurs
 role_min: chief
+question: Comment mettre le planning de section à disposition des parents ?
+question: Comment retirer un document déposé par erreur ?
 paths: /chefs/staffs
 related: staffs, page-membre
 ---
