@@ -22,6 +22,7 @@ use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\SectionTransferRepository;
 use Modules\Registration\Service\PassageService;
 use Modules\Registration\Service\PassageCommentReviewService;
+use Modules\Registration\Service\PassageOptimizationService;
 use Modules\Registration\Service\PassagePlanningService;
 use Modules\Registration\Service\PassageStatisticsService;
 use Modules\Registration\Service\SlotMath;
@@ -60,7 +61,8 @@ class PassageController extends AbstractController
         private PassagePlanningService $planningService,
         private \Modules\Registration\Repository\PassageNoteRepository $passageNoteRepository,
         private \Modules\Registration\Repository\ReenrollmentRepository $reenrollmentRepository,
-        private ?PassageCommentReviewService $commentReview = null
+        private ?PassageCommentReviewService $commentReview = null,
+        private ?PassageOptimizationService $optimizationService = null
     ) {
     }
 
@@ -122,6 +124,12 @@ class PassageController extends AbstractController
             // this unit does not have (ARCHITECTURE.md §7.5).
             'ai_available' => $this->commentReview !== null && $this->commentReview->isAvailable(),
             'ai_pending' => $this->commentReview !== null ? $this->commentReview->pendingCount((int) $targetYear['id']) : 0,
+            // IT-18 — what the « Optimiser » dialog says before anybody
+            // presses anything: how many lines are already settled and how
+            // many are still to place.
+            'optimization' => $this->optimizationService !== null
+                ? $this->optimizationService->counts($newRegistrations, $branchChanges)
+                : ['kept' => 0, 'to_place' => 0],
             'csrf_token' => CsrfGuard::generateToken(),
         ]);
     }
@@ -382,6 +390,129 @@ class PassageController extends AbstractController
         }
 
         return $this->json(['success' => true, 'label' => $label]);
+    }
+
+    /**
+     * POST /passage/optimiser — distribute everybody nobody has placed yet
+     * (roadmap IT-18, spec §14).
+     *
+     * Synchronous, in this answer. No task, no polling, no waiting banner:
+     * the algorithm is bounded so that it can be, and the response carries
+     * the recomputed statistics box exactly like a single save does.
+     *
+     * The whole plan is written in ONE transaction. A distribution half
+     * applied is worse than none: a chief would be looking at a page where
+     * some children moved and some did not, with nothing saying which.
+     *
+     * @param array<string, string> $params
+     */
+    public function optimize(Request $request, array $params): Response
+    {
+        $data = $this->decodeJsonBody($request);
+        if ($data === null) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+        if (($guard = $this->guardCsrfJson($request, (string) ($data['_csrf_token'] ?? ''))) !== null) {
+            return $guard;
+        }
+        if ($this->optimizationService === null) {
+            return $this->json(['success' => false, 'error' => "L'optimisation n'est pas disponible."], 422);
+        }
+
+        // Anything that is not « respecter les souhaits » is the default
+        // method, so a body naming something unknown gets the balanced run
+        // rather than an error page.
+        $method = (string) ($data['method'] ?? PassageOptimizationService::METHOD_BALANCED) === PassageOptimizationService::METHOD_WISHES
+            ? PassageOptimizationService::METHOD_WISHES
+            : PassageOptimizationService::METHOD_BALANCED;
+
+        [$publicYear, $targetYear] = $this->resolveYears();
+        [$newRegistrations, $branchChanges] = $this->passagePopulation($publicYear, $targetYear);
+
+        $outcome = $this->optimizationService->plan(
+            $newRegistrations,
+            $branchChanges,
+            (int) $publicYear['id'],
+            (int) $targetYear['id'],
+            $method
+        );
+        $this->optimizationService->apply($outcome, (int) $targetYear['id']);
+
+        return $this->json([
+            'success' => true,
+            'placed' => $outcome->placedCount,
+            'kept' => $outcome->keptCount,
+            'warnings' => $outcome->warnings,
+            'statistics_html' => $this->renderStatistics((int) $targetYear['id']),
+        ]);
+    }
+
+    /**
+     * POST /passage/reinitialiser — empty every destination of the target
+     * year, then put back the ones that were never a choice.
+     *
+     * Deliberately the behaviour that was already there, with no notion of
+     * where an assignment came from: a reset that kept part of the previous
+     * answer would be a different word. A branch with one section gets it
+     * back at once, which is Task\AutoAssignPassageHandler's own rule and
+     * not a second one.
+     *
+     * @param array<string, string> $params
+     */
+    public function resetAssignments(Request $request, array $params): Response
+    {
+        $data = $this->decodeJsonBody($request);
+        if ($data === null) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+        if (($guard = $this->guardCsrfJson($request, (string) ($data['_csrf_token'] ?? ''))) !== null) {
+            return $guard;
+        }
+        if ($this->optimizationService === null) {
+            return $this->json(['success' => false, 'error' => "La réinitialisation n'est pas disponible."], 422);
+        }
+
+        [$publicYear, $targetYear] = $this->resolveYears();
+        [, $branchChanges] = $this->passagePopulation($publicYear, $targetYear);
+
+        $reassigned = $this->optimizationService->reset($branchChanges, (int) $targetYear['id']);
+
+        return $this->json([
+            'success' => true,
+            'reassigned' => $reassigned,
+            'statistics_html' => $this->renderStatistics((int) $targetYear['id']),
+        ]);
+    }
+
+    /**
+     * The two blocks of the page, built the one way index() builds them.
+     *
+     * A private helper rather than three call sites repeating the same
+     * four arguments: the reference month-day and the year pair are easy
+     * to get subtly wrong, and an optimiser working on a different roster
+     * from the page it answers would be very hard to see.
+     *
+     * @param array{id: int, label: string} $publicYear
+     * @param array{id: int, label: string} $targetYear
+     * @return array{0: array<int, array<string, mixed>>, 1: array<string, array{section_label: string, members: array<int, array<string, mixed>>}>}
+     */
+    private function passagePopulation(array $publicYear, array $targetYear): array
+    {
+        $referenceMonthDay = $this->slotService->referenceMonthDay();
+
+        return [
+            $this->passageService->getNewRegistrations(
+                (int) $targetYear['id'],
+                (string) $targetYear['label'],
+                $referenceMonthDay,
+                (int) $publicYear['id']
+            ),
+            $this->passageService->getBranchChanges(
+                (int) $publicYear['id'],
+                (string) $publicYear['label'],
+                (int) $targetYear['id']
+            ),
+        ];
     }
 
     /**

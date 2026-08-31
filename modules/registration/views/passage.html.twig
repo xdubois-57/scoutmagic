@@ -15,6 +15,74 @@
             statistics: statistics,
         } only %}
 
+        {# IT-18 — « Optimiser la répartition » and « Réinitialiser ».
+           The dialog announces what the run will and will not touch before
+           anybody presses anything: a chief who has spent an evening
+           placing children by hand needs to read « 12 assignations
+           conservées » before, not after. #}
+        {% if optimization.to_place + optimization.kept > 0 %}
+        <div class="d-flex flex-wrap gap-2 align-items-center mb-4">
+            <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#passage-optimize-dialog"
+                    {{ optimization.to_place == 0 ? 'disabled' : '' }}>
+                <i class="bi bi-magic" aria-hidden="true"></i> Optimiser la répartition
+            </button>
+            <form method="post" action="/passage/reinitialiser" id="passage-reset-form"
+                  data-confirm="Réinitialiser toute la répartition de l'année {{ target_year_label }} ? Les sections choisies à la main seront effacées, et seules les branches n'ayant qu'une section seront reposées automatiquement.">
+                <button type="button" class="btn btn-outline-secondary" id="passage-reset"
+                        data-endpoint="/passage/reinitialiser">Réinitialiser</button>
+            </form>
+            <span class="form-text mb-0" id="passage-optimize-feedback" role="status" aria-live="polite"></span>
+        </div>
+
+        <div class="modal fade" id="passage-optimize-dialog" tabindex="-1" aria-labelledby="passage-optimize-title" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2 class="modal-title h5" id="passage-optimize-title">Optimiser la répartition</h2>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p class="small text-body-secondary">
+                            <strong>{{ optimization.to_place }}</strong>
+                            {{ optimization.to_place > 1 ? 'personnes à répartir' : 'personne à répartir' }} —
+                            <strong>{{ optimization.kept }}</strong>
+                            {{ optimization.kept > 1 ? 'assignations déjà faites seront conservées' : 'assignation déjà faite sera conservée' }}.
+                            Une ligne qui porte déjà une section n'est jamais touchée ; pour tout reprendre, réinitialisez d'abord.
+                        </p>
+
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="radio" name="passage-optimize-method"
+                                   id="passage-method-balanced" value="balanced" checked>
+                            <label class="form-check-label" for="passage-method-balanced">
+                                <strong>Souhaits et équilibre</strong>
+                                <span class="d-block small text-body-secondary">
+                                    Respecte les souhaits autant que possible, sans dépasser l'écart configuré entre les
+                                    sections d'une même branche.
+                                </span>
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="passage-optimize-method"
+                                   id="passage-method-wishes" value="wishes">
+                            <label class="form-check-label" for="passage-method-wishes">
+                                <strong>Respecter les souhaits</strong>
+                                <span class="d-block small text-body-secondary">
+                                    Chacun va dans la section demandée ou avec les personnes citées, sans aucun
+                                    équilibrage.
+                                </span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+                        <button type="button" class="btn btn-primary" id="passage-optimize-run"
+                                data-endpoint="/passage/optimiser">Répartir</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
         {# IT-17 — the optional AI re-reading, offered only when the
            llm_connector module is there AND has an active provider. The
            button says how many comments would be sent, because sending a

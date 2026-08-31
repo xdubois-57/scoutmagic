@@ -179,6 +179,50 @@ class RegistrationTestHelper
     }
 
     /**
+     * IT-18's optimiser, wired out of real collaborators — a double would
+     * only ever confirm that the test and the test agree about where the
+     * children went.
+     */
+    public static function passageOptimization(
+        \PDO $pdo,
+        \Core\Security\EncryptionService $encryption,
+        \Core\Config\SettingService $settingService
+    ): \Modules\Registration\Service\PassageOptimizationService {
+        return new \Modules\Registration\Service\PassageOptimizationService(
+            self::passageService($pdo, $encryption),
+            self::projectedPopulation($pdo, $encryption, $settingService),
+            new \Modules\Registration\Repository\RegistrationRequestRepository($pdo, $encryption),
+            new \Modules\Registration\Repository\ReenrollmentRepository($pdo, $encryption),
+            new \Modules\Registration\Repository\PassageNoteRepository($pdo, $encryption),
+            new \Modules\Registration\Repository\SectionTransferRepository($pdo),
+            new \Core\Import\MemberYearRepository($pdo),
+            $settingService,
+            $pdo
+        );
+    }
+
+    /**
+     * The module's own PassageService, wired out of real collaborators.
+     */
+    public static function passageService(
+        \PDO $pdo,
+        \Core\Security\EncryptionService $encryption
+    ): \Modules\Registration\Service\PassageService {
+        return new \Modules\Registration\Service\PassageService(
+            $pdo,
+            $encryption,
+            new \Core\Member\SectionService(
+                \Core\Database\Connection::withPdo($pdo),
+                $encryption,
+                new \Core\Badge\MemberBadgeRepository($pdo)
+            ),
+            new \Modules\Registration\Repository\SectionTransferRepository($pdo),
+            new \Modules\Registration\Repository\RegistrationRequestRepository($pdo, $encryption),
+            new \Modules\Registration\Repository\AgeBracketRepository($pdo)
+        );
+    }
+
+    /**
      * IT-17's planning view model, wired out of real collaborators — what
      * the Passage page shows beside each line once families have answered.
      */

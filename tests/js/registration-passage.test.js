@@ -82,7 +82,24 @@ function planningBlock(memberId) {
         </td></tr>`;
 }
 
-const PAGE = `${statisticsBox()}<table><tbody>
+/**
+ * IT-18's toolbar, as the server renders it: the two buttons, the shared
+ * feedback line, and the method radios that live in the dialog.
+ */
+function toolbar() {
+    return `
+        <div>
+            <button type="button" id="passage-optimize-run" data-endpoint="/passage/optimiser">Répartir</button>
+            <form data-confirm="Réinitialiser ?">
+                <button type="button" id="passage-reset" data-endpoint="/passage/reinitialiser">Réinitialiser</button>
+            </form>
+            <span id="passage-optimize-feedback"></span>
+            <input type="radio" name="passage-optimize-method" value="balanced" checked>
+            <input type="radio" name="passage-optimize-method" value="wishes">
+        </div>`;
+}
+
+const PAGE = `${toolbar()}${statisticsBox()}<table><tbody>
     ${row('/passage/inscription/12/section', 'intended_section_id', 4)}
     ${row('/passage/membre/77/destination', 'destination_section_id', 9)}
     ${planningBlock(77)}
@@ -281,6 +298,76 @@ describe('registration-passage.js', () => {
             await expect(boot()).resolves.not.toThrow();
             document.querySelector('.passage-save').click();
             await vi.waitFor(() => expect(document.querySelector('.passage-feedback').textContent).toBe('Enregistré.'));
+        });
+    });
+
+    describe('optimising and resetting (IT-18)', () => {
+        const feedback = () => document.getElementById('passage-optimize-feedback');
+
+        beforeEach(() => {
+            // The two handlers reload the page on success; jsdom has no
+            // navigation, so the call is observed rather than performed.
+            delete window.location;
+            window.location = { reload: vi.fn() };
+            window.ScoutMagicConfirm = { ask: vi.fn(() => Promise.resolve(true)) };
+        });
+
+        it('sends the method the chief chose', async () => {
+            await boot();
+            document.querySelector('input[value="wishes"]').checked = true;
+
+            document.getElementById('passage-optimize-run').click();
+
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+            expect(lastRequest()).toEqual({
+                url: '/passage/optimiser',
+                body: { method: 'wishes', _csrf_token: 'tok-123' },
+            });
+        });
+
+        it('says how many were placed, and repeats the warnings the server sent', async () => {
+            global.fetch = vi.fn(() => jsonResponse({
+                success: true,
+                placed: 7,
+                warnings: ["Écart d'effectif de 38 %, au-delà de la limite."],
+            }));
+            await boot();
+
+            document.getElementById('passage-optimize-run').click();
+
+            await vi.waitFor(() => expect(feedback().textContent).toContain('7 personnes réparties.'));
+            expect(feedback().textContent).toContain("Écart d'effectif de 38 %");
+            expect(feedback().classList.contains('text-danger')).toBe(true);
+        });
+
+        it('does not reload when the server refuses, and says why', async () => {
+            global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Indisponible.' }));
+            await boot();
+
+            document.getElementById('passage-optimize-run').click();
+
+            await vi.waitFor(() => expect(feedback().textContent).toBe('Indisponible.'));
+            expect(window.location.reload).not.toHaveBeenCalled();
+        });
+
+        it('ASKS BEFORE RESETTING, through the site dialog and never window.confirm', async () => {
+            await boot();
+
+            document.getElementById('passage-reset').click();
+
+            await vi.waitFor(() => expect(window.ScoutMagicConfirm.ask).toHaveBeenCalled());
+            expect(window.ScoutMagicConfirm.ask.mock.calls[0][0].message).toBe('Réinitialiser ?');
+            await vi.waitFor(() => expect(lastRequest().url).toBe('/passage/reinitialiser'));
+        });
+
+        it('resets nothing when the question is answered no', async () => {
+            window.ScoutMagicConfirm = { ask: vi.fn(() => Promise.resolve(false)) };
+            await boot();
+
+            document.getElementById('passage-reset').click();
+
+            await vi.waitFor(() => expect(window.ScoutMagicConfirm.ask).toHaveBeenCalled());
+            expect(fetch).not.toHaveBeenCalled();
         });
     });
 

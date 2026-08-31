@@ -1132,6 +1132,16 @@ Folding goes through `Core\Service\TextNormalizerService::fold()`. The previous 
 
 **`Service\PassageCommentReviewService`** is the optional AI half: nullable `Api\LlmConnectorInterface`, silent degradation, one call per comment enforced by `ai_source_hash`, results stored unconfirmed and read by nothing until `ai_confirmed`. It runs on an explicit POST (`/passage/relire-commentaires`), never on a GET — sending a family's comment to a provider is a transmission, and it happens because a chief asked.
 
+### 8.37quater Registration module — the passage optimiser (IT-18)
+
+`Service\PassageOptimizationService` distributes everybody nobody has placed yet, in the answer to `POST /passage/optimiser` (`specifications.md` §18.2ter). Synchronous by design: no scheduled task, no polling, no disabled button. `PassageOptimizationOutcome` is the plan; `apply()` writes it in ONE transaction, and `plan()` writes nothing — which is what makes the algorithm testable without a database round trip per candidate.
+
+**The score is a tuple compared lexicographically**, and the two balance limits are its first two components (negative overshoot) rather than a feasibility filter. That is what lets the button always answer: an infeasible branch scores negatively and still returns a distribution, with a French sentence saying by how much it missed. First-year overshoot comes before headcount overshoot because §14 makes that the limit that wins.
+
+**Determinism** comes from `Service\DeterministicRandom`, a tiny LCG of its own — not `mt_rand()`/`shuffle()`, whose global generator is shared with everything else in the request, so seeding it does not make a run reproducible. `Service\UnionFind` composes the two sibling links (declared siblings on a request, `PassageService::householdMemberYearIds()` for branch changes) so a chain of three children in one household is one group rather than three pairs.
+
+**`householdMemberYearIds()`** was split out of `PassageService::resolveHouseholds()` rather than copied: a second query answering « même adresse » its own way would be a second definition of the one notion this page is most careful never to call « fratrie ».
+
 ### 8.38 Registration module — Prévisions and the year-transition veto (iteration 7)
 
 The module's final iteration: a read-only headcount projection, and the first veto a module ever opposes to a core operation.

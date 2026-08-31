@@ -636,6 +636,23 @@ Once the reenrollment campaign (§18.5) has run, each line carries what that fam
 
 **An optional AI re-reading** of the remaining free comments is offered when the `llm_connector` module is active and has a provider. It runs on an explicit gesture, never on page load, and the button says how many comments would be sent — because a family's comment reaching an external provider is a transmission (§RGPD). Each comment is sent **once**: the result is stored against a hash of the comment, so a family who edits theirs is re-read exactly once more. What comes back is shown **« à vérifier »** and is used by nothing until a chief confirms it. Negative wishes (« surtout pas avec X ») stay free text for a human to read, whatever channel they arrive through: they never feed a placement.
 
+#### 18.2ter Répartir automatiquement
+
+Two buttons above the tables. **« Optimiser la répartition »** opens a dialog announcing what the run will and will not touch — how many people are still to place, and how many assignments it will leave alone — and offering two methods:
+
+- **« Souhaits et équilibre »** (the default): honours the wishes as far as the balance limits allow.
+- **« Respecter les souhaits »**: everybody goes where they were asked to go, with no balancing at all.
+
+One algorithm serves both — a greedy construction, then pair swaps with random restarts under a fixed seed — so the two can never disagree about what a wish is worth. It runs **synchronously, in the answer to the request**: no scheduled task, no polling, no waiting banner. That is a constraint on the algorithm rather than a wish about the interface; a strict budget guarantees an answer whatever the roster size, returning the best distribution found so far rather than an error.
+
+**It never touches a line that already carries a section.** There is no record anywhere of who assigned what — deliberately, and the reset button has none either — so « chosen by hand » is read the only way it can be without inventing one: a line with a section is kept, a line without one is placed. A chief who wants everything reconsidered presses « Réinitialiser » first.
+
+**Two hard limits, per branch**, both read as the spread between the fullest and the emptiest section, `(max − min) / max`, against `passage_max_section_imbalance_percent`: the number of **first years**, and the **total headcount**. When they cannot both hold, the first-year limit wins and the result says so — « écart d'effectif de 83 %, au-delà de la limite de 30 % — nécessaire pour répartir équitablement les premières années ». When even the first-year limit cannot hold, the least-bad distribution comes back with its own sentence. **The button never refuses to answer.**
+
+**The score is lexicographic**, in this order: the section a family explicitly asked for, then siblings in the same section, then friend wishes. Lexicographic and not weighted — weights would let two friend wishes outvote a family's explicit request. « Siblings » means the links declared on a registration request and the « même adresse » link for branch changes, used exactly as the page shows them; `passage_keep_siblings_together` switches the criterion off. Only wishes **matched to exactly one member, or disambiguated by a chief**, count: never a raw name, never something the AI read into a comment and nobody confirmed, never a negative wish. The girls/boys mix is not in the score and stays displayed as it is.
+
+**« Réinitialiser »** empties every destination of the target year, then puts back the ones that were never a choice — a branch with a single section — which is exactly what the hourly auto-assign already does. Everything is written in one transaction: a distribution half applied is worse than none. The statistics box (§18.2) is recomputed in the same answer.
+
 ### 18.3 Mailing list for the mass-mail module
 
 When the mass-mail module (§4.3) is also active, its "nouvel email" list picker gains one extra, non-editable entry: **"Inscriptions {année scoute cible}"** — always named after the target year (never reused across years), containing every request that has been both accepted and encoded into Desk for that year (a still-pending, refused, or withdrawn request never appears). Its member list is recomputed at the moment an email actually sends, never fixed when the email is drafted. Available only to a chef d'unité (or above), same as the mass-mail module's own unit-wide lists. If the inscriptions module is disabled, this entry simply doesn't appear and the mass-mail module works exactly as it does today; if the mass-mail module is disabled, nothing changes on the inscriptions side.

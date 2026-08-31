@@ -85,6 +85,22 @@ class SectionTransferRepository
     }
 
     /**
+     * Every destination of one target year, gone (roadmap IT-18's
+     * « Réinitialiser »).
+     *
+     * A single DELETE rather than a loop over clearDestination(): the
+     * button empties the year, and doing that one row at a time would make
+     * a half-reset possible on the way to a reset.
+     */
+    public function clearAllForYear(int $targetScoutYearId): void
+    {
+        $stmt = $this->pdo->prepare(
+            'DELETE FROM registration_section_transfers WHERE target_scout_year_id = ?'
+        );
+        $stmt->execute([$targetScoutYearId]);
+    }
+
+    /**
      * SELECT-then-branch UPDATE/INSERT — never `ON DUPLICATE KEY UPDATE`,
      * same portability rule as the rest of this module (SQLite, used by
      * the test suite, doesn't support it). `updated_at` is PHP-computed

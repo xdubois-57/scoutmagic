@@ -4700,6 +4700,20 @@ if ($isEnabled('registration')) {
                 $registrationReenrollmentRepository,
                 $registrationPassageNoteRepository,
                 $llmConnectorForOthers
+            ),
+            // IT-18 — « Optimiser la répartition ». Synchronous, in the
+            // answer to the request: no scheduled task to wire, and
+            // nothing here that a page load waits on.
+            new \Modules\Registration\Service\PassageOptimizationService(
+                $registrationPassageService,
+                $registrationProjectedPopulation,
+                $registrationRequestRepo,
+                $registrationReenrollmentRepository,
+                $registrationPassageNoteRepository,
+                $registrationSectionTransferRepo,
+                $memberYearRepo,
+                $settingService,
+                $pdo
             )
         )
     );

@@ -446,6 +446,45 @@ class PassageService
      */
     private function resolveHouseholds(array $memberYearIds, int $scoutYearId): array
     {
+        $neighbours = $this->householdMemberYearIds($memberYearIds, $scoutYearId);
+        if ($neighbours === []) {
+            return [];
+        }
+
+        $everybody = [];
+        foreach ($neighbours as $ids) {
+            foreach ($ids as $id) {
+                $everybody[$id] = true;
+            }
+        }
+        $labels = $this->resolveMemberYearNamesAndSections(array_keys($everybody));
+
+        $households = [];
+        foreach ($neighbours as $memberYearId => $ids) {
+            foreach ($ids as $id) {
+                $households[$memberYearId][] = $labels[$id] ?? ['name' => '?', 'section_label' => null];
+            }
+        }
+
+        return $households;
+    }
+
+    /**
+     * The same « même adresse » link, as IDS rather than as names.
+     *
+     * Split out of resolveHouseholds() rather than copied (roadmap IT-18):
+     * the optimiser needs to know which of the people it is placing share
+     * an address, and a second query answering that question its own way
+     * would be a second definition of « même adresse » — the one notion
+     * this page is most careful never to call « fratrie ».
+     *
+     * @param array<int> $memberYearIds
+     * @return array<int, array<int, int>> member_year_id => the OTHER
+     *         member_year ids at one of its addresses; a member with no
+     *         neighbour is absent, never present with an empty list
+     */
+    public function householdMemberYearIds(array $memberYearIds, int $scoutYearId): array
+    {
         $memberYearIds = array_values(array_unique($memberYearIds));
         if ($memberYearIds === []) {
             return [];
@@ -490,8 +529,6 @@ class PassageService
             $allOccupantIds[$occupantId] = true;
         }
 
-        $labels = $this->resolveMemberYearNamesAndSections(array_keys($allOccupantIds));
-
         $households = [];
         foreach ($blindsByMemberYear as $memberYearId => $blinds) {
             $seen = [];
@@ -503,7 +540,7 @@ class PassageService
                         continue;
                     }
                     $seen[$occupantId] = true;
-                    $households[$memberYearId][] = $labels[$occupantId] ?? ['name' => '?', 'section_label' => null];
+                    $households[$memberYearId][] = $occupantId;
                 }
             }
         }

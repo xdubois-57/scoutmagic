@@ -24,8 +24,11 @@
     /** @type {NodeListOf<HTMLButtonElement>} */
     var buttons = document.querySelectorAll('.passage-save');
 
-    // A no-op on every other page of the site.
-    if (!buttons.length) {
+    // A no-op on every other page of the site. The guard asks for the
+    // page's own toolbar as well as its rows: a unit whose two tables are
+    // both empty still has « Réinitialiser » to press, and keying the
+    // whole file on a per-row button would have left it dead there.
+    if (!buttons.length && !document.getElementById('passage-optimize-feedback')) {
         return;
     }
 
@@ -224,6 +227,95 @@
             });
         });
     });
+
+    // ── Optimise and reset (spec §14 — roadmap IT-18) ────────────────
+    //
+    // Both are one round trip and a reload. The page is server-rendered
+    // row by row, and a distribution touches dozens of rows at once, so
+    // patching them here would be a second renderer for the whole table —
+    // the same reasoning that keeps the statistics box server-side.
+    //
+    // Nothing here polls, and nothing waits: the server answers with the
+    // result. api.withDisabled() greys the button for the duration of the
+    // request itself, which is not a "calculation in progress" state but
+    // the ordinary guard against a double click.
+
+    /** @param {string[]|undefined} warnings */
+    function reportWarnings(box, placed, warnings) {
+        var sentence = placed + (placed > 1 ? ' personnes réparties.' : ' personne répartie.');
+        if (Array.isArray(warnings) && warnings.length) {
+            sentence += ' ' + warnings.join(' ');
+        }
+        inlineFeedback(box, sentence, Array.isArray(warnings) && warnings.length > 0);
+    }
+
+    var optimizeButton = /** @type {HTMLButtonElement|null} */ (document.getElementById('passage-optimize-run'));
+    if (optimizeButton) {
+        optimizeButton.addEventListener('click', function () {
+            var box = document.getElementById('passage-optimize-feedback');
+            var chosen = /** @type {HTMLInputElement|null} */ (
+                document.querySelector('input[name="passage-optimize-method"]:checked')
+            );
+
+            inlineFeedback(box, 'Répartition en cours…', false);
+
+            api.withDisabled(optimizeButton, function () {
+                return api.postJson(optimizeButton.dataset.endpoint || '', {
+                    method: chosen ? chosen.value : 'balanced',
+                }).then(function (res) {
+                    if (res.data && res.data.success) {
+                        // The warnings are the one thing worth carrying
+                        // across the reload, and sessionStorage is the
+                        // wrong tool for one sentence — so they are shown
+                        // first and the reload waits a beat for them.
+                        reportWarnings(box, res.data.placed, res.data.warnings);
+                        refreshStatistics(res.data.statistics_html);
+                        window.setTimeout(function () { window.location.reload(); }, 1200);
+                        return;
+                    }
+                    inlineFeedback(
+                        box,
+                        res.status === 0 ? 'Erreur réseau.' : (res.data && res.data.error) || 'La répartition a échoué.',
+                        true
+                    );
+                });
+            });
+        });
+    }
+
+    var resetButton = /** @type {HTMLButtonElement|null} */ (document.getElementById('passage-reset'));
+    if (resetButton) {
+        resetButton.addEventListener('click', function () {
+            var form = resetButton.closest('form');
+            var question = form ? form.dataset.confirm || '' : '';
+
+            // The site's own confirmation, never window.confirm()
+            // (design.md §7.5). Asked here rather than through the
+            // delegated form handler because this button posts JSON and
+            // reloads; a real form submit would answer with a page.
+            window.ScoutMagicConfirm.ask({ message: question, confirmLabel: 'Réinitialiser' }).then(function (agreed) {
+                if (!agreed) {
+                    return;
+                }
+                var box = document.getElementById('passage-optimize-feedback');
+                inlineFeedback(box, 'Réinitialisation…', false);
+
+                api.withDisabled(resetButton, function () {
+                    return api.postJson(resetButton.dataset.endpoint || '', {}).then(function (res) {
+                        if (res.data && res.data.success) {
+                            window.location.reload();
+                            return;
+                        }
+                        inlineFeedback(
+                            box,
+                            res.status === 0 ? 'Erreur réseau.' : (res.data && res.data.error) || 'La réinitialisation a échoué.',
+                            true
+                        );
+                    });
+                });
+            });
+        });
+    }
 
     // ── The optional AI re-reading ───────────────────────────────────
     //

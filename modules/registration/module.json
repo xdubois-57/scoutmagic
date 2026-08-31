@@ -443,6 +443,24 @@
       "label": ""
     },
     {
+      "path": "/passage/optimiser",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\PassageController",
+      "action": "optimize",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/passage/reinitialiser",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\PassageController",
+      "action": "resetAssignments",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
       "path": "/passage/relire-commentaires",
       "method": "POST",
       "controller": "Modules\\Registration\\Controller\\PassageController",

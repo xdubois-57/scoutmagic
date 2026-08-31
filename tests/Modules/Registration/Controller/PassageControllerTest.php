@@ -148,7 +148,15 @@ class PassageControllerTest extends TestCase
                 $reenrollmentService
             ),
             $this->passageNoteRepository,
-            $this->reenrollmentRepository
+            $this->reenrollmentRepository,
+            // No llm_connector in this fixture: the AI block is optional,
+            // and its absence is one of the things this class asserts.
+            null,
+            \Tests\Modules\Registration\RegistrationTestHelper::passageOptimization(
+                $this->pdo,
+                $encryption,
+                $settingService
+            )
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -581,6 +589,103 @@ class PassageControllerTest extends TestCase
         );
 
         $this->assertSame(422, $response->getStatusCode());
+    }
+
+    // ── IT-18: optimise and reset ─────────────────────────────────────
+
+    public function testOptimisingPlacesEverybodyNobodyHadPlaced(): void
+    {
+        \Core\Security\AuthSession::login(1, 'admin@example.com', 'admin');
+        $first = $this->createLouveteauLastRank();
+        $second = $this->createLouveteauLastRank();
+
+        $response = $this->controller->optimize(
+            $this->jsonBodyRequest('POST', '/passage/optimiser', ['method' => 'balanced']),
+            []
+        );
+
+        $body = json_decode($response->getBody(), true);
+        $this->assertTrue($body['success']);
+        $this->assertSame(2, $body['placed']);
+        $this->assertNotSame(
+            null,
+            $this->transferRepository->findDestinationSectionId($first['member_id'], $this->targetYearId())
+        );
+        $this->assertNotSame(
+            null,
+            $this->transferRepository->findDestinationSectionId($second['member_id'], $this->targetYearId())
+        );
+    }
+
+    /**
+     * The answer carries the recomputed box, exactly like a single save —
+     * one round trip, and no cached figure between a decision and its
+     * effect.
+     */
+    public function testTheOptimisationAnswerCarriesTheRecomputedStatistics(): void
+    {
+        \Core\Security\AuthSession::login(1, 'admin@example.com', 'admin');
+        $this->createLouveteauLastRank();
+
+        $body = json_decode($this->controller->optimize(
+            $this->jsonBodyRequest('POST', '/passage/optimiser', ['method' => 'balanced']),
+            []
+        )->getBody(), true);
+
+        $this->assertStringContainsString('passage-statistics', $body['statistics_html']);
+    }
+
+    public function testOptimisingRejectsAForgedRequestWithoutACsrfToken(): void
+    {
+        \Core\Security\AuthSession::login(1, 'admin@example.com', 'admin');
+        $this->createLouveteauLastRank();
+
+        $response = $this->controller->optimize(
+            $this->rawJsonRequest('POST', '/passage/optimiser', ['method' => 'balanced']),
+            []
+        );
+
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    public function testResettingEmptiesTheYearAndAnswersWithTheRecomputedBox(): void
+    {
+        \Core\Security\AuthSession::login(1, 'admin@example.com', 'admin');
+        $member = $this->createLouveteauLastRank();
+        $this->transferRepository->setDestination($member['member_id'], $this->targetYearId(), $this->eclaireursSectionId);
+
+        $body = json_decode($this->controller->resetAssignments(
+            $this->jsonBodyRequest('POST', '/passage/reinitialiser', []),
+            []
+        )->getBody(), true);
+
+        $this->assertTrue($body['success']);
+        $this->assertStringContainsString('passage-statistics', $body['statistics_html']);
+        // Éclaireurs holds exactly ONE section in this fixture, so the
+        // reset puts it straight back — which is the documented behaviour,
+        // not a leftover: a branch with one section was never a decision to
+        // lose. The multi-section case is pinned in
+        // PassageOptimizationServiceTest, where the branch really offers a
+        // choice.
+        $this->assertSame(
+            $this->eclaireursSectionId,
+            $this->transferRepository->findDestinationSectionId($member['member_id'], $this->targetYearId())
+        );
+        $this->assertSame(1, $body['reassigned']);
+    }
+
+    public function testThePageAnnouncesWhatTheDialogWillAndWillNotTouch(): void
+    {
+        \Core\Security\AuthSession::login(1, 'admin@example.com', 'admin');
+        $kept = $this->createLouveteauLastRank();
+        $this->createLouveteauLastRank();
+        $this->transferRepository->setDestination($kept['member_id'], $this->targetYearId(), $this->eclaireursSectionId);
+
+        $body = $this->controller->index(new Request('GET', '/passage', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Optimiser la répartition', $body);
+        $this->assertMatchesRegularExpression('#<strong>1</strong>\s*personne à répartir#', $body);
+        $this->assertMatchesRegularExpression('#<strong>1</strong>\s*assignation déjà faite sera conservée#', $body);
     }
 
     private function targetYearId(): int
