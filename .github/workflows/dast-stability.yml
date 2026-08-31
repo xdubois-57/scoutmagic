@@ -1,0 +1,135 @@
+# TEMPORARY — measures how often the passive scan actually fails.
+#
+# Not a gate and not part of CI. It exists to answer one question with a
+# number instead of an impression: on current main, does
+# `Dynamic scan (passive)` still flake?
+#
+# Why a matrix rather than re-running CI twenty times: the flake lives in
+# ONE job. Pushing twenty commits would run seven jobs each — a hundred
+# and forty jobs to observe twenty samples of one. This runs exactly the
+# job under suspicion, twenty times in parallel, with the same service,
+# the same setup steps and the same `./scripts/dast.sh --profile=passive`
+# call as .github/workflows/ci.yml's dast-passive job. Any drift from that
+# job makes this measurement worthless, so keep the two in step.
+#
+# fail-fast is off on purpose: a run that stops at the first red sample
+# reports "it failed" when the number wanted is "it failed 1 time in 20".
+#
+# WHAT THIS BATCH IS TESTING
+# ---------------------------------------------------------------------
+# Three causes have been found and fixed since the ~21% baseline (5
+# browser-suite failures in 24 runs) that prompted the first batch:
+#
+#   1. the Bootstrap overlay transition race (#122) — the first batch
+#      measured 18/19 green against that baseline;
+#   2. provisioning giving up on an incomplete schema migration (58b3b7ae,
+#      in #122) — the cause of the Authorization matrix failure;
+#   3. a session/CSRF identity race in rental-request.spec.js (#128) — the
+#      one red sample of the first batch, root-caused from its trace.
+#
+# Four consecutive green CI runs on main is weak evidence on its own: at a
+# 20% failure rate that happens about 39% of the time anyway. Twenty
+# samples is what turns that into a number.
+#
+# One known failure is NOT accounted for by any of the three: an
+# End-to-end run on 6f7669ef where finance-payment-labels and
+# public-home-page failed together ("an abandoned receivable owes
+# nothing"). Neither spec juggles identities, so #128 does not explain it.
+# If a sample goes red here, check it against that shape before assuming
+# a regression — and note this probe replays the CONFIDENCE tier, so both
+# of those specs are in it.
+#
+# DELETE THIS FILE once the question is settled. It is a measurement
+# instrument, not infrastructure.
+name: DAST stability probe
+
+# Push-triggered on this one branch, not workflow_dispatch: GitHub only
+# offers manual dispatch for workflows that already exist on the default
+# branch, and this must never reach main. One push starts all twenty
+# samples; an empty commit starts another batch.
+on:
+  push:
+    branches: [probe/dast-stability-main]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: passive scan (sample ${{ matrix.sample }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        # Twenty samples. If the true failure rate were still the ~21%
+        # baseline, twenty all-green would happen by luck about 1% of the
+        # time — so all-green here is a real answer rather than a lucky
+        # streak. It still cannot prove a rate BELOW roughly 5%: twenty
+        # green samples are equally consistent with 0% and with 3%.
+        sample: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test_password
+          MYSQL_DATABASE: test_db
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
+        with:
+          php-version: '8.4'
+          extensions: mbstring, pdo, pdo_mysql, openssl, pcntl, imagick
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install PHP dependencies
+        run: composer install --prefer-dist --no-progress
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Install the Chromium runtime
+        run: npm run e2e:install
+
+      - name: Pull the OWASP ZAP image
+        run: docker pull ghcr.io/zaproxy/zaproxy:stable
+
+      - name: Run the passive scan
+        env:
+          DAST_DB_HOST: 127.0.0.1
+          DAST_DB_PORT: 3306
+          DAST_DB_USER: root
+          DAST_DB_PASSWORD: test_password
+        run: ./scripts/dast.sh --profile=passive
+
+      # Only on failure, and named per sample so twelve parallel jobs do
+      # not collide on one artifact name. This is the evidence that says
+      # WHICH failure a red sample was: an overlay stuck in its pre-click
+      # state (the bug this is testing), a provisioning failure ("schema
+      # migration did not complete", a separate and rarer cause), or a
+      # genuine security finding.
+      - name: Upload the diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dast-sample-${{ matrix.sample }}
+          path: |
+            dast-report/
+            tests/e2e/playwright-report
+            tests/e2e/test-results
+          retention-days: 3
