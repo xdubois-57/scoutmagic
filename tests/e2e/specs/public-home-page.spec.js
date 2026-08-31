@@ -379,10 +379,16 @@ test('with money due and unread group activity at once, the home page shows one 
 
     const paymentBand = page.locator('#home-payment-due');
     await expect(paymentBand, 'the payment band must be the one shown').toBeVisible();
-    await expect(paymentBand).toContainText('reste à payer');
-    await expect(paymentBand).toContainText('42,50');
-    // Its own campaign, not a leftover from another scenario.
-    await expect(paymentBand).toContainText(CAMPAIGN_LABEL);
+    // « reste » or « restent » — the headline is a total across every
+    // campaign that bills this member, and another spec's campaign
+    // legitimately adds a second line to it. What this scenario is about
+    // is that the band is the PAYMENT one and that it carries its own
+    // demand, so the amount is asserted on that demand's row rather than
+    // on a total this spec does not own.
+    await expect(paymentBand).toContainText(/restent? à payer/);
+    const ownDemand = paymentBand.locator('li', { hasText: CAMPAIGN_LABEL });
+    await expect(ownDemand, 'its own campaign, not a leftover from another scenario').toBeVisible();
+    await expect(ownDemand).toContainText('42,50');
     // One style for all three bands (design.md §7.8 / plain Bootstrap):
     // the band is informative, not a warning.
     await expect(paymentBand).toHaveClass(/alert-info/);
