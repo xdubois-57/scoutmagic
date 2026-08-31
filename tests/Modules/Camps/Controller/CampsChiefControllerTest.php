@@ -305,8 +305,13 @@ class CampsChiefControllerTest extends TestCase
         $html = $response->getBody();
 
         $this->assertSame(200, $response->getStatusCode());
-        $this->assertStringContainsString('2021', $html, 'The most recent past stay is the one shown.');
-        $this->assertStringNotContainsString('2019', $html, 'Only one stay per page.');
+        // Matched on the card's own wording rather than on the bare year:
+        // the page carries a 64-hex CSRF token, so a four-digit needle is
+        // present by accident about once in a thousand renders — which is
+        // exactly how this assertion failed in CI on a change that touched
+        // neither camps nor pagination.
+        $this->assertStringContainsString('juillet 2021', $html, 'The most recent past stay is the one shown.');
+        $this->assertStringNotContainsString('juillet 2019', $html, 'Only one stay per page.');
         // And a way to reach the rest.
         $this->assertStringContainsString('?statut=&amp;page=2', $html);
     }
