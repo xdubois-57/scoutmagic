@@ -284,6 +284,135 @@ class RetentionAndQuotaTest extends TestCase
         return $this->purge->purge($this->messages, new FileRepository($this->pdo), 90, $at ?? $this->now);
     }
 
+    // ── The task as the scheduler actually runs it ──────────────────────
+
+    public function testTheScheduledRunRemovesWhatThePurgeWouldAndSaysSoWithACountAlone(): void
+    {
+        // The journal line is the sensitive part. Naming a sender or a
+        // subject there would write down exactly what the retention exists
+        // to stop keeping (§7.9), so the entry carries a number and
+        // nothing else.
+        // handle() reads the real clock rather than this file's frozen
+        // 2027, so this one message is dated against it.
+        $old = $this->storeRealTimeMessage('vieux@example.be', '-100 days');
+
+        $this->runHandler();
+
+        $this->assertNull($this->messages->findAnyForAnalysis($old));
+
+        $entry = $this->pdo->query(
+            "SELECT * FROM event_log WHERE event_type = 'inbound_messages_purged'"
+        )->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($entry);
+        $row = json_encode($entry, JSON_UNESCAPED_UNICODE);
+        $this->assertIsString($row);
+        $this->assertStringNotContainsString('vieux@example.be', $row);
+        $this->assertStringNotContainsString('Sujet', $row);
+        $this->assertStringContainsString('1', $row);
+    }
+
+    public function testARunThatRemovedNothingWritesNoJournalEntryAtAll(): void
+    {
+        // A daily task that logs every time it finds nothing turns the
+        // journal into noise nobody reads.
+        $this->storeRealTimeMessage('recent@example.be', '-10 days');
+
+        $this->runHandler();
+
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query(
+                "SELECT COUNT(*) FROM event_log WHERE event_type = 'inbound_messages_purged'"
+            )->fetchColumn()
+        );
+    }
+
+    public function testTheTaskPutsItselfBackOnTheScheduleEvenWhenItPurgedNothing(): void
+    {
+        // Unconditional, and not through bootstrap(): the runner marks this
+        // task done only after handle() returns, so a guard would find it
+        // still pending, skip, and end the chain after one run.
+        $this->runHandler();
+
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query(
+                "SELECT COUNT(*) FROM scheduled_actions
+                  WHERE task_key = '" . PurgeUnlinkedMessagesHandler::TASK_KEY . "'"
+            )->fetchColumn()
+        );
+    }
+
+    public function testAUnitThatConfiguredCampsRetentionKeepsItRatherThanBeingCutTo90(): void
+    {
+        // A unit that asked for six months of unsorted camp mail expects to
+        // find six months of it; shortening that in silence would be the
+        // module deleting data nobody asked it to delete (A8).
+        $this->declareSetting('camps', PurgeUnlinkedMessagesHandler::CAMPS_LEGACY_SETTING, '6');
+
+        $this->assertSame(
+            PurgeUnlinkedMessagesHandler::CAMPS_LEGACY_RETENTION_DAYS,
+            $this->purge->retentionDays(new SettingService(new SettingRepository($this->pdo)))
+        );
+    }
+
+    public function testAFreshInstallationStartsAtTheDefault(): void
+    {
+        $this->assertSame(
+            PurgeUnlinkedMessagesHandler::DEFAULT_RETENTION_DAYS,
+            $this->purge->retentionDays(new SettingService(new SettingRepository($this->pdo)))
+        );
+    }
+
+    private function storeRealTimeMessage(string $messageId, string $age): int
+    {
+        static $uid = 900;
+
+        return $this->messages->create(
+            mailboxId: 1,
+            folder: 'INBOX',
+            uidValidity: 1,
+            imapUid: ++$uid,
+            messageId: $messageId,
+            inReplyTo: null,
+            subject: 'Sujet',
+            fromEmail: 'jeanne@example.be',
+            fromName: null,
+            bodyText: 'Bonjour',
+            bodyHtml: '',
+            sentAt: (new \DateTimeImmutable())->modify($age)
+        );
+    }
+
+    private function runHandler(): void
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+
+        $this->purge->handle([], new \Core\Scheduler\TaskContext(
+            \Core\Database\Connection::withPdo($this->pdo),
+            $encryption,
+            $this->createMock(\Core\Mail\MailService::class),
+            new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo)),
+            new SettingService(new SettingRepository($this->pdo)),
+            new \Core\Security\UserAccountRepository($this->pdo, $encryption),
+            sys_get_temp_dir()
+        ));
+    }
+
+    /**
+     * Written straight into `settings`: SettingService::set() refuses a key
+     * no module registration has declared, and these cases are about the
+     * retention rather than about the settings machinery.
+     */
+    private function declareSetting(string $moduleId, string $key, string $value): void
+    {
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO settings (module_id, setting_key, setting_value, default_value, setting_type, label, description)
+             VALUES (?, ?, ?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([$moduleId, $key, $value, '', 'text', 'Réglage', '']);
+    }
+
     private function storeMessage(string $messageId, string $age = '-1 day'): int
     {
         static $uid = 100;
