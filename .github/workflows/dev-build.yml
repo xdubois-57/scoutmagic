@@ -24,7 +24,15 @@
 # channels apart: a `dev-build` release that ever became "latest" would be
 # offered to, and auto-installed by, every site on patch/minor/major.
 #
-# THIS REPOSITORY HAS RELEASE IMMUTABILITY ENABLED, and that shapes the
+# THE TAG IS `dev-latest`, AND THE ORIGINAL `dev-build` IS UNUSABLE
+# FOREVER: a tag name once used by an immutable release stays reserved by
+# GitHub's rulesets even after that release is deleted AND the repository
+# setting is disabled ("tag_name was used by an immutable release" —
+# measured over three attempts). If this tag ever has to change again,
+# every installed site still runs code pointing at the previous name
+# (GitHubWebhookService::DEV_BUILD_TAG): plan the bridge before renaming.
+#
+# THIS REPOSITORY HAD RELEASE IMMUTABILITY ENABLED, and that shaped the
 # whole publish step. A published release's assets and tag are frozen —
 # the first version of this workflow created the release and then tried
 # `gh release upload`, and GitHub answered
@@ -32,11 +40,9 @@
 # The only supported way to change what `dev-build` serves is therefore
 # to DELETE the previous release outright and create a new one whose
 # asset is already attached when it is published: create as a DRAFT with
-# the file, then flip the draft bit. Immutability locks at publish time,
-# with the asset in place. The tag stays `dev-build` on purpose — it is
-# the address every installed site's Core\Maintenance\GitHubWebhookService
-# builds its download URL from, and changing it would strand every site
-# still running the previous code.
+# the file, then flip the draft bit. The flow is kept even now that the
+# setting is off — it works in both worlds, where upload-after-publish
+# only works in one.
 
 name: Dev build
 
@@ -98,23 +104,24 @@ jobs:
       # publish: a leftover release or tag degrades to a stale-but-working
       # asset and a loud log line, while a hard stop here would leave the
       # dev channel with no artifact at all for this commit.
-      - name: Publish the dev-build prerelease
+      - name: Publish the dev-latest prerelease
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: dev-latest
         run: |
           set -euo pipefail
 
-          if gh release view dev-build >/dev/null 2>&1; then
-            gh release delete dev-build --yes \
-              || echo "WARNING: could not delete the previous dev-build release; publish below may fail"
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release delete "${RELEASE_TAG}" --yes \
+              || echo "WARNING: could not delete the previous ${RELEASE_TAG} release; publish below may fail"
           fi
           # The tag is frozen alongside an immutable release and freed by
           # its deletion; remove it so the draft below re-creates it at
           # THIS commit rather than reusing wherever it pointed before.
-          gh api -X DELETE "repos/${GITHUB_REPOSITORY}/git/refs/tags/dev-build" >/dev/null 2>&1 \
-            || echo "NOTE: no previous dev-build tag to delete (or deletion refused; the release will reuse it)"
+          gh api -X DELETE "repos/${GITHUB_REPOSITORY}/git/refs/tags/${RELEASE_TAG}" >/dev/null 2>&1 \
+            || echo "NOTE: no previous ${RELEASE_TAG} tag to delete (or deletion refused; the release will reuse it)"
 
-          gh release create dev-build "${GITHUB_WORKSPACE}/${ASSET}" \
+          gh release create "${RELEASE_TAG}" "${GITHUB_WORKSPACE}/${ASSET}" \
             --draft --prerelease \
             --target "${GITHUB_SHA}" \
             --title "Development build" \
@@ -123,12 +130,12 @@ jobs:
           # The publish. --latest=false re-asserted even though prerelease
           # already implies it: the invariant in the header is not left to
           # implication.
-          gh release edit dev-build --draft=false --prerelease --latest=false >/dev/null
+          gh release edit "${RELEASE_TAG}" --draft=false --prerelease --latest=false >/dev/null
 
           # Prove the asset is really reachable at the address every
           # installed site will build, or fail THIS run rather than let a
           # site discover it after its 10-minute wait.
           sleep 5
           curl -sSfLI -o /dev/null \
-            "https://github.com/${GITHUB_REPOSITORY}/releases/download/dev-build/${ASSET}"
-          echo "Published ${ASSET} on dev-build at ${GITHUB_SHA}"
+            "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/${ASSET}"
+          echo "Published ${ASSET} on ${RELEASE_TAG} at ${GITHUB_SHA}"

@@ -1509,7 +1509,7 @@ class MaintenanceControllerTest extends TestCase
         // vendor/ and was the silent-dependency-drift channel.
         $this->assertSame('release', $payload['source_type']);
         $this->assertSame(
-            'https://github.com/owner/repo/releases/download/dev-build/scoutmagic-dev-a1b2c3d.zip',
+            'https://github.com/owner/repo/releases/download/dev-latest/scoutmagic-dev-a1b2c3d.zip',
             $payload['download_url']
         );
 

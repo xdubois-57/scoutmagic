@@ -962,3 +962,16 @@ exactement comme avant.
   aws/aws-sdk-php: ["S3"]` — seul S3 est utilisé, par la galerie) la
   ramènent à 31 Mo pour 12 000 entrées, mesuré sur une construction
   réelle. Le canal stable en profite à l'identique.
+
+### Post-scriptum — le tag brûlé
+
+L'immutabilité des releases GitHub a coûté trois passages du workflow :
+le premier a échoué en téléversant un asset sur une release publiée
+(« Cannot upload assets to an immutable release »), le second et le
+troisième en republiant sous le même tag après suppression — « tag_name
+was used by an immutable release », y compris une fois l'option
+désactivée sur le dépôt. Un nom de tag ayant porté une release immuable
+est réservé pour toujours. Le canal publie donc sous `dev-latest`, en
+brouillon avec l'asset attaché puis publication ; `dev-build` reste
+brûlé, et le site déployé qui pointait dessus a dû être ponté à la main
+(un fichier, `GitHubWebhookService.php`, par FTP).

@@ -204,7 +204,7 @@ class InstallUpdateHandlerTest extends TestCase
 
     /** The URL Core\Maintenance\GitHubWebhookService builds for a push. */
     private const DEV_ARTIFACT_URL =
-        'https://github.com/owner/repo/releases/download/dev-build/scoutmagic-dev-a1b2c3d.zip';
+        'https://github.com/owner/repo/releases/download/dev-latest/scoutmagic-dev-a1b2c3d.zip';
 
     /**
      * A handler whose artifact probe answers $status without touching the
@@ -292,7 +292,7 @@ class InstallUpdateHandlerTest extends TestCase
         // filesystem path or any library text — the message is rendered as
         // a title="" tooltip on Configuration > Maintenance.
         $message = (string) $history->errorMessage;
-        $this->assertStringContainsString('dev-build', $message);
+        $this->assertStringContainsString('dev-latest', $message);
         $this->assertStringContainsString('scoutmagic-dev-a1b2c3d.zip', $message);
         $this->assertStringNotContainsString('https://', $message);
 
