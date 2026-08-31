@@ -10,7 +10,7 @@
 // core controls) — so every scenario builds the full skeleton and
 // re-imports (vi.resetModules() + dynamic import), the same pattern as
 // tests/js/maintenance.test.js.
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 function el(html) {
     const div = document.createElement('div');
@@ -33,7 +33,11 @@ async function settle() {
  * The setup page's skeleton — every element the script dereferences
  * unconditionally, plus the optional sections the scenarios drive.
  *
- * @param {{ initialized?: boolean, installAction?: string }} [options]
+ * `cronState` defaults to 'active' so the scenarios about the DATABASE
+ * gate are not silently also testing the cron gate — the cron scenarios
+ * below set it explicitly.
+ *
+ * @param {{ initialized?: boolean, installAction?: string, cronState?: string }} [options]
  */
 function buildDom(options = {}) {
     document.body.innerHTML = `
@@ -81,8 +85,10 @@ function buildDom(options = {}) {
             <button type="button" id="btn-check-dns">Vérifier DNS</button>
             <span id="dns-spinner" class="d-none"></span>
             <div id="dns-records"></div>
+            <span id="cron-status-chip" class="badge text-bg-secondary" data-initial-state="${options.cronState || 'active'}">Vérification…</span>
             <button type="button" id="btn-save" disabled>Enregistrer</button>
             <div id="save-hint">Testez d'abord la connexion.</div>
+            <div id="cron-save-hint" class="d-none">Aucune tâche cron n'a encore été détectée.</div>
         </form>
     `;
 }
@@ -116,6 +122,82 @@ describe('setup.js: SMTP fields visibility', () => {
         mode.value = 'local';
         mode.dispatchEvent(new Event('change'));
         expect(smtpFields.style.display).toBe('none');
+    });
+});
+
+// The failure this whole block exists for is the silent one: the
+// reference installation ran for days on a crontab entry that executed
+// nothing, and no page said so. A first install must not be able to
+// complete that way.
+describe('setup.js: the cron gate', () => {
+    // The five-second poll is driven, never waited on.
+    beforeEach(() => {
+        vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it('keeps the install locked, with its own explanation, while no cron has been detected', async () => {
+        await boot({ cronState: 'never' });
+
+        const chip = document.getElementById('cron-status-chip');
+        expect(chip.textContent).toContain('Jamais détecté');
+        expect(chip.className).toContain('text-bg-danger');
+        expect(/** @type {HTMLButtonElement} */ (document.getElementById('btn-save')).disabled).toBe(true);
+        expect(document.getElementById('cron-save-hint').classList.contains('d-none')).toBe(false);
+    });
+
+    it('says "plus vu" rather than "jamais" for a cron that used to run', async () => {
+        fetch.mockReturnValue(jsonResponse({ state: 'stale', seconds_since_heartbeat: 5400 }));
+        await boot({ cronState: 'never' });
+
+        // The poll, driven directly rather than by waiting five seconds.
+        vi.advanceTimersByTime(5000);
+        await settle();
+
+        expect(document.getElementById('cron-status-chip').textContent).toContain('Plus vu depuis 1 h');
+        expect(/** @type {HTMLButtonElement} */ (document.getElementById('btn-save')).disabled).toBe(true);
+    });
+
+    it('turns green and releases the install once a poll reports an active cron', async () => {
+        fetch.mockReturnValue(jsonResponse({ state: 'active', seconds_since_heartbeat: 12 }));
+        await boot({ cronState: 'never' });
+
+        vi.advanceTimersByTime(5000);
+        await settle();
+
+        const chip = document.getElementById('cron-status-chip');
+        expect(fetch.mock.calls[0][0]).toBe('/setup/cron-status');
+        expect(chip.textContent).toContain('Actif — dernier passage il y a 12 s');
+        expect(chip.className).toContain('text-bg-success');
+        expect(document.getElementById('cron-save-hint').classList.contains('d-none')).toBe(true);
+        // The DATABASE gate is still in force — the two are independent.
+        expect(/** @type {HTMLButtonElement} */ (document.getElementById('btn-save')).disabled).toBe(true);
+    });
+
+    it('never blocks an already-configured site, whatever the cron says', async () => {
+        await boot({ initialized: true, cronState: 'never' });
+
+        // /setup doubles as « Installation & serveur »: refusing to save a
+        // database password over a three-minute cron hiccup would be worse
+        // than the problem being prevented. Same asymmetry server-side.
+        expect(/** @type {HTMLButtonElement} */ (document.getElementById('btn-save')).disabled).toBe(false);
+        expect(document.getElementById('cron-save-hint').classList.contains('d-none')).toBe(true);
+        expect(document.getElementById('cron-status-chip').textContent).toContain('Jamais détecté');
+    });
+
+    it('keeps the last known verdict when a poll fails, rather than flipping red on a dropped request', async () => {
+        // A rejection created lazily, per call: a single pre-built
+        // rejected promise is already unhandled by the time the poll fires.
+        fetch.mockImplementation(() => Promise.reject(new Error('offline')));
+        await boot({ cronState: 'active' });
+
+        vi.advanceTimersByTime(5000);
+        await settle();
+
+        expect(document.getElementById('cron-status-chip').className).toContain('text-bg-success');
     });
 });
 

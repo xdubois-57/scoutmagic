@@ -269,6 +269,13 @@ if (!$isInitialized) {
         $response = $setupController->generateDkimKey($request, []);
     } elseif ($request->getMethod() === 'POST' && $request->getPath() === '/setup/test-email') {
         $response = $setupController->testEmail($request, []);
+    } elseif ($request->getMethod() === 'GET' && $request->getPath() === '/setup/cron-status') {
+        // Polled by the setup page while the operator configures the
+        // crontab with their host. Reachable here, before the site is
+        // initialized, because that is precisely when the answer matters:
+        // Core\Scheduler\CronHealth reads the heartbeat file, which needs
+        // no database.
+        $response = $setupController->cronStatus($request, []);
     } else {
         (new Response('', 302))->setHeader('Location', '/setup')->send();
         exit;
@@ -2056,6 +2063,7 @@ $router->addRoute('POST', '/setup/save', SetupController::class, 'save', 'supera
 $router->addRoute('GET', '/setup/dns', SetupController::class, 'checkDns', 'superadmin');
 $router->addRoute('POST', '/setup/test-email', SetupController::class, 'testEmail', 'superadmin');
 $router->addRoute('POST', '/setup/generate-dkim-key', SetupController::class, 'generateDkimKey', 'superadmin');
+$router->addRoute('GET', '/setup/cron-status', SetupController::class, 'cronStatus', 'superadmin');
 
 // Import
 $router->addRoute('GET', '/admin/import', ImportController::class, 'index', 'admin', ['label' => 'Import Desk', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]]);
@@ -2521,7 +2529,9 @@ $frontController->registerController(MaintenanceController::class, new Maintenan
         new SqlParser(),
         5,
         $journalService
-    )
+    ),
+    // The directory holding cron.php, for the health block's crontab line.
+    __DIR__
 ));
 $frontController->registerController(VersionController::class, new VersionController($twig, $storagePath));
 $githubWebhookService = new \Core\Maintenance\GitHubWebhookService(

@@ -432,6 +432,29 @@ class SystemCollectorsTest extends TestCase
         $this->assertStringContainsString('PSEUDO-CRON : jamais déclenché.', $report);
     }
 
+    /**
+     * The one diagnosis a single stamp could never give, and the one the
+     * reference installation needed: the crontab DOES fire, and the pass
+     * dies before it ever reaches the database. Through `cron_last_run`
+     * alone that is indistinguishable from no crontab at all.
+     */
+    public function testAFiringCronWhosePassNeverReachesTheDatabaseIsCalledOut(): void
+    {
+        $this->registerCronSettings();
+        file_put_contents($this->storagePath . '/temp/cron-heartbeat', (string) time());
+
+        try {
+            $result = $this->runCollector(new CronCadenceCollector());
+            $report = $result['entries']['cron-cadence.txt'];
+
+            $this->assertStringContainsString('battement de cœur', $report);
+            $this->assertStringContainsString('aucun passage', $report);
+            $this->assertNotSame([], $result['notes']);
+        } finally {
+            @unlink($this->storagePath . '/temp/cron-heartbeat');
+        }
+    }
+
     public function testARealCronThatHasStoppedIsDistinguishedFromOneThatNeverRan(): void
     {
         $this->registerCronSettings();

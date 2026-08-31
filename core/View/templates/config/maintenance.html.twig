@@ -45,6 +45,78 @@
         </div>
     {% endif %}
 
+    {# ————— État —————
+       Deux lignes, en haut de page, parce que ce sont les deux mécanismes
+       dont la panne est silencieuse par nature : un cron qui ne tourne pas
+       ne produit aucune erreur, et une mise à jour automatique qui échoue
+       laisse la page « à jour » du point de vue de la version installée.
+       Le verdict du cron vient de Core\Scheduler\CronHealth, la même source
+       que la page Installation & serveur et que le paquet de support. #}
+    <div class="card mb-4" id="maintenance-health">
+        <div class="card-body">
+            <h2 class="h5 mb-3">État</h2>
+
+            {% set _cadence = null %}
+            {% if cron_median_interval_seconds %}
+                {% set _cadence = cron_median_interval_seconds < 60
+                    ? cron_median_interval_seconds ~ ' s'
+                    : (cron_median_interval_seconds // 60) ~ ' min' %}
+            {% endif %}
+            <p class="small mb-2" id="maintenance-cron-health">
+                <span class="text-body-secondary">Tâche cron réelle :</span>
+                {% if cron_state == 'active' %}
+                    <span class="badge text-bg-success">Actif</span>
+                    <span class="text-body-secondary">— dernier passage il y a {{ cron_seconds_since_last_pass ?? 0 }} s{% if _cadence %}, cadence ~{{ _cadence }}{% endif %}</span>
+                {% elseif cron_state == 'stale' %}
+                    <span class="badge text-bg-danger">Plus détecté</span>
+                    <span class="text-body-secondary">— dernier passage il y a {{ (cron_seconds_since_last_pass ?? 0) // 60 }} min</span>
+                {% else %}
+                    <span class="badge text-bg-danger">Jamais détecté</span>
+                {% endif %}
+            </p>
+
+            {% if cron_state != 'active' %}
+                <div class="alert alert-danger small" role="alert" id="maintenance-cron-warning">
+                    <p class="mb-2">
+                        Sans tâche cron, rien ne tourne en dehors des visites : ni sauvegarde automatique,
+                        ni mise à jour, ni rappel, ni notification. Ajoutez cette ligne chez votre hébergeur
+                        (rubrique « Tâches planifiées » ou « Cron ») :
+                    </p>
+                    <div class="input-group input-group-sm mb-2">
+                        <input type="text" class="form-control font-monospace" value="{{ cron_crontab_line }}" readonly id="maintenance-cron-line" aria-label="Ligne crontab">
+                    </div>
+                    <p class="mb-0">
+                        Le mot <code>php</code> au début est obligatoire : un panneau d'hébergement qui
+                        accepte un simple chemin de fichier n'exécute rien du tout, et ne le signale pas.
+                    </p>
+                </div>
+            {% endif %}
+
+            <p class="small mb-0" id="maintenance-auto-update-health">
+                <span class="text-body-secondary">Mise à jour automatique :</span>
+                {% if auto_update_last_success %}
+                    <strong>{{ auto_update_last_success|datetime_fr }}</strong>
+                    {%- if auto_update_last_success_version %} ({{ auto_update_last_success_version }}){% endif -%}
+                    {%- if auto_update_silent_days is not null %}
+                        <span class="text-body-secondary"> — il y a {{ auto_update_silent_days }} jour{{ auto_update_silent_days > 1 ? 's' : '' }}</span>
+                    {%- endif -%}
+                {% else %}
+                    <span class="text-body-secondary">aucune installée à ce jour</span>
+                {% endif %}
+            </p>
+
+            {% if update_last_attempt_failed %}
+                <p class="small text-danger mb-0 mt-1" id="maintenance-update-last-attempt">
+                    La dernière tentative
+                    {%- if update_last_attempt_at %} ({{ update_last_attempt_at|datetime_fr }}){% endif %}
+                    {{ update_last_attempt_status == 'rolled_back'
+                        ? 'a échoué et le site a été restauré automatiquement'
+                        : 'a échoué' }} — voir l'historique des mises à jour ci-dessous.
+                </p>
+            {% endif %}
+        </div>
+    </div>
+
     {# ————— Mise à jour ————— #}
     <div class="card mb-4" id="maintenance-update">
         <div class="card-body">
