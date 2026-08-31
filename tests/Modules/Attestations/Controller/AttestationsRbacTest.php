@@ -144,6 +144,35 @@ class AttestationsRbacTest extends TestCase
         $this->assertStringContainsString('_csrf_token', $body);
     }
 
+    /**
+     * The year in progress is prefilled, and it is the CURRENT one rather
+     * than the public one: the public year lags behind during a transition,
+     * and a chef d'unité depositing a file in February is working in the
+     * season they are living in. It stays a choice — a certificate covering
+     * the year just gone is routinely filed under the one in progress, and
+     * the site deduces nothing from the file itself.
+     */
+    public function testTheDepositFormPreselectsTheCurrentScoutYear(): void
+    {
+        AuthSession::login(1, 'chef-unite@test.be', 'admin');
+
+        $currentYearId = (int) (new ScoutYearService($this->pdo))->getCurrentYear()['id'];
+        $otherYearId = AttestationsTestHelper::createScoutYear($this->pdo, '2019-2020');
+
+        $body = (string) preg_replace('/\s+/', ' ', (string) $this->frontController()
+            ->handle(new Request('GET', '/admin/attestations', [], [], [], []))
+            ->getBody());
+
+        $this->assertMatchesRegularExpression(
+            '#<option value="' . $currentYearId . '"[^>]*selected#',
+            $body
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            '#<option value="' . $otherYearId . '"[^>]*selected#',
+            $body
+        );
+    }
+
     public function testADepositedBatchIsListedAndLinksToItsVerificationScreen(): void
     {
         AuthSession::login(1, 'chef-unite@test.be', 'admin');
@@ -389,7 +418,8 @@ class AttestationsRbacTest extends TestCase
             new \Modules\Attestations\Controller\CoverageController(
                 $this->twig,
                 new \Modules\Attestations\Service\CoverageService($members, $lines),
-                $resolver
+                $resolver,
+                $scoutYears
             )
         );
 

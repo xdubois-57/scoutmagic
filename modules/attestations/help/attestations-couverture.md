@@ -42,6 +42,7 @@ n'existe pas.
 
 ## Changer de catégorie ou d'année
 
-Les deux listes déroulantes en haut de la page. L'adresse de la page garde
-votre choix : vous pouvez la mettre en favori ou l'envoyer à un autre chef
-d'unité.
+Les deux listes déroulantes en haut de la page. L'écran s'ouvre sur
+l'attestation fiscale de l'**année en cours** ; l'adresse de la page garde
+votre choix, vous pouvez donc la mettre en favori ou l'envoyer à un autre
+chef d'unité.

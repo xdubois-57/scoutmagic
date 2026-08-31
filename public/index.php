@@ -2939,7 +2939,8 @@ if ($isEnabled('attestations')) {
                 $attestationMemberRepository,
                 $attestationLineRepository
             ),
-            $scoutYearResolver
+            $scoutYearResolver,
+            $scoutYearService
         )
     );
 }

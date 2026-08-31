@@ -276,10 +276,18 @@ class AttestationsController extends AbstractController
 
         $form = $form + ['scout_year_id' => null, 'category' => null, 'label' => ''];
 
-        // The public year is a default, never a decision: the site deduces
-        // no date of its own, and a tax certificate covering the year just
-        // gone is routinely filed under the one in progress.
-        $selectedYear = $form['scout_year_id'] ?? $this->scoutYearResolver->getPublicYearId();
+        // The current year is prefilled, and it is a default rather than a
+        // decision: the site deduces nothing from the file itself, and a
+        // tax certificate covering the year just gone is routinely filed
+        // under the one in progress — which is exactly why the year in
+        // progress is the right guess and why the field stays a choice.
+        //
+        // The CURRENT year (`ScoutYearService::getCurrentYear()`, derived
+        // from today's date) rather than the public one: the public year
+        // lags behind during a transition, and a chef d'unité depositing a
+        // file in February is working in the season they are living, not
+        // in the one the public site still shows.
+        $selectedYear = $form['scout_year_id'] ?? (int) $this->scoutYears->getCurrentYear()['id'];
 
         return [
             'batches' => $this->batches->findRecent(),
