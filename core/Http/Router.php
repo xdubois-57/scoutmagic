@@ -80,6 +80,53 @@ class Router
     }
 
     /**
+     * The page a GET route declares at exactly $path: its breadcrumb
+     * label and its role floor, or null when nothing there renders a
+     * page a visitor could be sent to.
+     *
+     * Deliberately narrow rather than a getter over the route table.
+     * The one caller is Core\Help\HelpPageLinkResolver, which turns a
+     * help topic's `paths` into the « aller sur la page » link, and it
+     * needs exactly two facts about the target: what to call it, and who
+     * may reach it. A generic accessor would hand every future caller
+     * the controller class, the action and the breadcrumb parents as
+     * well, and the route table would stop being private in practice.
+     *
+     * Three deliberate exclusions, each of them a page that cannot be
+     * linked to:
+     *
+     * - a non-GET route (nothing to open),
+     * - a path carrying a `{placeholder}` (matched textually, so a
+     *   pattern never answers — a topic covering `/members/{id}` has no
+     *   one member to point at),
+     * - a route with no breadcrumb, which in this application is an API
+     *   endpoint, a redirect target or a file stream, never a page.
+     *
+     * The role floor is returned rather than applied: this class knows
+     * nothing about who is asking, and the caller compares it against
+     * the viewer's role — the target route's floor, which is NOT
+     * necessarily the help topic's own.
+     *
+     * @return ?array{label: string, roleMin: string}
+     */
+    public function pageAtPath(string $path): ?array
+    {
+        foreach ($this->routes as $route) {
+            if ($route['method'] !== 'GET' || $route['path'] !== $path) {
+                continue;
+            }
+            $label = $route['breadcrumb']['label'] ?? null;
+            if ($label === null || $label === '') {
+                return null;
+            }
+
+            return ['label' => $label, 'roleMin' => $route['roleMin']];
+        }
+
+        return null;
+    }
+
+    /**
      * The ancestor-page steps a route declares, resolved for one reader.
      *
      * A route's `breadcrumb.ancestors` names real pages the visitor came

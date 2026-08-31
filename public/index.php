@@ -1701,6 +1701,11 @@ $helpRegistry = new \Core\Help\HelpRegistry(
     \Core\Maintenance\VersionFile::read(dirname(__DIR__))
 );
 $helpService = new \Core\Help\HelpService($helpRegistry);
+// The « aller sur la page » link a topic carries (Core\Help\
+// HelpPageLinkResolver): it reads the router's own table for the label
+// and the role floor of the page a topic documents, so the link never
+// points at a 403 and never has to be written by hand in a topic file.
+$helpPageLinkResolver = new \Core\Help\HelpPageLinkResolver($router);
 
 // Create ModuleManager (modules loaded after core routes are registered)
 $modulesDir = __DIR__ . '/../modules';
@@ -2352,7 +2357,7 @@ $householdService = new \Core\Member\Household\HouseholdService(
 
 // Handle the request
 $maintenanceGate = new \Core\Maintenance\MaintenanceGate($updateHistoryRepository);
-$frontController = new FrontController($router, $twig, $config, $offlineWhitelist, $maintenanceGate, $helpService);
+$frontController = new FrontController($router, $twig, $config, $offlineWhitelist, $maintenanceGate, $helpService, $helpPageLinkResolver);
 
 // Entity change history pages (Core\Audit) — registered here rather than
 // next to its route, because $frontController does not exist yet at the
@@ -2367,7 +2372,7 @@ $frontController->registerController(
 // module had its chance to register topics.
 $frontController->registerController(
     \Core\Http\Controller\HelpController::class,
-    new \Core\Http\Controller\HelpController($twig, $helpService)
+    new \Core\Http\Controller\HelpController($twig, $helpService, $helpPageLinkResolver)
 );
 
 // LLM connector — the module's ONE block: its config page, the connector

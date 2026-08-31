@@ -54,6 +54,18 @@
                 {% endif %}
                 <h6 class="fw-semibold">{{ entry.title }}</h6>
                 {{ entry.html|raw }}
+                {# The page this topic documents — suppressed when it is
+                   the page the panel is open on, which is the usual case
+                   here (Core\Help\HelpPageLinkResolver). It shows up on a
+                   page a topic covers alongside another one. #}
+                {% if entry.page_link|default(null) %}
+                    <p class="mt-3 mb-0">
+                        <a href="{{ entry.page_link.path }}" class="btn btn-outline-secondary btn-sm">
+                            Aller sur la page « {{ entry.page_link.label }} »
+                            <i class="bi bi-arrow-right" aria-hidden="true"></i>
+                        </a>
+                    </p>
+                {% endif %}
             </article>
         {% endfor %}
     </div>

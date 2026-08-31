@@ -112,8 +112,14 @@ class HelpService
     }
 
     /**
-     * listForRole() narrowed by a search over title, summary and category
-     * — case- and accent-insensitive, so "medaille" finds "Médaille".
+     * listForRole() narrowed by a search over title, summary, category and
+     * the topic's declared `question`s — case- and accent-insensitive, so
+     * "medaille" finds "Médaille".
+     *
+     * This is the `?q=` form on /aide — the search that must keep working
+     * with scripting off. It stays a plain substring filter on purpose:
+     * ranking belongs to one implementation, and a second one here would
+     * drift from it silently.
      *
      * @return array<string, HelpTopic[]>
      */
@@ -130,9 +136,26 @@ class HelpService
                 str_contains(self::normalize($t->title), $needle)
                 || str_contains(self::normalize($t->summary), $needle)
                 || str_contains(self::normalize($t->category), $needle)
+                || self::anyQuestionContains($t, $needle)
         );
 
         return $this->group(array_values($matching));
+    }
+
+    /**
+     * The `question` lines are searched like any other field: they exist
+     * precisely to carry the words someone types when the title uses
+     * different ones (« publipostage » vs « mail personnalisé »).
+     */
+    private static function anyQuestionContains(HelpTopic $topic, string $needle): bool
+    {
+        foreach ($topic->questions as $question) {
+            if (str_contains(self::normalize($question), $needle)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

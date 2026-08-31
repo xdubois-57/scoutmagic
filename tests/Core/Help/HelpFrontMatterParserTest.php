@@ -63,7 +63,51 @@ class HelpFrontMatterParserTest extends TestCase
 
         $this->assertSame([], $topic->paths);
         $this->assertSame([], $topic->related);
+        $this->assertSame([], $topic->questions);
         $this->assertNull($topic->moduleId);
+    }
+
+    public function testQuestionIsRepeatableAndKeepsItsCommas(): void
+    {
+        // The comma separator paths/related use was ruled out for
+        // `question` rather than overlooked: a real question contains
+        // commas, and splitting on them would cut one in half silently.
+        $dir = $this->makeTopicDir();
+        $path = $this->writeTopic($dir, 'publipostage', ['question' => [
+            'Comment envoyer un mail personnalisé depuis un fichier Excel ?',
+            "Comment prévenir les parents, y compris ceux d'une autre section ?",
+        ]]);
+
+        $this->assertSame(
+            [
+                'Comment envoyer un mail personnalisé depuis un fichier Excel ?',
+                "Comment prévenir les parents, y compris ceux d'une autre section ?",
+            ],
+            $this->parser->parse($path)->questions
+        );
+    }
+
+    public function testRejectsAnEmptyQuestion(): void
+    {
+        $dir = $this->makeTopicDir();
+        $path = $this->writeTopic($dir, 'question-vide', ['question' => ['']]);
+
+        $this->expectException(HelpException::class);
+        $this->expectExceptionMessage("declares an empty 'question'");
+        $this->parser->parse($path);
+    }
+
+    public function testRejectsTheReservedAssistantId(): void
+    {
+        // /aide/assistant is a route registered before /aide/{topic}, and
+        // Router::resolve() keeps the first match — so a topic with this
+        // id would be listed, searchable, and unreachable.
+        $dir = $this->makeTopicDir();
+        $path = $this->writeTopic($dir, 'assistant');
+
+        $this->expectException(HelpException::class);
+        $this->expectExceptionMessage("reserved id 'assistant'");
+        $this->parser->parse($path);
     }
 
     public function testRejectsAMissingRequiredField(): void

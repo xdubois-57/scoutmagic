@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Tests\Core\Http;
 
 use Core\Config\AppConfig;
+use Core\Help\HelpPageLinkResolver;
 use Core\Help\HelpRegistry;
 use Core\Help\HelpService;
 use Core\Http\Controller\AbstractController;
@@ -62,13 +63,22 @@ class FrontControllerHelpTest extends TestCase
         $this->cleanupTopicDirs();
     }
 
-    private function frontController(?HelpService $helpService): FrontController
+    private function frontController(?HelpService $helpService, bool $withPageLinks = false): FrontController
     {
         $router = new Router();
-        $router->addRoute('GET', '/covered-page', HelpStubController::class, 'index', 'public');
+        $router->addRoute('GET', '/covered-page', HelpStubController::class, 'index', 'public', ['label' => 'Page couverte', 'parents' => []]);
         $router->addRoute('POST', '/covered-page', HelpStubController::class, 'index', 'public');
+        $router->addRoute('GET', '/other-page', HelpStubController::class, 'index', 'public', ['label' => 'Autre page', 'parents' => []]);
 
-        $fc = new FrontController($router, $this->twig, $this->config, null, null, $helpService);
+        $fc = new FrontController(
+            $router,
+            $this->twig,
+            $this->config,
+            null,
+            null,
+            $helpService,
+            $withPageLinks ? new HelpPageLinkResolver($router) : null
+        );
         $fc->registerController(HelpStubController::class, new HelpStubController($this->twig));
 
         return $fc;
@@ -81,6 +91,13 @@ class FrontControllerHelpTest extends TestCase
         $this->writeTopic($dir, 'sujet-chefs', ['paths' => '/covered-page', 'role_min' => 'chief']);
 
         return new HelpService(new HelpRegistry($dir));
+    }
+
+    private function renderedPageLinks(): string
+    {
+        return $this->twig->createTemplate(
+            '{% for e in route_help %}{% if e.page_link %}{{ e.page_link.path }}:{{ e.page_link.label }}|{% endif %}{% endfor %}'
+        )->render();
     }
 
     private function renderedRouteHelp(): string
@@ -121,6 +138,30 @@ class FrontControllerHelpTest extends TestCase
         $fc->handle(new Request('POST', '/covered-page', [], [], [], []));
 
         $this->assertSame('', $this->renderedRouteHelp());
+    }
+
+    public function testAPanelTopicNeverLinksToThePageThePanelIsOpenOn(): void
+    {
+        // The panel opens ON the documented page almost every time, and
+        // « aller sur la page » there is noise.
+        $dir = $this->makeTopicDir();
+        $this->writeTopic($dir, 'sujet-page', ['paths' => '/covered-page']);
+        $fc = $this->frontController(new HelpService(new HelpRegistry($dir)), true);
+
+        $fc->handle(new Request('GET', '/covered-page', [], [], [], []));
+
+        $this->assertSame('', $this->renderedPageLinks());
+    }
+
+    public function testAPanelTopicLinksToAnotherPageItDocuments(): void
+    {
+        $dir = $this->makeTopicDir();
+        $this->writeTopic($dir, 'sujet-page', ['paths' => '/covered-page, /other-page']);
+        $fc = $this->frontController(new HelpService(new HelpRegistry($dir)), true);
+
+        $fc->handle(new Request('GET', '/covered-page', [], [], [], []));
+
+        $this->assertSame('/other-page:Autre page|', $this->renderedPageLinks());
     }
 
     public function testRouteHelpIsEmptyWithoutAHelpService(): void

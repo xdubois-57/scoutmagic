@@ -18,6 +18,21 @@
        titles under this page's real <h1>, not compete with it. #}
     <div class="help-content rich-text">{{ content_html|raw }}</div>
 
+    {# The page this topic documents (Core\Help\HelpPageLinkResolver) —
+       present only when the topic names exactly one page, that page is a
+       real GET route, and this visitor clears ITS role floor (which is
+       not necessarily the topic's). A topic covering a family of pages
+       carries no link, which is the ordinary case for about a quarter of
+       the corpus. #}
+    {% if page_link|default(null) %}
+        <p class="mt-4 mb-0">
+            <a href="{{ page_link.path }}" class="btn btn-outline-secondary btn-sm">
+                Aller sur la page « {{ page_link.label }} »
+                <i class="bi bi-arrow-right" aria-hidden="true"></i>
+            </a>
+        </p>
+    {% endif %}
+
     {% if related_topics is not empty %}
         <section class="mt-4 pt-3 border-top">
             <h2 class="h6 fw-semibold text-body-secondary">Voir aussi</h2>
