@@ -569,7 +569,7 @@ class GitHubWebhookServiceTest extends TestCase
 
     /**
      * The development channel installs the CI-built artifact attached to
-     * the rolling `dev-build` prerelease, never GitHub's zipball of the
+     * the rolling `dev-latest` prerelease, never GitHub's zipball of the
      * commit. The zipball is the git tree: no vendor/ (gitignored) and
      * tests/, .github/, bootstrap/ and scripts/ all copied to a production
      * webroot — and since installFiles() copies additively, the live
@@ -591,7 +591,7 @@ class GitHubWebhookServiceTest extends TestCase
         $this->assertCount(1, $all);
         $payload = json_decode((string) $all[0]['payload'], true);
         $this->assertSame(
-            'https://github.com/owner/repo/releases/download/dev-build/scoutmagic-dev-a1b2c3d.zip',
+            'https://github.com/owner/repo/releases/download/dev-latest/scoutmagic-dev-a1b2c3d.zip',
             $payload['download_url']
         );
         // 'release', not 'branch': the artifact is FLAT (scripts/build-artifact.sh
@@ -752,7 +752,7 @@ class GitHubWebhookServiceTest extends TestCase
         $pending = array_values(array_filter($all, static fn(array $row) => $row['status'] === 'pending'))[0];
         $payload = json_decode((string) $pending['payload'], true);
         $this->assertSame(
-            'https://github.com/owner/repo/releases/download/dev-build/scoutmagic-dev-bbbbbbb.zip',
+            'https://github.com/owner/repo/releases/download/dev-latest/scoutmagic-dev-bbbbbbb.zip',
             $payload['download_url']
         );
     }
