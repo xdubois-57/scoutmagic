@@ -74,23 +74,25 @@ class InboundMailServiceTest extends TestCase
         string $messageId = 'msg-1@example.be',
         string $subject = 'Demande'
     ): int {
-        return $this->messageRepository->create(
-            mailboxId: $this->mailboxId,
-            folder: 'INBOX',
-            uidValidity: 1,
-            imapUid: 10,
-            consumerId: $consumerId,
-            businessReference: $reference,
-            linkOrigin: LinkOrigin::REFERENCE,
-            messageId: $messageId,
-            inReplyTo: null,
-            subject: $subject,
-            fromEmail: 'jeanne@example.be',
-            fromName: 'Jeanne Martin',
-            bodyText: 'Bonjour',
-            bodyHtml: '<p>Bonjour</p>',
-            sentAt: new \DateTimeImmutable('2027-07-12 09:30:00')
-        );
+        $id = $this->messageRepository->findIdByMessageId($this->mailboxId, $messageId)
+            ?? $this->messageRepository->create(
+                mailboxId: $this->mailboxId,
+                folder: 'INBOX',
+                uidValidity: 1,
+                imapUid: 10,
+                messageId: $messageId,
+                inReplyTo: null,
+                subject: $subject,
+                fromEmail: 'jeanne@example.be',
+                fromName: 'Jeanne Martin',
+                bodyText: 'Bonjour',
+                bodyHtml: '<p>Bonjour</p>',
+                sentAt: new \DateTimeImmutable('2027-07-12 09:30:00')
+            );
+
+        $this->messageRepository->addLink($id, $consumerId, $reference, LinkOrigin::REFERENCE);
+
+        return $id;
     }
 
     private function storeFile(): int
@@ -145,16 +147,18 @@ class InboundMailServiceTest extends TestCase
 
     public function testMessagesComeBackOldestFirst(): void
     {
-        $this->messageRepository->create(
-            $this->mailboxId, 'INBOX', 1, 11, 'rental', 'LOC-2027-0042', LinkOrigin::REFERENCE,
+        $second = $this->messageRepository->create(
+            $this->mailboxId, 'INBOX', 1, 11,
             'b@x', null, 'Deuxième', 'jeanne@example.be', null, 'B', '<p>B</p>',
             new \DateTimeImmutable('2027-07-14 09:00:00')
         );
-        $this->messageRepository->create(
-            $this->mailboxId, 'INBOX', 1, 10, 'rental', 'LOC-2027-0042', LinkOrigin::REFERENCE,
+        $first = $this->messageRepository->create(
+            $this->mailboxId, 'INBOX', 1, 10,
             'a@x', null, 'Premier', 'jeanne@example.be', null, 'A', '<p>A</p>',
             new \DateTimeImmutable('2027-07-12 09:00:00')
         );
+        $this->messageRepository->addLink($second, 'rental', 'LOC-2027-0042', LinkOrigin::REFERENCE);
+        $this->messageRepository->addLink($first, 'rental', 'LOC-2027-0042', LinkOrigin::REFERENCE);
 
         $subjects = array_map(
             static fn($message) => $message->subject,

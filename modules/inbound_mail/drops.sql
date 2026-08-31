@@ -1,0 +1,26 @@
+-- Reviewed, explicit column drops for the inbound_mail module.
+--
+-- Core\Database\MigrationRunner never drops a column it finds in the
+-- database but no longer finds in schema.sql — that is the data-loss safety
+-- net. This file is the narrow, reviewed exception (ARCHITECTURE.md §10):
+-- each statement runs only while the column still exists, so it is
+-- idempotent and safe on every request.
+--
+-- Once every installation has migrated past it, delete the line.
+
+-- NOT here yet, deliberately: `inbound_messages.consumer_id`,
+-- `business_reference` and `link_origin`.
+--
+-- They moved to `inbound_message_links`, nothing writes them any more, and
+-- schema.sql now declares them nullable so an INSERT that ignores them
+-- works. But the one-time backfill that turns each of them into a link
+-- (InboundMessageRepository::backfillLinks(), guarded by the
+-- `inbound_mail_links_migrated` setting) runs from the composition root —
+-- which is reached long after MigrationRunner has already applied this
+-- file, on the very same request. Dropping them here in the same release
+-- would delete every existing association before anything could read it.
+--
+-- So they go in the release that FOLLOWS the one shipping the backfill, by
+-- which time every installation has run it at least once. The same
+-- expand-then-contract sequencing `rental_assets.calendar_id` needed, and
+-- for the same reason.

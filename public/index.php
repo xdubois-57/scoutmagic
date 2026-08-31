@@ -2805,6 +2805,24 @@ if ($isEnabled('inbound_mail')) {
         new \Core\File\FileRepository($pdo)
     );
 
+    // One-time reprise for installs that stored a message's consumer and
+    // business reference in the message's own columns, before
+    // inbound_message_links existed. Each of those triplets becomes an
+    // association; the legacy columns stay until the release that drops
+    // them (modules/inbound_mail/drops.sql says why), because this runs
+    // long after MigrationRunner on the very request that would have
+    // removed them. Same shape as member_section_periods_backfilled above.
+    if ($settingService->get('inbound_mail_links_migrated') !== '1') {
+        $settingService->register('inbound_mail_links_migrated', '0', 'boolean', 'Associations de courrier reconstituées',
+            'Indique si les messages entrants antérieurs ont été rattachés à leurs objets via la table d\'associations.',
+            null, null, null, false, 999);
+
+        $inboundMessageRepository->backfillLinks();
+
+        $settingRepo->updateValue(null, 'inbound_mail_links_migrated', '1');
+        $settingService->clearCache();
+    }
+
     $frontController->registerController(
         \Modules\InboundMail\Controller\InboundMailConfigController::class,
         new \Modules\InboundMail\Controller\InboundMailConfigController(

@@ -129,10 +129,11 @@ class PurgeUnsortedMailHandlerTest extends TestCase
     public function testAnotherConsumersMailIsLeftAlone(): void
     {
         $id = $this->messages->create(
-            1, 'INBOX', 1, 500, 'rental', 'LOC-2020-0001', LinkOrigin::SENDER,
+            1, 'INBOX', 1, 500,
             '<other@mail>', null, 'Sujet', 'autre@example.org', null, 'Corps', '',
             new \DateTimeImmutable('-8 months')
         );
+        $this->messages->addLink($id, 'rental', 'LOC-2020-0001', LinkOrigin::SENDER);
 
         $this->handle();
 
@@ -276,14 +277,11 @@ class PurgeUnsortedMailHandlerTest extends TestCase
     {
         static $uid = 1000;
 
-        return $this->messages->create(
+        $id = $this->messages->create(
             1,
             'INBOX',
             1,
             ++$uid,
-            CampsMessageConsumer::CONSUMER_ID,
-            $reference,
-            LinkOrigin::SENDER,
             '<' . $uid . '@mail>',
             null,
             'Confirmation',
@@ -293,6 +291,10 @@ class PurgeUnsortedMailHandlerTest extends TestCase
             '',
             new \DateTimeImmutable($sentAt)
         );
+
+        $this->messages->addLink($id, CampsMessageConsumer::CONSUMER_ID, $reference, LinkOrigin::SENDER);
+
+        return $id;
     }
 
     private function find(int $id): ?object

@@ -63,13 +63,13 @@ CREATE TABLE IF NOT EXISTS inbound_mailbox_cursors (
     CONSTRAINT fk_cursor_mailbox FOREIGN KEY (mailbox_id) REFERENCES inbound_mailboxes(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- inbound_messages: the messages a consumer module claimed.
+-- inbound_messages: a message, and nothing about who it belongs to.
 --
--- **Only claimed messages are here** (§7.6). A message no consumer
--- recognises is discarded during the sync: not stored, not listed, not
--- notified. Keeping it "just in case" would build an archive of the unit's
--- mailbox with no screen to consult it — the worst of both worlds for
--- retention.
+-- **A message is an entity of its own**, associable with zero, one or
+-- several business objects through `inbound_message_links`. It used to
+-- carry the consumer and the business reference in its own columns, which
+-- made "one message, two owners" unrepresentable: a renter's email that is
+-- also an invoice had to be stored twice or belong to one module only.
 --
 -- Everything a sender wrote is encrypted at rest: subject, addresses and
 -- both bodies. message_id_blind_index is the searchable form of the
@@ -82,15 +82,21 @@ CREATE TABLE IF NOT EXISTS inbound_messages (
     uid_validity BIGINT UNSIGNED NOT NULL DEFAULT 0,
     imap_uid BIGINT UNSIGNED NOT NULL DEFAULT 0,
 
-    -- Which module claimed it, and for which of its objects. Deliberately
-    -- an opaque string on this side: `inbound_mail` has no idea what a
-    -- booking reference looks like and must not acquire one.
-    consumer_id VARCHAR(50) NOT NULL,
-    business_reference VARCHAR(100) NOT NULL,
-    -- 'reference' | 'thread' | 'sender' | 'ai'. Shown to the manager: an
-    -- attachment made on a sender address is a weaker claim than one made
-    -- on an explicit reference, and saying so is the honest interface.
-    link_origin VARCHAR(20) NOT NULL,
+    -- LEGACY, and nullable on purpose. These three moved to
+    -- inbound_message_links; nothing writes them any more, and the only
+    -- reader left is the one-time backfill that turns each of them into a
+    -- link (Repository\InboundMessageRepository::backfillLinks()).
+    --
+    -- They are still DECLARED rather than dropped because the backfill runs
+    -- from the composition root, which is reached long after the schema
+    -- migration on the very request that would have dropped them — a drop
+    -- shipped here would delete the values before anything could read them.
+    -- drops.sql says the same thing, and carries the statements that remove
+    -- them once every installation has run the backfill at least once. The
+    -- same expand-then-contract that rental_assets.calendar_id uses.
+    consumer_id VARCHAR(50) NULL,
+    business_reference VARCHAR(100) NULL,
+    link_origin VARCHAR(20) NULL,
 
     message_id_blind_index VARCHAR(64) NOT NULL,
     in_reply_to_blind_index VARCHAR(64) NULL,
@@ -114,12 +120,51 @@ CREATE TABLE IF NOT EXISTS inbound_messages (
     sent_at DATETIME NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    -- The same message must not land twice on the same object, whatever
-    -- UID it now carries after a renumbering.
-    UNIQUE INDEX idx_message_dedup (mailbox_id, consumer_id, business_reference, message_id_blind_index),
-    INDEX idx_message_reference (consumer_id, business_reference, sent_at),
+    -- A message exists **once per mailbox**, whatever UID it now carries
+    -- after a renumbering and however many objects it ends up associated
+    -- with. Under a new name because SchemaComparator matches an index by
+    -- name only: redefining the old idx_message_dedup in place would have
+    -- been a silent no-op on every installed site (§10).
+    UNIQUE INDEX idx_message_box_dedup (mailbox_id, message_id_blind_index),
+    INDEX idx_message_sent (sent_at),
     INDEX idx_message_thread (mailbox_id, message_id_blind_index),
     CONSTRAINT fk_message_mailbox FOREIGN KEY (mailbox_id) REFERENCES inbound_mailboxes(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- inbound_message_links: which business objects a message is associated
+-- with. Zero, one, or several.
+--
+-- This is the table that makes a message transversal. `rental` linking a
+-- message to a booking does not stop `finance` linking the same message to
+-- an invoice: two rows, two consumers, one message, and each module reads
+-- only its own.
+CREATE TABLE IF NOT EXISTS inbound_message_links (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    message_id INT UNSIGNED NOT NULL,
+    -- Deliberately opaque on this side: `inbound_mail` has no idea what a
+    -- booking reference looks like and must not acquire one.
+    consumer_id VARCHAR(50) NOT NULL,
+    business_reference VARCHAR(100) NOT NULL,
+    -- **0 means the whole message**, and it is never NULL. MySQL considers
+    -- two NULLs distinct inside a unique index, so a nullable column here
+    -- would make idx_link_unique inoperative and let the same association
+    -- be created twice.
+    attachment_id INT UNSIGNED NOT NULL DEFAULT 0,
+    -- 'reference' | 'thread' | 'sender' | 'ai' | 'manual'. Shown to the
+    -- reader: an association made on a sender address is a weaker claim
+    -- than one made on an explicit reference, and saying so is the honest
+    -- interface.
+    link_origin VARCHAR(20) NOT NULL,
+    -- NULL means the association was made automatically. A human one names
+    -- its author, because an interface that says "manual association"
+    -- without being able to say by whom helps nobody settle a disputed
+    -- filing.
+    created_by_user_account_id INT UNSIGNED NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE INDEX idx_link_unique (message_id, consumer_id, business_reference, attachment_id),
+    INDEX idx_link_reference (consumer_id, business_reference),
+    CONSTRAINT fk_link_message FOREIGN KEY (message_id) REFERENCES inbound_messages(id) ON DELETE CASCADE,
+    CONSTRAINT fk_link_author FOREIGN KEY (created_by_user_account_id) REFERENCES user_accounts(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- inbound_message_attachments: metadata only.

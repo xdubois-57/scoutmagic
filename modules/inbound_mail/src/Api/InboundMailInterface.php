@@ -39,9 +39,13 @@ interface InboundMailInterface
     public function findOneForReference(string $consumerId, string $businessReference, int $messageId): ?InboundMessage;
 
     /**
-     * Detach a message: it leaves the business object and, there being no
-     * unattached queue to fall into (§7.6), is deleted along with the
-     * attachments nothing else has claimed.
+     * Detach a message: it leaves **this** business object.
+     *
+     * The message itself is destroyed only when the association removed was
+     * the last one it carried — a message another module also recognises
+     * survives, with its attachments, and this consumer simply stops seeing
+     * it. When it is the last one, the attachments nothing else has claimed
+     * go with it.
      *
      * `$preserveFileIds` names the files the consumer has re-classified as
      * something of its own and wants kept — §7.7: an attachment that was
@@ -71,10 +75,14 @@ interface InboundMailInterface
     public function move(string $consumerId, string $fromReference, string $toReference, int $messageId): bool;
 
     /**
-     * Delete everything held for a business object — used by a consumer's
+     * Release everything held for a business object — used by a consumer's
      * own retention policy (§7.10) and when the object itself is deleted.
      *
-     * @return int the number of messages removed
+     * Each message leaves that object; the ones nothing else recognises are
+     * destroyed with their attachments, and the ones another module also
+     * recognises stay where they are.
+     *
+     * @return int the number of messages released from that object
      */
     public function purgeReference(string $consumerId, string $businessReference): int;
 

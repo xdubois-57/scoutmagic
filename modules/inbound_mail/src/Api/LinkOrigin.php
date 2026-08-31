@@ -32,6 +32,13 @@ enum LinkOrigin: string
     /** A model's suggestion, used only where 1-3 failed or were ambiguous. */
     case AI = 'ai';
 
+    /**
+     * Somebody decided. The strongest origin of all — and the only one that
+     * names an author, since a screen saying "manual association" without
+     * being able to say by whom helps nobody settle a disputed filing.
+     */
+    case MANUAL = 'manual';
+
     public function label(): string
     {
         return match ($this) {
@@ -39,6 +46,7 @@ enum LinkOrigin: string
             self::THREAD => 'Réponse dans la conversation',
             self::SENDER => 'Adresse de l\'expéditeur',
             self::AI => 'Suggestion automatique',
+            self::MANUAL => 'Association manuelle',
         };
     }
 
@@ -49,6 +57,6 @@ enum LinkOrigin: string
      */
     public function isCertain(): bool
     {
-        return $this === self::REFERENCE || $this === self::THREAD;
+        return $this === self::REFERENCE || $this === self::THREAD || $this === self::MANUAL;
     }
 }
