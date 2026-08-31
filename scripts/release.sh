@@ -973,57 +973,29 @@ git push origin "${TAG}"
 
 # Create GitHub release (requires gh CLI)
 if command -v gh &> /dev/null; then
-    # Build release artifact. vendor/ must be present — there is no
-    # Composer on a shared host, so a vendor-less artifact installs
-    # cleanly (per bootstrap.php's own artifact verification) but yields a
-    # dead site. bootstrap/ is excluded: it's the installer, not something
-    # an install/update should ever re-plant into a live site.
+    # Build release artifact — delegated to scripts/build-artifact.sh,
+    # which is the ONE implementation of "what an installable ScoutMagic
+    # artifact is": the --no-dev/--optimize-autoloader Composer install,
+    # the exclusion list, the flat `zip -r <artifact> .` shape, the
+    # vendor/autoload.php and root-.htaccess assertions, and the trap that
+    # puts this checkout's dev dependencies back on any exit. The
+    # development channel's CI build (.github/workflows/dev-build.yml)
+    # calls the same script, so the two can never drift — a second,
+    # hand-maintained copy of that list is how the dev channel ended up
+    # shipping tests/ and no vendor/ at all in the first place.
     #
-    # This runs `composer install` directly against THIS checkout's own
-    # vendor/ (there's no separate build directory) — --no-dev strips
-    # phpstan/phpunit/etc. from it, which would silently break every
-    # subsequent `vendor/bin/phpstan`/`vendor/bin/phpunit` call in this
-    # same working tree until someone thought to run `composer install`
-    # again. The trap below restores dev dependencies unconditionally on
-    # any exit from here on (success, a later gate failure, Ctrl-C —
-    # doesn't matter which), registered before LISTING_FILE/
-    # FINAL_NOTES_FILE even exist so an early failure (e.g. `zip -r`
-    # itself) still triggers it; single-quoted so bash expands the
-    # variables at trap-fire time, by which point both are set.
-    composer install --no-dev --optimize-autoloader --no-interaction --quiet
+    # Everything Composer-related therefore lives inside that script,
+    # including the restore: by the time it returns, this working tree has
+    # its dev dependencies back. The trap registered here only cleans up
+    # this script's own two temp files; it is single-quoted so bash
+    # expands the variables at trap-fire time, and registered before they
+    # exist (as empty strings) so an early failure still triggers it.
     LISTING_FILE=""
     FINAL_NOTES_FILE=""
-    trap 'rm -f "${LISTING_FILE}" "${FINAL_NOTES_FILE}"; echo "Restoring dev dependencies (composer install)..."; composer install --no-interaction --quiet || echo "WARNING: failed to restore dev dependencies — run \`composer install\` manually." >&2' EXIT
+    trap 'rm -f "${LISTING_FILE}" "${FINAL_NOTES_FILE}"' EXIT
     ARTIFACT="release-${TAG}.zip"
-    # storage/* is excluded WHOLESALE, not just keys/config/temp: it's
-    # where every module keeps real uploaded content (gallery photos and
-    # videos, finance receipts, section documents, local backups, etc.)
-    # on a live or local dev install — publishing any of it in a public
-    # release artifact would be a real personal-data leak. Neither
-    # InstallUpdateHandler::installFiles() nor bootstrap.php's
-    # bootstrap_copy_tree() ever reads storage/ from the artifact anyway
-    # (both explicitly skip it as a top-level entry when installing/
-    # updating), so there is nothing lost by excluding it entirely — the
-    # 5 empty subdirs are created fresh by the installer/updater instead.
-    #
-    # .claude/* matters for the same "never publish local-only state"
-    # reason: it can hold worktrees (each a full nested checkout,
-    # .claude/worktrees/<name>/), which would otherwise get zipped into
-    # the artifact wholesale.
-    #
-    # node_modules/, coverage/, package.json, and package-lock.json are
-    # development/test-only (Vitest — see AGENTS.md § CSS / frontend and
-    # package.json's own description): production ScoutMagic runs plain,
-    # unbundled browser JavaScript and needs neither Node nor npm, so none
-    # of these belong in the release artifact — same reasoning as
-    # excluding vendor/ dev dependencies would if Composer's --no-dev
-    # (already run above) didn't handle that side on its own.
-    zip -r "${ARTIFACT}" . \
-        -x ".git/*" ".github/*" "tests/*" "storage/*" \
-           "config/app.php" ".gitignore" ".env" "*.zip" \
-           "bootstrap/*" ".claude/*" ".idea/*" ".vscode/*" "*.DS_Store" \
-           "node_modules/*" "coverage/*" "package.json" "package-lock.json" \
-           "vitest.config.js"
+    ARTIFACT_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    "${ARTIFACT_SCRIPT_DIR}/build-artifact.sh" "${ARTIFACT}"
 
     # Listed to a real file rather than piped live into grep -q: with
     # `set -o pipefail` (line 2), a `grep -q` that matches early closes its
@@ -1037,35 +1009,22 @@ if command -v gh &> /dev/null; then
     # Trap already registered above (before these existed, as empty
     # strings) — assigning the real paths here is enough, no need to
     # re-register it.
+    #
+    # The two assertions build-artifact.sh already makes (vendor/autoload.php
+    # present, no root-level .htaccess) are NOT repeated here: they belong
+    # to the artifact itself and therefore to both channels. The ones
+    # below are release-specific — they guard what a *published release*
+    # must never contain — and stay here.
     LISTING_FILE="$(mktemp)"
     FINAL_NOTES_FILE="$(mktemp)"
     unzip -l "${ARTIFACT}" > "${LISTING_FILE}"
-
-    # bootstrap.php protects a Layout B (single-tree) install with exactly
-    # one root .htaccess it writes itself at install time — the artifact
-    # must never ship one, or bootstrap's own S7 acceptance check would
-    # correctly refuse the very release this script is about to publish.
-    # Matched directly against the whitespace-then-filename tail of an
-    # `unzip -l` row rather than via awk '{print $4}' | grep -qx, which
-    # reintroduces the same live-pipe SIGPIPE race one level down.
-    if grep -qE '[[:space:]]\.htaccess$' "${LISTING_FILE}"; then
-        echo "ERROR: release artifact contains a root-level .htaccess — aborting release." >&2
-        rm -f "${ARTIFACT}"
-        exit 1
-    fi
-
-    if ! grep -q 'vendor/autoload.php' "${LISTING_FILE}"; then
-        echo "ERROR: release artifact is missing vendor/autoload.php — aborting release." >&2
-        rm -f "${ARTIFACT}"
-        exit 1
-    fi
 
     # The contextual help ships as Markdown under docs/help/ (ARCHITECTURE.md
     # §8.64) and is read at runtime — docs/ is deliberately NOT in the -x
     # exclusion list above, and this assertion is what keeps a future
     # "exclude docs/ from the artifact" cleanup from silently shipping a
-    # release whose /aide is empty. Same file-based grep as the
-    # vendor/autoload.php check for the same SIGPIPE reason.
+    # release whose /aide is empty. Same file-based grep as
+    # build-artifact.sh's own two checks, for the same SIGPIPE reason.
     if ! grep -q 'docs/help/' "${LISTING_FILE}"; then
         echo "ERROR: release artifact is missing docs/help/ (contextual help) — aborting release." >&2
         rm -f "${ARTIFACT}"
@@ -1073,8 +1032,8 @@ if command -v gh &> /dev/null; then
     fi
 
     # node_modules/ and coverage/ are development/test-only (Vitest — see
-    # the -x list above); a leftover local install of either must never
-    # reach a release artifact regardless of how it got there.
+    # build-artifact.sh's -x list); a leftover local install of either must
+    # never reach a release artifact regardless of how it got there.
     if grep -qE '[[:space:]](node_modules|coverage)/' "${LISTING_FILE}"; then
         echo "ERROR: release artifact contains node_modules/ or coverage/ — aborting release." >&2
         rm -f "${ARTIFACT}"
@@ -1085,11 +1044,11 @@ if command -v gh &> /dev/null; then
     # README.md) is a test harness: fake member exports, fake bank
     # statements, a CLI builder that writes massively to the database, and
     # documented demo passwords. It is already covered by the "tests/*"
-    # entry of the -x list above, so this check has nothing of its own to
-    # exclude — it exists so that exclusion stops being tacit. Anything
-    # that moves this dataset out from under tests/ (or a -x list someone
-    # trims) fails the release here instead of shipping a builder into an
-    # installable artifact.
+    # entry of build-artifact.sh's -x list, so this check has nothing of
+    # its own to exclude — it exists so that exclusion stops being tacit.
+    # Anything that moves this dataset out from under tests/ (or a -x list
+    # someone trims) fails the release here instead of shipping a builder
+    # into an installable artifact.
     #
     # Matched as a DIRECTORY (trailing slash), not as a bare substring: the
     # dataset is always a directory of files, whereas

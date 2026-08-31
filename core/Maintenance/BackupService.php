@@ -76,8 +76,33 @@ class BackupService implements BackupServiceInterface
     }
 
     /**
-     * Zips core/, modules/, public/, and storage/ (excluding storage/keys/
-     * and storage/config/ — secrets never leave the server in a backup
+     * Every top-level tree the safety backup archives — the one an
+     * automatic rollback restores from (Task\InstallUpdateHandler,
+     * Task\RestoreBackupHandler, Task\FullResetHandler,
+     * Task\ResetSettingsHandler, Task\AutoBackupHandler).
+     *
+     * `vendor` and `schema` are in it because of what an update now does.
+     * A development-channel install used to unpack GitHub's zipball of the
+     * commit, which contains no `vendor/` at all — so the live one was
+     * never replaced and a rollback that ignored it was accidentally
+     * correct. Both channels now install a CI-built artifact that DOES
+     * carry `vendor/` and replaces it wholesale (scripts/build-artifact.sh),
+     * and `schema/` — the declared schema the migration step runs
+     * against — has always been replaced by an install. Restoring only
+     * core/modules/public/storage after that leaves the previous version's
+     * code running against the next version's dependencies and the next
+     * version's declared schema: exactly the mixed-state class this
+     * codebase has already paid for six times over (ARCHITECTURE.md
+     * §8.17, "Nothing migrates in the process that replaced the files").
+     * A rollback has to put back everything the install replaced.
+     *
+     * @var string[]
+     */
+    private const BACKED_UP_TOP_LEVEL = ['core', 'modules', 'public', 'schema', 'storage', 'vendor'];
+
+    /**
+     * Zips BACKED_UP_TOP_LEVEL (excluding storage/keys/ and
+     * storage/config/ — secrets never leave the server in a backup
      * archive, encrypted or not) into a single archive. $includeGallery
      * controls whether storage/gallery/ (the gallery module's uploaded
      * photos/videos, potentially very large) is included.
@@ -93,7 +118,7 @@ class BackupService implements BackupServiceInterface
             throw new BackupException('Impossible de créer l\'archive de fichiers.');
         }
 
-        foreach (['core', 'modules', 'public', 'storage'] as $topDir) {
+        foreach (self::BACKED_UP_TOP_LEVEL as $topDir) {
             $this->addDirectoryToZip($zip, $this->basePath . '/' . $topDir, $topDir, $includeGallery);
         }
 
@@ -150,6 +175,17 @@ class BackupService implements BackupServiceInterface
 
             if ($scope !== 'full_config') {
                 $includeGallery = $scope === 'full_with_gallery';
+                // Deliberately NOT BACKED_UP_TOP_LEVEL: this archive is
+                // the operator's own downloadable backup, and every entry
+                // in it is separately AES-256 encrypted
+                // (addEncryptedFile()). Adding vendor/ — thousands of
+                // small files — would multiply that cost on exactly the
+                // shared hosting this feature exists for, for a tree the
+                // operator can always reinstall from a release artifact.
+                // The safety backup an automatic rollback restores from
+                // (createFileBackup() above) is the one that must be
+                // complete, and it is unencrypted. RESTORABLE_TOP_LEVEL is
+                // a superset check, so both archives stay restorable.
                 foreach (['core', 'modules', 'public', 'storage'] as $topDir) {
                     $this->addDirectoryToZip($zip, $this->basePath . '/' . $topDir, $topDir, $includeGallery, $password);
                 }
@@ -260,7 +296,7 @@ class BackupService implements BackupServiceInterface
         // takes an operator-uploaded ZIP, so without this an archive could
         // scatter files anywhere the entry names point, or ship a symlink.
         // A legitimate backup produced by createFileBackup()/
-        // createFullBackup() contains only these four top-level trees plus
+        // createFullBackup() contains only the known top-level trees plus
         // database.sql — anything else means "this is not our backup".
         $this->assertArchiveEntriesAreSafe($zip);
 
@@ -282,8 +318,23 @@ class BackupService implements BackupServiceInterface
         OpcodeCache::reset();
     }
 
-    /** Top-level trees a legitimate ScoutMagic backup archive may contain. */
-    private const RESTORABLE_TOP_LEVEL = ['core', 'modules', 'public', 'storage'];
+    /**
+     * Top-level trees a legitimate ScoutMagic backup archive may contain.
+     *
+     * A SUPERSET check, never a required set: nothing here has to be
+     * present. That is what keeps an archive taken before `vendor` and
+     * `schema` joined the list (see BACKED_UP_TOP_LEVEL, and the reason
+     * they joined it) restorable exactly as it always was — an old backup
+     * must never become unrestorable because a newer version learned to
+     * back up more.
+     *
+     * It stays in lockstep with BACKED_UP_TOP_LEVEL in the other
+     * direction, though: a tree the backup writes but this list does not
+     * accept would make every new backup unrestorable, which is a far
+     * quieter failure — nothing notices until the day a rollback is
+     * actually needed.
+     */
+    private const RESTORABLE_TOP_LEVEL = ['core', 'modules', 'public', 'schema', 'storage', 'vendor'];
 
     /** Refuse an archive whose decompressed contents exceed this (zip bomb). */
     private const MAX_RESTORE_UNCOMPRESSED_BYTES = 4 * 1024 * 1024 * 1024;

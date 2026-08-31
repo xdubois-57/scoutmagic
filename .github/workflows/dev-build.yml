@@ -1,0 +1,133 @@
+# Development-channel build.
+#
+# Every push to main produces the SAME kind of installable artifact
+# scripts/release.sh publishes for the stable channel — repository tree
+# plus a production vendor/, minus tests/, .github/, bootstrap/, storage/
+# and the rest — and attaches it to a single rolling PRERELEASE tagged
+# `dev-build`.
+#
+# Why this exists: a site on `auto_update_level = dev` used to install
+# https://api.github.com/repos/{repo}/zipball/{sha} on every push. That is
+# the git tree, so it carries no vendor/ (gitignored) while it does carry
+# tests/, .github/, bootstrap/ and scripts/ straight onto a production
+# webroot — and because InstallUpdateHandler::installFiles() copies
+# additively, the live vendor/ was never replaced even as composer.lock on
+# disk was. Measured on scoutmagic.be: vendor/'s mtime stayed at the
+# original install date across roughly 40 dev updates while composer.lock
+# advanced. Silent drift, with no symptom until a new dependency is
+# actually called.
+#
+# THE PRERELEASE FLAG IS AN INVARIANT, not a preference. The stable
+# channel reads GET /repos/{owner}/{repo}/releases/latest
+# (Core\Maintenance\GitHubReleaseClient), which GitHub defines as
+# excluding drafts and prereleases. That single fact is what keeps the two
+# channels apart: a `dev-build` release that ever became "latest" would be
+# offered to, and auto-installed by, every site on patch/minor/major.
+
+name: Dev build
+
+on:
+  push:
+    branches: [main]
+
+# Publishing the rolling prerelease needs to write the tag ref, the
+# release and its assets — and nothing else. No packages, no id-token, no
+# pull-requests.
+permissions:
+  contents: write
+
+# Two pushes seconds apart would otherwise race on the same tag, the same
+# release and the same asset list. Queued rather than cancelled: an
+# in-flight run's artifact may already be what a site is downloading, and
+# the retention prune below is only correct when runs are serialized.
+concurrency:
+  group: dev-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Same action, pin and PHP version as the CI workflow's jobs
+      # (composer.json requires "php": "^8.4"). No coverage driver: this
+      # job runs no tests, it only resolves dependencies and zips a tree.
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
+        with:
+          php-version: '8.4'
+          extensions: mbstring, pdo, pdo_mysql, openssl, imagick
+          coverage: none
+
+      # The one implementation of "what an installable artifact is",
+      # shared with scripts/release.sh so the two channels cannot drift.
+      # It runs composer install --no-dev --optimize-autoloader itself and
+      # asserts vendor/autoload.php is in the zip and no root .htaccess is.
+      - name: Build the artifact
+        run: |
+          set -euo pipefail
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+          ASSET="scoutmagic-dev-${SHORT_SHA}.zip"
+          echo "ASSET=${ASSET}" >> "${GITHUB_ENV}"
+          ./scripts/build-artifact.sh "${GITHUB_WORKSPACE}/${ASSET}"
+
+      # The asset name Core\Maintenance\GitHubWebhookService builds its
+      # download URL from is scoutmagic-dev-<sha7>.zip under the
+      # `dev-build` tag — the tag has to point at the commit being
+      # published, so the release page shows the right source and a manual
+      # `git fetch --tags` lands somewhere meaningful.
+      #
+      # The tag is moved through the git refs API rather than
+      # `gh release edit --target`: target_commitish only takes effect
+      # when the tag does not exist yet, so editing it on an existing
+      # release is silently a no-op.
+      - name: Publish the rolling dev-build prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/dev-build" >/dev/null 2>&1; then
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/dev-build" \
+              -f sha="${GITHUB_SHA}" -F force=true >/dev/null
+          else
+            gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+              -f ref="refs/tags/dev-build" -f sha="${GITHUB_SHA}" >/dev/null
+          fi
+
+          if gh release view dev-build >/dev/null 2>&1; then
+            # Re-asserted on every run, never assumed: the prerelease flag
+            # is what keeps this out of /releases/latest, and a release
+            # someone edited by hand must be put back rather than trusted.
+            gh release edit dev-build --prerelease --draft=false --latest=false \
+              --title "Development build" >/dev/null
+          else
+            gh release create dev-build --prerelease --latest=false \
+              --title "Development build" \
+              --notes "Rolling build of the \`main\` branch, published for installations tracking the development channel (\`auto_update_level = dev\`). Never a stable release: this is a prerelease on purpose, so \`/releases/latest\` — the stable channel's only source — never sees it." >/dev/null
+          fi
+
+          gh release upload dev-build "${GITHUB_WORKSPACE}/${ASSET}" --clobber
+
+      # Keep the three most recent builds. Not one: an install scheduled
+      # by the webhook can still be fetching the previous artifact minutes
+      # later (Task\InstallUpdateHandler waits for the asset to appear and
+      # then downloads it), and deleting what a site is mid-download is a
+      # failed update. Three covers a burst of pushes without letting the
+      # release accumulate every build ever made.
+      - name: Prune older dev artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view dev-build --json assets \
+            --jq '[.assets[] | select(.name | startswith("scoutmagic-dev-") and endswith(".zip"))]
+                  | sort_by(.createdAt) | reverse | .[3:] | .[].name' \
+            > stale-assets.txt
+          while IFS= read -r name; do
+            [ -n "${name}" ] || continue
+            echo "Deleting stale dev artifact ${name}"
+            gh release delete-asset dev-build "${name}" --yes
+          done < stale-assets.txt

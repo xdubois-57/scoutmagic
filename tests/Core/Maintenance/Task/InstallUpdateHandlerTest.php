@@ -200,6 +200,197 @@ class InstallUpdateHandlerTest extends TestCase
         $this->assertSame('failed', $this->updateHistoryRepository->findById($id)->status);
     }
 
+    // ── Waiting for an artifact CI has not published yet ────────────────
+
+    /** The URL Core\Maintenance\GitHubWebhookService builds for a push. */
+    private const DEV_ARTIFACT_URL =
+        'https://github.com/owner/repo/releases/download/dev-build/scoutmagic-dev-a1b2c3d.zip';
+
+    /**
+     * A handler whose artifact probe answers $status without touching the
+     * network. probeArtifactStatus() is `protected` for exactly this — the
+     * decision under test is what the handler does with the answer, and
+     * the redirect walk that produces it is covered separately above.
+     */
+    private function handlerProbing(?int $status): InstallUpdateHandler
+    {
+        return new class ($status) extends InstallUpdateHandler {
+            public function __construct(private ?int $probeStatus)
+            {
+            }
+
+            protected function probeArtifactStatus(string $url): ?int
+            {
+                return $this->probeStatus;
+            }
+        };
+    }
+
+    /**
+     * The development channel schedules its install from the push webhook,
+     * which fires the instant the commit lands — one to three minutes
+     * before CI has finished building and uploading the artifact. The
+     * first attempt therefore finds nothing, and must cost nothing: no
+     * backup, no status change, just this same task queued again.
+     */
+    public function testAnArtifactNotPublishedYetReschedulesTheSameTaskAndChangesNothing(): void
+    {
+        $id = $this->updateHistoryRepository->create('dev-0000000', 'dev-a1b2c3d', false, null);
+        $payload = [
+            'history_id' => $id,
+            'download_url' => self::DEV_ARTIFACT_URL,
+            'source_type' => 'release',
+            'wait_for_artifact_until' => time() + 600,
+            'reference' => 'push_install',
+        ];
+
+        $this->handlerProbing(404)->handle($payload, $this->context);
+
+        $history = $this->updateHistoryRepository->findById($id);
+        // Still 'pending', and that is safe: Maintenance\AbandonedInstallSweeper
+        // only closes a pending row that NO queued scheduled action points
+        // at, and the retry below points at this one.
+        $this->assertSame('pending', $history->status);
+        $this->assertNull($history->backupId, 'nothing may be backed up while merely waiting');
+
+        $queued = (new SchedulerRepository($this->pdo))->findByModuleAndTaskKey('core', 'install_update', 10);
+        $this->assertCount(1, $queued);
+        $retried = json_decode((string) $queued[0]['payload'], true);
+        $this->assertSame($payload['download_url'], $retried['download_url']);
+        $this->assertSame($payload['wait_for_artifact_until'], $retried['wait_for_artifact_until']);
+        $this->assertSame('release', $retried['source_type']);
+        // Same reference, so a newer push still supersedes this attempt
+        // (GitHubWebhookService::supersedeQueuedInstall() finds the queued
+        // task by reference) instead of leaving two installs due at once.
+        $this->assertSame('push_install', $queued[0]['reference']);
+    }
+
+    /**
+     * Past the deadline the build is not late, it is broken — and a broken
+     * build has to be visible. There is deliberately NO fallback to
+     * GitHub's zipball of the commit: that archive carries no vendor/, and
+     * installing it is exactly the silent dependency drift this channel
+     * was rebuilt to remove.
+     */
+    public function testAnArtifactThatNeverAppearedFailsTheUpdateInsteadOfWaitingForever(): void
+    {
+        $id = $this->updateHistoryRepository->create('dev-0000000', 'dev-a1b2c3d', false, null);
+
+        $this->handlerProbing(404)->handle([
+            'history_id' => $id,
+            'download_url' => self::DEV_ARTIFACT_URL,
+            'source_type' => 'release',
+            'wait_for_artifact_until' => time() - 1,
+            'reference' => 'push_install',
+        ], $this->context);
+
+        $history = $this->updateHistoryRepository->findById($id);
+        $this->assertSame('failed', $history->status);
+        $this->assertNull($history->backupId, 'the update stopped before touching anything');
+
+        // Names what is missing and where, in French, without the URL, a
+        // filesystem path or any library text — the message is rendered as
+        // a title="" tooltip on Configuration > Maintenance.
+        $message = (string) $history->errorMessage;
+        $this->assertStringContainsString('dev-build', $message);
+        $this->assertStringContainsString('scoutmagic-dev-a1b2c3d.zip', $message);
+        $this->assertStringNotContainsString('https://', $message);
+
+        // Nothing left queued: the wait is over, not paused.
+        $this->assertCount(0, (new SchedulerRepository($this->pdo))->findByModuleAndTaskKey('core', 'install_update', 10));
+
+        // The detail an operator needs to find the failed build IS
+        // journaled, unlike the tooltip.
+        $row = $this->pdo->query(
+            "SELECT context FROM event_log WHERE event_type = 'update_failed' ORDER BY id DESC LIMIT 1"
+        )->fetch(\PDO::FETCH_ASSOC);
+        $this->assertNotFalse($row);
+        $context = json_decode((string) $row['context'], true);
+        $this->assertSame(self::DEV_ARTIFACT_URL, $context['download_url']);
+        $this->assertSame(404, $context['http_status']);
+    }
+
+    /**
+     * A probe that fails for a transient reason — rate limit, refused
+     * connection (null), a 5xx — is "not there yet", never fatal: only the
+     * deadline ends the wait. Otherwise one GitHub hiccup would fail an
+     * update whose artifact was sitting there all along.
+     *
+     * @return array<string, array{0: int|null}>
+     */
+    public static function transientProbeFailures(): array
+    {
+        return [
+            'no response at all' => [null],
+            'rate limited' => [403],
+            'GitHub having a moment' => [503],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('transientProbeFailures')]
+    public function testATransientProbeFailureIsTreatedAsAbsentAndRetried(?int $status): void
+    {
+        $id = $this->updateHistoryRepository->create('dev-0000000', 'dev-a1b2c3d', false, null);
+
+        $this->handlerProbing($status)->handle([
+            'history_id' => $id,
+            'download_url' => self::DEV_ARTIFACT_URL,
+            'source_type' => 'release',
+            'wait_for_artifact_until' => time() + 600,
+            'reference' => 'push_install',
+        ], $this->context);
+
+        $this->assertSame('pending', $this->updateHistoryRepository->findById($id)->status);
+        $this->assertCount(1, (new SchedulerRepository($this->pdo))->findByModuleAndTaskKey('core', 'install_update', 10));
+    }
+
+    /**
+     * The artifact is there — the wait is over and the normal pipeline
+     * runs. It still fails here, at the safety-backup step, because this
+     * class deliberately runs against fake database credentials (see the
+     * class docblock); reaching THAT failure is the proof it got past the
+     * wait, since a still-waiting install never leaves 'pending'.
+     */
+    public function testAPublishedArtifactLetsTheInstallProceed(): void
+    {
+        $id = $this->updateHistoryRepository->create('dev-0000000', 'dev-a1b2c3d', false, null);
+
+        $this->handlerProbing(200)->handle([
+            'history_id' => $id,
+            'download_url' => self::DEV_ARTIFACT_URL,
+            'source_type' => 'release',
+            'wait_for_artifact_until' => time() + 600,
+            'reference' => 'push_install',
+        ], $this->context);
+
+        $history = $this->updateHistoryRepository->findById($id);
+        $this->assertSame('failed', $history->status);
+        // It failed on the DATABASE dump, i.e. inside the safety-backup
+        // step — not on the artifact, which is the point.
+        $this->assertStringContainsString('base de données', (string) $history->errorMessage);
+        $this->assertStringNotContainsString('jamais été publiée', (string) $history->errorMessage);
+        $this->assertCount(0, (new SchedulerRepository($this->pdo))->findByModuleAndTaskKey('core', 'install_update', 10));
+    }
+
+    /**
+     * A stable-release install — and any task queued before this field
+     * existed — carries no deadline, and must never be probed or delayed:
+     * its artifact was published before the install was ever scheduled.
+     */
+    public function testAnInstallWithNoDeadlineIsNeverMadeToWait(): void
+    {
+        $id = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, $this->userId);
+
+        // A probe answering 404 would reschedule if it were consulted.
+        $this->handlerProbing(404)->handle(
+            ['history_id' => $id, 'download_url' => 'https://example.test/artifact.zip'],
+            $this->context
+        );
+
+        $this->assertSame('failed', $this->updateHistoryRepository->findById($id)->status);
+        $this->assertCount(0, (new SchedulerRepository($this->pdo))->findByModuleAndTaskKey('core', 'install_update', 10));
+    }
+
     /**
      * The artifact is unpacked over the live PHP tree, so download() refuses
      * any non-GitHub URL before the first byte is fetched — the outermost

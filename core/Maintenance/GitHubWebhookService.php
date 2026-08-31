@@ -19,8 +19,9 @@ use Core\Scheduler\SchedulerService;
  * Task\CheckUpdateHandler: a published release (stable update path,
  * schedules Task\InstallUpdateHandler at the admin's configured weekly
  * slot, gated by the allowed version-bump level) and a push (development
- * mode only — installs immediately from the branch's zipball, ignoring
- * both the level gate and the weekly slot).
+ * mode only — installs immediately from the CI-built artifact attached to
+ * the rolling `dev-build` prerelease, ignoring both the level gate and the
+ * weekly slot).
  *
  * Signature verification (verifySignature()) is a separate, pure method
  * with no dependencies, deliberately kept out of both event handlers —
@@ -47,6 +48,29 @@ class GitHubWebhookService
     // scheduled when the admin changes the preferences that produced it.
     public const SCHEDULED_INSTALL_REFERENCE = 'scheduled_install';
     private const PUSH_INSTALL_REFERENCE = 'push_install';
+
+    /**
+     * The rolling PRERELEASE .github/workflows/dev-build.yml publishes the
+     * development channel's artifact under, and the asset name it uses
+     * ("scoutmagic-dev-{7-char sha}.zip"). A prerelease is invisible to
+     * `GET /releases/latest`, which is the stable channel's only source —
+     * that is what keeps the two channels from ever seeing each other's
+     * builds, and it is a property of the workflow, restated here so the
+     * two halves of the contract are readable together.
+     */
+    private const DEV_BUILD_TAG = 'dev-build';
+
+    /**
+     * How long Task\InstallUpdateHandler may keep waiting for that
+     * artifact to appear before giving up (seconds). The webhook fires the
+     * instant the push lands; CI needs 1-3 minutes to resolve
+     * dependencies, zip the tree and upload the asset — so the install is
+     * scheduled immediately, finds nothing, and reschedules itself until
+     * either the asset shows up or this deadline passes. Ten minutes is
+     * several times the observed build time and still short enough that a
+     * genuinely failed build is reported the same morning.
+     */
+    private const ARTIFACT_WAIT_SECONDS = 600;
 
     // Wall-clock timezone the admin's auto_update_day/auto_update_time are
     // expressed in: the application clock, named explicitly rather than
@@ -312,7 +336,7 @@ class GitHubWebhookService
             return ['status' => 'ignored', 'reason' => 'invalid_payload'];
         }
 
-        // The zipball URL below is built from $repoFullName; it must be the
+        // The artifact URL below is built from $repoFullName; it must be the
         // repository this site is configured to update from, or a signed
         // push event could install any attacker-owned repo's code.
         if (!$this->isConfiguredRepository($payload)) {
@@ -344,10 +368,41 @@ class GitHubWebhookService
 
         $shortSha = substr($sha, 0, 7);
         $versionTo = 'dev-' . $shortSha;
-        $downloadUrl = "https://api.github.com/repos/{$repoFullName}/zipball/{$sha}";
+
+        // The CI-built artifact, NOT GitHub's zipball of the commit.
+        //
+        // The zipball is the git tree: it has no vendor/ (gitignored) and
+        // it does have tests/, .github/, bootstrap/ and scripts/, all of
+        // which used to be copied onto a production webroot. Worse,
+        // Task\InstallUpdateHandler::installFiles() copies additively — so
+        // the live vendor/ was never replaced while composer.lock on disk
+        // was, and a site could run months-old dependencies against
+        // months-newer code with nothing to show for it. Measured on
+        // scoutmagic.be: vendor/'s mtime never moved off the original
+        // install date across roughly 40 dev updates.
+        //
+        // .github/workflows/dev-build.yml publishes the same artifact
+        // scripts/release.sh builds (both call scripts/build-artifact.sh),
+        // as an asset of the rolling `dev-build` prerelease. It is FLAT,
+        // exactly like a release artifact — no wrapping
+        // "{owner}-{repo}-{sha}/" directory — which is why source_type is
+        // 'release' and not 'branch': resolveBranchArchiveRoot() exists
+        // for the zipball's shape and must never be applied to this one.
+        $downloadUrl = "https://github.com/{$repoFullName}/releases/download/"
+            . self::DEV_BUILD_TAG . "/scoutmagic-dev-{$shortSha}.zip";
         $installedVersion = VersionFile::read($this->basePath);
 
-        $historyId = $this->updateHistoryRepository->create($installedVersion, $versionTo, false, null);
+        // Used to be hardcoded false, which made the "dépendances mises à
+        // jour" column of the update history a constant "non" on the dev
+        // channel regardless of the truth. It is computed the same way the
+        // release path computes it — except that a failed compare degrades
+        // to false here rather than to "assume changed": the artifact now
+        // carries vendor/ itself, so this flag is a statement about what
+        // happened, not a precondition for installing, and it must never
+        // be the reason a push does not install.
+        $dependenciesChanged = $this->composerLockChanged($installedVersion, $sha, false);
+
+        $historyId = $this->updateHistoryRepository->create($installedVersion, $versionTo, $dependenciesChanged, null);
 
         // A push arriving while a previous push's install is still merely
         // *queued* (not yet claimed/running — supersedeQueuedInstall()
@@ -371,7 +426,29 @@ class GitHubWebhookService
             'core',
             'install_update',
             0,
-            ['history_id' => $historyId, 'download_url' => $downloadUrl, 'source_type' => 'branch'],
+            [
+                'history_id' => $historyId,
+                'download_url' => $downloadUrl,
+                'source_type' => 'release',
+                // The webhook fires the instant the push lands; the
+                // artifact only exists once CI has built and uploaded it,
+                // a minute or three later. This deadline is what
+                // Task\InstallUpdateHandler waits against: absent artifact
+                // and time left → reschedule itself and stay 'pending';
+                // absent artifact past the deadline → fail, and say so.
+                // It never falls back to the zipball, which would quietly
+                // reintroduce the vendor drift this whole channel exists
+                // to remove.
+                'wait_for_artifact_until' => time() + self::ARTIFACT_WAIT_SECONDS,
+                // Carried explicitly because a scheduled task is not told
+                // its own reference: the handler reschedules under this
+                // same one, so a newer push still supersedes an install
+                // that is only waiting for its artifact
+                // (supersedeQueuedInstall() finds the queued task by
+                // reference). Without it the retry would be invisible to
+                // that dedup and two installs could become due at once.
+                'reference' => self::PUSH_INSTALL_REFERENCE,
+            ],
             self::PUSH_INSTALL_REFERENCE
         );
 
@@ -475,7 +552,21 @@ class GitHubWebhookService
         return null;
     }
 
-    private function composerLockChanged(string $installedVersion, string $latestTag): bool
+    /**
+     * @param string $head        the ref being compared to: a release tag
+     *                            on the stable path, the pushed commit sha
+     *                            on the development one
+     * @param bool $fallbackOnFailure what an unreachable/rate-limited/
+     *        404ing compare answers. The stable path says true — "err on
+     *        the side of caution", the fallback Task\CheckUpdateHandler
+     *        used, because there the flag warns an admin that an install
+     *        will need dependencies they cannot install by hand. The
+     *        development path says false: its artifact carries vendor/
+     *        itself, so the flag is a note about what happened and must
+     *        never turn a GitHub API hiccup into an alarming update
+     *        history row.
+     */
+    private function composerLockChanged(string $installedVersion, string $head, bool $fallbackOnFailure = true): bool
     {
         // A dev/branch build's git ref is the commit sha inside its
         // "dev-{sha}" VERSION string — "vdev-{sha}" is never a real tag, so
@@ -486,10 +577,9 @@ class GitHubWebhookService
             : 'v' . $installedVersion;
 
         try {
-            return $this->releaseClient()->composerLockChanged($base, $latestTag);
+            return $this->releaseClient()->composerLockChanged($base, $head);
         } catch (\Throwable) {
-            // Same "err on the side of caution" fallback Task\CheckUpdateHandler used.
-            return true;
+            return $fallbackOnFailure;
         }
     }
 

@@ -844,3 +844,126 @@ sur cette ligne » plutôt que d'un battement de cœur : une tâche restée en
 `processing` parce que le processus est mort ne redevient jamais rien, et
 la grille aurait alors retenu les visiteurs indéfiniment — exactement ce
 que ce seuil existe pour éviter.
+
+### Le canal de développement installait l'arbre git, pas une application
+
+Le mode développement (`auto_update_level = dev`) installait, à chaque
+push sur la branche suivie, `https://api.github.com/repos/{repo}/zipball/{sha}`
+— l'archive git du commit. C'est le *dépôt*, pas un site déployable, et
+deux conséquences en découlaient, toutes deux vérifiées sur les paquets
+de support de scoutmagic.be.
+
+**La dérive silencieuse.** L'archive ne contient pas `vendor/`, qui est
+gitignoré. Or `InstallUpdateHandler::installFiles()` copie par ajout :
+rien n'a jamais remplacé ni supprimé le `vendor/` posé à la première
+installation. `composer.lock`, lui, était bien remplacé à chaque mise à
+jour. Mesure : sur une quarantaine de mises à jour du canal dev, la date
+de modification de `vendor/` n'a jamais quitté celle de l'installation
+d'origine pendant que `composer.lock` avançait de version en version. Un
+site qui exécute du code de cette semaine contre des dépendances d'il y a
+des mois, sans le moindre symptôme jusqu'à la première ligne qui appelle
+quelque chose que l'ancienne dépendance n'a pas.
+
+**Et ce qu'elle contenait en trop.** La même archive déposait `tests/`
+(jeu de données de référence compris — ses mots de passe de démonstration
+documentés et son constructeur CLI qui écrit massivement en base),
+`.github/`, `bootstrap/` et `scripts/` sur une racine web de production.
+
+#### Fait
+
+- `scripts/build-artifact.sh` — l'unique implémentation de « ce qu'est un
+  artefact ScoutMagic installable » : `composer install --no-dev
+  --optimize-autoloader`, la liste d'exclusions, la forme plate
+  (`zip -r <artefact> .`, sans répertoire enveloppant), et les deux
+  vérifications qui refusent une archive sans `vendor/autoload.php` ou
+  avec un `.htaccess` à la racine. `scripts/release.sh` l'appelle
+  désormais au lieu d'en porter sa propre copie ; ses trois autres
+  contrôles (`docs/help/` présent, pas de `node_modules/`, pas de jeu de
+  données de référence) restent chez lui, ils portent sur ce qu'une
+  *release publiée* ne doit pas contenir, pas sur l'artefact lui-même.
+  La restauration des dépendances de développement vit maintenant
+  entièrement dans le script partagé, donc le `trap` de `release.sh` ne
+  garde que ses deux fichiers temporaires — pas deux restaurations qui se
+  chevauchent.
+- `.github/workflows/dev-build.yml` — à chaque push sur `main`, construit
+  cet artefact et le publie sous le nom `scoutmagic-dev-{sha7}.zip` sur
+  une **préversion** roulante étiquetée `dev-build`, en gardant les trois
+  plus récents. Permission `contents: write`, rien d'autre.
+- `GitHubWebhookService::processPushEvent()` — installe cette archive
+  (`source_type: 'release'`, puisqu'elle est plate comme une release), et
+  calcule enfin `dependencies_changed` au lieu de l'écrire `false` en
+  dur.
+- `InstallUpdateHandler` — attend que l'artefact existe (voir plus bas).
+- `BackupService` — la sauvegarde de sécurité archive `vendor/` et
+  `schema/`, et `RESTORABLE_TOP_LEVEL` les accepte.
+
+#### Surpris
+
+**La préversion n'est pas un détail de présentation, c'est la séparation
+des deux canaux.** `GitHubReleaseClient` lit
+`GET /releases/latest`, que GitHub définit comme excluant brouillons et
+préversions. C'est le seul mécanisme qui empêche une build de `main`
+d'être proposée — et installée sans surveillance — à tous les sites en
+`patch`/`minor`/`major`. Le workflow ré-affirme donc
+`--prerelease --latest=false` à chaque exécution plutôt que de faire
+confiance à ce qu'il a créé une fois.
+
+**Le webhook arrive avant l'artefact.** L'événement `push` part à la
+seconde où le commit atterrit ; l'intégration continue met une à trois
+minutes à résoudre les dépendances, zipper et téléverser. La première
+tentative d'installation trouve donc un 404 — et un 404 sur ce chemin,
+c'est une mise à jour en échec avec restauration automatique, à chaque
+push. La charge planifiée porte donc `wait_for_artifact_until`, et le
+handler sonde l'URL en HEAD **avant** la sauvegarde de sécurité et avant
+tout changement de statut : absent et délai restant, il se replanifie
+lui-même à +90 s en laissant la ligne à `pending` ; absent au-delà du
+délai, il échoue en nommant l'archive et son étiquette. Laisser la ligne
+à `pending` est sûr, et pour une raison précise :
+`AbandonedInstallSweeper` ne ferme une ligne `pending` que si *aucune*
+tâche en file ne la vise — et celle qui vient d'être créée la vise.
+
+**Le repli qu'il ne faut surtout pas écrire.** « Si l'artefact n'est pas
+là, prends le zipball » est la ligne évidente, et c'est exactement la
+dérive de `vendor/` réintroduite — au moment où personne ne regarde. Il
+n'y a pas de repli : une build qui n'a jamais publié son archive est une
+build cassée, et une build cassée doit se voir.
+
+**La référence de la tâche ne lui est jamais transmise.** `TaskContext`
+ne la porte pas. Une replanification sans référence serait invisible à
+`supersedeQueuedInstall()`, donc un push plus récent laisserait deux
+installations exigibles en même temps — précisément ce que la section
+« Deux mises à jour "En cours" » a corrigé. Elle voyage donc dans la
+charge utile.
+
+**La sauvegarde était accidentellement cohérente.** Tant que le canal dev
+installait une archive sans `vendor/`, ne pas sauvegarder `vendor/`
+n'avait aucune conséquence : rien ne le remplaçait. Maintenant que chaque
+installation le remplace en bloc, une restauration qui ne rendrait que
+`core`/`modules`/`public`/`storage` remettrait l'ancien code par-dessus
+les nouvelles dépendances et le nouveau schéma déclaré — le même état
+mixte qu'IT-07, atteint par l'autre bout. `RESTORABLE_TOP_LEVEL` reste un
+contrôle de sur-ensemble, donc une archive antérieure se restaure
+exactement comme avant.
+
+#### Écarté
+
+- **Un répertoire de build séparé** pour le `composer install --no-dev`,
+  au lieu de l'exécuter contre le `vendor/` du dépôt courant. Ç'aurait
+  évité le `trap` de restauration — mais `release.sh` fait ainsi depuis
+  toujours, et changer la mécanique de construction dans le même
+  changement que le partage du script aurait rendu impossible de dire
+  laquelle des deux modifications a cassé une release.
+- **Ajouter `vendor/` à `createFullBackup()`** (la sauvegarde
+  téléchargeable par l'opérateur) au nom de la symétrie. Chaque entrée y
+  est chiffrée AES-256 individuellement : payer ce coût sur des milliers
+  de petits fichiers, sur l'hébergement mutualisé auquel cette
+  fonctionnalité est destinée, pour un arbre que l'opérateur réinstalle
+  depuis n'importe quel artefact de release. La sauvegarde qui doit être
+  complète est celle dont une restauration automatique se sert, et elle
+  n'est pas chiffrée.
+- **Migrer aussi le chemin manuel** « Installer maintenant » du canal dev
+  (`MaintenanceController::installDevBranchUpdate()`), qui construit
+  encore une URL de zipball. C'est le même défaut, mais un commit qui
+  vient d'être poussé n'a pas forcément d'artefact publié, et faire
+  attendre un administrateur devant sa page en sondant une préversion est
+  une décision d'interface, pas de plomberie. À traiter séparément.
