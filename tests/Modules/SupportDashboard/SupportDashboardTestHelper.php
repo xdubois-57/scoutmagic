@@ -77,5 +77,22 @@ class SupportDashboardTestHelper
             ip_hash TEXT NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )');
+
+        $pdo->exec('CREATE TABLE support_tickets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            installation_id INTEGER NOT NULL,
+            category TEXT NOT NULL,
+            description_encrypted BLOB NOT NULL,
+            contact_email_encrypted BLOB NOT NULL,
+            contact_email_blind_index TEXT NOT NULL,
+            site_version TEXT NULL,
+            php_version TEXT NULL,
+            status TEXT NOT NULL DEFAULT \'open\',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            closed_at TEXT NULL,
+            resolution_note_encrypted BLOB NULL,
+            archive_file_id INTEGER NULL,
+            archive_received_at TEXT NULL
+        )');
     }
 }

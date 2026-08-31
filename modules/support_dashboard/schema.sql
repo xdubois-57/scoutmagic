@@ -92,3 +92,58 @@ CREATE TABLE support_monthly_contributions (
     -- concurrent reports could interleave past.
     UNIQUE KEY uniq_support_monthly_contribution (month, installation_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- One support ticket, sent by an installation and received here
+-- (ARCHITECTURE.md §8.49ter, roadmap IT-23).
+--
+-- **One-way, deliberately.** There is no thread, no reply travelling back
+-- to the instance, and no status the instance can read beyond the fact
+-- that it sent something. The maintainer answers from their own mailbox,
+-- like any other correspondence, and a ticket here is a record of what was
+-- reported rather than half of a conversation this codebase would then
+-- have to keep both ends of.
+--
+-- The description and the contact address ARE personal data: whoever wrote
+-- the ticket described their own installation in their own words and left
+-- an address to be answered on. Both are encrypted BLOBs, decrypted only
+-- in Repository\SupportTicketRepository (SECURITY.md §5), with a blind
+-- index on the address because "every ticket from this person" is a
+-- question the dashboard has to answer and an encrypted column cannot be
+-- compared.
+CREATE TABLE support_tickets (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    -- The reporting installation's own row. ON DELETE CASCADE because
+    -- deleting an installation from the dashboard is how a receiver
+    -- forgets a unit entirely, and a ticket left behind would be a record
+    -- of a unit that was just deleted.
+    installation_id INT UNSIGNED NOT NULL,
+    -- One of Modules\SupportDashboard\TicketCategory's values. Validated
+    -- against that closed list before the insert, never trusted from the
+    -- body.
+    category VARCHAR(30) NOT NULL,
+    description_encrypted BLOB NOT NULL,
+    contact_email_encrypted BLOB NOT NULL,
+    contact_email_blind_index VARCHAR(64) NOT NULL,
+    -- What the instance was running when it wrote the ticket. Not personal
+    -- data and the first thing a maintainer reads, so kept in clear.
+    site_version VARCHAR(50) NULL,
+    php_version VARCHAR(20) NULL,
+    -- 'open' | 'closed'. The instance never sees this: it is the
+    -- receiver's own bookkeeping.
+    status VARCHAR(10) NOT NULL DEFAULT 'open',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    closed_at DATETIME NULL,
+    -- What the maintainer wrote when closing. Their own words about
+    -- somebody's installation — encrypted like the description.
+    resolution_note_encrypted BLOB NULL,
+    -- The diagnostic archive, when the administrator explicitly sent one
+    -- (roadmap IT-26). It arrives in a SEPARATE call, never on the ticket
+    -- route: a ticket body is two kilobytes and an archive is megabytes.
+    archive_file_id INT UNSIGNED NULL,
+    archive_received_at DATETIME NULL,
+    INDEX idx_support_tickets_installation (installation_id, created_at),
+    INDEX idx_support_tickets_status (status, created_at),
+    INDEX idx_support_tickets_contact (contact_email_blind_index),
+    CONSTRAINT fk_support_tickets_installation FOREIGN KEY (installation_id)
+        REFERENCES support_installations (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -1556,6 +1556,18 @@ A rejection is journaled as `statistics_report_rejected` (`warning`) **with the 
 
 Neither the instance URL nor the installation id is personal data (a scout unit is an association, not a natural person), and both are needed in clear to filter and search, so both are stored as plain columns — justified in SECURITY.md rather than left as an unexplained exception.
 
+### 8.49ter Support tickets, the intake (`POST /api/support/tickets`)
+
+The same receiver, a second route, and **the same identity**: `Core\Statistics` already gives every installation an opaque id and a secret sent as `Authorization: Bearer`, established trust-on-first-use, and a second credential for tickets would be a second thing to lose, rotate and get wrong. `Service\TicketIntakeService` is built on `StatisticsIntakeService`'s shape rather than beside it — transport, size, credentials, parse, in that order, so nothing expensive runs before something cheap has had a chance to refuse — and borrows its bearer extraction outright.
+
+**Two shapes of "no", and the difference is the whole design.** A bad, malformed or absent signature is a **403** with a bare status and a `security` journal entry: the caller is not who it says it is, and an unknown installation costs the same `password_verify()` against a hard-coded dummy hash as a real one, so a caller can never learn which ids exist. **Everything else answers 200 with the refusal in the body** — a client that receives a non-2xx retries, and there is nothing to retry about an unknown category, a body over 32 KB or an hourly quota already spent, while a ticket accepted and then retried is a ticket filed twice. Same reasoning as `POST /api/webhook/github`. The security entry names the source address and **not** the installation id somebody tried, which would file a failed attempt under a unit that may have had nothing to do with it.
+
+**The categories are the receiver's, and travel to the instances.** `Modules\SupportDashboard\TicketCategory` is a closed enum — installation, mise à jour, e-mail, import Desk, performance, autre — and **every non-403 answer carries the list**, so an installation renders a picker it was not shipped with and a receiver that adds a category does not wait for every installation to update. There is deliberately no self-declared urgency: a field everybody sets to « haute » is a field nobody reads.
+
+**The description and the contact address are personal data.** Somebody described their own installation in their own words and left an address to be answered on: both are encrypted `BLOB`s decrypted only in `Repository\SupportTicketRepository` (SECURITY.md §5), with a blind index on the address because « every ticket from this person » is a question the dashboard has to answer. The journal entry carries the installation, the category and the ticket id — never a word of either.
+
+**Rate-limited per installation, and by counting tickets rather than by a side table.** Five an hour, read straight off `support_tickets.created_at`: the rows are already there, they are already indexed by installation, and they are kept for two years, so unlike the per-IP report limiter this needs no purge task to keep it from growing. The archive does not come through here at all — a ticket body is two kilobytes and a diagnostic archive is megabytes, so it arrives on its own call after an explicit tick from an administrator.
+
 ### 8.50 Support dashboard, current state (`/support-dashboard`)
 
 The consultation half of §8.49: `role_min: 'superadmin'`, menu `configuration`, one row per installation retained by the receiver.

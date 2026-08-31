@@ -2,7 +2,7 @@
   "id": "support_dashboard",
   "name": "Tableau de bord support",
   "description": "Réception et consultation des rapports d'utilisation envoyés par les installations ScoutMagic.",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "enabled_by_default": false,
   "visible_when": ["statistics_receiver"],
   "routes": [
@@ -10,6 +10,15 @@
       "path": "/api/statistics",
       "method": "POST",
       "controller": "Modules\\SupportDashboard\\Controller\\StatisticsIntakeController",
+      "action": "receive",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": ""
+    },
+    {
+      "path": "/api/support/tickets",
+      "method": "POST",
+      "controller": "Modules\\SupportDashboard\\Controller\\TicketIntakeController",
       "action": "receive",
       "menu": "notre_unite",
       "role_min": "public",

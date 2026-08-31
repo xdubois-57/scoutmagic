@@ -4085,6 +4085,20 @@ if ($isEnabled('support_dashboard')) {
         )
     );
 
+    // Support tickets: the same identity as the statistics intake beside
+    // it, on its own route (roadmap IT-23).
+    $frontController->registerController(
+        \Modules\SupportDashboard\Controller\TicketIntakeController::class,
+        new \Modules\SupportDashboard\Controller\TicketIntakeController(
+            $twig,
+            new \Modules\SupportDashboard\Service\TicketIntakeService(
+                $supportInstallationRepo,
+                new \Modules\SupportDashboard\Repository\SupportTicketRepository($pdo, $encryptionService),
+                $journalService
+            )
+        )
+    );
+
     // Every one of this module's self-rescheduling daily tasks needs its
     // FIRST occurrence seeded here: declaring a handler in module.json only
     // teaches SchedulerRunner how to run the task, it never queues one, and
