@@ -114,6 +114,9 @@
     "/config/mass-mail/lists/{id}": {
       "id": "1"
     },
+    "/courrier/{id}": {
+      "id": "1"
+    },
     "/departs/{member_year_id}": {
       "member_year_id": "1"
     },

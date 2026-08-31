@@ -55,7 +55,6 @@ class StayFromMailServiceTest extends TestCase
     private AuditService $audit;
     private SettingService $settings;
     /** @var list<array{from: string, to: string, message: int}> */
-    private array $moves = [];
     /** @var list<LlmRequest> */
     private array $asked = [];
 
@@ -69,21 +68,11 @@ class StayFromMailServiceTest extends TestCase
         $this->camps = new CampRepository($this->pdo, $encryption);
         $this->audit = new AuditService(new AuditRepository($this->pdo, $encryption));
         $this->settings = new SettingService(new SettingRepository($this->pdo));
-        $this->moves = [];
         $this->asked = [];
     }
 
     private function service(?LlmConnectorInterface $llm = null): StayFromMailService
     {
-        $inbound = $this->createMock(InboundMailInterface::class);
-        $inbound->method('move')->willReturnCallback(
-            function (string $consumerId, string $from, string $to, int $messageId): bool {
-                $this->moves[] = ['from' => $from, 'to' => $to, 'message' => $messageId];
-
-                return true;
-            }
-        );
-
         return new StayFromMailService(
             $this->camps,
             new CampService($this->camps, $this->audit, $this->places),
@@ -91,7 +80,6 @@ class StayFromMailServiceTest extends TestCase
             new DuplicatePlaceDetector($this->places, null),
             new MessageReader(),
             $this->settings,
-            $inbound,
             $llm
         );
     }
@@ -146,8 +134,12 @@ class StayFromMailServiceTest extends TestCase
         return new InboundMessage(
             id: 77,
             mailboxId: 2,
-            consumerId: CampsMessageConsumer::CONSUMER_ID,
-            businessReference: CampsMessageConsumer::UNSORTED_REFERENCE,
+            // Attached to nothing: this service only ever runs on a
+            // message no stay claimed, which since IT-07 means one with no
+            // association at all rather than one filed under a reserved
+            // `unsorted` reference.
+            consumerId: '',
+            businessReference: '',
             linkOrigin: LinkOrigin::SENDER,
             subject: $subject,
             fromEmail: 'info@mozet.be',
@@ -189,14 +181,12 @@ class StayFromMailServiceTest extends TestCase
 
         $campId = $this->service($this->llmAnswering('Domaine de Mozet'))->createFrom($this->message());
 
-        $this->assertSame(
-            [[
-                'from' => CampsMessageConsumer::UNSORTED_REFERENCE,
-                'to' => 'camp-' . $campId,
-                'message' => 77,
-            ]],
-            $this->moves
-        );
+        // The association itself is NOT made here any more: this service
+        // returns the new stay's id, `CampsMessageConsumer::analyzeStored()`
+        // returns it as an analysis result, and
+        // `Service\AnalysisResultApplier` writes the one association — one
+        // place that creates associations rather than two.
+        $this->assertNotNull($this->camps->findById($campId));
     }
 
     public function testTheHistorySaysTheStayCameFromTheMail(): void
@@ -264,7 +254,6 @@ class StayFromMailServiceTest extends TestCase
         // NEW name is an answer the model was sure enough to give.
         $this->assertNull($this->service($this->llmAnswering(''))->createFrom($this->message()));
         $this->assertSame([], $this->places->findAllVisible());
-        $this->assertSame([], $this->moves);
     }
 
     public function testAFailingModelLeavesTheMessageUnsorted(): void
@@ -273,9 +262,9 @@ class StayFromMailServiceTest extends TestCase
 
         $this->assertNull($this->service($this->llmFailing())->createFrom($this->message()));
         $this->assertSame([], $this->places->findAllVisible());
-        // Unsorted is where a human finds it, which is the whole point of
-        // degrading rather than breaking.
-        $this->assertSame([], $this->moves);
+        // Returning null is the whole point of degrading rather than
+        // breaking: the message stays attached to nothing, where both the
+        // chef d'unité and this module's own users find it.
     }
 
     public function testAFailingModelStillJoinsAPlaceTheModuleAlreadyKnows(): void
@@ -314,7 +303,7 @@ class StayFromMailServiceTest extends TestCase
         $this->assertNotNull($campId);
         $this->assertSame($existing, $this->camps->findById($campId)?->placeId);
         $this->assertCount(1, $this->places->findAllVisible());
-        $this->assertSame('camp-' . $campId, $this->moves[0]['to']);
+        $this->assertNotNull($this->camps->findById($campId));
     }
 
     public function testWithoutTheConnectorAnUnknownPlaceCreatesNothing(): void
@@ -326,7 +315,6 @@ class StayFromMailServiceTest extends TestCase
         // depuis ce message » lets a human validate the name before it
         // enters the database.
         $this->assertSame([], $this->places->findAllVisible());
-        $this->assertSame([], $this->moves);
     }
 
     public function testTheSenderDisplayNameIsNeverWrittenDownAsAPlace(): void
@@ -355,7 +343,6 @@ class StayFromMailServiceTest extends TestCase
 
         $this->assertNull($campId);
         $this->assertSame([], $this->places->findAllVisible());
-        $this->assertSame([], $this->moves);
         // And it cost nothing: a message that cannot become a stay is
         // never sent to a provider.
         $this->assertSame([], $this->asked);
@@ -367,7 +354,6 @@ class StayFromMailServiceTest extends TestCase
 
         $this->assertNull($this->service($this->llmAnswering('Domaine de Mozet'))->createFrom($this->message()));
         $this->assertSame([], $this->places->findAllVisible());
-        $this->assertSame([], $this->moves);
         $this->assertSame([], $this->asked);
     }
 

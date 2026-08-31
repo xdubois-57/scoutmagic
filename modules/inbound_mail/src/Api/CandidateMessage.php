@@ -27,6 +27,8 @@ class CandidateMessage
      * @param string[] $toEmails every recipient the message names, so a
      *   consumer can recognise a plus-address or a per-object alias of its
      *   own without this module knowing anything about it
+     * @param CandidateAttachment[] $attachments metadata only — see that
+     *   class for why there are no bytes here
      */
     public function __construct(
         /**
@@ -45,8 +47,35 @@ class CandidateMessage
         public readonly array $toEmails,
         public readonly \DateTimeImmutable $sentAt,
         public readonly string $bodyText,
-        public readonly string $bodyHtml
+        public readonly string $bodyHtml,
+        /**
+         * What the message carried, as names, types and sizes. The
+         * interface has always said a candidate carries attachment
+         * metadata; until this existed it did not, and a consumer whose
+         * signal is « il y a une pièce jointe » had no way to ask.
+         */
+        public readonly array $attachments = []
     ) {
+    }
+
+    /**
+     * Whether the message carried a file of one of these real types.
+     *
+     * A helper rather than a loop in every consumer, because the loop is
+     * where somebody eventually compares against the *declared* type
+     * instead of the sniffed one.
+     *
+     * @param string[] $mimeTypes
+     */
+    public function hasAttachmentOfType(array $mimeTypes): bool
+    {
+        foreach ($this->attachments as $attachment) {
+            if (in_array($attachment->mimeType, $mimeTypes, true)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

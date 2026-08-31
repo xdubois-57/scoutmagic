@@ -124,3 +124,492 @@ propriété à un message qui le détient encore. Sans ça le fichier
 désignerait un message disparu, le registre ne trouverait aucune
 association à interroger, et les personnes légitimes seraient enfermées
 dehors.
+
+---
+
+## IT-03 — Contrat consumer v2
+
+### `AnalysisResult` porte des `MessageLink`, dont le `consumerId` est ignoré
+
+Un consumer construit ses liens avec son propre identifiant, mais
+`AnalysisResultApplier` **réécrit** celui-ci avec l'id du consumer qui a
+répondu. Sans ça un module pourrait classer un message sous la référence
+d'un autre, et les règles d'accès d'IT-02 répondraient au sujet d'une
+association que le module concerné n'a jamais faite.
+
+### Un adaptateur de test, pas un adaptateur de production
+
+`Tests\Modules\Camps\Mail\CampsConsumerV1Adapter` rend `claim()` et
+`onMessageStored()` par-dessus le contrat v2. Le contrat a changé de forme
+dans le même changement, mais le **comportement** de `camps` non — et c'est
+précisément ce que la suite existante doit continuer de prouver. Réécrire
+quinze appels aurait signifié réécrire les assertions autour, et une
+assertion réécrite pendant un refactor ne prouve plus rien sur le refactor.
+Tout ce qui est propre à v2 (propositions, `onUnlinked()`, les
+déclarations d'audience) est testé contre le vrai contrat.
+
+### La tâche différée marque *avant* de travailler
+
+`AnalyzeStoredMessagesHandler` pose `stored_analysis_at` avant d'appeler
+les consumers. Un message dont l'analyse lève ne doit pas être rejoué
+indéfiniment en tête de file, bloquant tout ce qui est derrière — même
+raison que le curseur de synchronisation qui avance sur un message
+inutilisable.
+
+### `findAnyForAnalysis()` est la seule lecture non scopée
+
+Elle existe parce que la passe différée doit présenter un message à des
+consumers qui ne lui sont pas encore associés — c'est tout l'objet de la
+question. Elle reste sur le repository, hors de `Api\InboundMailInterface` :
+l'exposer publiquement annulerait la règle du §7.11 selon laquelle l'accès
+d'un gestionnaire à une location ne devient jamais une fenêtre sur la boîte
+de l'unité.
+
+### Le graphe de consumers est construit une fois pour les deux tâches
+
+`public/scheduler-bootstrap.php` extrait la construction dans une fermeture
+partagée par `SyncMailboxesHandler` et `AnalyzeStoredMessagesHandler`. Deux
+copies de ce câblage inter-modules seraient deux endroits où il peut
+diverger — et il diverge silencieusement : un consumer enregistré pour une
+passe et oublié pour l'autre ne propose simplement jamais rien.
+
+### `onUnlinked` de camps ne défait pas les complétions de champs
+
+Il retire les documents que `onLinked` avait déposés sur le séjour, mais
+laisse les valeurs de champs complétées depuis le message. Un chef a pu en
+valider une, et revenir en silence sur une valeur validée par quelqu'un est
+pire que laisser un champ rempli depuis un message qui a bougé.
+
+---
+
+## IT-04 — Conservation, quota, et ce que « détacher » veut dire
+
+### Le détachement ne détruit plus
+
+C'est le changement le plus lourd de l'itération, et il n'était pas
+explicitement demandé : il est la conséquence forcée du reste.
+
+Avant, `detach()` supprimait le message dès que la dernière association
+partait, faute de file d'attente où le laisser tomber. Or un détachement
+est presque toujours une **correction** — quelqu'un s'aperçoit que le
+message est classé sous la mauvaise réservation. L'ancien comportement
+détruisait donc exactement ce qu'on s'apprêtait à reclasser : la correction
+supprimait ce qu'elle corrigeait.
+
+Maintenant que tout est conservé, la file d'attente existe. `detach()`
+retire l'association, et rien d'autre. Le message retombe dans le courrier
+général, `PurgeUnlinkedMessagesHandler` s'en charge si personne ne le
+réoriente, et `last_unlinked_at` lui donne un plancher de trente jours (A4)
+pour qu'un clic malheureux ait une fenêtre où être remarqué.
+
+`purgeReference()` reste destructeur, et la distinction est le fond du
+sujet : c'est l'effacement RGPD d'un objet métier par le module qui le
+possède, où la promesse faite à la personne concernée est que le courrier
+attaché à son dossier part avec son dossier. Un délai de conservation ne
+s'applique pas à un effacement demandé.
+
+### Conséquence non évidente : la pièce jointe reclassée
+
+Une pièce jointe qu'un gestionnaire a transformée en document de son
+module partage la ligne `files` du message (ARCHITECTURE.md §8.3). Sous
+l'ancien modèle, `$preserveFileIds` suffisait : le message mourait tout de
+suite, on épargnait le fichier, fin. Sous le nouveau, la purge de rétention
+passe quatre-vingt-dix jours plus tard et supprime les fichiers que les
+lignes de pièces jointes désignent encore — **elle emporterait le contrat
+signé d'une réservation avec l'email dans lequel il est arrivé**.
+
+Deux corrections, indissociables :
+
+1. `releaseAttachmentFile()` — la ligne de pièce jointe cesse de désigner
+   le fichier et dit pourquoi (`AttachmentOmission::RECLASSIFIED`). La
+   ligne reste : l'écran doit toujours pouvoir dire que le message portait
+   ce fichier. C'est ce qui garde la purge honnête sans lui apprendre les
+   tables de documents de chaque module — ce qui remettrait la connaissance
+   des consumers à l'intérieur d'`inbound_mail`, la seule chose que §8.58
+   interdit.
+2. Le consumer reprend `files.owner_id`. `RentalCommunicationService`
+   repointe le fichier sur `rental_document` / l'id de la réservation.
+   Sans cela le fichier continuerait de répondre à un contrôle d'accès
+   portant sur un message que les gestionnaires de la réservation ne voient
+   plus : ils perdaient l'accès à leur propre contrat. Ce défaut existait
+   déjà avant l'itération — le message était détruit, `owner_id` pendait
+   dans le vide et seul un chef d'unité passait — il devient simplement
+   visible ici.
+
+### `AttachmentOmission::RECLASSIFIED` dans le même enum
+
+Un fichier reclassé n'est pas une pièce jointe « écartée » : il a bien été
+conservé, il a changé de propriétaire. Il partage néanmoins l'enum parce
+que l'écran pose une seule question — pourquoi ce message n'offre-t-il plus
+ce fichier ? — et qu'une seconde liste ne serait qu'un second endroit à
+oublier. `explanation()` bifurque pour ce cas : la phrase générique renvoie
+le lecteur vers la boîte d'origine, ce qui serait un mensonge dans l'autre
+sens pour un fichier que ScoutMagic détient toujours.
+
+### Camps : « supprimé » devenait un mensonge
+
+`CampsMailController::discard()` affichait « Message supprimé. » et
+`PurgeUnsortedMailHandler` journalisait « effacé(s) ». Ni l'un ni l'autre
+n'efface plus quoi que ce soit : les deux retirent une association et le
+message retombe dans le courrier général. Les libellés disent maintenant
+« retiré du courrier non classé ». La garantie d'effacement n'a pas
+disparu, elle a changé de module — et les tests de la tâche camps assertent
+désormais sur l'association, pas sur la ligne, sous peine d'asserter sur la
+rétention d'un autre module.
+
+### RGPD (A19, bloquant)
+
+Trois passages de `core/View/rgpd_default.html` étaient devenus faux et ont
+été réécrits : « un message qu'aucun dossier ne reconnaît est ignoré »,
+la conservation de la section 2.4, et la ligne « Courrier entrant » de la
+section 3.1. La règle 29 du prompt système de `RgpdContentService` interdit
+maintenant explicitement de réintroduire l'ancienne formulation, et impose
+les trois garanties comme un bloc indissociable — écran, rétention,
+responsable — parce que c'est précisément ce qui rend l'archive
+défendable. Le paragraphe du module Locations sur le détachement, qui
+promettait une suppression immédiate, a été corrigé de la même façon.
+
+### Reprise camps (A8) lue à chaud plutôt que migrée
+
+`PurgeUnlinkedMessagesHandler::retentionDays()` lit
+`camps_unsorted_retention_months` à chaque exécution au lieu d'écrire 180
+une fois pour toutes. Une unité qui n'ouvre jamais le nouveau réglage garde
+les six mois qu'elle avait choisis ; une qui l'ouvre trouve un champ déjà
+rempli plutôt qu'une valeur par défaut qui aurait raccourci sa rétention en
+silence. Une installation neuve démarre à 90 jours.
+
+### Le quota est vérifié avant chaque écriture, pas à la purge
+
+`poor_mans_cron` n'avance que sur les vues de page. Un plafond appliqué par
+une tâche nocturne laisserait un après-midi chargé remplir le disque de
+l'hébergeur. `StorageQuotaService::accepts()` est donc interrogé avant
+chaque écriture de pièce jointe, avec la taille que l'écriture ajouterait —
+une vérification faite après coup est une vérification qui a déjà laissé
+passer.
+
+L'horodatage de la dernière alerte (`inbound_mail_quota_alerted_at`) est
+écrit par `SettingRepository::updateValue()` et non par
+`SettingService::set()` : c'est de la comptabilité interne, déclarée non
+éditable pour ne jamais apparaître sur la page Réglages, et `set()` refuse
+par construction un réglage non éditable.
+
+## IT-05 — les libellés des trois modes
+
+### Deux questions, jamais une
+
+L'écran v1 posait une case à cocher et trois boutons radio dont les sens se
+recouvraient. La v2 sépare franchement : **analyser** (ce module
+reconnaît-il ce courrier ?) et **qui peut lire** (ses utilisateurs
+obtiennent-ils une liste, et jusqu'où ?). Ce sont deux pouvoirs différents —
+un module peut très bien rattacher un message à une réservation sans que ses
+utilisateurs aient à voir le reste de la boîte.
+
+`MailboxScope::effectiveReadMode()` fait respecter la dépendance dans le
+seul sens qui existe : un module qui n'analyse pas ne lit pas. Les deux
+colonnes sont écrites indépendamment, et « personne ne classe ce courrier
+mais tout le monde peut le lire » n'est pas un état que l'écran peut
+produire ni que quiconque a voulu.
+
+### L'usage est stocké, pas déduit
+
+Une boîte dédiée s'exprime pourtant en termes de portées : un module qui
+analyse avec `ReadMode::ALL`, les autres éteints. On aurait donc pu la
+déduire. On ne le fait pas : le premier resserrement manuel d'une portée
+ferait taire l'aveu « dédiée » sans que personne comprenne pourquoi la page
+s'est réorganisée.
+
+Inversement, les portées d'une boîte dédiée sont **calculées** à partir de
+l'usage (`Mailbox::impliedScopes()`) et non relues en base. Une ligne
+périmée — laissée par une boîte autrefois partagée — ressusciterait sinon un
+module que l'exploitant a précisément mis dehors.
+
+### L'absence de ligne est une réponse
+
+« Ne rien faire ». Un module installé après la configuration d'une boîte est
+inerte dessus tant que personne ne dit le contraire. Les alternatives —
+hériter de ce que le précédent avait, ou démarrer sur « analyse tout » —
+élargissent en silence qui voit le courrier d'une unité, à l'occasion d'une
+mise à jour dont personne n'a lu les notes.
+
+### Le périmètre est un réglage, pas une suggestion
+
+`MessageConsumerRegistry::analyzeAll()` prend désormais la liste des
+consumers autorisés. On restreint **la question**, pas les réponses : un
+module ne voit jamais un message qu'il n'a pas le droit d'analyser, donc il
+ne peut pas agir dessus par erreur. Filtrer après coup aurait laissé la
+décision dans les mains du module et rendu l'écran consultatif.
+
+### La garde « aucun consumer » disparaît
+
+`MailboxSyncService` sautait la connexion quand aucun module n'était
+enregistré, au motif que tout serait lu puis jeté. Depuis IT-04 tout est
+conservé : une boîte que personne ne classe est exactement ce à quoi sert le
+courrier général, et l'écran le dit — « Aucun module — le courrier est
+conservé mais rien ne le classe ».
+
+### Reprise camps migrée une fois, contrairement à la rétention
+
+`camps_dedicated_mailbox_ids` est lu **une seule fois** et écrit dans le
+nouveau modèle, là où `camps_unsorted_retention_months` reste lu à chaud
+(IT-04). La différence n'est pas une incohérence : la rétention est une
+valeur que l'unité a choisie et qu'il serait malhonnête de raccourcir ;
+l'usage d'une boîte est une réponse structurelle dont le nouvel écran est
+désormais propriétaire. Deux endroits déclarant une boîte dédiée finiraient
+par se contredire au premier passage sur l'écran.
+
+Le marqueur est posé même quand il n'y avait rien à migrer : « rien à faire »
+est une migration terminée, et relire un réglage hérité à chaque vue de page
+jusqu'à la fin de l'installation n'en est pas une.
+
+### Le verrou de « Rafraîchir maintenant »
+
+Le bouton lance une synchronisation **dans la requête**. Deux clics à une
+seconde d'intervalle ouvriraient deux sessions IMAP sur la même boîte,
+liraient les mêmes messages et se courraient après sur le curseur — et
+l'écriture perdante le ferait reculer, de sorte que le run planifié suivant
+relirait ce qui avait déjà été lu.
+
+Le verrou est un réglage plutôt qu'une table : une ligne, aucun schéma, et
+lisible depuis le chemin planifié aussi. Il **expire** au bout de dix
+minutes, parce qu'une requête tuée par `max_execution_time` ne le libère
+jamais et qu'un bouton verrouillé pour toujours est une fonctionnalité qui a
+disparu en silence.
+
+`ManualRefreshService` reçoit une **closure** et non le service de
+synchronisation : construire ce graphe est la seule chose qu'une vue de page
+ordinaire ne doit jamais faire, et cette classe est construite à chacune
+d'elles pour que le bouton existe.
+
+### Le script de l'écran ne contrôle rien
+
+Les deux moitiés du formulaire sont rendues et soumises ; le serveur lit
+celle que l'usage choisi désigne. `inbound-mail-scopes.js` masque ce qui ne
+s'applique pas, et c'est tout — un test vérifie explicitement qu'il ne
+*désactive* jamais un champ, car un radio désactivé ne soumet rien et le
+serveur lirait « Personne » pour un module auquel l'exploitant n'a pas
+touché.
+
+
+La feuille de route se contredit sur un point, et il faut trancher avant
+d'écrire l'écran.
+
+Sa section « Vocabulaire d'interface » annonce : `none` → « Aucun tri »,
+`relevant` → « Messages concernés uniquement », `all` → « Tous les messages
+de la boîte ».
+
+Mais **le corps d'IT-05 et la maquette v2 disent tous les deux autre
+chose** : « un choix segmenté "qui peut le lire" à trois options présentées
+au même niveau — Personne / Messages concernés / Tout le courrier ».
+
+Ce sont ces derniers qui l'emportent, pour deux raisons. La maquette est
+désignée comme faisant foi pour les libellés français ; et le corps d'IT-05,
+qui décrit précisément le contrôle à construire, emploie exactement les
+mêmes mots qu'elle. La section « Vocabulaire » décrit la v1 de l'écran,
+celle que la v2 remplace.
+
+Retenu, donc, pour le contrôle segmenté :
+
+| mode | libellé |
+|---|---|
+| `none` | Personne |
+| `relevant` | Messages concernés |
+| `all` | Tout le courrier |
+
+Les pastilles de l'index disent autre chose encore, et c'est voulu : elles
+résument un état plutôt que d'offrir un choix — « classement seul »,
+« messages concernés », « tout le courrier ».
+
+## IT-06 — l'écran du Chef d'Unité
+
+### Une seule lecture non cadrée, et elle ne sort pas du module
+
+`GeneralMailboxService` est la seule lecture du courrier stocké qui ne soit
+cadrée ni par un consumer ni par une référence métier. Elle est
+**volontairement absente d'`Api\InboundMailInterface`** : c'est l'absence
+d'une telle lecture *sur ce contrat* qui empêche l'accès d'un gestionnaire à
+une réservation de devenir une fenêtre sur toute la boîte de l'unité
+(§7.11). L'y ajouter « pour le chef » l'ouvrirait à tous les consumers.
+
+### `role_min: admin`, épinglé par un test
+
+La troisième des trois garanties d'IT-04 est qu'**une seule personne**
+répond de l'archive. Ce n'est pas une phrase de documentation : c'est le
+`role_min` de la route, et rien d'autre. Un test de manifeste le fixe,
+parce qu'un `intendant` sur cette route livrerait à un chef de section les
+questions des parents et les documents médicaux sans que personne s'en
+aperçoive.
+
+Le même test vérifie que **rien n'est déclaré hors ligne**. « Lisible hors
+ligne » est un opt-in par module, donc cette page est exclue en ne disant
+rien — ce qui est facile à défaire par accident le jour où quelqu'un ajoute
+une section `offline` pour une autre page.
+
+### Le curseur porte la paire `(sent_at, id)`
+
+Pas `sent_at` seul. Une liste de diffusion qui livre un lot horodate
+plusieurs messages à la même seconde ; un curseur sur l'horodatage seul
+afficherait le premier de cette seconde et perdrait les autres,
+définitivement et sans trace. Un test parcourt une page à la fois sur cinq
+messages partageant une seconde, parce que c'est la forme qui casse.
+
+Pas d'`OFFSET` non plus : la table grandit sans borne, et `LIMIT 40 OFFSET
+8000` fait parcourir huit mille lignes pour les jeter.
+
+### Aucune recherche sur le contenu (D16)
+
+Chercher dans un objet ou un corps supposerait soit de déchiffrer toute la
+table à chaque frappe, soit de garder en clair un index de tout ce qu'on a
+jamais écrit à l'unité. Le second est exactement la façon dont une archive
+avec une durée de vie devient une archive sans. Les filtres sont donc tous
+des métadonnées.
+
+### `LinkOrigin::MANUAL` à la confirmation (D20)
+
+L'origine répond à « comment ce rattachement a-t-il été fait ». Une fois
+qu'une personne a lu le message et dit oui, la réponse honnête est
+« quelqu'un l'a décidé ». Conserver l'heuristique présenterait une décision
+humaine comme une supposition, et ferait douter tous les lecteurs suivants
+un peu plus qu'il ne faut.
+
+### Le point d'attention est ce qui empêche la rétention de manger du courrier non lu
+
+`/courrier` est une page qu'un chef d'unité n'a aucune raison quotidienne
+d'ouvrir, et la rétention supprime ce que personne n'a regardé. Sans
+signalement, une demande d'inscription arrivée à la mauvaise adresse serait
+conservée quatre-vingt-dix jours puis jetée sans avoir été lue — c'est
+l'ancien défaut avec une horloge plus lente. Le point d'attention ne
+contient qu'un compte et un lien : la page est exportée et
+photographiée, et §7.9 ne fait pas d'exception pour un résumé.
+
+## IT-07 — la fin du pseudo-dossier « non classé »
+
+### `unsorted` était un objet métier qui n'en était pas un
+
+Une référence réservée, portée par une seule ligne de `analyze()`, et
+autour d'elle : un réglage de rétention à elle, un écran à elle, une tâche
+nocturne à elle. Trois mécanismes qui redoublaient ce qu'`inbound_mail`
+fait désormais une fois pour tout le monde.
+
+La migration est un `DELETE` des lignes d'association, et rien d'autre. Les
+messages restent, deviennent « rien ne pointe dessus », et tombent sous la
+rétention sous laquelle ils auraient toujours dû être. Rien n'est supprimé
+par la reprise ; la purge nocturne décide, sur la durée que l'unité a
+choisie — six mois pour celles qui avaient réglé l'ancien champ (A8).
+
+La ligne planifiée de `purge_unsorted_mail` est supprimée elle aussi
+(`SchedulerRepository::deleteByTaskKey()`). Une occurrence en attente d'un
+gestionnaire qui n'existe plus se résout à rien à chaque tick, pour
+toujours : pas fatal, et pas visible non plus, ce qui est la pire moitié.
+
+### La création automatique change d'étage
+
+Elle vivait dans `onLinked()`, accrochée à l'association `unsorted`. Elle
+est maintenant dans `analyzeStored()`, où un message **stocké** et une
+passe horaire bornée se rencontrent déjà — `StayFromMailService` lit le
+corps et peut appeler le connecteur IA, deux choses que `CandidateMessage`
+ne porte pas.
+
+Trois gardes, toutes portantes : boîte dédiée uniquement (sur l'adresse
+partagée, le devis d'un fournisseur deviendrait un camp),
+`camps_auto_create_from_mail`, et **aucune association déjà en place** —
+un message qu'un chef a orienté à la main entre-temps ne doit pas se voir
+pousser un séjour parce qu'une tâche horaire est passée après lui.
+
+### L'ambiguïté produit des propositions
+
+Plusieurs réservations du même locataire dans la période, ou plusieurs
+séjours du même contact, donnaient **rien**. C'était juste sur le fond — ne
+pas choisir — et faux sur la conclusion : le module sait quelque chose, il
+ne sait simplement pas laquelle. Il le dit maintenant, et un humain
+tranche.
+
+Borné à cinq : un locataire qui réserve tous les mois transformerait sinon
+un email en un mur que personne ne lit, ce qui est une autre façon de ne
+rien dire.
+
+### `findForTriage()` sur le contrat, et pourquoi c'est admissible
+
+C'est la seule méthode d'`InboundMailInterface` qui renvoie des messages
+dont l'appelant n'a pas nommé la référence. Elle reste cadrée : ce qu'elle
+ajoute vient **de la configuration des boîtes** — une boîte qu'un
+superadmin a déclarée lisible en entier par ce consumer — et de nulle part
+ailleurs. Un consumer ne peut pas élargir sa propre portée à travers cette
+interface ; seul l'écran de configuration le peut, et il dit en toutes
+lettres ce qu'il fait.
+
+La vue non cadrée du Chef d'Unité, elle, reste à l'intérieur
+d'`inbound_mail` (`GeneralMailboxService`) et n'est pas atteignable d'ici.
+
+### « Retirer » ne supprime plus, et l'écran le dit
+
+Le libellé de l'écran camps disait « Supprimer » et « effacés après 6
+mois ». Ni l'un ni l'autre n'est vrai : le message quitte le séjour et
+reste dans le courrier de l'unité. L'écran ne cite d'ailleurs plus de durée
+— citer un nombre dont ce module n'est plus propriétaire est la façon dont
+un écran finit par promettre six mois pendant que le réglage en dit trois.
+
+## IT-08 — le consumer finances
+
+### Strictement additif, et c'était vérifiable
+
+Rien n'a changé dans le module finances. Le consumer l'atteint par
+`Api\ExpenseReceiptInterface` — qui existait déjà pour la facture de
+fédération — et par `Service\AccountVisibility`, qui répond déjà « ce rôle
+voit-il ce compte ». C'est la même réponse que les écrans finances
+obtiennent, volontairement : un message classé sur un compte et les
+mouvements de ce compte ne doivent pas avoir deux règles différentes.
+
+Un consumer qui aurait exigé que son fournisseur change aurait été un
+consumer construit au mauvais étage.
+
+### Il ne fait que proposer
+
+Jamais un rattachement, sur aucun chemin. Un reçu est une pièce comptable,
+et un mauvais reçu est pire qu'un reçu manquant : il s'équilibre en silence
+sur le mauvais compte.
+
+### Deux signaux, tous les deux obligatoires
+
+Une **pièce jointe** d'un type qu'un reçu peut avoir (PDF ou image — un
+tableur est un document, pas un reçu), et **exactement un** des IBAN de
+l'unité dans le texte. Le second dit *quel* compte, et le module refuse de
+deviner : zéro correspondance, silence ; deux correspondances, silence
+aussi, parce qu'un email citant deux comptes de l'unité est presque
+toujours un virement interne et que le reçu d'un virement n'appartient par
+défaut à aucun des deux côtés.
+
+L'IBAN passe par son index aveugle : rien n'est déchiffré pour répondre.
+
+`describeEvidence()` dit « signal faible » en toutes lettres. C'est le prix
+de l'absence de seuil central : chaque consumer publie ce sur quoi il
+propose, et le superadmin lit cette phrase avant d'ouvrir une boîte
+partagée au module.
+
+### Un reçu n'est jamais classé que par une personne
+
+`onLinked()` ne classe rien tant que `MessageLink::createdByUserAccountId`
+ne nomme personne, **et** tant que le résolveur de la racine de composition
+ne reconnaît pas cet identifiant comme la session **en cours**.
+L'autorisation de finances se construit à partir de l'acteur ; en inventer
+un ici reviendrait à ce que ce module s'accorde un compte auquel il n'a pas
+droit.
+
+Sur le chemin planifié, il n'y a ni acteur ni lecteur de fichier, et c'est
+délibéré : une synchronisation n'a personne qui fait une demande.
+
+### `onUnlinked()` ne fait rien
+
+Détacher l'email dans lequel un reçu est arrivé est une affirmation sur le
+courrier, pas sur la comptabilité. Supprimer un reçu en silence parce que
+quelqu'un a rangé une boîte mail est exactement la surprise que §8.70
+existe pour éviter. On retire un reçu depuis l'écran des reçus.
+
+### `Api\CandidateAttachment` (livré en IT-07)
+
+Le contrat disait depuis toujours qu'un candidat porte les **métadonnées**
+des pièces jointes. Jusqu'à IT-07 il n'en portait aucune, et un consumer
+dont le signal est « il y a une pièce jointe » n'avait aucun moyen de
+poser la question. Métadonnées seulement : pas d'octets, et un test le
+vérifie — lire un PDF pendant la synchronisation ferait exploser
+`max_execution_time` sur un hébergement mutualisé, en laissant le curseur
+immobile, donc en rejouant le même run condamné à chaque tick.

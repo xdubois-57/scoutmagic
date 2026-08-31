@@ -2,9 +2,74 @@
   "id": "inbound_mail",
   "name": "Courrier entrant",
   "description": "Passerelle de courrier entrant en lecture seule : connecte une ou plusieurs boîtes IMAP, détecte les nouveaux messages et les met à disposition des autres modules. Ne modifie jamais la boîte distante.",
-  "version": "1.2.0",
+  "version": "1.5.0",
   "enabled_by_default": false,
   "routes": [
+    {
+      "path": "/courrier",
+      "method": "GET",
+      "controller": "Modules\\InboundMail\\Controller\\InboundMailboxController",
+      "action": "index",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": "Courrier",
+      "menu_icon": "bi-envelope",
+      "menu_group": "suivi",
+      "breadcrumb": {
+        "label": "Courrier",
+        "parents": [
+          "Espace chefs d'U"
+        ]
+      }
+    },
+    {
+      "path": "/courrier/{id}",
+      "method": "GET",
+      "controller": "Modules\\InboundMail\\Controller\\InboundMailboxController",
+      "action": "show",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": "",
+      "breadcrumb": {
+        "label": "Message",
+        "parents": [
+          "Espace chefs d'U"
+        ],
+        "ancestors": [
+          {
+            "label": "Courrier",
+            "path": "/courrier"
+          }
+        ]
+      }
+    },
+    {
+      "path": "/courrier/{id}/proposition/confirmation",
+      "method": "POST",
+      "controller": "Modules\\InboundMail\\Controller\\InboundMailboxController",
+      "action": "confirmCandidate",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/courrier/{id}/proposition/rejet",
+      "method": "POST",
+      "controller": "Modules\\InboundMail\\Controller\\InboundMailboxController",
+      "action": "dismissCandidate",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/courrier/{id}/association/retrait",
+      "method": "POST",
+      "controller": "Modules\\InboundMail\\Controller\\InboundMailboxController",
+      "action": "detach",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
     {
       "path": "/config/courrier-entrant",
       "method": "GET",
@@ -108,14 +173,100 @@
       "menu": "configuration",
       "role_min": "superadmin",
       "label": ""
+    },
+    {
+      "path": "/config/courrier-entrant/boites/{id}/portee",
+      "method": "GET",
+      "controller": "Modules\\InboundMail\\Controller\\InboundMailConfigController",
+      "action": "editScopes",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": "",
+      "breadcrumb": {
+        "label": "Portée de la boîte",
+        "parents": [
+          "Configuration"
+        ],
+        "ancestors": [
+          {
+            "label": "Courrier entrant",
+            "path": "/config/courrier-entrant"
+          }
+        ]
+      }
+    },
+    {
+      "path": "/config/courrier-entrant/boites/{id}/portee",
+      "method": "POST",
+      "controller": "Modules\\InboundMail\\Controller\\InboundMailConfigController",
+      "action": "saveScopes",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/config/courrier-entrant/rafraichir",
+      "method": "POST",
+      "controller": "Modules\\InboundMail\\Controller\\InboundMailConfigController",
+      "action": "refreshNow",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
     }
   ],
-  "settings": [],
+  "settings": [
+    {
+      "key": "inbound_mail_unlinked_retention_days",
+      "default_value": "90",
+      "type": "number",
+      "label": "Conservation du courrier sans association (jours)",
+      "description": "Nombre de jours pendant lesquels un message qu'aucun module ne rattache et sur lequel aucune proposition ne subsiste est conservé. Passé ce délai il est supprimé définitivement, avec ses pièces jointes. Les messages associés à un objet ne sont jamais concernés. Un message dont la dernière association vient d'être retirée bénéficie toujours de 30 jours, même s'il est plus ancien que ce délai."
+    },
+    {
+      "key": "inbound_mail_storage_quota_mb",
+      "default_value": "500",
+      "type": "number",
+      "label": "Espace maximal des pièces jointes entrantes (Mo)",
+      "description": "Protège l'hébergement entier, pas seulement ce module : une boîte très active peut remplir le disque du site et faire échouer tout le reste. Au-delà de cette limite, les pièces jointes ne sont plus enregistrées — le message, lui, est conservé et la pièce jointe est signalée comme non conservée —, les plus anciens messages sans association sont purgés, et le superadmin est averti au plus une fois par jour. 0 désactive la limite."
+    },
+    {
+      "key": "inbound_mail_quota_alerted_at",
+      "default_value": "",
+      "type": "text",
+      "label": "Dernière alerte de quota",
+      "description": "Horodatage interne : évite d'avertir le superadmin plus d'une fois par 24 h quand l'espace de stockage est saturé. Non modifiable.",
+      "editable": false
+    },
+    {
+      "key": "inbound_mail_scopes_migrated",
+      "default_value": "",
+      "type": "text",
+      "label": "Reprise des boîtes dédiées aux camps",
+      "description": "Marqueur interne : indique que les boîtes déclarées dédiées aux camps dans l'ancien réglage du module Camps ont été reprises sur cet écran. Non modifiable.",
+      "editable": false
+    },
+    {
+      "key": "inbound_mail_refresh_started_at",
+      "default_value": "",
+      "type": "text",
+      "label": "Rafraîchissement en cours depuis",
+      "description": "Marqueur interne : empêche deux rafraîchissements manuels de se chevaucher. Non modifiable.",
+      "editable": false
+    }
+  ],
   "cookies": [],
   "scheduled_tasks": [
     {
       "key": "sync_mailboxes",
       "handler": "Modules\\InboundMail\\Task\\SyncMailboxesHandler"
+    },
+    {
+      "key": "analyze_stored_messages",
+      "handler": "Modules\\InboundMail\\Task\\AnalyzeStoredMessagesHandler"
+    },
+    {
+      "key": "purge_unlinked_messages",
+      "handler": "Modules\\InboundMail\\Task\\PurgeUnlinkedMessagesHandler"
     }
   ],
   "storage": {

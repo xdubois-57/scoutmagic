@@ -156,4 +156,28 @@ class SchedulerRepositoryTest extends TestCase
         // Untouched: different module.
         $this->assertCount(1, $this->repo->findByModuleAndTaskKey('other_module', 'apply_redirect'));
     }
+
+    public function testDeleteByTaskKeyRemovesEveryRowOfThatTaskAndLeavesOtherModulesAlone(): void
+    {
+        // Retiring a task: without this, a scheduled row pointing at a
+        // handler that no longer exists resolves to nothing on every tick,
+        // forever — not fatal, and not visible either, which is the worse
+        // half of it.
+        $this->repo->create('camps', 'purge_unsorted_mail', '2026-07-01 10:00:00', null, null);
+        $this->repo->create('camps', 'purge_unsorted_mail', '2026-08-01 10:00:00', null, null);
+        $this->repo->create('camps', 'other_task', '2026-08-01 10:00:00', null, null);
+        $this->repo->create('other_module', 'purge_unsorted_mail', '2026-08-01 10:00:00', null, null);
+
+        $deleted = $this->repo->deleteByTaskKey('camps', 'purge_unsorted_mail');
+
+        $this->assertSame(2, $deleted);
+        $this->assertSame([], $this->repo->findByModuleAndTaskKey('camps', 'purge_unsorted_mail'));
+        $this->assertCount(1, $this->repo->findByModuleAndTaskKey('camps', 'other_task'));
+        $this->assertCount(1, $this->repo->findByModuleAndTaskKey('other_module', 'purge_unsorted_mail'));
+    }
+
+    public function testRetiringATaskNobodyScheduledIsNotAnError(): void
+    {
+        $this->assertSame(0, $this->repo->deleteByTaskKey('camps', 'jamais_planifiee'));
+    }
 }

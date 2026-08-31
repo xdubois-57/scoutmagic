@@ -1,0 +1,174 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}{{ mailbox.name }} — Courrier entrant — {{ site_name }}{% endblock %}
+
+{% block content %}
+{% include 'partials/page_header.html.twig' with { title: mailbox.name } only %}
+
+<p class="text-body-secondary">
+    {{ mailbox.syncState.label }}{% if mailbox.lastSyncedAt %} · dernière lecture
+    {{ mailbox.lastSyncedAt|datetime_fr }}{% endif %}
+</p>
+
+{% if consumers is empty %}
+    {% include 'partials/empty_state.html.twig' with {
+        message: "Aucun module actif ne consomme le courrier entrant. Le courrier de cette boîte est conservé, mais rien ne le classe.",
+        compact: true
+    } only %}
+{% else %}
+<form method="post" action="/config/courrier-entrant/boites/{{ mailbox.id }}/portee" data-mailbox-scopes>
+    {{ csrf_field()|raw }}
+
+    {# ── 1. What the box is for. This answer determines the rest. ────── #}
+    <div class="card mb-4">
+        <div class="card-body">
+            <h2 class="h6">À quoi sert cette boîte ?</h2>
+            <p class="text-body-secondary small">C'est cette réponse qui détermine la suite.</p>
+
+            <div class="row g-2">
+                <div class="col-md-6">
+                    <div class="form-check border rounded p-3 h-100">
+                        <input class="form-check-input" type="radio" name="purpose" value="shared"
+                               id="purpose-shared" data-scope-purpose
+                               {{ mailbox.purpose.value == 'shared' ? 'checked' : '' }}>
+                        <label class="form-check-label" for="purpose-shared">
+                            <span class="fw-semibold">Boîte partagée</span>
+                            <span class="d-block form-text">
+                                L'adresse publique de l'unité. On y trouve de tout : parents,
+                                fournisseurs, locataires, inscriptions.
+                            </span>
+                        </label>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="form-check border rounded p-3 h-100">
+                        <input class="form-check-input" type="radio" name="purpose" value="dedicated"
+                               id="purpose-dedicated" data-scope-purpose
+                               {{ mailbox.purpose.value == 'dedicated' ? 'checked' : '' }}>
+                        <label class="form-check-label" for="purpose-dedicated">
+                            <span class="fw-semibold">Boîte dédiée</span>
+                            <span class="d-block form-text">
+                                Une adresse créée pour un seul usage, dont tout le courrier concerne
+                                le même module.
+                            </span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# ── 2a. Dedicated: one module reads and files everything. ───────── #}
+    <div class="card mb-4" data-scope-section="dedicated">
+        <div class="card-body">
+            <label for="dedicated-to" class="form-label fw-semibold">Dédiée à</label>
+            <select name="dedicated_to" id="dedicated-to" class="form-select">
+                {% for consumer in consumers %}
+                    <option value="{{ consumer.consumerId }}"
+                            {{ mailbox.dedicatedTo == consumer.consumerId ? 'selected' : '' }}>
+                        {{ consumer.displayName }}
+                    </option>
+                {% endfor %}
+            </select>
+            <p class="form-text mt-2">
+                Le module choisi lit et classe tout le courrier de cette boîte. Ses utilisateurs
+                voient l'intégralité des messages reçus dans {{ mailbox.name }}, y compris ceux que
+                le module ne rattache à aucun de ses éléments.
+            </p>
+            <p class="form-text">
+                Aucun autre module ne lit cette boîte. Le Chef d'Unité, lui, voit le courrier de
+                toutes les boîtes depuis <em>Espace admin &gt; Courrier</em>.
+            </p>
+        </div>
+    </div>
+
+    {# ── 2b. Shared: one answer per module, and « tout » is a warning. ─ #}
+    <div data-scope-section="shared">
+        <h2 class="h6">Ce que chaque module en fait</h2>
+        <p class="text-body-secondary small">
+            Sur une boîte partagée, chaque module ne doit voir que ce qui le concerne. Le Chef
+            d'Unité, lui, voit tout le courrier depuis <em>Espace admin &gt; Courrier</em>.
+        </p>
+
+        {% for consumer in consumers %}
+            {% set scope = scopes[consumer.consumerId] %}
+            <div class="card mb-3">
+                <div class="card-body">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox"
+                               name="scope[{{ consumer.consumerId }}][analyze]" value="1"
+                               id="analyze-{{ consumer.consumerId }}"
+                               data-scope-analyze="{{ consumer.consumerId }}"
+                               {{ scope.analyzes ? 'checked' : '' }}>
+                        <label class="form-check-label" for="analyze-{{ consumer.consumerId }}">
+                            <span class="fw-semibold">{{ consumer.displayName }}</span>
+                            <span class="d-block form-text">
+                                Analyse ce courrier pour le rattacher à ses propres éléments.
+                            </span>
+                        </label>
+                    </div>
+
+                    <div class="border-top mt-3 pt-3" data-scope-read="{{ consumer.consumerId }}">
+                        <div class="fw-semibold small mb-2">
+                            Qui peut lire ce courrier depuis {{ consumer.displayName }} ?
+                        </div>
+                        <div class="btn-group" role="group"
+                             aria-label="Qui peut lire ce courrier depuis {{ consumer.displayName }}">
+                            {% for mode in read_modes %}
+                                <input type="radio" class="btn-check"
+                                       name="scope[{{ consumer.consumerId }}][read]"
+                                       value="{{ mode.value }}"
+                                       id="read-{{ consumer.consumerId }}-{{ mode.value }}"
+                                       autocomplete="off"
+                                       {{ scope.readMode.value == mode.value ? 'checked' : '' }}>
+                                <label class="btn btn-sm {{ mode.value == 'all' ? 'btn-outline-warning' : 'btn-outline-primary' }}"
+                                       for="read-{{ consumer.consumerId }}-{{ mode.value }}">{{ mode.label }}</label>
+                            {% endfor %}
+                        </div>
+
+                        <p class="form-text mt-2">
+                            <strong>Personne</strong> — {{ consumer.displayName }} classe le courrier
+                            automatiquement, mais n'ouvre aucune liste. Les messages restent visibles
+                            depuis la fiche à laquelle ils sont rattachés.<br>
+                            <strong>Messages concernés</strong> —
+                            {{ consumer.triageAudienceLabel }} ({{ consumer.triageAudienceCount }} personnes)
+                            verront les messages que {{ consumer.displayName }} rattache à un élément
+                            qu'ils gèrent, <strong>ou pense pouvoir y rattacher</strong>.
+                            {{ consumer.displayName }} propose sur : {{ consumer.describeEvidence|join(', ') }}.
+                        </p>
+
+                        <div class="alert alert-warning small mb-0">
+                            <strong>Tout le courrier — sur une boîte partagée, c'est un choix lourd.</strong>
+                            {{ consumer.triageAudienceLabel }} ({{ consumer.triageAudienceCount }} personnes)
+                            pourront lire <strong>tous</strong> les messages reçus dans {{ mailbox.name }},
+                            y compris ceux qui n'ont rien à voir avec {{ consumer.displayName }} :
+                            questions de parents, documents médicaux, candidatures. Déclarez plutôt
+                            cette boîte comme dédiée si c'est vraiment son usage.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+
+    <div class="alert alert-light border">
+        <div class="fw-semibold">Conservation</div>
+        Tout le courrier reçu dans {{ mailbox.name }} est conservé. Les messages qu'aucun module ne
+        rattache ni ne propose sont supprimés après <strong>{{ retention_days }} jours</strong>. Les
+        autres sont conservés tant que l'élément qui les utilise existe.
+    </div>
+
+    <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-primary">Enregistrer</button>
+        <a href="/config/courrier-entrant" class="btn btn-outline-secondary">Annuler</a>
+    </div>
+</form>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+    {# Progressive enhancement only. Without it both halves of the form are
+       visible and both are submitted; the server reads the one the chosen
+       purpose selects, so the page still works with the script blocked. #}
+    <script type="module" src="{{ asset('/assets/js/inbound-mail-scopes.js') }}"></script>
+{% endblock %}

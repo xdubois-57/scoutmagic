@@ -16,7 +16,6 @@ use Modules\Camps\Service\CampService;
 use Modules\Camps\Service\CampsException;
 use Modules\Camps\Service\DuplicatePlaceDetector;
 use Modules\Camps\Service\PlaceService;
-use Modules\InboundMail\Api\InboundMailInterface;
 use Modules\InboundMail\Api\InboundMessage;
 use Modules\LlmConnector\Api\LlmConnectorInterface;
 use Modules\LlmConnector\Api\LlmException;
@@ -109,7 +108,11 @@ class StayFromMailService
         private DuplicatePlaceDetector $duplicates,
         private MessageReader $reader,
         private SettingService $settings,
-        private ?InboundMailInterface $inboundMail = null,
+        // `?InboundMailInterface $inboundMail` used to sit here: this
+        // service moved the message off Camps' reserved `unsorted`
+        // reference, and there is no such reference any more (IT-07). The
+        // caller returns the new stay id as an analysis result instead, so
+        // the one place that creates associations stays the one place.
         /**
          * Optional `llm_connector` consumer (ARCHITECTURE.md §7.5). Null —
          * module absent, disabled, or unusable — means match-only: this
@@ -227,18 +230,18 @@ class StayFromMailService
                 );
         } catch (CampsException) {
             // A refusal here is not a failure of the synchronisation: the
-            // message stays unsorted and a human decides. Throwing would
-            // sink the whole sync pass over one badly-worded e-mail.
+            // message simply stays unattached, where the chief d'unité and
+            // this module's own users both see it, and a human decides.
+            // Throwing would sink the whole pass over one badly-worded
+            // e-mail.
             return null;
         }
 
-        $this->inboundMail?->move(
-            CampsMessageConsumer::CONSUMER_ID,
-            CampsMessageConsumer::UNSORTED_REFERENCE,
-            CampsMessageConsumer::referenceFor($campId),
-            $message->id
-        );
-
+        // No `move()` any more: there is no `unsorted` association to move
+        // the message OFF. The caller returns this id as an analysis
+        // result, and `Service\AnalysisResultApplier` writes the
+        // association — one place that creates associations rather than
+        // two, which is what the consumer contract asks for.
         return $campId;
     }
 

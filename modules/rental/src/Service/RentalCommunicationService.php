@@ -47,7 +47,13 @@ class RentalCommunicationService
         private RentalDocumentRepository $documentRepository,
         private RentalAuthorizationService $authorizationService,
         private JournalService $journal,
-        private ?InboundMailInterface $inboundMail = null
+        private ?InboundMailInterface $inboundMail = null,
+        /**
+         * Only ever used to hand a re-classified attachment's ownership to
+         * the booking — see detach(). Optional because every other surface
+         * of this class works without it.
+         */
+        private ?\Core\File\FileRepository $fileRepository = null
     ) {
     }
 
@@ -75,11 +81,19 @@ class RentalCommunicationService
     /**
      * Detach a message from this booking (§7.7).
      *
-     * There is no unattached queue for it to fall into, so it is deleted —
-     * **along with the attachments nobody re-classified**. An attachment a
-     * manager already turned into a signed contract is a document of the
-     * booking now and survives; one still sitting as `Non classé` was only
-     * ever part of the message and goes with it.
+     * The booking stops carrying it, and so do its managers' screens. The
+     * message itself falls back into the unit's general mail, where only a
+     * chef d'unité sees it and where `inbound_mail`'s retention eventually
+     * removes it — detaching is almost always a correction, and a
+     * correction that destroys the message makes re-filing it impossible.
+     *
+     * **The attachments nobody re-classified go with the association**: one
+     * still sitting as `Non classé` was only ever part of the message. One
+     * a manager already turned into a signed contract is a document of the
+     * booking now, so it survives *and* changes hands — its `files` row is
+     * re-owned by the booking, or the file would keep answering to a
+     * message this booking's managers can no longer see and they would lose
+     * access to their own contract.
      */
     public function detach(RentalBooking $booking, int $messageId, ?int $actorMemberId = null): bool
     {
@@ -125,6 +139,14 @@ class RentalCommunicationService
         );
 
         if ($detached) {
+            foreach (array_unique($reclassifiedFileIds) as $fileId) {
+                $this->fileRepository?->updateOwner(
+                    $fileId,
+                    \Modules\Rental\Service\RentalDocumentService::OWNER_TYPE,
+                    $booking->id
+                );
+            }
+
             // The booking's reference and the message's internal id, and
             // nothing else — never the sender, the subject or a word of the
             // content (§7.9).

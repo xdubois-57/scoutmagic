@@ -1,0 +1,131 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}{{ message.subject }} — Courrier — {{ site_name }}{% endblock %}
+
+{% block content %}
+{% include 'partials/page_header.html.twig' with { title: message.subject } only %}
+
+<p class="text-body-secondary">
+    {{ message.displayFrom }} · {{ message.sentAt|datetime_fr }} ·
+    reçu dans {{ mailboxes[message.mailboxId]|default('une boîte supprimée depuis') }}
+    {% if message.isBulk %}<span class="badge text-bg-light">automatique</span>{% endif %}
+</p>
+
+{% if message.toEmails is not empty %}
+    <p class="small text-body-secondary">
+        Adressé à : {{ message.toEmails|join(', ') }}
+    </p>
+{% endif %}
+
+<div class="card mb-4">
+    <div class="card-body">
+        {# Sanitised on the way in and stored sanitised (§7.9) — the
+           sender's original HTML was never written anywhere. Remote images
+           are removed rather than proxied: a 1×1 image in a stranger's
+           email is a read receipt. #}
+        {% if message.bodyHtml %}
+            {{ message.bodyHtml|raw }}
+        {% else %}
+            <div class="text-break" style="white-space: pre-line">{{ message.bodyText }}</div>
+        {% endif %}
+    </div>
+</div>
+
+{% if message.hasAttachments or message.hasOmittedAttachments %}
+    <h2 class="h6">Pièces jointes</h2>
+    <ul class="list-group mb-4">
+        {% for attachment in message.attachments %}
+            <li class="list-group-item d-flex justify-content-between align-items-center gap-3">
+                <span class="text-truncate">
+                    {{ attachment.filename }}
+                    <span class="text-body-secondary small">· {{ (attachment.sizeBytes / 1024)|round }} Ko</span>
+                </span>
+                <a href="/files/{{ attachment.fileId }}" class="btn btn-sm btn-outline-secondary">Télécharger</a>
+            </li>
+        {% endfor %}
+        {% for omitted in message.omittedAttachments %}
+            <li class="list-group-item list-group-item-warning">
+                <span class="fw-medium">{{ omitted.filename }}</span>
+                <span class="small">· {{ (omitted.sizeBytes / 1024)|round }} Ko — {{ omitted.explanation }}</span>
+            </li>
+        {% endfor %}
+    </ul>
+{% endif %}
+
+<h2 class="h6">Associations</h2>
+{% if message.links is empty %}
+    <p class="text-body-secondary">Ce message n'est associé à rien.</p>
+{% else %}
+    <ul class="list-group mb-2">
+        {% for link in message.links %}
+            <li class="list-group-item d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <div>
+                    <div>
+                        {{ consumer_names[link.consumerId]|default(link.consumerId) }} — {{ link.businessReference }}
+                        {% if link.attachmentId > 0 %}
+                            <span class="text-body-secondary small">(une pièce jointe seulement)</span>
+                        {% endif %}
+                    </div>
+                    <div class="small text-body-secondary">
+                        association {{ link.origin.label|lower }}
+                    </div>
+                </div>
+                <form method="post" action="/courrier/{{ message.id }}/association/retrait"
+                      data-confirm="Retirer cette association ? Le message reste dans le courrier de l'unité.">
+                    {{ csrf_field()|raw }}
+                    <input type="hidden" name="consumer_id" value="{{ link.consumerId }}">
+                    <input type="hidden" name="business_reference" value="{{ link.businessReference }}">
+                    <button type="submit" class="btn btn-sm btn-outline-danger">Retirer</button>
+                </form>
+            </li>
+        {% endfor %}
+    </ul>
+    <p class="small text-body-secondary">
+        Retirer une association ne supprime ni le message ni les autres associations.
+    </p>
+{% endif %}
+
+{% if candidates is not empty %}
+    <h2 class="h6 mt-4">Propositions à confirmer</h2>
+    <ul class="list-group mb-2">
+        {% for candidate in candidates %}
+            <li class="list-group-item list-group-item-warning">
+                <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                    <div>
+                        <div>
+                            {{ consumer_names[candidate.consumerId]|default(candidate.consumerId) }}
+                            — {{ candidate.label }}
+                            {% if not candidate.isWholeMessage %}
+                                <span class="text-body-secondary small">(une pièce jointe seulement)</span>
+                            {% endif %}
+                        </div>
+                        <div class="small">{{ candidate.explanation }}</div>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <form method="post" action="/courrier/{{ message.id }}/proposition/confirmation">
+                            {{ csrf_field()|raw }}
+                            <input type="hidden" name="candidate_id" value="{{ candidate.id }}">
+                            <button type="submit" class="btn btn-sm btn-primary">Associer</button>
+                        </form>
+                        <form method="post" action="/courrier/{{ message.id }}/proposition/rejet">
+                            {{ csrf_field()|raw }}
+                            <input type="hidden" name="candidate_id" value="{{ candidate.id }}">
+                            <button type="submit" class="btn btn-sm btn-outline-secondary">Écarter</button>
+                        </form>
+                    </div>
+                </div>
+            </li>
+        {% endfor %}
+    </ul>
+    {% if candidates|length > 1 %}
+        <p class="small text-body-secondary">
+            Plusieurs cibles sont possibles : ScoutMagic n'en choisit aucune tant que vous n'avez pas
+            tranché.
+        </p>
+    {% endif %}
+    <p class="small text-body-secondary">
+        Écarter une proposition est définitif, et ne conserve pas le message : un message qu'aucune
+        association ne rattache est supprimé au terme du délai de conservation.
+    </p>
+{% endif %}
+{% endblock %}

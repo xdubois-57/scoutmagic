@@ -2854,10 +2854,18 @@ if ($isEnabled('inbound_mail')) {
     $inboundMailboxRepository = new \Modules\InboundMail\Repository\InboundMailboxRepository($pdo, $encryptionService);
     $inboundMessageRepository = new \Modules\InboundMail\Repository\InboundMessageRepository($pdo, $encryptionService);
 
+    // Built before the service: it is both the file-access checker's source
+    // of consumers and the service's way of telling a consumer one of its
+    // associations has gone (`onUnlinked()`). Empty here and filled by each
+    // consumer module's block below with a FACTORY, so an ordinary page
+    // view builds none of them — §7.6's mutable-registry pattern.
+    $inboundReadConsumers = new \Modules\InboundMail\Service\MessageConsumerRegistry();
+
     $inboundMailForOthers = new \Modules\InboundMail\Service\InboundMailService(
         $inboundMessageRepository,
         $inboundMailboxRepository,
-        new \Core\File\FileRepository($pdo)
+        new \Core\File\FileRepository($pdo),
+        $inboundReadConsumers
     );
 
     // One-time reprise for installs that stored a message's consumer and
@@ -2893,17 +2901,75 @@ if ($isEnabled('inbound_mail')) {
         $settingService->clearCache();
     }
 
+    // One-time reprise of the `unsorted` associations Camps used to make
+    // (IT-07). The reference was a bucket masquerading as a stay — with
+    // its own retention, its own screen and its own purge task, all
+    // duplicating what this module now does once for everybody. Removing
+    // the rows IS the migration: the messages stay, become "nothing points
+    // at this", and fall under the retention they should always have been
+    // under. Nothing is deleted here; the nightly purge decides that, on
+    // the duration the unit chose.
+    if ($settingService->get('inbound_mail_unsorted_dropped') !== '1') {
+        $settingService->register('inbound_mail_unsorted_dropped', '0', 'boolean',
+            'Références réservées du courrier retirées',
+            'Indique si les rattachements au pseudo-dossier « non classé » des camps ont été retirés.',
+            null, null, null, false, 999);
+
+        $inboundMessageRepository->dropReservedReference('camps', 'unsorted');
+
+        // And the duration those messages were kept for. Camps stops
+        // declaring `camps_unsorted_retention_months` in this release, so
+        // the value has to move BEFORE a later camps version bump prunes
+        // the row — the same expand-then-contract sequencing the link
+        // columns needed. A unit that had chosen six months keeps six
+        // months; one that had not gets the 90-day default.
+        \Modules\InboundMail\Task\PurgeUnlinkedMessagesHandler::inheritCampsRetention(
+            $settingService,
+            $settingRepo
+        );
+
+        // And the scheduled task that used to empty that bucket. It no
+        // longer exists as a class, so a pending occurrence would be
+        // resolved to nothing on every tick, forever.
+        (new \Core\Scheduler\SchedulerRepository($pdo))->deleteByTaskKey('camps', 'purge_unsorted_mail');
+
+        $settingRepo->updateValue(null, 'inbound_mail_unsorted_dropped', '1');
+        $settingService->clearCache();
+    }
+
     // Who may download an inbound attachment (ARCHITECTURE.md §8.3's
     // owner_type registry). The consumers are registered as FACTORIES:
     // answering the question means building exactly one of them, and an
     // ordinary page view — which never asks — builds none. The eager graph
     // stays where it belongs, in the sync task's own lazy factory
     // (public/scheduler-bootstrap.php).
-    $inboundReadConsumers = new \Modules\InboundMail\Service\MessageConsumerRegistry();
     $fileOwnershipCheckers[] = new \Modules\InboundMail\Service\InboundMessageAccessRegistry(
         $inboundMessageRepository,
         $inboundReadConsumers
     );
+
+    // What each box lets each module do (IT-05). It reads the SAME
+    // registry the file guard uses, so the answers a superadmin gives on
+    // the configuration screen and the answers the access check acts on
+    // cannot come apart — one registry, filled by factories, built at most
+    // once per request and only when something actually asks.
+    $inboundScopeService = new \Modules\InboundMail\Service\MailboxScopeService(
+        $inboundMailboxRepository,
+        $inboundReadConsumers
+    );
+
+    // One-time reprise of the Camps module's own list of dedicated boxes
+    // (A8). Unlike the retention, which stays a live read so a unit keeps
+    // the duration it chose, this one is migrated once: it is a structural
+    // answer the new screen now owns, and two places declaring a box
+    // dedicated would disagree the first time somebody used the screen.
+    if ($settingService->get(
+        \Modules\InboundMail\Service\MailboxScopeService::REPRISE_DONE_SETTING,
+        'inbound_mail',
+        ''
+    ) !== '1') {
+        $inboundScopeService->repriseCampsDedicatedBoxes($settingService, $settingRepo);
+    }
 
     $frontController->registerController(
         \Modules\InboundMail\Controller\InboundMailConfigController::class,
@@ -2912,11 +2978,72 @@ if ($isEnabled('inbound_mail')) {
             new \Modules\InboundMail\Service\MailboxAdminService(
                 $inboundMailboxRepository,
                 new \Modules\InboundMail\Service\MailboxClientFactory(),
-                new \Modules\InboundMail\Service\MailboxErrorFormatter()
+                new \Modules\InboundMail\Service\MailboxErrorFormatter(),
+                $inboundMessageRepository,
+                $settingService
             ),
+            $journalService,
+            $inboundScopeService,
+            $inboundReadConsumers,
+            // « Rafraîchir maintenant » assembles a synchronisation graph,
+            // which is the one thing an ordinary page view must never do —
+            // so it goes in as a CLOSURE, resolved only when that button is
+            // actually pressed. Same reasoning as the sync task's own lazy
+            // factory in scheduler-bootstrap.php.
+            new \Modules\InboundMail\Service\ManualRefreshService(
+                static fn(): \Modules\InboundMail\Service\MailboxSyncService
+                    => new \Modules\InboundMail\Service\MailboxSyncService(
+                        $inboundMailboxRepository,
+                        $inboundMessageRepository,
+                        $inboundReadConsumers,
+                        new \Modules\InboundMail\Service\MessageContentSanitizer(new \Core\Security\HtmlSanitizer()),
+                        new \Modules\InboundMail\Service\AttachmentPolicy(),
+                        new \Modules\InboundMail\Service\MailboxErrorFormatter(),
+                        new \Modules\InboundMail\Service\MailboxClientFactory(),
+                        new \Modules\InboundMail\Service\AnalysisResultApplier($inboundMessageRepository),
+                        new \Core\File\UploadHandler(new \Core\File\FileRepository($pdo), $storagePath),
+                        null,
+                        new \Core\File\FileRepository($pdo),
+                        $inboundScopeService
+                    ),
+                $settingService,
+                $settingRepo
+            )
+        )
+    );
+
+    // `/courrier` — the Chef d'Unité's view of everything the unit
+    // received, and one of the three things that make storing every
+    // message defensible (§8.58). The route's own role_min is what keeps
+    // it to that one role; nothing here re-derives it.
+    $frontController->registerController(
+        \Modules\InboundMail\Controller\InboundMailboxController::class,
+        new \Modules\InboundMail\Controller\InboundMailboxController(
+            $twig,
+            new \Modules\InboundMail\Service\GeneralMailboxService(
+                $inboundMessageRepository,
+                $inboundMailboxRepository,
+                $inboundReadConsumers
+            ),
+            $inboundMailForOthers,
+            $inboundReadConsumers,
             $journalService
         )
     );
+
+    // « Du courrier attend d'être orienté ». Without it the archive is
+    // kept for ninety days and thrown away unread, which is the old bug
+    // with a slower clock. Two aggregate counts, no decryption.
+    $attentionProviders[] = new \Modules\InboundMail\Service\InboundMailAttentionProvider(
+        $inboundMessageRepository,
+        $settingService
+    );
+
+    // `/courrier` is deliberately NOT declared in the module's `offline`
+    // section — there is none. A page that lists every message the unit
+    // ever received has no business being cached on a phone that may be
+    // lost, and « lisible hors ligne » is opt-in per module precisely so
+    // that a page like this one is excluded by saying nothing.
 
     // The polling task and the consumer registry it needs are wired in
     // public/scheduler-bootstrap.php (shared by both entry points), as a
@@ -3026,6 +3153,57 @@ if ($isEnabled('finance')) {
     $expenseReceiptProvider = new \Modules\Finance\Service\ExpenseReceiptService(
         $financeAccountRepo, $financeTreasurerScopeService, $financeReceiptService, $effectiveScoutYear->id
     );
+
+    // An invoice arriving by email, offered as a receipt on the account it
+    // names (§8.58). A FACTORY, like every other consumer here: the
+    // question "who may open this attachment" builds exactly one consumer,
+    // and an ordinary page view — which never asks — builds none.
+    //
+    // Unlike the scheduled path, this one supplies an actor and a file
+    // reader, because here there IS somebody making the request: a
+    // treasurer confirming a proposition. Finance's account check is built
+    // from that actor, and the consumer refuses to invent one.
+    if (isset($inboundReadConsumers)) {
+        $inboundReadConsumers->registerFactory(
+            \Modules\Finance\Mail\FinanceMessageConsumer::CONSUMER_ID,
+            static fn(): \Modules\InboundMail\Api\MessageConsumerInterface =>
+                new \Modules\Finance\Mail\FinanceMessageConsumer(
+                    $financeAccountRepo,
+                    $financeTreasurerScopeService,
+                    $pdo,
+                    $encryptionService,
+                    $effectiveScoutYear->id,
+                    $expenseReceiptProvider,
+                    // The confirming user, resolved into the (role,
+                    // members) pair finance's authorisation needs. Only
+                    // ever the CURRENT session: a stored account id from
+                    // some other request is not somebody making a request
+                    // now, and finance must not be handed one.
+                    static function (int $userAccountId) use ($linkedMemberIds): ?array {
+                        if (!AuthSession::isAuthenticated()
+                            || AuthSession::getUserAccountId() !== $userAccountId
+                        ) {
+                            return null;
+                        }
+
+                        return [
+                            'role' => AuthSession::getRole(),
+                            'member_ids' => $linkedMemberIds,
+                        ];
+                    },
+                    static function (int $fileId) use ($encryptedFileStorageService): ?string {
+                        try {
+                            return $encryptedFileStorageService->retrieve($fileId);
+                        } catch (\Throwable) {
+                            // The bytes are gone or unreadable. The
+                            // association still stands; a treasurer can
+                            // attach the file by hand.
+                            return null;
+                        }
+                    }
+                )
+        );
+    }
 
     // A receipt's FILE follows its account's rule too (ARCHITECTURE.md
     // §8.70): role_min alone is a hierarchical floor and cannot say "the
@@ -4032,13 +4210,12 @@ if ($isEnabled('camps')) {
         $llmConnectorForOthers ?? null
     );
 
-    // The three DAILY tasks re-arm themselves to a fixed hour, so each
+    // The DAILY tasks re-arm themselves to a fixed hour, so each
     // needs seeding exactly once — on the first page load after the module
     // is enabled. Guarded on find() rather than scheduled blindly, or every
     // request would queue another copy.
     foreach ([
         [\Modules\Camps\Task\ReviewReminderHandler::TASK_KEY, \Modules\Camps\Task\ReviewReminderHandler::REFERENCE, 'tomorrow 06:00'],
-        [\Modules\Camps\Task\PurgeUnsortedMailHandler::TASK_KEY, \Modules\Camps\Task\PurgeUnsortedMailHandler::REFERENCE, 'tomorrow 04:00'],
         [\Modules\Camps\Task\RefreshPlaceSummariesHandler::TASK_KEY, \Modules\Camps\Task\RefreshPlaceSummariesHandler::REFERENCE, 'tomorrow 05:00'],
     ] as [$campsTaskKey, $campsTaskReference, $campsTaskWhen]) {
         $schedulerService->rearm('camps', $campsTaskKey, $campsTaskReference, $campsTaskWhen);
@@ -4116,12 +4293,12 @@ if ($isEnabled('camps')) {
     $campsStayFromMail = new \Modules\Camps\Mail\StayFromMailService(
         $campsCampRepo, $campsCampService, $campsPlaceService,
         $campsDuplicateDetector, $campsMessageReader, $settingService,
-        $inboundMailForOthers ?? null, $llmConnectorForOthers ?? null
+        $llmConnectorForOthers ?? null
     );
     $frontController->registerController(
         \Modules\Camps\Controller\CampsMailController::class,
         new \Modules\Camps\Controller\CampsMailController(
-            $twig, $campsCampRepo, $campsPlaceRepo, $settingService, $inboundMailForOthers ?? null,
+            $twig, $campsCampRepo, $campsPlaceRepo, $inboundMailForOthers ?? null,
             $campsProposalRepo, $campsFieldCompletion
         )
     );
@@ -4919,7 +5096,8 @@ if ($isEnabled('rental')) {
             $rentalDocumentRepository,
             $rentalAuthorizationService,
             $journalService,
-            $inboundMailForOthers
+            $inboundMailForOthers,
+            $fileRepository
         );
     }
 

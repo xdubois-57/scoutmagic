@@ -11,6 +11,8 @@ namespace Modules\InboundMail\Service;
 use Core\File\FileRepository;
 use Modules\InboundMail\Api\InboundMailInterface;
 use Modules\InboundMail\Api\InboundMessage;
+use Modules\InboundMail\Api\LinkOrigin;
+use Modules\InboundMail\Api\MessageLink;
 use Modules\InboundMail\Repository\InboundMailboxRepository;
 use Modules\InboundMail\Repository\InboundMessageRepository;
 
@@ -33,7 +35,17 @@ class InboundMailService implements InboundMailInterface
     public function __construct(
         private InboundMessageRepository $messageRepository,
         private InboundMailboxRepository $mailboxRepository,
-        private ?FileRepository $fileRepository = null
+        private ?FileRepository $fileRepository = null,
+        /**
+         * Who to tell when an association goes.
+         *
+         * Optional so a caller that only reads never has to build it. When
+         * it is absent nothing is told — which is fine for a read, and
+         * which is why every write path that matters is wired with it: a
+         * message that leaves a booking has to take the documents it
+         * created there with it (`onUnlinked()`).
+         */
+        private ?MessageConsumerRegistry $consumerRegistry = null
     ) {
     }
 
@@ -51,13 +63,196 @@ class InboundMailService implements InboundMailInterface
     }
 
     /**
-     * Detaching removes **one association**, not the message.
+     * Associate a message with a business object because a person said so.
      *
-     * The message itself only goes when nothing points at it any more —
-     * and its attachments with it, minus the ones a consumer re-classified
-     * and asked to keep. A message another module also recognised survives
-     * untouched, which is exactly what stopped being possible while the
-     * business reference was a column of the message itself.
+     * `LinkOrigin::MANUAL`, always (D20), and idempotent: the repository's
+     * unique index is what makes it so, and `addLink()` returns false
+     * rather than throwing when the association already exists.
+     */
+    public function attach(
+        string $consumerId,
+        string $businessReference,
+        int $messageId,
+        ?int $userAccountId = null
+    ): bool {
+        $created = $this->messageRepository->addLink(
+            $messageId,
+            $consumerId,
+            $businessReference,
+            LinkOrigin::MANUAL,
+            0,
+            $userAccountId
+        );
+
+        if (!$created) {
+            return false;
+        }
+
+        $stored = $this->messageRepository->findOneForReference($consumerId, $businessReference, $messageId);
+        if ($stored !== null) {
+            $this->notifyLinked($stored, new MessageLink(
+                $consumerId,
+                $businessReference,
+                LinkOrigin::MANUAL
+            ));
+        }
+
+        return true;
+    }
+
+    /**
+     * The business triage list — see `Api\InboundMailInterface`.
+     *
+     * The full-read mailboxes come from the configuration screen, never
+     * from the consumer: `Repository\InboundMailboxRepository::mailboxIdsReadableInFull()`
+     * answers only for boxes a superadmin declared this consumer may read
+     * entirely, so a consumer cannot widen its own scope by calling this.
+     *
+     * @param string[] $ownReferences
+     * @return InboundMessage[]
+     */
+    public function findForTriage(string $consumerId, array $ownReferences, int $limit = 50): array
+    {
+        return $this->messageRepository->findForTriage(
+            $consumerId,
+            array_values(array_unique($ownReferences)),
+            $this->mailboxRepository->mailboxIdsReadableInFull($consumerId),
+            $limit
+        );
+    }
+
+    /**
+     * @param int[] $messageIds
+     * @return array<int, \Modules\InboundMail\Api\MessageCandidate[]>
+     */
+    public function findCandidatesFor(string $consumerId, array $messageIds): array
+    {
+        return $this->messageRepository->findCandidatesForConsumer($messageIds, $consumerId);
+    }
+
+    /**
+     * @param string[] $ownReferences
+     */
+    public function confirmCandidate(
+        string $consumerId,
+        array $ownReferences,
+        int $messageId,
+        int $candidateId,
+        ?int $userAccountId = null
+    ): bool {
+        $candidate = $this->ownCandidate($consumerId, $ownReferences, $messageId, $candidateId);
+        if ($candidate === null) {
+            return false;
+        }
+
+        $this->messageRepository->addLink(
+            $messageId,
+            $consumerId,
+            $candidate->businessReference,
+            LinkOrigin::MANUAL,
+            $candidate->attachmentId,
+            $userAccountId
+        );
+        $this->dismiss($consumerId, $messageId, $candidate);
+
+        $stored = $this->messageRepository->findOneForReference(
+            $consumerId,
+            $candidate->businessReference,
+            $messageId
+        );
+        if ($stored !== null) {
+            $this->notifyLinked($stored, new MessageLink(
+                $consumerId,
+                $candidate->businessReference,
+                LinkOrigin::MANUAL,
+                $candidate->attachmentId
+            ));
+        }
+
+        return true;
+    }
+
+    /**
+     * @param string[] $ownReferences
+     */
+    public function dismissCandidate(
+        string $consumerId,
+        array $ownReferences,
+        int $messageId,
+        int $candidateId
+    ): bool {
+        $candidate = $this->ownCandidate($consumerId, $ownReferences, $messageId, $candidateId);
+        if ($candidate === null) {
+            return false;
+        }
+
+        $this->dismiss($consumerId, $messageId, $candidate);
+
+        return true;
+    }
+
+    /**
+     * The proposition this caller is actually allowed to answer.
+     *
+     * Three conditions, all of them: it is on this message, it belongs to
+     * this consumer, and its target is one the requester may reach. The
+     * third is what stops a screen being talked into filing a message
+     * under an object its user has no business touching.
+     *
+     * @param string[] $ownReferences
+     */
+    private function ownCandidate(
+        string $consumerId,
+        array $ownReferences,
+        int $messageId,
+        int $candidateId
+    ): ?\Modules\InboundMail\Api\MessageCandidate {
+        foreach ($this->messageRepository->findActiveCandidates($messageId) as $candidate) {
+            if ($candidate->id === $candidateId
+                && $candidate->consumerId === $consumerId
+                && in_array($candidate->businessReference, $ownReferences, true)
+            ) {
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private function dismiss(
+        string $consumerId,
+        int $messageId,
+        \Modules\InboundMail\Api\MessageCandidate $candidate
+    ): void {
+        $this->messageRepository->dismissCandidate(
+            $messageId,
+            $consumerId,
+            $candidate->businessReference,
+            $candidate->attachmentId,
+            new \DateTimeImmutable()
+        );
+    }
+
+    /**
+     * Detaching removes **one association**, and nothing else.
+     *
+     * It used to destroy the message once the last association went. It no
+     * longer does, and the reason is what detaching almost always is: a
+     * correction. Somebody noticed the message was filed under the wrong
+     * booking. Deleting it on the spot meant the right booking could never
+     * receive it — the correction destroyed the thing it was correcting.
+     *
+     * The message now falls back into the unit's general mail, where the
+     * chef d'unité can re-orient it, and `Task\PurgeUnlinkedMessagesHandler`
+     * removes it if nobody ever does. `last_unlinked_at` gives it a floor of
+     * thirty days so a mis-click on an old message has a window to be
+     * noticed (A4).
+     *
+     * `$preserveFileIds` still matters, and now matters *more*: a file the
+     * consumer re-classified into a document of its own is released from
+     * the message (`AttachmentOmission::RECLASSIFIED`), so the purge does
+     * not delete a booking's signed contract along with the email it
+     * arrived in three months later.
      *
      * @param int[] $preserveFileIds
      */
@@ -67,24 +262,27 @@ class InboundMailService implements InboundMailInterface
         int $messageId,
         array $preserveFileIds = []
     ): bool {
-        if ($this->messageRepository->findOneForReference($consumerId, $businessReference, $messageId) === null) {
+        // Read once, before the association goes: the consumer is told
+        // about the message it filed things from, and after the removal
+        // this very query returns nothing.
+        $stored = $this->messageRepository->findOneForReference($consumerId, $businessReference, $messageId);
+        if ($stored === null) {
             return false;
         }
-
-        $fileIds = $this->messageRepository->findFileIdsForMessage($messageId);
 
         if (!$this->messageRepository->removeLink($messageId, $consumerId, $businessReference)) {
             return false;
         }
 
-        if ($this->messageRepository->countLinks($messageId) > 0) {
-            // Somebody else still recognises this message. Neither it nor
-            // its files are anybody's to remove.
-            return true;
-        }
+        $this->notifyUnlinked($stored, $consumerId, $businessReference);
 
-        $this->messageRepository->deleteMessage($messageId);
-        $this->deleteUnreferencedFiles($fileIds, $preserveFileIds);
+        foreach (array_unique($preserveFileIds) as $fileId) {
+            // Whether or not other associations remain: the file has become
+            // the consumer's document, and the message must stop being what
+            // decides its lifetime.
+            $this->messageRepository->releaseAttachmentFile($messageId, $fileId);
+            $this->handOverFileOwnership($fileId, $messageId);
+        }
 
         return true;
     }
@@ -95,7 +293,104 @@ class InboundMailService implements InboundMailInterface
             return false;
         }
 
-        return $this->messageRepository->moveToReference($messageId, $consumerId, $fromReference, $toReference);
+        $before = $this->messageRepository->findOneForReference($consumerId, $fromReference, $messageId);
+
+        if (!$this->messageRepository->moveToReference($messageId, $consumerId, $fromReference, $toReference)) {
+            return false;
+        }
+
+        // Both halves, in this order. The consumer has to take back what it
+        // filed on the old object before it files anything on the new one —
+        // leaving the first behind is the exact bug `onUnlinked()` exists
+        // for.
+        if ($before !== null) {
+            $this->notifyUnlinked($before, $consumerId, $fromReference);
+        }
+
+        $after = $this->messageRepository->findOneForReference($consumerId, $toReference, $messageId);
+        if ($after !== null) {
+            $this->notifyLinked($after, new MessageLink($consumerId, $toReference, LinkOrigin::MANUAL));
+        }
+
+        return true;
+    }
+
+    /**
+     * Associate a message with a business object by hand.
+     *
+     * The origin is always `manual` and the author is always named: a
+     * screen that says "association manuelle" without being able to say by
+     * whom helps nobody settle a disputed filing (D20).
+     *
+     * Idempotent, like every other association: two people orienting the
+     * same message towards the same object produce one, and the second is
+     * simply told nothing new happened.
+     */
+    public function link(
+        string $consumerId,
+        string $businessReference,
+        int $messageId,
+        ?int $createdByUserAccountId
+    ): bool {
+        $created = $this->messageRepository->addLink(
+            $messageId,
+            $consumerId,
+            $businessReference,
+            LinkOrigin::MANUAL,
+            0,
+            $createdByUserAccountId
+        );
+
+        if (!$created) {
+            return false;
+        }
+
+        $stored = $this->messageRepository->findOneForReference($consumerId, $businessReference, $messageId);
+        if ($stored !== null) {
+            $this->notifyLinked(
+                $stored,
+                new MessageLink($consumerId, $businessReference, LinkOrigin::MANUAL, 0, $createdByUserAccountId)
+            );
+        }
+
+        return true;
+    }
+
+    /**
+     * Tell a consumer one of its associations is gone.
+     *
+     * Swallowed like every other consumer callback: the association is
+     * already removed, and one module's bookkeeping throwing must not turn
+     * a filing correction into an error the user cannot act on. Nothing is
+     * logged, since anything identifying enough to be useful would be
+     * personal data in the journal (§7.9).
+     */
+    private function notifyUnlinked(InboundMessage $message, string $consumerId, string $businessReference): void
+    {
+        $consumer = $this->consumerRegistry?->find($consumerId);
+        if ($consumer === null) {
+            return;
+        }
+
+        try {
+            $consumer->onUnlinked($message, new MessageLink($consumerId, $businessReference, LinkOrigin::MANUAL));
+        } catch (\Throwable) {
+            // See the docblock.
+        }
+    }
+
+    private function notifyLinked(InboundMessage $message, MessageLink $link): void
+    {
+        $consumer = $this->consumerRegistry?->find($link->consumerId);
+        if ($consumer === null) {
+            return;
+        }
+
+        try {
+            $consumer->onLinked($message, $link);
+        } catch (\Throwable) {
+            // See notifyUnlinked()'s docblock.
+        }
     }
 
     /**
@@ -121,6 +416,10 @@ class InboundMailService implements InboundMailInterface
             $removed++;
 
             if ($this->messageRepository->countLinks($messageId) === 0) {
+                // Unlike detach(), this one really does destroy: it is the
+                // consumer's own RGPD erasure of a business object running,
+                // and the promise made to the person concerned is that the
+                // mail attached to their file goes with the file.
                 $this->messageRepository->deleteMessage($messageId);
             }
         }
@@ -156,19 +455,34 @@ class InboundMailService implements InboundMailInterface
 
             // The file survives because another message deduplicated onto
             // the same bytes — and `files.owner_id` may still name the
-            // message that has just gone. Hand the ownership to a message
-            // that really holds it, or the access registry finds no
-            // associations to ask about and locks out the very people who
-            // may read it.
-            $holder = $this->messageRepository->findMessageHoldingFile($fileId);
-            if ($holder !== null) {
-                $this->fileRepository?->updateOwner(
-                    $fileId,
-                    InboundMessageAccessRegistry::OWNER_TYPE,
-                    $holder
-                );
-            }
+            // message that has just gone.
+            $this->handOverFileOwnership($fileId, null);
         }
+    }
+
+    /**
+     * Point `files.owner_id` at a message that really holds the file.
+     *
+     * Without this the file keeps naming a message that no longer holds it,
+     * `Service\InboundMessageAccessRegistry` finds no associations to ask
+     * about, and the very people who may read it are locked out. When
+     * nothing holds it any more the owner is left alone: the file is either
+     * about to be deleted or has become a consumer's own document, and
+     * inventing an owner for it here would be this module guessing at
+     * another module's business.
+     */
+    private function handOverFileOwnership(int $fileId, ?int $except): void
+    {
+        $holder = $this->messageRepository->findMessageHoldingFile($fileId);
+        if ($holder === null || $holder === $except) {
+            return;
+        }
+
+        $this->fileRepository?->updateOwner(
+            $fileId,
+            InboundMessageAccessRegistry::OWNER_TYPE,
+            $holder
+        );
     }
 
     /**

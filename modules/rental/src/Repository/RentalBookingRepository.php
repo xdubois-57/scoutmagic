@@ -160,6 +160,37 @@ class RentalBookingRepository
         return $row !== false ? $this->hydrate($row) : null;
     }
 
+    /**
+     * How many real people would see this module's inbound mail if a
+     * mailbox were opened to it: every active asset manager, plus the unit
+     * staff who manage every asset.
+     *
+     * Counted on the scout year in effect, deliberately — the configuration
+     * screen's warning shows this number, and it is the only guard-rail on
+     * that choice (`Mail\RentalMessageConsumer::triageAudienceCount()`). A
+     * figure frozen at some past moment would make it a lie.
+     */
+    public function countTriageAudience(): int
+    {
+        $stmt = $this->pdo->query(
+            'SELECT COUNT(*) FROM (
+                 SELECT DISTINCT m.member_id
+                   FROM rental_asset_managers m
+                  WHERE m.is_active = 1
+                  UNION
+                 SELECT DISTINCT my.member_id
+                   FROM member_years my
+                   JOIN member_functions mf ON mf.member_year_id = my.id
+                   JOIN functions f ON mf.function_id = f.id
+                   JOIN scout_years sy ON sy.id = my.scout_year_id
+                  WHERE sy.is_current = 1 AND my.is_active = 1
+                    AND f.role IN (\'chief\', \'admin\', \'superadmin\')
+             ) AS audience'
+        );
+
+        return $stmt === false ? 0 : (int) $stmt->fetchColumn();
+    }
+
     public function findByReference(string $reference): ?RentalBooking
     {
         $stmt = $this->pdo->prepare('SELECT * FROM rental_bookings WHERE reference = ?');

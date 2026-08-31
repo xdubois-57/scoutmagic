@@ -159,7 +159,7 @@ class CampsRbacTest extends TestCase
         );
         $this->configController = new CampsConfigController($twig, $settings);
         $this->mailController = new \Modules\Camps\Controller\CampsMailController(
-            $twig, $camps, $places, $settings
+            $twig, $camps, $places
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -283,6 +283,14 @@ class CampsRbacTest extends TestCase
             'discard a message' => ['/chefs/camps/courrier/{message}/supprimer', 'mail', 'discard', 'chief', 'intendant'],
             'apply a proposal' => ['/chefs/camps/propositions/{proposal}/appliquer', 'mail', 'applyProposal', 'chief', 'intendant'],
             'dismiss a proposal' => ['/chefs/camps/propositions/{proposal}/ignorer', 'mail', 'dismissProposal', 'chief', 'intendant'],
+            'confirm a proposition' => [
+                '/chefs/camps/courrier/{message}/proposition/confirmation',
+                'mail', 'confirmProposition', 'chief', 'intendant',
+            ],
+            'dismiss a proposition' => [
+                '/chefs/camps/courrier/{message}/proposition/rejet',
+                'mail', 'dismissProposition', 'chief', 'intendant',
+            ],
             'save the configuration' => ['/config/camps', 'config', 'save', 'superadmin', 'admin'],
         ];
     }

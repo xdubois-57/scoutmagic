@@ -15,16 +15,14 @@ use Core\Photo\ImageVariantProcessor;
 use Core\Photo\ImageVariantService;
 use Core\Security\EncryptionService;
 use Core\Security\Role;
-use Modules\InboundMail\Api\CandidateMessage;
-use Modules\InboundMail\Api\InboundMessage;
 use Modules\InboundMail\Api\LinkOrigin;
-use Modules\InboundMail\Api\MessageClaim;
 use Modules\InboundMail\Api\MessageConsumerInterface;
 use Modules\InboundMail\Repository\InboundMessageRepository;
 use Modules\InboundMail\Service\InboundMessageAccessRegistry;
 use Modules\InboundMail\Service\MessageConsumerRegistry;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Tests\Modules\InboundMail\FakeMessageConsumer;
 use Tests\Modules\InboundMail\InboundMailTestHelper;
 use Twig\Environment;
 use Twig\Loader\ArrayLoader;
@@ -109,7 +107,7 @@ class InboundMessageAccessRegistryTest extends TestCase
 
         $this->registry->isAllowed($messageId, Role::INTENDANT, [12, 34]);
 
-        $this->assertSame([['LOC-2027-0042', [12, 34], 'intendant']], $consumer->asked);
+        $this->assertSame([['LOC-2027-0042', [12, 34], 'intendant']], $consumer->readQuestions);
     }
 
     // ── The two answers decided here rather than delegated ──────────────
@@ -322,49 +320,18 @@ class InboundMessageAccessRegistryTest extends TestCase
     }
 
     /**
-     * A consumer that answers whatever it was told to, and remembers what
-     * it was asked.
+     * A consumer that answers what it was told to, and remembers what it
+     * was asked.
      */
     private function consumer(
         string $consumerId,
         bool $answers,
         bool $throws = false
-    ): MessageConsumerInterface {
-        return new class ($consumerId, $answers, $throws) implements MessageConsumerInterface {
-            /** @var array<int, array{0: string, 1: array<int, int>, 2: string}> */
-            public array $asked = [];
-
-            public function __construct(
-                private string $id,
-                private bool $answers,
-                private bool $throws
-            ) {
-            }
-
-            public function consumerId(): string
-            {
-                return $this->id;
-            }
-
-            public function claim(CandidateMessage $message): ?MessageClaim
-            {
-                return null;
-            }
-
-            public function onMessageStored(InboundMessage $message): void
-            {
-            }
-
-            public function canRead(string $businessReference, array $linkedMemberIds, string $role): bool
-            {
-                $this->asked[] = [$businessReference, $linkedMemberIds, $role];
-
-                if ($this->throws) {
-                    throw new \RuntimeException('bug');
-                }
-
-                return $this->answers;
-            }
-        };
+    ): FakeMessageConsumer {
+        return new FakeMessageConsumer(
+            id: $consumerId,
+            readAnswer: $answers,
+            throwsOnRead: $throws
+        );
     }
 }

@@ -201,10 +201,11 @@ function scoutmagic_bootstrap_scheduler(
     // dependency graph below is only ever assembled when a sync task is
     // actually due — never on an ordinary page view.
     if (in_array('inbound_mail', $enabledModuleIds, true)) {
-        $runner->registerHandlerFactory(
-            'inbound_mail',
-            \Modules\InboundMail\Task\SyncMailboxesHandler::TASK_KEY,
-            static function (\Core\Scheduler\TaskContext $context) use ($pdo, $encryptionService, $settingService, $journalService, $storagePath, $enabledModuleIds): \Core\Scheduler\TaskHandlerInterface {
+        // The consumer graph, built once per firing and shared by BOTH
+        // inbound-mail tasks: the synchronisation's arrival pass and the
+        // deferred content pass ask the same consumers, and two copies of
+        // this wiring would be two places for it to drift.
+        $inboundConsumerRegistry = static function (\Core\Scheduler\TaskContext $context) use ($pdo, $encryptionService, $settingService, $journalService, $storagePath, $enabledModuleIds): \Modules\InboundMail\Service\MessageConsumerRegistry {
                 $registry = new \Modules\InboundMail\Service\MessageConsumerRegistry();
                 $inboundMail = $context->getOptional(\Modules\InboundMail\Api\InboundMailInterface::class);
                 $auditService = new \Core\Audit\AuditService(new \Core\Audit\AuditRepository($pdo, $encryptionService));
@@ -233,6 +234,30 @@ function scoutmagic_bootstrap_scheduler(
                             $storagePath
                         ),
                         (new \Modules\Rental\Mail\MailboxSelection($settingService, $inboundMail))->selectedIds()
+                    ));
+                }
+
+                // Finance only ever PROPOSES, so it needs no place in any
+                // ordering: a proposition costs nobody else anything. On
+                // this path it also has no actor and no file reader, which
+                // is deliberate — a synchronisation has nobody making a
+                // request, and finance's account check is built from the
+                // actor. Nothing is ever filed as a receipt from here.
+                if ($inboundMail !== null && in_array('finance', $enabledModuleIds, true)) {
+                    $registry->register(new \Modules\Finance\Mail\FinanceMessageConsumer(
+                        new \Modules\Finance\Repository\AccountRepository($pdo, $encryptionService),
+                        new \Modules\Finance\Service\TreasurerScopeService(
+                            \Core\Database\Connection::withPdo($pdo),
+                            new \Core\Badge\BadgeRepository($pdo),
+                            new \Core\Badge\MemberBadgeRepository($pdo)
+                        ),
+                        $pdo,
+                        $encryptionService,
+                        // The current year, resolved here rather than
+                        // carried on the context: the scheduled path has no
+                        // session and no "effective" year, and the treasurer
+                        // rule is about who holds the badge THIS year.
+                        (new \Core\Config\ScoutYearService($pdo))->getCurrentYear()['id']
                     ));
                 }
 
@@ -273,16 +298,97 @@ function scoutmagic_bootstrap_scheduler(
                             new \Modules\Camps\Service\DuplicatePlaceDetector($campsPlaceRepo, $llm),
                             $campsMessageReader,
                             $settingService,
-                            $inboundMail,
                             $llm
                         )
                     ));
                 }
 
-                return new \Modules\InboundMail\Task\SyncMailboxesHandler($registry);
+                return $registry;
+        };
+
+        $runner->registerHandlerFactory(
+            'inbound_mail',
+            \Modules\InboundMail\Task\SyncMailboxesHandler::TASK_KEY,
+            static function (\Core\Scheduler\TaskContext $context) use (
+                $pdo,
+                $encryptionService,
+                $settingService,
+                $journalService,
+                $notificationService,
+                $inboundConsumerRegistry
+            ): \Core\Scheduler\TaskHandlerInterface {
+                // The disk ceiling (D5). Its alert is a CLOSURE rather than
+                // the notification service itself, so the quota logic stays
+                // testable without a mail stack and this file keeps
+                // deciding what « tell the superadmin » means here.
+                $quota = new \Modules\InboundMail\Service\StorageQuotaService(
+                    new \Modules\InboundMail\Repository\InboundMessageRepository($pdo, $encryptionService),
+                    $settingService,
+                    new \Core\Config\SettingRepository($pdo),
+                    $journalService,
+                    $notificationService === null ? null : static function (int $quotaMb, int $purged) use (
+                        $pdo,
+                        $encryptionService,
+                        $notificationService
+                    ): void {
+                        // Only a superadmin can raise the quota or buy
+                        // space, so only a superadmin is told. Nothing
+                        // about any message is named — a count and a
+                        // number of megabytes (§7.9).
+                        $accounts = new \Core\Security\UserAccountRepository($pdo, $encryptionService);
+                        foreach ($accounts->findSuperAdmins() as $entry) {
+                            $notificationService->notify(
+                                $entry['account']->id,
+                                'Espace de stockage du courrier entrant saturé',
+                                sprintf(
+                                    'La limite de %d Mo est atteinte : les pièces jointes entrantes ne sont plus '
+                                    . 'enregistrées. %d message(s) sans association ont été purgés pour libérer de '
+                                    . 'la place. Les messages eux-mêmes restent conservés.',
+                                    $quotaMb,
+                                    $purged
+                                ),
+                                '/config/parametres'
+                            );
+                        }
+                    }
+                );
+
+                $registry = $inboundConsumerRegistry($context);
+
+                return new \Modules\InboundMail\Task\SyncMailboxesHandler(
+                    $registry,
+                    $quota,
+                    // What each box lets each module do (IT-05). Built from
+                    // the SAME registry the handler gets, so the modules the
+                    // screen scopes and the modules the sync asks cannot be
+                    // two different lists.
+                    new \Modules\InboundMail\Service\MailboxScopeService(
+                        new \Modules\InboundMail\Repository\InboundMailboxRepository($pdo, $encryptionService),
+                        $registry
+                    )
+                );
             }
         );
         \Modules\InboundMail\Task\SyncMailboxesHandler::bootstrap($schedulerService);
+
+        // The deferred, content-level pass (§8.58): everything that needs
+        // an attachment's BYTES rather than its metadata. Never inside the
+        // synchronisation loop — a PDF extraction there would blow through
+        // max_execution_time and leave the cursor unmoved, so the same
+        // doomed run would repeat on every tick.
+        $runner->registerHandlerFactory(
+            'inbound_mail',
+            \Modules\InboundMail\Task\AnalyzeStoredMessagesHandler::TASK_KEY,
+            static fn(\Core\Scheduler\TaskContext $context): \Core\Scheduler\TaskHandlerInterface
+                => new \Modules\InboundMail\Task\AnalyzeStoredMessagesHandler($inboundConsumerRegistry($context))
+        );
+        \Modules\InboundMail\Task\AnalyzeStoredMessagesHandler::bootstrap($schedulerService);
+
+        // The retention that makes storing everything defensible (§8.58).
+        // Auto-resolved from the manifest — it needs no consumer, only the
+        // connection and the settings the context already carries — so it
+        // is seeded here and nothing else.
+        \Modules\InboundMail\Task\PurgeUnlinkedMessagesHandler::bootstrap($schedulerService);
     }
 
     // ── Recurring-task seeds that used to live on the web path only ─────

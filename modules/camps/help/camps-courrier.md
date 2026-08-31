@@ -1,11 +1,11 @@
 ---
 id: camps-courrier
 title: Le courrier des camps
-summary: Ce que le site reprend de vos e-mails, ce qu'il ne touchera jamais, et le courrier non classé.
+summary: Ce que le site reprend de vos e-mails, ce qu'il ne touchera jamais, et l'écran où vous triez.
 category: Espace animateurs
 role_min: chief
 paths: /chefs/camps/courrier
-related: camps, camps-propositions, config-camps
+related: camps-courrier-ecran, camps, camps-propositions, config-camps
 ---
 
 Si votre unité relève ses e-mails depuis ScoutMagic, les messages qui
@@ -30,17 +30,13 @@ personne ne pourrait s'en apercevoir.
 ## Une boîte dédiée
 
 Une adresse dont **tout** le contenu concerne les camps, par exemple
-camps@votre-unite.be. Le module y prend tous les messages ; ceux qu'il ne
-sait rattacher vont dans le **courrier non classé**.
+camps@votre-unite.be. Un superadministrateur la déclare dédiée aux camps
+dans la configuration du courrier entrant ; à partir de là, aucun autre
+module ne la lit, et **tout** son contenu apparaît sur cet écran, rattaché
+ou non.
 
-Une boîte dédiée doit être **exclue des autres modules** qui lisent le
-courrier — le module de location, en particulier, lit toutes les boîtes
-par défaut. Le premier module qui réclame un message le garde.
-
-Le courrier non classé est effacé après le délai réglé dans la
-configuration (six mois par défaut). Chaque message s'y lit **en entier** :
-on ne supprime pas définitivement un courrier dont on n'a vu que les
-premières lignes.
+Ce que l'écran « Courrier des camps » montre, et ce que « Retirer »
+veut dire, sont décrits dans « L'écran du courrier des camps ».
 
 ## Créer un camp depuis un message
 
@@ -56,7 +52,7 @@ Un terrain inconnu n'est créé que si le module d'intelligence artificielle
 est actif : son nom est alors **lu dans le message**, avec la consigne de
 ne jamais renvoyer un nom de personne et de ne rien renvoyer en cas
 d'hésitation. Sinon, aucun terrain n'est créé et le message vous attend
-dans le courrier non classé.
+sur l'écran « Courrier des camps ».
 
 **À la main** : « Créer un camp depuis ce message » ouvre le formulaire
 habituel, dates, prix et lieu déjà remplis quand le site a su les lire.

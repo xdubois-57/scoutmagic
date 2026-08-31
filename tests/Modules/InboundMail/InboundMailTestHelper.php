@@ -26,12 +26,25 @@ class InboundMailTestHelper
             password_encrypted BLOB NOT NULL,
             folders TEXT,
             is_enabled INTEGER NOT NULL DEFAULT 1,
+            purpose TEXT NOT NULL DEFAULT "shared",
+            dedicated_to TEXT,
             sync_state TEXT NOT NULL DEFAULT "never",
             last_synced_at TEXT,
             last_error TEXT,
             last_error_at TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )');
+
+        $pdo->exec('CREATE TABLE inbound_mailbox_consumers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            mailbox_id INTEGER NOT NULL,
+            consumer_id TEXT NOT NULL,
+            analyze_enabled INTEGER NOT NULL DEFAULT 0,
+            read_mode TEXT NOT NULL DEFAULT "none",
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (mailbox_id, consumer_id)
         )');
 
         $pdo->exec('CREATE TABLE inbound_mailbox_cursors (
@@ -66,6 +79,9 @@ class InboundMailTestHelper
             body_html_encrypted BLOB NOT NULL,
             sent_at TEXT NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            stored_analysis_at TEXT,
+            is_bulk INTEGER NOT NULL DEFAULT 0,
+            last_unlinked_at TEXT,
             UNIQUE (mailbox_id, message_id_blind_index)
         )');
 
@@ -81,14 +97,29 @@ class InboundMailTestHelper
             UNIQUE (message_id, consumer_id, business_reference, attachment_id)
         )');
 
+        $pdo->exec('CREATE TABLE inbound_message_candidates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            message_id INTEGER NOT NULL,
+            attachment_id INTEGER NOT NULL DEFAULT 0,
+            consumer_id TEXT NOT NULL,
+            business_reference TEXT NOT NULL,
+            evidence_type TEXT NOT NULL,
+            evidence_label_encrypted BLOB NOT NULL,
+            evidence_explanation_encrypted BLOB NOT NULL,
+            dismissed_at TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (message_id, consumer_id, business_reference, attachment_id)
+        )');
+
         $pdo->exec('CREATE TABLE inbound_message_attachments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             message_id INTEGER NOT NULL,
-            file_id INTEGER NOT NULL,
+            file_id INTEGER,
             filename_encrypted BLOB NOT NULL,
             mime_type TEXT NOT NULL,
             size_bytes INTEGER NOT NULL DEFAULT 0,
             content_hash TEXT NOT NULL,
+            omission_reason TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )');
     }

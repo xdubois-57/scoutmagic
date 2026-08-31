@@ -4,16 +4,15 @@ declare(strict_types=1);
 
 namespace Tests\Modules\InboundMail\Service;
 
+use Modules\InboundMail\Api\AnalysisResult;
 use Modules\InboundMail\Api\CandidateMessage;
 use Modules\InboundMail\Api\LinkOrigin;
-use Modules\InboundMail\Api\MessageClaim;
-use Modules\InboundMail\Api\InboundMessage;
-use Modules\InboundMail\Api\MessageConsumerInterface;
 use Modules\InboundMail\Service\MessageConsumerRegistry;
 use PHPUnit\Framework\TestCase;
+use Tests\Modules\InboundMail\FakeMessageConsumer;
 
 /**
- * Who gets asked whether a message is theirs (§7.6).
+ * Who gets asked what a message means to them (§7.6).
  *
  * The registry is the ARCHITECTURE.md §7.6 pattern applied a second time:
  * mutable, owned by the extended module, appended to from each consumer's
@@ -41,32 +40,14 @@ class MessageConsumerRegistryTest extends TestCase
         );
     }
 
-    private function consumer(?MessageClaim $claim, string $id = 'rental'): MessageConsumerInterface
+    private function consumer(?string $reference, string $id = 'rental'): FakeMessageConsumer
     {
-        return new class ($claim, $id) implements MessageConsumerInterface {
-            public function __construct(private ?MessageClaim $claim, private string $id)
-            {
-            }
-
-            public function consumerId(): string
-            {
-                return $this->id;
-            }
-
-            public function claim(CandidateMessage $message): ?MessageClaim
-            {
-                return $this->claim;
-            }
-
-            public function onMessageStored(InboundMessage $message): void
-            {
-            }
-
-            public function canRead(string $businessReference, array $linkedMemberIds, string $role): bool
-            {
-                return true;
-            }
-        };
+        return new FakeMessageConsumer(
+            id: $id,
+            onAnalyze: static fn(CandidateMessage $message): AnalysisResult => $reference === null
+                ? AnalysisResult::nothing()
+                : AnalysisResult::linkedTo($id, $reference, LinkOrigin::REFERENCE)
+        );
     }
 
     public function testAnEmptyRegistrySaysSoSoTheSyncCanSkipTheWorkEntirely(): void
@@ -74,7 +55,7 @@ class MessageConsumerRegistryTest extends TestCase
         $registry = new MessageConsumerRegistry();
 
         $this->assertFalse($registry->hasConsumers());
-        $this->assertNull($registry->firstClaim($this->candidate()));
+        $this->assertSame([], $registry->analyzeAll($this->candidate()));
     }
 
     public function testAConsumerRegisteredAfterTheRegistryWasHandedOutStillReachesIt(): void
@@ -84,67 +65,56 @@ class MessageConsumerRegistryTest extends TestCase
         $registry = new MessageConsumerRegistry();
         $heldBySyncService = $registry;
 
-        $registry->register($this->consumer(new MessageClaim('LOC-2027-0042', LinkOrigin::REFERENCE)));
+        $registry->register($this->consumer('LOC-2027-0042'));
 
         $this->assertTrue($heldBySyncService->hasConsumers());
-        $this->assertNotNull($heldBySyncService->firstClaim($this->candidate()));
+        $this->assertNotSame([], $heldBySyncService->analyzeAll($this->candidate()));
     }
 
-    public function testTheFirstConsumerThatRecognisesTheMessageWins(): void
+    public function testEveryConsumerIsAskedAndEveryAnswerComesBack(): void
     {
-        // First, not best: two modules claiming one message would store it
-        // twice under two references, and nothing says which is right.
+        // This replaced first-claim-wins. Under that rule the second module
+        // to recognise a message was never even asked, so an email that is
+        // both a booking's correspondence and an invoice could only ever be
+        // one of the two — and registration order silently decided which.
         $registry = new MessageConsumerRegistry();
         $registry->register($this->consumer(null, 'finance'));
-        $registry->register($this->consumer(new MessageClaim('LOC-2027-0042', LinkOrigin::REFERENCE), 'rental'));
-        $registry->register($this->consumer(new MessageClaim('AUTRE', LinkOrigin::SENDER), 'registration'));
+        $registry->register($this->consumer('LOC-2027-0042', 'rental'));
+        $registry->register($this->consumer('AUTRE', 'registration'));
 
-        $claimed = $registry->firstClaim($this->candidate());
+        $results = $registry->analyzeAll($this->candidate());
 
-        $this->assertNotNull($claimed);
-        $this->assertSame('rental', $claimed['consumer']->consumerId());
-        $this->assertSame('LOC-2027-0042', $claimed['claim']->businessReference);
+        // 'finance' said nothing, so it is simply absent — an empty result
+        // is not an answer worth carrying.
+        $this->assertSame(['rental', 'registration'], array_keys($results));
+        $this->assertSame('LOC-2027-0042', $results['rental']->links[0]->businessReference);
+        $this->assertSame('AUTRE', $results['registration']->links[0]->businessReference);
     }
 
     public function testAConsumerThatThrowsIsSkippedRatherThanTakingTheRunDown(): void
     {
         $registry = new MessageConsumerRegistry();
-        $registry->register(new class implements MessageConsumerInterface {
-            public function consumerId(): string
-            {
-                return 'broken';
-            }
-
-            public function claim(CandidateMessage $message): ?MessageClaim
-            {
+        $registry->register(new FakeMessageConsumer(
+            id: 'broken',
+            onAnalyze: static function (CandidateMessage $message): AnalysisResult {
                 throw new \RuntimeException('bug');
             }
+        ));
+        $registry->register($this->consumer('LOC-2027-0042'));
 
-            public function onMessageStored(InboundMessage $message): void
-            {
-            }
+        $results = $registry->analyzeAll($this->candidate());
 
-            public function canRead(string $businessReference, array $linkedMemberIds, string $role): bool
-            {
-                return true;
-            }
-        });
-        $registry->register($this->consumer(new MessageClaim('LOC-2027-0042', LinkOrigin::REFERENCE)));
-
-        $claimed = $registry->firstClaim($this->candidate());
-
-        $this->assertNotNull($claimed);
-        $this->assertSame('rental', $claimed['consumer']->consumerId());
+        $this->assertSame(['rental'], array_keys($results));
     }
 
-    public function testNobodyClaimingIsACompleteAnswer(): void
+    public function testNobodyRecognisingTheMessageIsACompleteAnswer(): void
     {
         $registry = new MessageConsumerRegistry();
         $registry->register($this->consumer(null, 'rental'));
         $registry->register($this->consumer(null, 'finance'));
 
         $this->assertTrue($registry->hasConsumers());
-        $this->assertNull($registry->firstClaim($this->candidate()));
+        $this->assertSame([], $registry->analyzeAll($this->candidate()));
     }
 
     // ── The candidate a consumer is handed ──────────────────────────────
@@ -184,6 +154,8 @@ class MessageConsumerRegistryTest extends TestCase
         $this->assertTrue(LinkOrigin::THREAD->isCertain());
         $this->assertFalse(LinkOrigin::SENDER->isCertain());
         $this->assertFalse(LinkOrigin::AI->isCertain());
+        // A human decided: the strongest of the lot.
+        $this->assertTrue(LinkOrigin::MANUAL->isCertain());
     }
 
     public function testEveryOriginHasALabelAManagerCanRead(): void

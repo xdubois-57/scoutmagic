@@ -41,29 +41,89 @@ class ModuleManifestTest extends TestCase
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.2.0', $this->manifest->version);
+        $this->assertSame('1.5.0', $this->manifest->version);
     }
 
     /**
-     * **The whole configuration surface is superadmin** (§7.4).
+     * **The whole CONFIGURATION surface is superadmin** (§7.4).
      *
      * A Staff d'U or a manager may *use* a configured mailbox through a
      * consuming module's workflow, but must never see the host, the
      * account or anything else that would let them reach it directly.
-     * `role_min: admin` on any of these would be exactly that leak, which
-     * is why every route is pinned rather than only the index.
+     * `role_min: admin` on any `/config/` route would be exactly that
+     * leak, which is why every one of them is pinned rather than only the
+     * index.
      */
-    public function testEveryRouteIsSuperadminOnly(): void
+    public function testEveryConfigurationRouteIsSuperadminOnly(): void
     {
         $this->assertNotSame([], $this->manifest->routes);
 
         foreach ($this->manifest->routes as $route) {
+            if (!str_starts_with((string) ($route['path'] ?? ''), '/config/')) {
+                continue;
+            }
+
             $this->assertSame(
                 'superadmin',
                 $route['role_min'] ?? null,
                 'Route ' . ($route['path'] ?? '?') . ' must be superadmin-only.'
             );
         }
+    }
+
+    /**
+     * **`/courrier` is admin, and nothing lower** (§8.58).
+     *
+     * The general mailbox shows every message the unit ever received,
+     * associated or not. It is one of the three things that make storing
+     * everything defensible, and the third of those three is that exactly
+     * ONE role answers for the archive — which is this `role_min` and
+     * nothing else. A route here at `intendant` or `chief` would hand a
+     * section leader the parents' questions, the medical documents and the
+     * applications, and would do it without anybody noticing.
+     */
+    public function testTheGeneralMailboxIsAdminAndNothingLower(): void
+    {
+        $mailboxRoutes = array_filter(
+            $this->manifest->routes,
+            static fn(array $route) => str_starts_with((string) ($route['path'] ?? ''), '/courrier')
+        );
+
+        $this->assertNotSame([], $mailboxRoutes, 'the general mailbox must exist');
+
+        foreach ($mailboxRoutes as $route) {
+            $this->assertSame(
+                'admin',
+                $route['role_min'] ?? null,
+                'Route ' . ($route['path'] ?? '?') . ' must be admin-only.'
+            );
+        }
+    }
+
+    /**
+     * And it declares nothing offline.
+     *
+     * « Lisible hors ligne » is opt-in per module, so a page like this one
+     * is excluded by saying nothing — which is easy to undo by accident on
+     * the day somebody adds an `offline` section for another page. A page
+     * listing every message the unit ever received has no business sitting
+     * in the cache of a phone that may be lost.
+     */
+    public function testTheGeneralMailboxIsNeverCachedForOfflineReading(): void
+    {
+        $paths = array_map(
+            static fn(array $entry) => (string) ($entry['path'] ?? ''),
+            $this->manifest->offline
+        );
+
+        // Asserted as a list rather than in a loop: an empty `offline`
+        // section is the passing case today, and a loop over nothing is a
+        // test that asserts nothing.
+        $this->assertSame(
+            [],
+            array_values(array_filter($paths, static fn(string $path) => str_starts_with($path, '/courrier'))),
+            'the unit\'s whole mail must never be held offline'
+        );
     }
 
     /**

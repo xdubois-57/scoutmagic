@@ -1,15 +1,15 @@
 {% extends 'base.html.twig' %}
-{% block title %}Courrier non classé — {{ site_name }}{% endblock %}
+{% block title %}Courrier des camps — {{ site_name }}{% endblock %}
 {% block content %}
     <div class="page-wide">
         {% include 'partials/page_header.html.twig' with {
-            title: 'Courrier non classé',
-            subtitle: 'Les messages reçus sur une boîte dédiée aux camps que le site n\'a pas su rattacher.',
+            title: 'Courrier des camps',
+            subtitle: 'Les messages que le site rattache à un séjour, ceux qu\'il propose d\'y rattacher, et — sur une boîte dédiée aux camps — tout le reste de cette boîte.',
         } only %}
 
-        {% if not has_dedicated_mailbox %}
+        {% if not has_inbound_mail %}
             {% include 'partials/empty_state.html.twig' with {
-                message: 'Aucune boîte dédiée aux camps n\'est configurée : rien n\'arrive ici. Un administrateur peut en désigner une dans la configuration du module.',
+                message: 'Aucune boîte n\'est relevée par le site : rien n\'arrive ici. Un administrateur peut en raccorder une dans la configuration du module Courrier entrant.',
                 icon: 'bi-envelope',
             } only %}
         {% elseif messages is empty %}
@@ -18,9 +18,6 @@
                 icon: 'bi-envelope-check',
             } only %}
         {% else %}
-            <p class="text-body-secondary small">
-                Ces messages sont effacés après {{ retention_months }} mois.
-            </p>
 
             <div class="d-flex flex-column gap-3">
                 {% for row in messages %}
@@ -65,6 +62,53 @@
                                 </div>
                             {% endif %}
 
+                            {# Ce que CE module en a fait, et rien d'autre : les
+                               rattachements d'un autre module ne regardent pas
+                               cet écran. #}
+                            {% if row.links is not empty %}
+                                <div class="mt-2 d-flex flex-wrap gap-1">
+                                    {% for link in row.links %}
+                                        <span class="badge text-bg-success">Rattaché — {{ link.businessReference }}</span>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+
+                            {% if row.candidates is not empty %}
+                                <div class="mt-3">
+                                    <div class="small fw-semibold">Propositions à confirmer</div>
+                                    <ul class="list-group list-group-flush">
+                                        {% for candidate in row.candidates %}
+                                            <li class="list-group-item px-0 d-flex flex-wrap justify-content-between align-items-center gap-2">
+                                                <div>
+                                                    <div>{{ candidate.label }}</div>
+                                                    <div class="small text-body-secondary">{{ candidate.explanation }}</div>
+                                                </div>
+                                                <div class="d-flex gap-2">
+                                                    <form method="post"
+                                                          action="/chefs/camps/courrier/{{ row.message.id }}/proposition/confirmation">
+                                                        {{ csrf_field()|raw }}
+                                                        <input type="hidden" name="candidate_id" value="{{ candidate.id }}">
+                                                        <button type="submit" class="btn btn-primary btn-sm">Rattacher</button>
+                                                    </form>
+                                                    <form method="post"
+                                                          action="/chefs/camps/courrier/{{ row.message.id }}/proposition/rejet">
+                                                        {{ csrf_field()|raw }}
+                                                        <input type="hidden" name="candidate_id" value="{{ candidate.id }}">
+                                                        <button type="submit" class="btn btn-outline-secondary btn-sm">Écarter</button>
+                                                    </form>
+                                                </div>
+                                            </li>
+                                        {% endfor %}
+                                    </ul>
+                                    {% if row.candidates|length > 1 %}
+                                        <p class="small text-body-secondary mb-0">
+                                            Plusieurs séjours correspondent : le site n'en choisit aucun tant que
+                                            vous n'avez pas tranché.
+                                        </p>
+                                    {% endif %}
+                                </div>
+                            {% endif %}
+
                             <div class="d-flex flex-wrap align-items-end gap-2 mt-3">
                                 <form method="post" action="/chefs/camps/courrier/{{ row.message.id }}/rattacher"
                                       class="d-flex flex-wrap align-items-end gap-2 flex-grow-1">
@@ -91,16 +135,27 @@
                                     Créer un camp depuis ce message
                                 </a>
 
-                                <form method="post" action="/chefs/camps/courrier/{{ row.message.id }}/supprimer"
-                                      data-confirm="Supprimer définitivement ce message et ses pièces jointes ?">
-                                    {{ csrf_field()|raw }}
-                                    <button type="submit" class="btn btn-outline-danger btn-sm">Supprimer</button>
-                                </form>
+                                {% for link in row.links %}
+                                    <form method="post" action="/chefs/camps/courrier/{{ row.message.id }}/supprimer"
+                                          data-confirm="Retirer ce message du séjour ? Il reste dans le courrier de l'unité.">
+                                        {{ csrf_field()|raw }}
+                                        <input type="hidden" name="business_reference" value="{{ link.businessReference }}">
+                                        <button type="submit" class="btn btn-outline-danger btn-sm">
+                                            Retirer de {{ link.businessReference }}
+                                        </button>
+                                    </form>
+                                {% endfor %}
                             </div>
                         </div>
                     </div>
                 {% endfor %}
             </div>
         {% endif %}
+
+        <p class="text-body-secondary small mt-4">
+            Un message que rien ne rattache et sur lequel aucune proposition ne subsiste est
+            supprimé automatiquement au terme du délai de conservation réglé pour le courrier
+            entrant.
+        </p>
     </div>
 {% endblock %}

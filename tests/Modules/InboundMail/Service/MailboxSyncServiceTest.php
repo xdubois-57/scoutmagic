@@ -8,15 +8,18 @@ use Core\File\FileRepository;
 use Core\File\UploadHandler;
 use Core\Security\EncryptionService;
 use Core\Security\HtmlSanitizer;
+use Modules\InboundMail\Api\AnalysisResult;
+use Modules\InboundMail\Api\AttachmentOmission;
 use Modules\InboundMail\Api\CandidateMessage;
+use Modules\InboundMail\Api\MessageCandidate;
 use Modules\InboundMail\Api\LinkOrigin;
-use Modules\InboundMail\Api\MessageClaim;
 use Modules\InboundMail\Api\InboundMessage;
 use Modules\InboundMail\Api\MessageConsumerInterface;
 use Modules\InboundMail\Client\FakeMailboxClient;
 use Modules\InboundMail\Mailbox\ProviderType;
 use Modules\InboundMail\Repository\InboundMailboxRepository;
 use Modules\InboundMail\Repository\InboundMessageRepository;
+use Modules\InboundMail\Service\AnalysisResultApplier;
 use Modules\InboundMail\Service\AttachmentPolicy;
 use Modules\InboundMail\Service\MailboxClientFactory;
 use Modules\InboundMail\Service\MailboxErrorFormatter;
@@ -25,6 +28,7 @@ use Modules\InboundMail\Service\MessageConsumerRegistry;
 use Modules\InboundMail\Service\MessageContentSanitizer;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Tests\Modules\InboundMail\FakeMessageConsumer;
 use Tests\Modules\InboundMail\InboundMailTestHelper;
 
 /**
@@ -80,6 +84,7 @@ class MailboxSyncServiceTest extends TestCase
             new AttachmentPolicy(),
             new MailboxErrorFormatter(),
             $factory,
+            new AnalysisResultApplier($this->messageRepository),
             new UploadHandler(new FileRepository($this->pdo), $this->storagePath)
         );
 
@@ -130,52 +135,26 @@ class MailboxSyncServiceTest extends TestCase
     }
 
     /**
-     * A consumer that claims whatever the closure says, and records every
+     * A consumer that answers whatever the closure says, and records every
      * candidate it was offered.
+     *
+     * @param \Closure(CandidateMessage): AnalysisResult $decide
      */
     private function consumer(
-        callable $decide,
+        \Closure $decide,
         string $id = 'rental'
-    ): MessageConsumerInterface {
-        return new class ($decide, $id) implements MessageConsumerInterface {
-            /** @var CandidateMessage[] */
-            public array $offered = [];
-
-            /** @var InboundMessage[] */
-            public array $stored = [];
-
-            public function __construct(private $decide, private string $id)
-            {
-            }
-
-            public function consumerId(): string
-            {
-                return $this->id;
-            }
-
-            public function claim(CandidateMessage $message): ?MessageClaim
-            {
-                $this->offered[] = $message;
-
-                return ($this->decide)($message);
-            }
-
-            public function onMessageStored(InboundMessage $message): void
-            {
-                $this->stored[] = $message;
-            }
-
-            public function canRead(string $businessReference, array $linkedMemberIds, string $role): bool
-            {
-                return true;
-            }
-        };
+    ): FakeMessageConsumer {
+        return new FakeMessageConsumer(id: $id, onAnalyze: $decide);
     }
 
-    private function claimEverything(string $reference = 'LOC-2027-0042'): MessageConsumerInterface
+    private function claimEverything(string $reference = 'LOC-2027-0042'): FakeMessageConsumer
     {
         return $this->consumer(
-            static fn(CandidateMessage $m) => new MessageClaim($reference, LinkOrigin::REFERENCE)
+            static fn(CandidateMessage $m): AnalysisResult => AnalysisResult::linkedTo(
+                'rental',
+                $reference,
+                LinkOrigin::REFERENCE
+            )
         );
     }
 
@@ -192,19 +171,79 @@ class MailboxSyncServiceTest extends TestCase
         return (int) $this->pdo->query('SELECT COUNT(*) FROM inbound_messages')->fetchColumn();
     }
 
+    // ── What a consumer learns about the attachments while deciding ─────
+
+    public function testAConsumerSeesTheAttachmentsMetadataButNeverItsBytes(): void
+    {
+        // The contract has always said a candidate carries attachment
+        // metadata. Until `Api\CandidateAttachment` existed it did not, and
+        // a consumer whose signal is « il y a une pièce jointe » had no way
+        // to ask.
+        $seen = null;
+        $this->registry->register($this->consumer(
+            static function (CandidateMessage $message) use (&$seen): AnalysisResult {
+                $seen = $message->attachments;
+
+                return AnalysisResult::nothing();
+            }
+        ));
+        $this->addMessageWithPdf(10);
+
+        $this->sync();
+
+        $this->assertNotNull($seen);
+        $this->assertCount(1, $seen);
+        $this->assertSame('contrat.pdf', $seen[0]->filename);
+        // The SNIFFED type, never what the email announced.
+        $this->assertSame('application/pdf', $seen[0]->mimeType);
+        $this->assertGreaterThan(0, $seen[0]->sizeBytes);
+        $this->assertFalse(property_exists($seen[0], 'bytes'), 'a candidate never carries content');
+    }
+
+    public function testASignatureLogoIsNotOfferedAsAnAttachment(): void
+    {
+        // Otherwise a consumer whose signal is « il y a une pièce jointe »
+        // fires on every message from every organisation with an email
+        // footer.
+        $seen = null;
+        $this->registry->register($this->consumer(
+            static function (CandidateMessage $message) use (&$seen): AnalysisResult {
+                $seen = $message->attachments;
+
+                return AnalysisResult::nothing();
+            }
+        ));
+        $this->addMessageWithSignatureLogo(10);
+
+        $this->sync();
+
+        $this->assertSame([], $seen);
+    }
+
     // ── Nothing unclaimed is ever stored (§7.6) ──────────────────────────
 
-    public function testAMessageNobodyClaimsIsNotStored(): void
+    public function testAMessageNobodyRecognisesIsStoredAnyway(): void
     {
-        $this->registry->register($this->consumer(static fn() => null));
+        // The reversal. This module used to discard what no consumer
+        // claimed, reasoning that an archive nobody can consult is the
+        // worst position under the RGPD. Right about the archive, wrong
+        // about the conclusion: the answer is a screen, a retention and
+        // somebody responsible — not throwing the unit's mail away.
+        $this->registry->register($this->consumer(static fn(): AnalysisResult => AnalysisResult::nothing()));
         $this->addMessage(10);
 
         $outcome = $this->sync();
 
-        $this->assertSame(0, $this->countMessages());
+        $this->assertSame(1, $this->countMessages());
         $this->assertSame(1, $outcome->messagesSeen);
-        $this->assertSame(0, $outcome->messagesStored);
-        $this->assertSame(1, $outcome->messagesDiscarded());
+        $this->assertSame(1, $outcome->messagesStored);
+
+        // Stored and belonging to nobody — which is exactly what the
+        // retention purge is for, and what /courrier exists to show.
+        $messageId = $this->messageRepository->findIdByMessageId($this->mailboxId, 'msg-1@example.be');
+        $this->assertNotNull($messageId);
+        $this->assertSame(0, $this->messageRepository->countLinks($messageId));
+        $this->assertFalse($this->messageRepository->hasActiveCandidates($messageId));
     }
 
     public function testTheCursorStillMovesPastAMessageNobodyClaimed(): void
@@ -212,7 +251,7 @@ class MailboxSyncServiceTest extends TestCase
         // Otherwise one unrecognised newsletter at the top of the box is
         // fetched, parsed and discarded on every run, forever, and nothing
         // behind it is ever read.
-        $this->registry->register($this->consumer(static fn() => null));
+        $this->registry->register($this->consumer(static fn(): AnalysisResult => AnalysisResult::nothing()));
         $this->addMessage(10);
 
         $this->sync();
@@ -221,14 +260,20 @@ class MailboxSyncServiceTest extends TestCase
         $this->assertSame(10, $cursor->lastUid);
     }
 
-    public function testNothingIsStoredWhenNoConsumerIsRegisteredAtAll(): void
+    public function testABoxNoModuleSortsIsStillReadAndStillKept(): void
     {
+        // This used to skip the connection entirely, on the reasoning that
+        // every message would be read and dropped anyway. Now that
+        // everything read is stored, a box no module sorts is exactly the
+        // case the general mailbox exists for — and the configuration
+        // screen says so: « Aucun module — le courrier est conservé mais
+        // rien ne le classe ».
         $this->addMessage(10);
 
         $outcome = $this->sync();
 
-        $this->assertSame(0, $this->countMessages());
-        $this->assertFalse($outcome->connected, 'There is no point connecting when nothing could claim anything.');
+        $this->assertSame(1, $this->countMessages());
+        $this->assertTrue($outcome->connected);
     }
 
     public function testAClaimedMessageIsStoredWithItsOrigin(): void
@@ -250,7 +295,7 @@ class MailboxSyncServiceTest extends TestCase
     {
         // Looking for a reference in a body must not be where raw
         // attacker-supplied HTML is first handled (§7.9).
-        $consumer = $this->consumer(static fn() => null);
+        $consumer = $this->consumer(static fn(): AnalysisResult => AnalysisResult::nothing());
         $this->registry->register($consumer);
 
         $this->client->addRawMessage('INBOX', 10, InboundMailTestHelper::rawMessage([
@@ -316,13 +361,15 @@ class MailboxSyncServiceTest extends TestCase
         $this->assertSame(77, $cursor->uidValidity);
     }
 
-    public function testAMessageAlreadyHeldForAnotherObjectIsStillStored(): void
+    public function testAMessageRecognisedTwiceGainsASecondAssociationRatherThanASecondCopy(): void
     {
-        // Deduplication is per business object, not global: the same
-        // circular sent to two bookings really is two pieces of
-        // correspondence.
+        // Deduplication is per MAILBOX now: one Message-ID is one stored
+        // message, however many objects end up associated with it. Both
+        // bookings still find it from their own side — which is what the
+        // second copy used to buy, at the price of storing the body twice.
         $this->registry->register($this->consumer(
-            static fn(CandidateMessage $m) => new MessageClaim(
+            static fn(CandidateMessage $m): AnalysisResult => AnalysisResult::linkedTo(
+                'rental',
                 str_contains($m->subject, 'A') ? 'LOC-A' : 'LOC-B',
                 LinkOrigin::REFERENCE
             )
@@ -333,8 +380,103 @@ class MailboxSyncServiceTest extends TestCase
         $this->addMessage(11, subject: 'Dossier B', messageId: 'shared@example.be');
         $this->sync();
 
+        $fromA = $this->messageRepository->findForReference('rental', 'LOC-A');
+        $fromB = $this->messageRepository->findForReference('rental', 'LOC-B');
+
+        $this->assertCount(1, $fromA);
+        $this->assertCount(1, $fromB);
+        $this->assertSame($fromA[0]->id, $fromB[0]->id, 'One message, two associations.');
+        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM inbound_messages')->fetchColumn());
+    }
+
+    public function testTwoConsumersRecognisingOneMessageBothGetIt(): void
+    {
+        // The whole point of dropping first-claim-wins: under the old rule
+        // the second consumer was never even asked.
+        $this->registry->register($this->consumer(
+            static fn(CandidateMessage $m): AnalysisResult
+                => AnalysisResult::linkedTo('rental', 'LOC-A', LinkOrigin::REFERENCE),
+            'rental'
+        ));
+        $this->registry->register($this->consumer(
+            static fn(CandidateMessage $m): AnalysisResult
+                => AnalysisResult::linkedTo('finance', 'ACC-7', LinkOrigin::SENDER),
+            'finance'
+        ));
+
+        $this->addMessage(10, messageId: 'shared@example.be');
+        $this->sync();
+
         $this->assertCount(1, $this->messageRepository->findForReference('rental', 'LOC-A'));
-        $this->assertCount(1, $this->messageRepository->findForReference('rental', 'LOC-B'));
+        $this->assertCount(1, $this->messageRepository->findForReference('finance', 'ACC-7'));
+        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM inbound_messages')->fetchColumn());
+    }
+
+    public function testAConsumerThatThrowsDoesNotCostTheOthersTheirMail(): void
+    {
+        $this->registry->register(new FakeMessageConsumer(
+            id: 'broken',
+            onAnalyze: static function (CandidateMessage $m): AnalysisResult {
+                throw new \RuntimeException('bug');
+            }
+        ));
+        $this->registry->register($this->claimEverything());
+
+        $this->addMessage(10, messageId: 'msg@example.be');
+        $this->sync();
+
+        $this->assertCount(1, $this->messageRepository->findForReference('rental', 'LOC-2027-0042'));
+    }
+
+    public function testAPropositionIsRecordedWithoutCreatingAnAssociation(): void
+    {
+        $this->registry->register($this->consumer(
+            static fn(CandidateMessage $m): AnalysisResult => AnalysisResult::proposing(
+                new MessageCandidate(
+                    'LOC-2027-0099',
+                    'Location du 12 juillet',
+                    'sender_window',
+                    'L\'expéditeur est le locataire, et le message est arrivé pendant la fenêtre.'
+                )
+            )
+        ));
+
+        $this->addMessage(10, messageId: 'msg@example.be');
+        $this->sync();
+
+        // Stored, because somebody made something of it — but nobody
+        // asserted it belongs anywhere.
+        $messageId = $this->messageRepository->findIdByMessageId($this->mailboxId, 'msg@example.be');
+        $this->assertNotNull($messageId);
+        $this->assertSame(0, $this->messageRepository->countLinks($messageId));
+        $this->assertTrue($this->messageRepository->hasActiveCandidates($messageId));
+        $this->assertSame([], $this->messageRepository->findForReference('rental', 'LOC-2027-0099'));
+    }
+
+    public function testAPropositionSomebodySetAsideIsNotReemittedOnTheNextRun(): void
+    {
+        $this->registry->register($this->consumer(
+            static fn(CandidateMessage $m): AnalysisResult => AnalysisResult::proposing(
+                new MessageCandidate('LOC-1', 'Une location', 'sender_window', 'Parce que.')
+            )
+        ));
+
+        $this->addMessage(10, messageId: 'msg@example.be');
+        $this->sync();
+
+        $messageId = $this->messageRepository->findIdByMessageId($this->mailboxId, 'msg@example.be');
+        $this->assertNotNull($messageId);
+        $this->messageRepository->dismissCandidate($messageId, 'rental', 'LOC-1', 0, new \DateTimeImmutable());
+
+        // A re-read after a renumbering offers the same message again, and
+        // the consumer proposes the same thing again. Setting it aside was
+        // a human decision; a technical job must not undo it (A3/D10).
+        $this->mailboxRepository->saveCursor(
+            $this->mailboxRepository->findCursor($this->mailboxId, 'INBOX')->forUidValidity(99)
+        );
+        $this->sync();
+
+        $this->assertFalse($this->messageRepository->hasActiveCandidates($messageId));
     }
 
     // ── Batching and folders ────────────────────────────────────────────
@@ -506,6 +648,48 @@ class MailboxSyncServiceTest extends TestCase
 
     // ── Attachments (§7.8) ──────────────────────────────────────────────
 
+    private function addMessageWithPdf(int $uid): void
+    {
+        $this->addMessageWithAttachment($uid, 'pdf@b', self::pdfBytes(), 'contrat.pdf');
+    }
+
+    /**
+     * A message whose only "attachment" is the sender's signature image:
+     * inline, and referenced by the HTML through its Content-ID.
+     */
+    private function addMessageWithSignatureLogo(int $uid): void
+    {
+        $this->client->addRawMessage('INBOX', $uid, implode("\r\n", [
+            'From: Jeanne Martin <jeanne@example.be>',
+            'Subject: Bonjour',
+            'Message-ID: <logo@b>',
+            'Date: Mon, 12 Jul 2027 09:30:00 +0200',
+            'Content-Type: multipart/related; boundary="frontier"',
+            '',
+            '--frontier',
+            'Content-Type: text/html',
+            '',
+            '<p>Bonjour<img src="cid:logo123"></p>',
+            '--frontier',
+            'Content-Type: image/png',
+            'Content-ID: <logo123>',
+            'Content-Disposition: inline; filename="logo.png"',
+            'Content-Transfer-Encoding: base64',
+            '',
+            base64_encode(self::tinyPngBytes()),
+            '--frontier--',
+        ]));
+    }
+
+    /** A 1×1 PNG — a decoration by pixel count, whatever it weighs. */
+    private static function tinyPngBytes(): string
+    {
+        return (string) base64_decode(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+            true
+        );
+    }
+
     private function addMessageWithAttachment(int $uid, string $messageId, string $bytes, string $filename): void
     {
         $this->client->addRawMessage('INBOX', $uid, implode("\r\n", [
@@ -582,8 +766,16 @@ class MailboxSyncServiceTest extends TestCase
 
         $messages = $this->messageRepository->findForReference('rental', 'LOC-2027-0042');
         $this->assertCount(1, $messages, 'The message itself must still be stored.');
-        $this->assertFalse($messages[0]->hasAttachments());
+        $this->assertFalse($messages[0]->hasAttachments(), 'Nothing openable was kept.');
         $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
+
+        // But the reader is TOLD, rather than shown one attachment fewer
+        // than the sender sent and left to wonder who dropped it.
+        $this->assertTrue($messages[0]->hasOmittedAttachments());
+        $omitted = $messages[0]->omittedAttachments[0];
+        $this->assertSame('archive.zip', $omitted->filename);
+        $this->assertSame(AttachmentOmission::MIME_REJECTED, $omitted->reason);
+        $this->assertStringContainsString('boîte d\'origine', $omitted->explanation());
     }
 
     public function testTheSameFileArrivingTwiceIsStoredOnce(): void

@@ -39,10 +39,40 @@ class CompositionRootWiringTest extends TestCase
             'The shared bootstrap must register the sync handler as a lazy factory.'
         );
         // Constructed without a registry it connects to nothing — every
-        // message would be fetched and discarded unclaimed — so a factory
-        // that forgot it would look wired and collect nothing.
+        // message would be stored unrecognised, none of it associated —
+        // so a factory that forgot it would look wired and classify
+        // nothing. What must hold is that the registry the factory built
+        // reaches the handler; how the argument list is spelled, and
+        // whether the registry is passed directly or through a local, is
+        // not this test's business.
+        $this->assertStringContainsString('$inboundConsumerRegistry($context)', $bootstrap);
+        $this->assertMatchesRegularExpression(
+            '/new \\\\Modules\\\\InboundMail\\\\Task\\\\SyncMailboxesHandler\(\s*\$(inboundConsumerRegistry\(\$context\)|registry)/',
+            $bootstrap
+        );
+    }
+
+    /**
+     * The deferred, content-level pass gets the SAME consumers as the
+     * arrival pass, from one shared builder.
+     *
+     * Two copies of that three-module wiring would be two places for it to
+     * drift — and the way it drifts is silently: a consumer registered for
+     * one pass and forgotten for the other simply never proposes anything,
+     * with nothing to show for it.
+     */
+    public function testTheDeferredAnalysisTaskSharesTheSyncsConsumerGraph(): void
+    {
+        $bootstrap = self::source('scheduler-bootstrap.php');
+
         $this->assertStringContainsString(
-            'new \\Modules\\InboundMail\\Task\\SyncMailboxesHandler($registry)',
+            'new \\Modules\\InboundMail\\Task\\AnalyzeStoredMessagesHandler($inboundConsumerRegistry($context))',
+            $bootstrap
+        );
+        // And it is seeded, or the self-rescheduling chain never starts and
+        // the pass runs exactly never.
+        $this->assertStringContainsString(
+            'Modules\\InboundMail\\Task\\AnalyzeStoredMessagesHandler::bootstrap($schedulerService)',
             $bootstrap
         );
     }
