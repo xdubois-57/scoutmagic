@@ -166,3 +166,43 @@ CREATE TABLE support_tickets (
     CONSTRAINT fk_support_tickets_installation FOREIGN KEY (installation_id)
         REFERENCES support_installations (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- One diagnostic mail probe: a message this receiver expects to arrive in
+-- one of its own synchronised mailboxes (ARCHITECTURE.md §8.49quater,
+-- roadmap IT-27).
+--
+-- **The receiver issues the correlation key, not the instance.** It is the
+-- side that has to recognise the message when it lands, and a key it did
+-- not choose is a key it cannot expect. Handing one out costs a row per
+-- address, which is also what makes « jamais reçu » a state rather than a
+-- silence.
+--
+-- The mailbox address is one of this receiver's own boxes — not personal
+-- data, and not a member's — but it is stored encrypted anyway: it comes
+-- back on an authenticated API and there is no reason for a database copy
+-- to be the plainest form of it anywhere.
+CREATE TABLE support_mail_probes (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    installation_id INT UNSIGNED NOT NULL,
+    -- Shared by every address of one probe run: one key, one button
+    -- press, N mailboxes.
+    correlation_key VARCHAR(32) NOT NULL,
+    mailbox_address_encrypted BLOB NOT NULL,
+    issued_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- A key nobody ever claims is a row that would otherwise sit here for
+    -- ever: past this instant the consumer stops recognising it and the
+    -- purge task removes it.
+    expires_at DATETIME NOT NULL,
+    received_at DATETIME NULL,
+    -- How long the message took, in seconds. NULL while nothing arrived —
+    -- never 0, which would read as "instantaneous".
+    delay_seconds INT UNSIGNED NULL,
+    -- What the headers said: SPF, DKIM, DMARC and the relay chain, as a
+    -- JSON object. Encrypted because the chain carries IP addresses and
+    -- server names, and shown only to a superadmin.
+    authentication_encrypted BLOB NULL,
+    INDEX idx_support_mail_probes_key (correlation_key),
+    INDEX idx_support_mail_probes_installation (installation_id, issued_at),
+    CONSTRAINT fk_support_mail_probes_installation FOREIGN KEY (installation_id)
+        REFERENCES support_installations (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

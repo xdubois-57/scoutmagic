@@ -23,6 +23,62 @@ use Modules\InboundMail\Api\MessageCandidate;
 trait InertInboundMail
 {
     /**
+     * @return InboundMessage[]
+     */
+    public function findForReference(string $consumerId, string $businessReference): array
+    {
+        return [];
+    }
+
+    public function findOneForReference(string $consumerId, string $businessReference, int $messageId): ?InboundMessage
+    {
+        return null;
+    }
+
+    /**
+     * @param int[] $preserveFileIds
+     */
+    public function detach(
+        string $consumerId,
+        string $businessReference,
+        int $messageId,
+        array $preserveFileIds = []
+    ): bool {
+        return false;
+    }
+
+    public function move(string $consumerId, string $fromReference, string $toReference, int $messageId): bool
+    {
+        return false;
+    }
+
+    public function purgeReference(string $consumerId, string $businessReference): int
+    {
+        return 0;
+    }
+
+    public function isCollecting(): bool
+    {
+        return false;
+    }
+
+    /**
+     * @param string[] $messageIds
+     */
+    public function findReferenceByThread(string $consumerId, int $mailboxId, array $messageIds): ?string
+    {
+        return null;
+    }
+
+    /**
+     * @return array<int, array{name: string, state: string, is_enabled: bool}>
+     */
+    public function listMailboxSummaries(): array
+    {
+        return [];
+    }
+
+    /**
      * @param string[] $ownReferences
      * @return InboundMessage[]
      */
@@ -60,6 +116,14 @@ trait InertInboundMail
         ?int $userAccountId = null
     ): bool {
         return false;
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function probeAddressesFor(string $consumerId): array
+    {
+        return [];
     }
 
     /**

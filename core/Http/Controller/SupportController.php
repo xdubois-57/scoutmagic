@@ -22,6 +22,7 @@ use Core\Statistics\StatisticsPayloadBuilder;
 use Core\Statistics\StatisticsSender;
 use Core\File\FileRepository;
 use Core\Support\Ticket\ArchiveContents;
+use Core\Support\Ticket\MailProbeSender;
 use Core\Support\Ticket\SupportArchiveSender;
 use Core\Support\Ticket\SupportTicketSender;
 use Core\Support\Ticket\TicketIdentityService;
@@ -82,7 +83,12 @@ class SupportController extends AbstractController
          */
         private array $collectorNames = [],
         /** Only ever asked for the archive's size, on the consent screen. */
-        private ?FileRepository $fileRepository = null
+        private ?FileRepository $fileRepository = null,
+        /**
+         * The diagnostic mail probes (roadmap IT-27). Null when nothing
+         * wired one — the section then does not render, like the rest.
+         */
+        private ?MailProbeSender $probeSender = null
     ) {
     }
 
@@ -174,6 +180,14 @@ class SupportController extends AbstractController
             'package_file_id' => $this->currentPackageFileId(),
             'package_generated_at' => self::nonEmpty($this->settingService->get(SupportPackageState::GENERATED_AT)),
             'package_retention_days' => SupportPackageService::RETENTION_DAYS,
+            // The mail probes (roadmap IT-27). The page has to say when
+            // the button will work again rather than simply refusing:
+            // a disabled control with no reason is the same silence the
+            // probe exists to remove.
+            'probe_available' => $this->probeSender !== null,
+            'probe_last_run' => $this->probeSender?->lastRun(),
+            'probe_rate_limited_until' => $this->probeSender
+                ?->rateLimitedUntil(new \DateTimeImmutable())?->format('H:i'),
         ]);
     }
 
@@ -327,6 +341,79 @@ class SupportController extends AbstractController
                 "Le serveur de support a refusé l'archive. Le ticket est intact, l'archive n'a pas été transmise.",
             default =>
                 "L'archive n'a pas pu être transmise (serveur injoignable ou envoi trop long). Le ticket est intact : vous pouvez réessayer.",
+        };
+    }
+
+    /**
+     * POST /config/support/mail-probe — sends one diagnostic message per
+     * mailbox the receiver synchronises (roadmap IT-27).
+     *
+     * **Not the Mail configuration page's test send.** That one proves a
+     * relay accepted the message; this one proves it arrived somewhere
+     * that can say what SPF, DKIM and DMARC made of it and how long the
+     * chain took. Both are useful and neither replaces the other.
+     *
+     * @param array<string, string> $params
+     */
+    public function sendMailProbe(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, '/config/support')) !== null) {
+            return $guard;
+        }
+
+        if ($this->probeSender === null) {
+            FlashMessage::set('error', "Les sondes de diagnostic ne sont pas disponibles sur cette installation.");
+
+            return $this->redirect('/config/support');
+        }
+
+        $result = $this->probeSender->send(new \DateTimeImmutable());
+
+        if ($result->sent) {
+            FlashMessage::set('success', sprintf(
+                $result->deliveredCount === $result->addressCount
+                    ? 'Sonde %s envoyée vers %d boîte(s). Le résultat apparaîtra chez le support dès réception.'
+                    : 'Sonde %1$s partie vers %3$d boîte(s) sur %2$d : les autres ont été refusées par votre serveur de messagerie.',
+                $result->correlationKey,
+                $result->addressCount,
+                $result->deliveredCount
+            ));
+        } else {
+            FlashMessage::set('error', $this->probeFailureMessage((string) $result->failureReason));
+        }
+
+        return $this->redirect('/config/support');
+    }
+
+    /**
+     * The French reading of a probe that did not leave.
+     *
+     * Each one names what to do next: a message that only says « échec »
+     * about the mail path is exactly the silence this feature exists to
+     * remove.
+     */
+    private function probeFailureMessage(string $reason): string
+    {
+        $until = $this->probeSender?->rateLimitedUntil(new \DateTimeImmutable());
+
+        return match ($reason) {
+            MailProbeSender::FAILURE_RATE_LIMITED => sprintf(
+                "Une sonde a déjà été envoyée il y a moins d'une heure%s.",
+                $until !== null ? ' — réessayez à partir de ' . $until->format('H:i') : ''
+            ),
+            MailProbeSender::FAILURE_NO_MAILBOX =>
+                "Le serveur de support ne relève aucune boîte : il n'a rien vers quoi envoyer une sonde.",
+            MailProbeSender::FAILURE_MAIL_REFUSED =>
+                "Votre serveur de messagerie a refusé tous les envois : la configuration Courriel est à vérifier avant tout diagnostic d'acheminement.",
+            MailProbeSender::FAILURE_NO_IDENTITY =>
+                "L'identité de cette installation n'a pas pu être créée : le coffre de secrets est indisponible.",
+            TicketIdentityService::GUARD_NO_DESTINATION =>
+                "Aucun serveur de support n'est configuré pour cette installation.",
+            TicketIdentityService::GUARD_INSECURE_DESTINATION,
+            TicketIdentityService::GUARD_NON_PUBLIC_DESTINATION =>
+                "Le serveur de support configuré n'est pas une destination publique en HTTPS : rien n'a été envoyé.",
+            default =>
+                "Le serveur de support n'a pas pu être joint : aucune sonde n'a été envoyée.",
         };
     }
 

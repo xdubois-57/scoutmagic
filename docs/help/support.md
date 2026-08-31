@@ -5,7 +5,7 @@ summary: Les statistiques d'utilisation et le paquet de diagnostic.
 category: Configuration
 role_min: superadmin
 paths: /config/support
-related: mises-a-jour, installation-serveur
+related: support-sondes-email, mises-a-jour, installation-serveur
 ---
 
 La page Support regroupe deux choses distinctes : le rapport

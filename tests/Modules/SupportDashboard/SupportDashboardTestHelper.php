@@ -96,5 +96,17 @@ class SupportDashboardTestHelper
             archive_file_id INTEGER NULL,
             archive_received_at TEXT NULL
         )');
+
+        $pdo->exec('CREATE TABLE support_mail_probes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            installation_id INTEGER NOT NULL,
+            correlation_key TEXT NOT NULL,
+            mailbox_address_encrypted BLOB NOT NULL,
+            issued_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            expires_at TEXT NOT NULL,
+            received_at TEXT NULL,
+            delay_seconds INTEGER NULL,
+            authentication_encrypted BLOB NULL
+        )');
     }
 }

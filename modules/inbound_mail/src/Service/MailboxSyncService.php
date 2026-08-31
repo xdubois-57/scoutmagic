@@ -204,7 +204,8 @@ class MailboxSyncService
             // first handled (§7.9).
             bodyText: $this->sanitizer->sanitizeText($message->bodyText),
             bodyHtml: $this->sanitizer->sanitizeHtml($message->bodyHtml),
-            attachments: $this->candidateAttachments($message)
+            attachments: $this->candidateAttachments($message),
+            rawHeaders: $message->rawHeaders
         );
 
         // EVERY consumer is asked, and every answer is applied. Under the

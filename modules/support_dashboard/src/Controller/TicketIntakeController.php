@@ -11,6 +11,7 @@ namespace Modules\SupportDashboard\Controller;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
+use Modules\SupportDashboard\Service\MailProbeService;
 use Modules\SupportDashboard\Service\TicketArchiveIntakeService;
 use Modules\SupportDashboard\Service\TicketIntakeService;
 use Modules\SupportDashboard\TicketCategory;
@@ -38,8 +39,52 @@ class TicketIntakeController extends AbstractController
     public function __construct(
         protected Environment $twig,
         private TicketIntakeService $intakeService,
-        private ?TicketArchiveIntakeService $archiveService = null
+        private ?TicketArchiveIntakeService $archiveService = null,
+        private ?MailProbeService $probeService = null
     ) {
+    }
+
+    /**
+     * POST /api/support/mail-probes — the addresses an installation
+     * should send a diagnostic mail to, and the key that will identify it
+     * (roadmap IT-27).
+     *
+     * **POST rather than GET, though it reads like a lookup**: the call
+     * writes one row per mailbox and the identity travels in a body, not
+     * in a query string that proxies and access logs keep. It is also
+     * what lets the instance side reuse the one transport it already has.
+     *
+     * Nothing is hard-coded: the addresses come from `inbound_mail` as it
+     * is configured right now, so adding or removing a box asks nothing
+     * of any installation.
+     *
+     * @param array<string, string> $params
+     */
+    public function mailProbes(Request $request, array $params): Response
+    {
+        if ($this->probeService === null) {
+            return $this->json(['status' => MailProbeService::STATUS_REJECTED], 403);
+        }
+
+        $payload = json_decode($request->getRawBody(), true);
+        $installationId = is_array($payload) && is_string($payload['installation_id'] ?? null)
+            ? (string) $payload['installation_id']
+            : '';
+
+        $answer = $this->probeService->issueFor(
+            $installationId,
+            (string) $request->getServer('HTTP_AUTHORIZATION', ''),
+            $request->isHttps(),
+            new \DateTimeImmutable()
+        );
+
+        // A refusal to authenticate says only that, with the same 403 the
+        // other machine routes of this module answer; everything else is
+        // a complete 200 answer the instance has a screen to render.
+        return $this->json(
+            $answer,
+            $answer['status'] === MailProbeService::STATUS_REJECTED ? 403 : 200
+        );
     }
 
     /**

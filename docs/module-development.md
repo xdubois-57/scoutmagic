@@ -1118,6 +1118,8 @@ A module that needs the replies people send about its own objects — a booking,
 
 9. **Consume `Api\InboundMailInterface` as a nullable dependency** for everything else — listing a thread, associating, detaching, moving, purging. Every method is scoped to your consumer id and one business reference, and there is deliberately no way to ask for anything broader.
 
+10. **`probeAddressesFor()` is the one method that hands you an address**, and the exception is narrow enough to be worth stating: `listMailboxSummaries()` gives a manager a name and a state precisely so the account address stays out of a picker, while this answers a *destination* — a diagnostic probe that cannot be addressed is not a probe. It answers for one consumer, about the enabled boxes that consumer may already analyse and no others, and a username that is not an e-mail address is left out rather than guessed at. Whatever you publish it through must be authenticated: an open route repeating this answer is a route handing out the installation's mailbox addresses.
+
 Two things this module guarantees so you do not have to: **nothing is ever written to the remote mailbox**, and **an attachment is owned by its message**, so `/files/{id}` asks you before serving it rather than trusting a flat `role_min` floor.
 
 What your own module still owns: whether the *user* in front of you may reach the reference you are asking about. `inbound_mail` cannot know your authorisation rules, so it does not try.

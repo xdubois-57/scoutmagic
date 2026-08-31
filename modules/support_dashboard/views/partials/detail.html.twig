@@ -49,6 +49,94 @@
     </ul>
 {% endif %}
 
+{# Les sondes e-mail de diagnostic (roadmap IT-27). Ici et nulle part
+   ailleurs : la chaîne de relais, ce sont des adresses IP et des noms de
+   serveurs, et ce dialogue est déjà réservé aux super-administrateurs. #}
+<h3 class="h6">Sondes e-mail de diagnostic</h3>
+{% if probes is empty %}
+    <p class="small text-body-secondary mb-3">
+        Cette installation n'a jamais demandé de sonde.
+    </p>
+{% else %}
+    <div class="table-responsive mb-3">
+        <table class="table table-sm align-middle small">
+            <thead>
+                <tr>
+                    <th scope="col">Boîte</th>
+                    <th scope="col">Émise</th>
+                    <th scope="col">Réception</th>
+                    <th scope="col">SPF</th>
+                    <th scope="col">DKIM</th>
+                    <th scope="col">DMARC</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for probe in probes %}
+                    <tr>
+                        <td>{{ probe.mailbox_address }}</td>
+                        <td>{{ probe.issued_at }}</td>
+                        <td>
+                            {% if probe.received_at %}
+                                {% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Reçue' } only %}
+                                {{ probe.received_at }}
+                                {% if probe.delay_seconds is not null %}
+                                    <span class="text-body-secondary">
+                                        (en {{ probe.delay_seconds < 60
+                                            ? probe.delay_seconds ~ ' s'
+                                            : (probe.delay_seconds // 60) ~ ' min' }})
+                                    </span>
+                                {% endif %}
+                            {% else %}
+                                {# « Jamais reçue » et « expirée » sont deux
+                                   faits différents : l'un peut encore
+                                   changer, l'autre non. #}
+                                {% include 'partials/status_badge.html.twig' with {
+                                    status: 'pending',
+                                    label: probe.expires_at < 'now'|date('Y-m-d H:i:s') ? 'Jamais reçue' : 'En attente',
+                                } only %}
+                            {% endif %}
+                        </td>
+                        {% for mechanism in ['spf', 'dkim', 'dmarc'] %}
+                            <td>
+                                {% if probe.authentication is null %}
+                                    <span class="text-body-secondary">—</span>
+                                {% else %}
+                                    {% set verdict = probe.authentication[mechanism]|default('absent') %}
+                                    {% if verdict == 'pass' %}
+                                        <span class="text-success">réussi</span>
+                                    {% elseif verdict == 'fail' %}
+                                        <span class="text-danger">échec</span>
+                                    {% elseif verdict == 'absent' %}
+                                        <span class="text-body-secondary">non renseigné</span>
+                                    {% elseif verdict == 'unverified' %}
+                                        <span class="text-body-secondary">signée, non vérifiée</span>
+                                    {% else %}
+                                        <span class="text-body-secondary">{{ verdict }}</span>
+                                    {% endif %}
+                                {% endif %}
+                            </td>
+                        {% endfor %}
+                    </tr>
+                    {% if probe.authentication and probe.authentication.relays is not empty %}
+                        <tr>
+                            <td colspan="6" class="text-body-secondary">
+                                <details>
+                                    <summary>Chaîne de relais ({{ probe.authentication.relays|length }})</summary>
+                                    <ol class="mb-0 mt-1">
+                                        {% for relay in probe.authentication.relays %}
+                                            <li><code>{{ relay }}</code></li>
+                                        {% endfor %}
+                                    </ol>
+                                </details>
+                            </td>
+                        </tr>
+                    {% endif %}
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% endif %}
+
 <h3 class="h6">JSON brut du dernier rapport accepté</h3>
 <p class="small text-body-secondary">
     Le document exact reçu, champs inconnus de ce receveur compris. Aucun identifiant de sécurité n'y figure.

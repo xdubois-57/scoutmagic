@@ -2122,6 +2122,9 @@ $router->addRoute('POST', '/config/support/ticket', SupportController::class, 's
 // The archive, on its own call (roadmap IT-26): an upload that times out
 // must never take the ticket with it.
 $router->addRoute('POST', '/config/support/ticket/archive', SupportController::class, 'sendArchive', 'superadmin');
+// The diagnostic mail probes (roadmap IT-27): what the Courriel page's own
+// test send cannot answer — whether the message ARRIVED, and in what state.
+$router->addRoute('POST', '/config/support/mail-probe', SupportController::class, 'sendMailProbe', 'superadmin');
 $router->addRoute('GET', '/api/support/package-status/{id}', SupportController::class, 'packageStatus', 'superadmin');
 
 // Scheduled actions
@@ -2618,7 +2621,19 @@ $frontController->registerController(SupportController::class, new SupportContro
         \Core\Maintenance\VersionFile::read(dirname(__DIR__))
     ),
     \Core\Support\SupportPackageFactory::collectorNames(),
-    $fileRepository
+    $fileRepository,
+    // The mail probes (roadmap IT-27). Same identity, same guards and the
+    // same transport as the ticket above; MailService is what actually
+    // carries the probe, so the local mail configuration is exactly what
+    // is being measured.
+    new \Core\Support\Ticket\MailProbeSender(
+        $settingService,
+        $ticketIdentityService,
+        new \Core\Statistics\StreamStatisticsTransport(),
+        $mailService,
+        $journalService,
+        \Core\Maintenance\VersionFile::read(dirname(__DIR__))
+    )
 ));
 $frontController->registerController(ScheduledActionsController::class, new ScheduledActionsController($twig, $schedulerRepo));
 $frontController->registerController(ConfigGeneralController::class, new ConfigGeneralController($twig));
@@ -2954,11 +2969,25 @@ if ($isEnabled('inbound_mail')) {
     // view builds none of them — §7.6's mutable-registry pattern.
     $inboundReadConsumers = new \Modules\InboundMail\Service\MessageConsumerRegistry();
 
+    // What each box lets each module do (IT-05). Built HERE rather than
+    // where it is first used further down, because the gateway itself
+    // needs it: `probeAddressesFor()` answers about the boxes a consumer
+    // may actually analyse, and a gateway without it would answer « aucune
+    // boîte » to everything — silently, which is the worst shape that
+    // mistake can take. It reads the SAME registry the file guard uses, so
+    // the answers a superadmin gives on the configuration screen and the
+    // answers every check acts on cannot come apart.
+    $inboundScopeService = new \Modules\InboundMail\Service\MailboxScopeService(
+        $inboundMailboxRepository,
+        $inboundReadConsumers
+    );
+
     $inboundMailForOthers = new \Modules\InboundMail\Service\InboundMailService(
         $inboundMessageRepository,
         $inboundMailboxRepository,
         new \Core\File\FileRepository($pdo),
-        $inboundReadConsumers
+        $inboundReadConsumers,
+        $inboundScopeService
     );
 
     // One-time reprise for installs that stored a message's consumer and
@@ -3038,16 +3067,6 @@ if ($isEnabled('inbound_mail')) {
     // (public/scheduler-bootstrap.php).
     $fileOwnershipCheckers[] = new \Modules\InboundMail\Service\InboundMessageAccessRegistry(
         $inboundMessageRepository,
-        $inboundReadConsumers
-    );
-
-    // What each box lets each module do (IT-05). It reads the SAME
-    // registry the file guard uses, so the answers a superadmin gives on
-    // the configuration screen and the answers the access check acts on
-    // cannot come apart — one registry, filled by factories, built at most
-    // once per request and only when something actually asks.
-    $inboundScopeService = new \Modules\InboundMail\Service\MailboxScopeService(
-        $inboundMailboxRepository,
         $inboundReadConsumers
     );
 
@@ -4145,6 +4164,16 @@ if ($isEnabled('support_dashboard')) {
     $supportRateLimitRepo = new \Modules\SupportDashboard\Repository\SupportReportRateLimitRepository($pdo);
     $supportMonthlyAggregateRepo = new \Modules\SupportDashboard\Repository\SupportMonthlyAggregateRepository($pdo);
 
+    // The diagnostic mail probes (roadmap IT-27). Built once here: the
+    // intake route issues keys with it and the inbound-mail consumer
+    // claims arriving messages with the same instance.
+    $supportMailProbeService = new \Modules\SupportDashboard\Service\MailProbeService(
+        new \Modules\SupportDashboard\Repository\SupportMailProbeRepository($pdo, $encryptionService),
+        $supportInstallationRepo,
+        $journalService,
+        $inboundMailForOthers
+    );
+
     $frontController->registerController(
         \Modules\SupportDashboard\Controller\SupportDashboardController::class,
         new \Modules\SupportDashboard\Controller\SupportDashboardController(
@@ -4154,7 +4183,11 @@ if ($isEnabled('support_dashboard')) {
                 $settingService,
                 $supportMonthlyAggregateRepo
             ),
-            $journalService
+            $journalService,
+            // The detail dialog's probe section (roadmap IT-27). It is
+            // already `role_min: superadmin`, which is the floor the
+            // relay chain needs.
+            $supportMailProbeService
         )
     );
 
@@ -4192,9 +4225,25 @@ if ($isEnabled('support_dashboard')) {
                 new \Modules\SupportDashboard\Repository\SupportTicketRepository($pdo, $encryptionService),
                 $encryptedFileStorageService,
                 $journalService
-            )
+            ),
+            // The mail probes (roadmap IT-27). `$inboundMailForOthers` is
+            // null when `inbound_mail` is disabled, and the route then
+            // answers « aucune boîte » — which is the truth, not an error.
+            $supportMailProbeService
         )
     );
+
+    // The probe consumer, on the read side: nothing but this module ever
+    // reads a probe and it reads it from its own table, so the only
+    // honest answer to « may this person open an attachment of one of
+    // yours » is a refusal — but the registry has to be able to ASK.
+    if (isset($inboundReadConsumers)) {
+        $inboundReadConsumers->registerFactory(
+            \Modules\SupportDashboard\Mail\SupportMessageConsumer::CONSUMER_ID,
+            static fn(): \Modules\InboundMail\Api\MessageConsumerInterface =>
+                new \Modules\SupportDashboard\Mail\SupportMessageConsumer($supportMailProbeService)
+        );
+    }
 
     // Every one of this module's self-rescheduling daily tasks needs its
     // FIRST occurrence seeded here: declaring a handler in module.json only

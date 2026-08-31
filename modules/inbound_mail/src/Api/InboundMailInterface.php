@@ -232,4 +232,27 @@ interface InboundMailInterface
      * @return array<int, array{name: string, state: string, is_enabled: bool}> keyed by mailbox id
      */
     public function listMailboxSummaries(): array;
+
+    /**
+     * The addresses of the enabled mailboxes this consumer is allowed to
+     * analyse — the boxes a diagnostic probe should be sent to
+     * (roadmap IT-27).
+     *
+     * **This is the one method that hands out an account address**, and it
+     * is a deliberate exception to `listMailboxSummaries()`'s rule right
+     * above. The difference is what the answer is for: a summary is shown
+     * to a manager picking a box, where the address adds nothing and gives
+     * away something; this is a *destination*, and a probe that cannot be
+     * addressed is not a probe. It answers for one consumer, about boxes
+     * that consumer already reads, and its own caller is expected to be an
+     * authenticated one — publishing it on an open route would be handing
+     * out mailbox addresses to anybody.
+     *
+     * An address is organisational (`design.md` §2.6), never a member's.
+     * A disabled box is absent: writing to one nothing synchronises would
+     * produce a « jamais reçu » that says nothing about the mail path.
+     *
+     * @return list<string>
+     */
+    public function probeAddressesFor(string $consumerId): array;
 }

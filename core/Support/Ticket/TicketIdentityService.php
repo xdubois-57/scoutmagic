@@ -41,6 +41,7 @@ use Core\Statistics\StatisticsSender;
 class TicketIdentityService
 {
     public const ENDPOINT_PATH = '/api/support/tickets';
+    public const MAIL_PROBE_PATH = '/api/support/mail-probes';
 
     /** No destination is configured at all. */
     public const GUARD_NO_DESTINATION = 'no_destination';
@@ -64,12 +65,22 @@ class TicketIdentityService
      */
     public function endpoint(): ?string
     {
+        return $this->endpointFor(self::ENDPOINT_PATH);
+    }
+
+    /**
+     * Any other route of the same receiver, behind the same guards — the
+     * point being that a second machine call cannot accidentally be sent
+     * somewhere the ticket itself would have refused to go.
+     */
+    public function endpointFor(string $path): ?string
+    {
         $destination = $this->destination();
         if ($destination === '' || $this->firstFailingGuard() !== null) {
             return null;
         }
 
-        return $destination . self::ENDPOINT_PATH;
+        return $destination . $path;
     }
 
     /**

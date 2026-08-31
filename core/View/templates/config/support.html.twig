@@ -198,6 +198,55 @@
 </div>
 {% endif %}
 
+{% if probe_available %}
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h5 mb-3">Tester l'acheminement des e-mails</h2>
+
+        <p class="small text-body-secondary">
+            Le bouton « Envoyer un e-mail de test » de la page Courriel prouve que votre serveur a
+            <em>accepté</em> le message. Il ne dit rien de la suite : SPF, DKIM, DMARC, un délai de
+            mise en quarantaine, ou un message supprimé sans avertissement. Cette sonde envoie un
+            message vers une boîte du support, qui vous dira ce qui est arrivé et dans quel état.
+        </p>
+
+        <div class="alert alert-info small">
+            <strong>Ce que la sonde contient :</strong> une clé de corrélation et rien d'autre.
+            Aucune donnée personnelle, aucun nom, aucune adresse de membre.
+        </div>
+
+        <form method="post" action="/config/support/mail-probe">
+            {{ csrf_field()|raw }}
+            <button type="submit" class="btn btn-outline-primary"
+                    {% if probe_rate_limited_until %}disabled{% endif %}>
+                Envoyer une sonde de diagnostic
+            </button>
+            {# Un bouton grisé sans motif est exactement le silence que
+               cette fonction sert à lever : la page dit quand il revient. #}
+            {% if probe_rate_limited_until %}
+                <p class="small text-body-secondary mb-0 mt-2">
+                    Une sonde a déjà été envoyée il y a moins d'une heure : réessayez à partir de
+                    {{ probe_rate_limited_until }}.
+                </p>
+            {% endif %}
+        </form>
+
+        {% if probe_last_run %}
+            <hr>
+            <h3 class="h6">Dernière sonde</h3>
+            <p class="small mb-0">
+                Clé <code>{{ probe_last_run.key }}</code>
+                {% if probe_last_run.sent_at %}— {{ probe_last_run.sent_at }}{% endif %}
+            </p>
+            <p class="small text-body-secondary mb-0 mt-1">
+                Le résultat — réception, délai, SPF, DKIM, DMARC — se lit chez le support, pas ici :
+                c'est lui qui reçoit le message.
+            </p>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
 <div class="card mb-3">
     <div class="card-body">
         <h2 class="h5 mb-3">État des envois</h2>
