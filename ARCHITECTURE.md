@@ -553,6 +553,37 @@ would double it on exactly the e-mails an administrator had touched.
 each module's are switched over on their own, and an e-mail that has not been
 switched over yet goes on working exactly as before.
 
+**The page** is Configuration > E-mails (`/config/emails`, `role_min:
+superadmin`, `Core\Http\Controller\EmailTemplateController`): the inventory
+grouped by origin, then one editor per rewordable e-mail. Three decisions in
+it are worth stating, because each is a place where the obvious choice is
+wrong.
+
+- **A `{template}` placeholder, never `{id}`.** The router matches a
+  placeholder named `id`, `*_id` or `*Id` against digits only (SECURITY.md
+  §35), and these ids are registry keys — `rental.acknowledgement`, not 12.
+- **A POST naming a non-editable e-mail is a 403 and a `security` journal
+  entry**, not a redirect. The page offers no control for the four
+  authentication e-mails, so such a POST did not come from it; and the
+  enforcement has to survive somebody forging the request, since breaking the
+  magic link locks out the person who broke it.
+- **The editor is seeded with the shipped template's own `content` block,
+  rendered with the registry's example values and the unit's real name.**
+  Not with the placeholder `{{ site_name }}`: `site_name` is not a declared
+  variable, so the renderer would never substitute it in a stored body, and
+  a unit's families would receive the braces. The block rather than the whole
+  document, because `email/base.html.twig` is the frame and stays code.
+
+The body is edited through the shared rich-text modal
+(`partials/rich_text_field.html.twig` + `public/assets/js/rich-text-field.js`)
+pointed at this controller's own save URL — nothing is forked, only aimed
+elsewhere. The subject is a plain text field: it is one line, it must never
+carry markup, and a rich-text editor for it would invite exactly that. The
+group headings are the modules' own declared names, handed to the registry
+alongside their e-mails at load time — core never knows a module's name
+(§7.5), so the manifest that declared the e-mails is the only place it can
+come from.
+
 ### 8.8 SectionPicker component
 
 Reusable Twig partial (presentation layer: §8.30's `partials/select_bar.html.twig`, `mode: single` — `partials/section_picker.html.twig` is a thin mapping layer over it). Shows sections (not branches). Default: section of highest-role member linked to account. `Core\Member\SectionService::getAllWithBranches()` excludes hidden (`sections.is_visible = false`, admin toggle) and inactive (`sections.is_active = false`, automatic — see §7.4-adjacent Desk import note below) sections by default — every call site (Staffs, Trombinoscope, the public Sections page) gets this filtering for free; only the Config Desk admin page (which manages both) passes `includeHidden: true`. Name, color, and visibility are configurable from Configuration > Config Desk. `sections.color` is an explicit override (hex); when unset, `Core\Member\SectionService::colorForSection()` derives it from the section's branch (`Core\Member\MemberYearService::colorForBranchSortOrder()`), or a dedicated color for Staff d'U — every color-coded picker/list across the site (Staffs, Trombinoscope, the calendar module, statistics) calls this single source of truth.

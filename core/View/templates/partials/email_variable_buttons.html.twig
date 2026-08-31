@@ -1,0 +1,39 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  The insertion buttons for one automatic e-mail's declared variables
+  (Core\Mail\Template\EmailTemplate, ARCHITECTURE.md §8.7bis).
+
+  With `target` set, a click inserts `{{ '{{ nom }}' }}` at the cursor of
+  that input — the subject field. With `target` null, a click copies the
+  placeholder to the clipboard instead: the body is edited inside the
+  shared rich-text modal, which is not on screen when these buttons are,
+  and a button that silently did nothing would be worse than one that
+  says what it did.
+
+  Each button shows the French label; the placeholder itself and the
+  example value are in the tooltip, so the row reads as prose rather than
+  as a wall of braces.
+
+  Usage:
+  {% include 'partials/email_variable_buttons.html.twig' with {
+      variables: template.variables,
+      target: 'email-subject',   -- or null
+  } only %}
+#}
+{% if variables is not empty %}
+    <div class="d-flex flex-wrap gap-2 email-variable-buttons"
+         {% if target %}data-target="{{ target }}"{% endif %}>
+        {% for variable in variables %}
+            <button type="button" class="btn btn-sm btn-outline-secondary"
+                    data-variable="{{ variable.name }}"
+                    title="{{ '{{ ' ~ variable.name ~ ' }}' }} — exemple : {{ variable.example }}">
+                {{ variable.label }}
+            </button>
+        {% endfor %}
+    </div>
+{% else %}
+    <p class="small text-body-secondary mb-0">Cet email ne prend aucune variable.</p>
+{% endif %}

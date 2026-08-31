@@ -765,3 +765,31 @@ body:has(> #cookie-banner) {
 .passage-assign-col {
     min-width: 17.5rem;
 }
+
+/* Configuration > E-mails (core/View/templates/config/emails.html.twig,
+   config/email_edit.html.twig).
+
+   Two rules, both about a column that must not collapse:
+
+   - .email-state-col is the inventory's « État » column. Its content is a
+     single badge, so the browser is happy to squeeze it to the width of
+     the longest word and wrap « Non modifiable (email d'authentification) »
+     over four lines. The state is what the page is read for; it gets the
+     room to say itself on one line and the table scrolls instead
+     (.table-responsive, spec §12).
+   - .email-body-editor is the preview the shared rich-text modal reads
+     from and writes back to. Empty — a template whose content block did
+     not render — it would be a zero-height box with no hint that the
+     « Modifier » button opens anything, so it keeps a minimum height.
+
+   Classes rather than inline style attributes: SECURITY.md §34, and these
+   are static values. In app.css rather than components.css for the same
+   reason as .passage-assign-col above — base.html.twig loads app.css on
+   every page, components.css only where a page opts in. */
+.email-state-col {
+    white-space: nowrap;
+}
+
+.email-body-editor {
+    min-height: 6rem;
+}

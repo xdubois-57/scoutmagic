@@ -228,7 +228,7 @@ class EmailTemplateRegistryTest extends TestCase
         foreach (glob(self::root() . '/modules/*/module.json') ?: [] as $path) {
             $manifest = ModuleManifest::fromFile($path);
             if ($manifest->emails !== []) {
-                $registry->registerModuleTemplates($manifest->id, $manifest->emails);
+                $registry->registerModuleTemplates($manifest->id, $manifest->name, $manifest->emails);
             }
         }
 

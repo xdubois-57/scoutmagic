@@ -33,6 +33,17 @@ class EmailTemplateRegistry
     /** @var array<string, list<EmailTemplate>> module id => its declared templates */
     private array $moduleTemplates = [];
 
+    /**
+     * Module id => the name its manifest declares. Core never knows any
+     * module's name (ARCHITECTURE.md §7.5), so the only place it can come
+     * from is the manifest that declared the e-mails, handed over at the
+     * same moment — the same reasoning as ConfigModulesController's own
+     * id-to-name map.
+     *
+     * @var array<string, string>
+     */
+    private array $moduleNames = [];
+
     /** @var array<string, EmailTemplate>|null id => template, core and modules merged */
     private ?array $cache = null;
 
@@ -153,7 +164,7 @@ class EmailTemplateRegistry
      *
      * @param array<int, array{id: string, label: string, description: string, default_subject: string, template: string, editable: bool, variables: array<int, array{name: string, label: string, example: string}>}> $emails
      */
-    public function registerModuleTemplates(string $moduleId, array $emails): void
+    public function registerModuleTemplates(string $moduleId, string $moduleName, array $emails): void
     {
         $templates = [];
         foreach ($emails as $email) {
@@ -174,6 +185,7 @@ class EmailTemplateRegistry
         }
 
         $this->moduleTemplates[$moduleId] = $templates;
+        $this->moduleNames[$moduleId] = $moduleName;
         $this->cache = null;
     }
 
@@ -211,6 +223,21 @@ class EmailTemplateRegistry
         }
 
         return $grouped;
+    }
+
+    /**
+     * What to call a group on the page: the site's own e-mails, or the
+     * module's declared name. An id that registered nothing keeps the id —
+     * a group that cannot happen, since a group only exists because a
+     * module registered into it, but a label is not worth an exception.
+     */
+    public function moduleLabel(string $moduleId): string
+    {
+        if ($moduleId === '') {
+            return 'Emails du site';
+        }
+
+        return $this->moduleNames[$moduleId] ?? $moduleId;
     }
 
     private function build(): void

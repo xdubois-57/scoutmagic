@@ -1616,7 +1616,8 @@ $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Actions planifiées', '/
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Comptes superadmin', '/config/superadmins', 'superadmin', 44, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-shield-lock', null, 'exploitation');
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Maintenance', '/config/maintenance', 'admin', 45, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-tools', null, 'exploitation');
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Notifications', '/config/notifications', 'superadmin', 46, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-bell', null, 'exploitation');
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Support', '/config/support', 'superadmin', 47, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-life-preserver', null, 'exploitation');
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'E-mails', '/config/emails', 'superadmin', 47, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-envelope', null, 'exploitation');
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Support', '/config/support', 'superadmin', 48, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-life-preserver', null, 'exploitation');
 // order 10, not a leftover "after the separator" number — SORT_GROUP_CORE
 // (addPage()'s default) already sorts this after the dynamic member
 // entries/empty-state placeholder above regardless of the numeric order,
@@ -1862,6 +1863,18 @@ $router->addRoute('POST', '/notifications/quiet-hours', \Core\Http\Controller\No
 $router->addRoute('GET', '/config/notifications', \Core\Http\Controller\NotificationConfigController::class, 'index', 'superadmin', ['label' => 'Notifications', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
 $router->addRoute('POST', '/config/notifications/rotate-vapid', \Core\Http\Controller\NotificationConfigController::class, 'rotateVapid', 'superadmin');
 $router->addRoute('POST', '/config/notifications/test', \Core\Http\Controller\NotificationConfigController::class, 'sendTest', 'superadmin');
+
+// Configuration > E-mails (Core\Mail\Template, ARCHITECTURE.md §8.7bis)
+// — the inventory of every automatic e-mail, and the editor for the ones
+// that may be reworded. `{template}` is deliberately NOT named `{id}`:
+// the router matches an id-named placeholder against digits only
+// (SECURITY.md §35), and these ids are registry keys like
+// `rental.acknowledgement`.
+$router->addRoute('GET', '/config/emails', \Core\Http\Controller\EmailTemplateController::class, 'index', 'superadmin', ['label' => 'E-mails', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
+$router->addRoute('GET', '/config/emails/{template}', \Core\Http\Controller\EmailTemplateController::class, 'edit', 'superadmin', ['label' => 'Email', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)], 'ancestors' => [['label' => 'E-mails', 'path' => '/config/emails']]]);
+$router->addRoute('POST', '/config/emails/{template}/sujet', \Core\Http\Controller\EmailTemplateController::class, 'saveSubject', 'superadmin');
+$router->addRoute('POST', '/config/emails/{template}/corps', \Core\Http\Controller\EmailTemplateController::class, 'saveBody', 'superadmin');
+$router->addRoute('POST', '/config/emails/{template}/defaut', \Core\Http\Controller\EmailTemplateController::class, 'reset', 'superadmin');
 
 // Member pages
 $router->addRoute('GET', '/members/{id}', MemberController::class, 'show', 'identified', ['label' => 'Membre', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ANIMES)]]);
@@ -2401,6 +2414,21 @@ $frontController->registerController(
         $journalService,
         $secretManager,
         $pdo
+    )
+);
+$frontController->registerController(
+    \Core\Http\Controller\EmailTemplateController::class,
+    new \Core\Http\Controller\EmailTemplateController(
+        $twig,
+        $emailTemplateRegistry,
+        $emailTemplateOverrideRepository,
+        $emailTemplateRenderer,
+        new \Core\Mail\Template\EmailTemplateCustomisationService(
+            $emailTemplateRegistry,
+            $emailTemplateOverrideRepository,
+            new \Core\Security\HtmlSanitizer()
+        ),
+        $journalService
     )
 );
 $frontController->registerController(MaintenanceController::class, new MaintenanceController(

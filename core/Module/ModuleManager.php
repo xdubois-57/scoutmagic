@@ -690,7 +690,7 @@ class ModuleManager
         // inventory at this point: nothing changes about how the module
         // sends them.
         if (!empty($manifest->emails)) {
-            $this->emailTemplateRegistry?->registerModuleTemplates($manifest->id, $manifest->emails);
+            $this->emailTemplateRegistry?->registerModuleTemplates($manifest->id, $manifest->name, $manifest->emails);
         }
 
         // Register cookies

@@ -165,7 +165,7 @@ class EmailTemplateRendererTest extends TestCase
     public function testAVariableWhoseNameIsAPrefixOfAnotherIsNotEatenByIt(): void
     {
         $registry = new EmailTemplateRegistry();
-        $registry->registerModuleTemplates('demo', [[
+        $registry->registerModuleTemplates('demo', 'Démo', [[
             'id' => 'demo.overlap',
             'label' => 'Chevauchement',
             'description' => 'Deux variables dont l\'une préfixe l\'autre.',
