@@ -330,9 +330,19 @@ function scoutmagic_bootstrap_scheduler(
                     }
                 );
 
+                $registry = $inboundConsumerRegistry($context);
+
                 return new \Modules\InboundMail\Task\SyncMailboxesHandler(
-                    $inboundConsumerRegistry($context),
-                    $quota
+                    $registry,
+                    $quota,
+                    // What each box lets each module do (IT-05). Built from
+                    // the SAME registry the handler gets, so the modules the
+                    // screen scopes and the modules the sync asks cannot be
+                    // two different lists.
+                    new \Modules\InboundMail\Service\MailboxScopeService(
+                        new \Modules\InboundMail\Repository\InboundMailboxRepository($pdo, $encryptionService),
+                        $registry
+                    )
                 );
             }
         );

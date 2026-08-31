@@ -976,6 +976,34 @@ class InboundMessageRepository
      * legitimately share one stored file, and counting it once per row
      * would inflate the figure until the quota fired on space nobody uses.
      */
+    /**
+     * How many messages each mailbox holds — the figure the configuration
+     * screen shows next to each box.
+     *
+     * A count per box, never a listing: this repository deliberately offers
+     * no unscoped read of message content (§7.11), and a superadmin screen
+     * about hosts and ports is not where that would start.
+     *
+     * @return array<int, int> keyed by mailbox id
+     */
+    public function countByMailbox(): array
+    {
+        $stmt = $this->pdo->query(
+            'SELECT mailbox_id, COUNT(*) AS total FROM inbound_messages GROUP BY mailbox_id'
+        );
+
+        if ($stmt === false) {
+            return [];
+        }
+
+        $counts = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $counts[(int) $row['mailbox_id']] = (int) $row['total'];
+        }
+
+        return $counts;
+    }
+
     public function totalStoredBytes(): int
     {
         $stmt = $this->pdo->query(

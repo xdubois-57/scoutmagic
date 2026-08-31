@@ -2,7 +2,7 @@
   "id": "inbound_mail",
   "name": "Courrier entrant",
   "description": "Passerelle de courrier entrant en lecture seule : connecte une ou plusieurs boîtes IMAP, détecte les nouveaux messages et les met à disposition des autres modules. Ne modifie jamais la boîte distante.",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -108,6 +108,45 @@
       "menu": "configuration",
       "role_min": "superadmin",
       "label": ""
+    },
+    {
+      "path": "/config/courrier-entrant/boites/{id}/portee",
+      "method": "GET",
+      "controller": "Modules\\InboundMail\\Controller\\InboundMailConfigController",
+      "action": "editScopes",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": "",
+      "breadcrumb": {
+        "label": "Portée de la boîte",
+        "parents": [
+          "Configuration"
+        ],
+        "ancestors": [
+          {
+            "label": "Courrier entrant",
+            "path": "/config/courrier-entrant"
+          }
+        ]
+      }
+    },
+    {
+      "path": "/config/courrier-entrant/boites/{id}/portee",
+      "method": "POST",
+      "controller": "Modules\\InboundMail\\Controller\\InboundMailConfigController",
+      "action": "saveScopes",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/config/courrier-entrant/rafraichir",
+      "method": "POST",
+      "controller": "Modules\\InboundMail\\Controller\\InboundMailConfigController",
+      "action": "refreshNow",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
     }
   ],
   "settings": [
@@ -131,6 +170,22 @@
       "type": "text",
       "label": "Dernière alerte de quota",
       "description": "Horodatage interne : évite d'avertir le superadmin plus d'une fois par 24 h quand l'espace de stockage est saturé. Non modifiable.",
+      "editable": false
+    },
+    {
+      "key": "inbound_mail_scopes_migrated",
+      "default_value": "",
+      "type": "text",
+      "label": "Reprise des boîtes dédiées aux camps",
+      "description": "Marqueur interne : indique que les boîtes déclarées dédiées aux camps dans l'ancien réglage du module Camps ont été reprises sur cet écran. Non modifiable.",
+      "editable": false
+    },
+    {
+      "key": "inbound_mail_refresh_started_at",
+      "default_value": "",
+      "type": "text",
+      "label": "Rafraîchissement en cours depuis",
+      "description": "Marqueur interne : empêche deux rafraîchissements manuels de se chevaucher. Non modifiable.",
       "editable": false
     }
   ],

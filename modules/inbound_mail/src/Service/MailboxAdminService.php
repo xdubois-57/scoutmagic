@@ -13,7 +13,10 @@ use Modules\InboundMail\Mailbox\Mailbox;
 use Modules\InboundMail\Mailbox\MailboxCredentials;
 use Modules\InboundMail\Mailbox\ProviderType;
 use Modules\InboundMail\Mailbox\SyncState;
+use Core\Config\SettingService;
 use Modules\InboundMail\Repository\InboundMailboxRepository;
+use Modules\InboundMail\Repository\InboundMessageRepository;
+use Modules\InboundMail\Task\PurgeUnlinkedMessagesHandler;
 
 /**
  * Everything the superadmin configuration page does, minus the HTTP.
@@ -29,8 +32,44 @@ class MailboxAdminService
     public function __construct(
         private InboundMailboxRepository $repository,
         private MailboxClientFactory $clientFactory,
-        private MailboxErrorFormatter $errorFormatter
+        private MailboxErrorFormatter $errorFormatter,
+        /**
+         * Only ever asked for counts and for the configured retention —
+         * never for a message. This service renders a superadmin screen,
+         * and a screen about plumbing has no business holding anybody's
+         * mail.
+         */
+        private ?InboundMessageRepository $messageRepository = null,
+        private ?SettingService $settings = null
     ) {
+    }
+
+    /**
+     * How many messages each box is holding, for the index's « N messages
+     * conservés ».
+     *
+     * A count and nothing else: it is the honest measure of what the unit
+     * has accumulated since the module started keeping everything, and it
+     * is the number an operator looks at before deciding a retention is
+     * too long.
+     *
+     * @return array<int, int> keyed by mailbox id
+     */
+    public function storedMessageCounts(): array
+    {
+        return $this->messageRepository?->countByMailbox() ?? [];
+    }
+
+    /**
+     * The retention the configuration screen quotes, live rather than
+     * hard-coded: a screen that promised ninety days while the setting said
+     * thirty would be worse than one that promised nothing.
+     */
+    public function retentionDays(): int
+    {
+        return $this->settings === null
+            ? PurgeUnlinkedMessagesHandler::DEFAULT_RETENTION_DAYS
+            : (new PurgeUnlinkedMessagesHandler())->retentionDays($this->settings);
     }
 
     /**

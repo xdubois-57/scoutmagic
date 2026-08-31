@@ -115,14 +115,22 @@ class MessageConsumerRegistry
      * failure is logged with any part of the message: a log line naming the
      * sender would be personal data in the journal (§7.9).
      *
+     * `$only` narrows the question to the consumers the mailbox's own
+     * configuration allows to look at it (IT-05). Narrowing here rather
+     * than letting every consumer answer and discarding what the box did
+     * not authorise is the difference between a setting and a suggestion:
+     * a consumer never sees a message it may not analyse, so it cannot act
+     * on one by mistake.
+     *
+     * @param MessageConsumerInterface[]|null $only null means everybody
      * @return array<string, AnalysisResult> keyed by consumer id, empty
      *   results left out
      */
-    public function analyzeAll(CandidateMessage $message): array
+    public function analyzeAll(CandidateMessage $message, ?array $only = null): array
     {
         $results = [];
 
-        foreach ($this->all() as $consumer) {
+        foreach ($only ?? $this->all() as $consumer) {
             try {
                 $result = $consumer->analyze($message);
             } catch (\Throwable) {
@@ -141,13 +149,14 @@ class MessageConsumerRegistry
      * The same question, on a message already written down, for the
      * deferred pass that may read an attachment's content.
      *
+     * @param MessageConsumerInterface[]|null $only null means everybody
      * @return array<string, AnalysisResult> keyed by consumer id
      */
-    public function analyzeAllStored(InboundMessage $message): array
+    public function analyzeAllStored(InboundMessage $message, ?array $only = null): array
     {
         $results = [];
 
-        foreach ($this->all() as $consumer) {
+        foreach ($only ?? $this->all() as $consumer) {
             try {
                 $result = $consumer->analyzeStored($message);
             } catch (\Throwable) {

@@ -26,12 +26,25 @@ class InboundMailTestHelper
             password_encrypted BLOB NOT NULL,
             folders TEXT,
             is_enabled INTEGER NOT NULL DEFAULT 1,
+            purpose TEXT NOT NULL DEFAULT "shared",
+            dedicated_to TEXT,
             sync_state TEXT NOT NULL DEFAULT "never",
             last_synced_at TEXT,
             last_error TEXT,
             last_error_at TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )');
+
+        $pdo->exec('CREATE TABLE inbound_mailbox_consumers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            mailbox_id INTEGER NOT NULL,
+            consumer_id TEXT NOT NULL,
+            analyze_enabled INTEGER NOT NULL DEFAULT 0,
+            read_mode TEXT NOT NULL DEFAULT "none",
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (mailbox_id, consumer_id)
         )');
 
         $pdo->exec('CREATE TABLE inbound_mailbox_cursors (

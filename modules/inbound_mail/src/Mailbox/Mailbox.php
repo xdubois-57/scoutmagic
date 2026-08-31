@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\InboundMail\Mailbox;
 
+use Modules\InboundMail\Api\MailboxPurpose;
+
 /**
  * One configured mailbox — **without its password**, which lives in
  * `MailboxCredentials` and is loaded separately (see that class).
@@ -40,8 +42,20 @@ class Mailbox
          * never lands in it.
          */
         public readonly ?string $lastError = null,
-        public readonly ?\DateTimeImmutable $lastErrorAt = null
+        public readonly ?\DateTimeImmutable $lastErrorAt = null,
+        /**
+         * What the box is for. Answered by the operator, not derived from
+         * the per-module rows — see `Api\MailboxPurpose`.
+         */
+        public readonly MailboxPurpose $purpose = MailboxPurpose::SHARED,
+        /** The consumer a dedicated box belongs to; null on a shared one. */
+        public readonly ?string $dedicatedTo = null
     ) {
+    }
+
+    public function isDedicated(): bool
+    {
+        return $this->purpose === MailboxPurpose::DEDICATED && $this->dedicatedTo !== null;
     }
 
     /**
@@ -70,5 +84,32 @@ class Mailbox
             'state' => $this->syncState->label(),
             'is_enabled' => $this->isEnabled,
         ];
+    }
+
+    /**
+     * The scopes a dedicated box implies, whatever its rows happen to say.
+     *
+     * Computed rather than stored twice: « dédiée à camps » and « camps
+     * analyse et lit tout, les autres rien » must never be able to drift
+     * apart, and the way to guarantee that is for one of them not to be a
+     * second source of truth.
+     *
+     * @param string[] $consumerIds every registered consumer
+     * @return array<string, \Modules\InboundMail\Api\MailboxScope>
+     */
+    public function impliedScopes(array $consumerIds): array
+    {
+        $scopes = [];
+        foreach ($consumerIds as $consumerId) {
+            $scopes[$consumerId] = $consumerId === $this->dedicatedTo
+                ? new \Modules\InboundMail\Api\MailboxScope(
+                    $consumerId,
+                    true,
+                    \Modules\InboundMail\Api\ReadMode::ALL
+                )
+                : \Modules\InboundMail\Api\MailboxScope::inert($consumerId);
+        }
+
+        return $scopes;
     }
 }

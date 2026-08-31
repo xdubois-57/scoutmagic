@@ -41,11 +41,13 @@ class CompositionRootWiringTest extends TestCase
         // Constructed without a registry it connects to nothing — every
         // message would be stored unrecognised, none of it associated —
         // so a factory that forgot it would look wired and classify
-        // nothing. Matched as a pattern rather than as an exact string:
-        // what must hold is that the registry reaches the handler, not how
-        // the argument list happens to be wrapped.
+        // nothing. What must hold is that the registry the factory built
+        // reaches the handler; how the argument list is spelled, and
+        // whether the registry is passed directly or through a local, is
+        // not this test's business.
+        $this->assertStringContainsString('$inboundConsumerRegistry($context)', $bootstrap);
         $this->assertMatchesRegularExpression(
-            '/new \\\\Modules\\\\InboundMail\\\\Task\\\\SyncMailboxesHandler\(\s*\$inboundConsumerRegistry\(\$context\)/',
+            '/new \\\\Modules\\\\InboundMail\\\\Task\\\\SyncMailboxesHandler\(\s*\$(inboundConsumerRegistry\(\$context\)|registry)/',
             $bootstrap
         );
     }

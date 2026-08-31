@@ -39,6 +39,18 @@ interface MessageConsumerInterface
     public function consumerId(): string;
 
     /**
+     * The module's own name, in French, as a screen shows it — « Locations
+     * », « Camps », « Finances ».
+     *
+     * Asked of the consumer rather than looked up in the module registry,
+     * for the same reason as everything else here: `inbound_mail` knows
+     * nothing about any consumer, and a registry lookup would make the
+     * configuration screen depend on a module manifest for a module that
+     * might not be the one registering the consumer.
+     */
+    public function displayName(): string;
+
+    /**
      * What this consumer makes of a message **as it arrives**, from its
      * headers, its text and its attachments' metadata.
      *

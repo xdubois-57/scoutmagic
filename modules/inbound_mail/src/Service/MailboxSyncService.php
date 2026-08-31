@@ -84,7 +84,14 @@ class MailboxSyncService
          * are left — recoverable and invisible, which is the safe
          * direction.
          */
-        private ?FileRepository $fileRepository = null
+        private ?FileRepository $fileRepository = null,
+        /**
+         * What each box lets each module do (IT-05). Null means "everybody
+         * analyses everything", which is what the contract was before the
+         * configuration screen existed and what a test that does not care
+         * about scoping still wants.
+         */
+        private ?MailboxScopeService $scopeService = null
     ) {
     }
 
@@ -113,16 +120,22 @@ class MailboxSyncService
      */
     public function syncMailbox(Mailbox $mailbox, \DateTimeImmutable $now): SyncOutcome
     {
-        if (!$this->consumerRegistry->hasConsumers()) {
-            // Nothing would claim anything, so every message would be read
-            // and dropped. Not an error — just nothing worth connecting for.
-            return SyncOutcome::skipped('Aucun module ne consomme le courrier entrant.');
-        }
-
+        // No guard on "is any consumer registered". There used to be one,
+        // on the reasoning that every message would be read and dropped
+        // anyway; since everything read is stored, a box no module sorts is
+        // still worth polling, and the configuration screen says so in as
+        // many words — « le courrier est conservé mais rien ne le classe ».
         $credentials = $this->mailboxRepository->findCredentials($mailbox->id);
         if ($credentials === null) {
             return SyncOutcome::skipped('Identifiants introuvables.');
         }
+
+        // Resolved once per box rather than per message: the answer cannot
+        // change mid-synchronisation, and re-deriving it for every message
+        // of a five-year backlog would be a query per message.
+        $consumers = $this->scopeService !== null
+            ? $this->scopeService->analyzingConsumers($mailbox)
+            : $this->consumerRegistry->all();
 
         $client = $this->clientFactory->forMailbox($mailbox);
         $stored = 0;
@@ -139,7 +152,7 @@ class MailboxSyncService
 
                 foreach ($client->fetchSince($folder, $cursor->lastUid, self::BATCH_SIZE) as $message) {
                     $seen++;
-                    if ($this->store($mailbox, $message)) {
+                    if ($this->store($mailbox, $message, $consumers)) {
                         $stored++;
                     }
 
@@ -165,12 +178,14 @@ class MailboxSyncService
     }
 
     /**
-     * Offer a message to every consumer and store it if anybody made
-     * something of it.
+     * Store the message, and offer it to the consumers this box lets look
+     * at it.
      *
+     * @param \Modules\InboundMail\Api\MessageConsumerInterface[] $consumers
+     *   the ones `Service\MailboxScopeService` allows on this box
      * @return bool whether anything was written
      */
-    private function store(Mailbox $mailbox, FetchedMessage $message): bool
+    private function store(Mailbox $mailbox, FetchedMessage $message, array $consumers): bool
     {
         $candidate = new CandidateMessage(
             mailboxId: $mailbox->id,
@@ -198,7 +213,11 @@ class MailboxSyncService
         // And the message is stored WHATEVER they answer — including
         // nothing at all. That is the reversal this module went through:
         // see the class docblock.
-        $results = $this->consumerRegistry->analyzeAll($candidate);
+        // …and only the consumers this box was opened to. Narrowing the
+        // question rather than filtering the answers is the difference
+        // between a setting and a suggestion: a module never sees a
+        // message it may not analyse, so it cannot act on one by accident.
+        $results = $this->consumerRegistry->analyzeAll($candidate, $consumers);
 
         // The message may already be in this box — after a UIDVALIDITY
         // reset made the folder be re-read, or because it arrived in two
