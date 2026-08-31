@@ -135,6 +135,20 @@ class RegistrationTestHelper
             match_state TEXT NOT NULL
         )');
         $pdo->exec('CREATE INDEX idx_rrfw_request ON registration_request_friend_wishes (registration_request_id)');
+
+        $pdo->exec('CREATE TABLE registration_passage_notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            member_id INTEGER NOT NULL,
+            scout_year_id INTEGER NOT NULL,
+            preferred_section_id INTEGER,
+            staff_note_encrypted BLOB,
+            ai_source_hash TEXT,
+            ai_suggestion_encrypted BLOB,
+            ai_confirmed INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_by_user_account_id INTEGER
+        )');
+        $pdo->exec('CREATE UNIQUE INDEX idx_rpn_member_year ON registration_passage_notes (member_id, scout_year_id)');
     }
 
     /**
@@ -162,6 +176,96 @@ class RegistrationTestHelper
         $stmt->execute([$deskId]);
 
         return (int) $pdo->lastInsertId();
+    }
+
+    /**
+     * IT-17's planning view model, wired out of real collaborators — what
+     * the Passage page shows beside each line once families have answered.
+     */
+    public static function passagePlanning(
+        \PDO $pdo,
+        \Core\Security\EncryptionService $encryption,
+        \Core\Config\SettingService $settingService,
+        \Modules\Registration\Service\ReenrollmentService $reenrollmentService
+    ): \Modules\Registration\Service\PassagePlanningService {
+        return new \Modules\Registration\Service\PassagePlanningService(
+            new \Modules\Registration\Repository\ReenrollmentRepository($pdo, $encryption),
+            new \Modules\Registration\Repository\PassageNoteRepository($pdo, $encryption),
+            new \Core\Member\SectionService(
+                \Core\Database\Connection::withPdo($pdo),
+                $encryption,
+                new \Core\Badge\MemberBadgeRepository($pdo)
+            ),
+            $reenrollmentService
+        );
+    }
+
+    /**
+     * The whole reenrollment service, wired out of real collaborators —
+     * what a page test needs when it only cares that the page renders.
+     */
+    public static function reenrollmentService(
+        \PDO $pdo,
+        \Core\Security\EncryptionService $encryption,
+        \Core\Config\SettingService $settingService
+    ): \Modules\Registration\Service\ReenrollmentService {
+        $connection = \Core\Database\Connection::withPdo($pdo);
+
+        return new \Modules\Registration\Service\ReenrollmentService(
+            new \Modules\Registration\Repository\ReenrollmentRepository($pdo, $encryption),
+            $settingService,
+            new \Core\Member\MemberService(new \Core\Import\MemberYearRepository($pdo), $encryption, $connection),
+            self::departureLink($pdo, $encryption, $settingService),
+            self::projectedPopulation($pdo, $encryption, $settingService),
+            new \Core\Member\SectionService($connection, $encryption, new \Core\Badge\MemberBadgeRepository($pdo))
+        );
+    }
+
+    /**
+     * The module's own projection, wired out of real collaborators.
+     *
+     * IT-17 scopes name matching to the projected population of the
+     * arrival branch, so a double here would only ever confirm that the
+     * test and the test agree about who will be where next year.
+     */
+    public static function projectedPopulation(
+        \PDO $pdo,
+        \Core\Security\EncryptionService $encryption,
+        \Core\Config\SettingService $settingService
+    ): \Modules\Registration\Service\ProjectedPopulationService {
+        $connection = \Core\Database\Connection::withPdo($pdo);
+        $sectionService = new \Core\Member\SectionService(
+            $connection,
+            $encryption,
+            new \Core\Badge\MemberBadgeRepository($pdo)
+        );
+        $requestRepository = new \Modules\Registration\Repository\RegistrationRequestRepository($pdo, $encryption);
+        $ageBracketRepository = new \Modules\Registration\Repository\AgeBracketRepository($pdo);
+
+        $passageService = new \Modules\Registration\Service\PassageService(
+            $pdo,
+            $encryption,
+            $sectionService,
+            new \Modules\Registration\Repository\SectionTransferRepository($pdo),
+            $requestRepository,
+            $ageBracketRepository
+        );
+
+        return new \Modules\Registration\Service\ProjectedPopulationService(
+            new \Modules\Registration\Service\ForecastService($pdo, $encryption, $sectionService, $passageService),
+            new \Modules\Registration\Service\SlotService(
+                $pdo,
+                $encryption,
+                $settingService,
+                $ageBracketRepository,
+                new \Modules\Registration\Repository\SlotCapacityRepository($pdo),
+                $requestRepository
+            ),
+            new \Core\Config\ScoutYearService($pdo),
+            $sectionService,
+            $requestRepository,
+            new \Modules\Registration\Repository\ProjectedMemberEmailRepository($pdo, $encryption)
+        );
     }
 
     /**

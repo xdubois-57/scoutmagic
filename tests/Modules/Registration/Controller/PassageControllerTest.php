@@ -46,6 +46,8 @@ class PassageControllerTest extends TestCase
     private PassageService $passageService;
     private \Modules\Registration\Service\ForecastService $forecastService;
     private \Modules\Registration\Service\ProjectedPopulationService $projection;
+    private \Modules\Registration\Repository\ReenrollmentRepository $reenrollmentRepository;
+    private \Modules\Registration\Repository\PassageNoteRepository $passageNoteRepository;
     private int $currentYearId;
     private int $targetYearId;
     private int $louveteauxSectionId;
@@ -125,10 +127,28 @@ class PassageControllerTest extends TestCase
             new \Modules\Registration\Repository\ProjectedMemberEmailRepository($this->pdo, $encryption)
         );
 
+        // IT-17 — the planning block under each line, wired real for the
+        // same reason as the projection above it.
+        $this->reenrollmentRepository = new \Modules\Registration\Repository\ReenrollmentRepository($this->pdo, $encryption);
+        $this->passageNoteRepository = new \Modules\Registration\Repository\PassageNoteRepository($this->pdo, $encryption);
+        $reenrollmentService = \Tests\Modules\Registration\RegistrationTestHelper::reenrollmentService(
+            $this->pdo,
+            $encryption,
+            $settingService
+        );
+
         $this->controller = new PassageController(
             $twig, $passageService, $this->requestRepository, $this->transferRepository, $sectionService,
             $ageBracketRepository, $slotService, $scoutYearResolver, $scoutYearService,
-            new \Modules\Registration\Service\PassageStatisticsService($sectionService, $this->projection)
+            new \Modules\Registration\Service\PassageStatisticsService($sectionService, $this->projection),
+            \Tests\Modules\Registration\RegistrationTestHelper::passagePlanning(
+                $this->pdo,
+                $encryption,
+                $settingService,
+                $reenrollmentService
+            ),
+            $this->passageNoteRepository,
+            $this->reenrollmentRepository
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -422,6 +442,150 @@ class PassageControllerTest extends TestCase
         $this->assertStringContainsString('data-scope="projected"', $body);
         $this->assertStringContainsString('data-scope="arrivals"', $body);
         $this->assertStringContainsString('Les animés qui restent dans leur section ne sont pas comptés ici', $body);
+    }
+
+    // ── IT-17: the family's answer, and what the staff make of it ─────
+
+    /**
+     * The chief's own reading of the wish is a value of the staff's, in a
+     * table of the staff's. Recording one for a family who never answered
+     * must not create an answer for them — every reader of
+     * registration_reenrollments takes a row there as « this family has
+     * answered ».
+     */
+    public function testTheStaffWishIsRecordedWithoutFabricatingAFamilyAnswer(): void
+    {
+        \Core\Security\AuthSession::login(1, 'admin@example.com', 'admin');
+        $member = $this->createLouveteauLastRank();
+
+        $response = $this->controller->savePreferredSection(
+            $this->jsonBodyRequest('POST', '/passage/membre/' . $member['member_id'] . '/souhait', [
+                'preferred_section_id' => $this->eclaireursSectionId,
+            ]),
+            ['id' => (string) $member['member_id']]
+        );
+
+        $this->assertTrue(json_decode($response->getBody(), true)['success']);
+        $this->assertSame(
+            $this->eclaireursSectionId,
+            $this->passageNoteRepository->find($member['member_id'], $this->targetYearId())['preferred_section_id']
+        );
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM registration_reenrollments')->fetchColumn(),
+            'the staff wrote about a family; they did not answer for them'
+        );
+    }
+
+    public function testAStaffWishOutsideTheArrivalBranchIsRefused(): void
+    {
+        \Core\Security\AuthSession::login(1, 'admin@example.com', 'admin');
+        $member = $this->createLouveteauLastRank();
+
+        $response = $this->controller->savePreferredSection(
+            $this->jsonBodyRequest('POST', '/passage/membre/' . $member['member_id'] . '/souhait', [
+                'preferred_section_id' => $this->louveteauxSectionId,
+            ]),
+            ['id' => (string) $member['member_id']]
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertNull($this->passageNoteRepository->find($member['member_id'], $this->targetYearId()));
+    }
+
+    /**
+     * The two staff fields save independently, exactly as the departures
+     * grid's checkbox and comment do — one save must never clobber the
+     * other's field.
+     */
+    public function testTheStaffNoteAndTheStaffWishNeverClobberEachOther(): void
+    {
+        \Core\Security\AuthSession::login(1, 'admin@example.com', 'admin');
+        $member = $this->createLouveteauLastRank();
+
+        $this->controller->savePreferredSection(
+            $this->jsonBodyRequest('POST', '/passage/membre/' . $member['member_id'] . '/souhait', [
+                'preferred_section_id' => $this->eclaireursSectionId,
+            ]),
+            ['id' => (string) $member['member_id']]
+        );
+        $this->controller->saveStaffNote(
+            $this->jsonBodyRequest('POST', '/passage/membre/' . $member['member_id'] . '/note', [
+                'note' => 'À placer avec son frère.',
+            ]),
+            ['id' => (string) $member['member_id']]
+        );
+
+        $stored = $this->passageNoteRepository->find($member['member_id'], $this->targetYearId());
+        $this->assertSame($this->eclaireursSectionId, $stored['preferred_section_id']);
+        $this->assertSame('À placer avec son frère.', $stored['staff_note']);
+    }
+
+    public function testTheStaffNoteIsNotReadableInTheDatabase(): void
+    {
+        \Core\Security\AuthSession::login(1, 'admin@example.com', 'admin');
+        $member = $this->createLouveteauLastRank();
+
+        $this->controller->saveStaffNote(
+            $this->jsonBodyRequest('POST', '/passage/membre/' . $member['member_id'] . '/note', [
+                'note' => 'Situation familiale délicate.',
+            ]),
+            ['id' => (string) $member['member_id']]
+        );
+
+        $raw = (string) $this->pdo->query('SELECT staff_note_encrypted FROM registration_passage_notes')->fetchColumn();
+        $this->assertStringNotContainsString('délicate', $raw);
+    }
+
+    public function testAForgedMemberOnAWishResolutionIsRefused(): void
+    {
+        \Core\Security\AuthSession::login(1, 'admin@example.com', 'admin');
+        $member = $this->createLouveteauLastRank();
+
+        $repository = new \Modules\Registration\Repository\ReenrollmentRepository(
+            $this->pdo,
+            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
+        $repository->saveAnswer($member['member_id'], $this->targetYearId(), 'reenrolled', null, null, null, [
+            ['raw_name' => 'Léo', 'matched_member_id' => null, 'match_state' => 'ambiguous'],
+        ]);
+        $wishId = (int) $this->pdo->query('SELECT id FROM registration_friend_wishes')->fetchColumn();
+
+        // 999 is nobody, and certainly nobody the name « Léo » resolves to.
+        $response = $this->controller->resolveWish(
+            $this->jsonBodyRequest('POST', '/passage/souhait/' . $wishId . '/rattacher', ['matched_member_id' => 999]),
+            ['id' => (string) $wishId]
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertNull($repository->findWish($wishId)?->matchedMemberId);
+    }
+
+    public function testWithoutTheAiConnectorThePageOffersNoReReading(): void
+    {
+        \Core\Security\AuthSession::login(1, 'admin@example.com', 'admin');
+
+        $body = $this->controller->index(new Request('GET', '/passage', [], [], [], []), [])->getBody();
+
+        $this->assertStringNotContainsString('passage-ai-review', $body);
+        $this->assertStringNotContainsString('Relire', $body);
+    }
+
+    public function testTheReReadingEndpointRefusesWhenThereIsNoConnector(): void
+    {
+        \Core\Security\AuthSession::login(1, 'admin@example.com', 'admin');
+
+        $response = $this->controller->reviewComments(
+            $this->jsonBodyRequest('POST', '/passage/relire-commentaires', []),
+            []
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+    }
+
+    private function targetYearId(): int
+    {
+        return (new ScoutYearService($this->pdo))->ensureYear('2027-2028');
     }
 
     public function testRenderedPageCarriesNoInlineEventHandler(): void

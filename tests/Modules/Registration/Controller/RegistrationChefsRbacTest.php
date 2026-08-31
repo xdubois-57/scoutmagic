@@ -124,7 +124,17 @@ class RegistrationChefsRbacTest extends TestCase
                     $requestRepository,
                     new \Modules\Registration\Repository\ProjectedMemberEmailRepository($this->pdo, $encryption)
                 )
-            )
+            ),
+            // IT-17 — the planning block the page now renders under each
+            // line. Real, for the same reason the projection above is.
+            RegistrationTestHelper::passagePlanning(
+                $this->pdo,
+                $encryption,
+                $settingService,
+                RegistrationTestHelper::reenrollmentService($this->pdo, $encryption, $settingService)
+            ),
+            new \Modules\Registration\Repository\PassageNoteRepository($this->pdo, $encryption),
+            new \Modules\Registration\Repository\ReenrollmentRepository($this->pdo, $encryption)
         );
         $this->forecastController = new ForecastController($twig, $forecastService, $scoutYearResolver, $scoutYearService, $slotService);
 

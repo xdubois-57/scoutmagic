@@ -1120,6 +1120,18 @@ Two things now write `member_years.leaving`: a chief ticking the box on « Dépa
 
 **`getAnimeMemberYears($year, includeLeaving: true)`.** `Service\PassageService::getAnimeMemberYears()` excludes leaving animés, which is right for Passage and Prévisions and wrong for the campaign, where the flag may BE the family's own answer: without it a family's card vanishes from « Réinscription » the instant they answer, and `ReenrollmentCampaignService::tracking()`'s total shrinks by one with every departure answer received. `ReenrollmentFormService` and `tracking()` pass `true`; `ReenrollmentRecipientService` deliberately does not — that list is who to *ask*, and somebody already marked as not coming back is not somebody to chase.
 
+### 8.37ter Registration module — the Passage page's planning block (IT-17)
+
+`Service\PassagePlanningService` assembles what the Passage page shows beside each line once families have answered (`specifications.md` §18.2bis): the family's preferred section and comment (read-only), the staff's own reading and internal note (`registration_passage_notes`, a table of their own so a chief writing about a silent family never makes them look like they answered), the « avec qui » names with their match state, and the optional AI re-reading.
+
+**Name matching is scoped to the arrival branch.** `Service\ReenrollmentService::candidates()` intersects the year's directory with `ProjectedPopulationService::projectedPopulation()` filtered to the arrival branch's sections — the module's ONE projection, the same instance the statistics box reads. That is why `ReenrollmentService` is built after the projection in `public/index.php` rather than with the module's other early services; the two controllers that need it are registered immediately below. Only projected people with a member id are candidates: `matched_member_id` is a member id, and a second half-empty column for accepted-but-unencoded requests is exactly what `registration_request_friend_wishes` exists to avoid.
+
+Folding goes through `Core\Service\TextNormalizerService::fold()`. The previous fold was `iconv('ASCII//TRANSLIT')`, whose output depends on the C library — the same `é` is `e` on glibc and `'e` on musl — so two installations disagreed about whether « Léo » and « leo » were the same name.
+
+**`FriendWish::MATCH_RESOLVED`** is a chief's decision on an ambiguous name, kept distinct from `MATCH_UNIQUE`: a match the server made and a match a human made are two different facts about how much to trust it, and the page says which. The chosen member is re-derived from the wish's own candidate list on every write — a member id in a POST body is not a boundary.
+
+**`Service\PassageCommentReviewService`** is the optional AI half: nullable `Api\LlmConnectorInterface`, silent degradation, one call per comment enforced by `ai_source_hash`, results stored unconfirmed and read by nothing until `ai_confirmed`. It runs on an explicit POST (`/passage/relire-commentaires`), never on a GET — sending a family's comment to a provider is a transmission, and it happens because a chief asked.
+
 ### 8.38 Registration module — Prévisions and the year-transition veto (iteration 7)
 
 The module's final iteration: a read-only headcount projection, and the first veto a module ever opposes to a core operation.

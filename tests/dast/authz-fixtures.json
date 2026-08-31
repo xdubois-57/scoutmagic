@@ -220,6 +220,9 @@
     "/passage/membre/{id}": {
       "id": "1"
     },
+    "/passage/souhait/{id}": {
+      "id": "1"
+    },
     "/password-reset/{id}": {
       "id": "1"
     },

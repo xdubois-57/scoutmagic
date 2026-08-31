@@ -89,7 +89,13 @@ class ReenrollmentServiceTest extends TestCase
             $this->repository,
             $this->settingService,
             $memberService,
-            RegistrationTestHelper::departureLink($this->pdo, $this->encryption, $this->settingService)
+            RegistrationTestHelper::departureLink($this->pdo, $this->encryption, $this->settingService),
+            RegistrationTestHelper::projectedPopulation($this->pdo, $this->encryption, $this->settingService),
+            new \Core\Member\SectionService(
+                Connection::withPdo($this->pdo),
+                $this->encryption,
+                new \Core\Badge\MemberBadgeRepository($this->pdo)
+            )
         );
 
         $this->members['Léo Martin'] = $this->createMember('Léo', 'Martin');
@@ -341,6 +347,87 @@ class ReenrollmentServiceTest extends TestCase
         );
     }
 
+    // ── IT-17: totems, folding, and the arrival branch ────────────────
+
+    public function testAScoutIsFoundByTheNameTheyAreActuallyCalledBy(): void
+    {
+        $kaa = $this->createMember('Nathan', 'Lemaire', 'Kaa');
+
+        $wish = $this->wishFor(['kaa']);
+
+        $this->assertSame(FriendWish::MATCH_UNIQUE, $wish->matchState);
+        $this->assertSame($kaa, $wish->matchedMemberId);
+    }
+
+    public function testATotemWithTheFamilyNameIsAcceptedToo(): void
+    {
+        $kaa = $this->createMember('Nathan', 'Lemaire', 'Kaa');
+
+        $wish = $this->wishFor(['Kaa Lemaire']);
+
+        $this->assertSame(FriendWish::MATCH_UNIQUE, $wish->matchState);
+        $this->assertSame($kaa, $wish->matchedMemberId);
+    }
+
+    /**
+     * The fold used to be iconv('ASCII//TRANSLIT'), whose output depends on
+     * the C library: the same « é » comes back as `e` on glibc and as `'e`
+     * on musl, so two installations disagreed about whether these were the
+     * same name. TextNormalizerService::fold() is deterministic.
+     */
+    public function testAccentsPunctuationAndSpacingAllFoldToTheSameName(): void
+    {
+        $anne = $this->createMember('Anne-Sophie', 'Dubois');
+
+        foreach (['anne sophie   dubois', 'ANNE-SOPHIE DUBOIS', 'Anne Sophie Dubois'] as $typed) {
+            $wish = $this->wishFor([$typed]);
+            $this->assertSame($anne, $wish->matchedMemberId, $typed);
+        }
+    }
+
+    /**
+     * The whole point of scoping to the arrival branch: a unit with a Léo
+     * in Louveteaux and a Léo in Éclaireurs has two Léos, and « Léo » from
+     * a child arriving in Éclaireurs means exactly one of them.
+     */
+    public function testANameIsLookedForAmongTheChildrenTheAskerWillActuallyBePlacedWith(): void
+    {
+        $eclaireurs = RegistrationTestHelper::insertAgeBranch($this->pdo, 'ECLA', 'Éclaireurs', 30);
+        $eclaireursA = $this->createSection('ECLA1', $eclaireurs, 'Éclaireurs A');
+
+        $leoInEclaireurs = $this->createMember('Léo', 'Bernard', null, $eclaireursA);
+        $this->createMember('Léo', 'Charlier');
+
+        $answer = $this->service->recordAnswer(
+            $this->members['Sacha Petit'],
+            $this->targetYearId,
+            'reenrolled',
+            null,
+            null,
+            ['Léo'],
+            $this->currentYearId,
+            null,
+            $eclaireurs
+        );
+
+        $wish = $answer->friendWishes[0];
+        $this->assertSame(FriendWish::MATCH_UNIQUE, $wish->matchState);
+        $this->assertSame($leoInEclaireurs, $wish->matchedMemberId);
+    }
+
+    public function testWithoutAnArrivalBranchTheSameTwoNamesStayAmbiguous(): void
+    {
+        $eclaireurs = RegistrationTestHelper::insertAgeBranch($this->pdo, 'ECLA', 'Éclaireurs', 30);
+        $eclaireursA = $this->createSection('ECLA1', $eclaireurs, 'Éclaireurs A');
+        $this->createMember('Léo', 'Bernard', null, $eclaireursA);
+        $this->createMember('Léo', 'Charlier');
+
+        $wish = $this->wishFor(['Léo']);
+
+        $this->assertSame(FriendWish::MATCH_AMBIGUOUS, $wish->matchState);
+        $this->assertNull($wish->matchedMemberId);
+    }
+
     public function testAChildNamingThemselvesIsNotAWish(): void
     {
         $answer = $this->service->recordAnswer(
@@ -435,6 +522,25 @@ class ReenrollmentServiceTest extends TestCase
 
     // ── fixture ───────────────────────────────────────────────────────
 
+    /**
+     * One wish, resolved the ordinary way — no arrival branch, so the
+     * whole roster is in play.
+     */
+    private function wishFor(array $names): FriendWish
+    {
+        $answer = $this->service->recordAnswer(
+            $this->members['Sacha Petit'],
+            $this->targetYearId,
+            'reenrolled',
+            null,
+            null,
+            $names,
+            $this->currentYearId
+        );
+
+        return $answer->friendWishes[0];
+    }
+
     private function createSection(string $deskCode, int $branchId, string $name): int
     {
         $stmt = $this->pdo->prepare('INSERT INTO sections (desk_code, age_branch_id, name, is_visible) VALUES (?, ?, ?, 1)');
@@ -443,20 +549,23 @@ class ReenrollmentServiceTest extends TestCase
         return (int) $this->pdo->lastInsertId();
     }
 
-    private function createMember(string $firstName, string $lastName): int
+    private function createMember(string $firstName, string $lastName, ?string $totem = null, ?int $sectionId = null): int
     {
+        $sectionId ??= $this->sectionId;
+
         $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK_" . uniqid() . "')");
         $memberId = (int) $this->pdo->lastInsertId();
 
         $stmt = $this->pdo->prepare(
-            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, birth_date_encrypted, gender_encrypted, leaving, scout_year_offset)
-             VALUES (?, ?, ?, ?, ?, ?, 0, 0)'
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, totem_encrypted, birth_date_encrypted, gender_encrypted, leaving, scout_year_offset)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0)'
         );
         $stmt->execute([
             $memberId,
             $this->currentYearId,
             $this->encryption->encrypt($firstName, 'member_years.first_name'),
             $this->encryption->encrypt($lastName, 'member_years.last_name'),
+            $totem !== null ? $this->encryption->encrypt($totem, 'member_years.totem') : null,
             $this->encryption->encrypt('2016-06-01', 'member_years.birth_date'),
             $this->encryption->encrypt('M', 'member_years.gender'),
         ]);
@@ -464,12 +573,12 @@ class ReenrollmentServiceTest extends TestCase
 
         $this->pdo->exec("INSERT OR IGNORE INTO functions (desk_code, label, role) VALUES ('identified', 'Fn identified', 'identified')");
         $functionId = (int) $this->pdo->query("SELECT id FROM functions WHERE desk_code = 'identified'")->fetchColumn();
-        $branchId = (int) $this->pdo->query('SELECT age_branch_id FROM sections WHERE id = ' . $this->sectionId)->fetchColumn();
+        $branchId = (int) $this->pdo->query('SELECT age_branch_id FROM sections WHERE id = ' . $sectionId)->fetchColumn();
 
         $stmt = $this->pdo->prepare(
             'INSERT INTO member_functions (member_year_id, function_id, section_id, age_branch_id, is_main_function) VALUES (?, ?, ?, ?, 1)'
         );
-        $stmt->execute([$memberYearId, $functionId, $this->sectionId, $branchId]);
+        $stmt->execute([$memberYearId, $functionId, $sectionId, $branchId]);
 
         return $memberId;
     }

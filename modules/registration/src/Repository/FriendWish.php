@@ -16,7 +16,7 @@ namespace Modules\Registration\Repository;
  * parent. It is stored encrypted and reaches this object only through
  * `ReenrollmentRepository`.
  *
- * The three match states are all ordinary outcomes. The family typed a
+ * The three automatic match states are all ordinary outcomes. The family typed a
  * name, not an identifier, and the form deliberately offers no
  * autocompletion and no feedback about who was found — so 'ambiguous'
  * (several members carry that name) and 'none' are what a free-text field
@@ -27,6 +27,14 @@ final class FriendWish
     public const MATCH_UNIQUE = 'unique';
     public const MATCH_AMBIGUOUS = 'ambiguous';
     public const MATCH_NONE = 'none';
+    /**
+     * A chief picked one of the candidates on the Passage page (roadmap
+     * IT-17). Usable like 'unique', and a state of its own rather than a
+     * rewrite to 'unique' so the page can still say « tranché par le
+     * staff » — a match the server made and a match a human made are two
+     * different facts about how much to trust it.
+     */
+    public const MATCH_RESOLVED = 'resolved';
 
     public function __construct(
         public readonly int $id,
@@ -40,6 +48,7 @@ final class FriendWish
     /** Usable by the optimiser: exactly one member, and we know which. */
     public function isUsable(): bool
     {
-        return $this->matchState === self::MATCH_UNIQUE && $this->matchedMemberId !== null;
+        return in_array($this->matchState, [self::MATCH_UNIQUE, self::MATCH_RESOLVED], true)
+            && $this->matchedMemberId !== null;
     }
 }

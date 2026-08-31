@@ -140,7 +140,9 @@ class ReenrollmentControllerTest extends TestCase
             $this->repository,
             $this->settingService,
             $memberService,
-            RegistrationTestHelper::departureLink($this->pdo, $this->encryption, $this->settingService)
+            RegistrationTestHelper::departureLink($this->pdo, $this->encryption, $this->settingService),
+            RegistrationTestHelper::projectedPopulation($this->pdo, $this->encryption, $this->settingService),
+            $sectionService
         );
 
         $twig = TwigFactory::create(

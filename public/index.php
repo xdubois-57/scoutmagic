@@ -4295,40 +4295,6 @@ if ($isEnabled('registration')) {
     $registrationReconciliation = new \Modules\Registration\Service\ReconciliationService(
         $pdo, $registrationRequestRepo, $encryptionService, $registrationMigrationService, $journalService
     );
-    // IT-14 — « Réinscription » in the Espace des animés: what a family
-    // answers about next year. The form's view model is a service of its
-    // own because BOTH the page and its menu entry ask it the same
-    // question (« has this account any animé, and has it answered? »), so
-    // the two can never disagree.
-    $registrationReenrollmentRepository = new \Modules\Registration\Repository\ReenrollmentRepository($pdo, $encryptionService);
-    // IT-16 — the link between an answer and the « Départs » box. Built
-    // BEFORE the service that records answers, because recording one and
-    // moving the box is a single gesture: nothing may hold a
-    // ReenrollmentService that cannot move the box.
-    $registrationReenrollmentDeparture = new \Modules\Registration\Service\ReenrollmentDepartureService(
-        $registrationReenrollmentRepository,
-        $memberYearRepo,
-        $departureService,
-        $scoutYearService,
-        $settingService
-    );
-    $registrationReenrollmentService = new \Modules\Registration\Service\ReenrollmentService(
-        $registrationReenrollmentRepository,
-        $settingService,
-        $memberService,
-        $registrationReenrollmentDeparture
-    );
-    $frontController->registerController(
-        \Modules\Registration\Controller\PublicRegistrationController::class,
-        new \Modules\Registration\Controller\PublicRegistrationController(
-            $twig, $registrationService, $registrationSlotService, $sectionService, $registrationAgeBracketRepo,
-            $scoutYearResolver, $memberService, $settingService, $humanCheckService,
-            // IT-14 — the « avec qui » names a family may type on the
-            // public form, resolved and stored the same way the
-            // reenrollment form's are.
-            $registrationReenrollmentService, $registrationReenrollmentRepository
-        )
-    );
     $frontController->registerController(
         \Modules\Registration\Controller\TrackingController::class,
         new \Modules\Registration\Controller\TrackingController(
@@ -4355,19 +4321,13 @@ if ($isEnabled('registration')) {
         )
     );
 
-    // Iteration 6 — Départs (reusing the one core section-staff
-    // authorization service built up top, never a second instance;
-    // DepartureService is also core but constructed once, up top, since
-    // Core\Http\Controller\MemberController's own departure endpoint needs
-    // it whether or not this module is even enabled) and Passage (own
-    // PassageService + SectionTransferRepository storage).
-    $frontController->registerController(
-        \Modules\Registration\Controller\DeparturesController::class,
-        new \Modules\Registration\Controller\DeparturesController(
-            $twig, $sectionStaffAuthorizationService, $sectionService, $departureService, $scoutYearResolver,
-            $registrationReenrollmentDeparture
-        )
-    );
+    // Iteration 6 — Passage (own PassageService + SectionTransferRepository
+    // storage). « Départs » is registered further down, once the
+    // reenrollment link it now renders exists; it reuses the one core
+    // section-staff authorization service built up top, never a second
+    // instance, and DepartureService is also core but constructed once,
+    // up top, since Core\Http\Controller\MemberController's own departure
+    // endpoint needs it whether or not this module is even enabled.
 
     $registrationSectionTransferRepo = new \Modules\Registration\Repository\SectionTransferRepository($pdo);
     $registrationPassageService = new \Modules\Registration\Service\PassageService(
@@ -4431,6 +4391,68 @@ if ($isEnabled('registration')) {
         new \Modules\Registration\Repository\ProjectedMemberEmailRepository($pdo, $encryptionService)
     );
 
+    // IT-14 — « Réinscription » in the Espace des animés: what a family
+    // answers about next year, and the same « avec qui » question the
+    // PUBLIC form asks of a child who is not a member yet.
+    //
+    // Built HERE rather than above with the rest of the module's early
+    // services because IT-17 resolves a typed name against the PROJECTED
+    // population of the arrival branch, which is what
+    // ProjectedPopulationService answers — and there is one projection for
+    // the whole module, never a second one that could disagree with the
+    // Passage statistics box reading the same numbers. The two controllers
+    // that need these services are registered immediately below, so the
+    // move costs nothing but this comment.
+    $registrationReenrollmentRepository = new \Modules\Registration\Repository\ReenrollmentRepository($pdo, $encryptionService);
+    // IT-17 — the staff's own entry on the Passage page, kept apart from
+    // the family's answer so a chief typing a note never fabricates one.
+    $registrationPassageNoteRepository = new \Modules\Registration\Repository\PassageNoteRepository($pdo, $encryptionService);
+    // IT-16 — the link between an answer and the « Départs » box. Built
+    // BEFORE the service that records answers, because recording one and
+    // moving the box is a single gesture: nothing may hold a
+    // ReenrollmentService that cannot move the box.
+    $registrationReenrollmentDeparture = new \Modules\Registration\Service\ReenrollmentDepartureService(
+        $registrationReenrollmentRepository,
+        $memberYearRepo,
+        $departureService,
+        $scoutYearService,
+        $settingService
+    );
+    $registrationReenrollmentService = new \Modules\Registration\Service\ReenrollmentService(
+        $registrationReenrollmentRepository,
+        $settingService,
+        $memberService,
+        $registrationReenrollmentDeparture,
+        $registrationProjectedPopulation,
+        $sectionService
+    );
+    $frontController->registerController(
+        \Modules\Registration\Controller\PublicRegistrationController::class,
+        new \Modules\Registration\Controller\PublicRegistrationController(
+            $twig, $registrationService, $registrationSlotService, $sectionService, $registrationAgeBracketRepo,
+            $scoutYearResolver, $memberService, $settingService, $humanCheckService,
+            // IT-14 — the « avec qui » names a family may type on the
+            // public form, resolved and stored the same way the
+            // reenrollment form's are.
+            $registrationReenrollmentService, $registrationReenrollmentRepository
+        )
+    );
+
+    // Iteration 6 — Départs (reusing the one core section-staff
+    // authorization service built up top, never a second instance;
+    // DepartureService is also core but constructed once, up top, since
+    // Core\Http\Controller\MemberController's own departure endpoint needs
+    // it whether or not this module is even enabled) and Passage (own
+    // PassageService + SectionTransferRepository storage).
+    $frontController->registerController(
+        \Modules\Registration\Controller\DeparturesController::class,
+        new \Modules\Registration\Controller\DeparturesController(
+            $twig, $sectionStaffAuthorizationService, $sectionService, $departureService, $scoutYearResolver,
+            $registrationReenrollmentDeparture
+        )
+    );
+
+
     // The form's view model needs PassageService, which only exists this
     // far down — so it is built here, while the repository and the service
     // above it are built early enough for the PUBLIC form, which asks the
@@ -4482,7 +4504,26 @@ if ($isEnabled('registration')) {
         new \Modules\Registration\Controller\PassageController(
             $twig, $registrationPassageService, $registrationRequestRepo, $registrationSectionTransferRepo, $sectionService,
             $registrationAgeBracketRepo, $registrationSlotService, $scoutYearResolver, $scoutYearService,
-            new \Modules\Registration\Service\PassageStatisticsService($sectionService, $registrationProjectedPopulation)
+            new \Modules\Registration\Service\PassageStatisticsService($sectionService, $registrationProjectedPopulation),
+            // IT-17 — what the families answered, beside the decision each
+            // line is about.
+            new \Modules\Registration\Service\PassagePlanningService(
+                $registrationReenrollmentRepository,
+                $registrationPassageNoteRepository,
+                $sectionService,
+                $registrationReenrollmentService
+            ),
+            $registrationPassageNoteRepository,
+            $registrationReenrollmentRepository,
+            // IT-17 — the optional AI re-reading of family comments. The
+            // one connector every consuming module reads, nullable: with
+            // llm_connector disabled this is null and the page renders
+            // exactly as it did before (ARCHITECTURE.md §7.5).
+            new \Modules\Registration\Service\PassageCommentReviewService(
+                $registrationReenrollmentRepository,
+                $registrationPassageNoteRepository,
+                $llmConnectorForOthers
+            )
         )
     );
 

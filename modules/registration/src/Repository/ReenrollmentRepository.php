@@ -118,6 +118,70 @@ class ReenrollmentRepository
         $stmt->execute([$applied ? 1 : 0, $reenrollmentId]);
     }
 
+    /**
+     * A chief picking which of several candidates a typed name meant
+     * (roadmap IT-17).
+     *
+     * The raw name is untouched: what the family wrote is what the family
+     * wrote, and the resolution is a second fact beside it rather than a
+     * correction of it. `MATCH_RESOLVED` rather than `MATCH_UNIQUE` so the
+     * page can go on saying who decided.
+     *
+     * Returns false when the wish does not exist — the caller answers 404
+     * rather than pretending it worked.
+     */
+    public function resolveWish(int $wishId, int $matchedMemberId): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE registration_friend_wishes SET matched_member_id = ?, match_state = ? WHERE id = ?'
+        );
+        $stmt->execute([$matchedMemberId, FriendWish::MATCH_RESOLVED, $wishId]);
+
+        return $stmt->rowCount() > 0 || $this->wishExists($wishId);
+    }
+
+    /**
+     * Which answer a wish belongs to, so a write can be checked against
+     * the year and the member the page claims it is about rather than
+     * against the id the request supplied.
+     *
+     * @return array{reenrollment_id: int, member_id: int, scout_year_id: int}|null
+     */
+    public function findWishOwner(int $wishId): ?array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT w.reenrollment_id, r.member_id, r.scout_year_id
+             FROM registration_friend_wishes w
+             JOIN registration_reenrollments r ON r.id = w.reenrollment_id
+             WHERE w.id = ?'
+        );
+        $stmt->execute([$wishId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        return $row === false ? null : [
+            'reenrollment_id' => (int) $row['reenrollment_id'],
+            'member_id' => (int) $row['member_id'],
+            'scout_year_id' => (int) $row['scout_year_id'],
+        ];
+    }
+
+    public function findWish(int $wishId): ?FriendWish
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM registration_friend_wishes WHERE id = ?');
+        $stmt->execute([$wishId]);
+        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+
+        return $this->hydrateWishes($rows)[0] ?? null;
+    }
+
+    private function wishExists(int $wishId): bool
+    {
+        $stmt = $this->pdo->prepare('SELECT 1 FROM registration_friend_wishes WHERE id = ?');
+        $stmt->execute([$wishId]);
+
+        return $stmt->fetchColumn() !== false;
+    }
+
     public function findAnswer(int $memberId, int $scoutYearId): ?ReenrollmentAnswer
     {
         $stmt = $this->pdo->prepare(

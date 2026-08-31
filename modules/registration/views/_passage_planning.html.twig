@@ -1,0 +1,129 @@
+{#
+  What the family answered, and what the staff make of it — the detail row
+  under one Passage line (roadmap IT-17).
+
+  **Why a full-width row and not four more columns.** The roadmap asks for
+  four: section souhaitée, commentaire de la famille, note interne, souhaits
+  d'amis. Its own pitfall list, in the same iteration, says the assignment
+  column must keep the minimum width IT-02 gave it — and these two tables
+  already need `table-responsive` at 1280px with six and four columns. Four
+  more would have pushed « Section prévue », the one control on the page,
+  off screen behind a horizontal scroll at every width. One md-and-up
+  column carries the read-only summary; everything editable lives here,
+  where it has the whole width and a label of its own.
+
+  Three owners, never mixed:
+  - the FAMILY's section and comment: read-only, dated. A chief correcting
+    a parent's words would be rewriting what a parent said.
+  - the STAFF's own reading of the wish: a value of their own, in a table
+    of their own, which is what lets a chief fill it in for a family who
+    never answered without fabricating an answer for them.
+  - the STAFF's internal note: never seen by the family, and the label says
+    so out loud.
+
+  Expects: `key` (the row's own id), `endpoint_prefix`, `planning`,
+  `sections` (the arrival branch's, for the staff's picker), `editable`.
+#}
+{% if planning.family_comment is defined and planning.family_comment %}
+    <div class="mb-2">
+        <div class="text-body-secondary small">
+            Commentaire de la famille{% if planning.answered_at %}, {{ planning.answered_at|date_fr }}{% endif %} — non modifiable ici.
+        </div>
+        <blockquote class="mb-0 small">{{ planning.family_comment }}</blockquote>
+    </div>
+{% endif %}
+
+<div class="row g-3">
+    {% if editable %}
+        <div class="col-12 col-md-5">
+            <label class="form-label small mb-1" for="passage-wish-{{ key }}">
+                Section souhaitée
+                {% if planning.family_section_label is defined and planning.family_section_label %}
+                    <span class="text-body-secondary">— la famille a dit {{ planning.family_section_label }}</span>
+                {% endif %}
+            </label>
+            <select id="passage-wish-{{ key }}" class="form-select form-select-sm passage-wish-select"
+                    data-endpoint="{{ endpoint_prefix }}/souhait"
+                    data-field="preferred_section_id">
+                <option value="0">— Non défini —</option>
+                {% for section in sections %}
+                    <option value="{{ section.id }}" {{ planning.staff_section_id == section.id ? 'selected' : '' }}>{{ section.name ?? section.desk_code }}</option>
+                {% endfor %}
+            </select>
+            <div class="form-text passage-wish-feedback" role="status" aria-live="polite"></div>
+        </div>
+        <div class="col-12 col-md-7">
+            <label class="form-label small mb-1" for="passage-note-{{ key }}">
+                Note interne — jamais vue par la famille
+            </label>
+            <textarea id="passage-note-{{ key }}" rows="2"
+                      class="form-control form-control-sm passage-note"
+                      data-endpoint="{{ endpoint_prefix }}/note"
+                      placeholder="Ce que le staff doit savoir pour placer cet enfant.">{{ planning.staff_note }}</textarea>
+            <div class="form-text passage-note-feedback" role="status" aria-live="polite"></div>
+        </div>
+    {% elseif planning.family_section_label is defined and planning.family_section_label %}
+        <div class="col-12">
+            <div class="text-body-secondary small">Section souhaitée par la famille : {{ planning.family_section_label }}</div>
+        </div>
+    {% endif %}
+
+    {% if editable and planning.ai_suggestion is defined and planning.ai_suggestion %}
+        {# Marked « à vérifier » until a chief says otherwise, and read by
+           nothing downstream before that: a machine reading of a parent's
+           sentence is a hint to a human, never an input to a placement. #}
+        <div class="col-12">
+            <div class="alert {{ planning.ai_confirmed ? 'alert-success' : 'alert-warning' }} py-2 mb-0 passage-ai-suggestion"
+                 data-endpoint="{{ endpoint_prefix }}/ia">
+                <div class="small">
+                    <i class="bi bi-robot" aria-hidden="true"></i>
+                    <strong>{{ planning.ai_confirmed ? 'Souhait confirmé' : 'Lecture IA — à vérifier' }} :</strong>
+                    {{ planning.ai_suggestion }}
+                </div>
+                <div class="form-check mt-1">
+                    <input class="form-check-input passage-ai-confirm" type="checkbox"
+                           id="passage-ai-{{ key }}" {{ planning.ai_confirmed ? 'checked' : '' }}>
+                    <label class="form-check-label small" for="passage-ai-{{ key }}">
+                        C'est bien ce que la famille demande
+                    </label>
+                </div>
+                <div class="form-text passage-ai-feedback" role="status" aria-live="polite"></div>
+            </div>
+        </div>
+    {% endif %}
+
+    {% if planning.wishes is not empty %}
+        <div class="col-12">
+            <div class="form-label small mb-1">Avec qui</div>
+            <ul class="list-unstyled mb-0">
+                {% for wish in planning.wishes %}
+                    <li class="mb-2 passage-friend-wish" data-wish-id="{{ wish.id }}">
+                        <span class="fw-semibold">{{ wish.raw_name }}</span>
+                        {% if wish.match_state == 'unique' %}
+                            <span class="text-body-secondary small">— {{ wish.matched_label ?? 'reconnu' }}</span>
+                        {% elseif wish.match_state == 'resolved' %}
+                            <span class="text-body-secondary small">— {{ wish.matched_label ?? 'rattaché' }} (tranché par le staff)</span>
+                        {% elseif wish.match_state == 'ambiguous' %}
+                            <span class="text-warning-emphasis small">— {{ wish.candidates|length }} correspondance{{ wish.candidates|length > 1 ? 's' : '' }} possible{{ wish.candidates|length > 1 ? 's' : '' }}</span>
+                            {% if wish.candidates is not empty %}
+                                <div class="d-flex flex-wrap gap-2 align-items-center mt-1">
+                                    <label class="visually-hidden" for="passage-friend-{{ wish.id }}">Rattacher « {{ wish.raw_name }} »</label>
+                                    <select id="passage-friend-{{ wish.id }}" class="form-select form-select-sm w-auto passage-friend-select">
+                                        {% for candidate in wish.candidates %}
+                                            <option value="{{ candidate.member_id }}">{{ candidate.label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                    <button type="button" class="btn btn-sm btn-outline-primary passage-friend-save text-nowrap"
+                                            data-endpoint="/passage/souhait/{{ wish.id }}/rattacher">Rattacher</button>
+                                </div>
+                            {% endif %}
+                        {% else %}
+                            <span class="text-body-secondary small">— aucun membre de ce nom</span>
+                        {% endif %}
+                        <span class="form-text passage-friend-feedback" role="status" aria-live="polite"></span>
+                    </li>
+                {% endfor %}
+            </ul>
+        </div>
+    {% endif %}
+</div>

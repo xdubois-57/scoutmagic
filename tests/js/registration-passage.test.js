@@ -44,9 +44,48 @@ function statisticsBox(projectedText = 'Louveteaux A · 12', arrivalsText = 'Lou
         </div>`;
 }
 
+/**
+ * IT-17's planning block, as the server renders it under one line: the
+ * staff's own two fields, an AI suggestion awaiting a human, and an
+ * ambiguous « avec qui » name with its candidate picker.
+ */
+function planningBlock(memberId) {
+    return `
+        <tr><td>
+            <div>
+                <select class="passage-wish-select" data-endpoint="/passage/membre/${memberId}/souhait"
+                        data-field="preferred_section_id">
+                    <option value="0">— Non défini —</option>
+                    <option value="9" selected>Éclaireurs A</option>
+                </select>
+                <div class="form-text passage-wish-feedback"></div>
+            </div>
+            <div>
+                <textarea class="passage-note" data-endpoint="/passage/membre/${memberId}/note">Note.</textarea>
+                <div class="form-text passage-note-feedback"></div>
+            </div>
+            <div class="alert alert-warning passage-ai-suggestion" data-endpoint="/passage/membre/${memberId}/ia">
+                <input type="checkbox" class="passage-ai-confirm">
+                <div class="form-text passage-ai-feedback"></div>
+            </div>
+            <ul>
+                <li class="passage-friend-wish" data-wish-id="5">
+                    <select class="passage-friend-select">
+                        <option value="31" selected>Martin Léo</option>
+                        <option value="32">Dupont Léo</option>
+                    </select>
+                    <button type="button" class="passage-friend-save"
+                            data-endpoint="/passage/souhait/5/rattacher">Rattacher</button>
+                    <span class="form-text passage-friend-feedback"></span>
+                </li>
+            </ul>
+        </td></tr>`;
+}
+
 const PAGE = `${statisticsBox()}<table><tbody>
     ${row('/passage/inscription/12/section', 'intended_section_id', 4)}
     ${row('/passage/membre/77/destination', 'destination_section_id', 9)}
+    ${planningBlock(77)}
 </tbody></table>`;
 
 function jsonResponse(body, status = 200) {
@@ -242,6 +281,87 @@ describe('registration-passage.js', () => {
             await expect(boot()).resolves.not.toThrow();
             document.querySelector('.passage-save').click();
             await vi.waitFor(() => expect(document.querySelector('.passage-feedback').textContent).toBe('Enregistré.'));
+        });
+    });
+
+    describe('the planning block (IT-17)', () => {
+        const wishSelect = () => document.querySelector('.passage-wish-select');
+        const note = () => document.querySelector('.passage-note');
+        const aiBox = () => document.querySelector('.passage-ai-suggestion');
+        const aiCheckbox = () => document.querySelector('.passage-ai-confirm');
+
+        it('saves the staff wish on change, under its own field name', async () => {
+            await boot();
+
+            wishSelect().value = '9';
+            wishSelect().dispatchEvent(new Event('change'));
+
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+            expect(lastRequest()).toEqual({
+                url: '/passage/membre/77/souhait',
+                body: { preferred_section_id: 9, _csrf_token: 'tok-123' },
+            });
+        });
+
+        it('saves the internal note on blur, and only on blur', async () => {
+            await boot();
+
+            note().value = 'À placer avec son frère.';
+            note().dispatchEvent(new Event('input'));
+            expect(fetch).not.toHaveBeenCalled();
+
+            note().dispatchEvent(new Event('blur'));
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+            expect(lastRequest()).toEqual({
+                url: '/passage/membre/77/note',
+                body: { note: 'À placer avec son frère.', _csrf_token: 'tok-123' },
+            });
+        });
+
+        it('records a confirmation of the AI reading, and shows it', async () => {
+            await boot();
+
+            aiCheckbox().checked = true;
+            aiCheckbox().dispatchEvent(new Event('change'));
+
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+            expect(lastRequest().body.confirmed).toBe(true);
+            await vi.waitFor(() => expect(aiBox().classList.contains('alert-success')).toBe(true));
+        });
+
+        it('PUTS THE CONFIRMATION BACK when the server refuses it', async () => {
+            global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Non.' }));
+            await boot();
+
+            aiCheckbox().checked = true;
+            aiCheckbox().dispatchEvent(new Event('change'));
+
+            await vi.waitFor(() => expect(aiCheckbox().checked).toBe(false));
+            expect(aiBox().classList.contains('alert-warning')).toBe(true);
+        });
+
+        it('attaches an ambiguous name to the member the chief picked', async () => {
+            await boot();
+
+            const picker = document.querySelector('.passage-friend-select');
+            picker.value = '32';
+            document.querySelector('.passage-friend-save').click();
+
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+            expect(lastRequest()).toEqual({
+                url: '/passage/souhait/5/rattacher',
+                body: { matched_member_id: 32, _csrf_token: 'tok-123' },
+            });
+        });
+
+        it('says so when a resolution is refused, beside the name it is about', async () => {
+            global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Pas un candidat.' }));
+            await boot();
+
+            document.querySelector('.passage-friend-save').click();
+
+            await vi.waitFor(() =>
+                expect(document.querySelector('.passage-friend-feedback').textContent).toBe('Pas un candidat.'));
         });
     });
 

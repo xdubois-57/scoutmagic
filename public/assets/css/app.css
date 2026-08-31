@@ -766,6 +766,28 @@ body:has(> #cookie-banner) {
     min-width: 17.5rem;
 }
 
+/* The planning block under a Passage line (roadmap IT-17,
+   @registration/_passage_planning.html.twig).
+
+   It sits in a `colspan` cell of a table that scrolls horizontally at
+   375px — deliberately, per the rule just above — so without this it
+   would be as wide as the TABLE and a chief would have to scroll right to
+   read a note or tick a checkbox. Two rules fix that:
+
+   - `max-width` caps it at the screen rather than at the table;
+   - `position: sticky; left: 0` pins it to the left edge of the scroll
+     viewport, so it stays put while the row above it scrolls.
+
+   The 4rem is the page padding plus the card's own, either side, so the
+   block ends where the card does instead of a hair past it. Erring
+   narrow is deliberate: a few pixels of slack cost nothing, and a few
+   pixels of overflow cost the end of every sentence. */
+.passage-planning-inner {
+    position: sticky;
+    left: 0;
+    max-width: calc(100vw - 4rem);
+}
+
 /* Configuration > E-mails (core/View/templates/config/emails.html.twig,
    config/email_edit.html.twig).
 

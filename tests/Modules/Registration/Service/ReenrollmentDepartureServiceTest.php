@@ -79,7 +79,13 @@ class ReenrollmentDepartureServiceTest extends TestCase
                 $this->encryption,
                 Connection::withPdo($this->pdo)
             ),
-            $this->link
+            $this->link,
+            RegistrationTestHelper::projectedPopulation($this->pdo, $this->encryption, $settingService),
+            new \Core\Member\SectionService(
+                Connection::withPdo($this->pdo),
+                $this->encryption,
+                new \Core\Badge\MemberBadgeRepository($this->pdo)
+            )
         );
 
         [$this->memberId, $this->memberYearId] = $this->createMember('Léa');

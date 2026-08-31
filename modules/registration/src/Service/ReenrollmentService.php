@@ -11,6 +11,8 @@ namespace Modules\Registration\Service;
 use Core\Config\SettingService;
 use Core\Member\MemberDirectoryEntry;
 use Core\Member\MemberService;
+use Core\Member\SectionService;
+use Core\Service\TextNormalizerService;
 use Modules\Registration\Repository\FriendWish;
 use Modules\Registration\Repository\ReenrollmentAnswer;
 use Modules\Registration\Repository\ReenrollmentRepository;
@@ -58,7 +60,9 @@ class ReenrollmentService
         private ReenrollmentRepository $repository,
         private SettingService $settingService,
         private MemberService $memberService,
-        private ReenrollmentDepartureService $departureLink
+        private ReenrollmentDepartureService $departureLink,
+        private ProjectedPopulationService $projectedPopulation,
+        private SectionService $sectionService
     ) {
     }
 
@@ -94,7 +98,8 @@ class ReenrollmentService
         ?string $familyComment,
         array $friendNames,
         int $currentScoutYearId,
-        ?int $answeredByUserAccountId = null
+        ?int $answeredByUserAccountId = null,
+        ?int $arrivalBranchId = null
     ): ReenrollmentAnswer {
         $decision = $decision === ReenrollmentAnswer::DECISION_LEAVING
             ? ReenrollmentAnswer::DECISION_LEAVING
@@ -115,7 +120,7 @@ class ReenrollmentService
             $preferredSectionId,
             $familyComment,
             $answeredByUserAccountId,
-            $this->resolveWishes($friendNames, $currentScoutYearId, $memberId)
+            $this->resolveWishes($friendNames, $currentScoutYearId, $memberId, $arrivalBranchId, $targetScoutYearId)
         );
 
         $saved = $this->repository->findAnswer($memberId, $targetScoutYearId);
@@ -161,17 +166,74 @@ class ReenrollmentService
      * @param array<int, string> $friendNames
      * @return array<int, array{raw_name: string, matched_member_id: ?int, match_state: string}>
      */
-    public function resolveNames(array $friendNames, int $currentScoutYearId): array
+    public function resolveNames(
+        array $friendNames,
+        int $currentScoutYearId,
+        ?int $arrivalBranchId = null,
+        ?int $targetScoutYearId = null
+    ): array {
+        return $this->resolveWishes($friendNames, $currentScoutYearId, 0, $arrivalBranchId, $targetScoutYearId);
+    }
+
+    /**
+     * Who a still-ambiguous typed name could be, for the chief who has to
+     * decide (roadmap IT-17).
+     *
+     * The same matcher, run again rather than a stored list: an ambiguity
+     * is a question about today's roster, and a list frozen at submission
+     * time would offer a chief the name of a child who has since left.
+     *
+     * @return array<int, array{member_id: int, label: string}>
+     */
+    public function candidatesFor(
+        string $rawName,
+        int $currentScoutYearId,
+        ?int $arrivalBranchId,
+        ?int $targetScoutYearId,
+        int $selfMemberId = 0
+    ): array {
+        $directory = $this->candidates($currentScoutYearId, $arrivalBranchId, $targetScoutYearId);
+        $byId = [];
+        foreach ($directory as $entry) {
+            $byId[$entry->memberId] = $entry;
+        }
+
+        $candidates = [];
+        foreach ($this->matchName($rawName, $directory, $selfMemberId) as $memberId) {
+            if (isset($byId[$memberId])) {
+                $candidates[] = ['member_id' => $memberId, 'label' => $byId[$memberId]->label()];
+            }
+        }
+
+        return $candidates;
+    }
+
+    /**
+     * How a matched member reads on the Passage page — the roster's own
+     * label, never a name this module formats itself.
+     */
+    public function labelForMember(int $memberId, int $currentScoutYearId): ?string
     {
-        return $this->resolveWishes($friendNames, $currentScoutYearId, 0);
+        foreach ($this->memberService->findDirectoryForYear($currentScoutYearId) as $entry) {
+            if ($entry->memberId === $memberId) {
+                return $entry->label();
+            }
+        }
+
+        return null;
     }
 
     /**
      * @param array<int, string> $friendNames
      * @return array<int, array{raw_name: string, matched_member_id: ?int, match_state: string}>
      */
-    private function resolveWishes(array $friendNames, int $currentScoutYearId, int $selfMemberId): array
-    {
+    private function resolveWishes(
+        array $friendNames,
+        int $currentScoutYearId,
+        int $selfMemberId,
+        ?int $arrivalBranchId = null,
+        ?int $targetScoutYearId = null
+    ): array {
         $names = [];
         foreach ($friendNames as $name) {
             $name = trim($name);
@@ -187,7 +249,7 @@ class ReenrollmentService
             return [];
         }
 
-        $directory = $this->memberService->findDirectoryForYear($currentScoutYearId);
+        $directory = $this->candidates($currentScoutYearId, $arrivalBranchId, $targetScoutYearId);
 
         $wishes = [];
         foreach ($names as $name) {
@@ -208,7 +270,57 @@ class ReenrollmentService
     }
 
     /**
-     * Which members of the roster a typed name could mean.
+     * Who a typed name may be looked for among.
+     *
+     * With an arrival branch, the PROJECTED population of that branch for
+     * next year (roadmap IT-17) — which is who the child will actually be
+     * placed with, and is what makes « Léo » unambiguous in a unit that
+     * has three of them spread over three branches. Without one (a caller
+     * that does not know the branch), the whole roster, as before.
+     *
+     * The projection is the module's own ProjectedPopulationService, the
+     * same instance the Passage statistics box reads: two projections
+     * would be two answers to « who will be in Éclaireurs next year ».
+     * Only projected people who already have a member id are candidates —
+     * an accepted registration nobody has encoded yet is a real future
+     * member, but `matched_member_id` is a member id, and a second
+     * half-empty column for the other half is exactly what
+     * registration_request_friend_wishes exists to avoid.
+     *
+     * @return array<int, MemberDirectoryEntry>
+     */
+    private function candidates(int $currentScoutYearId, ?int $arrivalBranchId, ?int $targetScoutYearId): array
+    {
+        $directory = $this->memberService->findDirectoryForYear($currentScoutYearId);
+        if ($arrivalBranchId === null || $targetScoutYearId === null) {
+            return $directory;
+        }
+
+        $sectionsInBranch = [];
+        foreach ($this->sectionService->getAllWithBranches() as $section) {
+            if ((int) $section['age_branch_id'] === $arrivalBranchId) {
+                $sectionsInBranch[(int) $section['id']] = true;
+            }
+        }
+        if ($sectionsInBranch === []) {
+            return $directory;
+        }
+
+        $inBranch = [];
+        foreach ($this->projectedPopulation->projectedPopulation($targetScoutYearId) as $person) {
+            if ($person->memberId !== null && $person->sectionId !== null && isset($sectionsInBranch[$person->sectionId])) {
+                $inBranch[$person->memberId] = true;
+            }
+        }
+
+        return array_values(array_filter(
+            $directory,
+            static fn(MemberDirectoryEntry $entry): bool => isset($inBranch[$entry->memberId])
+        ));
+    }
+
+    /**
+     * Which members of the candidate set a typed name could mean.
      *
      * Deliberately forgiving on the shape and strict on the content: case
      * and accents are ignored (a parent types « leo », the roster holds
@@ -216,11 +328,13 @@ class ReenrollmentService
      * matches — the honest answer — and the caller records that rather
      * than picking one.
      *
-     * Three spellings are accepted, in this order, and the FIRST that
-     * finds anybody wins: the full display name, « prénom nom », and the
-     * first name or totem alone. Falling through to the loosest form only
-     * when the tighter ones found nothing is what stops « Léo Martin »
-     * from also matching every other Léo.
+     * Four spellings are accepted, in this order, and the FIRST that finds
+     * anybody wins: « prénom nom », « totem nom », the totem alone, then
+     * the first name alone. Falling through to a bare form only when the
+     * full ones found nothing is what stops « Léo Martin » from also
+     * matching every other Léo — and putting the totem before the first
+     * name is §4's own convention, a totem being the name a scout is
+     * actually called by.
      *
      * @param array<int, MemberDirectoryEntry> $directory
      * @return array<int, int> matching member ids
@@ -232,7 +346,7 @@ class ReenrollmentService
             return [];
         }
 
-        $byForm = [[], [], []];
+        $byForm = [[], [], [], []];
         foreach ($directory as $entry) {
             // A child naming themselves is not a wish; it would also make
             // the optimiser's "keep these two together" trivially true.
@@ -241,9 +355,10 @@ class ReenrollmentService
             }
 
             $forms = [
-                self::normalise($entry->displayName . ' ' . $entry->lastName),
                 self::normalise($entry->firstName . ' ' . $entry->lastName),
-                self::normalise($entry->displayName),
+                self::normalise(($entry->totem ?? '') . ' ' . $entry->lastName),
+                self::normalise($entry->totem ?? ''),
+                self::normalise($entry->firstName),
             ];
 
             foreach ($forms as $index => $form) {
@@ -265,17 +380,16 @@ class ReenrollmentService
     /**
      * Lower-cased, accent-stripped, whitespace-collapsed — so « Léo   MARTIN »
      * and « leo martin » are the same string to compare.
+     *
+     * Core\Service\TextNormalizerService::fold() rather than a fold of our
+     * own: this one used iconv('ASCII//TRANSLIT'), whose output depends on
+     * the C library and the locale — the same « é » comes back as `e` on
+     * glibc and as `'e` on musl, so two installations disagreed about
+     * whether « Léo » and « leo » were the same name (roadmap IT-17, and
+     * that function's own docblock, which says exactly this).
      */
     private static function normalise(string $value): string
     {
-        $value = mb_strtolower(trim($value));
-        $transliterated = @iconv('UTF-8', 'ASCII//TRANSLIT', $value);
-        if ($transliterated !== false) {
-            // iconv writes « e' » or « 'e » for an accented letter depending
-            // on the locale; both are noise for a comparison.
-            $value = (string) preg_replace('/[^a-z0-9 ]/', '', $transliterated);
-        }
-
-        return trim((string) preg_replace('/\s+/', ' ', $value));
+        return TextNormalizerService::fold($value);
     }
 }

@@ -15,6 +15,26 @@
             statistics: statistics,
         } only %}
 
+        {# IT-17 — the optional AI re-reading, offered only when the
+           llm_connector module is there AND has an active provider. The
+           button says how many comments would be sent, because sending a
+           family's words to an external provider is a transmission and
+           nobody should start one blind. #}
+        {% if ai_available %}
+            <div class="alert alert-info d-flex flex-wrap gap-2 align-items-center" role="status">
+                <span class="me-auto small">
+                    <i class="bi bi-robot" aria-hidden="true"></i>
+                    Une relecture par IA peut signaler un souhait exprimé dans un commentaire libre plutôt que dans
+                    les champs prévus. Elle envoie ces commentaires au fournisseur configuré.
+                </span>
+                <button type="button" id="passage-ai-review" class="btn btn-sm btn-outline-primary text-nowrap"
+                        data-endpoint="/passage/relire-commentaires" {{ ai_pending == 0 ? 'disabled' : '' }}>
+                    Relire {{ ai_pending }} commentaire{{ ai_pending > 1 ? 's' : '' }}
+                </button>
+                <span class="form-text w-100 mb-0" id="passage-ai-review-feedback" role="status" aria-live="polite"></span>
+            </div>
+        {% endif %}
+
         <div class="card mb-4">
             <div class="card-body">
                 <h2 class="h5 mb-3">Nouvelles inscriptions — année {{ target_year_label }}</h2>
@@ -28,6 +48,7 @@
                                 <th>Section souhaitée</th>
                                 <th>Remarques</th>
                                 <th>Fratrie</th>
+                                <th class="d-none d-lg-table-cell">Souhaits de la famille</th>
                                 <th class="passage-assign-col">Section prévue</th>
                             </tr>
                         </thead>
@@ -48,6 +69,11 @@
                                             {% endfor %}
                                         {% endif %}
                                     </td>
+                                    <td class="d-none d-lg-table-cell">
+                                        {% include '@registration/_passage_wish_summary.html.twig' with {
+                                            planning: planning_requests[r.id]|default(null),
+                                        } only %}
+                                    </td>
                                     <td class="passage-assign-col">
                                         <div class="d-flex gap-2 align-items-center">
                                             <label for="passage-section-{{ r.id }}" class="visually-hidden">Section prévue pour {{ r.childFirstName }} {{ r.childLastName }}</label>
@@ -64,11 +90,26 @@
                                         <div class="form-text passage-feedback" role="status" aria-live="polite"></div>
                                     </td>
                                 </tr>
+                                {% if planning_requests[r.id]|default(null) and planning_requests[r.id].wishes is not empty %}
+                                    <tr class="passage-planning-row">
+                                        <td colspan="7" class="pt-0">
+                                            <div class="passage-planning-inner">
+                                            {% include '@registration/_passage_planning.html.twig' with {
+                                                key: 'req-' ~ r.id,
+                                                endpoint_prefix: '',
+                                                planning: planning_requests[r.id],
+                                                sections: [],
+                                                editable: false,
+                                            } only %}
+                                            </div>
+                                        </td>
+                                    </tr>
+                                {% endif %}
                             {% else %}
                                 {% include 'partials/empty_state.html.twig' with {
                                     message: "Aucune inscription acceptée en attente d'affectation pour cette année.",
                                     compact: true,
-                                    colspan: 6,
+                                    colspan: 7,
                                 } only %}
                             {% endfor %}
                         </tbody>
@@ -98,6 +139,7 @@
                                     <th>Nom</th>
                                     <th class="d-none d-md-table-cell">Année de parcours</th>
                                     <th>Même adresse</th>
+                                    <th class="d-none d-lg-table-cell">Souhaits de la famille</th>
                                     <th class="passage-assign-col">Destination</th>
                                 </tr>
                             </thead>
@@ -114,6 +156,11 @@
                                                     <div>{{ person.name }} ({{ person.section_label ?? '—' }})</div>
                                                 {% endfor %}
                                             {% endif %}
+                                        </td>
+                                        <td class="d-none d-lg-table-cell">
+                                            {% include '@registration/_passage_wish_summary.html.twig' with {
+                                                planning: planning_members[member.member_id]|default(null),
+                                            } only %}
                                         </td>
                                         <td class="passage-assign-col">
                                             <div class="d-flex gap-2 align-items-center">
@@ -132,6 +179,22 @@
                                                 <div class="form-text">Aucune section configurée pour la branche d'arrivée.</div>
                                             {% endif %}
                                             <div class="form-text passage-feedback" role="status" aria-live="polite"></div>
+                                        </td>
+                                    </tr>
+                                    <tr class="passage-planning-row">
+                                        <td colspan="5" class="pt-0">
+                                            <div class="passage-planning-inner">
+                                            {% include '@registration/_passage_planning.html.twig' with {
+                                                key: member.member_id,
+                                                endpoint_prefix: '/passage/membre/' ~ member.member_id,
+                                                planning: planning_members[member.member_id]|default({
+                                                    family_section_label: null, family_comment: null, answered_at: null,
+                                                    staff_section_id: null, staff_note: null, wishes: [],
+                                                }),
+                                                sections: member.destination_options,
+                                                editable: true,
+                                            } only %}
+                                            </div>
                                         </td>
                                     </tr>
                                 {% endfor %}

@@ -202,7 +202,11 @@ class PublicRegistrationController extends AbstractController
         $this->storeFriendWishes(
             $request,
             $requestId,
-            (int) $this->scoutYearResolver->getCurrentPublicYear()['id']
+            (int) $this->scoutYearResolver->getCurrentPublicYear()['id'],
+            // IT-17 — the branch the birth date puts this child in, which
+            // is the population a typed name is looked for among.
+            $slot !== null ? (int) $slot['age_branch_id'] : null,
+            (int) $target['id']
         );
 
         RegistrationSubmissionReceipt::remember((string) $fields['child_first_name'], $requestId);
@@ -479,8 +483,13 @@ class PublicRegistrationController extends AbstractController
      * through must not be told it failed because a wish could not be
      * filed. The failure is swallowed here and the request stands.
      */
-    private function storeFriendWishes(Request $request, int $requestId, int $currentScoutYearId): void
-    {
+    private function storeFriendWishes(
+        Request $request,
+        int $requestId,
+        int $currentScoutYearId,
+        ?int $arrivalBranchId,
+        int $targetScoutYearId
+    ): void {
         $submitted = $request->getBody('friend_names', []);
         if (!is_array($submitted) || $submitted === []) {
             return;
@@ -509,7 +518,12 @@ class PublicRegistrationController extends AbstractController
         try {
             $this->reenrollmentRepository->saveRequestWishes(
                 $requestId,
-                $this->reenrollmentService->resolveNames($names, $currentScoutYearId)
+                $this->reenrollmentService->resolveNames(
+                    $names,
+                    $currentScoutYearId,
+                    $arrivalBranchId,
+                    $targetScoutYearId
+                )
             );
         } catch (\Throwable) {
             // Deliberately silent: see the docblock.

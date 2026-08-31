@@ -97,6 +97,31 @@ class ReenrollmentFormService
     }
 
     /**
+     * The branch a child is heading into next year, or null when they are
+     * not changing branch (or have nowhere further to go).
+     *
+     * What IT-17's name matching is scoped to: a typed « Léo » is looked
+     * for among the children who will actually be placed alongside this
+     * one, not among every Léo in the unit. Read off the same
+     * `arrivalSectionsForMember()` call the card already makes, and with
+     * the same `includeHidden: false` — a family cannot mean a section
+     * they cannot see.
+     */
+    public function arrivalBranchIdFor(int $memberId, int $publicYearId, string $publicYearLabel): ?int
+    {
+        foreach ($this->passageService->arrivalSectionsForMember(
+            $memberId,
+            $publicYearId,
+            $publicYearLabel,
+            includeHidden: false
+        ) as $section) {
+            return (int) $section['age_branch_id'];
+        }
+
+        return null;
+    }
+
+    /**
      * Whether `$email`'s account may answer for `$memberId` — the one
      * check every save goes through, whatever the request looked like.
      */

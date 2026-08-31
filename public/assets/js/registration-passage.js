@@ -155,4 +155,157 @@
             feedback(cell, '', false);
         });
     });
+
+    // ── The planning block (spec §11.6, §11.7 — roadmap IT-17) ───────
+    //
+    // Three fields that save themselves, on the same delegated shape as
+    // the two above: the endpoint is on the element, so one handler serves
+    // both tables and any number of rows.
+    //
+    // No « Enregistrer » button for the two staff fields. This is a page a
+    // chief goes down line by line during a passage evening, and a button
+    // per field would be three more clicks per child; the destination
+    // picker keeps its button because it is the DECISION, and a decision
+    // deserves a deliberate gesture.
+
+    /**
+     * @param {Element|null} box
+     * @param {string} message
+     * @param {boolean} isError
+     */
+    function inlineFeedback(box, message, isError) {
+        if (!box) {
+            return;
+        }
+        box.textContent = message;
+        box.classList.toggle('text-danger', isError);
+        box.classList.toggle('text-success', !isError);
+    }
+
+    /**
+     * @param {HTMLElement} element the field that carries the endpoint
+     * @param {Element|null} box
+     * @param {Record<string, any>} payload
+     */
+    function autoSave(element, box, payload) {
+        inlineFeedback(box, 'Enregistrement…', false);
+
+        return api.postJson(element.dataset.endpoint || '', payload).then(function (res) {
+            if (res.data && res.data.success) {
+                inlineFeedback(box, 'Enregistré.', false);
+                return true;
+            }
+            inlineFeedback(
+                box,
+                res.status === 0 ? 'Erreur réseau.' : (res.data && res.data.error) || "Erreur lors de l'enregistrement.",
+                true
+            );
+            return false;
+        });
+    }
+
+    document.querySelectorAll('.passage-wish-select').forEach(function (select) {
+        var field = /** @type {HTMLSelectElement} */ (select);
+        field.addEventListener('change', function () {
+            /** @type {Record<string, number>} */
+            var payload = {};
+            payload[field.dataset.field || 'preferred_section_id'] = parseInt(field.value, 10);
+            autoSave(field, field.parentElement && field.parentElement.querySelector('.passage-wish-feedback'), payload);
+        });
+    });
+
+    document.querySelectorAll('.passage-note').forEach(function (note) {
+        var field = /** @type {HTMLTextAreaElement} */ (note);
+        // On blur, like the Départs comment: a note is written in one go,
+        // and a save per keystroke would be a request per keystroke.
+        field.addEventListener('blur', function () {
+            autoSave(field, field.parentElement && field.parentElement.querySelector('.passage-note-feedback'), {
+                note: field.value,
+            });
+        });
+    });
+
+    // ── The optional AI re-reading ───────────────────────────────────
+    //
+    // One button for the page, because the call is per COMMENT and the
+    // server decides which ones are still unread; and one checkbox per
+    // suggestion, because a chief validates one child at a time. Neither
+    // is present when the llm_connector module is absent — the server does
+    // not render the block at all.
+
+    var reviewButton = /** @type {HTMLButtonElement|null} */ (document.getElementById('passage-ai-review'));
+    if (reviewButton) {
+        reviewButton.addEventListener('click', function () {
+            var box = document.getElementById('passage-ai-review-feedback');
+            inlineFeedback(box, 'Relecture en cours…', false);
+
+            api.withDisabled(reviewButton, function () {
+                return api.postJson(reviewButton.dataset.endpoint || '', {}).then(function (res) {
+                    if (res.data && res.data.success) {
+                        // The suggestions are server-rendered, so the page
+                        // is reloaded rather than patched: a second
+                        // renderer for « à vérifier » in the browser would
+                        // be a second place for that wording to live.
+                        window.location.reload();
+                        return;
+                    }
+                    inlineFeedback(
+                        box,
+                        res.status === 0 ? 'Erreur réseau.' : (res.data && res.data.error) || 'La relecture a échoué.',
+                        true
+                    );
+                });
+            });
+        });
+    }
+
+    document.querySelectorAll('.passage-ai-confirm').forEach(function (input) {
+        var checkbox = /** @type {HTMLInputElement} */ (input);
+        var block = checkbox.closest('.passage-ai-suggestion');
+        if (!block) {
+            return;
+        }
+        var endpoint = /** @type {HTMLElement} */ (block).dataset.endpoint || '';
+        var box = block.querySelector('.passage-ai-feedback');
+
+        checkbox.addEventListener('change', function () {
+            inlineFeedback(box, 'Enregistrement…', false);
+            api.postJson(endpoint, { confirmed: checkbox.checked }).then(function (res) {
+                if (res.data && res.data.success) {
+                    inlineFeedback(box, checkbox.checked ? 'Confirmé.' : 'Confirmation retirée.', false);
+                    block.classList.toggle('alert-success', checkbox.checked);
+                    block.classList.toggle('alert-warning', !checkbox.checked);
+                    return;
+                }
+                // Put the box back where the server still has it, exactly
+                // as the departures grid does: the screen must never claim
+                // a confirmation that was not recorded.
+                checkbox.checked = !checkbox.checked;
+                inlineFeedback(
+                    box,
+                    res.status === 0 ? 'Erreur réseau.' : (res.data && res.data.error) || "Erreur lors de l'enregistrement.",
+                    true
+                );
+            });
+        });
+    });
+
+    document.querySelectorAll('.passage-friend-save').forEach(function (button) {
+        var save = /** @type {HTMLButtonElement} */ (button);
+        var wish = save.closest('.passage-friend-wish');
+        if (!wish) {
+            return;
+        }
+        var picker = /** @type {HTMLSelectElement|null} */ (wish.querySelector('.passage-friend-select'));
+        var box = wish.querySelector('.passage-friend-feedback');
+        if (!picker) {
+            return;
+        }
+
+        save.addEventListener('click', function () {
+            api.withDisabled(save, function () {
+                return autoSave(save, box, { matched_member_id: parseInt(picker.value, 10) });
+            });
+        });
+    });
 })();

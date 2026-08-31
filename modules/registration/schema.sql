@@ -364,3 +364,56 @@ CREATE TABLE registration_request_friend_wishes (
     CONSTRAINT fk_rrfw_request FOREIGN KEY (registration_request_id) REFERENCES registration_requests(id) ON DELETE CASCADE,
     CONSTRAINT fk_rrfw_member FOREIGN KEY (matched_member_id) REFERENCES members(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- The STAFF's own entry on the Passage page (roadmap IT-17): the section
+-- a chief believes this child should go to, and an internal note about
+-- them.
+--
+-- A table of its own rather than more columns on registration_reenrollments,
+-- for the reason IT-16 already established one way round: the staff moving
+-- something must never fabricate a family answer. Every reader of
+-- registration_reenrollments treats a row as « this family has answered »
+-- — the campaign's tracking, its reminder list, the family's own page — so
+-- a chief typing a note for a child whose family never answered would take
+-- them out of the reminder list by writing about them.
+--
+-- Keyed on the TARGET year, like the answers it sits beside: this is a
+-- decision about next year, and it resets on its own when next year
+-- becomes this year.
+--
+-- staff_note_encrypted is an internal note about a child, often about
+-- exactly the things a departure comment is about — encrypted at rest,
+-- decrypted only in the Repository (SECURITY.md §5), never in an export a
+-- family receives and never in the journal.
+CREATE TABLE registration_passage_notes (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    member_id INT UNSIGNED NOT NULL,
+    scout_year_id INT UNSIGNED NOT NULL,
+    preferred_section_id INT UNSIGNED NULL,
+    staff_note_encrypted BLOB NULL,
+    -- The optional AI re-reading of the family's free comment (roadmap
+    -- IT-17): what a model thinks the family asked for that the dedicated
+    -- fields did not capture.
+    --
+    -- `ai_source_hash` is a hash of the comment the suggestion was drawn
+    -- from, and it is what makes « one call per comment, never one per
+    -- page view » decidable: a comment whose hash still matches has
+    -- already been read, and a family who edits theirs gets exactly one
+    -- new call. It is a hash of text nobody looks up by it — no blind
+    -- index, no lookup, only an equality test against a value we hold.
+    --
+    -- `ai_confirmed` is the chief's validation. Until it is set, the
+    -- suggestion is shown « à vérifier » and the optimiser (IT-18) must
+    -- ignore it: a machine reading of a parent's sentence is a hint to a
+    -- human, never an input to a placement.
+    ai_source_hash VARCHAR(64) NULL,
+    ai_suggestion_encrypted BLOB NULL,
+    ai_confirmed TINYINT(1) NOT NULL DEFAULT 0,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_by_user_account_id INT UNSIGNED NULL,
+    UNIQUE INDEX idx_rpn_member_year (member_id, scout_year_id),
+    CONSTRAINT fk_rpn_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE,
+    CONSTRAINT fk_rpn_year FOREIGN KEY (scout_year_id) REFERENCES scout_years(id) ON DELETE CASCADE,
+    CONSTRAINT fk_rpn_section FOREIGN KEY (preferred_section_id) REFERENCES sections(id) ON DELETE SET NULL,
+    CONSTRAINT fk_rpn_account FOREIGN KEY (updated_by_user_account_id) REFERENCES user_accounts(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

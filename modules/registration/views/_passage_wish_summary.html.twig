@@ -1,0 +1,25 @@
+{#
+  The read-only half of IT-17's planning block, as a table cell: what the
+  family asked for, in one glance, on a screen wide enough for a column of
+  it (lg and up). Everything editable lives in the full-width row below —
+  see @registration/_passage_planning.html.twig for why.
+
+  Expects `planning`, possibly null (a line nobody has answered for).
+#}
+{% if planning is null %}
+    <span class="text-body-secondary small">—</span>
+{% else %}
+    {% if planning.family_section_label is defined and planning.family_section_label %}
+        <div class="small">{{ planning.family_section_label }}</div>
+    {% endif %}
+    {% if planning.wishes is not empty %}
+        <div class="small text-body-secondary">
+            {% for wish in planning.wishes %}
+                {{ wish.raw_name }}{% if wish.match_state == 'ambiguous' %} <span class="text-warning-emphasis">(à trancher)</span>{% elseif wish.match_state == 'none' %} <span class="text-body-tertiary">(inconnu)</span>{% endif %}{{ not loop.last ? ',' : '' }}
+            {% endfor %}
+        </div>
+    {% endif %}
+    {% if (planning.family_section_label is not defined or not planning.family_section_label) and planning.wishes is empty %}
+        <span class="text-body-secondary small">—</span>
+    {% endif %}
+{% endif %}

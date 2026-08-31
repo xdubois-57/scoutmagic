@@ -622,6 +622,20 @@ Two scopes, switchable: **« Effectif projeté »** (the default — what each s
 
 Every figure comes from the same projection the Prévisions page shows (§19.1, through the module's own `Api\ProjectedPopulationProvider`) — there is no second headcount, and the two pages cannot disagree about next year's Louveteaux. The box is recomputed **in the answer to a save**, not behind an endpoint of its own: one round trip, and no cached figure to go stale between a decision and its effect.
 
+#### 18.2bis What the families asked for, beside the decision
+
+Once the reenrollment campaign (§18.5) has run, each line carries what that family answered. A column from md up gives the read-only summary — the section they named, the « avec qui » names and whether each was recognised — and a full-width block under the line carries everything that can be acted on. It is a block rather than four more columns because these tables already scroll horizontally at 1280px, and four more would have pushed the assignment picker — the one control on the page — off screen at every width.
+
+**Three owners, never mixed:**
+
+- **The family's** preferred section and comment are read-only here, and dated. Correcting a parent's words on a staff page would be rewriting what a parent said.
+- **The staff's** own reading of the wish is a separate value in a separate table. That is what lets a chief record a section for a family who never answered without an answer appearing where there is none — the same rule §18.1bis settles in the other direction.
+- **The staff's** internal note is never seen by the family, never in an export a family receives, and never in the journal. Its label says so.
+
+**A name is matched against the projected population of the arrival branch**, never against the whole unit: the children this one will actually be placed with are the only ones a typed « Léo » can mean, and scoping it there is what turns most ambiguities into a single match. Case, accents, punctuation and spacing are folded away by the site's one folding function; four spellings are tried, tightest first — « prénom nom », « totem nom », the totem alone, the first name alone — and the first that finds anybody wins, so a full name never also matches every other Léo. Several matches is the honest answer: the chief sees « N correspondances possibles » and picks one, which records their decision beside the raw name rather than in place of it.
+
+**An optional AI re-reading** of the remaining free comments is offered when the `llm_connector` module is active and has a provider. It runs on an explicit gesture, never on page load, and the button says how many comments would be sent — because a family's comment reaching an external provider is a transmission (§RGPD). Each comment is sent **once**: the result is stored against a hash of the comment, so a family who edits theirs is re-read exactly once more. What comes back is shown **« à vérifier »** and is used by nothing until a chief confirms it. Negative wishes (« surtout pas avec X ») stay free text for a human to read, whatever channel they arrive through: they never feed a placement.
+
 ### 18.3 Mailing list for the mass-mail module
 
 When the mass-mail module (§4.3) is also active, its "nouvel email" list picker gains one extra, non-editable entry: **"Inscriptions {année scoute cible}"** — always named after the target year (never reused across years), containing every request that has been both accepted and encoded into Desk for that year (a still-pending, refused, or withdrawn request never appears). Its member list is recomputed at the moment an email actually sends, never fixed when the email is drafted. Available only to a chef d'unité (or above), same as the mass-mail module's own unit-wide lists. If the inscriptions module is disabled, this entry simply doesn't appear and the mass-mail module works exactly as it does today; if the mass-mail module is disabled, nothing changes on the inscriptions side.

@@ -2,7 +2,7 @@
   "id": "registration",
   "name": "Inscriptions",
   "description": "Parcours d'inscription complet : page publique avec disponibilité des places et gestion des listes d'attente, formulaire de demande, accusés de réception par email, page de suivi pour les familles, gestion des demandes côté staff (acceptation, refus, rapprochement automatique à l'import Desk, rétention), préparation de l'année suivante (départs, passage entre sections, prévisions d'effectifs), veto sur la bascule d'année scoute tant que des demandes restent ouvertes, et liste de diffusion pour le module d'envoi de mails.",
-  "version": "6.6.0",
+  "version": "6.7.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -411,6 +411,51 @@
       "method": "POST",
       "controller": "Modules\\Registration\\Controller\\PassageController",
       "action": "saveDestination",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/passage/membre/{id}/souhait",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\PassageController",
+      "action": "savePreferredSection",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/passage/membre/{id}/note",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\PassageController",
+      "action": "saveStaffNote",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/passage/souhait/{id}/rattacher",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\PassageController",
+      "action": "resolveWish",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/passage/relire-commentaires",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\PassageController",
+      "action": "reviewComments",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/passage/membre/{id}/ia",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\PassageController",
+      "action": "confirmAiSuggestion",
       "menu": "espace_admin",
       "role_min": "admin",
       "label": ""

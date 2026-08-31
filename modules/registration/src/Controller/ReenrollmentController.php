@@ -145,7 +145,15 @@ class ReenrollmentController extends AbstractController
             (string) $request->getBody('family_comment', ''),
             $friends,
             (int) $publicYear['id'],
-            AuthSession::getUserAccountId()
+            AuthSession::getUserAccountId(),
+            // IT-17 — the branch this child is heading into, so a typed
+            // « Léo » is looked for among the children they will actually
+            // be placed with rather than among every Léo in the unit.
+            $this->formService->arrivalBranchIdFor(
+                $memberId,
+                (int) $publicYear['id'],
+                (string) $publicYear['label']
+            )
         );
 
         FlashMessage::set(

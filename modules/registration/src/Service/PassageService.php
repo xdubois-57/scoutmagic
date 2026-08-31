@@ -113,7 +113,7 @@ class PassageService
      *     member_id: int, name: string, branch_year_label: string,
      *     household: array<int, array{name: string, section_label: ?string}>,
      *     destination_section_id: ?int,
-     *     destination_options: array<int, array{id: int, name: ?string, desk_code: string}>
+     *     destination_options: array<int, array{id: int, desk_code: string, name: ?string, email: ?string, age_branch_id: int, branch_name: string, branch_sort_order: int, is_visible: bool, is_active: bool, color: ?string}>
      *   }>
      * }>
      */
@@ -223,7 +223,13 @@ class PassageService
      * lives here and is shared with getBranchChanges(), so the two can never
      * disagree about who may go where.
      *
-     * @return array<int, array{id: int, name: ?string, desk_code: string}>
+     * The rows are Core\Member\SectionService::getAllWithBranches()'s own,
+     * passed through untouched — narrowing them here to the three keys the
+     * Passage page happens to print made `age_branch_id` invisible to a
+     * caller that legitimately needs it (roadmap IT-17 scopes name
+     * matching to the arrival BRANCH, which is what these sections are of).
+     *
+     * @return array<int, array{id: int, desk_code: string, name: ?string, email: ?string, age_branch_id: int, branch_name: string, branch_sort_order: int, is_visible: bool, is_active: bool, color: ?string}>
      */
     public function arrivalSectionsForMember(
         int $memberId,
