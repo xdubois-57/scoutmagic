@@ -169,6 +169,39 @@ export async function collectToasts(page) {
  *        exists inside the dialog.
  * @returns {Promise<string>} the dialog's message, for asserting on
  */
+/**
+ * Waits until confirm.js has installed its delegated `submit` listener.
+ *
+ * Call this BEFORE clicking anything inside a `form[data-confirm]`, and
+ * after every navigation to the page holding it — the flag lives on the
+ * document, so a new page starts without it.
+ *
+ * The listener is what turns a submit into a question. Click before it
+ * exists and the form simply submits, natively and unasked: the page
+ * navigates, no dialog is ever built, and answerConfirmation() below then
+ * waits out its ceiling on a dialog that was never going to come.
+ *
+ * That failure was diagnosed rather than guessed. Its instrumentation
+ * caught two identical samples holding roots:0 and anyConfirmMarkup:0 —
+ * nothing had ever been built — beside delegated:true and confirmForms:3,
+ * with activeElement back on <body> and the URL unchanged. confirm.js was
+ * armed and the forms were there when the state was READ, fifteen seconds
+ * later, on the page the native submit had just loaded; neither was true
+ * at the moment of the click.
+ *
+ * Third instance of one shape on this branch, after sos-admin.js's own
+ * listeners and Bootstrap's data-api (see support/sos.js and
+ * support/section-editor.js): a rendered page is not yet a page that
+ * reacts, and toBeVisible() on its content does not say otherwise.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+export async function waitForConfirmReady(page) {
+    await page.waitForFunction(
+        () => (/** @type {any} */ (document)).scoutMagicConfirmDelegated === true
+    );
+}
+
 export async function answerConfirmation(page, options = {}) {
     const dialog = page.locator('#sm-confirm-modal');
     // TEMPORARY INSTRUMENTATION — remove once the dialog that never
