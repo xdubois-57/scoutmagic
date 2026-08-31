@@ -163,8 +163,14 @@ class CompositionRootWiringTest extends TestCase
         // starts, and the box is polled exactly never. Seeded in the
         // shared bootstrap, so a site reached only by its crontab still
         // polls.
+        //
+        // The settings go with it: bootstrap() is also what pulls a run
+        // queued at an older, longer interval forward, and handed no
+        // settings it silently falls back to the default interval — which
+        // would make « Intervalle entre deux relèves » a field that
+        // changes nothing until the site is restarted.
         $this->assertStringContainsString(
-            'Modules\\InboundMail\\Task\\SyncMailboxesHandler::bootstrap($schedulerService)',
+            'Modules\\InboundMail\\Task\\SyncMailboxesHandler::bootstrap($schedulerService, $settingService)',
             self::source('scheduler-bootstrap.php')
         );
     }

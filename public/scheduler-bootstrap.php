@@ -369,7 +369,12 @@ function scoutmagic_bootstrap_scheduler(
                 );
             }
         );
-        \Modules\InboundMail\Task\SyncMailboxesHandler::bootstrap($schedulerService);
+        // The interval is a setting (« Intervalle entre deux relèves »), so
+        // bootstrap() is handed the settings rather than a constant: it is
+        // also what pulls a run queued at an older, longer interval
+        // forward, so a shortened delay applies on the next page view
+        // instead of after the old one finally elapses.
+        \Modules\InboundMail\Task\SyncMailboxesHandler::bootstrap($schedulerService, $settingService);
 
         // The deferred, content-level pass (§8.58): everything that needs
         // an attachment's BYTES rather than its metadata. Never inside the

@@ -121,8 +121,18 @@ conservation.
 
 ## 8. La synchronisation
 
-Elle tourne toutes les quinze minutes, par lots, en repartant de sa
-position précédente.
+Elle tourne par lots, en repartant de sa position précédente, à
+l'intervalle réglé dans *Configuration > Réglages* sous « Intervalle
+entre deux relèves du courrier » — quinze minutes par défaut, entre 5
+minutes et 24 heures.
+
+Descendre trop bas n'accélère rien et se retourne contre vous :
+plusieurs hébergeurs de messagerie ralentissent ou bloquent
+temporairement un client qui se reconnecte sans arrêt, et l'unité perd
+alors toutes ses relèves jusqu'à ce que le blocage se lève. Un
+changement s'applique dès la visite suivante : une relève déjà
+programmée plus loin que le nouvel intervalle est avancée, plutôt
+qu'attendre l'échéance de l'ancien.
 
 Si votre serveur renumérote un dossier — cela arrive après une restauration
 ou une migration — ScoutMagic le détecte et relit le dossier depuis le
