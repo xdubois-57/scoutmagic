@@ -999,10 +999,15 @@
     {
       "id": "rental.decision",
       "label": "Réponse à une demande de location",
-      "description": "Envoyé au demandeur quand les gestionnaires acceptent ou refusent sa demande.",
-      "default_subject": "Votre demande de location",
+      "description": "Envoyé au demandeur quand les gestionnaires acceptent ou refusent sa demande. Sept décisions passent par cet email (acceptée, refusée, proposition, précision demandée, modification acceptée ou refusée, annulation) : le sujet livré est celui de la décision. La référence de la réservation est ajoutée automatiquement devant, et ne peut pas être retirée — c'est elle qui rattache les réponses du demandeur à sa location.",
+      "default_subject": "{{ decision_subject }}",
       "template": "@rental/email/decision.html.twig",
       "variables": [
+        {
+          "name": "decision_subject",
+          "label": "Sujet propre à la décision",
+          "example": "Votre réservation est confirmée"
+        },
         {
           "name": "reference",
           "label": "Référence de la réservation",
@@ -1053,9 +1058,14 @@
       "id": "rental.document",
       "label": "Envoi d'un document de location",
       "description": "Envoyé au demandeur avec un contrat, une facture ou un décompte en pièce jointe.",
-      "default_subject": "Votre document",
+      "default_subject": "{{ document_subject }}",
       "template": "@rental/email/document.html.twig",
       "variables": [
+        {
+          "name": "document_subject",
+          "label": "Sujet selon le document envoyé",
+          "example": "Contrat de location"
+        },
         {
           "name": "reference",
           "label": "Référence de la réservation",

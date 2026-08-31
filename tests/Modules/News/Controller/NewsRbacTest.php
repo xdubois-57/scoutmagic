@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Modules\News\Controller;
 
+use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
+
 use Core\Badge\MemberBadgeRepository;
 use Core\Config\AppConfig;
 use Core\Config\ScoutYearService;
@@ -109,7 +111,7 @@ class NewsRbacTest extends TestCase
 
         $responseService = new ResponseService(
             new \Modules\News\Repository\FormResponseRepository($this->pdo, $encryption),
-            $roleResolver, $sectionService, $mailService, $twig, $shortUrlService, 'https://example.com', 'Test Unit'
+            $roleResolver, $sectionService, $mailService, EmailTemplateRendererFactory::shippedOnlyForModule($twig, 'news'), $shortUrlService, 'https://example.com', 'Test Unit'
         );
 
         $settingService = new SettingService(new SettingRepository($this->pdo));

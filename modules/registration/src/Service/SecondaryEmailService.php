@@ -11,10 +11,10 @@ namespace Modules\Registration\Service;
 use Core\Journal\JournalService;
 use Core\Mail\MailException;
 use Core\Mail\MailService;
+use Core\Mail\Template\EmailTemplateRenderer;
 use Core\Security\CapabilityToken;
 use Modules\Registration\Repository\RegistrationSecondaryEmail;
 use Modules\Registration\Repository\RegistrationSecondaryEmailRepository;
-use Twig\Environment;
 
 /**
  * Secondary emails on a registration request — mirrors Core\Member\
@@ -33,7 +33,7 @@ class SecondaryEmailService
     public function __construct(
         private RegistrationSecondaryEmailRepository $repository,
         private MailService $mailService,
-        private Environment $twig,
+        private EmailTemplateRenderer $emailTemplateRenderer,
         private JournalService $journalService,
         private string $baseUrl,
         private string $siteName
@@ -180,11 +180,16 @@ class SecondaryEmailService
             'expiry_hours' => self::CONFIRMATION_EXPIRY_HOURS,
         ];
 
-        $bodyHtml = $this->twig->render('@registration/email/secondary_email_confirmation.html.twig', $context);
-        $bodyText = $this->twig->render('@registration/email/secondary_email_confirmation.text.twig', $context);
+        // Declared `editable: false` (ARCHITECTURE.md §8.7bis) — an
+        // address confirmation an administrator could reword is a way to
+        // lock somebody out of their own request — so this always renders
+        // the shipped template. It goes through the renderer anyway so
+        // there is one rendering path, exactly as core's own confirmation
+        // e-mail does.
+        $email = $this->emailTemplateRenderer->render('registration.secondary_email_confirmation', $context);
 
         try {
-            $this->mailService->send(to: $to, subject: 'Confirmez votre adresse email', bodyHtml: $bodyHtml, bodyText: $bodyText);
+            $this->mailService->send(to: $to, subject: $email->subject, bodyHtml: $email->bodyHtml, bodyText: $email->bodyText);
         } catch (MailException) {
             // Best-effort, same rationale as the module's other emails —
             // the row is kept either way so the parent can be re-sent one.

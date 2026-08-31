@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Modules\News\Controller;
 
+use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
+
 use Core\Badge\MemberBadgeRepository;
 use Core\Config\ScoutYearService;
 use Core\Config\SettingRepository;
@@ -124,7 +126,7 @@ class NewsIntegrationTest extends TestCase
         $this->twig = $twig;
 
         $responseService = new ResponseService(
-            $this->responseRepository, $roleResolver, $sectionService, $mailService, $twig, $shortUrlService,
+            $this->responseRepository, $roleResolver, $sectionService, $mailService, EmailTemplateRendererFactory::shippedOnlyForModule($twig, 'news'), $shortUrlService,
             'https://example.com', 'Test Unit'
         );
         $this->responseService = $responseService;

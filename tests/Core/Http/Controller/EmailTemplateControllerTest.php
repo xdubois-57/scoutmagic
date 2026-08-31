@@ -11,7 +11,9 @@ use Core\Journal\JournalService;
 use Core\Mail\Template\EmailTemplateCustomisationService;
 use Core\Mail\Template\EmailTemplateOverrideRepository;
 use Core\Mail\Template\EmailTemplateRegistry;
+use Core\Mail\MailService;
 use Core\Mail\Template\EmailTemplateRenderer;
+use Core\Mail\Template\EmailTestSendThrottler;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\HtmlSanitizer;
@@ -61,11 +63,19 @@ class EmailTemplateControllerTest extends TestCase
     private EmailTemplateRenderer $renderer;
     private EmailTemplateController $controller;
 
+    /** Every message this test's controller "sends", in order. */
+    private \ArrayObject $sent;
+    private MailService $mailService;
+
     protected function setUp(): void
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
 
-        $twig = TwigFactory::create(dirname(__DIR__, 4) . '/core/View/templates');
+        $twig = TwigFactory::create(
+            dirname(__DIR__, 4) . '/core/View/templates',
+            false,
+            ['retro' => dirname(__DIR__, 4) . '/modules/retro/views']
+        );
         $twig->addGlobal('site_name', 'Unité Test');
         $twig->addGlobal('is_authenticated', true);
         $twig->addGlobal('current_user_role', 'superadmin');
@@ -74,7 +84,42 @@ class EmailTemplateControllerTest extends TestCase
         $twig->addGlobal('menus', null);
 
         $this->registry = new EmailTemplateRegistry();
+        // One module registered, so the page is exercised with the shape
+        // it really has — core's e-mails plus a module's, grouped — rather
+        // than with core's alone.
+        $this->registry->registerModuleManifest(
+            \Core\Module\ModuleManifest::fromFile(dirname(__DIR__, 4) . '/modules/retro/module.json')
+        );
         $this->overrides = new EmailTemplateOverrideRepository($this->pdo);
+
+        // A recording MailService rather than a bare mock: what the test
+        // send has to prove is that it goes through THIS object — the
+        // configured delivery path, sandbox included — and a mock that
+        // only counted calls would not show what was sent.
+        $this->sent = new \ArrayObject();
+        $this->mailService = new class ($this->sent) extends MailService {
+            public function __construct(private \ArrayObject $sent)
+            {
+            }
+
+            /**
+             * @param array<int, array{path: string, name: string}> $attachments
+             * @param array<string, string> $extraHeaders
+             */
+            public function send(
+                string $to,
+                string $subject,
+                string $bodyHtml,
+                string $bodyText,
+                ?string $replyTo = null,
+                array $attachments = [],
+                ?string $fromAddressOverride = null,
+                ?string $fromNameOverride = null,
+                array $extraHeaders = []
+            ): void {
+                $this->sent[] = ['to' => $to, 'subject' => $subject, 'html' => $bodyHtml, 'text' => $bodyText];
+            }
+        };
         $journal = new JournalService(new JournalRepository($this->pdo));
         $this->renderer = new EmailTemplateRenderer($twig, $this->registry, $this->overrides, $journal);
 
@@ -84,7 +129,9 @@ class EmailTemplateControllerTest extends TestCase
             $this->overrides,
             $this->renderer,
             new EmailTemplateCustomisationService($this->registry, $this->overrides, new HtmlSanitizer()),
-            $journal
+            $journal,
+            $this->mailService,
+            new EmailTestSendThrottler($this->pdo)
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -363,6 +410,20 @@ class EmailTemplateControllerTest extends TestCase
         $this->assertStringContainsString('Unité Test', $body);
     }
 
+    public function testAPreviewedSubjectHasItsVariablesFilledInToo(): void
+    {
+        // « Rétrospective clôturée : {{ board_title }} » — and rental's
+        // decision subject is nothing BUT a variable, so a preview that
+        // showed the raw subject would show an administrator braces where
+        // the real e-mail shows words.
+        $body = $this->controller->edit(
+            new Request('GET', '/config/emails/retro.board_closed', [], [], [], []),
+            ['template' => 'retro.board_closed']
+        )->getBody();
+
+        $this->assertStringContainsString('Rétrospective clôturée : Week-end de section', $body);
+    }
+
     public function testACustomisedBodyIsPreviewedWithItsVariablesFilledIn(): void
     {
         $this->overrides->save(
@@ -399,6 +460,84 @@ class EmailTemplateControllerTest extends TestCase
 
         $this->assertSame(302, $response->getStatusCode());
         $this->assertSame('/config/emails', $response->getHeaders()['Location'] ?? null);
+    }
+
+    // ── « M'envoyer un test » ─────────────────────────────────────────
+
+    public function testTheTestSendGoesThroughMailServiceAndNowhereElse(): void
+    {
+        $response = $this->controller->sendTest($this->formRequest([]), ['template' => self::OPEN_TEMPLATE]);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertCount(
+            1,
+            $this->sent,
+            'The test must go through MailService::send() — that is what makes it land wherever '
+                . 'the installation actually delivers, sandbox included.'
+        );
+        $this->assertSame('superadmin@test.be', $this->sent[0]['to']);
+
+        $template = $this->registry->find(self::OPEN_TEMPLATE);
+        $this->assertNotNull($template);
+        $this->assertSame($template->defaultSubject, $this->sent[0]['subject']);
+        // The registry's example values, not empty placeholders.
+        $this->assertStringContainsString('staff@exemple.be', $this->sent[0]['html']);
+    }
+
+    public function testTheSecondTestSendInARowIsRefused(): void
+    {
+        $this->controller->sendTest($this->formRequest([]), ['template' => self::OPEN_TEMPLATE]);
+        $this->controller->sendTest($this->formRequest([]), ['template' => self::OPEN_TEMPLATE]);
+
+        $this->assertCount(
+            1,
+            $this->sent,
+            'One send per 30 seconds per account: the second must be refused, not queued.'
+        );
+    }
+
+    public function testTheTestSendUsesTheCustomisedWordingWhenThereIsOne(): void
+    {
+        $this->overrides->save(
+            self::OPEN_TEMPLATE,
+            'Un sujet réécrit',
+            '<p>Notre propre texte.</p>',
+            1
+        );
+
+        $this->controller->sendTest($this->formRequest([]), ['template' => self::OPEN_TEMPLATE]);
+
+        $this->assertSame('Un sujet réécrit', $this->sent[0]['subject']);
+        $this->assertStringContainsString('Notre propre texte.', $this->sent[0]['html']);
+    }
+
+    public function testAnAuthenticationEmailMayStillBeSentAsATest(): void
+    {
+        // Reading the magic-link message is not editing it, and an
+        // administrator checking their relay works should not have to
+        // break something to do it.
+        $this->controller->sendTest($this->formRequest([]), ['template' => self::LOCKED_TEMPLATE]);
+
+        $this->assertCount(1, $this->sent);
+        $this->assertSame(0, $this->journalCount('email_template_edit_refused'));
+    }
+
+    public function testATestSendIsJournalledWithTheIdAndNotTheContent(): void
+    {
+        $this->controller->sendTest($this->formRequest([]), ['template' => self::OPEN_TEMPLATE]);
+
+        $this->assertSame(1, $this->journalCount(EmailTestSendThrottler::JOURNAL_TYPE));
+        $this->assertStringContainsString(
+            self::OPEN_TEMPLATE,
+            $this->journalContext(EmailTestSendThrottler::JOURNAL_TYPE)
+        );
+    }
+
+    public function testAnUnknownEmailSendsNothing(): void
+    {
+        $this->controller->sendTest($this->formRequest([]), ['template' => 'nope']);
+
+        $this->assertCount(0, $this->sent);
     }
 
     // ── helpers ───────────────────────────────────────────────────────

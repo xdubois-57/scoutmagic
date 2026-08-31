@@ -9,11 +9,11 @@ declare(strict_types=1);
 namespace Modules\News\Service;
 
 use Core\Mail\MailService;
+use Core\Mail\Template\EmailTemplateRenderer;
 use Core\Security\UserAccountRepository;
 use Modules\News\Repository\ArticleRepository;
 use Modules\News\Repository\FormRepository;
 use Modules\News\Repository\FormResponseRepository;
-use Twig\Environment;
 
 /**
  * Task\SendResponseDigestHandler's business logic: for every form with
@@ -29,7 +29,7 @@ class DigestService
         private ArticleRepository $articleRepository,
         private UserAccountRepository $userAccountRepository,
         private MailService $mailService,
-        private Environment $twig,
+        private EmailTemplateRenderer $emailTemplateRenderer,
         private string $siteName,
         private string $baseUrl
     ) {
@@ -71,14 +71,16 @@ class DigestService
             'responses_url' => rtrim($this->baseUrl, '/') . '/news/' . $articleId . '/form/responses',
         ];
 
-        $bodyHtml = $this->twig->render('@news/email/digest.html.twig', $context);
-        $bodyText = $this->twig->render('@news/email/digest.text.twig', $context);
+        // Through the register (ARCHITECTURE.md §8.7bis): the declared
+        // subject is « Nouvelles réponses — {{ article_title }} », so with
+        // nothing customised this is the message it replaces, unchanged.
+        $email = $this->emailTemplateRenderer->render('news.digest', $context);
 
         $this->mailService->send(
             to: $to,
-            subject: 'Nouvelles réponses — ' . $articleTitle,
-            bodyHtml: $bodyHtml,
-            bodyText: $bodyText
+            subject: $email->subject,
+            bodyHtml: $email->bodyHtml,
+            bodyText: $email->bodyText
         );
     }
 }

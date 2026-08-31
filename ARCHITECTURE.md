@@ -549,9 +549,29 @@ content and sends nothing, and it adds no `[{short_name}]` subject prefix —
 MailService adds that to every message, and a renderer that added it too
 would double it on exactly the e-mails an administrator had touched.
 
-**The migration is one sender at a time.** Core's nine are on the renderer;
-each module's are switched over on their own, and an e-mail that has not been
-switched over yet goes on working exactly as before.
+**The migration is one sender at a time**, and it is now finished: core's
+nine and every module's are on the renderer. A module that declares an e-mail
+later still works the moment it does — nothing downstream had to change for
+the six that switched.
+
+Two of them needed a decision the others did not. `rental.decision` carries
+seven different subject lines (one per `RenterDecision`) and `rental.document`
+names the document and says whether it is a resend, so neither has a fixed
+`default_subject` to declare. Freezing one of the values would have changed
+what six of the seven decisions send. **The computed subject is therefore a
+declared variable** — the manifests declare `{{ decision_subject }}` and
+`{{ document_subject }}` — so the shipped subject is still exactly what the
+sender computes, and a unit that rewords the e-mail can place the decision's
+own words wherever it wants them. `rental`'s `[LOC-2027-0042]` prefix, by
+contrast, stays OUTSIDE the renderer: it is what ties a renter's reply back to
+their booking, and an administrator must not be able to break the threading of
+every conversation by rewording a subject.
+
+**A scheduled task builds its own registry.** A handler runs outside the
+composition root — no `ModuleManager`, its own Twig with only its own
+namespace — so it holds core's templates plus its own module's, through
+`EmailTemplateRegistry::registerModuleManifest()`. A customisation is honoured
+all the same: that lives in the database, not in the registry.
 
 **The page** is Configuration > E-mails (`/config/emails`, `role_min:
 superadmin`, `Core\Http\Controller\EmailTemplateController`): the inventory
@@ -573,6 +593,17 @@ wrong.
   variable, so the renderer would never substitute it in a stored body, and
   a unit's families would receive the braces. The block rather than the whole
   document, because `email/base.html.twig` is the frame and stays code.
+
+**« M'envoyer un test » goes through `MailService::send()` and nowhere else**,
+which is the whole point of the button: whatever delivery mode the
+installation is in — real SMTP, local, the test-tools sandbox — the test goes
+there too, and a button that bypassed the configured mode would prove the one
+thing nobody needs proved. `EmailTestSendThrottler` allows one per thirty
+seconds per account, counting the journal's own `email_template_test_sent`
+entries rather than keeping a second store that could disagree with them; the
+entry is written after the send, so a failed relay costs the person debugging
+it nothing. A non-editable e-mail may be sent as a test — reading the
+magic-link message is not editing it.
 
 The body is edited through the shared rich-text modal
 (`partials/rich_text_field.html.twig` + `public/assets/js/rich-text-field.js`)

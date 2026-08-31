@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Modules\Rental\Controller;
 
+use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
+
 use Core\Config\ScoutYearService;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
@@ -167,7 +169,7 @@ class RentalRequestControllerTest extends TestCase
             $this->pricingService,
             new RentalBookingMailService(
                 $this->recordingMailService(),
-                $this->twig,
+                EmailTemplateRendererFactory::shippedOnlyForModule($this->twig, 'rental'),
                 $settingService,
                 $journalService
             ),

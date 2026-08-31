@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Mail\Template;
 
+use Core\Module\ModuleManifest;
+
 /**
  * Every automatic e-mail the site can send, core and modules together.
  *
@@ -187,6 +189,18 @@ class EmailTemplateRegistry
         $this->moduleTemplates[$moduleId] = $templates;
         $this->moduleNames[$moduleId] = $moduleName;
         $this->cache = null;
+    }
+
+    /**
+     * The same registration, from the manifest itself — what a scheduled
+     * task's handler needs. A handler runs outside the composition root
+     * (no ModuleManager, its own Twig with only its own namespace), so it
+     * builds a registry holding core's templates plus its own module's,
+     * and this is the one line that does it.
+     */
+    public function registerModuleManifest(ModuleManifest $manifest): void
+    {
+        $this->registerModuleTemplates($manifest->id, $manifest->name, $manifest->emails);
     }
 
     /**

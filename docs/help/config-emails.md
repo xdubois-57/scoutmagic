@@ -46,9 +46,11 @@ ajouté automatiquement devant lui à l'envoi : inutile de le réécrire.
 que partout ailleurs sur le site. Il part du texte livré : vous
 corrigez plutôt que d'écrire depuis une page blanche.
 
-**L'aperçu**, en bas, montre le résultat avec des valeurs d'exemple.
-L'en-tête et le pied de page du site sont ajoutés à l'envoi et ne se
-modifient pas ici.
+**L'aperçu** montre le résultat avec des valeurs d'exemple. L'en-tête et
+le pied de page du site sont ajoutés à l'envoi et ne se modifient pas
+ici. Le bouton « M'envoyer un test », en dessous, vous envoie l'email
+pour de vrai — par le même chemin que les autres, un test toutes les 30
+secondes au plus.
 
 ## Les variables
 

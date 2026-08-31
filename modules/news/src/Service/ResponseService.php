@@ -11,6 +11,7 @@ namespace Modules\News\Service;
 use Core\Journal\JournalService;
 use Core\Mail\MailException;
 use Core\Mail\MailService;
+use Core\Mail\Template\EmailTemplateRenderer;
 use Core\Member\SectionService;
 use Core\Security\Role;
 use Core\Security\RoleResolver;
@@ -24,7 +25,6 @@ use Modules\News\Repository\FormField;
 use Modules\News\Repository\FormResponse;
 use Modules\News\Repository\FormResponseRepository;
 use Modules\News\Repository\NewsForm;
-use Twig\Environment;
 
 /**
  * Handles form-response submission/editing: response_limit enforcement,
@@ -40,7 +40,7 @@ class ResponseService
         private RoleResolver $roleResolver,
         private SectionService $sectionService,
         private MailService $mailService,
-        private Environment $twig,
+        private EmailTemplateRenderer $emailTemplateRenderer,
         private ShortUrlService $shortUrlService,
         private string $baseUrl,
         private string $siteName,
@@ -467,14 +467,21 @@ class ResponseService
             'edit_url' => $editUrl,
         ];
 
-        $bodyHtml = $this->twig->render('@news/email/confirmation.html.twig', $context);
-        $bodyText = $this->twig->render('@news/email/confirmation.text.twig', $context);
+        // Through the register (ARCHITECTURE.md §8.7bis): the declared
+        // subject is « Confirmation — {{ article_title }} », so with
+        // nothing customised this is the message it replaces, unchanged.
+        //
+        // `answers` stays in the context for the shipped template's own
+        // loop and is deliberately NOT a declared variable: a customised
+        // body substitutes strings, and a list of a family's answers is
+        // not one.
+        $email = $this->emailTemplateRenderer->render('news.confirmation', $context);
 
         $this->mailService->send(
             to: $response->contactEmail,
-            subject: 'Confirmation — ' . $article->title,
-            bodyHtml: $bodyHtml,
-            bodyText: $bodyText
+            subject: $email->subject,
+            bodyHtml: $email->bodyHtml,
+            bodyText: $email->bodyText
         );
     }
 }

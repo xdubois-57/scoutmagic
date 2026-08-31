@@ -74,6 +74,22 @@
     </div>
 </div>
 
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h5 mb-3">M'envoyer un test</h2>
+        <p class="small text-body-secondary">
+            L'email vous est envoyé à {{ test_recipient }}, avec les mêmes valeurs d'exemple que
+            l'aperçu. Il part par le même chemin que les vrais emails du site : si vos envois sont
+            en mode local ou en bac à sable, le test y arrive aussi — c'est justement ce qu'on
+            vérifie. Un test toutes les 30 secondes au maximum.
+        </p>
+        <form method="post" action="/config/emails/{{ template.id|url_encode }}/test">
+            {{ csrf_field()|raw }}
+            <button type="submit" class="btn btn-outline-primary">M'envoyer un test</button>
+        </form>
+    </div>
+</div>
+
 {% if customised %}
     <div class="card mb-3">
         <div class="card-body">

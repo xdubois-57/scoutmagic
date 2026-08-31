@@ -9,6 +9,8 @@ declare(strict_types=1);
 
 namespace Tests\Modules\Rental\Service;
 
+use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
+
 use Core\Config\SettingService;
 use Core\Journal\JournalService;
 use Core\Mail\MailException;
@@ -65,7 +67,7 @@ final class RentalBookingMailServiceTest extends TestCase
 
         $this->service = new RentalBookingMailService(
             $this->recordingMailService(),
-            $this->twig,
+            EmailTemplateRendererFactory::shippedOnlyForModule($this->twig, 'rental'),
             $settings,
             $this->createMock(JournalService::class)
         );
@@ -432,7 +434,7 @@ final class RentalBookingMailServiceTest extends TestCase
     {
         $service = new RentalBookingMailService(
             $this->recordingMailService(succeeds: false),
-            $this->twig,
+            EmailTemplateRendererFactory::shippedOnlyForModule($this->twig, 'rental'),
             $this->createMock(SettingService::class),
             $this->createMock(JournalService::class)
         );

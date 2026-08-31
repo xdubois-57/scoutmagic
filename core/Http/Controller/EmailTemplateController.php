@@ -18,6 +18,9 @@ use Core\Mail\Template\EmailTemplateException;
 use Core\Mail\Template\EmailTemplateOverrideRepository;
 use Core\Mail\Template\EmailTemplateRegistry;
 use Core\Mail\Template\EmailTemplateRenderer;
+use Core\Mail\Template\EmailTestSendThrottler;
+use Core\Mail\MailException;
+use Core\Mail\MailService;
 use Core\Security\AuthSession;
 use Twig\Environment;
 
@@ -52,7 +55,9 @@ class EmailTemplateController extends AbstractController
         private EmailTemplateOverrideRepository $overrides,
         private EmailTemplateRenderer $renderer,
         private EmailTemplateCustomisationService $customisation,
-        private JournalService $journalService
+        private JournalService $journalService,
+        private MailService $mailService,
+        private EmailTestSendThrottler $throttler
     ) {
     }
 
@@ -103,6 +108,7 @@ class EmailTemplateController extends AbstractController
             'subject' => $override['subject'] ?? $template->defaultSubject,
             'body_html' => $override['body_html'] ?? $this->shippedBody($template),
             'preview' => $this->preview($template),
+            'test_recipient' => AuthSession::getEmail() ?? '',
         ]);
     }
 
@@ -210,6 +216,90 @@ class EmailTemplateController extends AbstractController
         }
 
         FlashMessage::set('success', 'Cet email utilise à nouveau le gabarit par défaut.');
+
+        return $this->redirect($this->editUrl($template->id));
+    }
+
+    /**
+     * « M'envoyer un test » — the e-mail as it stands, with the registry's
+     * example values, to the address the administrator is signed in with.
+     *
+     * **Through `MailService::send()` and nowhere else**, which is the
+     * whole point of the button: whatever delivery mode the installation
+     * is in — real SMTP, local, the test-tools sandbox — the test goes
+     * there too. A button that bypassed the configured mode would prove
+     * the one thing nobody needs proved.
+     *
+     * A non-editable e-mail may be sent as a test: reading the magic-link
+     * message is not editing it, and an administrator checking that their
+     * relay works should not have to break something to do it.
+     *
+     * @param array<string, string> $params
+     */
+    public function sendTest(Request $request, array $params): Response
+    {
+        $template = $this->registry->find($params['template'] ?? '');
+        if ($template === null) {
+            return $this->redirect(self::PAGE_URL);
+        }
+
+        if (($guard = $this->guardCsrf($request, $this->editUrl($template->id))) !== null) {
+            return $guard;
+        }
+
+        $userId = AuthSession::getUserAccountId();
+        $to = AuthSession::getEmail();
+
+        $remaining = $this->throttler->secondsRemaining($userId);
+        if ($remaining > 0) {
+            FlashMessage::set('error', "Un test vient d'être envoyé. Réessayez dans {$remaining} secondes.");
+
+            return $this->redirect($this->editUrl($template->id));
+        }
+
+        if ($to === null || $to === '') {
+            FlashMessage::set('error', "Votre compte n'a pas d'adresse email : impossible d'envoyer un test.");
+
+            return $this->redirect($this->editUrl($template->id));
+        }
+
+        $email = $this->renderer->render(
+            $template->id,
+            $template->exampleValues() + ['site_name' => $this->siteName()]
+        );
+
+        try {
+            $this->mailService->send($to, $email->subject, $email->bodyHtml, $email->bodyText);
+        } catch (MailException $e) {
+            // The address is stripped: SECURITY.md §11 bars personal data
+            // from journal entries unconditionally, and a relay's error
+            // text quotes the recipient often enough to matter.
+            $this->journalService->log(
+                'core',
+                'email_template_test_failed',
+                'info',
+                "Échec de l'envoi de test d'un email",
+                ['template_id' => $template->id, 'error' => str_replace($to, '[adresse]', $e->getMessage())],
+                $userId
+            );
+            FlashMessage::set('error', "L'envoi a échoué : {$e->getMessage()}");
+
+            return $this->redirect($this->editUrl($template->id));
+        }
+
+        // Written AFTER the send, and it is what the throttler counts: a
+        // failed send costs the account nothing, so an administrator
+        // fixing their relay can try again straight away.
+        $this->journalService->log(
+            'core',
+            EmailTestSendThrottler::JOURNAL_TYPE,
+            'info',
+            "Envoi de test de l'email « {$template->label} »",
+            ['template_id' => $template->id],
+            $userId
+        );
+
+        FlashMessage::set('success', 'Test envoyé à votre adresse.');
 
         return $this->redirect($this->editUrl($template->id));
     }
@@ -330,12 +420,17 @@ class EmailTemplateController extends AbstractController
 
             return [
                 'subject' => $rendered->subject,
-                'body_html' => $this->substitutedBody($template, $override['body_html'], $context),
+                'body_html' => $this->substituted($template, $override['body_html'], $context),
             ];
         }
 
         return [
-            'subject' => $template->defaultSubject,
+            // Substituted, like the body beside it: a declared subject may
+            // carry variables — « Rétrospective clôturée :
+            // {{ board_title }} », and rental's decision subject is
+            // nothing BUT one — and a preview showing braces where the
+            // real e-mail shows words is not a preview.
+            'subject' => $this->substituted($template, $template->defaultSubject, $context),
             'body_html' => $this->shippedBody($template),
         ];
     }
@@ -343,17 +438,17 @@ class EmailTemplateController extends AbstractController
     /**
      * @param array<string, string> $context
      */
-    private function substitutedBody(EmailTemplate $template, string $body, array $context): string
+    private function substituted(EmailTemplate $template, string $text, array $context): string
     {
         foreach ($template->variables as $variable) {
-            $body = str_replace(
+            $text = str_replace(
                 ['{{ ' . $variable->name . ' }}', '{{' . $variable->name . '}}'],
                 $context[$variable->name] ?? '',
-                $body
+                $text
             );
         }
 
-        return $body;
+        return $text;
     }
 
     /**

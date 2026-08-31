@@ -1875,6 +1875,7 @@ $router->addRoute('GET', '/config/emails/{template}', \Core\Http\Controller\Emai
 $router->addRoute('POST', '/config/emails/{template}/sujet', \Core\Http\Controller\EmailTemplateController::class, 'saveSubject', 'superadmin');
 $router->addRoute('POST', '/config/emails/{template}/corps', \Core\Http\Controller\EmailTemplateController::class, 'saveBody', 'superadmin');
 $router->addRoute('POST', '/config/emails/{template}/defaut', \Core\Http\Controller\EmailTemplateController::class, 'reset', 'superadmin');
+$router->addRoute('POST', '/config/emails/{template}/test', \Core\Http\Controller\EmailTemplateController::class, 'sendTest', 'superadmin');
 
 // Member pages
 $router->addRoute('GET', '/members/{id}', MemberController::class, 'show', 'identified', ['label' => 'Membre', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ANIMES)]]);
@@ -2428,7 +2429,9 @@ $frontController->registerController(
             $emailTemplateOverrideRepository,
             new \Core\Security\HtmlSanitizer()
         ),
-        $journalService
+        $journalService,
+        $mailService,
+        new \Core\Mail\Template\EmailTestSendThrottler($pdo)
     )
 );
 $frontController->registerController(MaintenanceController::class, new MaintenanceController(
@@ -2700,7 +2703,7 @@ if ($isEnabled('sos_staff')) {
     // a technical alert addressed to a role, not a personal notice.
     $sosRedirectService = new \Modules\SosStaff\Service\RedirectService(
         $sosProviderConfigService, $sosSettingsService, $memberService, $userAccountRepo, $mailService, $journalService,
-        $twig, $notificationService
+        $emailTemplateRenderer, $notificationService
     );
 
     $frontController->registerController(
@@ -3339,7 +3342,7 @@ if ($isEnabled('news')) {
     // simply disappears when finance is disabled, since every one of
     // these four is null in that case.
     $newsResponseService = new \Modules\News\Service\ResponseService(
-        $newsResponseRepo, $roleResolver, $sectionService, $mailService, $twig, $shortUrlService,
+        $newsResponseRepo, $roleResolver, $sectionService, $mailService, $emailTemplateRenderer, $shortUrlService,
         (string) ($settingService->get('base_url') ?: ''), (string) ($settingService->get('site_name') ?: 'Unité scoute'),
         $financeStructuredCommunicationForOthers, $financeExpectedReceivableForOthers, $financeSepaQrCodeForOthers, $financeAccountForOthers,
         $journalService
@@ -4124,7 +4127,7 @@ if ($isEnabled('retro')) {
     $retroCommentService = new \Modules\Retro\Service\CommentService($retroCommentRepo, $retroModerationService, $retroRateLimitService);
     $retroBoardService = new \Modules\Retro\Service\BoardService(
         $retroBoardRepo, $retroCommentRepo, $memberService, $sectionService, $schedulerService, $journalService,
-        $mailService, $twig, (string) ($settingService->get('site_name') ?: 'Unité scoute'), (string) ($settingService->get('base_url') ?: ''),
+        $mailService, $emailTemplateRenderer, (string) ($settingService->get('site_name') ?: 'Unité scoute'), (string) ($settingService->get('base_url') ?: ''),
         $shortUrlService,
         $calendarServiceForOthers,
         $retroSummaryService
@@ -4194,7 +4197,7 @@ if ($isEnabled('registration')) {
         $mailService, $editableContentService, $journalService, $registrationBaseUrl, $registrationSiteName
     );
     $registrationSecondaryEmailService = new \Modules\Registration\Service\SecondaryEmailService(
-        $registrationSecondaryEmailRepo, $mailService, $twig, $journalService, $registrationBaseUrl, $registrationSiteName
+        $registrationSecondaryEmailRepo, $mailService, $emailTemplateRenderer, $journalService, $registrationBaseUrl, $registrationSiteName
     );
     $registrationTrackingService = new \Modules\Registration\Service\TrackingService(
         $registrationRequestRepo, $registrationSecondaryEmailRepo, $encryptionService
@@ -4622,7 +4625,7 @@ if ($isEnabled('rental')) {
         $storagePath
     );
     $rentalBookingMailService = new \Modules\Rental\Service\RentalBookingMailService(
-        $mailService, $twig, $settingService, $journalService
+        $mailService, $emailTemplateRenderer, $settingService, $journalService
     );
 
     // The asset paperwork register (§6.33). A reminder list, never a

@@ -42,13 +42,27 @@ class SendResponseDigestHandler implements TaskHandlerInterface
             ['news' => dirname(__DIR__, 2) . '/views']
         );
 
+        // Core's templates plus this module's own: a handler runs outside
+        // the composition root, so nothing has aggregated the manifests
+        // for it (ARCHITECTURE.md §8.7bis). A customisation is honoured
+        // all the same — that lives in the database, not in the registry.
+        $registry = new \Core\Mail\Template\EmailTemplateRegistry();
+        $registry->registerModuleManifest(
+            \Core\Module\ModuleManifest::fromFile(dirname(__DIR__, 2) . '/module.json')
+        );
+
         $digestService = new DigestService(
             new FormRepository($pdo),
             new FormResponseRepository($pdo, $context->encryption),
             new ArticleRepository($pdo),
             new UserAccountRepository($pdo, $context->encryption),
             $context->mailService,
-            $twig,
+            new \Core\Mail\Template\EmailTemplateRenderer(
+                $twig,
+                $registry,
+                new \Core\Mail\Template\EmailTemplateOverrideRepository($pdo),
+                $context->journal
+            ),
             (string) ($context->settings->get('site_name') ?: 'Unité scoute'),
             (string) ($context->settings->get('base_url') ?: '')
         );
