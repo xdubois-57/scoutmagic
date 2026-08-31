@@ -146,8 +146,12 @@ class InboundMessageLinkTest extends TestCase
         $this->assertSame(1, $this->countRows('inbound_messages'));
     }
 
-    public function testDetachingTheLastAssociationDestroysTheMessageAndItsFiles(): void
+    public function testDetachingTheLastAssociationKeepsTheMessageAndItsFiles(): void
     {
+        // The behaviour this replaces destroyed the message here, which
+        // meant a manager correcting a mis-filing destroyed the very thing
+        // they were about to re-file. It now falls back into the unit's
+        // general mail and waits for the retention.
         $id = $this->storeMessage('facture-1@example.be');
         $this->messages->addLink($id, 'rental', 'LOC-2027-0042', LinkOrigin::REFERENCE);
         $this->messages->addLink($id, 'finance', 'ACC-2027-0007', LinkOrigin::SENDER);
@@ -156,16 +160,52 @@ class InboundMessageLinkTest extends TestCase
         $this->messages->addAttachment($id, $fileId, 'contrat.pdf', 'application/pdf', 1024, 'hash-a');
 
         $this->assertTrue($this->service->detach('rental', 'LOC-2027-0042', $id));
-        // Still one owner: nothing is anybody's to remove yet.
-        $this->assertSame(1, $this->countRows('inbound_messages'));
-        $this->assertNotNull((new FileRepository($this->pdo))->findById($fileId));
-
         $this->assertTrue($this->service->detach('finance', 'ACC-2027-0007', $id));
 
-        $this->assertSame(0, $this->countRows('inbound_messages'));
-        $this->assertSame(0, $this->countRows('inbound_message_attachments'));
+        $this->assertSame(1, $this->countRows('inbound_messages'));
         $this->assertSame(0, $this->countRows('inbound_message_links'));
-        $this->assertNull((new FileRepository($this->pdo))->findById($fileId));
+        $this->assertSame(1, $this->countRows('inbound_message_attachments'));
+        $this->assertNotNull((new FileRepository($this->pdo))->findById($fileId));
+    }
+
+    public function testDetachingStampsTheGraceClockSoAnOldMessageIsNotPurgedTonight(): void
+    {
+        $id = $this->storeMessage('facture-1@example.be');
+        $this->messages->addLink($id, 'rental', 'LOC-2027-0042', LinkOrigin::REFERENCE);
+
+        $this->assertTrue($this->service->detach('rental', 'LOC-2027-0042', $id));
+
+        $stamp = $this->pdo->query('SELECT last_unlinked_at FROM inbound_messages')->fetchColumn();
+        $this->assertNotNull($stamp);
+        $this->assertNotSame('', (string) $stamp);
+    }
+
+    public function testAReclassifiedAttachmentIsReleasedFromTheMessageRatherThanLeftPointingAtIt(): void
+    {
+        // Without the release, the retention purge would delete the file
+        // ninety days later — taking a booking's signed contract with the
+        // email it happened to arrive in.
+        $id = $this->storeMessage('facture-1@example.be');
+        $this->messages->addLink($id, 'rental', 'LOC-2027-0042', LinkOrigin::REFERENCE);
+
+        $kept = $this->storeFile();
+        $dropped = $this->storeFile();
+        $this->messages->addAttachment($id, $kept, 'contrat.pdf', 'application/pdf', 1024, 'hash-kept');
+        $this->messages->addAttachment($id, $dropped, 'photo.jpg', 'image/jpeg', 2048, 'hash-dropped');
+
+        $this->assertTrue($this->service->detach('rental', 'LOC-2027-0042', $id, [$kept]));
+
+        $this->assertSame([$dropped], $this->messages->findFileIdsForMessage($id));
+        $this->assertSame(0, $this->messages->countAttachmentsForFile($kept));
+
+        $message = $this->messages->findAnyForAnalysis($id);
+        $this->assertNotNull($message);
+        $this->assertCount(1, $message->attachments);
+        $this->assertCount(1, $message->omittedAttachments);
+        $this->assertSame(
+            \Modules\InboundMail\Api\AttachmentOmission::RECLASSIFIED,
+            $message->omittedAttachments[0]->reason
+        );
     }
 
     public function testDetachingRefusesAReferenceTheMessageWasNeverAssociatedWith(): void
@@ -333,7 +373,9 @@ class InboundMessageLinkTest extends TestCase
         // naming only one of them. Destroying that one must hand the
         // ownership over — otherwise the file points at a message that no
         // longer exists, the access registry finds no associations to ask
-        // about, and the people who may read it are locked out.
+        // about, and the people who may read it are locked out. The
+        // destruction is now purgeReference()'s, since detaching no longer
+        // destroys anything.
         $first = $this->storeMessage('a@example.be');
         $second = $this->storeMessage('b@example.be');
         $this->messages->addLink($first, 'rental', 'LOC-1', LinkOrigin::REFERENCE);
@@ -345,11 +387,29 @@ class InboundMessageLinkTest extends TestCase
         $this->messages->addAttachment($first, $fileId, 'logo.png', 'image/png', 512, 'shared');
         $this->messages->addAttachment($second, $fileId, 'logo.png', 'image/png', 512, 'shared');
 
-        $this->assertTrue($this->service->detach('rental', 'LOC-1', $first));
+        $this->assertSame(1, $this->service->purgeReference('rental', 'LOC-1'));
 
         $file = $files->findById($fileId);
         $this->assertNotNull($file, 'The second message still holds these bytes.');
         $this->assertSame($second, $file->ownerId);
+    }
+
+    public function testPurgingABusinessObjectStillDestroysItsMailAndItsFiles(): void
+    {
+        // The one path that still erases: it is a consumer's own RGPD
+        // deletion of the object, where the promise to the person concerned
+        // is that the mail attached to their file goes with the file.
+        $id = $this->storeMessage('facture-1@example.be');
+        $this->messages->addLink($id, 'rental', 'LOC-2027-0042', LinkOrigin::REFERENCE);
+
+        $fileId = $this->storeFile();
+        $this->messages->addAttachment($id, $fileId, 'contrat.pdf', 'application/pdf', 1024, 'hash-a');
+
+        $this->assertSame(1, $this->service->purgeReference('rental', 'LOC-2027-0042'));
+
+        $this->assertSame(0, $this->countRows('inbound_messages'));
+        $this->assertSame(0, $this->countRows('inbound_message_attachments'));
+        $this->assertNull((new FileRepository($this->pdo))->findById($fileId));
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────

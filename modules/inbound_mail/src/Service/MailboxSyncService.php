@@ -8,11 +8,14 @@ declare(strict_types=1);
 
 namespace Modules\InboundMail\Service;
 
+use Core\File\FileRepository;
 use Core\File\UploadException;
 use Core\File\UploadHandler;
+use Modules\InboundMail\Api\AttachmentOmission;
 use Modules\InboundMail\Api\CandidateMessage;
 use Modules\InboundMail\Api\MessageConsumerInterface;
 use Modules\InboundMail\Api\MessageLink;
+use Modules\InboundMail\Client\FetchedAttachment;
 use Modules\InboundMail\Client\FetchedMessage;
 use Modules\InboundMail\Client\IncomingMailboxClientInterface;
 use Modules\InboundMail\Client\MailboxConnectionException;
@@ -21,22 +24,28 @@ use Modules\InboundMail\Repository\InboundMailboxRepository;
 use Modules\InboundMail\Repository\InboundMessageRepository;
 
 /**
- * Reading every enabled mailbox and keeping what somebody claimed.
+ * Reading every enabled mailbox and keeping everything it reads.
  *
- * The whole shape of this class follows from two rules that pull in
- * opposite directions:
+ * **This module used to discard what no consumer recognised**, on the
+ * reasoning that an archive nobody can consult is the worst possible
+ * position under the RGPD. That reasoning was right about the archive and
+ * wrong about the conclusion: the answer to "nobody can consult it" is a
+ * screen, a retention and somebody responsible — not throwing the unit's
+ * mail away. All three now exist (§8.58), so everything read is written.
  *
- * - **Nothing unclaimed is ever written** (§7.6). A message no consumer
- *   recognises is dropped: not stored, not queued, not notified. Keeping it
- *   "in case" would build an archive of the unit's mailbox with no screen
- *   to read it — the worst possible position under the RGPD.
- * - **The cursor still advances past it.** Otherwise the same unclaimed
- *   message is fetched, parsed and discarded on every run forever, and a
- *   mailbox with one unrecognised newsletter at the top never gets past it.
+ * What that bought: a message nobody recognised is no longer lost, the Chef
+ * d'Unité can orient it by hand, and a module enabled next month can be
+ * asked to look again at what is still there.
  *
- * So the cursor moves on the UID actually seen, whatever was decided about
- * the message. That is also why a UIDVALIDITY change is safe to handle by
- * re-reading a folder from zero: the message-level deduplication is on
+ * What it costs, and what pays for it: every message in a watched box is
+ * now personal data at rest. It is encrypted like everything else, it is
+ * purged after `inbound_mail_unlinked_retention_days` when nothing points
+ * at it, and the RGPD page says so.
+ *
+ * **The cursor still advances past everything.** Otherwise the same message
+ * is fetched and parsed on every run forever, and a mailbox with one
+ * awkward message at the top never gets past it. That is also why a
+ * UIDVALIDITY change is safe to handle by re-reading a folder from zero: the message-level deduplication is on
  * Message-ID **within the mailbox**, so a re-read recognises what it
  * already has whatever the message has since been associated with.
  *
@@ -67,7 +76,15 @@ class MailboxSyncService
         private MailboxErrorFormatter $errorFormatter,
         private MailboxClientFactory $clientFactory,
         private AnalysisResultApplier $applier,
-        private ?UploadHandler $uploadHandler = null
+        private ?UploadHandler $uploadHandler = null,
+        private ?StorageQuotaService $quotaService = null,
+        /**
+         * Only used by the emergency purge, to remove the files of the
+         * messages it frees. Null simply means the rows go and the bytes
+         * are left — recoverable and invisible, which is the safe
+         * direction.
+         */
+        private ?FileRepository $fileRepository = null
     ) {
     }
 
@@ -177,10 +194,11 @@ class MailboxSyncService
         // message was never even asked, so an email that is both a
         // booking's correspondence and an invoice could only ever be one
         // of the two.
+        //
+        // And the message is stored WHATEVER they answer — including
+        // nothing at all. That is the reversal this module went through:
+        // see the class docblock.
         $results = $this->consumerRegistry->analyzeAll($candidate);
-        if ($results === []) {
-            return false;
-        }
 
         // The message may already be in this box — after a UIDVALIDITY
         // reset made the folder be re-read, or because it arrived in two
@@ -211,7 +229,8 @@ class MailboxSyncService
             bodyText: $candidate->bodyText,
             bodyHtml: $candidate->bodyHtml,
             sentAt: $message->sentAt,
-            toEmails: $message->toEmails
+            toEmails: $message->toEmails,
+            isBulk: $message->isBulk
         );
 
         $created = $this->applier->apply($storedId, $results);
@@ -286,31 +305,58 @@ class MailboxSyncService
         }
 
         foreach ($message->attachments as $attachment) {
-            if (!$this->attachmentPolicy->accepts($attachment, $sanitizedHtml)) {
+            // A signature logo or a spacer: dropped, and never mentioned.
+            // Recording « logo.png n'a pas été conservé » on every message
+            // from every organisation with an email footer would bury the
+            // one omission that matters under a hundred that never did.
+            if ($this->attachmentPolicy->isDecoration($attachment, $sanitizedHtml)) {
                 continue;
             }
 
             $hash = $attachment->contentHash();
+            $mimeType = (string) $this->attachmentPolicy->detectMimeType($attachment->bytes);
+
+            $omission = $this->attachmentPolicy->omissionFor($attachment);
+            if ($omission !== null) {
+                $this->recordOmission($messageId, $attachment, $mimeType, $hash, $omission);
+                continue;
+            }
 
             // The same bytes already stored in this box: record the second
             // reference to the one file rather than writing it twice
             // (§7.8). Per mailbox, since the business reference is no
-            // longer what a message is stored under.
+            // longer what a message is stored under. Costs no disk, so it
+            // is checked BEFORE the quota.
             $existingFileId = $this->messageRepository->findFileIdByHash($mailboxId, $hash);
             if ($existingFileId !== null) {
                 $this->messageRepository->addAttachment(
                     $messageId,
                     $existingFileId,
                     $attachment->filename,
-                    (string) $this->attachmentPolicy->detectMimeType($attachment->bytes),
+                    $mimeType,
                     $attachment->sizeBytes(),
                     $hash
                 );
                 continue;
             }
 
+            // The ceiling, checked before the write rather than after
+            // (D5). The message stays whole; only these bytes are refused.
+            if ($this->quotaService !== null && !$this->quotaService->accepts($attachment->sizeBytes())) {
+                $this->recordOmission(
+                    $messageId,
+                    $attachment,
+                    $mimeType,
+                    $hash,
+                    AttachmentOmission::QUOTA_EXCEEDED
+                );
+                $this->handleOverQuota();
+                continue;
+            }
+
             $fileId = $this->writeAttachment($attachment->bytes, $attachment->filename, $messageId);
             if ($fileId === null) {
+                $this->recordOmission($messageId, $attachment, $mimeType, $hash, AttachmentOmission::STORAGE_ERROR);
                 continue;
             }
 
@@ -318,10 +364,55 @@ class MailboxSyncService
                 $messageId,
                 $fileId,
                 $attachment->filename,
-                (string) $this->attachmentPolicy->detectMimeType($attachment->bytes),
+                $mimeType,
                 $attachment->sizeBytes(),
                 $hash
             );
+        }
+    }
+
+    private function recordOmission(
+        int $messageId,
+        FetchedAttachment $attachment,
+        string $mimeType,
+        string $hash,
+        AttachmentOmission $reason
+    ): void {
+        $this->messageRepository->addOmittedAttachment(
+            $messageId,
+            $attachment->filename,
+            $mimeType,
+            $attachment->sizeBytes(),
+            $hash,
+            $reason->value
+        );
+    }
+
+    /**
+     * Free what can be freed, and tell the superadmin — once a day at most.
+     *
+     * Deliberately unable to fail the synchronisation: the message and its
+     * omission row are already written, and a purge or a notification
+     * throwing must not cost the unit the rest of its mail.
+     */
+    private function handleOverQuota(): void
+    {
+        try {
+            $this->quotaService?->handleOverQuota(
+                function (int $messageId): void {
+                    $fileIds = $this->messageRepository->findFileIdsForMessage($messageId);
+                    $this->messageRepository->deleteMessage($messageId);
+
+                    foreach (array_unique($fileIds) as $fileId) {
+                        if ($this->messageRepository->countAttachmentsForFile($fileId) === 0) {
+                            $this->fileRepository?->delete($fileId);
+                        }
+                    }
+                },
+                new \DateTimeImmutable()
+            );
+        } catch (\Throwable) {
+            // See the docblock.
         }
     }
 

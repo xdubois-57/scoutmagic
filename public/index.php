@@ -4717,7 +4717,8 @@ if ($isEnabled('rental')) {
             $rentalDocumentRepository,
             $rentalAuthorizationService,
             $journalService,
-            $inboundMailForOthers
+            $inboundMailForOthers,
+            $fileRepository
         );
     }
 

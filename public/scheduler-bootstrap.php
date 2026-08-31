@@ -286,8 +286,55 @@ function scoutmagic_bootstrap_scheduler(
         $runner->registerHandlerFactory(
             'inbound_mail',
             \Modules\InboundMail\Task\SyncMailboxesHandler::TASK_KEY,
-            static fn(\Core\Scheduler\TaskContext $context): \Core\Scheduler\TaskHandlerInterface
-                => new \Modules\InboundMail\Task\SyncMailboxesHandler($inboundConsumerRegistry($context))
+            static function (\Core\Scheduler\TaskContext $context) use (
+                $pdo,
+                $encryptionService,
+                $settingService,
+                $journalService,
+                $notificationService,
+                $inboundConsumerRegistry
+            ): \Core\Scheduler\TaskHandlerInterface {
+                // The disk ceiling (D5). Its alert is a CLOSURE rather than
+                // the notification service itself, so the quota logic stays
+                // testable without a mail stack and this file keeps
+                // deciding what « tell the superadmin » means here.
+                $quota = new \Modules\InboundMail\Service\StorageQuotaService(
+                    new \Modules\InboundMail\Repository\InboundMessageRepository($pdo, $encryptionService),
+                    $settingService,
+                    new \Core\Config\SettingRepository($pdo),
+                    $journalService,
+                    $notificationService === null ? null : static function (int $quotaMb, int $purged) use (
+                        $pdo,
+                        $encryptionService,
+                        $notificationService
+                    ): void {
+                        // Only a superadmin can raise the quota or buy
+                        // space, so only a superadmin is told. Nothing
+                        // about any message is named — a count and a
+                        // number of megabytes (§7.9).
+                        $accounts = new \Core\Security\UserAccountRepository($pdo, $encryptionService);
+                        foreach ($accounts->findSuperAdmins() as $entry) {
+                            $notificationService->notify(
+                                $entry['account']->id,
+                                'Espace de stockage du courrier entrant saturé',
+                                sprintf(
+                                    'La limite de %d Mo est atteinte : les pièces jointes entrantes ne sont plus '
+                                    . 'enregistrées. %d message(s) sans association ont été purgés pour libérer de '
+                                    . 'la place. Les messages eux-mêmes restent conservés.',
+                                    $quotaMb,
+                                    $purged
+                                ),
+                                '/config/parametres'
+                            );
+                        }
+                    }
+                );
+
+                return new \Modules\InboundMail\Task\SyncMailboxesHandler(
+                    $inboundConsumerRegistry($context),
+                    $quota
+                );
+            }
         );
         \Modules\InboundMail\Task\SyncMailboxesHandler::bootstrap($schedulerService);
 
@@ -303,6 +350,12 @@ function scoutmagic_bootstrap_scheduler(
                 => new \Modules\InboundMail\Task\AnalyzeStoredMessagesHandler($inboundConsumerRegistry($context))
         );
         \Modules\InboundMail\Task\AnalyzeStoredMessagesHandler::bootstrap($schedulerService);
+
+        // The retention that makes storing everything defensible (§8.58).
+        // Auto-resolved from the manifest — it needs no consumer, only the
+        // connection and the settings the context already carries — so it
+        // is seeded here and nothing else.
+        \Modules\InboundMail\Task\PurgeUnlinkedMessagesHandler::bootstrap($schedulerService);
     }
 
     // ── Recurring-task seeds that used to live on the web path only ─────

@@ -63,13 +63,25 @@ class InboundMailService implements InboundMailInterface
     }
 
     /**
-     * Detaching removes **one association**, not the message.
+     * Detaching removes **one association**, and nothing else.
      *
-     * The message itself only goes when nothing points at it any more —
-     * and its attachments with it, minus the ones a consumer re-classified
-     * and asked to keep. A message another module also recognised survives
-     * untouched, which is exactly what stopped being possible while the
-     * business reference was a column of the message itself.
+     * It used to destroy the message once the last association went. It no
+     * longer does, and the reason is what detaching almost always is: a
+     * correction. Somebody noticed the message was filed under the wrong
+     * booking. Deleting it on the spot meant the right booking could never
+     * receive it — the correction destroyed the thing it was correcting.
+     *
+     * The message now falls back into the unit's general mail, where the
+     * chef d'unité can re-orient it, and `Task\PurgeUnlinkedMessagesHandler`
+     * removes it if nobody ever does. `last_unlinked_at` gives it a floor of
+     * thirty days so a mis-click on an old message has a window to be
+     * noticed (A4).
+     *
+     * `$preserveFileIds` still matters, and now matters *more*: a file the
+     * consumer re-classified into a document of its own is released from
+     * the message (`AttachmentOmission::RECLASSIFIED`), so the purge does
+     * not delete a booking's signed contract along with the email it
+     * arrived in three months later.
      *
      * @param int[] $preserveFileIds
      */
@@ -87,22 +99,19 @@ class InboundMailService implements InboundMailInterface
             return false;
         }
 
-        $fileIds = $this->messageRepository->findFileIdsForMessage($messageId);
-
         if (!$this->messageRepository->removeLink($messageId, $consumerId, $businessReference)) {
             return false;
         }
 
         $this->notifyUnlinked($stored, $consumerId, $businessReference);
 
-        if ($this->messageRepository->countLinks($messageId) > 0) {
-            // Somebody else still recognises this message. Neither it nor
-            // its files are anybody's to remove.
-            return true;
+        foreach (array_unique($preserveFileIds) as $fileId) {
+            // Whether or not other associations remain: the file has become
+            // the consumer's document, and the message must stop being what
+            // decides its lifetime.
+            $this->messageRepository->releaseAttachmentFile($messageId, $fileId);
+            $this->handOverFileOwnership($fileId, $messageId);
         }
-
-        $this->messageRepository->deleteMessage($messageId);
-        $this->deleteUnreferencedFiles($fileIds, $preserveFileIds);
 
         return true;
     }
@@ -236,6 +245,10 @@ class InboundMailService implements InboundMailInterface
             $removed++;
 
             if ($this->messageRepository->countLinks($messageId) === 0) {
+                // Unlike detach(), this one really does destroy: it is the
+                // consumer's own RGPD erasure of a business object running,
+                // and the promise made to the person concerned is that the
+                // mail attached to their file goes with the file.
                 $this->messageRepository->deleteMessage($messageId);
             }
         }
@@ -271,19 +284,34 @@ class InboundMailService implements InboundMailInterface
 
             // The file survives because another message deduplicated onto
             // the same bytes — and `files.owner_id` may still name the
-            // message that has just gone. Hand the ownership to a message
-            // that really holds it, or the access registry finds no
-            // associations to ask about and locks out the very people who
-            // may read it.
-            $holder = $this->messageRepository->findMessageHoldingFile($fileId);
-            if ($holder !== null) {
-                $this->fileRepository?->updateOwner(
-                    $fileId,
-                    InboundMessageAccessRegistry::OWNER_TYPE,
-                    $holder
-                );
-            }
+            // message that has just gone.
+            $this->handOverFileOwnership($fileId, null);
         }
+    }
+
+    /**
+     * Point `files.owner_id` at a message that really holds the file.
+     *
+     * Without this the file keeps naming a message that no longer holds it,
+     * `Service\InboundMessageAccessRegistry` finds no associations to ask
+     * about, and the very people who may read it are locked out. When
+     * nothing holds it any more the owner is left alone: the file is either
+     * about to be deleted or has become a consumer's own document, and
+     * inventing an owner for it here would be this module guessing at
+     * another module's business.
+     */
+    private function handOverFileOwnership(int $fileId, ?int $except): void
+    {
+        $holder = $this->messageRepository->findMessageHoldingFile($fileId);
+        if ($holder === null || $holder === $except) {
+            return;
+        }
+
+        $this->fileRepository?->updateOwner(
+            $fileId,
+            InboundMessageAccessRegistry::OWNER_TYPE,
+            $holder
+        );
     }
 
     /**
