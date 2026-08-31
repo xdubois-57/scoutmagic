@@ -2921,6 +2921,39 @@ if ($isEnabled('inbound_mail')) {
         )
     );
 
+    // `/courrier` — the Chef d'Unité's view of everything the unit
+    // received, and one of the three things that make storing every
+    // message defensible (§8.58). The route's own role_min is what keeps
+    // it to that one role; nothing here re-derives it.
+    $frontController->registerController(
+        \Modules\InboundMail\Controller\InboundMailboxController::class,
+        new \Modules\InboundMail\Controller\InboundMailboxController(
+            $twig,
+            new \Modules\InboundMail\Service\GeneralMailboxService(
+                $inboundMessageRepository,
+                $inboundMailboxRepository,
+                $inboundReadConsumers
+            ),
+            $inboundMailForOthers,
+            $inboundReadConsumers,
+            $journalService
+        )
+    );
+
+    // « Du courrier attend d'être orienté ». Without it the archive is
+    // kept for ninety days and thrown away unread, which is the old bug
+    // with a slower clock. Two aggregate counts, no decryption.
+    $attentionProviders[] = new \Modules\InboundMail\Service\InboundMailAttentionProvider(
+        $inboundMessageRepository,
+        $settingService
+    );
+
+    // `/courrier` is deliberately NOT declared in the module's `offline`
+    // section — there is none. A page that lists every message the unit
+    // ever received has no business being cached on a phone that may be
+    // lost, and « lisible hors ligne » is opt-in per module precisely so
+    // that a page like this one is excluded by saying nothing.
+
     // The polling task and the consumer registry it needs are wired in
     // public/scheduler-bootstrap.php (shared by both entry points), as a
     // lazy factory — so the three-module consumer graph is only ever

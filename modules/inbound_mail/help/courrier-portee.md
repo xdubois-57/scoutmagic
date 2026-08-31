@@ -5,7 +5,7 @@ summary: Boîte partagée ou dédiée, qui analyse, qui peut lire, et combien de
 category: Configuration
 role_min: superadmin
 paths: /config/courrier-entrant/boites/*/portee
-related: courrier-entrant
+related: courrier-entrant, courrier-unite
 ---
 
 ## À quoi sert cette boîte ?

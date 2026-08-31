@@ -396,7 +396,9 @@ class InboundMessageRepository
                     (string) $row['evidence_explanation_encrypted'],
                     'inbound_message_candidates.evidence_explanation'
                 ),
-                attachmentId: (int) $row['attachment_id']
+                attachmentId: (int) $row['attachment_id'],
+                id: (int) $row['id'],
+                consumerId: (string) $row['consumer_id']
             ),
             $stmt->fetchAll(\PDO::FETCH_ASSOC)
         );
@@ -889,6 +891,164 @@ class InboundMessageRepository
         $stmt->execute([$fileId]);
 
         return (int) $stmt->fetchColumn();
+    }
+
+    // ── The general mailbox (§8.58, IT-06) ──────────────────────────────
+
+    /**
+     * One page of the unit's whole mail, newest first.
+     *
+     * **Cursor pagination, never OFFSET** (A13). This table grows without
+     * bound; `LIMIT 40 OFFSET 8000` makes MariaDB walk eight thousand rows
+     * to throw them away, and the page a chef d'unité opens least often is
+     * the one that gets slowest. The cursor is the pair `(sent_at, id)`
+     * rather than `sent_at` alone, because two messages can share a second
+     * — a mailing list delivering a batch does it routinely — and a cursor
+     * on the timestamp alone would skip every message after the first of
+     * that second, permanently and invisibly.
+     *
+     * **There is no full-text search here, deliberately** (D16). Searching
+     * an encrypted column means either decrypting the whole table on every
+     * keystroke or keeping a plaintext index of everything anybody ever
+     * wrote to the unit. The filters below are all metadata, which is what
+     * the blind indexes and the plain columns already allow.
+     *
+     * @param array{mailbox_id?: int|null, association?: string, include_bulk?: bool} $filters
+     * @param array{sent_at: string, id: int}|null $after the last row of the previous page
+     * @return InboundMessage[]
+     */
+    public function findPage(array $filters, ?array $after, int $limit): array
+    {
+        $where = ['1 = 1'];
+        $params = [];
+
+        if (($filters['mailbox_id'] ?? null) !== null) {
+            $where[] = 'm.mailbox_id = ?';
+            $params[] = (int) $filters['mailbox_id'];
+        }
+
+        $association = (string) ($filters['association'] ?? 'all');
+        if ($association === 'none') {
+            // « Sans association » means nothing points at it AND nothing
+            // has been proposed about it — a message with a proposition
+            // waiting is not unattended, it is waiting for somebody.
+            $where[] = 'NOT EXISTS (SELECT 1 FROM inbound_message_links l WHERE l.message_id = m.id)';
+            $where[] = 'NOT EXISTS (SELECT 1 FROM inbound_message_candidates c
+                                     WHERE c.message_id = m.id AND c.dismissed_at IS NULL)';
+        } elseif ($association === 'some') {
+            $where[] = 'EXISTS (SELECT 1 FROM inbound_message_links l WHERE l.message_id = m.id)';
+        }
+
+        if (($filters['include_bulk'] ?? false) !== true) {
+            $where[] = 'm.is_bulk = 0';
+        }
+
+        if ($after !== null) {
+            // Strictly "older than the last row shown", by the same pair the
+            // ORDER BY uses, or the page boundary repeats or skips a row.
+            $where[] = '(m.sent_at < ? OR (m.sent_at = ? AND m.id < ?))';
+            $params[] = $after['sent_at'];
+            $params[] = $after['sent_at'];
+            $params[] = $after['id'];
+        }
+
+        $stmt = $this->pdo->prepare(
+            'SELECT m.* FROM inbound_messages m
+              WHERE ' . implode(' AND ', $where) . '
+           ORDER BY m.sent_at DESC, m.id DESC
+              LIMIT ' . max(1, $limit)
+        );
+        $stmt->execute($params);
+
+        return $this->hydrateAll($stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * How many messages the box holds that nobody has looked at yet — the
+     * figure the attention page shows.
+     *
+     * A count, never a listing: an attention point says how many and where
+     * to go, never who wrote or what about (§7.9).
+     */
+    public function countUnassociated(bool $includeBulk = false): int
+    {
+        $sql = 'SELECT COUNT(*) FROM inbound_messages m
+                 WHERE NOT EXISTS (SELECT 1 FROM inbound_message_links l WHERE l.message_id = m.id)
+                   AND NOT EXISTS (SELECT 1 FROM inbound_message_candidates c
+                                    WHERE c.message_id = m.id AND c.dismissed_at IS NULL)';
+        if (!$includeBulk) {
+            $sql .= ' AND m.is_bulk = 0';
+        }
+
+        $stmt = $this->pdo->query($sql);
+
+        return $stmt === false ? 0 : (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * Hydrate a set of rows read without a business reference — the
+     * general mailbox's shape, where a message is not being looked at
+     * through any one association.
+     *
+     * `consumerId` and `businessReference` on the result are the FIRST
+     * association the message carries, or empty strings when it carries
+     * none. They mean « l'angle par lequel on regarde », and here there is
+     * no angle; `$links` is the honest answer and is always complete.
+     *
+     * @param array<int, array<string, mixed>> $rows
+     * @return InboundMessage[]
+     */
+    private function hydrateAll(array $rows): array
+    {
+        if ($rows === []) {
+            return [];
+        }
+
+        $ids = array_map(static fn(array $row) => (int) $row['id'], $rows);
+        $attachments = $this->findAttachmentsFor($ids);
+        $links = $this->findLinksFor($ids);
+        $omitted = $this->findOmittedAttachmentsFor($ids);
+
+        return array_map(
+            function (array $row) use ($attachments, $links, $omitted) {
+                $id = (int) $row['id'];
+                $own = $links[$id] ?? [];
+
+                return $this->hydrate(
+                    $row,
+                    $attachments[$id] ?? [],
+                    $own,
+                    $own[0]->consumerId ?? '',
+                    $own[0]->businessReference ?? '',
+                    $omitted[$id] ?? []
+                );
+            },
+            $rows
+        );
+    }
+
+    /** How many messages the general list is hiding as automatic mail. */
+    public function countBulk(): int
+    {
+        $stmt = $this->pdo->query('SELECT COUNT(*) FROM inbound_messages WHERE is_bulk = 1');
+
+        return $stmt === false ? 0 : (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * One message, whatever it is associated with — the general mailbox's
+     * own read.
+     *
+     * Deliberately NOT on `Api\InboundMailInterface`: that contract is
+     * scoped to one consumer and one business reference on every call, and
+     * an unscoped read reachable from another module is exactly how a
+     * manager's access to one booking becomes a window onto the unit's
+     * whole mailbox (§7.11). This one stays here, behind a route the Chef
+     * d'Unité alone can reach.
+     */
+    public function findAnyById(int $messageId): ?InboundMessage
+    {
+        return $this->findAnyForAnalysis($messageId);
     }
 
     // ── Retention and quota ─────────────────────────────────────────────
