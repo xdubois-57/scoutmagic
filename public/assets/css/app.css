@@ -700,3 +700,31 @@ body:has(> #cookie-banner) {
     border-radius: var(--bs-border-radius);
     margin: 0.75rem 0;
 }
+
+/* Passage (modules/registration, views/passage.html.twig) — the column
+   both of that page's tables end with: a section picker and its
+   « Enregistrer » button, side by side in one flex row.
+
+   The button already carried .text-nowrap, so the defect was never a
+   wrapped label: with nothing stopping the flex item from shrinking, the
+   button was squeezed BELOW the width of its own text and the nowrap made
+   that text overflow the cell. .flex-shrink-0 on the button and
+   .flex-grow-1 on the select fix the pair; this class gives the column the
+   room the two of them actually need — a realistic section name plus the
+   button — rather than the 200/240px it had been guessed at.
+
+   A class rather than the three style="min-width:…" attributes it
+   replaces: SECURITY.md §34 asks for exactly this conversion whenever a
+   template carrying inline geometry is touched anyway, and these were
+   static values, not computed ones. It lives here rather than in
+   components.css because base.html.twig loads app.css for every page and
+   components.css only on the pages that opt in — one min-width rule does
+   not justify pulling a thousand lines of unrelated component CSS into
+   this one page.
+
+   The table stays inside .table-responsive: horizontal scrolling on a
+   phone is the accepted outcome here (spec §12), not a defect to design
+   around. The goal is a legible column, not a table that fits 375px. */
+.passage-assign-col {
+    min-width: 17.5rem;
+}

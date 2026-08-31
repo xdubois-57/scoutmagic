@@ -21,7 +21,7 @@
                                 <th>Section souhaitée</th>
                                 <th>Remarques</th>
                                 <th>Fratrie</th>
-                                <th>Section prévue</th>
+                                <th class="passage-assign-col">Section prévue</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -41,10 +41,10 @@
                                             {% endfor %}
                                         {% endif %}
                                     </td>
-                                    <td style="min-width:240px;">
+                                    <td class="passage-assign-col">
                                         <div class="d-flex gap-2 align-items-center">
                                             <label for="passage-section-{{ r.id }}" class="visually-hidden">Section prévue pour {{ r.childFirstName }} {{ r.childLastName }}</label>
-                                            <select id="passage-section-{{ r.id }}" class="form-select form-select-sm passage-select"
+                                            <select id="passage-section-{{ r.id }}" class="form-select form-select-sm passage-select flex-grow-1"
                                                     data-endpoint="/passage/inscription/{{ r.id }}/section"
                                                     data-field="intended_section_id">
                                                 <option value="0">— Non défini —</option>
@@ -52,7 +52,7 @@
                                                     <option value="{{ section.id }}" {{ r.intendedSectionId == section.id ? 'selected' : '' }}>{{ section.name ?? section.desk_code }}</option>
                                                 {% endfor %}
                                             </select>
-                                            <button type="button" class="btn btn-sm btn-outline-primary passage-save text-nowrap">Enregistrer</button>
+                                            <button type="button" class="btn btn-sm btn-outline-primary passage-save text-nowrap flex-shrink-0">Enregistrer</button>
                                         </div>
                                         <div class="form-text passage-feedback" role="status" aria-live="polite"></div>
                                     </td>
@@ -91,7 +91,7 @@
                                     <th>Nom</th>
                                     <th class="d-none d-md-table-cell">Année de parcours</th>
                                     <th>Même adresse</th>
-                                    <th style="min-width:200px;">Destination</th>
+                                    <th class="passage-assign-col">Destination</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -108,10 +108,10 @@
                                                 {% endfor %}
                                             {% endif %}
                                         </td>
-                                        <td style="min-width:240px;">
+                                        <td class="passage-assign-col">
                                             <div class="d-flex gap-2 align-items-center">
                                                 <label for="passage-destination-{{ member.member_id }}" class="visually-hidden">Destination pour {{ member.name }}</label>
-                                                <select id="passage-destination-{{ member.member_id }}" class="form-select form-select-sm passage-select"
+                                                <select id="passage-destination-{{ member.member_id }}" class="form-select form-select-sm passage-select flex-grow-1"
                                                         data-endpoint="/passage/membre/{{ member.member_id }}/destination"
                                                         data-field="destination_section_id">
                                                     <option value="0">— Non défini —</option>
@@ -119,7 +119,7 @@
                                                         <option value="{{ section.id }}" {{ member.destination_section_id == section.id ? 'selected' : '' }}>{{ section.name ?? section.desk_code }}</option>
                                                     {% endfor %}
                                                 </select>
-                                                <button type="button" class="btn btn-sm btn-outline-primary passage-save text-nowrap">Enregistrer</button>
+                                                <button type="button" class="btn btn-sm btn-outline-primary passage-save text-nowrap flex-shrink-0">Enregistrer</button>
                                             </div>
                                             {% if member.destination_options is empty %}
                                                 <div class="form-text">Aucune section configurée pour la branche d'arrivée.</div>
