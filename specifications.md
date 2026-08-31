@@ -1500,6 +1500,18 @@ identique de part et d'autre ; lui donner un montant mettrait des euros sur
 une différence qui n'en est pas. Le site distingue cela de « le site ne
 peut pas chiffrer » : ce ne sont pas la même affirmation.
 
+**Ce qu'est un breveté est lu par le module `leadership` quand il est
+actif.** La fédération accorde la réduction pour le BACV comme pour le
+Woodbadge, et un brevet dont le type n'a jamais été précisé en est
+forcément l'un des deux — les trois ouvrent donc la réduction, à la
+différence du ratio ONE (§25.2) qui ne compte que le BACV. Sans ce
+module, la vérification retombe sur sa propre lecture du libellé, qui
+reconnaît « brevet », « BACV » et « Woodbadge ». Un libellé qu'aucune des
+deux lectures ne reconnaît reste **indéterminé** : ce n'est pas
+« pas de brevet ». Le libellé d'une ligne de facture, lui, n'est jamais
+lu par le module : le vocabulaire d'une unité décrit ses personnes, pas
+ses documents.
+
 Deux restrictions existent pour que la page reste lisible plutôt que
 seulement exacte. Une section que la facture ne couvre pas n'est pas
 signalée comme absente en entier — une facture portant sur trois sections

@@ -2241,6 +2241,12 @@ $twig->addGlobal('active_page_url', $activePageUrl);
 $llmConnectorForOthers = null;
 $llmSubProcessorProvider = null;
 
+// How a Desk formation wording should be read for this unit
+// (Modules\Leadership\Api\FormationLevelInterface, §7.5) — assigned in
+// the leadership block below and consumed by `fees`, which falls back to
+// its own reading when the module is off.
+$leadershipFormationLevels = null;
+
 // Household size and the fee category it implies (ARCHITECTURE.md §8.34).
 // A core service, built once here rather than inside the registration
 // module's own block: it was assembled in there because that module was
@@ -5322,6 +5328,15 @@ if ($isEnabled('leadership')) {
         )
     );
 
+    // The public reading of a Desk formation wording, for whoever else
+    // needs one (§7.5). `fees` is the one consumer today: its federation
+    // invoice check used to answer the same question with a heuristic of
+    // its own that did not know about the BACV.
+    $leadershipFormationLevels = new \Modules\Leadership\Service\FormationLevelApi(
+        $leadershipMappingRepository,
+        $leadershipResolver
+    );
+
     $moduleHooks->register(\Core\Module\FormationPathProvider::class, new \Modules\Leadership\Service\MemberFormationPathService(
         $leadershipRepository,
         $leadershipMappingRepository,
@@ -5394,7 +5409,10 @@ if ($isEnabled('fees')) {
         $feesSnapshotRepo,
         $feesTariffService,
         $sectionService,
-        new \Modules\Fees\Repository\HouseholdDetailRepository($pdo, $encryptionService)
+        new \Modules\Fees\Repository\HouseholdDetailRepository($pdo, $encryptionService),
+        // With leadership enabled, a brevet is what that unit decided one
+        // is; without it, the detector's own fallback reading (§7.5).
+        new \Modules\Fees\Service\BrevetDetector($leadershipFormationLevels)
     );
     $frontController->registerController(
         \Modules\Fees\Controller\InvoiceController::class,
