@@ -376,7 +376,8 @@
       "role_min": "chief",
       "label": "Prévisions",
       "menu_icon": "bi-graph-up-arrow",
-      "menu_group": "ma_section",
+      "menu_group": "gestion",
+      "menu_order": 30,
       "breadcrumb": {
         "label": "Prévisions",
         "parents": [

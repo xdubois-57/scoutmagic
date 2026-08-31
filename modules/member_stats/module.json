@@ -13,6 +13,7 @@
       "label": "Statistiques",
       "menu_icon": "bi-bar-chart",
       "menu_group": "gestion",
+      "menu_order": 20,
       "role_min": "chief",
       "breadcrumb": { "label": "Statistiques", "parents": ["Espace animateurs"] }
     }
