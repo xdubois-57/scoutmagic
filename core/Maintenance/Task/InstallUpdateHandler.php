@@ -40,6 +40,14 @@ use Core\Scheduler\TaskHandlerInterface;
  * (via the UpdateHistory row) already carries either the release tag or a
  * "dev-{short sha}" string.
  *
+ * One thing happens before any of the steps below, while update_history
+ * is still 'pending': if the payload carries `wait_for_artifact_until`
+ * (the development channel — its install is scheduled the instant the
+ * push webhook arrives, minutes before CI has finished publishing the
+ * artifact), the download URL is probed and the whole task reschedules
+ * itself until the artifact appears or that deadline passes. See
+ * waitForArtifact().
+ *
  * Steps, each recorded in update_history.status: backing_up (a real,
  * restorable Core\Maintenance\BackupService backup — not shortcut, since
  * it's the only thing rollback can restore from) → downloading → installing
@@ -103,6 +111,16 @@ class InstallUpdateHandler implements TaskHandlerInterface
         }
 
         if ($history->status !== 'pending') {
+            return;
+        }
+
+        // The artifact may not exist yet — see waitForArtifact()'s docblock.
+        // Deliberately the FIRST thing after the status guard: it runs
+        // while the row is still 'pending', before the install lock is
+        // taken, before markOtherInProgressAsFailed() closes anybody
+        // else's row, and before the safety backup. A build that has not
+        // finished uploading must cost nothing but a rescheduled task.
+        if (!$this->waitForArtifact($payload, $historyId, $history, $downloadUrl, $context, $updateHistoryRepository)) {
             return;
         }
 
@@ -421,6 +439,146 @@ class InstallUpdateHandler implements TaskHandlerInterface
         );
     }
 
+    /**
+     * How long to wait between two probes of an artifact CI has not
+     * finished publishing. Long enough that a three-minute build costs two
+     * or three cheap HEAD requests rather than a busy loop, short enough
+     * that a development install still lands within a minute or two of the
+     * build finishing.
+     */
+    private const ARTIFACT_RETRY_DELAY_SECONDS = 90;
+
+    /**
+     * Whether the install may proceed, given that its artifact might not
+     * exist yet.
+     *
+     * The development channel schedules its install from the push webhook,
+     * which fires the instant the commit lands — while
+     * .github/workflows/dev-build.yml still has one to three minutes of
+     * dependency resolution, zipping and uploading ahead of it. So the
+     * download URL Core\Maintenance\GitHubWebhookService computed is a
+     * promise about the near future, and `wait_for_artifact_until` (a unix
+     * timestamp in the payload) is how long that promise is good for.
+     *
+     * - Artifact there → true, install normally.
+     * - Not there, deadline not reached → reschedule THIS task, unchanged
+     *   (same payload, same reference), for a minute and a half later and
+     *   return false. update_history stays 'pending', which is safe:
+     *   Maintenance\AbandonedInstallSweeper closes a pending row only when
+     *   NO queued scheduled action points at it, and the one just created
+     *   does. 'pending' also keeps Maintenance\MaintenanceGate from
+     *   holding visitors behind an install that has not touched a file.
+     * - Not there, deadline passed → markFailed. Never a fallback to
+     *   GitHub's zipball of the commit: that archive has no vendor/, and
+     *   installing it is precisely the silent dependency drift this
+     *   channel was rebuilt to remove. An artifact that never appeared is
+     *   a broken build, and a broken build must be visible.
+     *
+     * A probe that fails for any other reason — rate limit, TLS hiccup,
+     * refused connection, 5xx — counts as "not there yet", not as fatal:
+     * the deadline is the only thing that ends the wait.
+     *
+     * @param array<string, mixed> $payload
+     */
+    private function waitForArtifact(
+        array $payload,
+        int $historyId,
+        UpdateHistory $history,
+        string $downloadUrl,
+        TaskContext $context,
+        UpdateHistoryRepository $updateHistoryRepository
+    ): bool {
+        $deadline = (int) ($payload['wait_for_artifact_until'] ?? 0);
+        if ($deadline <= 0) {
+            // No deadline in the payload: a stable release install, or a
+            // task queued before this field existed. Its artifact was
+            // published before the install was ever scheduled.
+            return true;
+        }
+
+        $status = $this->probeArtifactStatus($downloadUrl);
+        if ($status !== null && $status >= 200 && $status < 300) {
+            return true;
+        }
+
+        if (time() < $deadline) {
+            $schedulerService = new SchedulerService(new SchedulerRepository($context->connection->getPdo()));
+            $schedulerService->scheduleAfter(
+                'core',
+                'install_update',
+                self::ARTIFACT_RETRY_DELAY_SECONDS,
+                $payload,
+                isset($payload['reference']) ? (string) $payload['reference'] : null
+            );
+            $context->journal->log(
+                'core',
+                'update_artifact_pending',
+                'info',
+                'Artefact de mise à jour pas encore publié — nouvelle tentative planifiée',
+                [
+                    'history_id' => $historyId,
+                    'version_to' => $history->versionTo,
+                    'http_status' => $status,
+                    'retry_in_seconds' => self::ARTIFACT_RETRY_DELAY_SECONDS,
+                ],
+                $history->requestedBy
+            );
+
+            return false;
+        }
+
+        $updateHistoryRepository->markFailed(
+            $historyId,
+            'L\'archive de cette mise à jour n\'a jamais été publiée : l\'intégration continue devait déposer '
+            . '« ' . basename($downloadUrl) . ' » sur la préversion « dev-build » du dépôt, et elle est toujours '
+            . 'absente. La mise à jour a été abandonnée sans rien modifier ; relancez la construction, puis '
+            . 'réessayez.'
+        );
+        $context->journal->log(
+            'core',
+            'update_failed',
+            'info',
+            'Artefact de mise à jour jamais publié — installation abandonnée',
+            [
+                'history_id' => $historyId,
+                'version_to' => $history->versionTo,
+                'download_url' => $downloadUrl,
+                'http_status' => $status,
+            ],
+            $history->requestedBy
+        );
+        $this->announce(
+            $context,
+            $history,
+            'core.update_failed',
+            'Échec de la mise à jour',
+            'L\'archive de la mise à jour n\'a jamais été publiée — aucune modification n\'a été effectuée.'
+        );
+
+        return false;
+    }
+
+    /**
+     * The HTTP status the artifact URL answers, or null when no response
+     * could be obtained at all (refused connection, a redirect off the
+     * GitHub allowlist, too many hops).
+     *
+     * A HEAD through the same allowlisted redirect walk the real download
+     * uses — deliberately the SAME code (fetchFollowingAllowlistedRedirects()),
+     * not a second copy: the per-hop host check is the security-sensitive
+     * part of this class, and a probe with its own slightly different
+     * version of it is how that kind of check comes apart.
+     *
+     * `protected` rather than `private` purely so a test can substitute an
+     * answer for it; nothing else overrides it.
+     */
+    protected function probeArtifactStatus(string $url): ?int
+    {
+        [$status] = $this->fetchFollowingAllowlistedRedirects($url, 'HEAD');
+
+        return $status;
+    }
+
     private function scheduleMigrationResume(TaskContext $context, int $historyId, string $downloadUrl, string $sourceType): void
     {
         $schedulerService = new SchedulerService(new SchedulerRepository($context->connection->getPdo()));
@@ -677,67 +835,117 @@ class InstallUpdateHandler implements TaskHandlerInterface
      * @return array{0: bool, 1: int|null, 2: string} success, HTTP status
      *         (null if the connection itself never got a response), and a
      *         short human-readable reason for a failed attempt
+     * `protected` rather than `private` for the same reason as
+     * probeArtifactStatus(): a test seam, nothing else overrides it.
      */
-    private function attemptDownload(string $url, string $destPath): array
+    protected function attemptDownload(string $url, string $destPath): array
     {
-        // Redirects are followed by hand (follow_location => 0) so every hop
-        // is re-checked against the GitHub allowlist. A GitHub download
-        // legitimately redirects (api.github.com → codeload, github.com →
-        // objects.githubusercontent.com), but a redirect to any other host
-        // must abort the download rather than be followed blindly.
+        [$statusCode, $body, $reason] = $this->fetchFollowingAllowlistedRedirects($url, 'GET');
+
+        if ($body === null) {
+            return [false, $statusCode, $reason];
+        }
+
+        if ($statusCode !== null && $statusCode >= 400) {
+            return [false, $statusCode, "HTTP {$statusCode}"];
+        }
+
+        if (@file_put_contents($destPath, $body) === false || !is_file($destPath) || filesize($destPath) === 0) {
+            @unlink($destPath);
+            return [false, $statusCode, 'écriture du fichier temporaire impossible'];
+        }
+
+        return [true, $statusCode, ''];
+    }
+
+    /**
+     * One HTTP request, following GitHub's own redirects by hand.
+     *
+     * Redirects are followed manually (follow_location => 0) so every hop
+     * is re-checked against the GitHub allowlist. A GitHub download
+     * legitimately redirects (api.github.com → codeload, github.com →
+     * objects.githubusercontent.com), but a redirect to any other host
+     * must abort rather than be followed blindly.
+     *
+     * Shared by the real download ($method 'GET') and the cheap
+     * "has CI published the artifact yet?" probe ($method 'HEAD', see
+     * probeArtifactStatus()) — deliberately one implementation, since the
+     * per-hop host check is the security-sensitive part and a second copy
+     * of it is how such a check drifts out of agreement with itself.
+     *
+     * @return array{0: int|null, 1: string|null, 2: string} the final HTTP
+     *         status (null when no response was obtained at all), the
+     *         response body (null when the request never completed — a
+     *         refused hop, a dead connection, too many redirects), and a
+     *         short human-readable reason in that case.
+     */
+    private function fetchFollowingAllowlistedRedirects(string $url, string $method): array
+    {
         $currentUrl = $url;
 
         for ($hop = 0; $hop <= self::MAX_DOWNLOAD_REDIRECTS; $hop++) {
             if (!\Core\Maintenance\GitHubUrlValidator::isAllowed($currentUrl)) {
-                return [false, null, 'redirection hors GitHub refusée'];
+                return [null, null, 'redirection hors GitHub refusée'];
             }
 
-            $context = stream_context_create([
-                'http' => [
-                    'method' => 'GET',
-                    'header' => "User-Agent: ScoutMagic-Updater\r\n",
-                    'timeout' => 300,
-                    'follow_location' => 0,
-                    'ignore_errors' => true,
-                ],
-            ]);
-
-            // file_get_contents() rather than copy(): both reach the same
-            // stream wrapper, but only the former reliably records the
-            // response headers — same convention as Core\Maintenance\
-            // GitHubReleaseClient::httpGet(). Cleared first so that one hop
-            // of this redirect chain can never be read as the next one's.
-            StreamResponseHeaders::clear();
-            $body = @file_get_contents($currentUrl, false, $context);
+            [$body, $responseHeaders] = $this->performHttpRequest($currentUrl, $method);
             if ($body === false) {
-                return [false, null, 'connexion impossible'];
+                return [null, null, 'connexion impossible'];
             }
 
-            $responseHeaders = StreamResponseHeaders::last();
             $statusCode = $this->parseHttpStatus($responseHeaders);
 
             if ($statusCode !== null && $statusCode >= 300 && $statusCode < 400) {
                 $location = $this->parseLocationHeader($responseHeaders);
                 if ($location === null) {
-                    return [false, $statusCode, "redirection {$statusCode} sans destination"];
+                    return [$statusCode, null, "redirection {$statusCode} sans destination"];
                 }
                 $currentUrl = $location;
                 continue;
             }
 
-            if ($statusCode !== null && $statusCode >= 400) {
-                return [false, $statusCode, "HTTP {$statusCode}"];
-            }
-
-            if (@file_put_contents($destPath, $body) === false || !is_file($destPath) || filesize($destPath) === 0) {
-                @unlink($destPath);
-                return [false, $statusCode, 'écriture du fichier temporaire impossible'];
-            }
-
-            return [true, $statusCode, ''];
+            return [$statusCode, $body, ''];
         }
 
-        return [false, null, 'trop de redirections'];
+        return [null, null, 'trop de redirections'];
+    }
+
+    /**
+     * One raw HTTP exchange — the only line of the redirect walk that
+     * actually touches the network, isolated so the walk itself (the
+     * per-hop allowlist check, the redirect parsing, the hop ceiling —
+     * the security-sensitive part) is testable without one. `protected`
+     * as a test seam, same convention as probeArtifactStatus(); nothing
+     * else overrides it.
+     *
+     * @return array{0: string|false, 1: array<int, string>} the response
+     *         body (false when no response was obtained at all) and the
+     *         raw response headers of this hop
+     */
+    protected function performHttpRequest(string $url, string $method): array
+    {
+        $context = stream_context_create([
+            'http' => [
+                'method' => $method,
+                'header' => "User-Agent: ScoutMagic-Updater\r\n",
+                // A HEAD transfers no body, so it has no business holding
+                // a scheduler pass for the five minutes a real artifact
+                // download is allowed.
+                'timeout' => $method === 'HEAD' ? 30 : 300,
+                'follow_location' => 0,
+                'ignore_errors' => true,
+            ],
+        ]);
+
+        // file_get_contents() rather than copy(): both reach the same
+        // stream wrapper, but only the former reliably records the
+        // response headers — same convention as Core\Maintenance\
+        // GitHubReleaseClient::httpGet(). Cleared first so that one hop
+        // of a redirect chain can never be read as the next one's.
+        StreamResponseHeaders::clear();
+        $body = @file_get_contents($url, false, $context);
+
+        return [$body, StreamResponseHeaders::last()];
     }
 
     /**

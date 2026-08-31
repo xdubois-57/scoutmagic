@@ -234,7 +234,9 @@ class MaintenanceController extends AbstractController
      * Development-channel path for installUpdate() — re-fetches the
      * branch's current head rather than trusting anything cached client-
      * side, then schedules exactly the same immediate/no-slot install
-     * GitHubWebhookService::handlePushEvent() would for the same commit.
+     * GitHubWebhookService::handlePushEvent() would for the same commit:
+     * the same CI-built artifact URL, the same source_type, the same
+     * wait-for-artifact deadline.
      */
     private function installDevBranchUpdate(string $installedVersion, ?int $userId): Response
     {
@@ -264,14 +266,42 @@ class MaintenanceController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Aucune mise à jour disponible.'], 400);
         }
 
-        $downloadUrl = "https://api.github.com/repos/{$owner}/{$repo}/zipball/{$commit->sha}";
-        $historyId = $this->updateHistoryRepository->create($installedVersion, $versionTo, false, $userId);
+        // The same CI-built artifact the push webhook installs — never the
+        // git zipball, which carries no vendor/ and ships tests/ and
+        // bootstrap/ into the webroot. One shared helper builds the URL so
+        // the two dev-channel entry points cannot drift apart.
+        $downloadUrl = GitHubWebhookService::devArtifactUrl("{$owner}/{$repo}", $commit->sha);
+
+        // Informational on the dev channel (the artifact carries vendor/
+        // itself), so a failed GitHub compare degrades to false rather
+        // than blocking or alarming — same choice as the webhook path.
+        $dependenciesChanged = false;
+        try {
+            $base = VersionFile::isDevBuild($installedVersion)
+                ? substr($installedVersion, strlen('dev-'))
+                : 'v' . $installedVersion;
+            $dependenciesChanged = $this->releaseClient()->composerLockChanged($base, $commit->sha);
+        } catch (\Throwable) {
+        }
+
+        $historyId = $this->updateHistoryRepository->create($installedVersion, $versionTo, $dependenciesChanged, $userId);
 
         $this->schedulerService->scheduleAfter(
             'core',
             'install_update',
             0,
-            ['history_id' => $historyId, 'download_url' => $downloadUrl, 'source_type' => 'branch'],
+            [
+                'history_id' => $historyId,
+                'download_url' => $downloadUrl,
+                // Flat like a release artifact — see the webhook path.
+                'source_type' => 'release',
+                // A just-pushed commit may not have its artifact yet; the
+                // handler waits and retries against this deadline instead
+                // of failing on the first 404. No reference: a manual
+                // install is deliberately allowed to force an attempt and
+                // is not part of the webhook's supersede chain.
+                'wait_for_artifact_until' => time() + GitHubWebhookService::ARTIFACT_WAIT_SECONDS,
+            ],
             null,
             $userId
         );
