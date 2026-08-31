@@ -102,8 +102,8 @@ class SettingRepository
      * spec "Paramètres par défaut" (Core\Maintenance\Task\
      * ResetSettingsHandler). A single UPDATE covering every row (core and
      * every module), not filtered by editable — internal bookkeeping
-     * settings (e.g. scheduler_last_run) tolerate their default value fine,
-     * and the spec doesn't carve out an exception for them.
+     * settings (e.g. cron_last_run) tolerate their default value fine, and
+     * the spec doesn't carve out an exception for them.
      */
     public function resetAllToDefaults(): void
     {
