@@ -43,6 +43,28 @@ class DocumentRepository implements AttachedFileRepository
         return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
 
+    /**
+     * The documents a stay owes to one source — an inbound message, named
+     * by the `source_reference` the attachment was filed under.
+     *
+     * What `Mail\CampsMessageConsumer::onUnlinked()` needs: when a message
+     * stops belonging to a stay, the documents it created there have to go
+     * with it, or they hang off a stay nobody can explain them on.
+     *
+     * @return Document[]
+     */
+    public function findByCampAndSourceReference(int $campId, string $sourceReference): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM camp_documents
+              WHERE camp_id = ? AND source_reference = ?
+           ORDER BY id ASC'
+        );
+        $stmt->execute([$campId, $sourceReference]);
+
+        return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
     public function countByCamp(int $campId): int
     {
         $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM camp_documents WHERE camp_id = ?');

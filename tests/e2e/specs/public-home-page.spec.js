@@ -217,6 +217,25 @@ let createdGroupPath = null;
  * Deliberately best-effort: a teardown that throws would replace the real
  * failure with its own, which is exactly the report nobody can act on.
  */
+/**
+ * Waits for the Bootstrap collapse holding `inner` to have finished opening.
+ *
+ * Clicking as soon as the toggle is released is a race, and it is lost
+ * roughly one run in five. While the panel animates it carries `.collapsing`
+ * alone; only when it settles does Bootstrap give it `.collapse.show`. In
+ * that window the « Afficher le QR » link above slides across the waive
+ * button's position — Playwright reports it "intercepts pointer events" on a
+ * good day, and on a bad one the click lands on a button that has moved and
+ * the page simply does nothing, leaving waitForURL to time out thirty
+ * seconds later against a page that looks perfectly normal.
+ *
+ * Waiting for the settled class is what a human does without thinking: they
+ * see the panel stop moving before they aim at anything inside it.
+ */
+async function settledPanelAround(page, inner) {
+    await expect(page.locator('.collapse.show').filter({ has: inner })).toBeVisible();
+}
+
 test.afterEach(async ({ page }) => {
     const campaignPath = createdCampaignPath;
     const groupPath = createdGroupPath;
@@ -228,10 +247,12 @@ test.afterEach(async ({ page }) => {
             await page.goto(campaignPath, { waitUntil: 'domcontentloaded' });
             await page.getByRole('button', { name: 'Détail de la créance' })
                 .filter({ visible: true }).first().click();
+            const waive = page.getByRole('button', { name: 'Abandonner la créance' })
+                .filter({ visible: true }).first();
+            await settledPanelAround(page, waive);
             await Promise.all([
                 page.waitForURL(/\/finance\/campaigns\/\d+\?filter=/, { waitUntil: 'domcontentloaded' }),
-                page.getByRole('button', { name: 'Abandonner la créance' })
-                    .filter({ visible: true }).first().click(),
+                waive.click(),
             ]);
         } catch {
             // Nothing to add: the scenario's own failure is the report.
@@ -416,6 +437,7 @@ test('with money due and unread group activity at once, the home page shows one 
     // be clicked.
     await page.getByRole('button', { name: 'Détail de la créance' }).filter({ visible: true }).first().click();
     const waive = page.getByRole('button', { name: 'Abandonner la créance' }).filter({ visible: true }).first();
+    await settledPanelAround(page, waive);
     // Waiting on the redirect the POST causes, not on the POST itself: the
     // response resolves while the browser is still navigating, and the
     // next goto() would then race it.

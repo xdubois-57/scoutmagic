@@ -12,6 +12,7 @@ use Core\File\UploadException;
 use Core\File\UploadHandler;
 use Modules\InboundMail\Api\CandidateMessage;
 use Modules\InboundMail\Api\MessageConsumerInterface;
+use Modules\InboundMail\Api\MessageLink;
 use Modules\InboundMail\Client\FetchedMessage;
 use Modules\InboundMail\Client\IncomingMailboxClientInterface;
 use Modules\InboundMail\Client\MailboxConnectionException;
@@ -65,6 +66,7 @@ class MailboxSyncService
         private AttachmentPolicy $attachmentPolicy,
         private MailboxErrorFormatter $errorFormatter,
         private MailboxClientFactory $clientFactory,
+        private AnalysisResultApplier $applier,
         private ?UploadHandler $uploadHandler = null
     ) {
     }
@@ -146,7 +148,8 @@ class MailboxSyncService
     }
 
     /**
-     * Offer a message to the consumers and, if one claims it, store it.
+     * Offer a message to every consumer and store it if anybody made
+     * something of it.
      *
      * @return bool whether anything was written
      */
@@ -169,33 +172,26 @@ class MailboxSyncService
             bodyHtml: $this->sanitizer->sanitizeHtml($message->bodyHtml)
         );
 
-        $claimed = $this->consumerRegistry->firstClaim($candidate);
-        if ($claimed === null) {
+        // EVERY consumer is asked, and every answer is applied. Under the
+        // old first-claim-wins rule the second module to recognise a
+        // message was never even asked, so an email that is both a
+        // booking's correspondence and an invoice could only ever be one
+        // of the two.
+        $results = $this->consumerRegistry->analyzeAll($candidate);
+        if ($results === []) {
             return false;
         }
-
-        $consumerId = $claimed['consumer']->consumerId();
-        $reference = $claimed['claim']->businessReference;
 
         // The message may already be in this box — after a UIDVALIDITY
         // reset made the folder be re-read, or because it arrived in two
         // watched folders. The message is written once; only the
-        // association may be new, and `addLink()` is idempotent about it.
+        // associations may be new, and applying them is idempotent.
         $existingId = $message->messageId !== ''
             ? $this->messageRepository->findIdByMessageId($mailbox->id, $message->messageId)
             : null;
 
         if ($existingId !== null) {
-            $linked = $this->messageRepository->addLink(
-                $existingId,
-                $consumerId,
-                $reference,
-                $claimed['claim']->origin
-            );
-
-            if ($linked) {
-                $this->notifyConsumer($claimed['consumer'], $consumerId, $reference, $existingId);
-            }
+            $this->notifyLinked($existingId, $this->applier->apply($existingId, $results));
 
             // Nothing was *stored*: the message was already here, and its
             // attachments with it.
@@ -218,18 +214,38 @@ class MailboxSyncService
             toEmails: $message->toEmails
         );
 
-        $this->messageRepository->addLink($storedId, $consumerId, $reference, $claimed['claim']->origin);
+        $created = $this->applier->apply($storedId, $results);
 
+        // Attachments before the callbacks, deliberately: a consumer's
+        // `onLinked()` is where it turns them into documents of its own,
+        // and it reads them off the stored message.
         $this->storeAttachments($message, $storedId, $mailbox->id, $candidate->bodyHtml);
 
-        $this->notifyConsumer($claimed['consumer'], $consumerId, $reference, $storedId);
+        $this->notifyLinked($storedId, $created);
 
         return true;
     }
 
     /**
-     * Hand the stored message back to the consumer that claimed it, so it
-     * can do its own bookkeeping — turning attachments into documents, for
+     * Tell each consumer about the associations that were actually created.
+     *
+     * @param array<int, array{consumerId: string, link: MessageLink}> $created
+     */
+    private function notifyLinked(int $messageId, array $created): void
+    {
+        foreach ($created as $entry) {
+            $consumer = $this->consumerRegistry->find($entry['consumerId']);
+            if ($consumer === null) {
+                continue;
+            }
+
+            $this->notifyConsumer($consumer, $messageId, $entry['link']);
+        }
+    }
+
+    /**
+     * Hand the stored message back to the consumer whose association was
+     * just created, so it can do its own bookkeeping — turning attachments into documents, for
      * instance (§7.8).
      *
      * Deliberately after the write, and deliberately unable to fail the
@@ -240,17 +256,20 @@ class MailboxSyncService
      */
     private function notifyConsumer(
         MessageConsumerInterface $consumer,
-        string $consumerId,
-        string $reference,
-        int $messageId
+        int $messageId,
+        MessageLink $link
     ): void {
-        $stored = $this->messageRepository->findOneForReference($consumerId, $reference, $messageId);
+        $stored = $this->messageRepository->findOneForReference(
+            $link->consumerId,
+            $link->businessReference,
+            $messageId
+        );
         if ($stored === null) {
             return;
         }
 
         try {
-            $consumer->onMessageStored($stored);
+            $consumer->onLinked($stored, $link);
         } catch (\Throwable) {
             // See the docblock: swallowed on purpose, and silently.
         }

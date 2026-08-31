@@ -106,6 +106,28 @@ class DocumentService
     }
 
     /**
+     * Undo what `attachExistingFile()` did for one source.
+     *
+     * Called when a message stops belonging to a stay. Without it the
+     * documents it created hang off the old stay — invisible to whoever
+     * manages the new one and unexplainable to whoever manages the old one.
+     * The bytes are never touched: a document sourced from an email points
+     * at the message's own file, and `delete()` already knows that.
+     *
+     * @return int the number of documents removed
+     */
+    public function detachSourced(int $campId, string $sourceReference, ?int $actorUserAccountId): int
+    {
+        $removed = 0;
+        foreach ($this->documents->findByCampAndSourceReference($campId, $sourceReference) as $document) {
+            $this->delete($document, $actorUserAccountId);
+            $removed++;
+        }
+
+        return $removed;
+    }
+
+    /**
      * Removes a document, and its file ONLY when this module owns the
      * bytes — `Core\File\AttachedFileRemover` holds the invariant and its
      * reasons; a document whose source is 'email' points at an inbound

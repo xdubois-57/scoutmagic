@@ -9,12 +9,14 @@ declare(strict_types=1);
 namespace Modules\Rental\Mail;
 
 use Core\Service\DateInput;
+use Modules\InboundMail\Api\AnalysisResult;
 use Modules\InboundMail\Api\CandidateMessage;
+use Modules\InboundMail\Api\InboundAttachment;
 use Modules\InboundMail\Api\InboundMailInterface;
 use Modules\InboundMail\Api\InboundMessage;
 use Modules\InboundMail\Api\LinkOrigin;
-use Modules\InboundMail\Api\MessageClaim;
 use Modules\InboundMail\Api\MessageConsumerInterface;
+use Modules\InboundMail\Api\MessageLink;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Document\DocumentType;
 use Modules\Rental\Document\RentalDocument;
@@ -96,15 +98,15 @@ class RentalMessageConsumer implements MessageConsumerInterface
         return self::CONSUMER_ID;
     }
 
-    public function claim(CandidateMessage $message): ?MessageClaim
+    public function analyze(CandidateMessage $message): AnalysisResult
     {
         if (!$this->listensTo($message->mailboxId)) {
-            return null;
+            return AnalysisResult::nothing();
         }
 
         $reference = $this->referenceMatcher->match($message->subject, $message->bodyText);
         if ($reference !== null && $this->bookingRepository->findByReference($reference) !== null) {
-            return new MessageClaim($reference, LinkOrigin::REFERENCE);
+            return AnalysisResult::linkedTo(self::CONSUMER_ID, $reference, LinkOrigin::REFERENCE);
         }
 
         $threaded = $this->inboundMail->findReferenceByThread(
@@ -113,12 +115,58 @@ class RentalMessageConsumer implements MessageConsumerInterface
             $message->threadMessageIds()
         );
         if ($threaded !== null) {
-            return new MessageClaim($threaded, LinkOrigin::THREAD);
+            return AnalysisResult::linkedTo(self::CONSUMER_ID, $threaded, LinkOrigin::THREAD);
         }
 
         $bySender = $this->matchBySender($message);
 
-        return $bySender !== null ? new MessageClaim($bySender, LinkOrigin::SENDER) : null;
+        return $bySender !== null
+            ? AnalysisResult::linkedTo(self::CONSUMER_ID, $bySender, LinkOrigin::SENDER)
+            : AnalysisResult::nothing();
+    }
+
+    /**
+     * Nothing to add once the message is on disk.
+     *
+     * Everything this module recognises is in the subject, the thread
+     * headers and the sender — all available on arrival. There is nothing
+     * inside a renter's attachment that would name a booking more reliably
+     * than the reference this module put in the subject itself.
+     */
+    public function analyzeStored(InboundMessage $message): AnalysisResult
+    {
+        return AnalysisResult::nothing();
+    }
+
+    /**
+     * @return string[]
+     */
+    public function describeEvidence(): array
+    {
+        return [
+            'référence de location explicite dans l\'objet ou le corps',
+            'réponse dans une conversation déjà rattachée à une location',
+            'adresse du locataire, entre la demande et quelques semaines après le départ',
+        ];
+    }
+
+    public function triageAudienceLabel(): string
+    {
+        return 'les gestionnaires de biens et le staff d\'unité';
+    }
+
+    /**
+     * The people who would actually see this module's mail: whoever manages
+     * an asset, plus the unit staff who manage all of them.
+     *
+     * Counted on the scout year in effect rather than estimated — the
+     * warning that shows this figure is the only guard-rail on opening a
+     * shared mailbox to a module, so it has to be exact or it is worse than
+     * absent.
+     */
+    public function triageAudienceCount(): int
+    {
+        return $this->bookingRepository->countTriageAudience();
     }
 
     /**
@@ -130,13 +178,13 @@ class RentalMessageConsumer implements MessageConsumerInterface
      * renter" would queue it to be emailed back to them. A manager
      * reclassifies it in one click if it is what it looks like.
      */
-    public function onMessageStored(InboundMessage $message): void
+    public function onLinked(InboundMessage $message, MessageLink $link): void
     {
         if ($message->attachments === []) {
             return;
         }
 
-        $booking = $this->bookingRepository->findByReference($message->businessReference);
+        $booking = $this->bookingRepository->findByReference($link->businessReference);
         if ($booking === null) {
             return;
         }
@@ -154,6 +202,42 @@ class RentalMessageConsumer implements MessageConsumerInterface
                 null,
                 RentalDocument::SOURCE_EMAIL
             );
+        }
+    }
+
+    /**
+     * Take back the documents `onLinked()` filed on that booking.
+     *
+     * **This is the bug that made the callback necessary.** Reassigning a
+     * message from one booking to another left its `RentalDocument` rows
+     * hanging off the first: the manager of the new booking could not see
+     * them, and the manager of the old one could not explain them. The
+     * bytes are never touched — a document sourced from an email points at
+     * the message's own file (§8.59), and `delete()` already knows it does
+     * not own them.
+     */
+    public function onUnlinked(InboundMessage $message, MessageLink $link): void
+    {
+        if ($message->attachments === []) {
+            return;
+        }
+
+        $booking = $this->bookingRepository->findByReference($link->businessReference);
+        if ($booking === null) {
+            return;
+        }
+
+        $fileIds = array_map(
+            static fn(InboundAttachment $attachment): int => $attachment->fileId,
+            $message->attachments
+        );
+
+        foreach ($this->documentService->forBooking($booking->id) as $document) {
+            if ($document->source === RentalDocument::SOURCE_EMAIL
+                && in_array($document->fileId, $fileIds, true)
+            ) {
+                $this->documentService->delete($document);
+            }
         }
     }
 

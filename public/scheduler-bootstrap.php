@@ -201,10 +201,11 @@ function scoutmagic_bootstrap_scheduler(
     // dependency graph below is only ever assembled when a sync task is
     // actually due — never on an ordinary page view.
     if (in_array('inbound_mail', $enabledModuleIds, true)) {
-        $runner->registerHandlerFactory(
-            'inbound_mail',
-            \Modules\InboundMail\Task\SyncMailboxesHandler::TASK_KEY,
-            static function (\Core\Scheduler\TaskContext $context) use ($pdo, $encryptionService, $settingService, $journalService, $storagePath, $enabledModuleIds): \Core\Scheduler\TaskHandlerInterface {
+        // The consumer graph, built once per firing and shared by BOTH
+        // inbound-mail tasks: the synchronisation's arrival pass and the
+        // deferred content pass ask the same consumers, and two copies of
+        // this wiring would be two places for it to drift.
+        $inboundConsumerRegistry = static function (\Core\Scheduler\TaskContext $context) use ($pdo, $encryptionService, $settingService, $journalService, $storagePath, $enabledModuleIds): \Modules\InboundMail\Service\MessageConsumerRegistry {
                 $registry = new \Modules\InboundMail\Service\MessageConsumerRegistry();
                 $inboundMail = $context->getOptional(\Modules\InboundMail\Api\InboundMailInterface::class);
                 $auditService = new \Core\Audit\AuditService(new \Core\Audit\AuditRepository($pdo, $encryptionService));
@@ -279,10 +280,29 @@ function scoutmagic_bootstrap_scheduler(
                     ));
                 }
 
-                return new \Modules\InboundMail\Task\SyncMailboxesHandler($registry);
-            }
+                return $registry;
+        };
+
+        $runner->registerHandlerFactory(
+            'inbound_mail',
+            \Modules\InboundMail\Task\SyncMailboxesHandler::TASK_KEY,
+            static fn(\Core\Scheduler\TaskContext $context): \Core\Scheduler\TaskHandlerInterface
+                => new \Modules\InboundMail\Task\SyncMailboxesHandler($inboundConsumerRegistry($context))
         );
         \Modules\InboundMail\Task\SyncMailboxesHandler::bootstrap($schedulerService);
+
+        // The deferred, content-level pass (§8.58): everything that needs
+        // an attachment's BYTES rather than its metadata. Never inside the
+        // synchronisation loop — a PDF extraction there would blow through
+        // max_execution_time and leave the cursor unmoved, so the same
+        // doomed run would repeat on every tick.
+        $runner->registerHandlerFactory(
+            'inbound_mail',
+            \Modules\InboundMail\Task\AnalyzeStoredMessagesHandler::TASK_KEY,
+            static fn(\Core\Scheduler\TaskContext $context): \Core\Scheduler\TaskHandlerInterface
+                => new \Modules\InboundMail\Task\AnalyzeStoredMessagesHandler($inboundConsumerRegistry($context))
+        );
+        \Modules\InboundMail\Task\AnalyzeStoredMessagesHandler::bootstrap($schedulerService);
     }
 
     // ── Recurring-task seeds that used to live on the web path only ─────
