@@ -15,8 +15,6 @@ use Modules\Retro\Repository\BoardRepository;
 use Modules\Retro\Repository\CommentRepository;
 use Modules\Retro\Service\RetroException;
 use Modules\Retro\Service\SummaryService;
-use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
 
 /**
  * Scheduled by Service\BoardService::create()/update() (reference
@@ -94,15 +92,17 @@ class AutoCloseHandler implements TaskHandlerInterface
      */
     private function sendCloseNotification(\Modules\Retro\Repository\Board $board, string $email, array $visibleComments, TaskContext $context): void
     {
-        $byColumn = ['good' => [], 'improve' => [], 'suggestion' => []];
-        foreach ($visibleComments as $comment) {
-            $byColumn[$comment->columnKey][] = $comment->body;
-        }
-
         $repoRoot = dirname(__DIR__, 4);
-        $loader = new FilesystemLoader($repoRoot . '/core/View/templates');
-        $loader->addPath($repoRoot . '/modules/retro/views', 'retro');
-        $twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
+        // Through TwigFactory like every other handler that sends an
+        // e-mail: a hand-built Environment escaped the `.text.twig` half
+        // as if it were HTML, so a word containing an apostrophe reached
+        // the plain-text part as « c&#039;est » (Tests\Core\View\
+        // PlainTextEmailEscapingTest).
+        $twig = \Core\View\TwigFactory::create(
+            $repoRoot . '/core/View/templates',
+            false,
+            ['retro' => $repoRoot . '/modules/retro/views']
+        );
 
         $baseUrl = rtrim((string) ($context->settings->get('base_url') ?: ''), '/');
         $publicUrl = $board->shortCode !== null ? '/s/' . $board->shortCode : '/r/' . $board->token;
@@ -111,8 +111,8 @@ class AutoCloseHandler implements TaskHandlerInterface
             'site_name' => (string) ($context->settings->get('site_name') ?: 'Unité scoute'),
             'board_title' => $board->title,
             'board_date' => $board->boardDate,
-            'columns' => $byColumn,
-            'ai_summary' => $board->aiSummary,
+            'board_content' => \Modules\Retro\Service\BoardEmailSummary::fromComments($visibleComments),
+            'ai_summary' => $board->aiSummary ?? '',
             'board_url' => $baseUrl . $publicUrl,
         ];
 

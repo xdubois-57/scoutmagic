@@ -1,8 +1,12 @@
-Rappel — évènement à venir
+Rappel — {{ event_title }}
 
 Bonjour {{ display_name }},
 
-L'évènement {{ event_title }} ({{ start_date }} — {{ end_date }}) approche. Merci de vérifier les points suivants :
+L'évènement {{ event_title }}, du {{ start_date }} au {{ end_date }}, approche. Merci de vérifier les deux points suivants :
 
 - Déclarer l'évènement dans Desk, si ce n'est pas encore fait.
-- Envoyer la liste des intendants à l'avance au Staff d'U.
+- Envoyer la liste des intendants au Staff d'U, à l'avance.
+
+Vous recevez ce rappel parce que vous faites partie du staff de la section concernée.
+
+{% include 'email/signature.text.twig' %}

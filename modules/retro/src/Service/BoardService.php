@@ -635,17 +635,12 @@ class BoardService implements RetroEventLinkLookupInterface
      */
     private function sendCloseNotification(Board $board, string $email, array $visibleComments): void
     {
-        $byColumn = ['good' => [], 'improve' => [], 'suggestion' => []];
-        foreach ($visibleComments as $comment) {
-            $byColumn[$comment->columnKey][] = $comment->body;
-        }
-
         $context = [
             'site_name' => $this->siteName,
             'board_title' => $board->title,
             'board_date' => $board->boardDate,
-            'columns' => $byColumn,
-            'ai_summary' => $board->aiSummary,
+            'board_content' => BoardEmailSummary::fromComments($visibleComments),
+            'ai_summary' => $board->aiSummary ?? '',
             'board_url' => rtrim($this->baseUrl, '/') . $this->publicUrl($board),
         ];
 

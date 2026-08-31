@@ -2,8 +2,10 @@ Confirmez votre adresse email
 
 Bonjour,
 
-Cette adresse a été ajoutée comme adresse de suivi pour une demande d'inscription auprès de {{ site_name }}. Confirmez-la pour pouvoir l'utiliser afin de consulter le suivi complet de la demande :
+Cette adresse vient d'être ajoutée comme adresse de suivi pour une demande d'inscription chez nous. Confirmez-la pour pouvoir consulter le suivi complet de la demande : ce lien est valable {{ expiry_hours }} heures.
 
 {{ confirm_url }}
 
-Ce lien expire dans {{ expiry_hours }} heures. Si vous n'êtes pas à l'origine de cette demande, vous pouvez ignorer cet email.
+Si vous n'êtes pas à l'origine de cette demande, ignorez simplement ce message.
+
+{% include 'email/signature.text.twig' %}

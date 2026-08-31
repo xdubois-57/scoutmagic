@@ -1,13 +1,11 @@
 {{ title }}
-{% if discretion %}
-Vous avez une nouvelle notification sur {{ site_name }}. Son contenu n'est pas repris ici : vous avez activé la discrétion dans vos préférences de notification.
-{% elseif body is not empty %}
-{{ body }}
-{% endif %}
-{% if url %}
-{{ url }}
-{% endif %}
 
---
-Vous recevez cet email parce que vous avez activé le canal « Mail » pour ce type de notification.
-Modifier vos préférences : {{ preferences_url }}
+Bonjour,
+
+{{ body }}
+
+{{ url }}
+
+Vous recevez ce message parce que le canal « Mail » est actif pour ce type de notification. Vous pouvez le changer sur {{ preferences_url }}.
+
+{% include 'email/signature.text.twig' %}

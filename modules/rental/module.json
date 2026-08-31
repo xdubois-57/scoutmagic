@@ -990,9 +990,29 @@
           "example": "Ferme de La Hulpe"
         },
         {
+          "name": "renter_name",
+          "label": "Nom du demandeur",
+          "example": "Camille Dupont"
+        },
+        {
+          "name": "arrival_date",
+          "label": "Date d'arrivée",
+          "example": "14/08/2027"
+        },
+        {
+          "name": "departure_date",
+          "label": "Date de départ",
+          "example": "17/08/2027"
+        },
+        {
           "name": "tracking_url",
           "label": "Lien de suivi",
           "example": "https://exemple.be/locations/suivi/42/abc"
+        },
+        {
+          "name": "hold_note",
+          "label": "Phrase sur les dates bloquées (vide si aucune option)",
+          "example": "Nous bloquons ces dates jusqu'au 12/03/2027, le temps de vous répondre."
         }
       ]
     },
@@ -1019,9 +1039,34 @@
           "example": "Ferme de La Hulpe"
         },
         {
+          "name": "renter_name",
+          "label": "Nom du demandeur",
+          "example": "Camille Dupont"
+        },
+        {
+          "name": "arrival_date",
+          "label": "Date d'arrivée",
+          "example": "14/08/2027"
+        },
+        {
+          "name": "departure_date",
+          "label": "Date de départ",
+          "example": "17/08/2027"
+        },
+        {
           "name": "announcement",
           "label": "Annonce de la décision",
           "example": "Votre demande est acceptée."
+        },
+        {
+          "name": "call_to_action",
+          "label": "Ce que le demandeur doit faire (vide si rien)",
+          "example": "Merci de nous renvoyer le contrat signé."
+        },
+        {
+          "name": "manager_word",
+          "label": "Mot du gestionnaire (vide s'il n'en a pas écrit)",
+          "example": "Nous sommes ravis de vous accueillir !"
         },
         {
           "name": "tracking_url",
@@ -1033,7 +1078,7 @@
     {
       "id": "rental.manager_notification",
       "label": "Avis aux gestionnaires d'une nouvelle demande",
-      "description": "Envoyé aux gestionnaires du bien quand une nouvelle demande de location arrive.",
+      "description": "Envoyé aux gestionnaires du bien quand une nouvelle demande de location arrive. Il ne reprend jamais l'identité du demandeur : elle est sur la page de la demande, derrière un vrai contrôle d'accès.",
       "default_subject": "Nouvelle demande de location",
       "template": "@rental/email/manager_notification.html.twig",
       "variables": [
@@ -1048,9 +1093,19 @@
           "example": "Ferme de La Hulpe"
         },
         {
+          "name": "arrival_date",
+          "label": "Date d'arrivée",
+          "example": "14/08/2027"
+        },
+        {
+          "name": "departure_date",
+          "label": "Date de départ",
+          "example": "17/08/2027"
+        },
+        {
           "name": "manage_url",
           "label": "Lien vers la réservation",
-          "example": "https://exemple.be/admin/locations/reservations/42"
+          "example": "https://exemple.be/mes-locations/ferme/reservations/42"
         }
       ]
     },
@@ -1067,6 +1122,11 @@
           "example": "Contrat de location"
         },
         {
+          "name": "document_label",
+          "label": "Nom du document",
+          "example": "contrat de location"
+        },
+        {
           "name": "reference",
           "label": "Référence de la réservation",
           "example": "LOC-2027-0042"
@@ -1077,9 +1137,19 @@
           "example": "Ferme de La Hulpe"
         },
         {
-          "name": "document_label",
-          "label": "Nom du document",
-          "example": "Contrat de location"
+          "name": "renter_name",
+          "label": "Nom du demandeur",
+          "example": "Camille Dupont"
+        },
+        {
+          "name": "arrival_date",
+          "label": "Date d'arrivée",
+          "example": "14/08/2027"
+        },
+        {
+          "name": "departure_date",
+          "label": "Date de départ",
+          "example": "17/08/2027"
         }
       ]
     },
@@ -1101,9 +1171,34 @@
           "example": "Ferme de La Hulpe"
         },
         {
-          "name": "contact",
-          "label": "Contact sur place",
-          "example": "Akéla — 0470 11 22 33"
+          "name": "renter_name",
+          "label": "Nom du demandeur",
+          "example": "Camille Dupont"
+        },
+        {
+          "name": "arrival_date",
+          "label": "Date d'arrivée",
+          "example": "14/08/2027"
+        },
+        {
+          "name": "departure_date",
+          "label": "Date de départ",
+          "example": "17/08/2027"
+        },
+        {
+          "name": "timing_note",
+          "label": "Heures d'arrivée et de départ (vide si non renseignées)",
+          "example": "Arrivée à partir de 16:00. Départ pour 11:00 au plus tard."
+        },
+        {
+          "name": "contacts",
+          "label": "Contacts sur place (un par ligne)",
+          "example": "Akéla — 0470 11 22 33\nBaloo — 0475 44 55 66"
+        },
+        {
+          "name": "emergency_phone",
+          "label": "Numéro d'urgence (vide si non renseigné)",
+          "example": "0470 99 88 77"
         }
       ]
     },
@@ -1123,6 +1218,21 @@
           "name": "asset_name",
           "label": "Nom du bien",
           "example": "Ferme de La Hulpe"
+        },
+        {
+          "name": "renter_name",
+          "label": "Nom du demandeur",
+          "example": "Camille Dupont"
+        },
+        {
+          "name": "arrival_date",
+          "label": "Date d'arrivée",
+          "example": "14/08/2027"
+        },
+        {
+          "name": "departure_date",
+          "label": "Date de départ",
+          "example": "17/08/2027"
         },
         {
           "name": "tracking_url",

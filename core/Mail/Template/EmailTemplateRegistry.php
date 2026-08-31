@@ -102,9 +102,10 @@ class EmailTemplateRegistry
                 id: 'member_email_unsubscribe_confirmation',
                 label: 'Confirmation de désinscription',
                 description: "Envoyé à l'adresse qui vient de se désinscrire des envois groupés, pour lui confirmer que c'est fait.",
-                defaultSubject: 'Confirmation de désinscription des emails groupés',
+                defaultSubject: 'Vous êtes désinscrit de nos envois groupés',
                 template: 'email/member_email_unsubscribe_confirmation.html.twig',
                 variables: [
+                    new EmailTemplateVariable('member_names', 'Membre(s) concerné(s)', 'Camille Dupont, Louis Dupont'),
                     new EmailTemplateVariable('staffdu_email', "Adresse du Staff d'U", 'staff@exemple.be'),
                 ]
             ),
@@ -112,10 +113,11 @@ class EmailTemplateRegistry
                 id: 'member_email_unsubscribe_staffdu',
                 label: "Désinscription — avis au Staff d'U",
                 description: "Envoyé au Staff d'U quand une adresse se désinscrit des envois groupés.",
-                defaultSubject: "Désinscription d'une adresse email des envois groupés",
+                defaultSubject: "Une adresse s'est désinscrite des envois groupés",
                 template: 'email/member_email_unsubscribe_staffdu.html.twig',
                 variables: [
                     new EmailTemplateVariable('unsubscribed_email', 'Adresse désinscrite', 'famille@exemple.be'),
+                    new EmailTemplateVariable('member_names', 'Membre(s) concerné(s)', 'Camille Dupont, Louis Dupont'),
                 ]
             ),
             new EmailTemplate(
@@ -138,7 +140,7 @@ class EmailTemplateRegistry
                 defaultSubject: 'Vous êtes administrateur du site',
                 template: 'email/super_admin_granted.html.twig',
                 variables: [
-                    new EmailTemplateVariable('granted_by', 'Adresse de qui a accordé l\'accès', 'akela@exemple.be'),
+                    new EmailTemplateVariable('granted_by', "Qui a accordé l'accès", 'akela@exemple.be'),
                     new EmailTemplateVariable('login_url', 'Lien de connexion', 'https://exemple.be/login'),
                 ]
             ),

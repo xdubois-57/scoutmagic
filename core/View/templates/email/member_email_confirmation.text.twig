@@ -1,7 +1,11 @@
 Confirmez votre adresse email
 
-Cette adresse a été ajoutée à votre profil sur {{ site_name }}. Ouvrez le lien ci-dessous pour la confirmer. Ce lien est valable {{ expiry_hours }} heures et ne peut être utilisé qu'une seule fois.
+Bonjour,
+
+Cette adresse vient d'être ajoutée à une fiche membre sur {{ site_name }}. Confirmez-la pour qu'elle puisse recevoir nos messages : ce lien est valable {{ expiry_hours }} heures et ne peut servir qu'une seule fois.
 
 {{ confirm_url }}
 
-Si vous n'êtes pas à l'origine de cette demande, ignorez cet email — l'adresse ne sera jamais utilisée sans confirmation.
+Si vous n'êtes pas à l'origine de cette demande, ignorez ce message : sans confirmation, l'adresse ne sera jamais utilisée.
+
+{% include 'email/signature.text.twig' %}

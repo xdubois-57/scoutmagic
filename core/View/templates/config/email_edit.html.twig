@@ -13,6 +13,14 @@
     </div>
 {% endif %}
 
+{% if template.variables is not empty %}
+    <div class="alert alert-secondary">
+        Les mots entre accolades — {{ '{{ exemple }}' }} — sont remplacés au moment de l'envoi par
+        la vraie valeur. Gardez-les tels quels dans votre texte : ce sont eux qui écrivent le nom,
+        la date ou le lien de chaque destinataire.
+    </div>
+{% endif %}
+
 <div class="card mb-3">
     <div class="card-body">
         <h2 class="h5 mb-3">Sujet</h2>
@@ -30,6 +38,7 @@
             {% include 'partials/email_variable_buttons.html.twig' with {
                 variables: template.variables,
                 target: 'email-subject',
+                hint: 'Cliquez pour insérer une variable dans le sujet :',
             } only %}
             <button type="submit" class="btn btn-primary mt-3">Enregistrer le sujet</button>
         </form>
@@ -46,6 +55,11 @@
             } only %}
         </div>
 
+        <p class="small text-body-secondary">
+            Le texte tel que vous l'écrivez, variables comprises. Inutile de signer : la formule
+            finale et le nom de l'unité sont ajoutés à l'envoi.
+        </p>
+
         {# The shared preview element the modal reads from and writes back
            to (partials/rich_text_field.html.twig), matched by data-key. #}
         <div class="rich-text-field-preview rich-text border rounded p-3 email-body-editor" data-key="email_body">
@@ -53,10 +67,11 @@
         </div>
 
         <div class="mt-3">
-            <p class="form-label mb-2">Variables disponibles — cliquez pour copier, puis collez dans le message :</p>
             {% include 'partials/email_variable_buttons.html.twig' with {
                 variables: template.variables,
                 target: null,
+                hint: "Variables disponibles. Les mêmes boutons sont dans l'éditeur : ils insèrent la
+                       variable là où se trouve votre curseur. Ici, un clic la copie.",
             } only %}
         </div>
     </div>
@@ -66,8 +81,10 @@
     <div class="card-body">
         <h2 class="h5 mb-3">Aperçu</h2>
         <p class="small text-body-secondary">
-            Avec des valeurs d'exemple. L'en-tête et le pied de page du site sont ajoutés à l'envoi et
-            ne sont pas modifiables.
+            Le message tel qu'il partira, avec des valeurs d'exemple à la place des variables.
+            L'en-tête, la formule de politesse finale (« Bien à vous », suivie du nom de l'unité) et
+            le pied de page sont ajoutés automatiquement à l'envoi : ils sont les mêmes pour tous les
+            emails du site et ne se modifient pas ici.
         </p>
         <p class="mb-2"><strong>Sujet :</strong> {{ preview.subject }}</p>
         <div class="rich-text border rounded p-3 bg-body-tertiary">{{ preview.body_html|raw }}</div>
@@ -110,7 +127,19 @@
     </div>
 {% endif %}
 
-{% include 'partials/rich_text_editor.html.twig' %}
+{#
+   The shared editor, with this page's own second row of controls in its
+   extra-toolbar slot: the variable buttons belong INSIDE the modal,
+   because that is where the caret is. Without them there, adding three
+   variables to a message meant saving, copying, reopening and pasting —
+   three times over.
+#}
+{% include 'partials/rich_text_editor.html.twig' with {
+    extra_toolbar_template: 'partials/email_variable_buttons.html.twig',
+    variables: template.variables,
+    target: 'richTextEditorContent',
+    hint: 'Cliquez pour insérer une variable à la position du curseur :',
+} %}
 {% endblock %}
 
 {% block scripts %}

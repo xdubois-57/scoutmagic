@@ -23,7 +23,9 @@ use Twig\Environment;
  *   same message it produced before, or the migration is a rewrite
  *   wearing a refactor's clothes.
  * - **A customisation exists** — the stored subject and body win, and
- *   each declared `{{ variable }}` is replaced by **string substitution**.
+ *   each declared `{{ variable }}` is replaced by **string substitution**:
+ *   escaped, with its line breaks turned into `<br>`, on its way into the
+ *   HTML body; used exactly as it is in the subject, which is not markup.
  *
  * **The stored content is never given to Twig.** Not `createTemplate()`,
  * not a sandbox, not `include`. An administration page that could define
@@ -102,7 +104,7 @@ class EmailTemplateRenderer
     private function renderShipped(EmailTemplate $template, array $context): RenderedEmail
     {
         return new RenderedEmail(
-            subject: $this->substitute($template, $template->defaultSubject, $context),
+            subject: $this->substitute($template, $template->defaultSubject, $context, false),
             bodyHtml: $this->twig->render($template->template, $context),
             bodyText: $this->twig->render($this->textTemplateOf($template), $context),
         );
@@ -114,10 +116,10 @@ class EmailTemplateRenderer
      */
     private function renderCustomised(EmailTemplate $template, array $override, array $context): RenderedEmail
     {
-        $bodyHtml = $this->substitute($template, $override['body_html'], $context);
+        $bodyHtml = $this->substituteIntoHtml($template, $override['body_html'], $context);
 
         return new RenderedEmail(
-            subject: $this->substitute($template, $override['subject'], $context),
+            subject: $this->substitute($template, $override['subject'], $context, false),
             // Through custom.html.twig so the frame — header, footer, the
             // unit's name — is the same code every other e-mail uses. The
             // body itself is a finished string by now, never a template.
@@ -125,13 +127,44 @@ class EmailTemplateRenderer
                 'site_name' => is_scalar($context['site_name'] ?? null) ? (string) $context['site_name'] : '',
                 'body_html' => $bodyHtml,
             ]),
-            bodyText: self::toPlainText($bodyHtml),
+            // The signature too: the HTML half gets it from the frame, and
+            // a plain-text half that stopped short of it would be the one
+            // version of the message that arrives unsigned.
+            bodyText: self::toPlainText($bodyHtml) . "\n\n" . $this->twig->render(
+                'email/signature.text.twig',
+                ['site_name' => is_scalar($context['site_name'] ?? null) ? (string) $context['site_name'] : '']
+            ),
         );
+    }
+
+    /**
+     * Replace every declared `{{ name }}` in a piece of HTML with its
+     * value — the substitution a customised body goes through.
+     *
+     * Public because the Configuration > E-mails page previews a
+     * customised body and has to preview exactly what it will send: two
+     * implementations of one substitution is two answers to "what will
+     * this e-mail say".
+     *
+     * @param array<string, mixed> $context
+     */
+    public function substituteIntoHtml(EmailTemplate $template, string $html, array $context): string
+    {
+        return $this->substitute($template, $html, $context, true);
     }
 
     /**
      * Replace every declared `{{ name }}` with its value, as a plain
      * string.
+     *
+     * **Into HTML, the value is escaped and its line breaks become
+     * `<br>`** — what Twig does for the same value in a shipped template,
+     * and what a customised body has no other way of getting: the stored
+     * text is never given to Twig, so nothing else would escape a renter's
+     * name, a manager's sentence or a family's answer on its way into a
+     * message the site signs and sends. Into a SUBJECT the value is used
+     * as it is: a subject line is not markup, and `&amp;` in one is a
+     * mistake rather than an escape.
      *
      * **Longest name first**, which is not a nicety: with `member` and
      * `member_name` both declared, replacing the short one first eats the
@@ -145,7 +178,7 @@ class EmailTemplateRenderer
      *
      * @param array<string, mixed> $context
      */
-    private function substitute(EmailTemplate $template, string $text, array $context): string
+    private function substitute(EmailTemplate $template, string $text, array $context, bool $intoHtml): string
     {
         $variables = $template->variables;
         usort(
@@ -161,6 +194,9 @@ class EmailTemplateRenderer
             }
 
             $value = $raw === null ? '' : (string) $raw;
+            if ($intoHtml) {
+                $value = nl2br(htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'), false);
+            }
 
             foreach (self::placeholdersFor($variable->name) as $placeholder) {
                 $text = str_replace($placeholder, $value, $text);
@@ -173,15 +209,34 @@ class EmailTemplateRenderer
     }
 
     /**
-     * The two spellings a placeholder can reasonably arrive in — the one
-     * the insertion button writes (`{{ name }}`) and the one somebody
-     * typing it by hand produces (`{{name}}`).
+     * Every spelling a placeholder can reasonably arrive in.
+     *
+     * The two obvious ones are what the insertion button writes
+     * (`{{ name }}`) and what somebody typing it by hand produces
+     * (`{{name}}`). The percent-encoded twins are not obvious at all, and
+     * they are the ones that mattered: a placeholder written inside a
+     * link — « Suivre ma demande », the call to action of half the e-mails
+     * this site sends — is stored as
+     * `href="%7B%7B%20tracking_url%20%7D%7D"`, because the sanitizer
+     * serialises through DOM and DOM encodes a URL attribute. Matching
+     * only the literal spelling left that button pointing at the escaped
+     * placeholder itself, in every customised e-mail, with nothing on the
+     * page to suggest anything was wrong.
+     *
+     * Both hex cases, because the encoder's choice is not ours to assume.
      *
      * @return list<string>
      */
     private static function placeholdersFor(string $name): array
     {
-        return ['{{ ' . $name . ' }}', '{{' . $name . '}}'];
+        $spellings = [];
+        foreach (['{{ ' . $name . ' }}', '{{' . $name . '}}'] as $literal) {
+            $spellings[] = $literal;
+            $spellings[] = str_replace(['{', '}', ' '], ['%7B', '%7D', '%20'], $literal);
+            $spellings[] = str_replace(['{', '}', ' '], ['%7b', '%7d', '%20'], $literal);
+        }
+
+        return $spellings;
     }
 
     private function reportUndeclared(EmailTemplate $template, string $text): void
@@ -221,10 +276,16 @@ class EmailTemplateRenderer
      * together into one sentence — and entities are decoded, since the
      * text part is read as text and `&amp;` in it is a mistake, not an
      * escape.
+     *
+     * **A link keeps its address.** `strip_tags()` alone left « Suivre ma
+     * demande » in the text half of every customised e-mail with no URL
+     * anywhere near it, which for a renter reading plain text is a
+     * message telling them to click nothing.
      */
     public static function toPlainText(string $html): string
     {
-        $text = preg_replace('#<br\s*/?>#i', "\n", $html) ?? $html;
+        $text = self::linksAsText($html);
+        $text = preg_replace('#<br\s*/?>#i', "\n", $text) ?? $text;
         $text = preg_replace('#</(p|div|h[1-6]|li|tr|blockquote)>#i', "\n\n", $text) ?? $text;
         $text = strip_tags($text);
         $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
@@ -235,6 +296,29 @@ class EmailTemplateRenderer
         $text = preg_replace('/\n{3,}/', "\n\n", $text) ?? $text;
 
         return trim($text);
+    }
+
+    /**
+     * `<a href="…">Libellé</a>` as « Libellé : … », so the address
+     * survives `strip_tags()`. A link whose label already IS the address
+     * is left as the address alone rather than written twice.
+     */
+    private static function linksAsText(string $html): string
+    {
+        return preg_replace_callback(
+            '#<a\b[^>]*\shref=(["\'])(.*?)\1[^>]*>(.*?)</a>#is',
+            static function (array $match): string {
+                $url = trim(html_entity_decode($match[2], ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+                $label = trim(strip_tags($match[3]));
+
+                if ($url === '' || $label === '' || $label === $url) {
+                    return $url !== '' ? $url : $label;
+                }
+
+                return $label . ' : ' . $url;
+            },
+            $html
+        ) ?? $html;
     }
 
     /**
