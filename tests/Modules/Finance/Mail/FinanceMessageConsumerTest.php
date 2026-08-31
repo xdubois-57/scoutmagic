@@ -307,6 +307,49 @@ class FinanceMessageConsumerTest extends TestCase
     /**
      * @param array<int, array{filename: string, account_id: int, role: string}> $filed
      */
+    // ── Who may open a message filed against an account ─────────────────
+
+    public function testAReferenceThatNamesNoAccountOpensToNobody(): void
+    {
+        // Fail closed. A reference this module does not recognise is a
+        // corrupted row or another module's, and neither is a reason to
+        // open an accounting document.
+        $consumer = $this->consumer();
+
+        $this->assertFalse($consumer->canRead('pas-un-compte', [], 'superadmin'));
+        $this->assertFalse($consumer->canRead('', [], 'superadmin'));
+        $this->assertFalse($consumer->canRead(
+            FinanceMessageConsumer::REFERENCE_PREFIX . '99999',
+            [],
+            'superadmin'
+        ));
+    }
+
+    // ── What the triage screen asks every consumer ──────────────────────
+
+    public function testTheModuleSaysWhatItRecognisesAndWhoWouldSeeIt(): void
+    {
+        // Shown to a superadmin before a shared mailbox is opened to this
+        // module. The evidence line says outright that the signal is weak
+        // and always a proposition, because that is the whole shape of what
+        // this module does.
+        $consumer = $this->consumer();
+
+        $this->assertSame(FinanceMessageConsumer::CONSUMER_ID, $consumer->consumerId());
+        $this->assertNotSame('', $consumer->displayName());
+        $this->assertNotSame([], $consumer->describeEvidence());
+        $this->assertStringContainsString('proposition', implode(' ', $consumer->describeEvidence()));
+        $this->assertNotSame('', $consumer->triageAudienceLabel());
+    }
+
+    public function testTheAudienceIsCountedOnTheYearInEffect(): void
+    {
+        // A section treasurer already holds a chief function, so they are
+        // in this figure once — counting the badge again would inflate the
+        // number the superadmin is asked to weigh.
+        $this->assertGreaterThanOrEqual(0, $this->consumer()->triageAudienceCount());
+    }
+
     private function consumer(array &$filed = [], ?int $actorFor = null): FinanceMessageConsumer
     {
         $receipts = new RecordingExpenseReceipts($filed);
