@@ -515,6 +515,107 @@ d'autre n'a le droit d'y entrer.
 
 ---
 
+## IT-08 — Le moteur de l'assistant
+
+**Livré** — `Core\Help\Assistant\` :
+
+- **`AssistantCatalog`** : une ligne par sujet,
+  `id | titre | résumé | questions`, construite depuis
+  `HelpService::listForRole()`. Le filtre de rôle **est** le catalogue :
+  un sujet au-dessus du lecteur n'est pas dans le texte que le modèle
+  reçoit, donc il n'y a rien à divulguer, à ignorer ou à contourner. Un
+  `|` dans un titre est neutralisé pour qu'un sujet ne puisse pas se lire
+  comme deux.
+- **`AssistantService`** : l'enchaînement complet. Sélection en tier
+  `CHEAP` avec `responseSchema` forçant `{"ids": [...]}`, **revalidation
+  de chaque id par `HelpService::findById()` au rôle de l'appelant**,
+  puis réponse en tier `CAPABLE` sur les corps retenus. Retour :
+  `AssistantAnswer` — le texte, les sujets réellement consultés (des
+  `HelpTopic`, jamais les ids du modèle), un indicateur « rien trouvé »
+  et un indicateur de cache.
+- **Le prompt de réponse interdit explicitement** le tableau, le bloc de
+  code et le lien : `MarkdownRenderer` ne les connaît pas et les
+  afficherait en Markdown brut. Il impose aussi le lexique de design.md
+  §7.11 et cinq phrases au maximum.
+- **`maxTokens` borné à 500** côté réponse, et `truncated` traité comme
+  un échec : une demi-phrase sur une procédure est pire que rien.
+- **`AssistantException`** pour ce que l'assistant refuse (quota, question
+  vide ou démesurée, connecteur absent, réponse tronquée) ; une
+  `LlmException` remonte **telle quelle**, parce qu'elle implémente déjà
+  `UserFacingException` et porte déjà une phrase française — la
+  ré-emballer relabelliserait un message technique en message visiteur
+  (AGENTS.md § Exception messages).
+- **Deux tables dans `schema/core.sql`** : `help_assistant_rate_limits`
+  (compte par compte, pas par IP — l'assistant est `role_min: chief`,
+  donc il y a toujours un compte à débiter, et une empreinte d'IP
+  facturerait tout un staff derrière une connexion comme une personne) et
+  `help_assistant_cache` (empreinte SHA-256 de la question normalisée + le
+  rôle + la version applicative). **Ni l'une ni l'autre ne conserve la
+  question** : SECURITY.md §11.
+- **`Task\PurgeHelpAssistantHandler`**, auto-replanifié quotidiennement,
+  enregistré dans `CoreTaskHandlers`.
+- **Journal** : `help_assistant_query` (`info`) avec les ids sélectionnés,
+  les jetons et le cache hit/miss, **jamais le texte de la question**.
+
+**Décisions autonomes.**
+
+1. **Le cache est consulté avant que le quota ne soit débité**, et une
+   réponse servie depuis le cache ne coûte rien. Servir un travail déjà
+   payé ne doit pas dépenser l'allocation de quelqu'un.
+2. **Un appel qui échoue chez le fournisseur consomme quand même son
+   allocation.** Sinon un fournisseur en panne devient une boucle de
+   réessais sans limite.
+3. **« Rien trouvé » est mis en cache comme une réponse.** Poser deux fois
+   la même question ne doit pas coûter deux fois simplement parce que la
+   réponse était « rien ».
+4. **Le rôle entre dans la clé de cache**, pas en filtre par-dessus : deux
+   rôles posant les mêmes mots sont deux questions différentes, puisque le
+   catalogue dont elles sont tirées diffère, et l'une ne doit jamais être
+   servie à l'autre.
+5. **La fenêtre de quota est une constante du service, pas un réglage.**
+   Contrairement à la vérification humaine, dont un administrateur règle
+   la fenêtre contre du vrai spam, celle-ci borne ce que l'unité paie à
+   son fournisseur d'IA et n'a pas de raison de varier d'une installation
+   à l'autre. 20 questions par heure et par compte.
+6. **Une réponse tronquée lève `AssistantException`, pas `LlmException`.**
+   Le connecteur a fait son travail ; c'est le plafond posé par ce service
+   qui a été atteint. Et le cœur ne lève pas l'exception de contrat d'un
+   module à la place du module.
+7. **Le service est câblé après le bloc `llm_connector`** de
+   `public/index.php` et non à côté de `$helpService` : c'est le seul
+   consommateur du connecteur qui vive dans le cœur, et
+   `$llmConnectorForOthers` n'existe qu'une fois ce bloc passé.
+
+**Divergences constatées.**
+
+1. **Le piège §4.5 est déjà refermé dans ce dépôt.** Le document demande
+   qu'un handler de tâche soit « atteignable depuis les deux points
+   d'entrée ». Depuis les bugs de §8.17/§8.20, `public/index.php` et
+   `public/cron.php` passent tous deux par
+   `public/scheduler-bootstrap.php`, qui appelle
+   `CoreTaskHandlers::registerAll()` **une seule fois pour les deux**. Une
+   ligne dans `CoreTaskHandlers` suffit donc, et l'oubli que le document
+   craint n'est plus exprimable.
+2. **Le test de comptage des tables de `schema/core.sql` était épinglé à
+   45** (`SqlParserTest`) et passe à 47.
+
+**Vérifié par 24 cas** avec un faux `LlmConnectorInterface` qui **conserve
+les prompts envoyés** — parce que « aucune donnée de l'unité n'entre dans
+un prompt » et « le catalogue est filtré au rôle » sont des affirmations
+sur ce qui a été *envoyé*, et ne sont testables qu'ainsi. Couvrent : le
+connecteur absent, un tier sans modèle, le catalogue filtré, un id
+inventé, un id au-dessus du rôle (refusé même si le modèle le renvoie, et
+l'appel de réponse n'a alors pas lieu), le prompt de réponse qui ne porte
+que des corps et la question, la question jamais journalisée ni mise en
+cache, « rien trouvé », la troncature, l'échec du connecteur, le quota par
+compte, l'échec qui consomme quand même, le hit de cache, deux rôles, une
+release, la question vide ou démesurée refusée avant tout appel, et
+l'ancrage sur la page courante.
+
+**Reporté.** Aucune route, aucune interface : IT-09.
+
+---
+
 ## Note transverse — la suite n'est plus verte, et ce n'est pas ce chantier
 
 Constaté pendant IT-02, à consigner parce que le critère « fait quand » de

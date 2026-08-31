@@ -1815,6 +1815,11 @@ $schedulerService->rearm('core', 'check_stable_update', 'daily', new DateTimeImm
 // HumanCheck\Task\PurgeHumanCheckRateLimitsHandler).
 $schedulerService->rearm('core', 'purge_human_check_rate_limits', \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler::REFERENCE, new DateTimeImmutable());
 
+// Same bootstrap for the help assistant's own purge (Core\Help\Assistant\
+// Task\PurgeHelpAssistantHandler): rate-limit rows past the quota window
+// and cached answers no running version can still reach.
+$schedulerService->rearm('core', \Core\Help\Assistant\Task\PurgeHelpAssistantHandler::TASK_KEY, \Core\Help\Assistant\Task\PurgeHelpAssistantHandler::REFERENCE, new DateTimeImmutable());
+
 // Same bootstrap for the daily usage-statistics report (Core\Statistics\
 // Task\SendStatisticsHandler). The very first occurrence runs immediately;
 // every guard it can trip (reporting disabled, non-public host, this site
@@ -2411,6 +2416,22 @@ if ($isEnabled('llm_connector')) {
         )
     );
 }
+
+// The help assistant (Core\Help\Assistant, ARCHITECTURE.md §8.87) —
+// built HERE and not next to $helpService above, because it is the one
+// consumer of the LLM connector that lives in core, and
+// $llmConnectorForOthers only exists once the module's block just above
+// has run. Null there means the assistant answers "unavailable" and the
+// local search carries on exactly as before (§7.5).
+$helpAssistantService = new \Core\Help\Assistant\AssistantService(
+    $helpService,
+    new \Core\Help\Assistant\AssistantCatalog($helpService),
+    new \Core\Help\Assistant\AssistantRateLimitRepository($pdo),
+    new \Core\Help\Assistant\AssistantCacheRepository($pdo),
+    $journalService,
+    \Core\Maintenance\VersionFile::read(dirname(__DIR__)),
+    $llmConnectorForOthers
+);
 
 // RGPD content service (may use LLM if module is active). Each module's
 // effective sub-processors reach it through the Core\Module\

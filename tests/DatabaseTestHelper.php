@@ -567,6 +567,24 @@ class DatabaseTestHelper
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )');
 
+        // The help assistant's quota and answer cache (schema/core.sql:
+        // help_assistant_rate_limits, help_assistant_cache). Neither ever
+        // holds the question itself — a fingerprint on one side, a count
+        // on the other (SECURITY.md §11).
+        $pdo->exec('CREATE TABLE help_assistant_rate_limits (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_account_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )');
+
+        $pdo->exec('CREATE TABLE help_assistant_cache (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            fingerprint TEXT NOT NULL UNIQUE,
+            answer TEXT NOT NULL,
+            topic_ids TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )');
+
         // Core\Audit's per-entity change history (schema/core.sql:
         // entity_changes). The three value columns are BLOB here as they
         // are in production — the repository writes ciphertext into them.
