@@ -4,6 +4,8 @@ title: Suivre les actions planifiées
 summary: Les tâches de fond du site : états, échecs et exécution.
 category: Configuration
 role_min: superadmin
+question: Pourquoi une tâche de fond du site ne s'exécute-t-elle pas ?
+question: Comment relancer une action planifiée en échec ?
 paths: /config/scheduled
 related: config-notifications, installation-serveur
 ---
@@ -41,6 +43,6 @@ Le site exécute ses tâches de deux façons :
 L'heure de la colonne « Exécution prévue » est donc une intention,
 pas une garantie, tant qu'aucun vrai cron n'est en place. La ligne à
 installer chez l'hébergeur est donnée sur la page « Installation &
-serveur », bloc « Tâche planifiée (cron) » ; la page Notifications de
+serveur », bloc « Tâche cron » ; la page Notifications de
 la configuration vous avertit lorsqu'aucun passage récent n'a été
 détecté.

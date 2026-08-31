@@ -4,6 +4,8 @@ title: La page Support
 summary: Les statistiques d'utilisation et le paquet de diagnostic.
 category: Configuration
 role_min: superadmin
+question: Comment envoyer un diagnostic à celui qui nous dépanne ?
+question: Où voir combien le site est utilisé ?
 paths: /config/support
 related: support-sondes-email, mises-a-jour, installation-serveur
 ---

@@ -4,6 +4,9 @@ title: Activer l'intelligence artificielle
 summary: Choisir un fournisseur d'IA, sa clé, et ce que le site en fait.
 category: Configuration
 role_min: superadmin
+question: Comment brancher une intelligence artificielle sur le site ?
+question: Combien coûte l'IA branchée sur le site ?
+question: Que fait le site avec l'IA une fois branchée ?
 paths: /config/llm
 related: config-rgpd, recus, retrospectives
 ---
@@ -23,7 +26,7 @@ de choisir : les textes envoyés à l'IA quittent le serveur de l'unité.
 
 > Un fournisseur d'IA est un sous-traitant au sens du RGPD. Après
 > l'activation, vérifiez la page Protection des données du site — le
-> mode « généré par IA » de sa configuration sait tenir compte du
+> mode « Généré par IA » de sa configuration sait tenir compte du
 > fournisseur choisi.
 
 ## Activer

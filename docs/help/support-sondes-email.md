@@ -4,6 +4,8 @@ title: Tester l'acheminement des e-mails
 summary: Vérifier que vos messages arrivent vraiment, et dans quel état.
 category: Configuration
 role_min: superadmin
+question: Comment savoir si nos e-mails arrivent en spam ?
+question: Comment tester l'acheminement d'un e-mail vers une adresse ?
 paths: /config/support
 related: support, config-emails
 ---

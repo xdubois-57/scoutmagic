@@ -4,6 +4,8 @@ title: Configurer le stockage de la galerie
 summary: Où vivent les photos : emplacements locaux ou S3, et l'espace disponible.
 category: Configuration
 role_min: superadmin
+question: Où sont stockées les photos de la galerie ?
+question: Comment brancher la galerie sur un stockage S3 ?
 paths: /config/gallery, /config/gallery/locations/new, /config/gallery/locations/*/edit
 related: galerie, gerer-la-galerie
 ---

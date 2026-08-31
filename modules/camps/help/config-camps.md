@@ -4,6 +4,8 @@ title: Réglages des camps
 summary: Le pays par défaut d'un nouveau lieu et le nombre de séjours affichés.
 category: Configuration
 role_min: superadmin
+question: Comment changer le pays proposé par défaut pour un lieu de camp ?
+question: Combien de séjours la liste des camps affiche-t-elle ?
 paths: /config/camps
 related: camps
 ---

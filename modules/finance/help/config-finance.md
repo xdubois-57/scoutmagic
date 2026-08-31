@@ -4,6 +4,8 @@ title: Configurer les finances
 summary: Comptes, catégories, règles automatiques et zone de danger.
 category: Configuration
 role_min: superadmin
+question: Comment déclarer un compte bancaire de l'unité ?
+question: Comment faire classer automatiquement les mouvements bancaires ?
 paths: /config/finance, /config/finance/accounts, /config/finance/categories
 related: finances, importer-extraits
 ---

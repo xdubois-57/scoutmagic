@@ -4,6 +4,8 @@ title: Sauvegarder le site
 summary: Les sauvegardes à la demande et automatiques, et leur téléchargement.
 category: Configuration
 role_min: admin
+question: Comment sauvegarder le site avant une opération risquée ?
+question: Où télécharger la dernière sauvegarde du site ?
 paths: /config/maintenance
 related: mises-a-jour, reinitialisation
 ---

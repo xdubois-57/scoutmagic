@@ -400,6 +400,61 @@ trait deux champs voisins réellement libellés « Du » et « Au ».
 
 ---
 
+## IT-06 — Configuration (25 sujets)
+
+**Livré.**
+
+- **2 à 3 `question:` sur chacun des 25 sujets** — 54 questions. C'est la
+  tranche du superadministrateur, et les questions sont celles qu'on se
+  pose quand quelque chose ne marche pas : « Pourquoi les e-mails du site
+  n'arrivent-ils pas ? », « Comment vérifier que le cron du site
+  tourne ? », « Que se passe-t-il si je désactive un module ? »,
+  « Combien coûte l'IA branchée sur le site ? ».
+- **Deux corrections de contenu**, les deux de la même famille que celles
+  d'IT-04 et IT-05 — une citation reconnaissable mais pas littérale :
+  - `actions-planifiees` renvoyait au bloc « Tâche planifiée (cron) » de
+    la page Installation & serveur, qui s'appelle **« Tâche cron »** ;
+  - `connecteur-ia` citait le mode « généré par IA » de la page RGPD, qui
+    s'affiche **« Généré par IA »**.
+- **`role_min` : aucun écart** avec le plancher des routes couvertes.
+
+**Le corpus est enrichi en entier.** 120 sujets, **272 questions**, de 2 à
+4 par sujet, `loadErrors()` vide. L'index de recherche pèse **5,8 Ko**
+pour un visiteur public, **23,3 Ko** pour un animateur, **34,5 Ko** pour un
+chef d'unité et **42,0 Ko** pour un superadministrateur — au-delà de la
+fourchette annoncée pour les deux derniers rôles, ce qui reste le prix
+assumé de la décision D2 (voir la divergence 1 d'IT-02).
+
+**Ce que les quatre tranches ont appris à IT-07.** Le prototype du test de
+dérive tourne sur le corpus complet et ne laisse plus que **25 citations
+non résolues sur 18 sujets** — toutes des exceptions légitimes, aucune
+dérive. Il a fallu quatre corrections successives du dépouillement pour
+arriver là, et chacune est un piège qu'un test naïf tomberait dedans :
+
+1. **`glob()` ne récurse pas sur `**`** — un gabarit à trois niveaux
+   n'était pas lu (IT-05).
+2. **Une balise coupe un libellé** (« J'accepte la `<a>`politique de
+   protection des données`</a>` ») : il faut une lecture *sans* les
+   balises pour le recoller.
+3. **Un libellé vit dans un attribut** (« Mois précédent » est un
+   `aria-label`) : il faut une lecture *avec* les attributs. Les deux
+   lectures sont incompatibles, donc le test en fait deux et accepte une
+   correspondance dans l'une ou l'autre.
+4. **Un libellé vit dans une balise Twig.** L'idiome dominant de ce dépôt
+   pour un bouton, un état vide ou un éditeur de liste est
+   `{% include ... with { action_label: "Télécharger l'album (ZIP)" } %}`
+   — dépouiller le Twig efface exactement ce qu'un sujet cite.
+
+**Décision autonome.** Le document demande d'extraire les libellés
+« entre guillemets français ou en gras ». **Le gras est écarté** : dans ce
+corpus il sert massivement l'emphase de prose (« **Un champ vide est
+rempli.** ») et pas la citation d'un libellé. L'inclure produirait des
+dizaines de faux positifs et une ALLOWLIST qui ne serait plus courte —
+donc plus lue. Les guillemets français sont la convention réelle du corpus
+pour nommer un contrôle, et c'est celle que le test contrôle.
+
+---
+
 ## Note transverse — la suite n'est plus verte, et ce n'est pas ce chantier
 
 Constaté pendant IT-02, à consigner parce que le critère « fait quand » de
