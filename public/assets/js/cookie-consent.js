@@ -12,21 +12,66 @@ document.addEventListener('DOMContentLoaded', function () {
         return meta ? meta.content : '';
     }
 
-    document.getElementById('cookie-accept-all').addEventListener('click', function () {
-        fetch('/cookies/accept-all', {
+    /**
+     * The banner stays, because it is the only control that can record a
+     * choice — taking it away would leave the visitor no way to answer.
+     */
+    function choiceNotRecorded() {
+        var toast = window.ScoutMagicToast;
+        if (toast) {
+            toast.show(
+                "Votre choix n'a pas pu être enregistré. Rechargez la page et réessayez.",
+                { variant: 'error' }
+            );
+        }
+    }
+
+    // A refused POST must not look like a recorded choice.
+    //
+    // Both handlers used to remove the banner from inside
+    // `fetch(...).then(...)`, which runs for EVERY response the server
+    // sends — a 403 exactly as readily as a 200. A decision the server
+    // rejected therefore took the banner away just like an accepted one:
+    // the visitor saw their click land, nothing was stored, and the
+    // banner returned on the next page load with no explanation. For
+    // « Tout refuser » that is worse than cosmetic — a refusal is
+    // reported as registered when it was not, which is precisely the
+    // claim ePrivacy consent rests on.
+    //
+    // Found from the other side, and only because something else was
+    // being chased: a dynamic-security run caught
+    // POST /cookies/reject-all answering 403 while
+    // tests/e2e/support/cookie-banner.js still reporting success — its
+    // own comment claimed that waiting for the banner to go WAS waiting
+    // for the decision to be recorded. That claim is true now, and only
+    // because of this function: resolved is not succeeded.
+    /**
+     * @param {string} endpoint
+     * @param {() => void} [onRecorded] side effects that only become
+     *        true once the server has actually stored the choice
+     */
+    function recordChoice(endpoint, onRecorded) {
+        fetch(endpoint, {
             method: 'POST',
             headers: { 'X-CSRF-Token': getCsrf() }
-        }).then(function () {
+        }).then(function (response) {
+            if (!response.ok) {
+                choiceNotRecorded();
+                return;
+            }
             banner.remove();
-        });
+            if (onRecorded) {
+                onRecorded();
+            }
+        }).catch(choiceNotRecorded);
+    }
+
+    document.getElementById('cookie-accept-all').addEventListener('click', function () {
+        recordChoice('/cookies/accept-all');
     });
 
     document.getElementById('cookie-reject-all').addEventListener('click', function () {
-        fetch('/cookies/reject-all', {
-            method: 'POST',
-            headers: { 'X-CSRF-Token': getCsrf() }
-        }).then(function () {
-            banner.remove();
+        recordChoice('/cookies/reject-all', function () {
             // Withdrawing functional consent also withdraws the stored
             // theme preference (public/assets/js/theme.js — functional
             // category, declared in core/Cookie/CookieRegistry.php): the

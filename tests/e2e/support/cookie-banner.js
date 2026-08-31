@@ -32,8 +32,18 @@ export async function answerCookieBanner(page, options = {}) {
     await expect(banner).toBeVisible();
     await page.getByRole('button', { name: options.accept ? 'Tout accepter' : 'Tout refuser' }).click();
 
-    // cookie-consent.js hides the banner only once its POST has resolved,
-    // so waiting for it to go is waiting for the decision to be recorded —
-    // never a fixed delay.
+    // cookie-consent.js removes the banner only once its POST has come
+    // back OK, so waiting for it to go is waiting for the decision to be
+    // recorded — never a fixed delay.
+    //
+    // That second clause was false until the fix that added this note.
+    // The banner used to be removed from inside `fetch(...).then(...)`,
+    // which runs for every response the server sends: a dynamic-security
+    // run caught POST /cookies/reject-all answering 403 with this helper
+    // reporting success, and the scenario failing forty seconds later on
+    // the unrelated-looking assertion that came next. Resolved is not
+    // succeeded — the banner surviving is now a real signal, so if this
+    // ever times out, read it as "the server refused the choice", not as
+    // "the banner is slow".
     await expect(banner).toBeHidden();
 }
