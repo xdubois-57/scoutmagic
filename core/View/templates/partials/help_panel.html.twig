@@ -6,8 +6,13 @@
    offcanvas, bottom sheet on mobile and right-hand drawer at lg and up
    (.help-offcanvas in app.css; Bootstrap has no responsive placement of
    its own, same reason the chip picker's sheet carries custom CSS).
-   Included by base.html.twig ONLY when route_help is non-empty, next to
-   #offline-dialog.
+   Included by base.html.twig on EVERY page, next to #offline-dialog.
+
+   It used to be included only when `route_help` was non-empty, back when
+   the panel had nothing to show without a matching topic. It now always
+   opens on the search field, which works on every page and at every role
+   — so a page no topic covers is no longer a dead end but the ordinary
+   way in to the whole corpus.
 
    Every matched topic's content is rendered server-side into this
    markup — no fetch on open, so the panel works offline exactly like the
@@ -25,57 +30,92 @@
         </h5>
         <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Fermer"></button>
     </div>
-    <div class="offcanvas-body">
-        {% if route_help|length > 1 %}
-            {# The topic list — the panel's landing view when several
-               topics cover this page. help-panel.js shows one topic on
-               click and brings this list back via the « Tous les sujets
-               de cette page » control below. #}
-            <div data-help-list>
-                <p class="small text-body-secondary">Plusieurs sujets concernent cette page :</p>
-                <div class="list-group list-group-flush">
-                    {% for entry in route_help %}
-                        <button type="button" class="list-group-item list-group-item-action border-0 px-0 py-2 text-start"
-                                data-help-open="{{ entry.id }}">
-                            <span class="fw-semibold d-block">{{ entry.title }}</span>
-                            <span class="small text-body-secondary">{{ entry.summary }}</span>
-                        </button>
-                    {% endfor %}
-                </div>
+    {# The search scope: the field, the results it fills, and everything
+       it hides while a query is typed (public/assets/js/help-search.js
+       binds every [data-help-search-scope] the same way, here and on
+       /aide). The index it ranks ships in the page as #help-search-index,
+       so this works offline and needs no network at all. #}
+    <div class="offcanvas-body" data-help-search-scope>
+        <div class="mb-3">
+            <label for="help-panel-search" class="visually-hidden">Rechercher dans l'aide</label>
+            <div class="input-group">
+                <span class="input-group-text"><i class="bi bi-search" aria-hidden="true"></i></span>
+                <input type="search" class="form-control" id="help-panel-search"
+                       placeholder="Rechercher un sujet…" autocomplete="off"
+                       data-help-search-input>
             </div>
-        {% endif %}
+        </div>
 
-        {% for entry in route_help %}
-            <article class="help-content rich-text{% if route_help|length > 1 %} d-none{% endif %}" data-help-topic="{{ entry.id }}">
-                {% if route_help|length > 1 %}
-                    <button type="button" class="btn btn-link btn-sm p-0 mb-2 text-decoration-none" data-help-back>
-                        <i class="bi bi-arrow-left" aria-hidden="true"></i> Tous les sujets de cette page
-                    </button>
-                {% endif %}
-                <h6 class="fw-semibold">{{ entry.title }}</h6>
-                {{ entry.html|raw }}
-                {# The page this topic documents — suppressed when it is
-                   the page the panel is open on, which is the usual case
-                   here (Core\Help\HelpPageLinkResolver). It shows up on a
-                   page a topic covers alongside another one. #}
-                {% if entry.page_link|default(null) %}
-                    <p class="mt-3 mb-0">
-                        <a href="{{ entry.page_link.path }}" class="btn btn-outline-secondary btn-sm">
-                            Aller sur la page « {{ entry.page_link.label }} »
-                            <i class="bi bi-arrow-right" aria-hidden="true"></i>
-                        </a>
-                    </p>
-                {% endif %}
-            </article>
-        {% endfor %}
+        <div data-help-search-results hidden></div>
+
+        <div data-help-search-default>
+            {% if route_help|default([]) is empty %}
+                {# No topic covers this page — which is not a failure, and
+                   the panel says what to do instead of showing nothing. #}
+                <p class="small text-body-secondary mb-0">
+                    Aucun sujet ne décrit précisément cette page. Cherchez ci-dessus
+                    un mot du problème que vous rencontrez, ou parcourez
+                    <a href="/aide" class="text-decoration-none">tous les sujets</a>.
+                </p>
+            {% endif %}
+
+            {% if route_help|length > 1 %}
+                {# The topic list — the panel's landing view when several
+                   topics cover this page. help-panel.js shows one topic on
+                   click and brings this list back via the « Tous les sujets
+                   de cette page » control below. #}
+                <div data-help-list>
+                    <p class="small text-body-secondary">Plusieurs sujets concernent cette page :</p>
+                    <div class="list-group list-group-flush">
+                        {% for entry in route_help %}
+                            <button type="button" class="list-group-item list-group-item-action border-0 px-0 py-2 text-start"
+                                    data-help-open="{{ entry.id }}">
+                                <span class="fw-semibold d-block">{{ entry.title }}</span>
+                                <span class="small text-body-secondary">{{ entry.summary }}</span>
+                            </button>
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endif %}
+
+            {% for entry in route_help|default([]) %}
+                <article class="help-content rich-text{% if route_help|length > 1 %} d-none{% endif %}" data-help-topic="{{ entry.id }}">
+                    {% if route_help|length > 1 %}
+                        <button type="button" class="btn btn-link btn-sm p-0 mb-2 text-decoration-none" data-help-back>
+                            <i class="bi bi-arrow-left" aria-hidden="true"></i> Tous les sujets de cette page
+                        </button>
+                    {% endif %}
+                    <h6 class="fw-semibold">{{ entry.title }}</h6>
+                    {{ entry.html|raw }}
+                    {# The page this topic documents — suppressed when it is
+                       the page the panel is open on, which is the usual case
+                       here (Core\Help\HelpPageLinkResolver). It shows up on a
+                       page a topic covers alongside another one. #}
+                    {% if entry.page_link|default(null) %}
+                        <p class="mt-3 mb-0">
+                            <a href="{{ entry.page_link.path }}" class="btn btn-outline-secondary btn-sm">
+                                Aller sur la page « {{ entry.page_link.label }} »
+                                <i class="bi bi-arrow-right" aria-hidden="true"></i>
+                            </a>
+                        </p>
+                    {% endif %}
+                </article>
+            {% endfor %}
+        </div>
     </div>
     <div class="offcanvas-footer border-top p-3 d-flex justify-content-between align-items-center gap-2">
         {# « Ouvrir dans l'aide » targets the visible topic — help-panel.js
            keeps the href in step when the visitor switches topics, and
-           hides the link while the multi-topic list view is showing. #}
-        <a href="/aide/{{ (route_help|first).id }}" class="small text-decoration-none{% if route_help|length > 1 %} invisible{% endif %}" data-help-open-full>
-            Ouvrir dans l'aide
-        </a>
+           hides the link while the multi-topic list view is showing. With
+           no topic covering the page there is none to open, so only
+           « Tous les sujets » remains. #}
+        {% if route_help|default([]) is not empty %}
+            <a href="/aide/{{ (route_help|first).id }}" class="small text-decoration-none{% if route_help|length > 1 %} invisible{% endif %}" data-help-open-full>
+                Ouvrir dans l'aide
+            </a>
+        {% else %}
+            <span></span>
+        {% endif %}
         <a href="/aide" class="small text-decoration-none">Tous les sujets</a>
     </div>
 </div>

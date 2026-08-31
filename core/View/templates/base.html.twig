@@ -281,17 +281,25 @@
             </div>
         </div>
     </div>
-    {# Contextual help panel (ARCHITECTURE.md §8.64) — rendered only when
-       at least one topic covers this page (`route_help`, set by
-       Core\Http\FrontController after the RBAC guard, already
-       role-filtered and already rendered server-side so the panel works
-       offline). The button that opens it lives in the breadcrumb bar
-       (partials/help_button.html.twig); with no matching topic that
-       button is a plain /aide link and this markup isn't emitted at all. #}
-    {% if route_help|default([]) is not empty %}
-        {% include 'partials/help_panel.html.twig' %}
-        <script src="{{ asset('/assets/js/help-panel.js') }}" defer></script>
-    {% endif %}
+    {# Contextual help panel (ARCHITECTURE.md §8.64) — rendered on EVERY
+       page now, not only the ones a topic covers: the panel opens on a
+       search field over the whole corpus, which is most useful precisely
+       where no topic matches. `route_help` (set by Core\Http\FrontController
+       after the RBAC guard, already role-filtered and already rendered
+       server-side so the panel works offline) still decides what shows
+       below that field. The button that opens it lives in the breadcrumb
+       bar (partials/help_button.html.twig).
+
+       #help-search-index is the corpus the search ranks, filtered to this
+       visitor's role by Core\Help\HelpSearchIndex — the same
+       server-decides / browser-renders shape as #offline-config-data
+       above, and the reason the search needs no network at all.
+       type="application/json" so it never executes and needs no CSP
+       nonce. #}
+    <script type="application/json" id="help-search-index">{{ help_search_index|default([])|json_encode|raw }}</script>
+    {% include 'partials/help_panel.html.twig' %}
+    <script src="{{ asset('/assets/js/help-panel.js') }}" defer></script>
+    <script src="{{ asset('/assets/js/help-search.js') }}" defer></script>
     {% block scripts %}{% endblock %}
 
     {# The confirmation behind every form carrying data-confirm lives in

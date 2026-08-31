@@ -2281,6 +2281,18 @@ $twig->addGlobal('menus', $menus);
 // cache a page it will only ever get a 403 for).
 $twig->addGlobal('offline_whitelist', $offlineWhitelist->getEntriesForRole(Role::fromString($currentRole)));
 
+// The help corpus the instant search ranks (Core\Help\HelpSearchIndex),
+// serialized into every page by base.html.twig — same timing and the same
+// reason as the offline whitelist just above: built once every enabled
+// module has registered its own topics, and filtered to the viewer's
+// effective role, because a blob in the page source is readable whatever
+// the script does with it. Front matter only, no bodies: ~15 KB, and the
+// registry already holds it in memory.
+$twig->addGlobal(
+    'help_search_index',
+    (new \Core\Help\HelpSearchIndex($helpService, $helpPageLinkResolver))->forRole(Role::fromString($currentRole))
+);
+
 // Determine the active menu section AND which specific page button should
 // be highlighted from the current path. A page's own sub-routes (e.g.
 // finance's /finance/movements, /finance/receipts — registered with an
