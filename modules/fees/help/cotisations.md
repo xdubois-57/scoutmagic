@@ -4,6 +4,8 @@ title: Vérifier les cotisations de la fédération
 summary: Ce que le module photographie à chaque import Desk, et pourquoi il faut l'activer tôt.
 category: Espace chefs d'U
 role_min: admin
+question: Comment vérifier ce que la fédération va nous facturer ?
+question: Pourquoi faut-il activer le module des cotisations tôt ?
 paths: /admin/fees
 related: import-desk, annee-scoute, membres-admin
 ---

@@ -362,6 +362,44 @@ IT-05 et IT-06.
 
 ---
 
+## IT-05 — Espace chefs d'U (28 sujets)
+
+**Livré.**
+
+- **2 à 3 `question:` sur chacun des 28 sujets** — 59 questions. La
+  tranche est celle du Staff d'Unité, et les questions le disent : « Qui a
+  changé cela, et quand ? », « La facture de la fédération est-elle
+  juste ? », « La même personne apparaît deux fois, comment réunir ses
+  fiches ? », « Quels animateurs vont bientôt avoir 20 ans ? ».
+- **Une correction de contenu** : `attestations-verifier` citait les deux
+  compteurs de l'écran comme « Affichées » et « À distribuer », en
+  capitales et comme s'il s'agissait de libellés. L'écran écrit
+  « N affichées sur M » et « à distribuer », en minuscules, dans une
+  phrase. La citation suit maintenant l'écran.
+- **`role_min` : aucun écart** avec le plancher des routes couvertes.
+
+**Un défaut dans l'outil d'audit, corrigé.**
+
+Le script qui confronte les libellés cités aux sources utilisait
+`core/View/templates/**/*.twig` : **le `**` de `glob()` en PHP ne
+récurse pas**, donc un gabarit à trois niveaux
+(`admin/members/search.html.twig`) n'était jamais lu et tous ses
+libellés ressortaient « manquants ». Corrigé en parcourant les arbres.
+Les tranches IT-03 et IT-04 ont été **repassées** avec le script
+réparé : leurs listes sont inchangées, donc aucune vraie dérive n'y
+avait été manquée et aucune correction n'y avait été faite à tort.
+C'est le troisième piège pour IT-07, et le plus coûteux : **un test de
+dérive qui ne lit pas tous les gabarits accuse le corpus à tort.**
+
+**Les faux positifs restants** (onze) sont tous d'une famille déjà
+répertoriée : titres de sujets d'aide cités en renvoi, paroles
+rapportées (« ça a affiché une erreur »), valeurs d'exemple
+(« Attestation présence camp 2026 »), gabarits à points de suspension
+(« SOS Staff d'U : … »), et le raccourci « Du / Au » qui nomme d'un
+trait deux champs voisins réellement libellés « Du » et « Au ».
+
+---
+
 ## Note transverse — la suite n'est plus verte, et ce n'est pas ce chantier
 
 Constaté pendant IT-02, à consigner parce que le critère « fait quand » de

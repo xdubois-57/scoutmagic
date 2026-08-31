@@ -4,6 +4,9 @@ title: Importer le fichier Desk
 summary: Mettre à jour les membres du site depuis l'export CSV de la fédération.
 category: Espace chefs d'U
 role_min: admin
+question: Comment mettre à jour les membres depuis la fédération ?
+question: Où récupérer le fichier CSV à importer dans le site ?
+question: Que se passe-t-il si j'importe deux fois le même fichier ?
 paths: /admin/import
 related: annee-scoute, config-desk, membres-admin, import-historique
 ---

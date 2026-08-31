@@ -4,6 +4,8 @@ title: Importer et suivre les factures de la fédération
 summary: L'acompte, les factures finales, la régularisation — et ce que le site vérifie avant d'accepter un document.
 category: Espace chefs d'U
 role_min: admin
+question: Comment enregistrer la facture de cotisations de la fédération ?
+question: Pourquoi le site refuse-t-il ma facture fédérale ?
 paths: /admin/fees/factures, /admin/fees/factures/import
 related: cotisations, justesse-des-tarifs, import-desk
 ---

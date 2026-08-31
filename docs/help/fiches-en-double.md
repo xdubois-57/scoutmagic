@@ -4,6 +4,8 @@ title: Les fiches en double
 summary: Réunir deux fiches qui désignent la même personne recréée dans Desk.
 category: Espace chefs d'U
 role_min: admin
+question: La même personne apparaît deux fois, comment réunir ses fiches ?
+question: Pourquoi un animé a-t-il perdu son historique après un import ?
 paths: /admin/doublons
 related: points-attention, import-desk, page-membre
 ---

@@ -4,6 +4,8 @@ title: Qui n'a pas encore reçu son attestation
 summary: Pour une catégorie et une année, qui la détient et de qui réclamer le complément.
 category: Espace chefs d'U
 role_min: admin
+question: Qui n'a pas encore reçu son attestation fiscale ?
+question: Que réclamer à la fédération pour compléter un lot ?
 paths: /admin/attestations/*
 related: attestations, attestations-distribuer
 ---

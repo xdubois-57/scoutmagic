@@ -4,6 +4,8 @@ title: Distribuer un lot d'attestations
 summary: Publier sur les pages des membres, prévenir les familles, lire les compteurs d'envoi.
 category: Espace chefs d'U
 role_min: admin
+question: Comment envoyer les attestations fiscales aux familles ?
+question: Comment savoir si une famille a bien reçu son attestation ?
 paths: /admin/attestations/*
 related: attestations, attestations-verifier, attestations-couverture
 ---

@@ -4,6 +4,8 @@ title: La fiche d'un membre
 summary: Ce que le site sait d'une personne, et les actions qu'on y trouve.
 category: Espace chefs d'U
 role_min: admin
+question: Où voir tout ce que le site sait d'une personne ?
+question: Comment savoir dans quelles sections quelqu'un est passé ?
 paths: /admin/members/*
 related: membres-admin, import-desk
 ---
