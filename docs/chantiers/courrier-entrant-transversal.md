@@ -179,3 +179,36 @@ Il retire les documents que `onLinked` avait déposés sur le séjour, mais
 laisse les valeurs de champs complétées depuis le message. Un chef a pu en
 valider une, et revenir en silence sur une valeur validée par quelqu'un est
 pire que laisser un champ rempli depuis un message qui a bougé.
+
+---
+
+## IT-05 — les libellés des trois modes
+
+La feuille de route se contredit sur un point, et il faut trancher avant
+d'écrire l'écran.
+
+Sa section « Vocabulaire d'interface » annonce : `none` → « Aucun tri »,
+`relevant` → « Messages concernés uniquement », `all` → « Tous les messages
+de la boîte ».
+
+Mais **le corps d'IT-05 et la maquette v2 disent tous les deux autre
+chose** : « un choix segmenté "qui peut le lire" à trois options présentées
+au même niveau — Personne / Messages concernés / Tout le courrier ».
+
+Ce sont ces derniers qui l'emportent, pour deux raisons. La maquette est
+désignée comme faisant foi pour les libellés français ; et le corps d'IT-05,
+qui décrit précisément le contrôle à construire, emploie exactement les
+mêmes mots qu'elle. La section « Vocabulaire » décrit la v1 de l'écran,
+celle que la v2 remplace.
+
+Retenu, donc, pour le contrôle segmenté :
+
+| mode | libellé |
+|---|---|
+| `none` | Personne |
+| `relevant` | Messages concernés |
+| `all` | Tout le courrier |
+
+Les pastilles de l'index disent autre chose encore, et c'est voulu : elles
+résument un état plutôt que d'offrir un choix — « classement seul »,
+« messages concernés », « tout le courrier ».
