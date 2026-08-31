@@ -1,44 +1,66 @@
 ---
 id: courrier-finances
-title: Une facture reçue par e-mail
-summary: Quand le site propose de classer une pièce jointe en reçu, et pourquoi il ne le fait jamais tout seul.
+title: Un reçu reçu par e-mail
+summary: Comment le site décide où classer une pièce jointe, ce qu'il fait tout seul et ce qu'il vous laisse.
 category: Espace animateurs
 role_min: intendant
 paths: /finance/receipts
-related: courrier-entrant, courrier-unite
+related: recus, courrier-entrant, courrier-unite
 ---
 
 Si l'unité relève ses e-mails depuis ScoutMagic et que le module Finances
-a été autorisé à lire une boîte, une facture qui arrive peut vous être
-**proposée** comme reçu sur un compte.
+a été autorisé à lire une boîte, une pièce jointe qui arrive peut devenir
+un reçu.
 
-## Ce que le site regarde
+Il faut d'abord **une pièce jointe qui peut en être un** — un PDF ou une
+image. Un tableur est un document, pas un reçu, et un message qui parle
+d'argent sans rien joindre ne donne rien à classer.
 
-Deux choses, et il faut les deux :
+Ensuite, trois règles, dans cet ordre.
 
-- **une pièce jointe** qui peut être un reçu — un PDF ou une image. Un
-  tableur est un document, pas un reçu ;
-- **l'IBAN d'un de vos comptes**, cité dans le message.
+## 1. L'IBAN d'un de vos comptes est cité dans le message
 
-C'est l'IBAN qui dit *quel* compte. Le site ne devine pas : s'il n'en
-trouve aucun, il ne propose rien ; s'il en trouve deux, il ne propose rien
-non plus — un message qui cite deux de vos comptes est presque toujours un
-virement interne, et le reçu d'un virement n'appartient par défaut à aucun
-des deux côtés.
+Le site vous **propose** ce compte. C'est un signal faible, et la
+proposition est là pour être confirmée ou écartée, pas pour être crue :
+rien n'est enregistré tant qu'un trésorier n'a pas confirmé.
 
-C'est un **signal faible**, et le site le dit : la proposition est là pour
-être confirmée ou écartée, pas pour être crue.
+Le site ne devine pas. Si le message cite deux de vos comptes, il ne
+propose rien : c'est presque toujours un virement interne, et le reçu d'un
+virement n'appartient par défaut à aucun des deux côtés.
 
-## Rien n'est jamais classé tout seul
+## 2. L'expéditeur anime un seul staff
 
-Le site ne rattache jamais une facture à un compte de sa propre initiative,
-et il ne crée jamais un reçu sans qu'une personne ait confirmé. Un reçu est
-une pièce comptable : un mauvais reçu est pire qu'un reçu manquant, parce
-qu'il s'équilibre en silence sur le mauvais compte.
+Un animateur photographie un ticket et l'envoie à l'adresse de la
+trésorerie. Le site reconnaît son adresse — celle du Desk comme une
+adresse secondaire qu'il a confirmée —, voit qu'il anime **un seul**
+staff, et classe le reçu sur le compte de ce staff. Directement, sans
+confirmation : vous demander de valider ce que les données de l'unité
+disent déjà serait vous déranger pour rien.
 
-Le reçu est créé **en votre nom**, sur un compte que vous avez le droit
-d'utiliser — la même vérification que sur l'écran des reçus. Si vous
-n'avez pas ce droit, rien n'est enregistré.
+S'il anime deux staffs, ou si son staff n'a pas exactement un compte
+**actif** — un compte de section encore en brouillon ne compte pas —, le
+site ne choisit pas et passe à la règle suivante.
+
+Si le message a été **transféré**, le site regarde d'abord qui l'a
+transféré. Ce n'est que si cette personne ne correspond à personne qu'il
+cherche l'expéditeur d'origine écrit dans le corps du message.
+
+**À savoir :** une adresse d'expéditeur n'est pas vérifiable — n'importe
+qui peut en écrire une fausse, et une ligne « De : » dans un corps de
+message encore plus facilement. Ce qui se joue reste le classement d'un
+**document** : jamais un montant, jamais un mouvement, jamais un euro. Et
+une adresse inventée ne correspond à aucun membre, donc ne classe rien.
+
+## 3. Rien ne le place
+
+Sur une boîte **dédiée** aux finances — une adresse que l'unité a créée
+pour sa trésorerie et déclarée comme telle —, le reçu est quand même
+conservé, sans compte, dans « Compte inconnu » sur la page Reçus. C'est
+là que la trésorerie le trie.
+
+Sur l'adresse **publique** de l'unité, le site s'arrête là et ne garde
+rien : une photo dans le message d'un parent n'est pas un reçu, et en
+faire quelque chose à trier enterrerait les vrais en une semaine.
 
 ## Détacher le message ne supprime pas le reçu
 

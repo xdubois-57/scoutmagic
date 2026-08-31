@@ -223,6 +223,14 @@
       "description": "Nombre de jours pendant lesquels un message qu'aucun module ne rattache et sur lequel aucune proposition ne subsiste est conservé. Passé ce délai il est supprimé définitivement, avec ses pièces jointes. Les messages associés à un objet ne sont jamais concernés. Un message dont la dernière association vient d'être retirée bénéficie toujours de 30 jours, même s'il est plus ancien que ce délai."
     },
     {
+      "key": "inbound_mail_sync_interval_minutes",
+      "default_value": "15",
+      "type": "number",
+      "validation_regex": "^([5-9]|[1-9]\\d|[1-9]\\d{2}|1[0-3]\\d{2}|14[0-3]\\d|1440)$",
+      "label": "Intervalle entre deux relèves du courrier (minutes)",
+      "description": "Délai entre la fin d'une relève et le début de la suivante. Entre 5 minutes et 24 heures (1440 minutes) ; 15 par défaut. Descendre trop bas n'accélère rien et se retourne contre vous : plusieurs hébergeurs de messagerie ralentissent ou bloquent temporairement un client qui se reconnecte sans arrêt. Sans vraie tâche planifiée sur votre hébergement, la relève ne tourne qu'à l'occasion d'une visite du site, et ce réglage devient un minimum plutôt qu'un rythme. Un changement s'applique dès la prochaine visite : une relève déjà programmée trop loin est avancée."
+    },
+    {
       "key": "inbound_mail_storage_quota_mb",
       "default_value": "500",
       "type": "number",

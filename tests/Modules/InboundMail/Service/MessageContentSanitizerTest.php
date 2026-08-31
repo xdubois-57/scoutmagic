@@ -54,6 +54,34 @@ class MessageContentSanitizerTest extends TestCase
         $this->assertStringNotContainsString('<img', $html);
     }
 
+    public function testABodyThatWasOnlyAnImageComesBackEmptyRatherThanAnEmptyBox(): void
+    {
+        // A receipt photographed and sent from a phone: the whole message
+        // is one image. Removing it must not leave `<div></div>` behind —
+        // the screen renders that as a blank card, which a reader cannot
+        // tell from a message that failed to arrive.
+        $this->assertSame('', $this->sanitizer->sanitizeHtml('<div><img src="cid:photo1"></div>'));
+    }
+
+    public function testTheNonBreakingSpaceAClientLeavesBehindDoesNotCountAsText(): void
+    {
+        // What a mail client puts in the cell the image used to fill.
+        $this->assertSame(
+            '',
+            $this->sanitizer->sanitizeHtml('<table><tr><td><img src="cid:x">&nbsp;</td></tr></table>')
+        );
+    }
+
+    public function testAMessageWithOneWordBesideItsImageIsStillKept(): void
+    {
+        // The rule is "no text at all", not "little text": a body that says
+        // « Voici » next to a photo is a body.
+        $html = $this->sanitizer->sanitizeHtml('<div><img src="cid:photo1"><p>Voici</p></div>');
+
+        $this->assertStringContainsString('Voici', $html);
+        $this->assertStringNotContainsString('<img', $html);
+    }
+
     public function testACidImageIsRemovedBecauseABrowserCannotResolveIt(): void
     {
         $html = $this->sanitizer->sanitizeHtml('<p>Cordialement<img src="cid:logo123"></p>');

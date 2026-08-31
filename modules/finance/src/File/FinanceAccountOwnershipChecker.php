@@ -52,6 +52,20 @@ class FinanceAccountOwnershipChecker implements FileOwnershipCheckerInterface
     public const OWNER_TYPE = 'finance_account';
 
     /**
+     * The owner id that means « aucun compte ne réclame ce reçu ».
+     *
+     * Zero rather than a second `owner_type`, because zero is already what
+     * the ownership backfill wrote for a receipt whose `account_id` was
+     * NULL (Repository\AttachmentRepository::backfillFileOwnership()) —
+     * and until now that id resolved to no account and therefore denied
+     * everybody, which was the right fail-safe for an orphan nobody could
+     * sort and the wrong answer for a sorting pile the unit is meant to
+     * work through. One owner type keeps one checker; a second would mean
+     * two places deciding what a finance file is.
+     */
+    public const UNASSIGNED_OWNER_ID = 0;
+
+    /**
      * The scout year is resolved by the composition root and passed in —
      * the effective one, never "the current year" hardcoded, because the
      * `Trésorier` badge is assigned per scout year.
@@ -73,11 +87,12 @@ class FinanceAccountOwnershipChecker implements FileOwnershipCheckerInterface
      *
      * An id that resolves to no account answers false: isVisibleTo()
      * accepts null precisely so "no such account" and "not yours" are the
-     * same answer. That covers the backfilled orphan receipts too — a
-     * receipt whose `account_id` was already NULL is owned by no account,
-     * so nothing can authorize it, the same fail-safe posture
-     * ReceiptController::requireVisibleAttachment() already takes for
-     * mutating one.
+     * same answer.
+     *
+     * `UNASSIGNED_OWNER_ID` is the one id that is not an account and still
+     * answers something: a receipt in the unit's sorting pile, ruled on by
+     * Service\AccountVisibility::isUnassignedReceiptVisibleTo(). Everything
+     * else that resolves to nothing is still denied.
      *
      * @param array<int, int> $linkedMemberIds
      */
@@ -90,6 +105,12 @@ class FinanceAccountOwnershipChecker implements FileOwnershipCheckerInterface
         $visibility = new AccountVisibility(
             TreasurerScope::forSession($this->treasurerScopeService, $linkedMemberIds, $this->scoutYearId)
         );
+
+        // A receipt no account claims: the sorting pile has a rule of its
+        // own, and the file asks the same one the screen does.
+        if ($ownerId === self::UNASSIGNED_OWNER_ID) {
+            return $visibility->isUnassignedReceiptVisibleTo($currentRole);
+        }
 
         return $visibility->isVisibleTo($this->accountRepository->findById($ownerId), $currentRole);
     }

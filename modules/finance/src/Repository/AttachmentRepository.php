@@ -143,14 +143,12 @@ class AttachmentRepository
      *
      * Two statements because they say two different things. The first
      * gives a receipt its account. The second covers a receipt whose
-     * `account_id` is already NULL — legacy or imported rows that
-     * ReceiptService::upload() cannot produce: they are owned by no
-     * account, `owner_id` 0 resolves to no account, and the checker
-     * therefore denies them. Same fail-safe posture
-     * ReceiptController::requireVisibleAttachment() already takes when
-     * asked to MUTATE such a row; a file is if anything the more sensitive
-     * of the two, so "unknown owner" must not keep reading as "anyone
-     * above the floor may read it".
+     * `account_id` is NULL — a legacy row, or one filed straight from an
+     * email nothing could attribute (Service\ReceiptService::
+     * uploadUnattributed()). `owner_id` 0 is the unit's sorting pile:
+     * File\FinanceAccountOwnershipChecker::UNASSIGNED_OWNER_ID, ruled on
+     * by Service\AccountVisibility::isUnassignedReceiptVisibleTo() rather
+     * than by an account that does not exist.
      *
      * Never touches a file that already carries an owner: re-running is a
      * no-op, and a file owned by something else is none of this module's
@@ -174,6 +172,70 @@ class AttachmentRepository
                 AND id IN (SELECT file_id FROM finance_attachments WHERE account_id IS NULL)'
         );
         $stmt->execute([$ownerType]);
+    }
+
+    /**
+     * The unit's sorting pile: active receipts no account claims.
+     *
+     * A plain COUNT(*), like countActiveByAccountId() — the receipts
+     * page's account picker only needs the number beside « Compte
+     * inconnu », and hydrating every row to count them would decrypt
+     * several fields per receipt to render one integer.
+     */
+    public function countActiveUnassigned(): int
+    {
+        $stmt = $this->pdo->query(
+            "SELECT COUNT(*) FROM finance_attachments WHERE status = 'active' AND account_id IS NULL"
+        );
+
+        return $stmt === false ? 0 : (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * Move one receipt to another account — or to the sorting pile, with
+     * a null.
+     *
+     * **Three writes, one transaction, and the order inside it does not
+     * matter because of that.** They cannot be allowed to happen apart:
+     *
+     *  - `account_id` is what every screen reads;
+     *  - `files.owner_id`/`role_min` are what `/files/{id}` reads, and a
+     *    row that moved while its file did not is a receipt the OLD
+     *    account's people can still download (§8.70);
+     *  - the movement associations have to go, because
+     *    Service\ReceiptService::associate() guarantees a receipt and its
+     *    movements share an account, and moving the receipt is exactly
+     *    what would break that guarantee.
+     *
+     * Here rather than in the service because this is where the PDO is:
+     * the same reason Service\ImportService holds one for its own
+     * transaction. The caller resolves what the new owner and floor should
+     * be — this method does not know what an account is.
+     *
+     * @return int the number of movement associations that were dropped
+     */
+    public function reassign(int $attachmentId, ?int $accountId, int $fileId, string $ownerType, int $ownerId, string $roleMin): int
+    {
+        $this->pdo->beginTransaction();
+
+        try {
+            $dropped = $this->pdo->prepare('DELETE FROM finance_transaction_attachments WHERE attachment_id = ?');
+            $dropped->execute([$attachmentId]);
+            $droppedCount = $dropped->rowCount();
+
+            $stmt = $this->pdo->prepare('UPDATE finance_attachments SET account_id = ? WHERE id = ?');
+            $stmt->execute([$accountId, $attachmentId]);
+
+            $stmt = $this->pdo->prepare('UPDATE files SET owner_type = ?, owner_id = ?, role_min = ? WHERE id = ?');
+            $stmt->execute([$ownerType, $ownerId, $roleMin, $fileId]);
+
+            $this->pdo->commit();
+        } catch (\Throwable $e) {
+            $this->pdo->rollBack();
+            throw $e;
+        }
+
+        return $droppedCount;
     }
 
     /**
@@ -227,7 +289,7 @@ class AttachmentRepository
      *
      * @return array<int, array{attachment: Attachment, movement_count: int}>
      */
-    public function findFilteredForAccount(int $accountId, bool $pendingOnly, ?string $search, int $limit, int $offset): array
+    public function findFilteredForAccount(?int $accountId, bool $pendingOnly, ?string $search, int $limit, int $offset): array
     {
         $search = $search !== null ? trim($search) : null;
 
@@ -256,7 +318,7 @@ class AttachmentRepository
      * pagination, kept as a separate query since COUNT(*) over a
      * GROUP BY/HAVING needs to be wrapped in a subquery anyway.
      */
-    public function countFilteredForAccount(int $accountId, bool $pendingOnly, ?string $search): int
+    public function countFilteredForAccount(?int $accountId, bool $pendingOnly, ?string $search): int
     {
         $search = $search !== null ? trim($search) : null;
 
@@ -273,7 +335,7 @@ class AttachmentRepository
     /**
      * @return array<int, array{attachment: Attachment, movement_count: int}>
      */
-    private function findAllMatchingSearch(int $accountId, bool $pendingOnly, string $search): array
+    private function findAllMatchingSearch(?int $accountId, bool $pendingOnly, string $search): array
     {
         [$fromWhere, $params] = $this->buildFilterSql($accountId, $pendingOnly);
         $stmt = $this->pdo->prepare("SELECT fa.*, COUNT(fta.transaction_id) AS movement_count {$fromWhere} ORDER BY fa.uploaded_at DESC");
@@ -312,13 +374,19 @@ class AttachmentRepository
     /**
      * @return array{0: string, 1: array<int, mixed>}
      */
-    private function buildFilterSql(int $accountId, bool $pendingOnly): array
+    private function buildFilterSql(?int $accountId, bool $pendingOnly): array
     {
+        // Null is the sorting pile — every receipt no account claims. It
+        // needs `IS NULL` rather than a parameter: `account_id = NULL` is
+        // never true in SQL, so the same query with a null bound would
+        // silently return an empty page instead of the pile.
+        $accountCondition = $accountId === null ? 'fa.account_id IS NULL' : 'fa.account_id = ?';
+
         $sql = " FROM finance_attachments fa
                  LEFT JOIN finance_transaction_attachments fta ON fta.attachment_id = fa.id
-                 WHERE fa.status = 'active' AND fa.account_id = ?
+                 WHERE fa.status = 'active' AND {$accountCondition}
                  GROUP BY fa.id";
-        $params = [$accountId];
+        $params = $accountId === null ? [] : [$accountId];
 
         if ($pendingOnly) {
             $sql .= ' HAVING COUNT(fta.transaction_id) = 0';

@@ -72,4 +72,42 @@ interface ExpenseReceiptInterface
         array $actorLinkedMemberIds,
         ?int $uploadedBy
     ): int;
+
+    /**
+     * Stores a receipt that **nobody asked for** — one that arrived on its
+     * own, in a mailbox the unit opened to a consuming module.
+     *
+     * `$accountId` null files it on no account at all: the unit's sorting
+     * pile, visible to its treasurers and its chef d'unité
+     * ({@see \Modules\Finance\Service\AccountVisibility::isUnassignedReceiptVisibleTo()}),
+     * who move it onto an account by hand. That is what a document with no
+     * IBAN, sent from an address animating no single staff, is worth: too
+     * much to throw away, not enough to file.
+     *
+     * **There is no actor, and that is the whole difficulty.** Every other
+     * route into finance builds its authorization from the person acting;
+     * this one has nobody. What stands in their place is an earlier, human
+     * decision of the same weight: a superadmin opened that mailbox to
+     * that module on the scope screen, having read what the module says it
+     * files (`MessageConsumerInterface::describeEvidence()`). Nothing here
+     * grants a *session* anything — the receipt lands where the visibility
+     * rules already say it lands, and whoever may see it decides what
+     * happens next.
+     *
+     * **Not a general-purpose door.** A caller wanting a receipt filed on
+     * behalf of somebody uses {@see storeReceipt()}, which checks that
+     * somebody against the account. This one exists for the unattended
+     * path and takes no account it was not able to justify: null, or one
+     * the consumer resolved from the unit's own data.
+     *
+     * @return int the id of the stored FILE, as {@see storeReceipt()}
+     * @throws \Modules\Finance\Api\FinanceException when the account is
+     *         unknown, or the type is refused
+     */
+    public function storeUnattendedReceipt(
+        string $content,
+        string $mimeType,
+        string $originalFilename,
+        ?int $accountId
+    ): int;
 }

@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\InboundMail\Task;
 
+use Core\Config\SettingService;
 use Core\File\FileRepository;
 use Core\File\UploadHandler;
 use Core\Scheduler\SchedulerRepository;
@@ -15,6 +16,7 @@ use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 use Core\Security\HtmlSanitizer;
+use Core\Service\DateInput;
 use Modules\InboundMail\Repository\InboundMailboxRepository;
 use Modules\InboundMail\Repository\InboundMessageRepository;
 use Modules\InboundMail\Service\AnalysisResultApplier;
@@ -51,15 +53,45 @@ use Modules\InboundMail\Service\StorageQuotaService;
 class SyncMailboxesHandler implements TaskHandlerInterface
 {
     public const TASK_KEY = 'sync_mailboxes';
+
+    /**
+     * The reference the chain's one pending row is found by.
+     *
+     * It reads as a lie now that the interval is a setting, and it stays
+     * anyway: the value is what `find()` matches on, so renaming it would
+     * make every already-queued run invisible on upgrade — the chain would
+     * look unarmed, get armed a second time, and the box would be polled
+     * twice on every cycle from then on. A name in a private constant is
+     * not worth that.
+     */
     private const REFERENCE = 'quarter_hourly';
+
+    public const SETTING_INTERVAL_MINUTES = 'inbound_mail_sync_interval_minutes';
 
     /**
      * Fifteen minutes. Mail is not urgent enough to justify hammering
      * somebody's IMAP server — several hosts throttle or temporarily block
      * a client that reconnects every minute — and it is urgent enough that
      * an hour would make a manager wonder whether a reply arrived.
+     *
+     * The default, not the rule: a unit whose box is quiet says an hour,
+     * one running a rental season says five minutes, and neither should
+     * have to edit a constant to say it.
      */
-    private const INTERVAL_SECONDS = 900;
+    public const DEFAULT_INTERVAL_MINUTES = 15;
+
+    /**
+     * The floor exists to protect the unit from itself. Reconnecting every
+     * minute does not deliver mail faster — the messages are not there yet
+     * — and it is what makes a mail host throttle or temporarily block the
+     * account, which costs the unit every relève until the block lifts.
+     *
+     * The ceiling is a day, because a setting that can be answered with a
+     * number nobody meant (a stray keystroke turning 60 into 6000) is a
+     * mailbox that silently stops being read for four months.
+     */
+    public const MIN_INTERVAL_MINUTES = 5;
+    public const MAX_INTERVAL_MINUTES = 1440;
 
     public function __construct(
         private ?MessageConsumerRegistry $consumerRegistry = null,
@@ -109,21 +141,108 @@ class SyncMailboxesHandler implements TaskHandlerInterface
         // marks a task done only after handle() returns, so this very task
         // is still `pending` right now and bootstrap()'s guard would find
         // it, skip, and end the chain after a single run.
+        //
+        // Re-read on every run rather than captured once: the chain is the
+        // only thing that ever re-arms it, so a value read at startup would
+        // be the value in force until the site restarts.
         $scheduler = new SchedulerService(new SchedulerRepository($pdo));
-        $scheduler->scheduleAfter('inbound_mail', self::TASK_KEY, self::INTERVAL_SECONDS, [], self::REFERENCE);
+        $scheduler->scheduleAfter(
+            'inbound_mail',
+            self::TASK_KEY,
+            self::intervalSeconds($context->settings),
+            [],
+            self::REFERENCE
+        );
     }
 
     /**
-     * Queue the very first run. Idempotent, so calling it on every request
-     * costs one indexed lookup and re-arms the chain by itself if a run
-     * ever failed before scheduling its successor.
+     * The configured interval, in seconds, clamped.
+     *
+     * Clamped here and not only at the form: the row can also be written by
+     * a restore, by a hand-edited database, or by a manifest default that
+     * changes under an installation's feet, and a task that re-arms itself
+     * from an unchecked number is a task that can re-arm itself for the
+     * next century — or for one second from now, against somebody's mail
+     * host. The bounds are the same ones the setting's own
+     * `validation_regex` states, so the page and the scheduler cannot
+     * disagree about what is allowed.
      */
-    public static function bootstrap(SchedulerService $scheduler): void
+    public static function intervalSeconds(SettingService $settings): int
     {
-        if ($scheduler->find('inbound_mail', self::TASK_KEY, self::REFERENCE) !== null) {
+        $configured = $settings->get(self::SETTING_INTERVAL_MINUTES, 'inbound_mail', '');
+        $minutes = $configured !== null && trim((string) $configured) !== ''
+            ? (int) $configured
+            : self::DEFAULT_INTERVAL_MINUTES;
+
+        return max(self::MIN_INTERVAL_MINUTES, min(self::MAX_INTERVAL_MINUTES, $minutes)) * 60;
+    }
+
+    /**
+     * Queue the very first run, and keep a queued one honest about the
+     * configured interval.
+     *
+     * Idempotent, so calling it on every request costs one indexed lookup
+     * and re-arms the chain by itself if a run ever failed before
+     * scheduling its successor.
+     *
+     * **Why it also pulls a run forward.** The chain re-arms itself at the
+     * end of each run, so a shortened interval would otherwise not apply
+     * until the run already queued at the OLD interval had fired: a unit
+     * that went from six hours to fifteen minutes would watch nothing
+     * happen for up to six hours, with no way to tell the setting from a
+     * broken one. Lengthening needs nothing — the queued run is already
+     * sooner than the new interval asks, it fires, and the next one waits
+     * the new delay.
+     *
+     * Only ever brings a run *closer*, and only when the queued moment is
+     * further out than a whole interval from now — which no run scheduled
+     * under the current setting ever is. So this cannot become a loop that
+     * keeps a mailbox permanently one page view away from a poll.
+     *
+     * `$settings` is nullable so the pre-existing single-argument call
+     * remains valid: without it the default interval applies, which is what
+     * this method did before the setting existed.
+     */
+    public static function bootstrap(SchedulerService $scheduler, ?SettingService $settings = null): void
+    {
+        $intervalSeconds = $settings !== null
+            ? self::intervalSeconds($settings)
+            : self::DEFAULT_INTERVAL_MINUTES * 60;
+
+        $pending = $scheduler->find('inbound_mail', self::TASK_KEY, self::REFERENCE);
+
+        if ($pending === null) {
+            $scheduler->scheduleAfter('inbound_mail', self::TASK_KEY, $intervalSeconds, [], self::REFERENCE);
+
             return;
         }
 
-        $scheduler->scheduleAfter('inbound_mail', self::TASK_KEY, self::INTERVAL_SECONDS, [], self::REFERENCE);
+        if (!self::isFurtherOutThan($pending, $intervalSeconds)) {
+            return;
+        }
+
+        $scheduler->cancel((int) $pending['id']);
+        $scheduler->scheduleAfter('inbound_mail', self::TASK_KEY, $intervalSeconds, [], self::REFERENCE);
+    }
+
+    /**
+     * Whether a queued run is due later than a full interval from now.
+     *
+     * `run_at` is a stored timestamp, so it is read through
+     * `DateInput::fromStorage()` (SECURITY.md § 35) — which answers null
+     * for the blank and the malformed alike, where the bare constructor
+     * would answer *now* for one and throw on the other.
+     *
+     * Null answers no. Leaving the row alone is the outcome that cannot
+     * cost anybody a poll, and re-arming on a moment nothing could read
+     * would replace a working chain with a guess.
+     *
+     * @param array<string, mixed> $pending
+     */
+    private static function isFurtherOutThan(array $pending, int $intervalSeconds): bool
+    {
+        $due = DateInput::fromStorage(is_string($pending['run_at'] ?? null) ? $pending['run_at'] : null);
+
+        return $due !== null && $due->getTimestamp() > time() + $intervalSeconds;
     }
 }

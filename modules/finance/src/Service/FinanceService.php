@@ -146,6 +146,18 @@ class FinanceService
     }
 
     /**
+     * "May this session see the receipts no account claims" — the unit's
+     * sorting pile. Delegates to Service\AccountVisibility for the same
+     * reason isAccountVisibleTo() does: the rule lives there, and a
+     * controller holding the finance service needs no new dependency to
+     * ask it.
+     */
+    public function isUnassignedReceiptVisibleTo(Role $role): bool
+    {
+        return $this->accountVisibility->isUnassignedReceiptVisibleTo($role);
+    }
+
+    /**
      * Every account regardless of status — for the config page, which
      * manages drafts and archived accounts too.
      *

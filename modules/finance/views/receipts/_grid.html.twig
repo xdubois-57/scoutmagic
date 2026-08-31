@@ -52,7 +52,16 @@
                     {% endif %}
                 </div>
                 <div class="d-flex flex-wrap gap-2 mt-auto">
-                    <button type="button" class="btn btn-sm btn-outline-primary associate-btn" data-id="{{ attachment.id }}" data-suggested-date="{{ attachment.suggestedDate }}">Associer</button>
+                    {# A receipt with no account has no movements to be
+                       associated with: ReceiptService::associate() refuses
+                       a movement from another account, and the pile is not
+                       one. Giving it a compte is the gesture that unblocks
+                       everything else, so that is the button it gets. #}
+                    {% if selected_account %}
+                        <button type="button" class="btn btn-sm btn-outline-primary associate-btn" data-id="{{ attachment.id }}" data-suggested-date="{{ attachment.suggestedDate }}">Associer</button>
+                    {% endif %}
+                    <button type="button" class="btn btn-sm btn-outline-secondary change-account-btn"
+                            data-id="{{ attachment.id }}" data-movement-count="{{ row.movement_count }}">Changer de compte</button>
                     <a href="/finance/receipts/new?replace={{ attachment.id }}" class="btn btn-sm btn-outline-secondary">Remplacer</a>
                     <button type="button" class="btn btn-sm btn-outline-danger delete-btn" data-id="{{ attachment.id }}">Supprimer</button>
                 </div>
@@ -61,7 +70,7 @@
     {% else %}
         <div class="col-12">
             {% include 'partials/empty_state.html.twig' with {
-                message: 'Aucun reçu.',
+                message: selected_account ? 'Aucun reçu.' : 'Aucun reçu à trier.',
                 compact: true,
             } only %}
         </div>

@@ -22,13 +22,20 @@
     const grid = document.getElementById('receipts-grid');
     if (!grid) return;
 
-    const currentAccountId = parseInt(/** @type {HTMLElement} */ (grid).dataset.accountId || '0', 10);
+    // A STRING, not an integer. The sorting pile — the receipts no account
+    // claims — is addressed as 'unassigned', which has no id to parse, and
+    // parseInt() would turn it into NaN and every request into a 404. It
+    // travels to /finance/receipts/search verbatim.
+    const currentAccountId = /** @type {HTMLElement} */ (grid).dataset.accountId || '';
+    const isSortingPile = currentAccountId === 'unassigned';
     let currentAttachmentId = null;
     let currentAttachmentDate = '';
     const associateModalEl = document.getElementById('associate-modal');
     const associateModal = window.bootstrap ? new window.bootstrap.Modal(associateModalEl) : null;
     const movementsModalEl = document.getElementById('movements-modal');
     const movementsModal = window.bootstrap ? new window.bootstrap.Modal(movementsModalEl) : null;
+    const changeAccountModalEl = document.getElementById('change-account-modal');
+    const changeAccountModal = window.bootstrap && changeAccountModalEl ? new window.bootstrap.Modal(changeAccountModalEl) : null;
 
     // The attribute-safe escaper (quotes escaped too, because the result is
     // interpolated into alt=/title=/data-* attributes below — audit M16) is
@@ -83,8 +90,14 @@
             + '<div class="text-body-secondary small">' + escapeHtml(r.uploaded_at) + '</div>'
             + receiptSuggestedBlockHtml(r)
             + '<div>' + receiptStatusBlockHtml(r) + '</div>'
-            + '<div class="d-flex gap-2 mt-auto">'
-            + '<button type="button" class="btn btn-sm btn-outline-primary associate-btn" data-id="' + r.id + '" data-suggested-date="' + escapeHtml(r.suggested_date || '') + '">Associer</button>'
+            + '<div class="d-flex flex-wrap gap-2 mt-auto">'
+            // A receipt with no account has no movements to be associated
+            // with — the server refuses a movement from another account,
+            // and the pile is not one. Mirrors receipts/_grid.html.twig.
+            + (isSortingPile
+                ? ''
+                : '<button type="button" class="btn btn-sm btn-outline-primary associate-btn" data-id="' + r.id + '" data-suggested-date="' + escapeHtml(r.suggested_date || '') + '">Associer</button>')
+            + '<button type="button" class="btn btn-sm btn-outline-secondary change-account-btn" data-id="' + r.id + '" data-movement-count="' + r.movement_count + '">Changer de compte</button>'
             + '<a href="/finance/receipts/new?replace=' + r.id + '" class="btn btn-sm btn-outline-secondary">Remplacer</a>'
             + '<button type="button" class="btn btn-sm btn-outline-danger delete-btn" data-id="' + r.id + '">Supprimer</button>'
             + '</div></div></div>';
@@ -145,7 +158,8 @@
         currentPage = page;
         const q = /** @type {HTMLInputElement} */ (document.getElementById('receipts-search')).value;
         const pending = /** @type {HTMLInputElement} */ (document.getElementById('receipts-pending-only')).checked ? '1' : '0';
-        const res = await window.ScoutMagicApi.getJson('/finance/receipts/search?account_id=' + currentAccountId
+        const res = await window.ScoutMagicApi.getJson('/finance/receipts/search?account_id='
+            + encodeURIComponent(currentAccountId)
             + '&q=' + encodeURIComponent(q) + '&pending=' + pending + '&page=' + page);
         if (res.data && res.data.success) {
             renderReceipts(res.data);
@@ -195,6 +209,34 @@
             });
         });
 
+        document.querySelectorAll('.change-account-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const el = /** @type {HTMLElement} */ (btn);
+                currentAttachmentId = el.dataset.id;
+
+                // The count comes off the card the reader is looking at,
+                // not from a round-trip: it is the same number they can
+                // see, and a dialog that has to fetch before it can warn is
+                // a dialog that sometimes opens without the warning.
+                const movementCount = parseInt(el.dataset.movementCount || '0', 10);
+                const warning = document.getElementById('change-account-warning');
+                if (movementCount > 0) {
+                    warning.textContent = 'Ce reçu est associé à ' + movementCount + ' mouvement'
+                        + (movementCount > 1 ? 's' : '')
+                        + '. Le déplacer vers un autre compte supprimera ' + (movementCount > 1 ? 'ces associations' : 'cette association')
+                        + " : un reçu et ses mouvements appartiennent toujours au même compte.";
+                    warning.classList.remove('d-none');
+                } else {
+                    // Nothing to lose, nothing to warn about. A warning
+                    // shown every time is a warning nobody reads.
+                    warning.textContent = '';
+                    warning.classList.add('d-none');
+                }
+
+                changeAccountModal ? changeAccountModal.show() : changeAccountModalEl.classList.add('show');
+            });
+        });
+
         document.querySelectorAll('.delete-btn').forEach(btn => {
             btn.addEventListener('click', async () => {
                 const confirmed = await window.ScoutMagicConfirm.ask({
@@ -228,7 +270,8 @@
     });
 
     async function runAssociateSearch(query) {
-        let url = '/finance/movements/search?q=' + encodeURIComponent(query) + '&account_id=' + currentAccountId;
+        let url = '/finance/movements/search?q=' + encodeURIComponent(query)
+            + '&account_id=' + encodeURIComponent(currentAccountId);
         if (query === '' && currentAttachmentDate) {
             url += '&near_date=' + encodeURIComponent(currentAttachmentDate);
         }
@@ -247,6 +290,32 @@
             btn.textContent = m.date + ' — ' + m.description + ' — ' + m.amount.toFixed(2) + ' €';
             btn.addEventListener('click', () => associateWithMovement(m.id));
             results.appendChild(btn);
+        });
+    }
+
+    const changeAccountConfirm = document.getElementById('change-account-confirm');
+    if (changeAccountConfirm) {
+        changeAccountConfirm.addEventListener('click', async () => {
+            const select = /** @type {HTMLSelectElement} */ (document.getElementById('change-account-select'));
+            const res = await window.ScoutMagicApi.postJson(
+                '/finance/receipts/' + currentAttachmentId + '/account',
+                { account_id: select.value }
+            );
+
+            if (!res.data || !res.data.success) {
+                window.ScoutMagicToast.show((res.data && res.data.error) || 'Une erreur est survenue.', { variant: 'error' });
+                return;
+            }
+
+            if (changeAccountModal) {
+                changeAccountModal.hide();
+            }
+
+            // A full reload rather than fetchReceipts(): the receipt has
+            // LEFT this view, and the account picker's « Compte inconnu »
+            // count moved with it. Re-rendering the grid alone would leave
+            // a stale number beside a list that no longer matches it.
+            window.location.href = '/finance/receipts?account_id=' + encodeURIComponent(currentAccountId);
         });
     }
 

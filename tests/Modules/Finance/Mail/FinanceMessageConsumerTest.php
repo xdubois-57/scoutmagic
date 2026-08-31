@@ -49,6 +49,12 @@ class FinanceMessageConsumerTest extends TestCase
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $this->accounts = new AccountRepository($this->pdo, $this->encryption);
 
+        // The unit's own membership data, which the sender→staff rule
+        // reads: one scout year, one branch, one animateur function.
+        $this->pdo->exec("INSERT INTO scout_years (id, label, start_date, end_date, is_current) VALUES (1, '2026-2027', '2026-09-01', '2027-08-31', 1)");
+        $this->pdo->exec("INSERT INTO age_branches (id, desk_code, label, sort_order) VALUES (1, 'LOU', 'Louveteaux', 20)");
+        $this->pdo->exec("INSERT INTO functions (id, desk_code, label, role) VALUES (1, 'ANIM', 'Animateur', 'chief')");
+
         $this->accountId = $this->activeAccount('Compte courant', self::IBAN);
     }
 
@@ -175,28 +181,257 @@ class FinanceMessageConsumerTest extends TestCase
         $this->assertTrue($result->isEmpty());
     }
 
+    // ── L'expéditeur anime un seul staff ────────────────────────────────
+
+    public function testAReceiptFromAnAnimateurOfOneStaffIsFiledOnThatStaffsAccount(): void
+    {
+        $accountId = $this->animateurOfOneStaff('anna@example.be');
+
+        $result = $this->consumerWithSenderStaff()->analyze($this->message(
+            'Reçu de mes dépenses',
+            '',
+            [$this->pdfAttachment()],
+            fromEmail: 'anna@example.be'
+        ));
+
+        // A LINK, not a proposition: asking somebody to confirm what the
+        // unit's own membership data already says is asking for the sake
+        // of asking.
+        $this->assertSame([], $result->candidates);
+        $this->assertCount(1, $result->links);
+        $this->assertSame(FinanceMessageConsumer::referenceFor($accountId), $result->links[0]->businessReference);
+        $this->assertSame(LinkOrigin::SENDER, $result->links[0]->origin);
+    }
+
+    public function testAnIbanInTheTextBeatsTheSendersStaff(): void
+    {
+        $this->animateurOfOneStaff('anna@example.be');
+
+        $result = $this->consumerWithSenderStaff()->analyze($this->message(
+            'Facture',
+            'Merci de virer sur le compte BE92 0015 1175 7023.',
+            [$this->pdfAttachment()],
+            fromEmail: 'anna@example.be'
+        ));
+
+        // The IBAN is a statement about the MONEY, made in the document's
+        // own covering text; the sender is a statement about a person, and
+        // a person can be wrong about which account an expense belongs to
+        // in a way an IBAN cannot.
+        $this->assertSame([], $result->links);
+        $this->assertCount(1, $result->candidates);
+        $this->assertSame(
+            FinanceMessageConsumer::referenceFor($this->accountId),
+            $result->candidates[0]->businessReference
+        );
+    }
+
+    public function testAnAnimateurOfTwoStaffsResolvesToNothing(): void
+    {
+        $this->animateurOfOneStaff('anna@example.be', 'Louveteaux');
+        $this->animateurOfOneStaff('anna@example.be', 'Éclaireurs');
+
+        $result = $this->consumerWithSenderStaff()->analyze($this->message(
+            'Reçu',
+            '',
+            [$this->pdfAttachment()],
+            fromEmail: 'anna@example.be'
+        ));
+
+        // Two staffs, no answer. Filing on whichever sorted first is worse
+        // than not filing: nobody reading the wrong account can tell.
+        $this->assertTrue($result->isEmpty());
+    }
+
+    public function testAnUnknownSenderResolvesToNothing(): void
+    {
+        $result = $this->consumerWithSenderStaff()->analyze($this->message(
+            'Reçu',
+            '',
+            [$this->pdfAttachment()],
+            fromEmail: 'inconnu@example.be'
+        ));
+
+        $this->assertTrue($result->isEmpty());
+    }
+
+    public function testAForwardedMessageIsJudgedOnTheOriginalSender(): void
+    {
+        $accountId = $this->animateurOfOneStaff('anna@example.be');
+
+        $result = $this->consumerWithSenderStaff()->analyze($this->message(
+            'Tr : Reçu',
+            "---------- Message transféré ----------\nDe : Anna Martin <anna@example.be>\nDate : 12 juillet\n\nVoici le reçu.",
+            [$this->pdfAttachment()],
+            fromEmail: 'secretariat@example.be'
+        ));
+
+        $this->assertCount(1, $result->links);
+        $this->assertSame(FinanceMessageConsumer::referenceFor($accountId), $result->links[0]->businessReference);
+    }
+
+    public function testTheRealSenderIsTriedBeforeTheForwardedOne(): void
+    {
+        $forwarderAccount = $this->animateurOfOneStaff('secretariat@example.be', 'Staff U');
+        $this->animateurOfOneStaff('anna@example.be', 'Louveteaux');
+
+        $result = $this->consumerWithSenderStaff()->analyze($this->message(
+            'Tr : Reçu',
+            "De : Anna Martin <anna@example.be>\n\nVoici le reçu.",
+            [$this->pdfAttachment()],
+            fromEmail: 'secretariat@example.be'
+        ));
+
+        // The body is untrusted text and is only consulted when the real
+        // From: resolved to nobody. A forwarder who is themselves an
+        // animateur answers first.
+        $this->assertSame(
+            FinanceMessageConsumer::referenceFor($forwarderAccount),
+            $result->links[0]->businessReference
+        );
+    }
+
+    public function testWithoutTheResolverTheIbanIsStillTheOnlySignal(): void
+    {
+        // The consumer as it was before the resolver existed — a complete
+        // behaviour, not a broken one.
+        $this->animateurOfOneStaff('anna@example.be');
+
+        $result = $this->consumer()->analyze($this->message(
+            'Reçu',
+            '',
+            [$this->pdfAttachment()],
+            fromEmail: 'anna@example.be'
+        ));
+
+        $this->assertTrue($result->isEmpty());
+    }
+
+    // ── La corbeille, sur une boîte dédiée seulement ────────────────────
+
+    public function testAnUnplaceableReceiptOnADedicatedBoxGoesToTheSortingPile(): void
+    {
+        $result = $this->consumerWithSenderStaff()->analyze($this->message(
+            'Reçu',
+            '',
+            [$this->pdfAttachment()],
+            fromEmail: 'inconnu@example.be',
+            dedicatedTo: FinanceMessageConsumer::CONSUMER_ID
+        ));
+
+        $this->assertCount(1, $result->links);
+        $this->assertSame(FinanceMessageConsumer::REFERENCE_UNKNOWN, $result->links[0]->businessReference);
+        $this->assertSame(LinkOrigin::ATTACHMENT, $result->links[0]->origin);
+    }
+
+    public function testAnUnplaceableReceiptOnASharedBoxIsLeftAlone(): void
+    {
+        // A photo attached to a parent's message is not a receipt. Turning
+        // every one of them into something a treasurer must sort would bury
+        // the real ones within a week.
+        $result = $this->consumerWithSenderStaff()->analyze($this->message(
+            'Photos du week-end',
+            '',
+            [new CandidateAttachment('photo.jpg', 'image/jpeg', 4096)],
+            fromEmail: 'parent@example.be'
+        ));
+
+        $this->assertTrue($result->isEmpty());
+    }
+
+    public function testABoxDedicatedToAnotherModuleIsNotThisOnes(): void
+    {
+        $result = $this->consumerWithSenderStaff()->analyze($this->message(
+            'Reçu',
+            '',
+            [$this->pdfAttachment()],
+            fromEmail: 'inconnu@example.be',
+            dedicatedTo: 'rental'
+        ));
+
+        $this->assertTrue($result->isEmpty());
+    }
+
+    public function testTheSortingPileReferenceIsNotReadAsAnAccountId(): void
+    {
+        // `account-unknown` starts with the account prefix, and an
+        // (int) cast of "unknown" is 0 — a reference that silently became
+        // account 0 would file receipts against nothing.
+        $this->assertNull(
+            FinanceMessageConsumer::accountIdFromReference(FinanceMessageConsumer::REFERENCE_UNKNOWN)
+        );
+    }
+
     public function testTheDeferredPassAddsNothing(): void
     {
         $this->assertTrue($this->consumer()->analyzeStored($this->storedMessage())->isEmpty());
     }
 
-    // ── A receipt is only ever filed by a person ────────────────────────
+    // ── Qui dépose le reçu, et par quelle porte ─────────────────────────
 
-    public function testNothingIsFiledWhenAMachineMadeTheAssociation(): void
+    /**
+     * An association nobody made goes through the unattended route.
+     *
+     * This used to file nothing at all, on the reasoning that finance's
+     * account check is built from the actor and inventing one would be this
+     * module granting itself an account. That reasoning still holds — what
+     * changed is that it is no longer the only way in: an actor is not
+     * invented, the authorization comes from the superadmin having opened
+     * the mailbox to this module, and
+     * Api\ExpenseReceiptInterface::storeUnattendedReceipt() is the door
+     * that says so out loud.
+     */
+    public function testAnAssociationNobodyMadeFilesThroughTheUnattendedRoute(): void
     {
-        // `createdByUserAccountId` is null when a machine associated.
-        // Finance's account check is built from the actor, and inventing
-        // one here would be this module granting itself an account.
         $filed = [];
         $consumer = $this->consumer($filed, actorFor: 7);
 
         $consumer->onLinked($this->storedMessage(), new MessageLink(
             FinanceMessageConsumer::CONSUMER_ID,
             FinanceMessageConsumer::referenceFor($this->accountId),
-            LinkOrigin::MANUAL
+            LinkOrigin::SENDER
+        ));
+
+        $this->assertCount(1, $filed);
+        $this->assertSame($this->accountId, $filed[0]['account_id']);
+        $this->assertSame(RecordingExpenseReceipts::UNATTENDED, $filed[0]['role']);
+    }
+
+    public function testNothingIsFiledWhenAPersonAssociatedButCannotBeResolved(): void
+    {
+        // The half of the old rule that must survive. A person DID
+        // associate, and this module could not turn them into a role and
+        // members — so it files nothing rather than falling through to the
+        // unattended route, which exists for associations nobody made.
+        // Using it here would let a person's filing escape the account
+        // check that their own identity was supposed to supply.
+        $filed = [];
+        $consumer = $this->consumer($filed, actorFor: null);
+
+        $consumer->onLinked($this->storedMessage(), new MessageLink(
+            FinanceMessageConsumer::CONSUMER_ID,
+            FinanceMessageConsumer::referenceFor($this->accountId),
+            LinkOrigin::MANUAL,
+            0,
+            7
         ));
 
         $this->assertSame([], $filed);
+    }
+
+    public function testTheSortingPileIsFiledWithNoAccountAtAll(): void
+    {
+        $filed = [];
+        $consumer = $this->consumer($filed, actorFor: 7);
+
+        $consumer->onLinked($this->storedMessage(), new MessageLink(
+            FinanceMessageConsumer::CONSUMER_ID,
+            FinanceMessageConsumer::REFERENCE_UNKNOWN,
+            LinkOrigin::ATTACHMENT
+        ));
+
+        $this->assertCount(1, $filed);
+        $this->assertNull($filed[0]['account_id'], 'the pile is an absent account, never account 0');
     }
 
     public function testAConfirmedPropositionFilesTheAttachmentAsAReceipt(): void
@@ -401,11 +636,24 @@ class FinanceMessageConsumerTest extends TestCase
         );
     }
 
+    /**
+     * The consumer as the composition root builds it — sender→staff rule
+     * wired — for a test that only asks what analyze() decides and never
+     * what gets filed.
+     */
+    private function consumerWithSenderStaff(): FinanceMessageConsumer
+    {
+        $filed = [];
+
+        return $this->consumer($filed, withSenderStaff: true);
+    }
+
     private function consumer(
         array &$filed = [],
         ?int $actorFor = null,
         ?\Closure $readFile = null,
-        ?\Modules\Finance\Api\ExpenseReceiptInterface $receipts = null
+        ?\Modules\Finance\Api\ExpenseReceiptInterface $receipts = null,
+        bool $withSenderStaff = false
     ): FinanceMessageConsumer {
         $receipts ??= new RecordingExpenseReceipts($filed);
 
@@ -425,19 +673,26 @@ class FinanceMessageConsumerTest extends TestCase
                 : static fn(int $id): ?array => $id === $actorFor
                     ? ['role' => 'admin', 'member_ids' => []]
                     : null,
-            $readFile ?? static fn(int $fileId): ?string => 'des octets'
+            $readFile ?? static fn(int $fileId): ?string => 'des octets',
+            $withSenderStaff ? $this->senderStaffResolver() : null,
+            $withSenderStaff ? new \Modules\Finance\Mail\ForwardedSenderExtractor() : null
         );
     }
 
     /**
      * @param CandidateAttachment[] $attachments
      */
-    private function message(string $subject, string $body, array $attachments): CandidateMessage
-    {
+    private function message(
+        string $subject,
+        string $body,
+        array $attachments,
+        string $fromEmail = 'fournisseur@example.be',
+        ?string $dedicatedTo = null
+    ): CandidateMessage {
         return new CandidateMessage(
             mailboxId: 1,
             subject: $subject,
-            fromEmail: 'fournisseur@example.be',
+            fromEmail: $fromEmail,
             fromName: null,
             messageId: 'a@b',
             inReplyTo: null,
@@ -446,7 +701,57 @@ class FinanceMessageConsumerTest extends TestCase
             sentAt: new \DateTimeImmutable('2027-07-12 09:30:00'),
             bodyText: $body,
             bodyHtml: '',
-            attachments: $attachments
+            attachments: $attachments,
+            mailboxDedicatedTo: $dedicatedTo
+        );
+    }
+
+    /**
+     * An animateur of exactly one section, reachable at $email, whose
+     * section owns $accountName.
+     *
+     * @return int the id of that section's account
+     */
+    private function animateurOfOneStaff(string $email, string $accountName = 'Louveteaux'): int
+    {
+        static $nextId = 0;
+        $nextId++;
+
+        $sectionId = 100 + $nextId;
+        $this->pdo->exec("INSERT INTO sections (id, age_branch_id, desk_code, name) VALUES ({$sectionId}, 1, 'SEC{$nextId}', '{$accountName}')");
+
+        $blindIndex = $this->encryption->blindIndex(strtolower($email), 'email');
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, email_blind_index, is_active)
+             VALUES (?, 1, ?, ?, ?, 1)'
+        );
+        $stmt->execute([$nextId, 'x', 'y', $blindIndex]);
+        $memberYearId = (int) $this->pdo->lastInsertId();
+
+        $stmt = $this->pdo->prepare('INSERT INTO member_functions (member_year_id, function_id, section_id) VALUES (?, 1, ?)');
+        $stmt->execute([$memberYearId, $sectionId]);
+
+        $accountId = $this->accounts->create($accountName, Account::TYPE_BANK, $sectionId, null, null, 'intendant');
+        $this->accounts->updateStatus($accountId, Account::STATUS_ACTIVE);
+
+        return $accountId;
+    }
+
+    private function senderStaffResolver(): \Modules\Finance\Mail\SenderStaffAccountResolver
+    {
+        return new \Modules\Finance\Mail\SenderStaffAccountResolver(
+            new \Core\Member\SectionStaffAuthorizationService(
+                \Core\Database\Connection::withPdo($this->pdo),
+                $this->encryption,
+                new \Core\Member\SectionService(
+                    \Core\Database\Connection::withPdo($this->pdo),
+                    $this->encryption,
+                    new \Core\Badge\MemberBadgeRepository($this->pdo)
+                ),
+                new \Core\Member\MemberEmailRepository($this->pdo, $this->encryption)
+            ),
+            $this->accounts,
+            1
         );
     }
 
@@ -500,13 +805,35 @@ class FinanceMessageConsumerTest extends TestCase
  * rather than on finance's own storage — which has its own tests and would
  * only make this file slower and less specific.
  *
+ * `role` is what separates the two routes in an assertion: a real role
+ * means a person's confirmation carried the filing, and
+ * RecordingExpenseReceipts::UNATTENDED means nobody's did.
+ *
  * @internal
  */
 class RecordingExpenseReceipts implements \Modules\Finance\Api\ExpenseReceiptInterface
 {
-    /** @param array<int, array{filename: string, account_id: int, role: string}> $filed */
+    /** What the `role` slot holds for a receipt filed with no actor at all. */
+    public const UNATTENDED = '(sans acteur)';
+
+    /** @param array<int, array{filename: string, account_id: ?int, role: string}> $filed */
     public function __construct(private array &$filed)
     {
+    }
+
+    public function storeUnattendedReceipt(
+        string $content,
+        string $mimeType,
+        string $originalFilename,
+        ?int $accountId
+    ): int {
+        $this->filed[] = [
+            'filename' => $originalFilename,
+            'account_id' => $accountId,
+            'role' => self::UNATTENDED,
+        ];
+
+        return 1;
     }
 
     /**
@@ -570,6 +897,15 @@ class RefusingExpenseReceipts implements \Modules\Finance\Api\ExpenseReceiptInte
         string $actorRole,
         array $actorLinkedMemberIds,
         ?int $uploadedBy
+    ): int {
+        throw new \RuntimeException('ce compte ne vous est pas ouvert');
+    }
+
+    public function storeUnattendedReceipt(
+        string $content,
+        string $mimeType,
+        string $originalFilename,
+        ?int $accountId
     ): int {
         throw new \RuntimeException('ce compte ne vous est pas ouvert');
     }
