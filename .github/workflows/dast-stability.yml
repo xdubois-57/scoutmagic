@@ -43,7 +43,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        sample: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        # Twenty, up from twelve: the first batch caught the flake once in
+        # twelve, so twelve is around the point where a batch can come back
+        # all-green and say nothing. At the observed rate, twenty misses it
+        # entirely about one time in five — acceptable for a run whose job
+        # is now to CATCH one failure with the instrumentation attached,
+        # not to prove a rate.
+        sample: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
     services:
       mysql:
         image: mysql:8.0

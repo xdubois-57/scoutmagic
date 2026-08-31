@@ -98,6 +98,22 @@ test('a member writes in a discussion group: a message, a link, a poll, a reply 
             serverErrors.push(`HTTP ${response.status()} on ${response.url()}`);
         }
     });
+    // TEMPORARY INSTRUMENTATION — remove once the stuck-modal flake at the
+    // « Fermer » step below is understood. An uncaught page error is the
+    // one explanation nothing has been able to rule out: Bootstrap clears
+    // Modal._isTransitioning inside the very callback that first calls
+    // _focustrap.activate(), so a throw in there leaves the flag true for
+    // good, and every later hide() then returns immediately and silently.
+    /** @type {string[]} */
+    const pageErrors = [];
+    page.on('pageerror', (error) => {
+        pageErrors.push(`pageerror: ${error.message}`);
+    });
+    page.on('console', (message) => {
+        if (message.type() === 'error') {
+            pageErrors.push(`console.error: ${message.text()}`);
+        }
+    });
     // The deletions in step 7 stand behind the site's own confirmation
     // modal (base.html.twig's data-confirm handler → window.ScoutMagicConfirm).
     // Installed here rather than where it is needed, because the observer
@@ -348,7 +364,41 @@ test('a member writes in a discussion group: a message, a link, a poll, a reply 
     // as two different people across two surfaces.
     await expect(dialog.locator('#groups-detail-modal-body')).toContainText('Baden Powell (Baden)');
     await dialog.getByRole('button', { name: 'Fermer' }).click();
-    await expect(dialog).toBeHidden();
+    // TEMPORARY INSTRUMENTATION — see the pageErrors listener at the top.
+    // This assertion fails about one DAST run in ten with the dialog still
+    // carrying `modal fade show` and `display: block`, and four
+    // explanations have already been tested and disproved: the opening
+    // transition (reducedMotion now zeroes every duration Bootstrap
+    // measures), a second openDetailDialog() reopening it (the trace shows
+    // exactly one /reactions request), a leaked listener cancelling the
+    // hide (there is no hide.bs.modal listener anywhere, and no dispose()
+    // call to strand the instance), and the body being replaced under it
+    // (the trace's DOM snapshots are back-references, so it never
+    // changed). What is left is Bootstrap's own view of the dialog, which
+    // no artifact so far records — so record it.
+    try {
+        await expect(dialog).toBeHidden({ timeout: 5_000 });
+    } catch (failure) {
+        const state = await page.evaluate(() => {
+            const element = document.getElementById('groups-detail-modal');
+            const bs = /** @type {any} */ (window).bootstrap;
+            const instance = bs && bs.Modal ? bs.Modal.getInstance(element) : null;
+            return {
+                className: element ? element.className : '(absent)',
+                inlineDisplay: element ? element.style.display : '(absent)',
+                hasInstance: Boolean(instance),
+                isShown: instance ? instance._isShown : null,
+                isTransitioning: instance ? instance._isTransitioning : null,
+                focustrapActive: instance && instance._focustrap ? instance._focustrap._isActive : null,
+                backdrops: document.querySelectorAll('.modal-backdrop').length,
+                bodyHasModalOpen: document.body.classList.contains('modal-open'),
+            };
+        });
+        // eslint-disable-next-line no-console
+        console.log('[MODAL-STUCK] state=' + JSON.stringify(state)
+            + ' pageErrors=' + JSON.stringify(pageErrors));
+        throw failure;
+    }
 
     // --- Everything above happened without a single page load. Reload
     // once, and require the server to hand all of it back: that is what
