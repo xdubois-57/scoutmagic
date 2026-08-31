@@ -29,6 +29,9 @@ class InboundMessage
      * @param InboundAttachment[] $attachments
      * @param MessageLink[] $links every association the message carries,
      *   this consumer's and everybody else's
+     * @param OmittedAttachment[] $omittedAttachments what arrived and was
+     *   not kept — deliberately NOT in `$attachments`, which only ever
+     *   holds files a consumer can actually open
      */
     public function __construct(
         public readonly int $id,
@@ -52,8 +55,18 @@ class InboundMessage
          */
         public readonly array $toEmails = [],
         public readonly array $attachments = [],
-        public readonly array $links = []
+        public readonly array $links = [],
+        public readonly array $omittedAttachments = []
     ) {
+    }
+
+    /**
+     * Whether the sender attached something ScoutMagic did not keep. What
+     * a screen asks before deciding to explain itself.
+     */
+    public function hasOmittedAttachments(): bool
+    {
+        return $this->omittedAttachments !== [];
     }
 
     /**

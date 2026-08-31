@@ -154,7 +154,8 @@ class RentalMessageConsumerTest extends TestCase
             $this->documentRepository,
             $this->authorizationService,
             $journal,
-            $this->inboundMail
+            $this->inboundMail,
+            new \Core\File\FileRepository($this->pdo)
         );
 
         $this->mailboxId = $this->mailboxRepository->create(
@@ -295,7 +296,7 @@ class RentalMessageConsumerTest extends TestCase
 
         $this->sync();
 
-        $this->assertSame(0, $this->countStoredMessages());
+        $this->assertSame(0, $this->countRentalAssociations(), 'The message is kept; rental just does not claim it.');
     }
 
     // ── Level 2: the thread (§7.6) ──────────────────────────────────────
@@ -376,7 +377,7 @@ class RentalMessageConsumerTest extends TestCase
 
         $this->sync();
 
-        $this->assertSame(0, $this->countStoredMessages());
+        $this->assertSame(0, $this->countRentalAssociations(), 'The message is kept; rental just does not claim it.');
     }
 
     public function testAMessageSentBeforeTheRequestWasEvenMadeAttachesNothing(): void
@@ -386,7 +387,7 @@ class RentalMessageConsumerTest extends TestCase
 
         $this->sync();
 
-        $this->assertSame(0, $this->countStoredMessages());
+        $this->assertSame(0, $this->countRentalAssociations(), 'The message is kept; rental just does not claim it.');
     }
 
     public function testTwoBookingsInTheWindowUnderOneAddressAttachNothing(): void
@@ -400,7 +401,7 @@ class RentalMessageConsumerTest extends TestCase
         $this->deliver(10, 'Une question sans référence', from: 'jeanne@example.be');
         $this->sync();
 
-        $this->assertSame(0, $this->countStoredMessages());
+        $this->assertSame(0, $this->countRentalAssociations(), 'The message is kept; rental just does not claim it.');
     }
 
     public function testAStrangersAddressAttachesNothing(): void
@@ -410,7 +411,7 @@ class RentalMessageConsumerTest extends TestCase
 
         $this->sync();
 
-        $this->assertSame(0, $this->countStoredMessages());
+        $this->assertSame(0, $this->countRentalAssociations(), 'The message is kept; rental just does not claim it.');
     }
 
     public function testAnUnclaimedMessageAdvancesTheCursorAnyway(): void
@@ -986,7 +987,7 @@ class RentalMessageConsumerTest extends TestCase
 
     // ── Correcting the automatic rules (§7.7) ───────────────────────────
 
-    public function testDetachingRemovesTheMessageAndItsUnsortedAttachment(): void
+    public function testDetachingRemovesTheMessageFromTheBookingAndItsUnsortedDocument(): void
     {
         $booking = $this->createBooking();
         $this->deliverWithPdf(10, 'Re: [LOC-2027-0042]');
@@ -997,7 +998,13 @@ class RentalMessageConsumerTest extends TestCase
 
         $this->assertSame([], $this->communicationService->timeline($booking));
         $this->assertSame([], $this->documentRepository->findForBooking($booking->id));
-        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
+
+        // The message itself falls back into the unit's general mail —
+        // detaching is a correction, and destroying the message would make
+        // re-filing it under the right booking impossible. Its attachment
+        // goes with it, since nobody re-classified it.
+        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM inbound_messages')->fetchColumn());
+        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
     }
 
     public function testDetachingKeepsAnAttachmentAManagerAlreadyReclassified(): void
@@ -1019,6 +1026,19 @@ class RentalMessageConsumerTest extends TestCase
         $this->assertCount(1, $remaining);
         $this->assertSame(DocumentType::SIGNED_CONTRACT, $remaining[0]->type);
         $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
+
+        // And it changed hands: the file is the booking's document now, not
+        // the message's attachment. Without this, inbound_mail's retention
+        // would delete a signed contract ninety days later, and until then
+        // the booking's managers would be answering to an access check
+        // about a message they can no longer see.
+        $owner = $this->pdo->query('SELECT owner_type, owner_id FROM files')->fetch(\PDO::FETCH_ASSOC);
+        $this->assertSame('rental_document', $owner['owner_type']);
+        $this->assertSame($booking->id, (int) $owner['owner_id']);
+        $this->assertSame(
+            [],
+            $this->messageRepository->findFileIdsForMessage($message->id)
+        );
     }
 
     public function testDetachingAMessageOfAnotherBookingChangesNothing(): void
@@ -1140,5 +1160,21 @@ class RentalMessageConsumerTest extends TestCase
     private function countStoredMessages(): int
     {
         return (int) $this->pdo->query('SELECT COUNT(*) FROM inbound_messages')->fetchColumn();
+    }
+
+    /**
+     * How many associations `rental` made.
+     *
+     * What these tests have always been about — « rental attached
+     * nothing » — expressed against the model that now holds. The message
+     * itself is stored either way since §8.58 stopped discarding what no
+     * consumer recognises, so counting messages would now be asking a
+     * different question.
+     */
+    private function countRentalAssociations(): int
+    {
+        return (int) $this->pdo
+            ->query("SELECT COUNT(*) FROM inbound_message_links WHERE consumer_id = 'rental'")
+            ->fetchColumn();
     }
 }

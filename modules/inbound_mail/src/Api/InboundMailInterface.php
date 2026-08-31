@@ -39,19 +39,23 @@ interface InboundMailInterface
     public function findOneForReference(string $consumerId, string $businessReference, int $messageId): ?InboundMessage;
 
     /**
-     * Detach a message: it leaves **this** business object.
+     * Detach a message: it leaves **this** business object, and nothing
+     * else happens to it.
      *
-     * The message itself is destroyed only when the association removed was
-     * the last one it carried — a message another module also recognises
-     * survives, with its attachments, and this consumer simply stops seeing
-     * it. When it is the last one, the attachments nothing else has claimed
-     * go with it.
+     * **It is not destroyed, and it used to be.** Detaching is almost
+     * always a correction — the message was filed under the wrong booking —
+     * and destroying it made the correction impossible to finish. It now
+     * falls back into the unit's general mail, where only a chef d'unité
+     * sees it and where the module's own retention removes it if nobody
+     * re-orients it. A detached message keeps a floor of thirty days
+     * whatever its age, so a mis-click has a window to be noticed.
      *
      * `$preserveFileIds` names the files the consumer has re-classified as
-     * something of its own and wants kept — §7.7: an attachment that was
-     * reclassified survives a detach, an untouched one goes with the
-     * message. The consumer decides, because only it knows what it did with
-     * them.
+     * something of its own — §7.7. They are **released from the message**:
+     * its attachment row stops naming them and says why, so the retention
+     * purge cannot take a booking's signed contract away with the email it
+     * arrived in. A consumer that names a file here becomes responsible for
+     * it, `files.owner_id` included; only it knows what it did with them.
      *
      * @param int[] $preserveFileIds
      * @return bool false when the message does not belong to that reference

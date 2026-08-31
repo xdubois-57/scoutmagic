@@ -119,6 +119,29 @@ CREATE TABLE IF NOT EXISTS inbound_messages (
 
     sent_at DATETIME NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    -- Automatic mail: a newsletter, a bounce, an acknowledgement, spam.
+    -- Computed ONCE from the headers on arrival and never recomputed, never
+    -- editable by hand: it is a technical observation about `Precedence`,
+    -- `Auto-Submitted`, `List-Unsubscribe`, `X-Spam-Flag` and the sender,
+    -- not a judgement somebody made.
+    --
+    -- **It changes nothing about storage or analysis.** A flagged message is
+    -- offered to the consumers exactly like any other, which is
+    -- indispensable: plenty of booking platforms send with
+    -- `Precedence: bulk`. All it does is hide the message from the general
+    -- mailbox by default, behind a filter that shows it again — and a
+    -- message wrongly flagged becomes visible again the moment it carries
+    -- an association or a proposition.
+    is_bulk TINYINT(1) NOT NULL DEFAULT 0,
+
+    -- When this message last stopped being associated with anything.
+    --
+    -- The retention floor of A4: a message becomes purgeable again at the
+    -- LATER of `sent_at + retention` and this plus 30 days. Without it,
+    -- detaching a 2024 message by mistake makes it disappear on the next
+    -- purge, with no window to notice and undo.
+    last_unlinked_at DATETIME NULL,
     -- When the deferred, content-level pass last ran over this message
     -- (Task\AnalyzeStoredMessagesHandler). NULL means never.
     --
@@ -135,7 +158,10 @@ CREATE TABLE IF NOT EXISTS inbound_messages (
     -- name only: redefining the old idx_message_dedup in place would have
     -- been a silent no-op on every installed site (§10).
     UNIQUE INDEX idx_message_box_dedup (mailbox_id, message_id_blind_index),
+    -- The general mailbox lists by sent_at descending and pages by cursor
+    -- (A13) — never OFFSET, on a table that grows indefinitely.
     INDEX idx_message_sent (sent_at),
+    INDEX idx_message_box_sent (mailbox_id, sent_at),
     INDEX idx_message_thread (mailbox_id, message_id_blind_index),
     CONSTRAINT fk_message_mailbox FOREIGN KEY (mailbox_id) REFERENCES inbound_mailboxes(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -220,12 +246,27 @@ CREATE TABLE IF NOT EXISTS inbound_message_candidates (
 CREATE TABLE IF NOT EXISTS inbound_message_attachments (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     message_id INT UNSIGNED NOT NULL,
-    file_id INT UNSIGNED NOT NULL,
+    -- NULL when the file was NOT kept — see omission_reason. The row still
+    -- exists so a screen can say « le message est bien arrivé, ce fichier
+    -- n'a pas été conservé, il reste dans la boîte d'origine » rather than
+    -- silently showing one attachment fewer than the sender sent.
+    file_id INT UNSIGNED NULL,
     -- What the sender called it — a label, never the stored name.
     filename_encrypted BLOB NOT NULL,
     mime_type VARCHAR(100) NOT NULL,
     size_bytes INT UNSIGNED NOT NULL DEFAULT 0,
+    -- The SHA-256 of the **original** bytes, never of the stored derivative.
+    -- Hashing what was written would make deduplication depend on the GD
+    -- version that resized it: the same photo arriving twice would hash
+    -- differently after a library upgrade and be stored twice.
     content_hash CHAR(64) NOT NULL,
+    -- 'too_large' | 'mime_rejected' | 'quota_exceeded' | 'storage_error'
+    -- | 'reclassified'. NULL means the file was kept, and then file_id is
+    -- set. The last value is the odd one — the file WAS kept and then a
+    -- consumer took it over as a document of its own, so the message stops
+    -- naming it and the retention purge cannot delete a booking's signed
+    -- contract along with the email it arrived in.
+    omission_reason VARCHAR(20) NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_attachment_message (message_id),
     INDEX idx_attachment_hash (content_hash),

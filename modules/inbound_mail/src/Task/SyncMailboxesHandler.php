@@ -24,6 +24,7 @@ use Modules\InboundMail\Service\MailboxErrorFormatter;
 use Modules\InboundMail\Service\MailboxSyncService;
 use Modules\InboundMail\Service\MessageConsumerRegistry;
 use Modules\InboundMail\Service\MessageContentSanitizer;
+use Modules\InboundMail\Service\StorageQuotaService;
 
 /**
  * Polls every enabled mailbox (§7.4).
@@ -59,8 +60,15 @@ class SyncMailboxesHandler implements TaskHandlerInterface
      */
     private const INTERVAL_SECONDS = 900;
 
-    public function __construct(private ?MessageConsumerRegistry $consumerRegistry = null)
-    {
+    public function __construct(
+        private ?MessageConsumerRegistry $consumerRegistry = null,
+        /**
+         * The disk ceiling (D5). Null simply means no quota is enforced,
+         * which is the right behaviour for a unit on its own server and
+         * the safe one for a test that does not care.
+         */
+        private ?StorageQuotaService $quotaService = null
+    ) {
     }
 
     /**
@@ -81,7 +89,9 @@ class SyncMailboxesHandler implements TaskHandlerInterface
                 new MailboxErrorFormatter(),
                 new MailboxClientFactory(),
                 new AnalysisResultApplier($messageRepository),
-                new UploadHandler(new FileRepository($pdo), $context->storagePath)
+                new UploadHandler(new FileRepository($pdo), $context->storagePath),
+                $this->quotaService,
+                new FileRepository($pdo)
             );
 
             $service->syncAll(new \DateTimeImmutable());

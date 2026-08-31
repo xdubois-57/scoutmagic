@@ -52,13 +52,17 @@ class PurgeUnsortedMailHandlerTest extends TestCase
         $this->messages = new InboundMessageRepository($this->pdo, $this->encryption);
     }
 
-    public function testAMessageOlderThanTheRetentionGoes(): void
+    public function testAMessageOlderThanTheRetentionLeavesTheUnsortedScreen(): void
     {
         $old = $this->unsortedMessage('-8 months', 'vieux@mozet.be');
 
         $this->handle();
 
         $this->assertNull($this->find($old));
+        $this->assertTrue(
+            $this->messageRowExists($old),
+            'the message falls back into the general mail; erasing it is inbound_mail\'s retention, not this task\'s'
+        );
     }
 
     public function testAMessageInsideTheRetentionStays(): void
@@ -120,7 +124,8 @@ class PurgeUnsortedMailHandlerTest extends TestCase
 
         $this->handle();
 
-        $this->assertNotNull($this->find($filed));
+        $this->assertSame(1, $this->messages->countLinks($filed));
+        $this->assertTrue($this->messageRowExists($filed));
     }
 
     /**
@@ -137,7 +142,8 @@ class PurgeUnsortedMailHandlerTest extends TestCase
 
         $this->handle();
 
-        $this->assertNotNull($this->find($id));
+        $this->assertSame(1, $this->messages->countLinks($id));
+        $this->assertTrue($this->messageRowExists($id));
     }
 
     public function testTheTaskRearmsItselfForTomorrow(): void
@@ -297,12 +303,32 @@ class PurgeUnsortedMailHandlerTest extends TestCase
         return $id;
     }
 
+    /**
+     * Whether the message is still on « Courrier non classé ».
+     *
+     * The association, not the row: this task stopped erasing anything when
+     * detaching stopped erasing anything. A message it removes falls back
+     * into the unit's general mail, and the erasure is
+     * `Modules\InboundMail\Task\PurgeUnlinkedMessagesHandler`'s — asserting
+     * on the row here would be asserting on the other module's retention.
+     */
     private function find(int $id): ?object
     {
-        $stmt = $this->pdo->prepare('SELECT id FROM inbound_messages WHERE id = ?');
-        $stmt->execute([$id]);
+        $stmt = $this->pdo->prepare(
+            'SELECT id FROM inbound_message_links WHERE message_id = ? AND consumer_id = ? AND business_reference = ?'
+        );
+        $stmt->execute([$id, CampsMessageConsumer::CONSUMER_ID, CampsMessageConsumer::UNSORTED_REFERENCE]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
 
         return $row === false ? null : (object) $row;
+    }
+
+    /** Whether the message row itself still exists, whatever it is linked to. */
+    private function messageRowExists(int $id): bool
+    {
+        $stmt = $this->pdo->prepare('SELECT 1 FROM inbound_messages WHERE id = ?');
+        $stmt->execute([$id]);
+
+        return $stmt->fetchColumn() !== false;
     }
 }

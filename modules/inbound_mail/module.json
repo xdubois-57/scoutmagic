@@ -2,7 +2,7 @@
   "id": "inbound_mail",
   "name": "Courrier entrant",
   "description": "Passerelle de courrier entrant en lecture seule : connecte une ou plusieurs boîtes IMAP, détecte les nouveaux messages et les met à disposition des autres modules. Ne modifie jamais la boîte distante.",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -110,7 +110,30 @@
       "label": ""
     }
   ],
-  "settings": [],
+  "settings": [
+    {
+      "key": "inbound_mail_unlinked_retention_days",
+      "default_value": "90",
+      "type": "number",
+      "label": "Conservation du courrier sans association (jours)",
+      "description": "Nombre de jours pendant lesquels un message qu'aucun module ne rattache et sur lequel aucune proposition ne subsiste est conservé. Passé ce délai il est supprimé définitivement, avec ses pièces jointes. Les messages associés à un objet ne sont jamais concernés. Un message dont la dernière association vient d'être retirée bénéficie toujours de 30 jours, même s'il est plus ancien que ce délai."
+    },
+    {
+      "key": "inbound_mail_storage_quota_mb",
+      "default_value": "500",
+      "type": "number",
+      "label": "Espace maximal des pièces jointes entrantes (Mo)",
+      "description": "Protège l'hébergement entier, pas seulement ce module : une boîte très active peut remplir le disque du site et faire échouer tout le reste. Au-delà de cette limite, les pièces jointes ne sont plus enregistrées — le message, lui, est conservé et la pièce jointe est signalée comme non conservée —, les plus anciens messages sans association sont purgés, et le superadmin est averti au plus une fois par jour. 0 désactive la limite."
+    },
+    {
+      "key": "inbound_mail_quota_alerted_at",
+      "default_value": "",
+      "type": "text",
+      "label": "Dernière alerte de quota",
+      "description": "Horodatage interne : évite d'avertir le superadmin plus d'une fois par 24 h quand l'espace de stockage est saturé. Non modifiable.",
+      "editable": false
+    }
+  ],
   "cookies": [],
   "scheduled_tasks": [
     {
@@ -120,6 +143,10 @@
     {
       "key": "analyze_stored_messages",
       "handler": "Modules\\InboundMail\\Task\\AnalyzeStoredMessagesHandler"
+    },
+    {
+      "key": "purge_unlinked_messages",
+      "handler": "Modules\\InboundMail\\Task\\PurgeUnlinkedMessagesHandler"
     }
   ],
   "storage": {

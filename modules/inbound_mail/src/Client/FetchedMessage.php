@@ -38,7 +38,18 @@ class FetchedMessage
         public readonly \DateTimeImmutable $sentAt,
         public readonly string $bodyText,
         public readonly string $bodyHtml,
-        public readonly array $attachments = []
+        public readonly array $attachments = [],
+        /**
+         * Automatic mail — a newsletter, a bounce, an acknowledgement,
+         * spam. Read off the headers by `Mime\BulkMailDetector`, once, on
+         * arrival.
+         *
+         * It changes nothing about whether the message is stored or
+         * offered to the consumers: a great many booking platforms send
+         * with `Precedence: bulk`, and a flag that suppressed analysis
+         * would quietly lose a unit its rental enquiries.
+         */
+        public readonly bool $isBulk = false
     ) {
     }
 }

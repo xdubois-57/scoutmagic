@@ -170,16 +170,17 @@ class InboundMailServiceTest extends TestCase
 
     // ── Detaching (§7.6, §7.7) ──────────────────────────────────────────
 
-    public function testDetachingDeletesRatherThanLeavingAnOrphan(): void
+    public function testDetachingLeavesTheMessageInTheUnitsGeneralMail(): void
     {
-        // There is no unattached queue for it to fall into, so a row left
-        // behind with no reference would be exactly the invisible archive
-        // this module exists to avoid.
+        // There IS an unattached state to fall into now, and it is not an
+        // invisible archive: a chef d'unité sees it, and the retention
+        // removes it if nobody re-orients it.
         $id = $this->storeMessage();
 
         $this->assertTrue($this->service->detach('rental', 'LOC-2027-0042', $id));
         $this->assertSame([], $this->service->findForReference('rental', 'LOC-2027-0042'));
-        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM inbound_messages')->fetchColumn());
+        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM inbound_messages')->fetchColumn());
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM inbound_message_links')->fetchColumn());
     }
 
     public function testDetachingWithTheWrongReferenceChangesNothing(): void
@@ -190,18 +191,33 @@ class InboundMailServiceTest extends TestCase
         $this->assertCount(1, $this->service->findForReference('rental', 'LOC-2027-0042'));
     }
 
-    public function testDetachingRemovesTheAttachmentFileNothingElseUses(): void
+    public function testDetachingKeepsTheAttachmentFileWithTheMessage(): void
     {
+        // The file belongs to the message, not to the association. Deleting
+        // it here would leave the message re-orientable but stripped of the
+        // very document that says what it is about.
         $id = $this->storeMessage();
         $fileId = $this->storeFile();
         $this->messageRepository->addAttachment($id, $fileId, 'contrat.pdf', 'application/pdf', 1024, str_repeat('a', 64));
 
         $this->service->detach('rental', 'LOC-2027-0042', $id);
 
+        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
+        $this->assertSame([$fileId], $this->messageRepository->findFileIdsForMessage($id));
+    }
+
+    public function testPurgingAReferenceStillRemovesTheAttachmentFileNothingElseUses(): void
+    {
+        $id = $this->storeMessage();
+        $fileId = $this->storeFile();
+        $this->messageRepository->addAttachment($id, $fileId, 'contrat.pdf', 'application/pdf', 1024, str_repeat('a', 64));
+
+        $this->service->purgeReference('rental', 'LOC-2027-0042');
+
         $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
     }
 
-    public function testDetachingKeepsAFileAnotherMessageDeduplicatedOnto(): void
+    public function testPurgingAReferenceKeepsAFileAnotherMessageDeduplicatedOnto(): void
     {
         // The same PDF arriving on two messages is one stored file (§7.8).
         // Deleting it with the first message would break the second.
@@ -211,8 +227,9 @@ class InboundMailServiceTest extends TestCase
         $hash = str_repeat('a', 64);
         $this->messageRepository->addAttachment($first, $fileId, 'contrat.pdf', 'application/pdf', 1024, $hash);
         $this->messageRepository->addAttachment($second, $fileId, 'contrat.pdf', 'application/pdf', 1024, $hash);
+        $this->messageRepository->addLink($second, 'rental', 'LOC-2027-0043', \Modules\InboundMail\Api\LinkOrigin::REFERENCE);
 
-        $this->service->detach('rental', 'LOC-2027-0042', $first);
+        $this->service->purgeReference('rental', 'LOC-2027-0042');
 
         $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
     }
