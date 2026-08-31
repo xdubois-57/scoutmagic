@@ -2846,6 +2846,42 @@ if ($isEnabled('inbound_mail')) {
         $settingService->clearCache();
     }
 
+    // One-time reprise of the `unsorted` associations Camps used to make
+    // (IT-07). The reference was a bucket masquerading as a stay — with
+    // its own retention, its own screen and its own purge task, all
+    // duplicating what this module now does once for everybody. Removing
+    // the rows IS the migration: the messages stay, become "nothing points
+    // at this", and fall under the retention they should always have been
+    // under. Nothing is deleted here; the nightly purge decides that, on
+    // the duration the unit chose.
+    if ($settingService->get('inbound_mail_unsorted_dropped') !== '1') {
+        $settingService->register('inbound_mail_unsorted_dropped', '0', 'boolean',
+            'Références réservées du courrier retirées',
+            'Indique si les rattachements au pseudo-dossier « non classé » des camps ont été retirés.',
+            null, null, null, false, 999);
+
+        $inboundMessageRepository->dropReservedReference('camps', 'unsorted');
+
+        // And the duration those messages were kept for. Camps stops
+        // declaring `camps_unsorted_retention_months` in this release, so
+        // the value has to move BEFORE a later camps version bump prunes
+        // the row — the same expand-then-contract sequencing the link
+        // columns needed. A unit that had chosen six months keeps six
+        // months; one that had not gets the 90-day default.
+        \Modules\InboundMail\Task\PurgeUnlinkedMessagesHandler::inheritCampsRetention(
+            $settingService,
+            $settingRepo
+        );
+
+        // And the scheduled task that used to empty that bucket. It no
+        // longer exists as a class, so a pending occurrence would be
+        // resolved to nothing on every tick, forever.
+        (new \Core\Scheduler\SchedulerRepository($pdo))->deleteByTaskKey('camps', 'purge_unsorted_mail');
+
+        $settingRepo->updateValue(null, 'inbound_mail_unsorted_dropped', '1');
+        $settingService->clearCache();
+    }
+
     // Who may download an inbound attachment (ARCHITECTURE.md §8.3's
     // owner_type registry). The consumers are registered as FACTORIES:
     // answering the question means building exactly one of them, and an
@@ -4062,13 +4098,12 @@ if ($isEnabled('camps')) {
         $llmConnectorForOthers ?? null
     );
 
-    // The three DAILY tasks re-arm themselves to a fixed hour, so each
+    // The DAILY tasks re-arm themselves to a fixed hour, so each
     // needs seeding exactly once — on the first page load after the module
     // is enabled. Guarded on find() rather than scheduled blindly, or every
     // request would queue another copy.
     foreach ([
         [\Modules\Camps\Task\ReviewReminderHandler::TASK_KEY, \Modules\Camps\Task\ReviewReminderHandler::REFERENCE, 'tomorrow 06:00'],
-        [\Modules\Camps\Task\PurgeUnsortedMailHandler::TASK_KEY, \Modules\Camps\Task\PurgeUnsortedMailHandler::REFERENCE, 'tomorrow 04:00'],
         [\Modules\Camps\Task\RefreshPlaceSummariesHandler::TASK_KEY, \Modules\Camps\Task\RefreshPlaceSummariesHandler::REFERENCE, 'tomorrow 05:00'],
     ] as [$campsTaskKey, $campsTaskReference, $campsTaskWhen]) {
         $schedulerService->rearm('camps', $campsTaskKey, $campsTaskReference, $campsTaskWhen);
@@ -4146,12 +4181,12 @@ if ($isEnabled('camps')) {
     $campsStayFromMail = new \Modules\Camps\Mail\StayFromMailService(
         $campsCampRepo, $campsCampService, $campsPlaceService,
         $campsDuplicateDetector, $campsMessageReader, $settingService,
-        $inboundMailForOthers ?? null, $llmConnectorForOthers ?? null
+        $llmConnectorForOthers ?? null
     );
     $frontController->registerController(
         \Modules\Camps\Controller\CampsMailController::class,
         new \Modules\Camps\Controller\CampsMailController(
-            $twig, $campsCampRepo, $campsPlaceRepo, $settingService, $inboundMailForOthers ?? null,
+            $twig, $campsCampRepo, $campsPlaceRepo, $inboundMailForOthers ?? null,
             $campsProposalRepo, $campsFieldCompletion
         )
     );

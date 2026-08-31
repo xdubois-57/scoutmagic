@@ -171,6 +171,55 @@ class MailboxSyncServiceTest extends TestCase
         return (int) $this->pdo->query('SELECT COUNT(*) FROM inbound_messages')->fetchColumn();
     }
 
+    // ── What a consumer learns about the attachments while deciding ─────
+
+    public function testAConsumerSeesTheAttachmentsMetadataButNeverItsBytes(): void
+    {
+        // The contract has always said a candidate carries attachment
+        // metadata. Until `Api\CandidateAttachment` existed it did not, and
+        // a consumer whose signal is « il y a une pièce jointe » had no way
+        // to ask.
+        $seen = null;
+        $this->registry->register($this->consumer(
+            static function (CandidateMessage $message) use (&$seen): AnalysisResult {
+                $seen = $message->attachments;
+
+                return AnalysisResult::nothing();
+            }
+        ));
+        $this->addMessageWithPdf(10);
+
+        $this->sync();
+
+        $this->assertNotNull($seen);
+        $this->assertCount(1, $seen);
+        $this->assertSame('contrat.pdf', $seen[0]->filename);
+        // The SNIFFED type, never what the email announced.
+        $this->assertSame('application/pdf', $seen[0]->mimeType);
+        $this->assertGreaterThan(0, $seen[0]->sizeBytes);
+        $this->assertFalse(property_exists($seen[0], 'bytes'), 'a candidate never carries content');
+    }
+
+    public function testASignatureLogoIsNotOfferedAsAnAttachment(): void
+    {
+        // Otherwise a consumer whose signal is « il y a une pièce jointe »
+        // fires on every message from every organisation with an email
+        // footer.
+        $seen = null;
+        $this->registry->register($this->consumer(
+            static function (CandidateMessage $message) use (&$seen): AnalysisResult {
+                $seen = $message->attachments;
+
+                return AnalysisResult::nothing();
+            }
+        ));
+        $this->addMessageWithSignatureLogo(10);
+
+        $this->sync();
+
+        $this->assertSame([], $seen);
+    }
+
     // ── Nothing unclaimed is ever stored (§7.6) ──────────────────────────
 
     public function testAMessageNobodyRecognisesIsStoredAnyway(): void
@@ -598,6 +647,48 @@ class MailboxSyncServiceTest extends TestCase
     }
 
     // ── Attachments (§7.8) ──────────────────────────────────────────────
+
+    private function addMessageWithPdf(int $uid): void
+    {
+        $this->addMessageWithAttachment($uid, 'pdf@b', self::pdfBytes(), 'contrat.pdf');
+    }
+
+    /**
+     * A message whose only "attachment" is the sender's signature image:
+     * inline, and referenced by the HTML through its Content-ID.
+     */
+    private function addMessageWithSignatureLogo(int $uid): void
+    {
+        $this->client->addRawMessage('INBOX', $uid, implode("\r\n", [
+            'From: Jeanne Martin <jeanne@example.be>',
+            'Subject: Bonjour',
+            'Message-ID: <logo@b>',
+            'Date: Mon, 12 Jul 2027 09:30:00 +0200',
+            'Content-Type: multipart/related; boundary="frontier"',
+            '',
+            '--frontier',
+            'Content-Type: text/html',
+            '',
+            '<p>Bonjour<img src="cid:logo123"></p>',
+            '--frontier',
+            'Content-Type: image/png',
+            'Content-ID: <logo123>',
+            'Content-Disposition: inline; filename="logo.png"',
+            'Content-Transfer-Encoding: base64',
+            '',
+            base64_encode(self::tinyPngBytes()),
+            '--frontier--',
+        ]));
+    }
+
+    /** A 1×1 PNG — a decoration by pixel count, whatever it weighs. */
+    private static function tinyPngBytes(): string
+    {
+        return (string) base64_decode(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+            true
+        );
+    }
 
     private function addMessageWithAttachment(int $uid, string $messageId, string $bytes, string $filename): void
     {

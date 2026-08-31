@@ -12,6 +12,7 @@ use Core\File\FileRepository;
 use Core\File\UploadException;
 use Core\File\UploadHandler;
 use Modules\InboundMail\Api\AttachmentOmission;
+use Modules\InboundMail\Api\CandidateAttachment;
 use Modules\InboundMail\Api\CandidateMessage;
 use Modules\InboundMail\Api\MessageConsumerInterface;
 use Modules\InboundMail\Api\MessageLink;
@@ -201,7 +202,8 @@ class MailboxSyncService
             // reference in a body must not be where raw attacker HTML is
             // first handled (§7.9).
             bodyText: $this->sanitizer->sanitizeText($message->bodyText),
-            bodyHtml: $this->sanitizer->sanitizeHtml($message->bodyHtml)
+            bodyHtml: $this->sanitizer->sanitizeHtml($message->bodyHtml),
+            attachments: $this->candidateAttachments($message)
         );
 
         // EVERY consumer is asked, and every answer is applied. Under the
@@ -388,6 +390,40 @@ class MailboxSyncService
                 $hash
             );
         }
+    }
+
+    /**
+     * The attachment metadata a consumer decides on — names, sniffed
+     * types, sizes, and no bytes (`Api\CandidateAttachment`).
+     *
+     * Decorations are left out: a signature logo is not an attachment,
+     * and a consumer whose signal is « il y a une pièce jointe » would
+     * otherwise fire on every message from every organisation with an
+     * email footer. What is NOT left out is a file that will be refused —
+     * too large, wrong type — because the consumer is deciding about the
+     * message, and « on m'a envoyé une facture de 40 Mo » is still a
+     * message about an invoice.
+     *
+     * @return CandidateAttachment[]
+     */
+    private function candidateAttachments(FetchedMessage $message): array
+    {
+        $sanitizedHtml = $this->sanitizer->sanitizeHtml($message->bodyHtml);
+
+        $attachments = [];
+        foreach ($message->attachments as $attachment) {
+            if ($this->attachmentPolicy->isDecoration($attachment, $sanitizedHtml)) {
+                continue;
+            }
+
+            $attachments[] = new CandidateAttachment(
+                $attachment->filename,
+                (string) $this->attachmentPolicy->detectMimeType($attachment->bytes),
+                $attachment->sizeBytes()
+            );
+        }
+
+        return $attachments;
     }
 
     private function recordOmission(

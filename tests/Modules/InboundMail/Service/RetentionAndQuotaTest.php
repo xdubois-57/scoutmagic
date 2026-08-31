@@ -183,20 +183,44 @@ class RetentionAndQuotaTest extends TestCase
         // Not shortened to 90 in silence: a unit that configured six months
         // of unsorted camp mail expects to find six months of it, and
         // quietly erasing three would be the module deleting data nobody
-        // asked it to delete.
-        $settings = $this->settingsWith([['camps', 'camps_unsorted_retention_months', '6']]);
+        // asked it to delete. Copied ONCE now, rather than read live:
+        // Camps no longer reads that setting at all since its `unsorted`
+        // reference went (IT-07), and a module declaring a setting nothing
+        // in it reads is a promise its configuration page does not keep.
+        $settings = $this->settingsWith([
+            ['camps', 'camps_unsorted_retention_months', '6'],
+            ['inbound_mail', PurgeUnlinkedMessagesHandler::SETTING_RETENTION_DAYS, ''],
+        ]);
 
+        $this->assertTrue(
+            PurgeUnlinkedMessagesHandler::inheritCampsRetention($settings, new SettingRepository($this->pdo))
+        );
         $this->assertSame(180, $this->purge->retentionDays($settings));
     }
 
-    public function testAnExplicitSettingBeatsTheCampsReprise(): void
+    public function testAStatedDurationIsNeverOverwrittenByTheInheritedOne(): void
     {
         $settings = $this->settingsWith([
             ['camps', 'camps_unsorted_retention_months', '6'],
-            ['inbound_mail', 'inbound_mail_unlinked_retention_days', '30'],
+            ['inbound_mail', PurgeUnlinkedMessagesHandler::SETTING_RETENTION_DAYS, '30'],
         ]);
 
+        $this->assertFalse(
+            PurgeUnlinkedMessagesHandler::inheritCampsRetention($settings, new SettingRepository($this->pdo))
+        );
         $this->assertSame(30, $this->purge->retentionDays($settings));
+    }
+
+    public function testThereIsNothingToInheritWhenCampsNeverHadTheSetting(): void
+    {
+        $settings = $this->settingsWith([
+            ['inbound_mail', PurgeUnlinkedMessagesHandler::SETTING_RETENTION_DAYS, ''],
+        ]);
+
+        $this->assertFalse(
+            PurgeUnlinkedMessagesHandler::inheritCampsRetention($settings, new SettingRepository($this->pdo))
+        );
+        $this->assertSame(90, $this->purge->retentionDays($settings));
     }
 
     // ── The quota (D5) ──────────────────────────────────────────────────

@@ -508,6 +508,103 @@ class RentalMessageConsumerTest extends TestCase
         );
     }
 
+    // ── Ambiguity produces propositions, not silence (IT-07) ────────────
+
+    public function testOneBookingInTheWindowIsStillAnAssociation(): void
+    {
+        $this->createBooking(reference: 'LOC-2027-0042');
+
+        $result = $this->plainConsumer()->analyze($this->senderMessage());
+
+        $this->assertCount(1, $result->links);
+        $this->assertSame('LOC-2027-0042', $result->links[0]->businessReference);
+        $this->assertSame([], $result->candidates);
+    }
+
+    public function testTwoBookingsInTheWindowProduceTwoPropositionsAndNoAssociation(): void
+    {
+        // Silence used to be the answer here. It was right about not
+        // choosing — filing a renter's email under whichever of their two
+        // bookings sorted first is worse than not filing it, because the
+        // manager reading the wrong one has no way to know — and wrong
+        // about stopping there.
+        $this->createBooking(reference: 'LOC-2027-0042');
+        $this->createBooking(reference: 'LOC-2027-0051', arrival: '2027-07-20', departure: '2027-07-23');
+
+        $result = $this->plainConsumer()->analyze($this->senderMessage());
+
+        $this->assertSame([], $result->links, 'ScoutMagic chooses neither');
+        $this->assertSame(
+            ['LOC-2027-0042', 'LOC-2027-0051'],
+            array_map(static fn($c) => $c->businessReference, $result->candidates)
+        );
+    }
+
+    public function testAPropositionSaysWhatItRestsOnAndNamesTheBookingReadably(): void
+    {
+        $this->createBooking(reference: 'LOC-2027-0042');
+        $this->createBooking(reference: 'LOC-2027-0051', arrival: '2027-07-20', departure: '2027-07-23');
+
+        $candidate = $this->plainConsumer()->analyze($this->senderMessage())->candidates[0];
+
+        // The reference alone is an identifier; a manager recognises dates.
+        $this->assertStringContainsString('LOC-2027-0042', $candidate->label);
+        $this->assertStringContainsString('01/07/2027', $candidate->label);
+        $this->assertStringContainsString('2 réservations', $candidate->explanation);
+        $this->assertStringContainsString('choisit aucune', $candidate->explanation);
+    }
+
+    public function testAWallOfPropositionsIsBounded(): void
+    {
+        // A renter with a standing booking every month would otherwise
+        // turn one email into a list nobody reads, which is a different
+        // way of saying nothing.
+        for ($i = 1; $i <= RentalMessageConsumer::MAX_PROPOSITIONS + 3; $i++) {
+            $this->createBooking(reference: 'LOC-2027-' . str_pad((string) $i, 4, '0', STR_PAD_LEFT));
+        }
+
+        $result = $this->plainConsumer()->analyze($this->senderMessage());
+
+        $this->assertCount(RentalMessageConsumer::MAX_PROPOSITIONS, $result->candidates);
+    }
+
+    public function testAnExplicitReferenceStillWinsOverEveryProposition(): void
+    {
+        $this->createBooking(reference: 'LOC-2027-0042');
+        $this->createBooking(reference: 'LOC-2027-0051', arrival: '2027-07-20', departure: '2027-07-23');
+
+        $result = $this->plainConsumer()->analyze($this->senderMessage('Re: [LOC-2027-0051] dates'));
+
+        $this->assertSame('LOC-2027-0051', $result->links[0]->businessReference);
+        $this->assertSame([], $result->candidates);
+    }
+
+    private function plainConsumer(): RentalMessageConsumer
+    {
+        return new RentalMessageConsumer(
+            $this->bookingRepository,
+            $this->inboundMail,
+            $this->documentService
+        );
+    }
+
+    private function senderMessage(string $subject = 'Bonjour'): \Modules\InboundMail\Api\CandidateMessage
+    {
+        return new \Modules\InboundMail\Api\CandidateMessage(
+            mailboxId: $this->mailboxId,
+            subject: $subject,
+            fromEmail: 'jeanne@example.be',
+            fromName: null,
+            messageId: 'a@b',
+            inReplyTo: null,
+            references: [],
+            toEmails: [],
+            sentAt: new \DateTimeImmutable('2027-07-02 09:30:00'),
+            bodyText: '',
+            bodyHtml: ''
+        );
+    }
+
     public function testAModuleListeningToAnotherMailboxClaimsNothing(): void
     {
         $this->registry = new MessageConsumerRegistry();

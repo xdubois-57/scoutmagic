@@ -480,3 +480,70 @@ conservée quatre-vingt-dix jours puis jetée sans avoir été lue — c'est
 l'ancien défaut avec une horloge plus lente. Le point d'attention ne
 contient qu'un compte et un lien : la page est exportée et
 photographiée, et §7.9 ne fait pas d'exception pour un résumé.
+
+## IT-07 — la fin du pseudo-dossier « non classé »
+
+### `unsorted` était un objet métier qui n'en était pas un
+
+Une référence réservée, portée par une seule ligne de `analyze()`, et
+autour d'elle : un réglage de rétention à elle, un écran à elle, une tâche
+nocturne à elle. Trois mécanismes qui redoublaient ce qu'`inbound_mail`
+fait désormais une fois pour tout le monde.
+
+La migration est un `DELETE` des lignes d'association, et rien d'autre. Les
+messages restent, deviennent « rien ne pointe dessus », et tombent sous la
+rétention sous laquelle ils auraient toujours dû être. Rien n'est supprimé
+par la reprise ; la purge nocturne décide, sur la durée que l'unité a
+choisie — six mois pour celles qui avaient réglé l'ancien champ (A8).
+
+La ligne planifiée de `purge_unsorted_mail` est supprimée elle aussi
+(`SchedulerRepository::deleteByTaskKey()`). Une occurrence en attente d'un
+gestionnaire qui n'existe plus se résout à rien à chaque tick, pour
+toujours : pas fatal, et pas visible non plus, ce qui est la pire moitié.
+
+### La création automatique change d'étage
+
+Elle vivait dans `onLinked()`, accrochée à l'association `unsorted`. Elle
+est maintenant dans `analyzeStored()`, où un message **stocké** et une
+passe horaire bornée se rencontrent déjà — `StayFromMailService` lit le
+corps et peut appeler le connecteur IA, deux choses que `CandidateMessage`
+ne porte pas.
+
+Trois gardes, toutes portantes : boîte dédiée uniquement (sur l'adresse
+partagée, le devis d'un fournisseur deviendrait un camp),
+`camps_auto_create_from_mail`, et **aucune association déjà en place** —
+un message qu'un chef a orienté à la main entre-temps ne doit pas se voir
+pousser un séjour parce qu'une tâche horaire est passée après lui.
+
+### L'ambiguïté produit des propositions
+
+Plusieurs réservations du même locataire dans la période, ou plusieurs
+séjours du même contact, donnaient **rien**. C'était juste sur le fond — ne
+pas choisir — et faux sur la conclusion : le module sait quelque chose, il
+ne sait simplement pas laquelle. Il le dit maintenant, et un humain
+tranche.
+
+Borné à cinq : un locataire qui réserve tous les mois transformerait sinon
+un email en un mur que personne ne lit, ce qui est une autre façon de ne
+rien dire.
+
+### `findForTriage()` sur le contrat, et pourquoi c'est admissible
+
+C'est la seule méthode d'`InboundMailInterface` qui renvoie des messages
+dont l'appelant n'a pas nommé la référence. Elle reste cadrée : ce qu'elle
+ajoute vient **de la configuration des boîtes** — une boîte qu'un
+superadmin a déclarée lisible en entier par ce consumer — et de nulle part
+ailleurs. Un consumer ne peut pas élargir sa propre portée à travers cette
+interface ; seul l'écran de configuration le peut, et il dit en toutes
+lettres ce qu'il fait.
+
+La vue non cadrée du Chef d'Unité, elle, reste à l'intérieur
+d'`inbound_mail` (`GeneralMailboxService`) et n'est pas atteignable d'ici.
+
+### « Retirer » ne supprime plus, et l'écran le dit
+
+Le libellé de l'écran camps disait « Supprimer » et « effacés après 6
+mois ». Ni l'un ni l'autre n'est vrai : le message quitte le séjour et
+reste dans le courrier de l'unité. L'écran ne cite d'ailleurs plus de durée
+— citer un nombre dont ce module n'est plus propriétaire est la façon dont
+un écran finit par promettre six mois pendant que le réglage en dit trois.

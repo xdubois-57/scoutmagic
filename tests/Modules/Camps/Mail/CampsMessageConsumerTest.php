@@ -123,18 +123,78 @@ class CampsMessageConsumerTest extends TestCase
         $this->assertSame(LinkOrigin::THREAD, $claim->origin);
     }
 
-    // ── The dedicated mailbox: everything, then sorted by hand ──────
+    // ── Ambiguity produces propositions, not silence (IT-07) ────────
 
-    public function testADedicatedMailboxClaimsEvenAnUnknownSender(): void
+    public function testTwoStaysOfOneContactProduceTwoPropositionsAndNoAssociation(): void
     {
-        $this->setDedicatedMailboxes((string) self::DEDICATED_MAILBOX);
+        // A farmer who has hosted the unit twice has two stays under one
+        // address. Guessing which one this message is about would put it on
+        // the wrong page with no way for the reader to tell — but saying
+        // « c'est l'un de ces deux » is a middle the module used to lack.
+        $second = $this->camps->create(
+            1,
+            Camp::STAY_GRAND_CAMP,
+            '2026-07-20',
+            '2026-07-27',
+            null,
+            Camp::STATUS_CONFIRMED,
+            null, null, null, null, []
+        );
+        $this->contacts->create($this->campId, null, null, 'lambert@example.org', null, null);
+        $this->contacts->create($second, null, null, 'lambert@example.org', null, null);
 
-        $claim = $this->consumer()->claim(
-            $this->message('newsletter@campingbelgique.be', 'Nos offres', null, [], self::DEDICATED_MAILBOX)
+        $result = $this->consumer()->analyze(
+            $this->message('lambert@example.org', 'Bonjour', null, [], self::SHARED_MAILBOX)
         );
 
-        $this->assertNotNull($claim);
-        $this->assertSame(CampsMessageConsumer::UNSORTED_REFERENCE, $claim->businessReference);
+        $this->assertSame([], $result->links, 'ScoutMagic chooses neither');
+        $this->assertCount(2, $result->candidates);
+        $this->assertStringContainsString('2 séjours', $result->candidates[0]->explanation);
+    }
+
+    public function testAPropositionNamesTheStayTheWayEveryOtherScreenDoes(): void
+    {
+        $second = $this->camps->create(
+            1,
+            Camp::STAY_GRAND_CAMP,
+            '2026-07-20',
+            '2026-07-27',
+            null,
+            Camp::STATUS_CONFIRMED,
+            null, null, null, null, []
+        );
+        $this->contacts->create($this->campId, null, null, 'lambert@example.org', null, null);
+        $this->contacts->create($second, null, null, 'lambert@example.org', null, null);
+
+        $labels = array_map(
+            static fn($c) => $c->label,
+            $this->consumer()->analyze(
+                $this->message('lambert@example.org', 'Bonjour', null, [], self::SHARED_MAILBOX)
+            )->candidates
+        );
+
+        // Through Service\CampLabels, like every other camps screen: a
+        // second way of writing a stay's dates would drift from the first
+        // within a season, and this label is read next to those screens.
+        $this->assertStringContainsString('Grand camp', implode(' | ', $labels));
+        $this->assertStringContainsString('juillet', implode(' | ', $labels));
+    }
+
+    // ── The dedicated mailbox: everything, then sorted by hand ──────
+
+    public function testADedicatedMailboxNoLongerInventsAnAssociation(): void
+    {
+        // It used to claim everything under a reserved `unsorted`
+        // reference — a bucket masquerading as a stay, with its own
+        // retention, screen and purge task. The message is stored either
+        // way now (§8.58); what a dedicated box buys is that this module's
+        // own users see all of it, which the mailbox configuration says
+        // rather than a fake business object.
+        $this->setDedicatedMailboxes((string) self::DEDICATED_MAILBOX);
+
+        $this->assertNull($this->consumer()->claim(
+            $this->message('newsletter@campingbelgique.be', 'Nos offres', null, [], self::DEDICATED_MAILBOX)
+        ));
     }
 
     public function testADedicatedMailboxStillPrefersARealStayOverUnsorted(): void
@@ -165,9 +225,6 @@ class CampsMessageConsumerTest extends TestCase
         $this->setDedicatedMailboxes('2, 7 ,9');
 
         $this->assertSame([2, 7, 9], $this->consumer()->dedicatedMailboxIds());
-        $this->assertNotNull($this->consumer()->claim(
-            $this->message('x@example.org', 'X', null, [], 7)
-        ));
     }
 
     public function testNoDedicatedMailboxIsTheDefault(): void
@@ -175,11 +232,14 @@ class CampsMessageConsumerTest extends TestCase
         $this->assertSame([], $this->consumer()->dedicatedMailboxIds());
     }
 
-    public function testAStayReferenceCanNeverCollideWithTheReservedOne(): void
+    public function testOnlyAStayReferenceReadsBackAsAStay(): void
     {
         $this->assertSame('camp-42', CampsMessageConsumer::referenceFor(42));
         $this->assertSame(42, CampsMessageConsumer::campIdFromReference('camp-42'));
-        $this->assertNull(CampsMessageConsumer::campIdFromReference(CampsMessageConsumer::UNSORTED_REFERENCE));
+        // Anything else — another module's reference, or the reserved
+        // `unsorted` this module no longer mints — is not one of ours.
+        $this->assertNull(CampsMessageConsumer::campIdFromReference('unsorted'));
+        $this->assertNull(CampsMessageConsumer::campIdFromReference('LOC-2027-0042'));
     }
 
     // ── Storing a message on a stay that is no longer there ─────────
@@ -453,21 +513,88 @@ class CampsMessageConsumerTest extends TestCase
             inReplyTo: null,
             sentAt: new \DateTimeImmutable('2027-11-02 09:00:00'),
             bodyText: 'Du 12 au 19 juillet 2028.',
-            bodyHtml: ''
+            bodyHtml: '',
+            // `links` is what the deferred pass reads to decide whether
+            // anybody has already oriented this message — carrying only
+            // `businessReference` would leave that guard permanently blind.
+            links: $reference === ''
+                ? []
+                : [new \Modules\InboundMail\Api\MessageLink(
+                    CampsMessageConsumer::CONSUMER_ID,
+                    $reference,
+                    LinkOrigin::SENDER
+                )]
         );
     }
 
-    public function testAnUnsortedMessageIsOfferedToTheStayCreator(): void
+    public function testAMessageNoStayClaimedIsOfferedToTheStayCreator(): void
     {
+        // On the DEFERRED pass, where a stored message and a bounded
+        // hourly job already meet — `createFrom()` reads the body and may
+        // call the AI connector, neither of which CandidateMessage carries.
+        $this->setDedicatedMailboxes((string) self::DEDICATED_MAILBOX);
         $stayFromMail = $this->createMock(\Modules\Camps\Mail\StayFromMailService::class);
+        $stayFromMail->method('isAutomatic')->willReturn(true);
         $stayFromMail->expects($this->once())->method('createFrom')->willReturn($this->campId);
 
-        $consumer = new CampsConsumerV1Adapter(
+        $consumer = new CampsMessageConsumer(
             $this->camps, $this->pdo, $this->encryption, $this->settings,
             null, null, null, $stayFromMail
         );
 
-        $consumer->onMessageStored($this->bookingMessage(CampsMessageConsumer::UNSORTED_REFERENCE));
+        $result = $consumer->analyzeStored($this->unattachedMessage(self::DEDICATED_MAILBOX));
+
+        $this->assertSame('camp-' . $this->campId, $result->links[0]->businessReference);
+    }
+
+    public function testAMessageOnASharedBoxIsNeverTurnedIntoAStay(): void
+    {
+        // On the unit's public address a supplier's quotation would become
+        // a camp. The guard is the box, not the message.
+        $stayFromMail = $this->createMock(\Modules\Camps\Mail\StayFromMailService::class);
+        $stayFromMail->method('isAutomatic')->willReturn(true);
+        $stayFromMail->expects($this->never())->method('createFrom');
+
+        $consumer = new CampsMessageConsumer(
+            $this->camps, $this->pdo, $this->encryption, $this->settings,
+            null, null, null, $stayFromMail
+        );
+
+        $this->assertTrue($consumer->analyzeStored($this->unattachedMessage(self::SHARED_MAILBOX))->isEmpty());
+    }
+
+    public function testAUnitThatTurnedAutomaticCreationOffGetsNothing(): void
+    {
+        $this->setDedicatedMailboxes((string) self::DEDICATED_MAILBOX);
+        $stayFromMail = $this->createMock(\Modules\Camps\Mail\StayFromMailService::class);
+        $stayFromMail->method('isAutomatic')->willReturn(false);
+        $stayFromMail->expects($this->never())->method('createFrom');
+
+        $consumer = new CampsMessageConsumer(
+            $this->camps, $this->pdo, $this->encryption, $this->settings,
+            null, null, null, $stayFromMail
+        );
+
+        $this->assertTrue($consumer->analyzeStored($this->unattachedMessage(self::DEDICATED_MAILBOX))->isEmpty());
+    }
+
+    public function testAMessageAChiefAlreadyOrientedDoesNotSproutASecondStay(): void
+    {
+        // The deferred pass runs an hour later. A message somebody filed
+        // by hand in between must not also become a stay of its own.
+        $this->setDedicatedMailboxes((string) self::DEDICATED_MAILBOX);
+        $stayFromMail = $this->createMock(\Modules\Camps\Mail\StayFromMailService::class);
+        $stayFromMail->method('isAutomatic')->willReturn(true);
+        $stayFromMail->expects($this->never())->method('createFrom');
+
+        $consumer = new CampsMessageConsumer(
+            $this->camps, $this->pdo, $this->encryption, $this->settings,
+            null, null, null, $stayFromMail
+        );
+
+        $this->assertTrue(
+            $consumer->analyzeStored($this->bookingMessage('camp-' . $this->campId))->isEmpty()
+        );
     }
 
     public function testAMessageAlreadyOnAStayIsNotOfferedToTheStayCreator(): void
@@ -485,21 +612,45 @@ class CampsMessageConsumerTest extends TestCase
         $consumer->onMessageStored($this->bookingMessage('camp-' . $this->campId));
     }
 
-    public function testAnUnsortedMessageNobodyCouldTurnIntoAStayIsLeftAlone(): void
+    public function testAMessageNobodyCouldTurnIntoAStayIsLeftAlone(): void
     {
+        $this->setDedicatedMailboxes((string) self::DEDICATED_MAILBOX);
         $stayFromMail = $this->createMock(\Modules\Camps\Mail\StayFromMailService::class);
+        $stayFromMail->method('isAutomatic')->willReturn(true);
         $stayFromMail->method('createFrom')->willReturn(null);
 
-        $consumer = new CampsConsumerV1Adapter(
+        $consumer = new CampsMessageConsumer(
             $this->camps, $this->pdo, $this->encryption, $this->settings,
             null, null, null, $stayFromMail
         );
 
-        $consumer->onMessageStored($this->bookingMessage(CampsMessageConsumer::UNSORTED_REFERENCE));
-
-        // Nothing attached, nothing thrown: the message stays where it is
-        // and a human decides.
+        // Nothing associated, nothing thrown: the message stays attached
+        // to nothing, where both the chef d'unité and this module's own
+        // users find it, and a human decides.
+        $this->assertTrue($consumer->analyzeStored($this->unattachedMessage(self::DEDICATED_MAILBOX))->isEmpty());
         $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM camp_documents')->fetchColumn());
+    }
+
+    /** A stored message with no association at all — the deferred pass's subject. */
+    private function unattachedMessage(int $mailboxId): \Modules\InboundMail\Api\InboundMessage
+    {
+        $message = $this->bookingMessage('');
+
+        return new \Modules\InboundMail\Api\InboundMessage(
+            id: $message->id,
+            mailboxId: $mailboxId,
+            consumerId: '',
+            businessReference: '',
+            linkOrigin: $message->linkOrigin,
+            subject: $message->subject,
+            fromEmail: $message->fromEmail,
+            fromName: $message->fromName,
+            messageId: $message->messageId,
+            inReplyTo: $message->inReplyTo,
+            sentAt: $message->sentAt,
+            bodyText: $message->bodyText,
+            bodyHtml: $message->bodyHtml
+        );
     }
 
     /**

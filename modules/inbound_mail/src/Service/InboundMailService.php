@@ -63,6 +63,177 @@ class InboundMailService implements InboundMailInterface
     }
 
     /**
+     * Associate a message with a business object because a person said so.
+     *
+     * `LinkOrigin::MANUAL`, always (D20), and idempotent: the repository's
+     * unique index is what makes it so, and `addLink()` returns false
+     * rather than throwing when the association already exists.
+     */
+    public function attach(
+        string $consumerId,
+        string $businessReference,
+        int $messageId,
+        ?int $userAccountId = null
+    ): bool {
+        $created = $this->messageRepository->addLink(
+            $messageId,
+            $consumerId,
+            $businessReference,
+            LinkOrigin::MANUAL,
+            0,
+            $userAccountId
+        );
+
+        if (!$created) {
+            return false;
+        }
+
+        $stored = $this->messageRepository->findOneForReference($consumerId, $businessReference, $messageId);
+        if ($stored !== null) {
+            $this->notifyLinked($stored, new MessageLink(
+                $consumerId,
+                $businessReference,
+                LinkOrigin::MANUAL
+            ));
+        }
+
+        return true;
+    }
+
+    /**
+     * The business triage list — see `Api\InboundMailInterface`.
+     *
+     * The full-read mailboxes come from the configuration screen, never
+     * from the consumer: `Repository\InboundMailboxRepository::mailboxIdsReadableInFull()`
+     * answers only for boxes a superadmin declared this consumer may read
+     * entirely, so a consumer cannot widen its own scope by calling this.
+     *
+     * @param string[] $ownReferences
+     * @return InboundMessage[]
+     */
+    public function findForTriage(string $consumerId, array $ownReferences, int $limit = 50): array
+    {
+        return $this->messageRepository->findForTriage(
+            $consumerId,
+            array_values(array_unique($ownReferences)),
+            $this->mailboxRepository->mailboxIdsReadableInFull($consumerId),
+            $limit
+        );
+    }
+
+    /**
+     * @param int[] $messageIds
+     * @return array<int, \Modules\InboundMail\Api\MessageCandidate[]>
+     */
+    public function findCandidatesFor(string $consumerId, array $messageIds): array
+    {
+        return $this->messageRepository->findCandidatesForConsumer($messageIds, $consumerId);
+    }
+
+    /**
+     * @param string[] $ownReferences
+     */
+    public function confirmCandidate(
+        string $consumerId,
+        array $ownReferences,
+        int $messageId,
+        int $candidateId,
+        ?int $userAccountId = null
+    ): bool {
+        $candidate = $this->ownCandidate($consumerId, $ownReferences, $messageId, $candidateId);
+        if ($candidate === null) {
+            return false;
+        }
+
+        $this->messageRepository->addLink(
+            $messageId,
+            $consumerId,
+            $candidate->businessReference,
+            LinkOrigin::MANUAL,
+            $candidate->attachmentId,
+            $userAccountId
+        );
+        $this->dismiss($consumerId, $messageId, $candidate);
+
+        $stored = $this->messageRepository->findOneForReference(
+            $consumerId,
+            $candidate->businessReference,
+            $messageId
+        );
+        if ($stored !== null) {
+            $this->notifyLinked($stored, new MessageLink(
+                $consumerId,
+                $candidate->businessReference,
+                LinkOrigin::MANUAL,
+                $candidate->attachmentId
+            ));
+        }
+
+        return true;
+    }
+
+    /**
+     * @param string[] $ownReferences
+     */
+    public function dismissCandidate(
+        string $consumerId,
+        array $ownReferences,
+        int $messageId,
+        int $candidateId
+    ): bool {
+        $candidate = $this->ownCandidate($consumerId, $ownReferences, $messageId, $candidateId);
+        if ($candidate === null) {
+            return false;
+        }
+
+        $this->dismiss($consumerId, $messageId, $candidate);
+
+        return true;
+    }
+
+    /**
+     * The proposition this caller is actually allowed to answer.
+     *
+     * Three conditions, all of them: it is on this message, it belongs to
+     * this consumer, and its target is one the requester may reach. The
+     * third is what stops a screen being talked into filing a message
+     * under an object its user has no business touching.
+     *
+     * @param string[] $ownReferences
+     */
+    private function ownCandidate(
+        string $consumerId,
+        array $ownReferences,
+        int $messageId,
+        int $candidateId
+    ): ?\Modules\InboundMail\Api\MessageCandidate {
+        foreach ($this->messageRepository->findActiveCandidates($messageId) as $candidate) {
+            if ($candidate->id === $candidateId
+                && $candidate->consumerId === $consumerId
+                && in_array($candidate->businessReference, $ownReferences, true)
+            ) {
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private function dismiss(
+        string $consumerId,
+        int $messageId,
+        \Modules\InboundMail\Api\MessageCandidate $candidate
+    ): void {
+        $this->messageRepository->dismissCandidate(
+            $messageId,
+            $consumerId,
+            $candidate->businessReference,
+            $candidate->attachmentId,
+            new \DateTimeImmutable()
+        );
+    }
+
+    /**
      * Detaching removes **one association**, and nothing else.
      *
      * It used to destroy the message once the last association went. It no

@@ -240,6 +240,25 @@ class SchedulerRepository
     }
 
     /**
+     * Remove every scheduled action of one module/task key, whatever its
+     * status or date — what a module does when a task **stops existing**.
+     *
+     * Different from `deleteOlderThan()`, which is a retention purge on a
+     * task that is still alive. A pending occurrence of a handler class
+     * that no longer exists resolves to nothing on every tick, forever:
+     * not fatal, and not visible either, which is the worse half.
+     */
+    public function deleteByTaskKey(string $moduleId, string $taskKey): int
+    {
+        $stmt = $this->pdo->prepare(
+            'DELETE FROM scheduled_actions WHERE module_id = ? AND task_key = ?'
+        );
+        $stmt->execute([$moduleId, $taskKey]);
+
+        return $stmt->rowCount();
+    }
+
+    /**
      * @return array<int, array<string, mixed>>
      */
     public function findAll(int $limit = 100, int $offset = 0): array

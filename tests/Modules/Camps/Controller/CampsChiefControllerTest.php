@@ -765,8 +765,12 @@ class CampsChiefControllerTest extends TestCase
         $message = new \Modules\InboundMail\Api\InboundMessage(
             id: 42,
             mailboxId: 2,
-            consumerId: \Modules\Camps\Mail\CampsMessageConsumer::CONSUMER_ID,
-            businessReference: \Modules\Camps\Mail\CampsMessageConsumer::UNSORTED_REFERENCE,
+            // Attached to nothing: « créer un camp depuis ce message »
+            // starts from a message no stay claimed, which since IT-07
+            // means no association at all rather than one filed under a
+            // reserved `unsorted` reference.
+            consumerId: '',
+            businessReference: '',
             linkOrigin: \Modules\InboundMail\Api\LinkOrigin::SENDER,
             subject: 'Confirmation de réservation',
             fromEmail: 'info@mozet.be',
@@ -780,13 +784,10 @@ class CampsChiefControllerTest extends TestCase
 
         $inbound = $this->createMock(\Modules\InboundMail\Api\InboundMailInterface::class);
         $inbound->method('findForReference')->willReturn([]);
-        $inbound->method('findOneForReference')->willReturnCallback(
-            static fn(string $c, string $r, int $id): ?\Modules\InboundMail\Api\InboundMessage
-                => $id === 42 ? $message : null
-        );
-        $inbound->method('move')->willReturnCallback(
-            function (string $c, string $from, string $to, int $id) use (&$moves): bool {
-                $moves[] = ['from' => $from, 'to' => $to, 'message' => $id];
+        $inbound->method('findForTriage')->willReturn([$message]);
+        $inbound->method('attach')->willReturnCallback(
+            function (string $c, string $reference, int $id, ?int $actor) use (&$moves): bool {
+                $moves[] = ['to' => $reference, 'message' => $id];
 
                 return true;
             }
@@ -830,7 +831,6 @@ class CampsChiefControllerTest extends TestCase
                 $duplicates,
                 new \Modules\Camps\Mail\MessageReader(),
                 $settings,
-                $inbound,
                 $llm
             )
         );
@@ -923,7 +923,9 @@ class CampsChiefControllerTest extends TestCase
 
         $this->assertSame(302, $response->getStatusCode());
         $this->assertCount(1, $moves);
-        $this->assertSame(\Modules\Camps\Mail\CampsMessageConsumer::UNSORTED_REFERENCE, $moves[0]['from']);
+        // An association, not a move: there is no reserved reference to
+        // move the message OFF any more (IT-07).
+        $this->assertStringStartsWith('camp-', $moves[0]['to']);
         $this->assertSame(42, $moves[0]['message']);
     }
 

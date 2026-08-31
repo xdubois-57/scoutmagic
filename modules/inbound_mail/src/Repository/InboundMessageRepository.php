@@ -893,6 +893,128 @@ class InboundMessageRepository
         return (int) $stmt->fetchColumn();
     }
 
+    // ── The business triage list (§8.58, IT-07) ─────────────────────────
+
+    /**
+     * The mail one consumer's own users may sort: what it associated or
+     * merely proposed on a reference they can reach, plus — on a mailbox
+     * that consumer reads in full — everything else in that box.
+     *
+     * **Propositions are included, and that is the point.** A proposition
+     * exists to be confirmed or dismissed by somebody who knows; a list
+     * showing only what the module was already sure about would hide
+     * exactly the messages that need a human.
+     *
+     * **The reference list comes from the caller**, because only the
+     * consumer knows which of its own objects this requester may manage —
+     * `inbound_mail` has no idea what a booking is (§8.58). An empty list
+     * with no full-read mailbox therefore returns nothing, which is the
+     * right answer for a manager who manages nothing.
+     *
+     * @param string[] $ownReferences the references the requester may reach
+     * @param int[] $fullReadMailboxIds boxes this consumer reads entirely
+     * @return InboundMessage[] newest first, bounded
+     */
+    public function findForTriage(
+        string $consumerId,
+        array $ownReferences,
+        array $fullReadMailboxIds,
+        int $limit
+    ): array {
+        $clauses = [];
+        $params = [];
+
+        if ($ownReferences !== []) {
+            $placeholders = implode(',', array_fill(0, count($ownReferences), '?'));
+
+            $clauses[] = "EXISTS (SELECT 1 FROM inbound_message_links l
+                                   WHERE l.message_id = m.id AND l.consumer_id = ?
+                                     AND l.business_reference IN ({$placeholders}))";
+            $params[] = $consumerId;
+            foreach ($ownReferences as $reference) {
+                $params[] = $reference;
+            }
+
+            $clauses[] = "EXISTS (SELECT 1 FROM inbound_message_candidates c
+                                   WHERE c.message_id = m.id AND c.consumer_id = ?
+                                     AND c.dismissed_at IS NULL
+                                     AND c.business_reference IN ({$placeholders}))";
+            $params[] = $consumerId;
+            foreach ($ownReferences as $reference) {
+                $params[] = $reference;
+            }
+        }
+
+        if ($fullReadMailboxIds !== []) {
+            $placeholders = implode(',', array_fill(0, count($fullReadMailboxIds), '?'));
+            $clauses[] = "m.mailbox_id IN ({$placeholders})";
+            foreach ($fullReadMailboxIds as $mailboxId) {
+                $params[] = (int) $mailboxId;
+            }
+        }
+
+        if ($clauses === []) {
+            return [];
+        }
+
+        $stmt = $this->pdo->prepare(
+            'SELECT m.* FROM inbound_messages m
+              WHERE (' . implode(' OR ', $clauses) . ')
+           ORDER BY m.sent_at DESC, m.id DESC
+              LIMIT ' . max(1, $limit)
+        );
+        $stmt->execute($params);
+
+        return $this->hydrateAll($stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * One consumer's still-standing propositions on a set of messages, so a
+     * triage screen can render them without querying inside its own loop.
+     *
+     * Scoped to the consumer: another module's propositions on the same
+     * message are not this screen's business, and showing them would leak
+     * one module's guesses into another's audience.
+     *
+     * @param int[] $messageIds
+     * @return array<int, MessageCandidate[]>
+     */
+    public function findCandidatesForConsumer(array $messageIds, string $consumerId): array
+    {
+        if ($messageIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($messageIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT * FROM inbound_message_candidates
+              WHERE message_id IN ({$placeholders}) AND consumer_id = ? AND dismissed_at IS NULL
+           ORDER BY id ASC"
+        );
+        $stmt->execute([...$messageIds, $consumerId]);
+
+        $byMessage = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $byMessage[(int) $row['message_id']][] = new MessageCandidate(
+                businessReference: (string) $row['business_reference'],
+                label: $this->encryption->decrypt(
+                    (string) $row['evidence_label_encrypted'],
+                    'inbound_message_candidates.evidence_label'
+                ),
+                evidenceType: (string) $row['evidence_type'],
+                explanation: $this->encryption->decrypt(
+                    (string) $row['evidence_explanation_encrypted'],
+                    'inbound_message_candidates.evidence_explanation'
+                ),
+                attachmentId: (int) $row['attachment_id'],
+                id: (int) $row['id'],
+                consumerId: (string) $row['consumer_id']
+            );
+        }
+
+        return $byMessage;
+    }
+
     // ── The general mailbox (§8.58, IT-06) ──────────────────────────────
 
     /**
@@ -1178,6 +1300,30 @@ class InboundMessageRepository
     }
 
     // ── One-time reprise ────────────────────────────────────────────────
+
+    /**
+     * Drop the associations that pointed at a **reserved reference**
+     * rather than at a real business object.
+     *
+     * Camps had one: `unsorted`, a bucket masquerading as a stay. Removing
+     * the rows is the whole migration — the messages themselves stay
+     * exactly where they are, become "nothing points at this", and fall
+     * under the module's own retention, which is what they should have
+     * been under all along. Nothing is deleted here.
+     *
+     * Idempotent: a second run finds no rows and reports 0.
+     *
+     * @return int the number of associations removed
+     */
+    public function dropReservedReference(string $consumerId, string $reference): int
+    {
+        $stmt = $this->pdo->prepare(
+            'DELETE FROM inbound_message_links WHERE consumer_id = ? AND business_reference = ?'
+        );
+        $stmt->execute([$consumerId, $reference]);
+
+        return $stmt->rowCount();
+    }
 
     /**
      * Turn every message's legacy `consumer_id`/`business_reference`/

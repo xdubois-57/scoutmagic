@@ -170,11 +170,11 @@ class CampsChiefController extends AbstractController
             return $submitted;
         }
 
-        $message = $this->inboundMail->findOneForReference(
-            CampsMessageConsumer::CONSUMER_ID,
-            CampsMessageConsumer::UNSORTED_REFERENCE,
-            $messageId
-        );
+        // Read through the triage list rather than through a reserved
+        // reference: `unsorted` is gone (IT-07), and « créer un camp depuis
+        // ce message » starts from a message that is by definition attached
+        // to no stay yet.
+        $message = $this->triageMessage($messageId);
         if ($message === null) {
             return $submitted;
         }
@@ -895,12 +895,55 @@ class CampsChiefController extends AbstractController
             return;
         }
 
-        $this->inboundMail->move(
+        // An association, not a move: the message was attached to nothing
+        // of this module's, so there is nothing to move it off.
+        $this->inboundMail->attach(
             CampsMessageConsumer::CONSUMER_ID,
-            CampsMessageConsumer::UNSORTED_REFERENCE,
             CampsMessageConsumer::referenceFor($campId),
-            $messageId
+            $messageId,
+            \Core\Security\AuthSession::getUserAccountId()
         );
+    }
+
+    /**
+     * One message of this module's triage list, by id.
+     *
+     * Through `findForTriage()` — which scopes to what this module may see
+     * — rather than through any general read: a chief creating a stay from
+     * a message must not be a way to fetch a message the module was never
+     * shown.
+     */
+    private function triageMessage(int $messageId): ?\Modules\InboundMail\Api\InboundMessage
+    {
+        if ($this->inboundMail === null) {
+            return null;
+        }
+
+        foreach ($this->inboundMail->findForTriage(
+            CampsMessageConsumer::CONSUMER_ID,
+            $this->stayReferences()
+        ) as $message) {
+            if ($message->id === $messageId) {
+                return $message;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @return string[]
+     */
+    private function stayReferences(): array
+    {
+        $references = [];
+        foreach ($this->places->findAllVisible() as $place) {
+            foreach ($this->camps->findByPlace($place->id) as $camp) {
+                $references[] = CampsMessageConsumer::referenceFor($camp->id);
+            }
+        }
+
+        return $references;
     }
 
     /**
@@ -926,9 +969,11 @@ class CampsChiefController extends AbstractController
     }
 
     /**
-     * How many messages are waiting in the unsorted pile. Zero when
-     * inbound_mail is absent — the optional dependency degrades to the
-     * banner never appearing, which is exactly right on a site that
+     * How many messages this module has something to say about and nobody
+     * has answered yet — what the banner on the camps list counts.
+     *
+     * Zero when inbound_mail is absent: the optional dependency degrades
+     * to the banner never appearing, which is exactly right on a site that
      * collects no mail.
      */
     private function unsortedMailCount(): int
@@ -937,10 +982,16 @@ class CampsChiefController extends AbstractController
             return 0;
         }
 
-        return count($this->inboundMail->findForReference(
-            CampsMessageConsumer::CONSUMER_ID,
-            CampsMessageConsumer::UNSORTED_REFERENCE
-        ));
+        $references = $this->stayReferences();
+        $waiting = 0;
+
+        foreach ($this->inboundMail->findForTriage(CampsMessageConsumer::CONSUMER_ID, $references) as $message) {
+            if ($message->linksFor(CampsMessageConsumer::CONSUMER_ID) === []) {
+                $waiting++;
+            }
+        }
+
+        return $waiting;
     }
 
     /**

@@ -58,6 +58,8 @@ class MailboxSelectionTest extends TestCase
     private function inboundMail(array $summaries): InboundMailInterface
     {
         return new class ($summaries) implements InboundMailInterface {
+            use \Tests\Modules\InboundMail\InertInboundMail;
+
             /**
              * @param array<int, array{name: string, state: string, is_enabled: bool}> $summaries
              */
