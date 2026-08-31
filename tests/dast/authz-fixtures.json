@@ -21,6 +21,9 @@
     "less and less."
   ],
   "groups": {
+    "/api/support/tickets/{reference}": {
+      "reference": "SUP-ABCDEF"
+    },
     "/admin/attestations/{id}": {
       "id": "1"
     },

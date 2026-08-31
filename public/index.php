@@ -2119,6 +2119,9 @@ $router->addRoute('POST', '/config/support/package', SupportController::class, '
 // the page: a ticket carries this installation's identity, and who may
 // speak for the installation is a superadmin question.
 $router->addRoute('POST', '/config/support/ticket', SupportController::class, 'sendTicket', 'superadmin');
+// The archive, on its own call (roadmap IT-26): an upload that times out
+// must never take the ticket with it.
+$router->addRoute('POST', '/config/support/ticket/archive', SupportController::class, 'sendArchive', 'superadmin');
 $router->addRoute('GET', '/api/support/package-status/{id}', SupportController::class, 'packageStatus', 'superadmin');
 
 // Scheduled actions
@@ -2602,7 +2605,20 @@ $frontController->registerController(SupportController::class, new SupportContro
         $journalService,
         \Core\Maintenance\VersionFile::read(dirname(__DIR__))
     ),
-    $ticketIdentityService
+    $ticketIdentityService,
+    // The archive, on its own transport: megabytes uphill from a shared
+    // host is not a 2 KB JSON body, and sharing the interface would mean
+    // sharing the timeouts (roadmap IT-26).
+    new \Core\Support\Ticket\SupportArchiveSender(
+        $settingService,
+        $ticketIdentityService,
+        $encryptedFileStorageService,
+        new \Core\Support\Ticket\StreamArchiveTransport(),
+        $journalService,
+        \Core\Maintenance\VersionFile::read(dirname(__DIR__))
+    ),
+    \Core\Support\SupportPackageFactory::collectorNames(),
+    $fileRepository
 ));
 $frontController->registerController(ScheduledActionsController::class, new ScheduledActionsController($twig, $schedulerRepo));
 $frontController->registerController(ConfigGeneralController::class, new ConfigGeneralController($twig));
@@ -4165,6 +4181,16 @@ if ($isEnabled('support_dashboard')) {
             new \Modules\SupportDashboard\Service\TicketIntakeService(
                 $supportInstallationRepo,
                 new \Modules\SupportDashboard\Repository\SupportTicketRepository($pdo, $encryptionService),
+                $journalService
+            ),
+            // The archive arrives on its own route (roadmap IT-26) and is
+            // stored exactly as it was on the installation that produced
+            // it: encrypted at rest, `role_min: superadmin`, reachable
+            // only through /files/{id}.
+            new \Modules\SupportDashboard\Service\TicketArchiveIntakeService(
+                $supportInstallationRepo,
+                new \Modules\SupportDashboard\Repository\SupportTicketRepository($pdo, $encryptionService),
+                $encryptedFileStorageService,
                 $journalService
             )
         )

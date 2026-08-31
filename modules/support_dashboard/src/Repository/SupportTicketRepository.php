@@ -136,6 +136,33 @@ class SupportTicketRepository
     }
 
     /**
+     * One ticket by the reference its instance was given.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function findByReference(string $reference): ?array
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM support_tickets WHERE reference = ?');
+        $stmt->execute([$reference]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        return is_array($row) ? $this->hydrate($row) : null;
+    }
+
+    /**
+     * Record that this ticket's diagnostic archive arrived (roadmap
+     * IT-26). Written only once — the caller checks first, and a second
+     * copy of the same archive would be storage nobody asked for.
+     */
+    public function attachArchive(int $ticketId, int $fileId): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE support_tickets SET archive_file_id = ?, archive_received_at = ? WHERE id = ?'
+        );
+        $stmt->execute([$fileId, (new \DateTimeImmutable())->format('Y-m-d H:i:s'), $ticketId]);
+    }
+
+    /**
      * Every ticket of one installation, most recent first.
      *
      * @return list<array<string, mixed>>

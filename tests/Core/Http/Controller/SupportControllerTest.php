@@ -22,6 +22,7 @@ use Core\Statistics\InstallationDateService;
 use Core\Statistics\InstallationIdentityService;
 use Core\Statistics\StatisticsPayloadBuilder;
 use Core\Statistics\StatisticsSender;
+use Core\Support\Ticket\SupportArchiveSender;
 use Core\Support\Ticket\SupportTicketSender;
 use Core\Support\Ticket\TicketIdentityService;
 use Core\Statistics\StatisticsTransportInterface;
@@ -197,6 +198,8 @@ class SupportControllerTest extends TestCase
         $this->settings->register(SupportTicketSender::LAST_REFERENCE_SETTING, '', 'text', 'L', 'D', null, null, null, false);
         $this->settings->register(SupportTicketSender::LAST_SENT_AT_SETTING, '', 'text', 'L', 'D', null, null, null, false);
         $this->settings->register(SupportTicketSender::CATEGORIES_SETTING, '', 'text', 'L', 'D', null, null, null, false);
+        $this->settings->register(SupportArchiveSender::ARCHIVE_SENT_AT_SETTING, '', 'text', 'L', 'D', null, null, null, false);
+        $this->settings->register(SupportArchiveSender::ARCHIVE_REFERENCE_SETTING, '', 'text', 'L', 'D', null, null, null, false);
         InstallationDateService::register($this->settings);
         $this->settings->clearCache();
     }
@@ -383,6 +386,40 @@ class SupportControllerTest extends TestCase
             'ticket_description' => 'Mon import Desk ne passe plus depuis hier.',
             'ticket_contact_email' => 'chef@unite.be',
         ], [], []), []);
+    }
+
+    /**
+     * Roadmap IT-26: the consent screen names what is in the archive and
+     * how big it is, BEFORE the box that agrees to transmit it — and the
+     * box is verified on the server, which is what this test proves by
+     * posting without it.
+     */
+    public function testTheArchiveIsNotTransmittedWithoutTheAcknowledgement(): void
+    {
+        $this->issueCsrfToken();
+        $this->settings->setInternal(SupportTicketSender::LAST_REFERENCE_SETTING, 'SUP-7KQ4F2');
+
+        $response = $this->controller->sendArchive(new Request('POST', '/config/support/ticket/archive', [], [
+            '_csrf_token' => (string) $_POST['_csrf_token'],
+            // No archive_acknowledged at all — exactly what a hand-made
+            // POST looks like.
+        ], [], []), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('', (string) $this->settings->get(SupportArchiveSender::ARCHIVE_REFERENCE_SETTING));
+    }
+
+    public function testWithoutATicketThereIsNothingToAttachAnArchiveTo(): void
+    {
+        $this->issueCsrfToken();
+
+        $response = $this->controller->sendArchive(new Request('POST', '/config/support/ticket/archive', [], [
+            '_csrf_token' => (string) $_POST['_csrf_token'],
+            'archive_acknowledged' => '1',
+        ], [], []), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('', (string) $this->settings->get(SupportArchiveSender::ARCHIVE_REFERENCE_SETTING));
     }
 
     public function testIndexRendersTheThreeBlocksAndTheWarning(): void

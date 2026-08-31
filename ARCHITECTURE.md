@@ -1482,7 +1482,14 @@ A collector sees only `SupportCollectorContext` — add a file by content or by 
 
 **Every clock in the archive is stated once.** `collection-status.json` carries a `clock` block and README.txt an HEURES section, because the archive mixes UTC (its JSON files) with local time (the event journal, the copied logs) and nothing said so — two hours apart on a European host, far enough to attribute an incident to the wrong update. **Two local zones are reported, not one**: `Core\Config\AppClock` pins PHP to Europe/Brussels, while the host's own `date.timezone` may be something else (Europe/Paris on the installation that prompted this) and the web server writes its log lines on that one. Journal and update-history cells carry their own offset as well.
 
-**Nothing is ever transmitted, in any form**: no email, no upload, no pre-filled `mailto:` with an attachment. The button generates, the link downloads, and the administrator decides what happens next.
+**Nothing leaves without an explicit act of the administrator, and there is now exactly one such act** (roadmap IT-26). The archive is still never transmitted automatically: no scheduled upload, no email, no pre-filled `mailto:` with an attachment, nothing that happens because a task ran. What exists since IT-26 is a **transmission an administrator performs deliberately**, from Configuration > Support, attached to a support ticket they have just opened (§8.48bis, §8.49ter):
+
+1. The archive is generated or reused — the same one, under the same rules, kept for the same seven days. Being transmitted does not extend its life.
+2. The page lists **what it contains, in French, with its size**, before anything is agreed to (`Core\Support\Ticket\ArchiveContents`, whose sentences the build keeps in step with the shipped collectors).
+3. A checkbox says, in as many words, that the administrator has read that list and agrees to transmit it to the named destination — and it is verified **server-side**, because a checkbox enforced in the browser is a decoration.
+4. The upload is a **separate call** from the ticket, so an upload that times out never costs the report; the ticket stands, marked « archive non transmise », with a retry.
+
+The transmission is journaled at `security` level, not `info`: it is the moment a unit's server logs — visitor IP addresses among them — left the installation, and an audit should find it beside decisions of that weight. That relationship is a sub-processing one, and `Core\View\RgpdContentService` names it.
 
 **The application collectors** (the five beyond `statistics.json`) each answer one recurring support question:
 

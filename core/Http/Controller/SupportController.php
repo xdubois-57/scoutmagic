@@ -20,6 +20,9 @@ use Core\Service\DateInput;
 use Core\Statistics\DestinationMatcher;
 use Core\Statistics\StatisticsPayloadBuilder;
 use Core\Statistics\StatisticsSender;
+use Core\File\FileRepository;
+use Core\Support\Ticket\ArchiveContents;
+use Core\Support\Ticket\SupportArchiveSender;
 use Core\Support\Ticket\SupportTicketSender;
 use Core\Support\Ticket\TicketIdentityService;
 use Core\Statistics\StatisticsStateSettings;
@@ -68,7 +71,18 @@ class SupportController extends AbstractController
          * codebase degrades.
          */
         private ?SupportTicketSender $ticketSender = null,
-        private ?TicketIdentityService $ticketIdentity = null
+        private ?TicketIdentityService $ticketIdentity = null,
+        private ?SupportArchiveSender $archiveSender = null,
+        /**
+         * The collectors' technical names, in the order the archive is
+         * built — turned into French on the way to the view. Empty when
+         * nothing wired them, which simply hides the contents list.
+         *
+         * @var list<string>
+         */
+        private array $collectorNames = [],
+        /** Only ever asked for the archive's size, on the consent screen. */
+        private ?FileRepository $fileRepository = null
     ) {
     }
 
@@ -108,6 +122,15 @@ class SupportController extends AbstractController
             'ticket_contact_default' => (string) (AuthSession::getEmail() ?? ''),
             'ticket_guard' => $this->ticketIdentity?->firstFailingGuard(),
             'ticket_telemetry_enabled' => $this->ticketIdentity?->telemetryEnabled() ?? false,
+            // The archive half of the ticket (roadmap IT-26): what the
+            // archive holds, in French, and how big it is — both shown
+            // BEFORE the box that agrees to transmit it.
+            'archive_available' => $this->archiveSender !== null,
+            'archive_contents' => ArchiveContents::describe($this->collectorNames),
+            'archive_size_bytes' => $this->currentPackageSizeBytes(),
+            'archive_transmitted' => $this->archiveTransmitted(),
+            'archive_transmitted_at' => $this->archiveSender?->transmittedAt() ?? '',
+            'archive_destination' => (string) ($this->settingService->get('statistics_destination') ?? ''),
             'statistics_enabled' => $this->settingService->get('statistics_enabled') === '1',
             // `statistics_destination` is deliberately NOT passed to the
             // view. Where the report goes is a project-level fact, not a
@@ -214,6 +237,97 @@ class SupportController extends AbstractController
         $fileId = (int) ($this->settingService->get(SupportPackageState::FILE_ID) ?? '0');
 
         return $fileId > 0 ? $fileId : null;
+    }
+
+    /**
+     * The size of the archive currently on disk, or null when there is
+     * none. What a consent screen owes a reader alongside the contents:
+     * agreeing to transmit « quelque chose » is not agreeing to transmit
+     * forty megabytes of it.
+     */
+    private function currentPackageSizeBytes(): ?int
+    {
+        $fileId = $this->currentPackageFileId();
+        if ($fileId === null || $this->archiveSender === null) {
+            return null;
+        }
+
+        $record = $this->fileRepository?->findById($fileId);
+
+        return $record !== null ? $record->sizeBytes : null;
+    }
+
+    /** Whether the archive of the ticket currently displayed has left. */
+    private function archiveTransmitted(): bool
+    {
+        $last = $this->ticketSender?->lastSent();
+
+        return $last !== null
+            && ($this->archiveSender?->wasTransmittedFor($last['reference']) ?? false);
+    }
+
+    /**
+     * POST /config/support/ticket/archive — the second, separate call
+     * (roadmap IT-26).
+     *
+     * The acknowledgement is verified **here**, on the server: a checkbox
+     * enforced only in the browser is a decoration, and this one is the
+     * whole consent.
+     *
+     * @param array<string, string> $params
+     */
+    public function sendArchive(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, '/config/support')) !== null) {
+            return $guard;
+        }
+
+        $last = $this->ticketSender?->lastSent();
+        if ($this->archiveSender === null || $last === null) {
+            FlashMessage::set('error', "Aucun ticket récent auquel joindre une archive.");
+
+            return $this->redirect('/config/support');
+        }
+
+        $result = $this->archiveSender->send(
+            $last['reference'],
+            (string) $request->getBody('archive_acknowledged', '') === '1'
+        );
+
+        if ($result->sent) {
+            FlashMessage::set('success', sprintf(
+                'Archive transmise et rattachée au ticket %s.',
+                $last['reference']
+            ));
+        } else {
+            FlashMessage::set('error', self::archiveFailureMessage((string) $result->failureReason));
+        }
+
+        return $this->redirect('/config/support');
+    }
+
+    /**
+     * The French reading of an archive that did not leave.
+     *
+     * « Le ticket est intact » is in every one of them on purpose: the
+     * separate call exists so a failed upload costs nothing, and an
+     * administrator reading an error has to know that before deciding
+     * whether to start over.
+     */
+    private static function archiveFailureMessage(string $reason): string
+    {
+        return match ($reason) {
+            SupportArchiveSender::FAILURE_NOT_ACKNOWLEDGED =>
+                "Cochez la case de transmission pour envoyer l'archive. Le ticket est intact.",
+            SupportArchiveSender::FAILURE_NO_ARCHIVE =>
+                "Aucune archive de diagnostic n'est disponible : générez-en une d'abord. Le ticket est intact.",
+            SupportArchiveSender::FAILURE_UNREADABLE_ARCHIVE =>
+                "L'archive conservée est illisible : générez-en une nouvelle. Le ticket est intact.",
+            SupportArchiveSender::FAILURE_REFUSED =>
+                "Le serveur de support a refusé l'archive. Le ticket est intact, l'archive n'a pas été transmise.",
+            default =>
+                "L'archive n'a pas pu être transmise (serveur injoignable ou envoi trop long). Le ticket est intact : vous pouvez réessayer.",
+        };
     }
 
     /**

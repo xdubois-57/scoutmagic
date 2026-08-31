@@ -43,13 +43,10 @@ membre, aucun journal, aucun fichier. Ouvrir un ticket **n'active pas**
 l'envoi quotidien de statistiques ; si votre unité l'a refusé, il le
 reste.
 
-Après l'envoi, la page affiche la **référence** du ticket et la date.
-C'est tout ce que le site en sait : la suite se passe par e-mail, le
-mainteneur répond à l'adresse indiquée. Il n'y a pas de fil de
-discussion ici, et le site n'interroge jamais le serveur ensuite.
-
-Si le serveur est injoignable, rien n'est envoyé et **votre texte reste
-à l'écran** : vous pouvez réessayer sans le retaper.
+Après l'envoi, la page affiche la **référence** du ticket et la date —
+tout ce que le site en sait. La suite se passe par e-mail : pas de fil de
+discussion ici, et aucune interrogation du serveur ensuite. Si celui-ci
+est injoignable, rien n'est envoyé et **votre texte reste à l'écran**.
 
 ## Le paquet de support
 
@@ -60,9 +57,13 @@ est conservée chiffrée, réservée aux administrateurs du site, et
 supprimée d'elle-même après sept jours ; en générer une nouvelle
 remplace la précédente.
 
-**Rien n'est jamais transmis automatiquement** : c'est vous qui
-téléchargez l'archive et l'envoyez, ou non, à l'adresse de support
-affichée.
+**Rien n'est jamais transmis automatiquement** : ni tâche planifiée, ni
+courriel, ni envoi décidé par le site. Vous pouvez la transmettre
+vous-même : en la téléchargeant, ou en la joignant à un ticket depuis
+« Contacter le support » — la page liste alors son contenu et sa taille,
+et vous demande de cocher que vous acceptez. Un envoi qui échoue ne fait
+pas perdre le ticket : il reste marqué « archive non transmise », avec un
+bouton pour réessayer.
 
 > Avant d'envoyer l'archive, ouvrez-la et vérifiez son contenu : les
 > journaux du serveur peuvent contenir des adresses IP de visiteurs,

@@ -147,6 +147,52 @@
             <p class="small text-body-secondary mb-0 mt-1">
                 Le site n'interroge pas le serveur ensuite : la suite se passe par e-mail.
             </p>
+
+            {% if archive_available %}
+                <h3 class="h6 mt-3">Joindre l'archive de diagnostic</h3>
+
+                {% if archive_transmitted %}
+                    <p class="small mb-0">
+                        {% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Archive transmise' } only %}
+                        {% if archive_transmitted_at %}— {{ archive_transmitted_at }}{% endif %}
+                    </p>
+                {% elseif archive_size_bytes is null %}
+                    <p class="small text-body-secondary mb-0">
+                        {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'Archive non transmise' } only %}
+                        Générez d'abord une archive de support ci-dessous, puis revenez ici.
+                    </p>
+                {% else %}
+                    {# La liste et la taille AVANT la case, jamais après :
+                       accepter de transmettre « quelque chose » n'est pas
+                       accepter de transmettre ceci (roadmap IT-26). #}
+                    <p class="small text-body-secondary mb-1">
+                        {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'Archive non transmise' } only %}
+                        L'archive conservée pèse
+                        <strong>{{ (archive_size_bytes / 1048576)|number_format(1, ',', ' ') }} Mo</strong>
+                        et contient :
+                    </p>
+                    <ul class="small text-body-secondary">
+                        {% for entry in archive_contents %}
+                            <li>{{ entry.description }}</li>
+                        {% endfor %}
+                    </ul>
+
+                    <form method="post" action="/config/support/ticket/archive">
+                        {{ csrf_field()|raw }}
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="checkbox" value="1"
+                                   id="archive_acknowledged" name="archive_acknowledged" required>
+                            <label class="form-check-label small" for="archive_acknowledged">
+                                J'ai pris connaissance du contenu de cette archive et j'accepte de la transmettre
+                                à {{ archive_destination }}.
+                            </label>
+                        </div>
+                        <button type="submit" class="btn btn-outline-primary">
+                            Transmettre l'archive au support
+                        </button>
+                    </form>
+                {% endif %}
+            {% endif %}
         {% endif %}
     </div>
 </div>
@@ -241,7 +287,9 @@
             L'archive est générée en tâche de fond, conservée chiffrée sur le serveur, accessible aux seuls
             super-administrateurs, et supprimée automatiquement après {{ package_retention_days }} jours. Une seule
             archive est conservée : en générer une nouvelle remplace la précédente. Rien n'est jamais transmis
-            automatiquement.
+            automatiquement : ni tâche planifiée, ni courriel, ni envoi déclenché par le site. Vous pouvez en
+            revanche la transmettre vous-même, en la joignant à un ticket depuis « Contacter le support » —
+            son contenu et sa taille sont affichés avant que vous acceptiez.
         </p>
 
         <div class="d-flex flex-wrap gap-2 align-items-center">

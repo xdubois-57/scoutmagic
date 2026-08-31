@@ -11,6 +11,7 @@ namespace Modules\SupportDashboard\Controller;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
+use Modules\SupportDashboard\Service\TicketArchiveIntakeService;
 use Modules\SupportDashboard\Service\TicketIntakeService;
 use Modules\SupportDashboard\TicketCategory;
 use Twig\Environment;
@@ -36,8 +37,44 @@ class TicketIntakeController extends AbstractController
 {
     public function __construct(
         protected Environment $twig,
-        private TicketIntakeService $intakeService
+        private TicketIntakeService $intakeService,
+        private ?TicketArchiveIntakeService $archiveService = null
     ) {
+    }
+
+    /**
+     * POST /api/support/tickets/{reference}/archive — the diagnostic
+     * archive of a ticket that already exists (roadmap IT-26).
+     *
+     * A separate call from the ticket, deliberately: an upload that times
+     * out must not take the report down with it, so the ticket is created
+     * first and the archive either joins it or does not.
+     *
+     * @param array<string, string> $params
+     */
+    public function receiveArchive(Request $request, array $params): Response
+    {
+        if ($this->archiveService === null) {
+            return $this->json(['status' => 'rejected'], 403);
+        }
+
+        $result = $this->archiveService->receive(
+            (string) ($params['reference'] ?? ''),
+            $request->getRawBody(),
+            (string) $request->getServer('HTTP_AUTHORIZATION', ''),
+            (string) $request->getServer('REMOTE_ADDR', ''),
+            $request->isHttps()
+        );
+
+        if ($result->accepted) {
+            return $this->json(['status' => 'accepted'], 200);
+        }
+
+        if ($result->statusCode === 403) {
+            return $this->json(['status' => 'rejected'], 403);
+        }
+
+        return $this->json(['status' => 'refused', 'reason' => $result->rejectionReason], 200);
     }
 
     /**
