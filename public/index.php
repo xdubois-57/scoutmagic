@@ -3322,7 +3322,19 @@ if ($isEnabled('finance')) {
                             // attach the file by hand.
                             return null;
                         }
-                    }
+                    },
+                    // « Cette adresse anime-t-elle un seul staff ? ». Built
+                    // on the site's ONE SectionStaffAuthorizationService,
+                    // never a second instance: one built without
+                    // $memberEmailRepository silently staffs fewer sections,
+                    // and an animateur writing from a confirmed secondary
+                    // address would land in the sorting pile for no reason.
+                    new \Modules\Finance\Mail\SenderStaffAccountResolver(
+                        $sectionStaffAuthorizationService,
+                        $financeAccountRepo,
+                        $effectiveScoutYear->id
+                    ),
+                    new \Modules\Finance\Mail\ForwardedSenderExtractor()
                 )
         );
     }

@@ -151,6 +151,64 @@ class AccountVisibilityTest extends TestCase
     // --- fixtures ---
 
     /** @param int[] $linkedMemberIds */
+    // ── La corbeille : un reçu qu'aucun compte ne réclame ───────────────
+
+    public function testTheSortingPileIsVisibleToASectionTreasurer(): void
+    {
+        $treasurer = $this->treasurerOf($this->louveteauxId);
+
+        $this->assertTrue($this->visibilityFor($treasurer)->isUnassignedReceiptVisibleTo(Role::INTENDANT));
+    }
+
+    public function testTheSortingPileIsHiddenFromAnIntendantWhoIsNobodysTreasurer(): void
+    {
+        // The whole point of the narrowing: an unsorted receipt may belong
+        // to any section, so opening the pile to whoever holds the badge
+        // must not open it to every intendant.
+        $this->treasurerOf($this->louveteauxId);
+        $notATreasurer = $this->plainAnimateur();
+
+        $this->assertFalse($this->visibilityFor($notATreasurer)->isUnassignedReceiptVisibleTo(Role::INTENDANT));
+    }
+
+    public function testTheChefDUniteSeesTheSortingPileWithoutABadge(): void
+    {
+        $this->treasurerOf($this->louveteauxId);
+        $notATreasurer = $this->plainAnimateur();
+
+        // They answer for the unit's finances as a whole, exactly as they
+        // do for a section account.
+        $this->assertTrue($this->visibilityFor($notATreasurer)->isUnassignedReceiptVisibleTo(Role::ADMIN));
+    }
+
+    public function testWithTheBadgeRuleOffTheSortingPileFallsBackToTheFloor(): void
+    {
+        // No badge assigned this year — every installation on update day.
+        // Reading that as "nobody is a treasurer" would lock a unit out of
+        // its own pile until somebody assigned a badge no screen mentions.
+        $notATreasurer = $this->plainAnimateur();
+
+        $this->assertTrue($this->visibilityFor($notATreasurer)->isUnassignedReceiptVisibleTo(Role::INTENDANT));
+    }
+
+    public function testASessionThatResolvesToNoMemberIsNotATreasurer(): void
+    {
+        // The rule IS on, and this login reaches nobody. An empty scope is
+        // the opposite of a null one and must deny.
+        $this->treasurerOf($this->louveteauxId);
+
+        $this->assertFalse($this->visibilityFor()->isUnassignedReceiptVisibleTo(Role::INTENDANT));
+    }
+
+    public function testTheSortingPileStillRespectsTheRoleFloor(): void
+    {
+        // The narrowing never lifts the floor — the same asymmetry
+        // isVisibleTo() has with role_min_view.
+        $treasurer = $this->treasurerOf($this->louveteauxId);
+
+        $this->assertFalse($this->visibilityFor($treasurer)->isUnassignedReceiptVisibleTo(Role::IDENTIFIED));
+    }
+
     private function visibilityFor(int ...$linkedMemberIds): AccountVisibility
     {
         return new AccountVisibility(

@@ -205,7 +205,12 @@ class MailboxSyncService
             bodyText: $this->sanitizer->sanitizeText($message->bodyText),
             bodyHtml: $this->sanitizer->sanitizeHtml($message->bodyHtml),
             attachments: $this->candidateAttachments($message),
-            rawHeaders: $message->rawHeaders
+            rawHeaders: $message->rawHeaders,
+            // What the operator answered on the scope screen. A consumer
+            // may read a signal more strongly on a box the unit declared
+            // to be its own than on the unit's public address — and only
+            // this says which it is.
+            mailboxDedicatedTo: $mailbox->isDedicated() ? $mailbox->dedicatedTo : null
         );
 
         // EVERY consumer is asked, and every answer is applied. Under the

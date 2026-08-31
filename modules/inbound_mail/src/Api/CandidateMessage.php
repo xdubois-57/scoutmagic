@@ -65,8 +65,41 @@ class CandidateMessage
          * the separate question `Api\MessageRetentionPreference` answers.
          * Null when the client could not supply it.
          */
-        public readonly ?string $rawHeaders = null
+        public readonly ?string $rawHeaders = null,
+        /**
+         * The consumer id this box was declared **dedicated** to, or null
+         * for a shared one — `Api\MailboxPurpose`, as the configuration
+         * screen recorded it.
+         *
+         * One value rather than a per-consumer flag, because ONE candidate
+         * is built and offered to every consumer in turn: each compares it
+         * with its own id.
+         *
+         * What it is for: a signal that means nothing on a shared box can
+         * mean something on a dedicated one. « Ce message porte une pièce
+         * jointe » is a parent's holiday photo in the unit's public
+         * mailbox and an expense receipt in the box the unit created for
+         * its treasury — and only the operator's answer on the scope
+         * screen tells the two apart.
+         *
+         * Last and defaulted so a test building a candidate says nothing
+         * about mailbox purpose unless it means to; null reads as "shared",
+         * which is the answer that grants a consumer nothing extra.
+         */
+        public readonly ?string $mailboxDedicatedTo = null
     ) {
+    }
+
+    /**
+     * Whether the unit declared this box to be this consumer's own.
+     *
+     * Asked rather than compared inline, so a consumer cannot accidentally
+     * test another module's id — which would be a module claiming a box
+     * that was opened to somebody else.
+     */
+    public function mailboxIsDedicatedTo(string $consumerId): bool
+    {
+        return $this->mailboxDedicatedTo !== null && $this->mailboxDedicatedTo === $consumerId;
     }
 
     /**

@@ -146,18 +146,76 @@ class FinanceAccountOwnershipCheckerTest extends TestCase
         $this->assertNull($this->guardFor($this->treasurerOf($this->louveteauxId))->check($fileId));
     }
 
-    public function testAReceiptOwnedByNoAccountIsDenied(): void
+    /**
+     * owner_id 0 is the unit's sorting pile — a receipt that arrived by
+     * email with no IBAN and from an address animating no single staff,
+     * plus the legacy rows the ownership backfill stamped.
+     *
+     * It used to deny everybody, which was the right fail-safe while
+     * nothing could produce such a row on purpose. Now that it is a pile
+     * somebody is meant to work through, the rule is narrower than the
+     * page's floor rather than absent: treasurers and the chef d'unité,
+     * because an unsorted receipt may belong to any section.
+     */
+    public function testTheSortingPileIsServedToATreasurer(): void
     {
-        // owner_id 0 is what the backfill stamps on a legacy receipt whose
-        // account_id was already NULL. It resolves to no account, so
-        // nothing can authorize it — the same posture
-        // ReceiptController::requireVisibleAttachment() takes on a mutation.
-        $fileId = $this->fileRepository->create(
-            'finance/receipts/orphan.enc', 'r.pdf', 'application/pdf', 10, 'intendant', 'finance', null, true,
-            null, FinanceAccountOwnershipChecker::OWNER_TYPE, 0
-        );
+        $fileId = $this->unassignedReceiptFile();
 
-        $this->assertNull($this->guardFor($this->plainAnimateur(), Role::SUPERADMIN)->check($fileId));
+        $this->assertNotNull($this->guardFor($this->treasurerOf($this->louveteauxId))->check($fileId));
+    }
+
+    public function testTheSortingPileIsServedToTheChefDUnite(): void
+    {
+        $fileId = $this->unassignedReceiptFile();
+        $treasurer = $this->treasurerOf($this->louveteauxId);
+
+        $this->assertNotNull($this->guardFor($treasurer, Role::ADMIN)->check($fileId));
+    }
+
+    public function testAnIntendantWhoIsNobodysTreasurerIsRefusedTheSortingPile(): void
+    {
+        // The half of the old "denied" that must survive: opening the pile
+        // to whoever holds the badge must not open it to every intendant.
+        $fileId = $this->unassignedReceiptFile();
+        $this->treasurerOf($this->louveteauxId);
+
+        $this->assertNull($this->guardFor($this->plainAnimateur())->check($fileId));
+    }
+
+    public function testWithNoBadgeAssignedTheSortingPileFallsBackToTheFloor(): void
+    {
+        // Rule off — the state of every installation on update day. Reading
+        // that as "nobody is a treasurer" would lock a unit out of its own
+        // pile until somebody assigned a badge no screen mentions.
+        $fileId = $this->unassignedReceiptFile();
+
+        $this->assertNotNull($this->guardFor($this->plainAnimateur())->check($fileId));
+    }
+
+    public function testTheSortingPileStillRespectsTheRoleFloor(): void
+    {
+        // Ownership NARROWS; it never lifts the floor. An identified member
+        // below `intendant` is refused whatever badge they carry.
+        $fileId = $this->unassignedReceiptFile();
+
+        $this->assertNull($this->guardFor($this->treasurerOf($this->louveteauxId), Role::IDENTIFIED)->check($fileId));
+    }
+
+    private function unassignedReceiptFile(): int
+    {
+        return $this->fileRepository->create(
+            'finance/receipts/orphan.enc',
+            'r.pdf',
+            'application/pdf',
+            10,
+            'intendant',
+            'finance',
+            null,
+            true,
+            null,
+            FinanceAccountOwnershipChecker::OWNER_TYPE,
+            FinanceAccountOwnershipChecker::UNASSIGNED_OWNER_ID
+        );
     }
 
     public function testAnUnregisteredCheckerDeniesTheFileRatherThanFreeingIt(): void

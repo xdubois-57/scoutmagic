@@ -432,6 +432,17 @@ class InvoiceControllerTest extends TestCase
 
                 return 555;
             }
+
+            public function storeUnattendedReceipt(
+                string $content,
+                string $mimeType,
+                string $originalFilename,
+                ?int $accountId
+            ): int {
+                // The fees module never files without an actor — a
+                // federation invoice is always somebody's upload.
+                throw new \Modules\Finance\Api\FinanceException('Compte introuvable.');
+            }
         };
     }
 
