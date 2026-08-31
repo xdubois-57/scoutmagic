@@ -556,7 +556,7 @@ class GitHubWebhookServiceTest extends TestCase
 
         // A push on the right branch but for a repo this site is not
         // configured to update from must never schedule an install — the
-        // zipball URL is built from the payload's full_name.
+        // artifact URL is built from the payload's full_name.
         $payload = $this->pushPayload('main', 'a1b2c3d4e5f6');
         $payload['repository'] = ['full_name' => 'attacker/evil'];
 
@@ -567,6 +567,16 @@ class GitHubWebhookServiceTest extends TestCase
         $this->assertCount(0, $all);
     }
 
+    /**
+     * The development channel installs the CI-built artifact attached to
+     * the rolling `dev-build` prerelease, never GitHub's zipball of the
+     * commit. The zipball is the git tree: no vendor/ (gitignored) and
+     * tests/, .github/, bootstrap/ and scripts/ all copied to a production
+     * webroot — and since installFiles() copies additively, the live
+     * vendor/ was never replaced while composer.lock on disk was. Measured
+     * on scoutmagic.be: vendor/'s mtime stayed at the original install
+     * date across roughly 40 dev updates.
+     */
     public function testHandlePushEventSchedulesImmediateInstallWhenBranchMatches(): void
     {
         $this->settings->set('auto_update_enabled', '1');
@@ -580,8 +590,16 @@ class GitHubWebhookServiceTest extends TestCase
         $all = $this->schedulerRepository->findByModuleAndTaskKey('core', 'install_update', 10);
         $this->assertCount(1, $all);
         $payload = json_decode((string) $all[0]['payload'], true);
-        $this->assertSame('branch', $payload['source_type']);
-        $this->assertSame('https://api.github.com/repos/owner/repo/zipball/a1b2c3d4e5f6', $payload['download_url']);
+        $this->assertSame(
+            'https://github.com/owner/repo/releases/download/dev-build/scoutmagic-dev-a1b2c3d.zip',
+            $payload['download_url']
+        );
+        // 'release', not 'branch': the artifact is FLAT (scripts/build-artifact.sh
+        // zips `.` from the repository root), exactly like a release
+        // artifact. resolveBranchArchiveRoot() exists for the zipball's
+        // single wrapping "{owner}-{repo}-{sha}/" directory and would strip
+        // a real top-level entry off this one.
+        $this->assertSame('release', $payload['source_type']);
 
         $history = $this->updateHistoryRepository->findById((int) $payload['history_id']);
         $this->assertSame('dev-a1b2c3d', $history->versionTo);
@@ -590,6 +608,125 @@ class GitHubWebhookServiceTest extends TestCase
         // weekly slot — but still carries its own reference so a rapid
         // follow-up push can dedup it (see the test below).
         $this->assertSame('push_install', $all[0]['reference']);
+    }
+
+    /**
+     * The URL the push path builds must survive the allowlist the
+     * downloader applies before the first byte
+     * (Core\Maintenance\GitHubUrlValidator): a release-asset download
+     * starts on github.com and redirects to objects.githubusercontent.com,
+     * both of which the stable channel's own asset installs already
+     * needed. Asserted here rather than assumed, because the failure mode
+     * is an update refused on every push with nothing else to explain it.
+     */
+    public function testTheDevArtifactUrlIsAcceptedByTheDownloadAllowlist(): void
+    {
+        $this->settings->set('auto_update_enabled', '1');
+        $this->settings->set('auto_update_level', 'dev');
+        $this->settings->set('dev_update_branch', 'main');
+        $this->settings->clearCache();
+
+        $this->service()->handlePushEvent($this->pushPayload('main', 'a1b2c3d4e5f6'));
+
+        $all = $this->schedulerRepository->findByModuleAndTaskKey('core', 'install_update', 10);
+        $payload = json_decode((string) $all[0]['payload'], true);
+
+        $this->assertTrue(\Core\Maintenance\GitHubUrlValidator::isAllowed((string) $payload['download_url']));
+        $this->assertTrue(\Core\Maintenance\GitHubUrlValidator::isAllowed(
+            'https://objects.githubusercontent.com/github-production-release-asset/1/2?token=x'
+        ));
+    }
+
+    /**
+     * The webhook fires the instant the push lands; the artifact only
+     * exists once CI has resolved dependencies, zipped the tree and
+     * uploaded the asset. The deadline in the payload is how long
+     * Task\InstallUpdateHandler may keep waiting for it before failing —
+     * without it, the very first install attempt would 404 and roll back.
+     */
+    public function testHandlePushEventGivesTheInstallADeadlineToWaitForTheArtifact(): void
+    {
+        $this->settings->set('auto_update_enabled', '1');
+        $this->settings->set('auto_update_level', 'dev');
+        $this->settings->set('dev_update_branch', 'main');
+        $this->settings->clearCache();
+
+        $before = time();
+        $this->service()->handlePushEvent($this->pushPayload('main', 'a1b2c3d4e5f6'));
+        $after = time();
+
+        $all = $this->schedulerRepository->findByModuleAndTaskKey('core', 'install_update', 10);
+        $payload = json_decode((string) $all[0]['payload'], true);
+
+        $this->assertArrayHasKey('wait_for_artifact_until', $payload);
+        $this->assertGreaterThanOrEqual($before + 600, (int) $payload['wait_for_artifact_until']);
+        $this->assertLessThanOrEqual($after + 600, (int) $payload['wait_for_artifact_until']);
+
+        // The handler is never told its own reference, so it travels in
+        // the payload: a retry scheduled while waiting must stay findable
+        // by supersedeQueuedInstall(), or a newer push would leave two
+        // installs due at once.
+        $this->assertSame('push_install', $payload['reference']);
+    }
+
+    /**
+     * This used to be hardcoded false, so the update history's
+     * "dépendances" column read "non" on the development channel however
+     * much composer.lock had moved.
+     */
+    public function testHandlePushEventRecordsThatDependenciesChanged(): void
+    {
+        $this->settings->set('auto_update_enabled', '1');
+        $this->settings->set('auto_update_level', 'dev');
+        $this->settings->set('dev_update_branch', 'main');
+        $this->settings->clearCache();
+
+        $client = $this->fakeClient(true);
+        $this->service($client)->handlePushEvent($this->pushPayload('main', 'a1b2c3d4e5f6'));
+
+        $rows = $this->updateHistoryRepository->findRecent(10);
+        $this->assertTrue($rows[0]->dependenciesChanged);
+        // Compared from the installed version's tag to the pushed commit
+        // itself — there is no release tag to compare against here.
+        $this->assertSame('v2.4.1', $client->lastCompareBase);
+    }
+
+    public function testHandlePushEventComparesFromTheCommitShaWhenADevBuildIsInstalled(): void
+    {
+        file_put_contents($this->basePath . '/VERSION', "dev-a1b2c3d\n");
+        $this->settings->set('auto_update_enabled', '1');
+        $this->settings->set('auto_update_level', 'dev');
+        $this->settings->set('dev_update_branch', 'main');
+        $this->settings->clearCache();
+
+        $client = $this->fakeClient(false);
+        $this->service($client)->handlePushEvent($this->pushPayload('main', 'ffffffffffff'));
+
+        // "vdev-a1b2c3d" is never a real tag; the bare sha is.
+        $this->assertSame('a1b2c3d', $client->lastCompareBase);
+    }
+
+    /**
+     * The release path assumes "changed" when the compare fails, because
+     * there the flag warns an admin about dependencies they cannot install
+     * by hand. The development path must not: its artifact carries vendor/
+     * itself, so the flag is a note about what happened — and a GitHub API
+     * hiccup must never block the install or dress the history row up as
+     * something it is not.
+     */
+    public function testHandlePushEventDegradesToUnchangedWhenTheCompareFails(): void
+    {
+        $this->settings->set('auto_update_enabled', '1');
+        $this->settings->set('auto_update_level', 'dev');
+        $this->settings->set('dev_update_branch', 'main');
+        $this->settings->clearCache();
+
+        $service = $this->service($this->fakeClient(true, new \RuntimeException('compare failed')));
+        $result = $service->handlePushEvent($this->pushPayload('main', 'a1b2c3d4e5f6'));
+
+        $this->assertSame('ok', $result['status'], 'a failed compare must never stop the install');
+        $rows = $this->updateHistoryRepository->findRecent(10);
+        $this->assertFalse($rows[0]->dependenciesChanged);
     }
 
     public function testHandlePushEventCancelsAStillPendingEarlierPushInstall(): void
@@ -614,7 +751,10 @@ class GitHubWebhookServiceTest extends TestCase
 
         $pending = array_values(array_filter($all, static fn(array $row) => $row['status'] === 'pending'))[0];
         $payload = json_decode((string) $pending['payload'], true);
-        $this->assertSame('https://api.github.com/repos/owner/repo/zipball/bbbbbbbbbbbb', $payload['download_url']);
+        $this->assertSame(
+            'https://github.com/owner/repo/releases/download/dev-build/scoutmagic-dev-bbbbbbb.zip',
+            $payload['download_url']
+        );
     }
 
     /**

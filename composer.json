@@ -62,11 +62,17 @@
         }
     },
     "scripts": {
-        "serve": "php -d upload_max_filesize=100M -d post_max_size=110M -S localhost:8000 -t public"
+        "serve": "php -d upload_max_filesize=100M -d post_max_size=110M -S localhost:8000 -t public",
+        "pre-autoload-dump": "Aws\\Script\\Composer\\Composer::removeUnusedServices"
     },
     "config": {
         "allow-plugins": {
             "php-http/discovery": true
         }
+    },
+    "extra": {
+        "aws/aws-sdk-php": [
+            "S3"
+        ]
     }
 }

@@ -146,9 +146,16 @@ class MaintenanceControllerTest extends TestCase
                 return $this->release !== null ? [$this->release] : [];
             }
 
+            public bool $lockCheckThrows = false;
+            public bool $lockChanged = false;
+
             public function composerLockChanged(string $base, string $head): bool
             {
-                return false;
+                if ($this->lockCheckThrows) {
+                    throw new \RuntimeException('GitHub compare unavailable');
+                }
+
+                return $this->lockChanged;
             }
 
             public function getLatestCommit(string $branch): ?CommitInfo
@@ -1476,7 +1483,7 @@ class MaintenanceControllerTest extends TestCase
         $this->assertSame(404, $response->getStatusCode());
     }
 
-    public function testInstallUpdateSchedulesABranchInstallWhenDevLevelSelected(): void
+    public function testInstallUpdateSchedulesTheDevArtifactWhenDevLevelSelected(): void
     {
         $this->settingService->set('auto_update_level', 'dev');
         $this->settingService->set('dev_update_branch', 'develop');
@@ -1496,8 +1503,53 @@ class MaintenanceControllerTest extends TestCase
         $scheduled = $this->schedulerRepository->findByModuleAndTaskKey('core', 'install_update');
         $this->assertCount(1, $scheduled);
         $payload = json_decode((string) $scheduled[0]['payload'], true);
-        $this->assertSame('branch', $payload['source_type']);
-        $this->assertSame('https://api.github.com/repos/owner/repo/zipball/a1b2c3d4e5f6', $payload['download_url']);
+
+        // The manual dev install and the push webhook must point at the
+        // SAME CI-built artifact — never the git zipball, which carries no
+        // vendor/ and was the silent-dependency-drift channel.
+        $this->assertSame('release', $payload['source_type']);
+        $this->assertSame(
+            'https://github.com/owner/repo/releases/download/dev-build/scoutmagic-dev-a1b2c3d.zip',
+            $payload['download_url']
+        );
+
+        // A just-pushed commit may not have its artifact yet: the handler
+        // waits against this deadline instead of failing on the first 404.
+        $this->assertArrayHasKey('wait_for_artifact_until', $payload);
+        $this->assertGreaterThan(time(), (int) $payload['wait_for_artifact_until']);
+    }
+
+    public function testAFailedLockCompareNeverBlocksAManualDevInstall(): void
+    {
+        // The artifact carries vendor/ itself, so the flag is informational
+        // — a GitHub API hiccup must degrade to "non", not to a refused or
+        // alarming install.
+        $this->settingService->set('auto_update_level', 'dev');
+        $this->settingService->clearCache();
+        $this->fakeReleaseClient->commit = new CommitInfo('a1b2c3d4e5f6', 'Fix something', 'https://github.com/x/y/commit/a1b2c3d4e5f6');
+        $this->fakeReleaseClient->lockCheckThrows = true;
+        $token = $this->csrfToken();
+
+        $response = $this->controller->installUpdate($this->jsonRequest(['_csrf_token' => $token]), []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+        $this->assertFalse($this->updateHistoryRepository->findById($decoded['history_id'])->dependenciesChanged);
+    }
+
+    public function testAChangedLockIsRecordedOnAManualDevInstall(): void
+    {
+        $this->settingService->set('auto_update_level', 'dev');
+        $this->settingService->clearCache();
+        $this->fakeReleaseClient->commit = new CommitInfo('a1b2c3d4e5f6', 'Fix something', 'https://github.com/x/y/commit/a1b2c3d4e5f6');
+        $this->fakeReleaseClient->lockChanged = true;
+        $token = $this->csrfToken();
+
+        $response = $this->controller->installUpdate($this->jsonRequest(['_csrf_token' => $token]), []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+        $this->assertTrue($this->updateHistoryRepository->findById($decoded['history_id'])->dependenciesChanged);
     }
 
     public function testIndexShowsTheWebhookWarningWhenDevLevelEnabledButWebhookNotConfigured(): void

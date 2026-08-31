@@ -31,6 +31,13 @@ class BackupServiceTest extends TestCase
         $this->makeFile('core/App.php', '<?php // app');
         $this->makeFile('modules/gallery/module.json', '{}');
         $this->makeFile('public/index.php', '<?php // entry');
+        // Both are replaced wholesale by an update now that every channel
+        // installs a CI-built artifact carrying vendor/ — so a rollback
+        // that did not archive them would leave the restored code running
+        // against the new dependencies and the new declared schema.
+        $this->makeFile('vendor/autoload.php', '<?php // composer');
+        $this->makeFile('vendor/twig/twig/src/Environment.php', '<?php // twig');
+        $this->makeFile('schema/core.sql', 'CREATE TABLE members (id INT);');
         $this->makeFile('storage/keys/master.key', 'secret-key-bytes');
         $this->makeFile('storage/config/secrets.enc', 'secret-config');
         $this->makeFile('storage/temp/scratch.txt', 'ephemeral');
@@ -90,6 +97,28 @@ class BackupServiceTest extends TestCase
         $this->assertContains('core/App.php', $entries);
         $this->assertContains('public/index.php', $entries);
         $this->assertContains('storage/uploads/doc.pdf', $entries);
+
+        unlink($zipPath);
+    }
+
+    /**
+     * The safety backup an automatic rollback restores from must contain
+     * everything an install replaces. Until every channel started
+     * installing a CI-built artifact, the development channel's zipball
+     * carried no vendor/ at all, so leaving it out of the backup was
+     * accidentally consistent; it no longer is. Restoring core/modules/
+     * public/storage alone would put the previous version's code back on
+     * top of the new version's dependencies and the new version's declared
+     * schema — the mixed state this codebase has already paid for.
+     */
+    public function testCreateFileBackupArchivesVendorAndSchemaSoARollbackCanPutThemBack(): void
+    {
+        $zipPath = $this->service->createFileBackup(true);
+        $entries = $this->zipEntryNames($zipPath);
+
+        $this->assertContains('vendor/autoload.php', $entries);
+        $this->assertContains('vendor/twig/twig/src/Environment.php', $entries);
+        $this->assertContains('schema/core.sql', $entries);
 
         unlink($zipPath);
     }
@@ -172,13 +201,56 @@ class BackupServiceTest extends TestCase
 
     public function testRestoreFilesRejectsAnEntryOutsideTheKnownBackupStructure(): void
     {
-        // A well-formed relative path, but not one a real backup contains —
-        // e.g. dropping a file at the document root or into vendor/.
-        $zipPath = $this->maliciousZip(fn(\ZipArchive $z) => $z->addFromString('vendor/autoload.php', '<?php'));
+        // A well-formed relative path, but not one a real backup contains
+        // — e.g. planting a workflow, or the installer, into the tree. It
+        // used to be 'vendor/autoload.php', which stopped being an example
+        // of "not ours" the day the backup started archiving vendor/.
+        $zipPath = $this->maliciousZip(fn(\ZipArchive $z) => $z->addFromString('.github/workflows/evil.yml', 'on: push'));
 
         $this->expectException(BackupException::class);
         $this->expectExceptionMessage('contenu inattendu');
         $this->service->restoreFiles($zipPath);
+    }
+
+    /**
+     * A backup taken before vendor/ and schema/ joined the archived set
+     * must still restore, exactly as it always did. RESTORABLE_TOP_LEVEL
+     * is a superset check — nothing in it is required to be present — and
+     * the day that inverts is the day every existing backup on every
+     * installed site silently becomes unrestorable, discovered only when
+     * one is actually needed.
+     *
+     * @group database
+     */
+    #[\PHPUnit\Framework\Attributes\Group('database')]
+    public function testAnOlderBackupWithoutVendorOrSchemaStillRestores(): void
+    {
+        $zipPath = sys_get_temp_dir() . '/backup_legacy_' . uniqid() . '.zip';
+        $zip = new \ZipArchive();
+        $zip->open($zipPath, \ZipArchive::CREATE);
+        // Exactly the four trees a pre-change backup contained.
+        $zip->addFromString('core/App.php', '<?php // old');
+        $zip->addFromString('modules/gallery/module.json', '{}');
+        $zip->addFromString('public/index.php', '<?php // old entry');
+        $zip->addFromString('storage/uploads/doc.pdf', 'fake-pdf-bytes');
+        $zip->close();
+
+        $dest = sys_get_temp_dir() . '/backup_legacy_restore_' . uniqid();
+        mkdir($dest, 0755, true);
+        $service = new BackupService(
+            new Connection('127.0.0.1', 3306, 'x', 'y', ''),
+            $dest . '/storage',
+            $dest
+        );
+
+        $service->restoreFiles($zipPath);
+
+        $this->assertFileExists($dest . '/core/App.php');
+        $this->assertFileExists($dest . '/public/index.php');
+        $this->assertDirectoryDoesNotExist($dest . '/vendor');
+
+        unlink($zipPath);
+        $this->removeDirectory($dest);
     }
 
     public function testRestoreFilesRejectsASymlinkEntry(): void
