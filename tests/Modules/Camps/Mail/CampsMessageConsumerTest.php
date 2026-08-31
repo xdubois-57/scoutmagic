@@ -270,9 +270,12 @@ class CampsMessageConsumerTest extends TestCase
         $message = $this->storedMessage('camp-' . $this->campId);
         $consumer->onMessageStored($message);
 
+        // A reference that does not name a stay at all — deliberately
+        // written out rather than borrowed from a constant, so this stays
+        // true whatever reserved references the module gains or loses.
         $consumer->onUnlinked($message, new MessageLink(
             CampsMessageConsumer::CONSUMER_ID,
-            CampsMessageConsumer::UNSORTED_REFERENCE,
+            'sans-objet',
             LinkOrigin::SENDER
         ));
 
