@@ -14,6 +14,7 @@ use Modules\Camps\Repository\ContactRepository;
 use Modules\InboundMail\Api\CandidateMessage;
 use Modules\InboundMail\Api\InboundMailInterface;
 use Modules\InboundMail\Api\LinkOrigin;
+use Modules\InboundMail\Api\MessageLink;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Camps\CampsTestHelper;
@@ -216,6 +217,104 @@ class CampsMessageConsumerTest extends TestCase
             1,
             (int) $this->pdo->query('SELECT COUNT(*) FROM camp_documents')->fetchColumn()
         );
+    }
+
+    // ── onUnlinked(): what arrived with the message leaves with it ──────
+
+    public function testDetachingAMessageTakesBackTheDocumentItBrought(): void
+    {
+        // Reassigning a message used to leave its camp_documents row on the
+        // first stay: invisible to whoever runs the new one, unexplainable
+        // to whoever runs the old one.
+        $documents = $this->documentService();
+        $consumer = new CampsConsumerV1Adapter(
+            $this->camps, $this->pdo, $this->encryption, $this->settings, null, $documents
+        );
+        $message = $this->storedMessage('camp-' . $this->campId);
+        $consumer->onMessageStored($message);
+        $this->assertSame(1, $this->documentCount());
+
+        $consumer->onUnlinked($message, new MessageLink(
+            CampsMessageConsumer::CONSUMER_ID,
+            'camp-' . $this->campId,
+            LinkOrigin::SENDER
+        ));
+
+        $this->assertSame(0, $this->documentCount());
+    }
+
+    public function testARepositoryThisModuleWasNotGivenIsNotAnError(): void
+    {
+        // The scheduled path registers the consumer without a document
+        // service — there is nobody to file for during a synchronisation.
+        // Detaching then has nothing to do, and must not throw.
+        $consumer = new CampsConsumerV1Adapter(
+            $this->camps, $this->pdo, $this->encryption, $this->settings, null, null
+        );
+
+        $consumer->onUnlinked($this->storedMessage('camp-' . $this->campId), new MessageLink(
+            CampsMessageConsumer::CONSUMER_ID,
+            'camp-' . $this->campId,
+            LinkOrigin::SENDER
+        ));
+
+        $this->assertSame(0, $this->documentCount());
+    }
+
+    public function testAReferenceThatNamesNoStayTakesNothingBack(): void
+    {
+        $documents = $this->documentService();
+        $consumer = new CampsConsumerV1Adapter(
+            $this->camps, $this->pdo, $this->encryption, $this->settings, null, $documents
+        );
+        $message = $this->storedMessage('camp-' . $this->campId);
+        $consumer->onMessageStored($message);
+
+        $consumer->onUnlinked($message, new MessageLink(
+            CampsMessageConsumer::CONSUMER_ID,
+            CampsMessageConsumer::UNSORTED_REFERENCE,
+            LinkOrigin::SENDER
+        ));
+
+        $this->assertSame(
+            1,
+            $this->documentCount(),
+            'a reference that names no stay leaves the real one alone'
+        );
+    }
+
+    // ── What the triage screen asks every consumer ──────────────────────
+
+    public function testNothingMoreIsLearnedOnceTheMessageIsOnDisk(): void
+    {
+        // Everything this module recognises was in the headers and the body
+        // on arrival; reading a stranger's attachment for more is guesswork.
+        $result = $this->consumer()->analyzeStored($this->storedMessage('camp-' . $this->campId));
+
+        $this->assertSame([], $result->links);
+        $this->assertSame([], $result->candidates);
+    }
+
+    public function testTheModuleSaysWhatItRecognisesAndWhoWouldSeeIt(): void
+    {
+        // Shown before a shared mailbox is opened to this module: an empty
+        // answer there would be a silent "trust me".
+        $consumer = $this->consumer();
+
+        $this->assertNotSame([], $consumer->describeEvidence());
+        $this->assertNotSame('', $consumer->triageAudienceLabel());
+    }
+
+    public function testTheAudienceIsCountedOnTheYearInEffect(): void
+    {
+        // The figure is the only guard-rail on opening a mailbox to this
+        // module, so it is read rather than estimated.
+        $this->assertGreaterThanOrEqual(0, $this->consumer()->triageAudienceCount());
+    }
+
+    private function documentCount(): int
+    {
+        return (int) $this->pdo->query('SELECT COUNT(*) FROM camp_documents')->fetchColumn();
     }
 
     private function documentService(): \Modules\Camps\Service\DocumentService

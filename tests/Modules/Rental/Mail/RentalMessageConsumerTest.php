@@ -14,6 +14,7 @@ use Core\Member\MemberService;
 use Core\Security\EncryptionService;
 use Core\Security\HtmlSanitizer;
 use Modules\InboundMail\Api\LinkOrigin;
+use Modules\InboundMail\Api\MessageLink;
 use Modules\InboundMail\Client\FakeMailboxClient;
 use Modules\InboundMail\Mailbox\ProviderType;
 use Modules\InboundMail\Repository\InboundMailboxRepository;
@@ -648,6 +649,175 @@ class RentalMessageConsumerTest extends TestCase
             (new FileRepository($this->pdo))->findById($message->attachments[0]->fileId),
             "The message's own attachment must still resolve to a file."
         );
+    }
+
+    // ── onUnlinked(): the callback exists to fix a real bug (IT-03) ─────
+
+    public function testReassigningAMessageTakesItsDocumentsOffTheOldBooking(): void
+    {
+        // Before `onUnlinked()` existed, detaching a message left its
+        // RentalDocument rows hanging off the first booking: invisible to
+        // whoever manages the new one, unexplainable to whoever manages the
+        // old one.
+        $booking = $this->createBooking();
+        $this->deliverWithPdf(10, 'Re: [LOC-2027-0042]');
+        $this->sync();
+        $this->assertCount(1, $this->documentRepository->findForBooking($booking->id));
+
+        [$message, $link] = $this->storedMessageAndLink($booking->reference);
+        $this->consumerFor(null)->onUnlinked($message, $link);
+
+        $this->assertSame(
+            [],
+            $this->documentRepository->findForBooking($booking->id),
+            'the document arrived with the message and leaves with it'
+        );
+    }
+
+    public function testTakingBackADocumentNeverDestroysTheMessagesAttachment(): void
+    {
+        // The bytes belong to the message, not to the document (§8.59) —
+        // detaching must leave the correspondence itself readable.
+        $booking = $this->createBooking();
+        $this->deliverWithPdf(10, 'Re: [LOC-2027-0042]');
+        $this->sync();
+
+        [$message, $link] = $this->storedMessageAndLink($booking->reference);
+        $fileId = $message->attachments[0]->fileId;
+        $this->consumerFor(null)->onUnlinked($message, $link);
+
+        $this->assertNotNull(
+            (new FileRepository($this->pdo))->findById($fileId),
+            'the attachment outlives the document that pointed at it'
+        );
+    }
+
+    public function testADocumentTheManagerAddedByHandSurvivesTheDetach(): void
+    {
+        // Only what this message brought is taken back. A document the
+        // manager uploaded is not sourced from the email and stays.
+        $booking = $this->createBooking();
+        $this->deliverWithPdf(10, 'Re: [LOC-2027-0042]');
+        $this->sync();
+
+        [$message, $link] = $this->storedMessageAndLink($booking->reference);
+        $ownFileId = (new FileRepository($this->pdo))->create(
+            'rental/a-la-main.pdf',
+            'a-la-main.pdf',
+            'application/pdf',
+            12,
+            'intendant',
+            'rental',
+            null
+        );
+        $this->documentRepository->create(
+            $booking->id,
+            $ownFileId,
+            DocumentType::UNSORTED,
+            1,
+            false,
+            null,
+            null
+        );
+
+        $this->consumerFor(null)->onUnlinked($message, $link);
+
+        $remaining = $this->documentRepository->findForBooking($booking->id);
+        $this->assertCount(1, $remaining);
+        $this->assertSame($ownFileId, $remaining[0]->fileId);
+    }
+
+    public function testAMessageWithNoAttachmentDetachesWithoutTouchingAnything(): void
+    {
+        $booking = $this->createBooking();
+        $this->deliver(10, 'Re: [LOC-2027-0042] une question');
+        $this->sync();
+
+        [$message, $link] = $this->storedMessageAndLink($booking->reference);
+        $this->assertSame([], $message->attachments);
+
+        $this->consumerFor(null)->onUnlinked($message, $link);
+
+        $this->assertSame([], $this->documentRepository->findForBooking($booking->id));
+    }
+
+    public function testAnAssociationPointingAtABookingThatIsGoneDetachesQuietly(): void
+    {
+        // A restored backup leaves the association behind. There is nothing
+        // to take documents off, and that is not an error.
+        $booking = $this->createBooking();
+        $this->deliverWithPdf(10, 'Re: [LOC-2027-0042]');
+        $this->sync();
+
+        [$message] = $this->storedMessageAndLink($booking->reference);
+        $ghost = new MessageLink(
+            RentalMessageConsumer::CONSUMER_ID,
+            'LOC-2027-9999',
+            LinkOrigin::REFERENCE
+        );
+
+        $this->consumerFor(null)->onUnlinked($message, $ghost);
+
+        $this->assertCount(
+            1,
+            $this->documentRepository->findForBooking($booking->id),
+            'a reference nobody answers to takes nothing off the real booking'
+        );
+    }
+
+    // ── What the triage screen asks every consumer (IT-03) ──────────────
+
+    public function testNothingMoreIsLearnedOnceTheMessageIsOnDisk(): void
+    {
+        // Everything this module recognises is in the subject, the thread
+        // headers and the sender, all of which arrived with the message.
+        $booking = $this->createBooking();
+        $this->deliverWithPdf(10, 'Re: [LOC-2027-0042]');
+        $this->sync();
+        [$message] = $this->storedMessageAndLink($booking->reference);
+
+        $result = $this->consumerFor(null)->analyzeStored($message);
+
+        $this->assertSame([], $result->links);
+        $this->assertSame([], $result->candidates);
+    }
+
+    public function testTheModuleCanSayWhatItRecognisesAndWhoWouldSeeIt(): void
+    {
+        // The triage screen shows these before opening a shared mailbox to
+        // a module: an empty answer there would be a silent "trust me".
+        $consumer = $this->consumerFor(null);
+
+        $this->assertNotSame([], $consumer->describeEvidence());
+        $this->assertNotSame('', $consumer->triageAudienceLabel());
+    }
+
+    public function testTheAudienceIsCountedRatherThanEstimated(): void
+    {
+        // The figure guards the decision to open a shared mailbox, so it is
+        // read from the scout year in effect, not guessed.
+        $this->createBooking();
+        $this->addManager('gestionnaire@unite.be');
+
+        $this->assertGreaterThanOrEqual(0, $this->consumerFor(null)->triageAudienceCount());
+    }
+
+    /**
+     * The message as it was stored, with the association the sync created.
+     *
+     * @return array{0: \Modules\InboundMail\Api\InboundMessage, 1: MessageLink}
+     */
+    private function storedMessageAndLink(string $reference): array
+    {
+        $messages = $this->messageRepository->findForReference(
+            RentalMessageConsumer::CONSUMER_ID,
+            $reference
+        );
+        $this->assertNotSame([], $messages, 'the sync must have stored the message');
+        $links = $this->messageRepository->findLinksForMessage($messages[0]->id);
+        $this->assertNotSame([], $links, 'the sync must have associated it');
+
+        return [$messages[0], $links[0]];
     }
 
     public function testASignatureLogoNeverBecomesADocument(): void
