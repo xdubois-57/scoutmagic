@@ -38,10 +38,15 @@ class ModuleManifestTest extends TestCase
      * without a bump is silently a no-op on every already-enabled install
      * (AGENTS.md). Editing schema.sql should break this test — the fix is to
      * bump module.json, which is the whole point.
+     *
+     * 1.5.1 is a bump with no schema change behind it: RFC 2047 subjects
+     * arriving undecoded, and an image-only body rendering as a blank card,
+     * are both things a unit sees on screen, and AGENTS.md asks for a bump
+     * whenever the module changes in a way its users should see.
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.5.0', $this->manifest->version);
+        $this->assertSame('1.5.1', $this->manifest->version);
     }
 
     /**

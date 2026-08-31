@@ -29,6 +29,11 @@ use Core\Security\HtmlSanitizer;
  * - **`cid:` images are removed too.** They point at parts of the message
  *   the browser cannot resolve, so they would render as broken images even
  *   if they were harmless.
+ * - **A body left with no text at all becomes empty**, rather than markup
+ *   that draws an empty box. A photo sent from a phone is one `<img>` and
+ *   nothing else; once the image is gone there is nothing to show, and the
+ *   screen has to be able to say so instead of rendering a blank card the
+ *   reader cannot tell from a failure.
  */
 class MessageContentSanitizer
 {
@@ -74,7 +79,38 @@ class MessageContentSanitizer
         $withoutImages = preg_replace('/\sbackground\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $withoutImages)
             ?? $withoutImages;
 
-        return $this->truncateHtml($this->htmlSanitizer->sanitize($withoutImages));
+        $sanitized = $this->htmlSanitizer->sanitize($withoutImages);
+
+        // A photo sent from a phone is `<div><img src="cid:…"></div>` and
+        // nothing else. Stripping the image leaves markup that renders as
+        // an empty box — which reads on screen as « le message est vide et
+        // ScoutMagic ne le dit pas », indistinguishable from a body that
+        // failed to arrive. Returning nothing instead lets the screen say
+        // out loud that the message carried no text, which is the true
+        // answer and the one a reader can act on.
+        if (self::rendersNothing($sanitized)) {
+            return '';
+        }
+
+        return $this->truncateHtml($sanitized);
+    }
+
+    /**
+     * Whether this HTML would draw nothing a reader could read.
+     *
+     * Text only: the images are already gone by the time this is asked,
+     * and a `<hr>` or an empty table between two removed images is not
+     * content. `&nbsp;` counts as blank — it is what a mail client leaves
+     * behind in the cell an image used to fill, and treating it as text
+     * would put the empty box back.
+     */
+    private static function rendersNothing(string $html): bool
+    {
+        $text = html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+        // U+00A0 explicitly: trim() does not remove it, and it is exactly
+        // what `&nbsp;` just became.
+        return preg_replace('/[\s\x{00A0}]+/u', '', $text) === '';
     }
 
     /**

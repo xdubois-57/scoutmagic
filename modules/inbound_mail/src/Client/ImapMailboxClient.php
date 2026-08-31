@@ -11,6 +11,7 @@ namespace Modules\InboundMail\Client;
 use Core\Service\DateInput;
 use Modules\InboundMail\Mailbox\Mailbox;
 use Modules\InboundMail\Mailbox\MailboxCredentials;
+use Modules\InboundMail\Mime\MimeMessageParser;
 use Webklex\PHPIMAP\Attachment;
 use Webklex\PHPIMAP\Client;
 use Webklex\PHPIMAP\ClientManager;
@@ -188,9 +189,11 @@ class ImapMailboxClient implements IncomingMailboxClientInterface
             uid: $uid,
             folder: $folder,
             messageId: (string) $message->getMessageId()->first(),
-            subject: (string) $message->getSubject()->first(),
+            subject: self::decodeHeader((string) $message->getSubject()->first()),
             fromEmail: strtolower((string) (is_object($from) ? ($from->mail ?? '') : '')),
-            fromName: self::nonEmptyOrNull(is_object($from) ? (string) ($from->personal ?? '') : ''),
+            fromName: self::nonEmptyOrNull(
+                self::decodeHeader(is_object($from) ? (string) ($from->personal ?? '') : '')
+            ),
             toEmails: $toEmails,
             inReplyTo: self::nonEmptyOrNull((string) $message->getInReplyTo()->first()),
             references: self::splitReferences((string) $message->getReferences()->first()),
@@ -219,7 +222,7 @@ class ImapMailboxClient implements IncomingMailboxClientInterface
             }
 
             $attachments[] = new FetchedAttachment(
-                filename: (string) ($attachment->name ?? 'piece-jointe'),
+                filename: self::decodeHeader((string) ($attachment->name ?? 'piece-jointe')),
                 declaredMimeType: (string) ($attachment->getMimeType() ?? 'application/octet-stream'),
                 bytes: $content,
                 isInline: strtolower((string) ($attachment->disposition ?? '')) === 'inline',
@@ -228,6 +231,33 @@ class ImapMailboxClient implements IncomingMailboxClientInterface
         }
 
         return $attachments;
+    }
+
+    /**
+     * RFC 2047 encoded words, decoded — because `webklex/php-imap` does not
+     * decode them here.
+     *
+     * Its `HeaderDecoder` delegates to `imap_mime_header_decode()`, and
+     * when `ext-imap` is absent its own fallback returns the header
+     * **unchanged** and reports success, so the later `iconv_mime_decode()`
+     * branch is never reached. `ext-imap` was removed from PHP's core in
+     * 8.4, which is exactly the host every ScoutMagic installation runs on
+     * (see this class's opening note) — so on a real deployment every
+     * accented subject reached the screen as
+     * `=?utf-8?Q?Voici_le_re=C3=A7u?=`, and every consumer looking for a
+     * reference in the subject was reading that instead of the words.
+     *
+     * `Mime\MimeMessageParser::decodeWords()` is the decoder the parsed
+     * path already uses, reused deliberately: the wire path and the
+     * `Client\FakeMailboxClient` a test drives must not decode headers two
+     * different ways, or a test proves nothing about production. It is a
+     * no-op on an already-decoded value — a header with no `=?` in it is
+     * returned as it stands — so a host that *does* have `ext-imap`, where
+     * the library decodes correctly, is unaffected.
+     */
+    private static function decodeHeader(string $value): string
+    {
+        return MimeMessageParser::decodeWords($value);
     }
 
     private static function sentAt(Message $message): \DateTimeImmutable
