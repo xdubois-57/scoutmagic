@@ -1,0 +1,118 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Courrier — {{ site_name }}{% endblock %}
+
+{% block content %}
+{% include 'partials/page_header.html.twig' with { title: 'Courrier entrant' } only %}
+
+<p class="text-body-secondary">
+    Tout le courrier reçu dans les boîtes synchronisées. Associer un message ne le retire pas de la
+    boîte d'origine.
+</p>
+
+{# ── Filters. Metadata only — there is deliberately no search on the
+     content of a message (D16). ────────────────────────────────────── #}
+<form method="get" action="/courrier" class="row g-2 align-items-end mb-3">
+    <div class="col-sm-auto">
+        <label for="filter-association" class="form-label">Associations</label>
+        <select name="association" id="filter-association" class="form-select form-select-sm">
+            <option value="none" {{ filter_association == 'none' ? 'selected' : '' }}>Sans association</option>
+            <option value="some" {{ filter_association == 'some' ? 'selected' : '' }}>Avec association</option>
+            <option value="all" {{ filter_association == 'all' ? 'selected' : '' }}>Toutes les associations</option>
+        </select>
+    </div>
+    <div class="col-sm-auto">
+        <label for="filter-mailbox" class="form-label">Boîte</label>
+        <select name="boite" id="filter-mailbox" class="form-select form-select-sm">
+            <option value="0">Toutes les boîtes</option>
+            {% for id, name in mailboxes %}
+                <option value="{{ id }}" {{ filter_mailbox == id ? 'selected' : '' }}>{{ name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    {% if include_bulk %}<input type="hidden" name="automatique" value="1">{% endif %}
+    <div class="col-sm-auto">
+        <button type="submit" class="btn btn-sm btn-outline-primary">Filtrer</button>
+    </div>
+</form>
+
+{% if messages is empty %}
+    {% include 'partials/empty_state.html.twig' with {
+        message: "Aucun message ne correspond à ce filtre.",
+        compact: true
+    } only %}
+{% else %}
+    <ul class="list-group list-group-flush border-top border-bottom mb-3">
+        {% for message in messages %}
+            <li class="list-group-item px-0">
+                <a href="/courrier/{{ message.id }}" class="text-decoration-none text-body d-block">
+                    <div class="d-flex flex-wrap align-items-baseline gap-2 small text-body-secondary">
+                        <span>{{ message.sentAt|datetime_fr }}</span>
+                        <span class="fw-medium text-body">{{ message.fromName ?: message.fromEmail }}</span>
+                        {% if message.isBulk %}
+                            <span class="badge text-bg-light">automatique</span>
+                        {% endif %}
+                    </div>
+                    <div class="fw-medium text-truncate">{{ message.subject }}</div>
+                    <div class="small text-body-secondary">
+                        {{ mailboxes[message.mailboxId]|default('boîte inconnue') }}
+                        {% if message.hasAttachments %}
+                            · {{ message.attachments|length }} pièce{{ message.attachments|length > 1 ? 's' : '' }}
+                            jointe{{ message.attachments|length > 1 ? 's' : '' }}
+                        {% endif %}
+                        {% if message.hasOmittedAttachments %}
+                            <span class="badge text-bg-danger">
+                                {{ message.omittedAttachments|length }} pièce{{ message.omittedAttachments|length > 1 ? 's' : '' }}
+                                jointe{{ message.omittedAttachments|length > 1 ? 's' : '' }} non conservée{{ message.omittedAttachments|length > 1 ? 's' : '' }}
+                            </span>
+                        {% endif %}
+                    </div>
+                    <div class="mt-1 d-flex flex-wrap gap-1">
+                        {% set own_candidates = candidates[message.id]|default([]) %}
+                        {% if message.links is empty and own_candidates is empty %}
+                            <span class="badge text-bg-light">Aucune association</span>
+                        {% endif %}
+                        {% for link in message.links %}
+                            <span class="badge text-bg-success">
+                                {{ consumer_names[link.consumerId]|default(link.consumerId) }} — {{ link.businessReference }}
+                            </span>
+                        {% endfor %}
+                        {% for candidate in own_candidates %}
+                            <span class="badge text-bg-warning">
+                                Proposition {{ consumer_names[candidate.consumerId]|default(candidate.consumerId) }}
+                                — {{ candidate.businessReference }}
+                            </span>
+                        {% endfor %}
+                    </div>
+                </a>
+            </li>
+        {% endfor %}
+    </ul>
+
+    {% if next_cursor %}
+        <a class="btn btn-outline-secondary btn-sm"
+           href="/courrier?association={{ filter_association }}&boite={{ filter_mailbox }}{{ include_bulk ? '&automatique=1' : '' }}&apres={{ next_cursor|url_encode }}">
+            Messages plus anciens
+        </a>
+    {% endif %}
+{% endif %}
+
+{% if bulk_count > 0 %}
+    <p class="mt-3 mb-0">
+        {% if include_bulk %}
+            <a href="/courrier?association={{ filter_association }}&boite={{ filter_mailbox }}">
+                Masquer le courrier automatique
+            </a>
+        {% else %}
+            <a href="/courrier?association={{ filter_association }}&boite={{ filter_mailbox }}&automatique=1">
+                Afficher le courrier automatique ({{ bulk_count }})
+            </a>
+        {% endif %}
+    </p>
+{% endif %}
+
+<p class="mt-4 small text-body-secondary">
+    Les messages sans association ni proposition sont supprimés automatiquement au terme du délai de
+    conservation configuré.
+</p>
+{% endblock %}

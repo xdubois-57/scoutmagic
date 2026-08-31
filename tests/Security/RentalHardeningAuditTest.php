@@ -143,7 +143,19 @@ class RentalHardeningAuditTest extends TestCase
     {
         // A Staff d'U may use a configured mailbox; they must never see the
         // host, the account or anything that would let them reach it (§7.4).
+        //
+        // Scoped to the CONFIGURATION routes. `/courrier` is the Chef
+        // d'Unité's general mailbox (§8.58): it shows messages, never a
+        // host or an account, and it is admin by design — it is the third
+        // of the three guarantees that make storing every message
+        // defensible. Its own floor is pinned in
+        // Tests\Modules\InboundMail\ModuleManifestTest, which also
+        // forbids anything below admin there.
         foreach (self::manifest('inbound_mail')->routes as $route) {
+            if (!str_starts_with((string) $route['path'], '/config/')) {
+                continue;
+            }
+
             $this->assertSame('superadmin', $route['role_min'], $route['path']);
         }
     }

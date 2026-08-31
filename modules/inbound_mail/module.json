@@ -6,6 +6,71 @@
   "enabled_by_default": false,
   "routes": [
     {
+      "path": "/courrier",
+      "method": "GET",
+      "controller": "Modules\\InboundMail\\Controller\\InboundMailboxController",
+      "action": "index",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": "Courrier",
+      "menu_icon": "bi-envelope",
+      "menu_group": "suivi",
+      "breadcrumb": {
+        "label": "Courrier",
+        "parents": [
+          "Espace chefs d'U"
+        ]
+      }
+    },
+    {
+      "path": "/courrier/{id}",
+      "method": "GET",
+      "controller": "Modules\\InboundMail\\Controller\\InboundMailboxController",
+      "action": "show",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": "",
+      "breadcrumb": {
+        "label": "Message",
+        "parents": [
+          "Espace chefs d'U"
+        ],
+        "ancestors": [
+          {
+            "label": "Courrier",
+            "path": "/courrier"
+          }
+        ]
+      }
+    },
+    {
+      "path": "/courrier/{id}/proposition/confirmation",
+      "method": "POST",
+      "controller": "Modules\\InboundMail\\Controller\\InboundMailboxController",
+      "action": "confirmCandidate",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/courrier/{id}/proposition/rejet",
+      "method": "POST",
+      "controller": "Modules\\InboundMail\\Controller\\InboundMailboxController",
+      "action": "dismissCandidate",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/courrier/{id}/association/retrait",
+      "method": "POST",
+      "controller": "Modules\\InboundMail\\Controller\\InboundMailboxController",
+      "action": "detach",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
       "path": "/config/courrier-entrant",
       "method": "GET",
       "controller": "Modules\\InboundMail\\Controller\\InboundMailConfigController",

@@ -57,7 +57,20 @@ class MessageCandidate
          * Which attachment this proposition is about, or **0 for the whole
          * message** — never null, for the same reason as `MessageLink`.
          */
-        public readonly int $attachmentId = 0
+        public readonly int $attachmentId = 0,
+        /**
+         * Filled in on the way OUT of storage, never by the consumer that
+         * proposed this.
+         *
+         * A consumer builds a proposition before it has been written down,
+         * so it has no id to give and no business naming its own
+         * `consumer_id` — `Service\AnalysisResultApplier` stamps the
+         * answering consumer's id exactly as it does for a link, or a
+         * module could file a proposition under another module's name.
+         * Zero and empty string mean « pas encore écrit ».
+         */
+        public readonly int $id = 0,
+        public readonly string $consumerId = ''
     ) {
     }
 

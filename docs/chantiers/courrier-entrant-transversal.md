@@ -418,3 +418,65 @@ Retenu, donc, pour le contrôle segmenté :
 Les pastilles de l'index disent autre chose encore, et c'est voulu : elles
 résument un état plutôt que d'offrir un choix — « classement seul »,
 « messages concernés », « tout le courrier ».
+
+## IT-06 — l'écran du Chef d'Unité
+
+### Une seule lecture non cadrée, et elle ne sort pas du module
+
+`GeneralMailboxService` est la seule lecture du courrier stocké qui ne soit
+cadrée ni par un consumer ni par une référence métier. Elle est
+**volontairement absente d'`Api\InboundMailInterface`** : c'est l'absence
+d'une telle lecture *sur ce contrat* qui empêche l'accès d'un gestionnaire à
+une réservation de devenir une fenêtre sur toute la boîte de l'unité
+(§7.11). L'y ajouter « pour le chef » l'ouvrirait à tous les consumers.
+
+### `role_min: admin`, épinglé par un test
+
+La troisième des trois garanties d'IT-04 est qu'**une seule personne**
+répond de l'archive. Ce n'est pas une phrase de documentation : c'est le
+`role_min` de la route, et rien d'autre. Un test de manifeste le fixe,
+parce qu'un `intendant` sur cette route livrerait à un chef de section les
+questions des parents et les documents médicaux sans que personne s'en
+aperçoive.
+
+Le même test vérifie que **rien n'est déclaré hors ligne**. « Lisible hors
+ligne » est un opt-in par module, donc cette page est exclue en ne disant
+rien — ce qui est facile à défaire par accident le jour où quelqu'un ajoute
+une section `offline` pour une autre page.
+
+### Le curseur porte la paire `(sent_at, id)`
+
+Pas `sent_at` seul. Une liste de diffusion qui livre un lot horodate
+plusieurs messages à la même seconde ; un curseur sur l'horodatage seul
+afficherait le premier de cette seconde et perdrait les autres,
+définitivement et sans trace. Un test parcourt une page à la fois sur cinq
+messages partageant une seconde, parce que c'est la forme qui casse.
+
+Pas d'`OFFSET` non plus : la table grandit sans borne, et `LIMIT 40 OFFSET
+8000` fait parcourir huit mille lignes pour les jeter.
+
+### Aucune recherche sur le contenu (D16)
+
+Chercher dans un objet ou un corps supposerait soit de déchiffrer toute la
+table à chaque frappe, soit de garder en clair un index de tout ce qu'on a
+jamais écrit à l'unité. Le second est exactement la façon dont une archive
+avec une durée de vie devient une archive sans. Les filtres sont donc tous
+des métadonnées.
+
+### `LinkOrigin::MANUAL` à la confirmation (D20)
+
+L'origine répond à « comment ce rattachement a-t-il été fait ». Une fois
+qu'une personne a lu le message et dit oui, la réponse honnête est
+« quelqu'un l'a décidé ». Conserver l'heuristique présenterait une décision
+humaine comme une supposition, et ferait douter tous les lecteurs suivants
+un peu plus qu'il ne faut.
+
+### Le point d'attention est ce qui empêche la rétention de manger du courrier non lu
+
+`/courrier` est une page qu'un chef d'unité n'a aucune raison quotidienne
+d'ouvrir, et la rétention supprime ce que personne n'a regardé. Sans
+signalement, une demande d'inscription arrivée à la mauvaise adresse serait
+conservée quatre-vingt-dix jours puis jetée sans avoir été lue — c'est
+l'ancien défaut avec une horloge plus lente. Le point d'attention ne
+contient qu'un compte et un lien : la page est exportée et
+photographiée, et §7.9 ne fait pas d'exception pour un résumé.
