@@ -171,7 +171,33 @@ export async function collectToasts(page) {
  */
 export async function answerConfirmation(page, options = {}) {
     const dialog = page.locator('#sm-confirm-modal');
-    await dialog.waitFor({ state: 'visible' });
+    // TEMPORARY INSTRUMENTATION — remove once the dialog that never
+    // appears is understood. Under the security scan this wait times out
+    // roughly once in twenty runs, and the message it gives ("locator to
+    // be visible") names the dialog rather than whatever failed to ask for
+    // it. Two candidate causes are indistinguishable from that alone: the
+    // submit never happened (the click landed on a control the page had
+    // just re-rendered), or it happened and confirm.js did not intercept
+    // it (no form[data-confirm] around the submitter). This tells them
+    // apart, and it lives in the shared helper rather than in one spec
+    // because four specs reach this same line.
+    try {
+        await dialog.waitFor({ state: 'visible', timeout: 15_000 });
+    } catch (failure) {
+        const state = await page.evaluate(() => ({
+            roots: document.querySelectorAll('#sm-confirm-modal').length,
+            anyConfirmMarkup: document.querySelectorAll('[id^="sm-confirm-modal"]').length,
+            delegated: Boolean(/** @type {any} */ (document).scoutMagicConfirmDelegated),
+            confirmForms: document.querySelectorAll('form[data-confirm]').length,
+            openModals: document.querySelectorAll('.modal.show').length,
+            backdrops: document.querySelectorAll('.modal-backdrop').length,
+            activeElement: document.activeElement ? document.activeElement.outerHTML.slice(0, 160) : '(none)',
+            url: location.pathname + location.search,
+        }));
+        // eslint-disable-next-line no-console
+        console.log('[CONFIRM-MISSING] ' + JSON.stringify(state));
+        throw failure;
+    }
 
     const message = (await dialog.locator('#sm-confirm-modal-body').innerText()).trim();
 
