@@ -12,6 +12,7 @@ use Core\Config\SettingService;
 use Core\File\EncryptedFileStorageService;
 use Modules\Finance\Api\FinanceException;
 use Modules\Finance\File\FinanceAccountOwnershipChecker;
+use Modules\Finance\Repository\Account;
 use Modules\Finance\Repository\Attachment;
 use Modules\Finance\Repository\AttachmentRepository;
 use Modules\Finance\Repository\AccountRepository;
@@ -133,6 +134,56 @@ class ReceiptService
         if ($account === null) {
             throw new FinanceException('Compte introuvable.');
         }
+
+        return $this->store($account, $content, $mimeType, $originalFilename, $suggestedAmount, $suggestedDate, $uploadedBy);
+    }
+
+    /**
+     * A receipt nothing could attribute to an account — the unit's
+     * sorting pile.
+     *
+     * Its one caller is the inbound-mail path: a document of receipt type
+     * arrives in a box this module reads, carries no IBAN, and comes from
+     * an address that animates no single staff. Losing it would be the
+     * worst of the three outcomes — it is somebody's real expense — so it
+     * is kept with no account and shown to whoever the unit named as a
+     * treasurer (Service\AccountVisibility::isUnassignedReceiptVisibleTo()), who moves it onto
+     * an account with reassign().
+     *
+     * **No account means no `role_min_view` to copy**, so the file gets
+     * the sorting pile's own floor. The floor alone would be too
+     * permissive — it is a hierarchical one and says nothing about
+     * treasurers — which is exactly why the owner pair carries
+     * `UNASSIGNED_OWNER_ID` and the checker asks the narrower question
+     * (§8.70).
+     *
+     * Deliberately offers no suggested amount or date: those come from
+     * the upload form or from Task\ExtractReceiptDataHandler, and there
+     * is no form here.
+     */
+    public function uploadUnattributed(
+        string $content,
+        string $mimeType,
+        string $originalFilename,
+        ?int $uploadedBy
+    ): Attachment {
+        return $this->store(null, $content, $mimeType, $originalFilename, null, null, $uploadedBy);
+    }
+
+    /**
+     * The one place a receipt's file and row are written, for an account
+     * and for the sorting pile alike — so the two can never drift into
+     * storing the same document two different ways.
+     */
+    private function store(
+        ?Account $account,
+        string $content,
+        string $mimeType,
+        string $originalFilename,
+        ?float $suggestedAmount,
+        ?string $suggestedDate,
+        ?int $uploadedBy
+    ): Attachment {
         $this->assertMimeTypeAllowed($mimeType);
         $content = $this->correctOrientation($content, $mimeType);
 
@@ -147,22 +198,104 @@ class ReceiptService
             $mimeType,
             $originalFilename,
             self::STORAGE_SUBDIRECTORY,
-            $account->roleMinView,
+            self::fileRoleMinFor($account),
             'finance',
             $uploadedBy,
             null,
             FinanceAccountOwnershipChecker::OWNER_TYPE,
-            $account->id
+            self::fileOwnerIdFor($account)
         );
 
         $suggestedSource = ($suggestedAmount !== null || $suggestedDate !== null) ? Attachment::SUGGESTED_SOURCE_MANUAL : null;
         $id = $this->attachmentRepository->create(
-            $accountId, $fileId, $mimeType, $originalFilename, $suggestedAmount, $suggestedDate, null, $uploadedBy, $suggestedSource
+            $account?->id, $fileId, $mimeType, $originalFilename, $suggestedAmount, $suggestedDate, null, $uploadedBy, $suggestedSource
         );
 
         $attachment = $this->attachmentRepository->findById($id);
         \assert($attachment !== null);
         return $attachment;
+    }
+
+    /**
+     * Move a receipt onto another account — or onto the sorting pile,
+     * with a null.
+     *
+     * **Every movement association goes, and that is not a policy choice
+     * this method is free to soften.** associate() guarantees a receipt
+     * and its movements share an account; moving the receipt is precisely
+     * what would break that guarantee, so the associations that would
+     * become cross-account are dropped rather than left behind. The screen
+     * says how many before asking — a receipt losing its filing silently
+     * would be worse than refusing to move it at all.
+     *
+     * A move to the account the receipt already sits on is a no-op rather
+     * than an error: it changes nothing, and dropping the associations for
+     * it would destroy a filing in exchange for nothing.
+     *
+     * The caller is responsible for having authorized BOTH ends — the
+     * receipt where it is now, and the account it is going to. This method
+     * checks that the account exists and nothing else: it has no session
+     * to ask.
+     *
+     * @return int the number of movement associations that were dropped
+     * @throws FinanceException when the receipt or the target account is unknown
+     */
+    public function reassign(int $attachmentId, ?int $newAccountId): int
+    {
+        $attachment = $this->attachmentRepository->findById($attachmentId);
+        if ($attachment === null) {
+            throw new FinanceException('Reçu introuvable.');
+        }
+
+        if ($attachment->accountId === $newAccountId) {
+            return 0;
+        }
+
+        $account = null;
+        if ($newAccountId !== null) {
+            $account = $this->accountRepository->findById($newAccountId);
+            if ($account === null) {
+                throw new FinanceException('Compte introuvable.');
+            }
+        }
+
+        return $this->attachmentRepository->reassign(
+            $attachmentId,
+            $account?->id,
+            $attachment->fileId,
+            FinanceAccountOwnershipChecker::OWNER_TYPE,
+            self::fileOwnerIdFor($account),
+            self::fileRoleMinFor($account)
+        );
+    }
+
+    /**
+     * How many movement associations reassign() would drop — what the
+     * confirmation dialog needs in order to say so before anybody agrees
+     * to it.
+     */
+    public function countAssociationsLostOnReassign(int $attachmentId, ?int $newAccountId): int
+    {
+        $attachment = $this->attachmentRepository->findById($attachmentId);
+        if ($attachment === null || $attachment->accountId === $newAccountId) {
+            return 0;
+        }
+
+        return count($this->transactionAttachmentRepository->findTransactionIdsForAttachment($attachmentId));
+    }
+
+    /**
+     * The hierarchical floor stamped on a receipt's file: its account's
+     * own, or the sorting pile's when it has no account.
+     */
+    private static function fileRoleMinFor(?Account $account): string
+    {
+        return $account === null ? AccountVisibility::UNASSIGNED_RECEIPT_FLOOR->value : $account->roleMinView;
+    }
+
+    private static function fileOwnerIdFor(?Account $account): int
+    {
+        return $account === null ? FinanceAccountOwnershipChecker::UNASSIGNED_OWNER_ID : $account->id;
     }
 
     /**

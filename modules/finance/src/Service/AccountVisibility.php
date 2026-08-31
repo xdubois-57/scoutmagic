@@ -22,9 +22,22 @@ use Modules\Finance\Repository\Account;
  *
  * FinanceService::isAccountVisibleTo() delegates here, so a controller
  * that already holds the finance service needs no new dependency.
+ *
+ * It answers the sorting pile's question too
+ * ({@see isUnassignedReceiptVisibleTo()}). That one is not about an
+ * account — it is about a receipt that has none — but it is built from the
+ * same treasurer scope, and putting it anywhere else would mean a second
+ * class holding that scope and a second constructor to thread it through.
  */
 class AccountVisibility
 {
+    /**
+     * The hierarchical floor for a receipt no account claims: the receipts
+     * page's own `role_min`. Explicit rather than read off the route, so
+     * the file guard — which has no route — applies the same one.
+     */
+    public const UNASSIGNED_RECEIPT_FLOOR = Role::INTENDANT;
+
     public function __construct(private TreasurerScope $treasurerScope)
     {
     }
@@ -52,6 +65,50 @@ class AccountVisibility
         return $account !== null
             && $role->hasAccess(Role::fromString($account->roleMinView))
             && $this->treasurerAllows($account, $role);
+    }
+
+    /**
+     * « Qui peut voir et trier un reçu qu'aucun compte ne réclame ? »
+     *
+     * A receipt arrives by email carrying no IBAN and from an address that
+     * animates no single staff. It is a real accounting document, so it is
+     * kept with `account_id IS NULL` — and that leaves a question
+     * isVisibleTo() cannot answer, its whole rule being built from an
+     * account that here does not exist.
+     *
+     * **Deliberately narrower than the receipts page's floor.** An unsorted
+     * receipt may belong to any section, so showing it to every intendant
+     * would show each of them a document that is probably somebody else's.
+     * Whoever the unit named as a treasurer is the person whose job this
+     * sorting is, so that is who sees the pile — plus `admin`/`superadmin`,
+     * who answer for the unit's finances as a whole exactly as above.
+     *
+     * **A disabled badge rule falls back to the floor, and that is not an
+     * oversight.** A null scope means the unit has not switched the
+     * `Trésorier` rule on — which is every unit on the day it installs this
+     * version. Reading that null as "nobody is a treasurer" would lock a
+     * unit out of its own sorting pile until somebody thought to assign a
+     * badge nothing on the screen mentions. treasurerAllows() already
+     * treats the same null as "this condition narrows nothing"; answering
+     * differently here would make one null mean two things inside one
+     * class.
+     *
+     * An EMPTY scope is the opposite and denies: the rule is on, and this
+     * session is nobody's treasurer.
+     */
+    public function isUnassignedReceiptVisibleTo(Role $role): bool
+    {
+        if (!$role->hasAccess(self::UNASSIGNED_RECEIPT_FLOOR)) {
+            return false;
+        }
+
+        if ($role->hasAccess(Role::ADMIN)) {
+            return true;
+        }
+
+        $treasurerSectionIds = $this->treasurerScope->sectionIds();
+
+        return $treasurerSectionIds === null || $treasurerSectionIds !== [];
     }
 
     /**

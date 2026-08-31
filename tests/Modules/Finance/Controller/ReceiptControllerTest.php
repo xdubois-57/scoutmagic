@@ -425,20 +425,45 @@ class ReceiptControllerTest extends TestCase
     }
 
     /**
-     * requireVisibleAttachment() only ran the role_min_view check when the
-     * attachment HAD an account, so a null-account row (legacy/imported
-     * data) fell through with no authorization at all and any intendant
-     * could edit or archive it. "Unknown owner" must read as deny, not as
-     * "anyone may" — same fail-safe posture as Core\File\FileAccessGuard's
-     * unregistered owner_type.
+     * A receipt no account claims is the unit's sorting pile, not an
+     * unguarded row.
+     *
+     * requireVisibleAttachment() used to deny it outright, which was the
+     * right fail-safe while only legacy data could produce one. It is now
+     * ruled on by Service\AccountVisibility::isUnassignedReceiptVisibleTo()
+     * — narrower than this page's floor when the `Trésorier` rule is on,
+     * and falling back to the floor when it is off, which is what these
+     * fixtures have (TreasurerScope::systemCaller()).
+     *
+     * The denial that must survive is the one below: the guard is
+     * consulted, so a role under the floor is still refused.
      */
-    public function testAnAttachmentWithNoAccountIsRefusedRatherThanUnguarded(): void
+    public function testTheSortingPileIsSortableByWhoeverMaySeeIt(): void
     {
         $this->controller->upload($this->uploadRequest($this->tmpPdfFile(), $this->csrfToken()), []);
         $attachment = $this->attachmentRepository->findActiveOrdered()[0];
         $this->pdo->prepare('UPDATE finance_attachments SET account_id = NULL WHERE id = ?')->execute([$attachment->id]);
 
+        $updated = $this->controller->update(
+            $this->jsonRequest('POST', '/finance/receipts/' . $attachment->id, ['_csrf_token' => $this->csrfToken(), 'suggested_amount' => 5.0]),
+            ['id' => (string) $attachment->id]
+        );
+
+        $this->assertSame(200, $updated->getStatusCode());
+    }
+
+    public function testTheSortingPileIsStillRefusedToARoleBelowTheFloor(): void
+    {
+        $this->controller->upload($this->uploadRequest($this->tmpPdfFile(), $this->csrfToken()), []);
+        $attachment = $this->attachmentRepository->findActiveOrdered()[0];
+        $this->pdo->prepare('UPDATE finance_attachments SET account_id = NULL WHERE id = ?')->execute([$attachment->id]);
+
+        // Not the router's floor — the controller's own check. A receipt
+        // with no account must never fall through with no authorization at
+        // all, which is what it did before the rule existed.
+        AuthSession::login(1, 'anime@test.be', 'identified');
         $token = $this->csrfToken();
+
         $deleted = $this->controller->delete(
             $this->jsonRequest('DELETE', '/finance/receipts/' . $attachment->id, ['_csrf_token' => $token]),
             ['id' => (string) $attachment->id]
@@ -465,6 +490,172 @@ class ReceiptControllerTest extends TestCase
     {
         $fiscalYearId = FinanceTestHelper::createScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
         return $this->transactionRepository->create($this->accountId, $fiscalYearId, 'ref-' . uniqid(), '2026-10-01', 'x', -1.0, null, null, 'manual', null);
+    }
+
+    // ── Changer un reçu de compte ───────────────────────────────────────
+
+    public function testChangingAccountMovesTheReceiptAndItsFileTogether(): void
+    {
+        $this->controller->upload($this->uploadRequest($this->tmpPdfFile(), $this->csrfToken()), []);
+        $attachment = $this->attachmentRepository->findActiveOrdered()[0];
+
+        $target = $this->accountRepository->create('Éclaireurs', Account::TYPE_BANK, null, null, null, 'chief');
+        $this->accountRepository->updateStatus($target, Account::STATUS_ACTIVE);
+
+        // As the chef d'unité: the target's floor is above an intendant's,
+        // which is exactly what makes the file's own floor observably move.
+        AuthSession::login(1, 'chef@test.be', 'admin');
+
+        $response = $this->controller->changeAccount(
+            $this->jsonRequest('POST', '/finance/receipts/' . $attachment->id . '/account', [
+                'account_id' => $target,
+                '_csrf_token' => $this->csrfToken(),
+            ]),
+            ['id' => (string) $attachment->id]
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+
+        $moved = $this->attachmentRepository->findById($attachment->id);
+        $this->assertNotNull($moved);
+        $this->assertSame($target, $moved->accountId);
+
+        // The row moving without its file is the failure that matters: the
+        // OLD account's people would still be served the bytes (§8.70).
+        $file = (new FileRepository($this->pdo))->findById($attachment->fileId);
+        $this->assertNotNull($file);
+        $this->assertSame($target, $file->ownerId);
+        $this->assertSame('chief', $file->roleMin, "the file must take the new account's floor");
+    }
+
+    public function testChangingAccountDropsEveryMovementAssociation(): void
+    {
+        $this->controller->upload($this->uploadRequest($this->tmpPdfFile(), $this->csrfToken()), []);
+        $attachment = $this->attachmentRepository->findActiveOrdered()[0];
+        $this->transactionAttachmentRepository->associate($this->createTransaction(), $attachment->id);
+
+        $target = $this->accountRepository->create('Éclaireurs', Account::TYPE_BANK, null, null, null, 'intendant');
+        $this->accountRepository->updateStatus($target, Account::STATUS_ACTIVE);
+
+        $response = $this->controller->changeAccount(
+            $this->jsonRequest('POST', '/finance/receipts/' . $attachment->id . '/account', [
+                'account_id' => $target,
+                '_csrf_token' => $this->csrfToken(),
+            ]),
+            ['id' => (string) $attachment->id]
+        );
+
+        // Not a preference: associate() guarantees a receipt and its
+        // movements share an account, and moving the receipt is exactly
+        // what would break that guarantee.
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(1, json_decode((string) $response->getBody(), true)['associations_dropped']);
+        $this->assertSame([], $this->transactionAttachmentRepository->findTransactionIdsForAttachment($attachment->id));
+    }
+
+    public function testMovingAReceiptToTheAccountItIsAlreadyOnKeepsItsAssociations(): void
+    {
+        $this->controller->upload($this->uploadRequest($this->tmpPdfFile(), $this->csrfToken()), []);
+        $attachment = $this->attachmentRepository->findActiveOrdered()[0];
+        $transactionId = $this->createTransaction();
+        $this->transactionAttachmentRepository->associate($transactionId, $attachment->id);
+
+        $response = $this->controller->changeAccount(
+            $this->jsonRequest('POST', '/finance/receipts/' . $attachment->id . '/account', [
+                'account_id' => $this->accountId,
+                '_csrf_token' => $this->csrfToken(),
+            ]),
+            ['id' => (string) $attachment->id]
+        );
+
+        // A no-op move must not destroy a filing in exchange for nothing.
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame([$transactionId], $this->transactionAttachmentRepository->findTransactionIdsForAttachment($attachment->id));
+    }
+
+    public function testAReceiptCanBeSentBackToTheSortingPile(): void
+    {
+        $this->controller->upload($this->uploadRequest($this->tmpPdfFile(), $this->csrfToken()), []);
+        $attachment = $this->attachmentRepository->findActiveOrdered()[0];
+
+        $response = $this->controller->changeAccount(
+            $this->jsonRequest('POST', '/finance/receipts/' . $attachment->id . '/account', [
+                'account_id' => 'unassigned',
+                '_csrf_token' => $this->csrfToken(),
+            ]),
+            ['id' => (string) $attachment->id]
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+
+        $moved = $this->attachmentRepository->findById($attachment->id);
+        $this->assertNotNull($moved);
+        $this->assertNull($moved->accountId);
+
+        $file = (new FileRepository($this->pdo))->findById($attachment->fileId);
+        $this->assertNotNull($file);
+        $this->assertSame(\Modules\Finance\File\FinanceAccountOwnershipChecker::UNASSIGNED_OWNER_ID, $file->ownerId);
+    }
+
+    public function testChangingAccountRefusesATargetTheCallerMayNotUse(): void
+    {
+        $this->controller->upload($this->uploadRequest($this->tmpPdfFile(), $this->csrfToken()), []);
+        $attachment = $this->attachmentRepository->findActiveOrdered()[0];
+
+        // Above this intendant's floor. Authorizing only the receipt would
+        // let them file it onto an account they cannot see and then read
+        // that account's movements back through movements(), which
+        // authorizes against the receipt alone.
+        $target = $this->accountRepository->create('Direction', Account::TYPE_BANK, null, null, null, 'admin');
+        $this->accountRepository->updateStatus($target, Account::STATUS_ACTIVE);
+
+        $response = $this->controller->changeAccount(
+            $this->jsonRequest('POST', '/finance/receipts/' . $attachment->id . '/account', [
+                'account_id' => $target,
+                '_csrf_token' => $this->csrfToken(),
+            ]),
+            ['id' => (string) $attachment->id]
+        );
+
+        $this->assertSame(404, $response->getStatusCode());
+
+        $unmoved = $this->attachmentRepository->findById($attachment->id);
+        $this->assertNotNull($unmoved);
+        $this->assertSame($this->accountId, $unmoved->accountId);
+    }
+
+    public function testChangingAccountRefusesAnUnknownAccount(): void
+    {
+        $this->controller->upload($this->uploadRequest($this->tmpPdfFile(), $this->csrfToken()), []);
+        $attachment = $this->attachmentRepository->findActiveOrdered()[0];
+
+        $response = $this->controller->changeAccount(
+            $this->jsonRequest('POST', '/finance/receipts/' . $attachment->id . '/account', [
+                'account_id' => 9999,
+                '_csrf_token' => $this->csrfToken(),
+            ]),
+            ['id' => (string) $attachment->id]
+        );
+
+        // "No such account" and "not yours" answer the same thing, so a
+        // caller never learns which accounts exist (SECURITY.md §3).
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testChangingAccountNeedsAValidCsrfToken(): void
+    {
+        $this->controller->upload($this->uploadRequest($this->tmpPdfFile(), $this->csrfToken()), []);
+        $attachment = $this->attachmentRepository->findActiveOrdered()[0];
+
+        $response = $this->controller->changeAccount(
+            $this->jsonRequest('POST', '/finance/receipts/' . $attachment->id . '/account', [
+                'account_id' => $this->accountId,
+                '_csrf_token' => 'bad-token',
+            ]),
+            ['id' => (string) $attachment->id]
+        );
+
+        $this->assertNotSame(200, $response->getStatusCode());
     }
 
     public function testAssociateLinksReceiptToMovement(): void

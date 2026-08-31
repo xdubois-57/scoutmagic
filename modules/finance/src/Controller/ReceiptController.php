@@ -487,6 +487,76 @@ class ReceiptController extends AbstractController
     }
 
     /**
+     * POST /finance/receipts/{id}/account — move a receipt onto another
+     * account, or onto the sorting pile (`account_id: null`).
+     *
+     * **Both ends are authorized, and they are two different questions.**
+     * requireVisibleAttachment() says the caller may touch the receipt
+     * where it is now; isAccountVisibleTo() says they may put it where
+     * they are asking. Checking only the first would let a section
+     * treasurer file their own receipt onto another section's account —
+     * and then read that account's movements back through movements(),
+     * which authorizes against the receipt alone.
+     *
+     * The movement associations that go are counted and journaled: a
+     * receipt losing its filing has to be explainable afterwards, and the
+     * dialog that warned about it is not evidence.
+     *
+     * @param array<string, string> $params
+     */
+    public function changeAccount(Request $request, array $params): Response
+    {
+        $data = $this->decodeAndAuthorize($request);
+        if ($data instanceof Response) {
+            return $data;
+        }
+
+        $id = (int) ($params['id'] ?? 0);
+        $attachment = $this->requireVisibleAttachment($id);
+        if ($attachment instanceof Response) {
+            return $attachment;
+        }
+
+        $requested = $data['account_id'] ?? null;
+        $newAccountId = $requested === null || $requested === '' || $requested === 'unassigned'
+            ? null
+            : (int) $requested;
+
+        $role = Role::fromString(AuthSession::getRole());
+        $targetAllowed = $newAccountId === null
+            ? $this->financeService->isUnassignedReceiptVisibleTo($role)
+            : $this->financeService->isAccountVisibleTo($this->financeService->getAccount($newAccountId), $role);
+
+        if (!$targetAllowed) {
+            // "No such account" and "not yours" answer the same thing, so a
+            // caller never learns which accounts exist (SECURITY.md §3).
+            return $this->json(['success' => false, 'error' => 'Compte introuvable.'], 404);
+        }
+
+        try {
+            $dropped = $this->receiptService->reassign($id, $newAccountId);
+        } catch (FinanceException $e) {
+            return $this->json(['success' => false, 'error' => $e->getMessage()], 400);
+        }
+
+        $this->journalService->log(
+            'finance',
+            'receipt_account_changed',
+            'info',
+            'Reçu déplacé vers un autre compte',
+            [
+                'attachment_id' => $id,
+                'from_account_id' => $attachment->accountId,
+                'to_account_id' => $newAccountId,
+                'associations_dropped' => $dropped,
+            ],
+            AuthSession::getUserAccountId()
+        );
+
+        return $this->json(['success' => true, 'associations_dropped' => $dropped]);
+    }
+
+    /**
      * @param array<string, string> $params
      */
     public function dissociate(Request $request, array $params): Response
@@ -510,8 +580,9 @@ class ReceiptController extends AbstractController
     }
 
     /**
-     * Loads the attachment and verifies its account is visible to the
-     * current role — every mutation endpoint goes through this so a
+     * Loads the attachment and verifies it is visible to the current role
+     * — its account's rule when it has one, the sorting pile's when it
+     * does not. Every mutation endpoint goes through this so a
      * receipt tied to an account above the caller's role_min_view can
      * never be edited/deleted/associated, matching the download-side
      * enforcement already applied via the file's role_min.
@@ -525,19 +596,22 @@ class ReceiptController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Reçu introuvable.'], 404);
         }
 
-        // No account means no account to check the caller against, so there
-        // is nothing that could authorize the mutation — deny rather than
-        // fall through. ReceiptService::upload() always sets an accountId,
-        // so this only bites on legacy/imported rows, but "unknown owner"
-        // must never read as "anyone may edit it" (same fail-safe posture as
-        // Core\File\FileAccessGuard's unregistered owner_type).
-        if ($attachment->accountId === null) {
-            return $this->json(['success' => false, 'error' => 'Accès refusé.'], 403);
-        }
-
         $role = Role::fromString(AuthSession::getRole());
-        $account = $this->financeService->getAccount($attachment->accountId);
-        if (!$this->financeService->isAccountVisibleTo($account, $role)) {
+
+        // No account is not "no owner, therefore nobody": it is the unit's
+        // sorting pile, and it has a rule of its own — narrower than this
+        // page's floor, because an unsorted receipt may belong to any
+        // section. This used to deny outright, which was right while
+        // nothing could produce such a row on purpose and wrong now that
+        // Service\ReceiptService::uploadUnattributed() does.
+        $allowed = $attachment->accountId === null
+            ? $this->financeService->isUnassignedReceiptVisibleTo($role)
+            : $this->financeService->isAccountVisibleTo(
+                $this->financeService->getAccount($attachment->accountId),
+                $role
+            );
+
+        if (!$allowed) {
             return $this->json(['success' => false, 'error' => 'Accès refusé.'], 403);
         }
 
