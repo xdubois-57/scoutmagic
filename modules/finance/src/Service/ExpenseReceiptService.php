@@ -94,6 +94,39 @@ class ExpenseReceiptService implements ExpenseReceiptInterface
         )->fileId;
     }
 
+    public function storeUnattendedReceipt(
+        string $content,
+        string $mimeType,
+        string $originalFilename,
+        ?int $accountId
+    ): int {
+        // No actor to narrow against — see the interface for what stands
+        // in their place. The account is still verified to EXIST and to be
+        // active: a consumer resolving one from the unit's own data can
+        // still hand over an id for an account that has since been
+        // archived, and a receipt filed on one of those is filed where no
+        // picker will ever offer to look.
+        if ($accountId === null) {
+            return $this->receiptService->uploadUnattributed($content, $mimeType, $originalFilename, null)->fileId;
+        }
+
+        $account = $this->accountRepository->findById($accountId);
+        if ($account === null || $account->status !== Account::STATUS_ACTIVE) {
+            throw new FinanceException('Compte introuvable.');
+        }
+
+        // uploadedBy stays null, and truthfully: nobody uploaded this.
+        return $this->receiptService->upload(
+            $content,
+            $mimeType,
+            $originalFilename,
+            $account->id,
+            null,
+            null,
+            null
+        )->fileId;
+    }
+
     /**
      * The same predicate the finance screens ask, narrowed against the
      * actor the CALLER named rather than against whatever session happens
