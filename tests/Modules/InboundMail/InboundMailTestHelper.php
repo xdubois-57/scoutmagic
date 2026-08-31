@@ -67,6 +67,8 @@ class InboundMailTestHelper
             sent_at TEXT NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             stored_analysis_at TEXT,
+            is_bulk INTEGER NOT NULL DEFAULT 0,
+            last_unlinked_at TEXT,
             UNIQUE (mailbox_id, message_id_blind_index)
         )');
 
@@ -99,11 +101,12 @@ class InboundMailTestHelper
         $pdo->exec('CREATE TABLE inbound_message_attachments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             message_id INTEGER NOT NULL,
-            file_id INTEGER NOT NULL,
+            file_id INTEGER,
             filename_encrypted BLOB NOT NULL,
             mime_type TEXT NOT NULL,
             size_bytes INTEGER NOT NULL DEFAULT 0,
             content_hash TEXT NOT NULL,
+            omission_reason TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )');
     }

@@ -28,9 +28,15 @@ use Modules\InboundMail\Api\InboundMessage;
  * Messages are detached one by one rather than through
  * purgeReference(), which empties a reference wholesale regardless of
  * age: that call is for "this business object is gone", not for a
- * retention window. detach() is also what carries inbound_mail's own
- * semantics — the attachments nothing else claimed go with the message
- * (§7.7).
+ * retention window.
+ *
+ * **Detaching no longer erases anything**, and this task is consequently
+ * no longer the end of the line: a message leaves « Courrier non classé »
+ * and falls back into the unit's general mail, where `inbound_mail`'s own
+ * retention removes it (`Modules\InboundMail\Task\PurgeUnlinkedMessagesHandler`,
+ * whose default is the 180 days this setting is read across as). What this
+ * task still buys is the screen staying short; the erasure guarantee has
+ * moved to the module that owns the message.
  */
 class PurgeUnsortedMailHandler implements TaskHandlerInterface
 {
@@ -58,7 +64,11 @@ class PurgeUnsortedMailHandler implements TaskHandlerInterface
                     'camps',
                     'unsorted_mail_purged',
                     'info',
-                    sprintf('%d message(s) non classé(s) effacé(s) après %d mois.', $purged, $months)
+                    sprintf(
+                        '%d message(s) retiré(s) du courrier non classé après %d mois.',
+                        $purged,
+                        $months
+                    )
                 );
             }
         }

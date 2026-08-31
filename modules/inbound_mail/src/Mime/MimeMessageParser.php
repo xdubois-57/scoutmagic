@@ -44,6 +44,10 @@ class MimeMessageParser
      */
     private const MAX_DEPTH = 8;
 
+    public function __construct(private BulkMailDetector $bulkDetector = new BulkMailDetector())
+    {
+    }
+
     public function parse(string $raw, int $uid, string $folder): FetchedMessage
     {
         [$headerBlock, $body] = self::splitHeadersAndBody($raw);
@@ -69,7 +73,8 @@ class MimeMessageParser
             sentAt: self::parseDate(self::header($headers, 'date')),
             bodyText: $bodyText,
             bodyHtml: $bodyHtml,
-            attachments: $attachments
+            attachments: $attachments,
+            isBulk: $this->bulkDetector->detect($headers, $fromEmail)
         );
     }
 

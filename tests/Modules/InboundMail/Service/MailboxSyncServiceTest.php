@@ -9,6 +9,7 @@ use Core\File\UploadHandler;
 use Core\Security\EncryptionService;
 use Core\Security\HtmlSanitizer;
 use Modules\InboundMail\Api\AnalysisResult;
+use Modules\InboundMail\Api\AttachmentOmission;
 use Modules\InboundMail\Api\CandidateMessage;
 use Modules\InboundMail\Api\MessageCandidate;
 use Modules\InboundMail\Api\LinkOrigin;
@@ -172,17 +173,28 @@ class MailboxSyncServiceTest extends TestCase
 
     // ── Nothing unclaimed is ever stored (§7.6) ──────────────────────────
 
-    public function testAMessageNobodyClaimsIsNotStored(): void
+    public function testAMessageNobodyRecognisesIsStoredAnyway(): void
     {
+        // The reversal. This module used to discard what no consumer
+        // claimed, reasoning that an archive nobody can consult is the
+        // worst position under the RGPD. Right about the archive, wrong
+        // about the conclusion: the answer is a screen, a retention and
+        // somebody responsible — not throwing the unit's mail away.
         $this->registry->register($this->consumer(static fn(): AnalysisResult => AnalysisResult::nothing()));
         $this->addMessage(10);
 
         $outcome = $this->sync();
 
-        $this->assertSame(0, $this->countMessages());
+        $this->assertSame(1, $this->countMessages());
         $this->assertSame(1, $outcome->messagesSeen);
-        $this->assertSame(0, $outcome->messagesStored);
-        $this->assertSame(1, $outcome->messagesDiscarded());
+        $this->assertSame(1, $outcome->messagesStored);
+
+        // Stored and belonging to nobody — which is exactly what the
+        // retention purge is for, and what /courrier exists to show.
+        $messageId = $this->messageRepository->findIdByMessageId($this->mailboxId, 'msg-1@example.be');
+        $this->assertNotNull($messageId);
+        $this->assertSame(0, $this->messageRepository->countLinks($messageId));
+        $this->assertFalse($this->messageRepository->hasActiveCandidates($messageId));
     }
 
     public function testTheCursorStillMovesPastAMessageNobodyClaimed(): void
@@ -657,8 +669,16 @@ class MailboxSyncServiceTest extends TestCase
 
         $messages = $this->messageRepository->findForReference('rental', 'LOC-2027-0042');
         $this->assertCount(1, $messages, 'The message itself must still be stored.');
-        $this->assertFalse($messages[0]->hasAttachments());
+        $this->assertFalse($messages[0]->hasAttachments(), 'Nothing openable was kept.');
         $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
+
+        // But the reader is TOLD, rather than shown one attachment fewer
+        // than the sender sent and left to wonder who dropped it.
+        $this->assertTrue($messages[0]->hasOmittedAttachments());
+        $omitted = $messages[0]->omittedAttachments[0];
+        $this->assertSame('archive.zip', $omitted->filename);
+        $this->assertSame(AttachmentOmission::MIME_REJECTED, $omitted->reason);
+        $this->assertStringContainsString('boîte d\'origine', $omitted->explanation());
     }
 
     public function testTheSameFileArrivingTwiceIsStoredOnce(): void

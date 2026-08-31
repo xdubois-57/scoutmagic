@@ -112,15 +112,18 @@ class CampsMailController extends AbstractController
         }
 
         if ($this->inboundMail !== null) {
-            // detach() from 'unsorted' deletes, per inbound_mail's own
-            // semantics: there is no unattached queue to fall back into,
-            // and 'unsorted' IS the fallback.
+            // detach() no longer destroys the message: it falls back into
+            // the unit's general mail, where a chef d'unité can still
+            // re-orient it and where inbound_mail's own retention removes
+            // it. The wording says what actually happens — telling a user
+            // "supprimé" about a message that is still stored would be the
+            // module lying about its own retention.
             $this->inboundMail->detach(
                 CampsMessageConsumer::CONSUMER_ID,
                 CampsMessageConsumer::UNSORTED_REFERENCE,
                 (int) ($params['id'] ?? 0)
             );
-            FlashMessage::set('success', 'Message supprimé.');
+            FlashMessage::set('success', 'Message retiré du courrier non classé.');
         }
 
         return $this->redirect('/chefs/camps/courrier');

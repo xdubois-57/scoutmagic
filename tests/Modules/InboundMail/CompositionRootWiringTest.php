@@ -39,10 +39,13 @@ class CompositionRootWiringTest extends TestCase
             'The shared bootstrap must register the sync handler as a lazy factory.'
         );
         // Constructed without a registry it connects to nothing — every
-        // message would be fetched and discarded unclaimed — so a factory
-        // that forgot it would look wired and collect nothing.
-        $this->assertStringContainsString(
-            'new \\Modules\\InboundMail\\Task\\SyncMailboxesHandler($inboundConsumerRegistry($context))',
+        // message would be stored unrecognised, none of it associated —
+        // so a factory that forgot it would look wired and classify
+        // nothing. Matched as a pattern rather than as an exact string:
+        // what must hold is that the registry reaches the handler, not how
+        // the argument list happens to be wrapped.
+        $this->assertMatchesRegularExpression(
+            '/new \\\\Modules\\\\InboundMail\\\\Task\\\\SyncMailboxesHandler\(\s*\$inboundConsumerRegistry\(\$context\)/',
             $bootstrap
         );
     }

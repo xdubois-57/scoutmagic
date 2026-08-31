@@ -179,3 +179,147 @@ Il retire les documents que `onLinked` avait déposés sur le séjour, mais
 laisse les valeurs de champs complétées depuis le message. Un chef a pu en
 valider une, et revenir en silence sur une valeur validée par quelqu'un est
 pire que laisser un champ rempli depuis un message qui a bougé.
+
+---
+
+## IT-04 — Conservation, quota, et ce que « détacher » veut dire
+
+### Le détachement ne détruit plus
+
+C'est le changement le plus lourd de l'itération, et il n'était pas
+explicitement demandé : il est la conséquence forcée du reste.
+
+Avant, `detach()` supprimait le message dès que la dernière association
+partait, faute de file d'attente où le laisser tomber. Or un détachement
+est presque toujours une **correction** — quelqu'un s'aperçoit que le
+message est classé sous la mauvaise réservation. L'ancien comportement
+détruisait donc exactement ce qu'on s'apprêtait à reclasser : la correction
+supprimait ce qu'elle corrigeait.
+
+Maintenant que tout est conservé, la file d'attente existe. `detach()`
+retire l'association, et rien d'autre. Le message retombe dans le courrier
+général, `PurgeUnlinkedMessagesHandler` s'en charge si personne ne le
+réoriente, et `last_unlinked_at` lui donne un plancher de trente jours (A4)
+pour qu'un clic malheureux ait une fenêtre où être remarqué.
+
+`purgeReference()` reste destructeur, et la distinction est le fond du
+sujet : c'est l'effacement RGPD d'un objet métier par le module qui le
+possède, où la promesse faite à la personne concernée est que le courrier
+attaché à son dossier part avec son dossier. Un délai de conservation ne
+s'applique pas à un effacement demandé.
+
+### Conséquence non évidente : la pièce jointe reclassée
+
+Une pièce jointe qu'un gestionnaire a transformée en document de son
+module partage la ligne `files` du message (ARCHITECTURE.md §8.3). Sous
+l'ancien modèle, `$preserveFileIds` suffisait : le message mourait tout de
+suite, on épargnait le fichier, fin. Sous le nouveau, la purge de rétention
+passe quatre-vingt-dix jours plus tard et supprime les fichiers que les
+lignes de pièces jointes désignent encore — **elle emporterait le contrat
+signé d'une réservation avec l'email dans lequel il est arrivé**.
+
+Deux corrections, indissociables :
+
+1. `releaseAttachmentFile()` — la ligne de pièce jointe cesse de désigner
+   le fichier et dit pourquoi (`AttachmentOmission::RECLASSIFIED`). La
+   ligne reste : l'écran doit toujours pouvoir dire que le message portait
+   ce fichier. C'est ce qui garde la purge honnête sans lui apprendre les
+   tables de documents de chaque module — ce qui remettrait la connaissance
+   des consumers à l'intérieur d'`inbound_mail`, la seule chose que §8.58
+   interdit.
+2. Le consumer reprend `files.owner_id`. `RentalCommunicationService`
+   repointe le fichier sur `rental_document` / l'id de la réservation.
+   Sans cela le fichier continuerait de répondre à un contrôle d'accès
+   portant sur un message que les gestionnaires de la réservation ne voient
+   plus : ils perdaient l'accès à leur propre contrat. Ce défaut existait
+   déjà avant l'itération — le message était détruit, `owner_id` pendait
+   dans le vide et seul un chef d'unité passait — il devient simplement
+   visible ici.
+
+### `AttachmentOmission::RECLASSIFIED` dans le même enum
+
+Un fichier reclassé n'est pas une pièce jointe « écartée » : il a bien été
+conservé, il a changé de propriétaire. Il partage néanmoins l'enum parce
+que l'écran pose une seule question — pourquoi ce message n'offre-t-il plus
+ce fichier ? — et qu'une seconde liste ne serait qu'un second endroit à
+oublier. `explanation()` bifurque pour ce cas : la phrase générique renvoie
+le lecteur vers la boîte d'origine, ce qui serait un mensonge dans l'autre
+sens pour un fichier que ScoutMagic détient toujours.
+
+### Camps : « supprimé » devenait un mensonge
+
+`CampsMailController::discard()` affichait « Message supprimé. » et
+`PurgeUnsortedMailHandler` journalisait « effacé(s) ». Ni l'un ni l'autre
+n'efface plus quoi que ce soit : les deux retirent une association et le
+message retombe dans le courrier général. Les libellés disent maintenant
+« retiré du courrier non classé ». La garantie d'effacement n'a pas
+disparu, elle a changé de module — et les tests de la tâche camps assertent
+désormais sur l'association, pas sur la ligne, sous peine d'asserter sur la
+rétention d'un autre module.
+
+### RGPD (A19, bloquant)
+
+Trois passages de `core/View/rgpd_default.html` étaient devenus faux et ont
+été réécrits : « un message qu'aucun dossier ne reconnaît est ignoré »,
+la conservation de la section 2.4, et la ligne « Courrier entrant » de la
+section 3.1. La règle 29 du prompt système de `RgpdContentService` interdit
+maintenant explicitement de réintroduire l'ancienne formulation, et impose
+les trois garanties comme un bloc indissociable — écran, rétention,
+responsable — parce que c'est précisément ce qui rend l'archive
+défendable. Le paragraphe du module Locations sur le détachement, qui
+promettait une suppression immédiate, a été corrigé de la même façon.
+
+### Reprise camps (A8) lue à chaud plutôt que migrée
+
+`PurgeUnlinkedMessagesHandler::retentionDays()` lit
+`camps_unsorted_retention_months` à chaque exécution au lieu d'écrire 180
+une fois pour toutes. Une unité qui n'ouvre jamais le nouveau réglage garde
+les six mois qu'elle avait choisis ; une qui l'ouvre trouve un champ déjà
+rempli plutôt qu'une valeur par défaut qui aurait raccourci sa rétention en
+silence. Une installation neuve démarre à 90 jours.
+
+### Le quota est vérifié avant chaque écriture, pas à la purge
+
+`poor_mans_cron` n'avance que sur les vues de page. Un plafond appliqué par
+une tâche nocturne laisserait un après-midi chargé remplir le disque de
+l'hébergeur. `StorageQuotaService::accepts()` est donc interrogé avant
+chaque écriture de pièce jointe, avec la taille que l'écriture ajouterait —
+une vérification faite après coup est une vérification qui a déjà laissé
+passer.
+
+L'horodatage de la dernière alerte (`inbound_mail_quota_alerted_at`) est
+écrit par `SettingRepository::updateValue()` et non par
+`SettingService::set()` : c'est de la comptabilité interne, déclarée non
+éditable pour ne jamais apparaître sur la page Réglages, et `set()` refuse
+par construction un réglage non éditable.
+
+## IT-05 — les libellés des trois modes
+
+La feuille de route se contredit sur un point, et il faut trancher avant
+d'écrire l'écran.
+
+Sa section « Vocabulaire d'interface » annonce : `none` → « Aucun tri »,
+`relevant` → « Messages concernés uniquement », `all` → « Tous les messages
+de la boîte ».
+
+Mais **le corps d'IT-05 et la maquette v2 disent tous les deux autre
+chose** : « un choix segmenté "qui peut le lire" à trois options présentées
+au même niveau — Personne / Messages concernés / Tout le courrier ».
+
+Ce sont ces derniers qui l'emportent, pour deux raisons. La maquette est
+désignée comme faisant foi pour les libellés français ; et le corps d'IT-05,
+qui décrit précisément le contrôle à construire, emploie exactement les
+mêmes mots qu'elle. La section « Vocabulaire » décrit la v1 de l'écran,
+celle que la v2 remplace.
+
+Retenu, donc, pour le contrôle segmenté :
+
+| mode | libellé |
+|---|---|
+| `none` | Personne |
+| `relevant` | Messages concernés |
+| `all` | Tout le courrier |
+
+Les pastilles de l'index disent autre chose encore, et c'est voulu : elles
+résument un état plutôt que d'offrir un choix — « classement seul »,
+« messages concernés », « tout le courrier ».

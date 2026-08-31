@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\InboundMail\Service;
 
+use Modules\InboundMail\Api\AttachmentOmission;
 use Modules\InboundMail\Client\FetchedAttachment;
 
 /**
@@ -83,26 +84,59 @@ class AttachmentPolicy
      */
     public function accepts(FetchedAttachment $attachment, string $bodyHtml): bool
     {
-        if ($attachment->bytes === '' || $attachment->sizeBytes() > $this->maxSizeBytes) {
-            return false;
+        return !$this->isDecoration($attachment, $bodyHtml)
+            && $this->omissionFor($attachment) === null;
+    }
+
+    /**
+     * A signature logo, a spacer, a decoration — something the sender's mail
+     * client put there rather than something they attached.
+     *
+     * **Dropped silently, and never recorded as an omission.** Telling a
+     * chief that « logo.png n'a pas été conservé » on every message from
+     * every organisation with an email footer would bury the one omission
+     * that actually matters under a hundred that never did.
+     */
+    public function isDecoration(FetchedAttachment $attachment, string $bodyHtml): bool
+    {
+        if ($this->isSignatureImage($attachment, $bodyHtml)) {
+            return true;
         }
 
-        if ($this->isSignatureImage($attachment, $bodyHtml)) {
-            return false;
+        $realType = $this->detectMimeType($attachment->bytes);
+
+        // An image big enough in bytes can still be too small in PIXELS to
+        // be a document — a blank 1200×800 PNG compresses smaller than an
+        // ornate 100×100 banner, so weight says nothing.
+        return $realType !== null
+            && str_starts_with($realType, 'image/')
+            && $this->isTooSmallToBeADocument($attachment->bytes);
+    }
+
+    /**
+     * Why this attachment cannot be kept, or null when it can.
+     *
+     * Separate from `isDecoration()` because the two have opposite
+     * consequences on screen: a decoration is dropped and never mentioned,
+     * an omission is recorded so a reader is told the message arrived
+     * whole and one file did not.
+     */
+    public function omissionFor(FetchedAttachment $attachment): ?AttachmentOmission
+    {
+        if ($attachment->bytes === '') {
+            return AttachmentOmission::MIME_REJECTED;
+        }
+
+        if ($attachment->sizeBytes() > $this->maxSizeBytes) {
+            return AttachmentOmission::TOO_LARGE;
         }
 
         $realType = $this->detectMimeType($attachment->bytes);
         if ($realType === null || !in_array($realType, self::ALLOWED_MIME_TYPES, true)) {
-            return false;
+            return AttachmentOmission::MIME_REJECTED;
         }
 
-        // An image that survived rule 1 still has to be big enough to be a
-        // document rather than a decoration.
-        if (str_starts_with($realType, 'image/') && $this->isTooSmallToBeADocument($attachment->bytes)) {
-            return false;
-        }
-
-        return true;
+        return null;
     }
 
     /**

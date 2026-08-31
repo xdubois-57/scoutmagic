@@ -10,11 +10,13 @@ namespace Modules\InboundMail\Repository;
 
 use Core\Security\EncryptionService;
 use Core\Service\DateInput;
+use Modules\InboundMail\Api\AttachmentOmission;
 use Modules\InboundMail\Api\InboundAttachment;
 use Modules\InboundMail\Api\InboundMessage;
 use Modules\InboundMail\Api\LinkOrigin;
 use Modules\InboundMail\Api\MessageCandidate;
 use Modules\InboundMail\Api\MessageLink;
+use Modules\InboundMail\Api\OmittedAttachment;
 
 /**
  * The stored messages, their associations and their attachments.
@@ -39,6 +41,15 @@ use Modules\InboundMail\Api\MessageLink;
  */
 class InboundMessageRepository
 {
+    /**
+     * The floor a message earns when its last association is removed (A4).
+     *
+     * Retention is measured on `sent_at`, so without this a message from
+     * 2024 detached by mistake would be gone on the next nightly purge.
+     * Thirty days is a window somebody can notice a mis-click in.
+     */
+    public const UNLINK_GRACE_DAYS = 30;
+
     public function __construct(
         private \PDO $pdo,
         private EncryptionService $encryption
@@ -64,15 +75,17 @@ class InboundMessageRepository
         string $bodyText,
         string $bodyHtml,
         \DateTimeImmutable $sentAt,
-        array $toEmails = []
+        array $toEmails = [],
+        bool $isBulk = false
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO inbound_messages
                 (mailbox_id, folder, uid_validity, imap_uid,
                  message_id_blind_index, in_reply_to_blind_index, from_email_blind_index,
                  subject_encrypted, from_email_encrypted, from_name_encrypted, message_id_encrypted,
-                 in_reply_to_encrypted, to_emails_encrypted, body_text_encrypted, body_html_encrypted, sent_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                 in_reply_to_encrypted, to_emails_encrypted, body_text_encrypted, body_html_encrypted,
+                 sent_at, is_bulk)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $mailboxId,
@@ -93,6 +106,7 @@ class InboundMessageRepository
             $this->encryption->encrypt($bodyText, 'inbound_messages.body_text'),
             $this->encryption->encrypt($bodyHtml, 'inbound_messages.body_html'),
             $sentAt->format('Y-m-d H:i:s'),
+            $isBulk ? 1 : 0,
         ]);
 
         return (int) $this->pdo->lastInsertId();
@@ -175,17 +189,40 @@ class InboundMessageRepository
      * belongs to that booking" cannot sensibly leave "one of its files
      * belongs to that booking" behind.
      *
+     * `$now` is what stamps `last_unlinked_at`, and is a parameter rather
+     * than a `new DateTimeImmutable()` inside for the reason every other
+     * timestamp in this repository is: an instant the caller controls is an
+     * instant a test can control, and the thirty-day floor this stamp feeds
+     * (A4) is otherwise only assertable by waiting a month.
+     *
      * @return bool whether anything was removed
      */
-    public function removeLink(int $messageId, string $consumerId, string $businessReference): bool
-    {
+    public function removeLink(
+        int $messageId,
+        string $consumerId,
+        string $businessReference,
+        ?\DateTimeImmutable $now = null
+    ): bool {
         $stmt = $this->pdo->prepare(
             'DELETE FROM inbound_message_links
               WHERE message_id = ? AND consumer_id = ? AND business_reference = ?'
         );
         $stmt->execute([$messageId, $consumerId, $businessReference]);
 
-        return $stmt->rowCount() > 0;
+        if ($stmt->rowCount() === 0) {
+            return false;
+        }
+
+        // Stamped only when the LAST association goes. The retention floor
+        // of A4 protects a message nobody points at any more; a message
+        // that still belongs to somebody was never at risk, and stamping it
+        // would push its eventual purge out for no reason.
+        if ($this->countLinks($messageId) === 0) {
+            $stamp = $this->pdo->prepare('UPDATE inbound_messages SET last_unlinked_at = ? WHERE id = ?');
+            $stamp->execute([($now ?? new \DateTimeImmutable())->format('Y-m-d H:i:s'), $messageId]);
+        }
+
+        return true;
     }
 
     /**
@@ -435,7 +472,8 @@ class InboundMessageRepository
             $this->findAttachmentsFor([$messageId])[$messageId] ?? [],
             $links,
             $links[0]->consumerId ?? '',
-            $links[0]->businessReference ?? ''
+            $links[0]->businessReference ?? '',
+            $this->findOmittedAttachmentsFor([$messageId])[$messageId] ?? []
         );
     }
 
@@ -488,6 +526,7 @@ class InboundMessageRepository
         $ids = array_map(static fn(array $row) => (int) $row['id'], $rows);
         $attachments = $this->findAttachmentsFor($ids);
         $links = $this->findLinksFor($ids);
+        $omitted = $this->findOmittedAttachmentsFor($ids);
 
         return array_map(
             fn(array $row) => $this->hydrate(
@@ -495,7 +534,8 @@ class InboundMessageRepository
                 $attachments[(int) $row['id']] ?? [],
                 $links[(int) $row['id']] ?? [],
                 $consumerId,
-                $businessReference
+                $businessReference,
+                $omitted[(int) $row['id']] ?? []
             ),
             $rows
         );
@@ -521,7 +561,8 @@ class InboundMessageRepository
             $this->findAttachmentsFor([$messageId])[$messageId] ?? [],
             $this->findLinksFor([$messageId])[$messageId] ?? [],
             $consumerId,
-            $businessReference
+            $businessReference,
+            $this->findOmittedAttachmentsFor([$messageId])[$messageId] ?? []
         );
     }
 
@@ -648,10 +689,44 @@ class InboundMessageRepository
         int $sizeBytes,
         string $contentHash
     ): int {
+        return $this->insertAttachment($messageId, $fileId, $filename, $mimeType, $sizeBytes, $contentHash, null);
+    }
+
+    /**
+     * Record an attachment that arrived but was **not kept**.
+     *
+     * The row exists precisely because the file does not. Without it the
+     * screen shows one attachment fewer than the sender sent, and nobody
+     * can tell whether ScoutMagic dropped it or the sender never attached
+     * it — so it says instead: the message arrived, this file was not kept,
+     * it is still in the original mailbox.
+     *
+     * @param string $reason one of AttachmentOmission's values
+     */
+    public function addOmittedAttachment(
+        int $messageId,
+        string $filename,
+        string $mimeType,
+        int $sizeBytes,
+        string $contentHash,
+        string $reason
+    ): int {
+        return $this->insertAttachment($messageId, null, $filename, $mimeType, $sizeBytes, $contentHash, $reason);
+    }
+
+    private function insertAttachment(
+        int $messageId,
+        ?int $fileId,
+        string $filename,
+        string $mimeType,
+        int $sizeBytes,
+        string $contentHash,
+        ?string $omissionReason
+    ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO inbound_message_attachments
-                (message_id, file_id, filename_encrypted, mime_type, size_bytes, content_hash)
-             VALUES (?, ?, ?, ?, ?, ?)'
+                (message_id, file_id, filename_encrypted, mime_type, size_bytes, content_hash, omission_reason)
+             VALUES (?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $messageId,
@@ -660,6 +735,7 @@ class InboundMessageRepository
             $mimeType,
             $sizeBytes,
             $contentHash,
+            $omissionReason,
         ]);
 
         return (int) $this->pdo->lastInsertId();
@@ -681,7 +757,7 @@ class InboundMessageRepository
             'SELECT a.file_id
                FROM inbound_message_attachments a
                JOIN inbound_messages m ON a.message_id = m.id
-              WHERE m.mailbox_id = ? AND a.content_hash = ?
+              WHERE m.mailbox_id = ? AND a.content_hash = ? AND a.file_id IS NOT NULL
               LIMIT 1'
         );
         $stmt->execute([$mailboxId, $contentHash]);
@@ -698,7 +774,9 @@ class InboundMessageRepository
      */
     public function findFileIdsForMessage(int $messageId): array
     {
-        $stmt = $this->pdo->prepare('SELECT file_id FROM inbound_message_attachments WHERE message_id = ?');
+        $stmt = $this->pdo->prepare(
+            'SELECT file_id FROM inbound_message_attachments WHERE message_id = ? AND file_id IS NOT NULL'
+        );
         $stmt->execute([$messageId]);
 
         return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
@@ -713,7 +791,7 @@ class InboundMessageRepository
             'SELECT DISTINCT a.file_id
                FROM inbound_message_attachments a
                JOIN inbound_message_links l ON l.message_id = a.message_id
-              WHERE l.consumer_id = ? AND l.business_reference = ?'
+              WHERE l.consumer_id = ? AND l.business_reference = ? AND a.file_id IS NOT NULL'
         );
         $stmt->execute([$consumerId, $businessReference]);
 
@@ -735,7 +813,8 @@ class InboundMessageRepository
     public function findMessageHoldingFile(int $fileId): ?int
     {
         $stmt = $this->pdo->prepare(
-            'SELECT message_id FROM inbound_message_attachments WHERE file_id = ? ORDER BY id ASC LIMIT 1'
+            'SELECT message_id FROM inbound_message_attachments
+              WHERE file_id = ? ORDER BY id ASC LIMIT 1'
         );
         $stmt->execute([$fileId]);
         $messageId = $stmt->fetchColumn();
@@ -752,7 +831,8 @@ class InboundMessageRepository
     public function findAttachmentFileOwners(): array
     {
         $stmt = $this->pdo->query(
-            'SELECT file_id, message_id FROM inbound_message_attachments ORDER BY id ASC'
+            'SELECT file_id, message_id FROM inbound_message_attachments
+              WHERE file_id IS NOT NULL ORDER BY id ASC'
         );
 
         if ($stmt === false) {
@@ -769,6 +849,36 @@ class InboundMessageRepository
     }
 
     /**
+     * A file a consumer re-classified stops being the message's file.
+     *
+     * The attachment row stays — the message did carry that file and a
+     * reader must still be told so — but it stops naming it, and it says
+     * why (`AttachmentOmission::RECLASSIFIED`). That is what keeps the
+     * retention purge honest: it deletes the stored files its own
+     * attachment rows still point at, so a file that has become a document
+     * of a booking or a stay is no longer among them and outlives the
+     * message by exactly as long as that document does.
+     *
+     * Doing it the other way round — leaving the row pointing at the file
+     * and teaching the purge about every module's document tables — would
+     * put knowledge of the consumers back inside this module, which is the
+     * one thing §8.58 does not allow.
+     *
+     * @return int the number of attachment rows released
+     */
+    public function releaseAttachmentFile(int $messageId, int $fileId): int
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE inbound_message_attachments
+                SET file_id = NULL, omission_reason = ?
+              WHERE message_id = ? AND file_id = ?'
+        );
+        $stmt->execute([AttachmentOmission::RECLASSIFIED->value, $messageId, $fileId]);
+
+        return $stmt->rowCount();
+    }
+
+    /**
      * How many stored attachments still point at a file — what tells a
      * caller whether deleting a message may also delete the file, or
      * whether another message deduplicated onto it.
@@ -779,6 +889,104 @@ class InboundMessageRepository
         $stmt->execute([$fileId]);
 
         return (int) $stmt->fetchColumn();
+    }
+
+    // ── Retention and quota ─────────────────────────────────────────────
+
+    /**
+     * The messages that belong to nobody and that nobody has proposed
+     * anything about, old enough to go.
+     *
+     * **Two clocks, and the later one wins** (A4):
+     *
+     * - `sent_at + retention` — the retention is measured on the message's
+     *   own date, never on when its last association was removed. A message
+     *   from 2024 that somebody detaches today does not thereby earn a
+     *   fresh 90 days.
+     * - `last_unlinked_at + 30 days` — but it does earn a floor. Detaching
+     *   a three-year-old message by mistake must not make it disappear on
+     *   the next nightly purge, with no window to notice.
+     *
+     * A proposition somebody set aside protects nothing (A3): `dismissed_at`
+     * is a decision that this message is not that module's business, and
+     * treating it as a reason to keep the message would make "écarter" mean
+     * the opposite of what it says.
+     *
+     * @return int[] oldest first, bounded
+     */
+    public function findPurgeableMessageIds(\DateTimeImmutable $now, int $retentionDays, int $limit): array
+    {
+        $sentBefore = $now->modify('-' . max(0, $retentionDays) . ' days')->format('Y-m-d H:i:s');
+        $unlinkedBefore = $now->modify('-' . self::UNLINK_GRACE_DAYS . ' days')->format('Y-m-d H:i:s');
+
+        $stmt = $this->pdo->prepare(
+            'SELECT m.id
+               FROM inbound_messages m
+              WHERE m.sent_at < ?
+                AND (m.last_unlinked_at IS NULL OR m.last_unlinked_at < ?)
+                AND NOT EXISTS (SELECT 1 FROM inbound_message_links l WHERE l.message_id = m.id)
+                AND NOT EXISTS (
+                        SELECT 1 FROM inbound_message_candidates c
+                         WHERE c.message_id = m.id AND c.dismissed_at IS NULL
+                    )
+           ORDER BY m.sent_at ASC, m.id ASC
+              LIMIT ' . max(1, $limit)
+        );
+        $stmt->execute([$sentBefore, $unlinkedBefore]);
+
+        return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
+    /**
+     * The oldest messages nothing points at, whatever their age.
+     *
+     * The quota's emergency valve (D5), and deliberately NOT the same query
+     * as the retention purge: this one ignores both clocks, because the
+     * disk is full now and a message from last week that belongs to nobody
+     * is a better thing to lose than the unit's ability to receive mail at
+     * all.
+     *
+     * @return int[]
+     */
+    public function findOldestUnclaimedMessageIds(int $limit): array
+    {
+        $stmt = $this->pdo->query(
+            'SELECT m.id
+               FROM inbound_messages m
+              WHERE NOT EXISTS (SELECT 1 FROM inbound_message_links l WHERE l.message_id = m.id)
+                AND NOT EXISTS (
+                        SELECT 1 FROM inbound_message_candidates c
+                         WHERE c.message_id = m.id AND c.dismissed_at IS NULL
+                    )
+           ORDER BY m.sent_at ASC, m.id ASC
+              LIMIT ' . max(1, $limit)
+        );
+
+        return $stmt === false ? [] : array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
+    /**
+     * How many bytes this module's attachments occupy.
+     *
+     * Summed over the ROWS that actually kept a file. Counting the omitted
+     * ones would make a box that is refusing writes look ever fuller, and
+     * the quota would never let go.
+     *
+     * DISTINCT on the file id: deduplication means several attachment rows
+     * legitimately share one stored file, and counting it once per row
+     * would inflate the figure until the quota fired on space nobody uses.
+     */
+    public function totalStoredBytes(): int
+    {
+        $stmt = $this->pdo->query(
+            'SELECT COALESCE(SUM(size_bytes), 0) FROM (
+                 SELECT DISTINCT file_id, size_bytes
+                   FROM inbound_message_attachments
+                  WHERE file_id IS NOT NULL
+             ) AS kept'
+        );
+
+        return $stmt === false ? 0 : (int) $stmt->fetchColumn();
     }
 
     // ── One-time reprise ────────────────────────────────────────────────
@@ -855,6 +1063,12 @@ class InboundMessageRepository
 
         $byMessage = [];
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            // An omitted attachment has no file to point at, so it is not
+            // an InboundAttachment at all — see findOmittedAttachmentsFor().
+            if ($row['file_id'] === null || $row['omission_reason'] !== null) {
+                continue;
+            }
+
             $byMessage[(int) $row['message_id']][] = new InboundAttachment(
                 id: (int) $row['id'],
                 messageId: (int) $row['message_id'],
@@ -866,6 +1080,50 @@ class InboundMessageRepository
                 mimeType: (string) $row['mime_type'],
                 sizeBytes: (int) $row['size_bytes'],
                 contentHash: (string) $row['content_hash']
+            );
+        }
+
+        return $byMessage;
+    }
+
+    /**
+     * @param int[] $messageIds
+     * @return array<int, OmittedAttachment[]>
+     */
+    private function findOmittedAttachmentsFor(array $messageIds): array
+    {
+        if ($messageIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($messageIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT * FROM inbound_message_attachments
+              WHERE message_id IN ({$placeholders}) AND omission_reason IS NOT NULL
+           ORDER BY id ASC"
+        );
+        $stmt->execute($messageIds);
+
+        $byMessage = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $reason = AttachmentOmission::tryFrom((string) $row['omission_reason']);
+            if ($reason === null) {
+                // A reason this build no longer knows. The honest fallback
+                // is the one that says least: something went wrong at
+                // write time.
+                $reason = AttachmentOmission::STORAGE_ERROR;
+            }
+
+            $byMessage[(int) $row['message_id']][] = new OmittedAttachment(
+                id: (int) $row['id'],
+                messageId: (int) $row['message_id'],
+                filename: $this->encryption->decrypt(
+                    (string) $row['filename_encrypted'],
+                    'inbound_message_attachments.filename'
+                ),
+                mimeType: (string) $row['mime_type'],
+                sizeBytes: (int) $row['size_bytes'],
+                reason: $reason
             );
         }
 
@@ -920,13 +1178,15 @@ class InboundMessageRepository
      * @param array<string, mixed> $row
      * @param InboundAttachment[] $attachments
      * @param MessageLink[] $links
+     * @param OmittedAttachment[] $omittedAttachments
      */
     private function hydrate(
         array $row,
         array $attachments,
         array $links,
         string $consumerId,
-        string $businessReference
+        string $businessReference,
+        array $omittedAttachments = []
     ): InboundMessage {
         $toEmails = [];
         if ($row['to_emails_encrypted'] !== null) {
@@ -956,7 +1216,8 @@ class InboundMessageRepository
             bodyHtml: $this->encryption->decrypt((string) $row['body_html_encrypted'], 'inbound_messages.body_html'),
             toEmails: $toEmails,
             attachments: $attachments,
-            links: $links
+            links: $links,
+            omittedAttachments: $omittedAttachments
         );
     }
 
