@@ -204,6 +204,11 @@ final class ProbingConsumer implements MessageConsumerInterface
         return false;
     }
 
+    public function describeReference(string $businessReference): ?string
+    {
+        return null;
+    }
+
     public function describeEvidence(): array
     {
         return [];

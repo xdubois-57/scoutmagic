@@ -334,7 +334,12 @@ class MessageRetentionPreferenceTest extends TestCase
                 return false;
             }
 
-            public function describeEvidence(): array
+            public function describeReference(string $businessReference): ?string
+    {
+        return null;
+    }
+
+    public function describeEvidence(): array
             {
                 return ['adresse de diagnostic'];
             }

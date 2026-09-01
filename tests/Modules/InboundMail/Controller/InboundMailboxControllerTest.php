@@ -151,6 +151,72 @@ class InboundMailboxControllerTest extends TestCase
         $this->assertStringContainsString('La Grange', $body);
     }
 
+    /**
+     * The same page, rendered by a controller whose one consumer names its
+     * references with $naming — the seam the badge reads through.
+     */
+    private function showWithConsumerNaming(int $messageId, \Closure $naming): string
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $mailboxes = new InboundMailboxRepository($this->pdo, $encryption);
+        $registry = new MessageConsumerRegistry();
+        $registry->register(new FakeMessageConsumer('rental', null, null, true, false, false, $naming));
+
+        $controller = new InboundMailboxController(
+            $this->twig(),
+            new GeneralMailboxService($this->messages, $mailboxes, $registry),
+            new InboundMailService($this->messages, $mailboxes, new FileRepository($this->pdo), $registry),
+            $registry,
+            new JournalService(new JournalRepository($this->pdo))
+        );
+
+        return $controller->show($this->get('/courrier/' . $messageId), ['id' => (string) $messageId])->getBody();
+    }
+
+    // ── Ce que le badge affiche ─────────────────────────────────────────
+
+    /**
+     * The screens fall back to the raw business reference, and for half
+     * the consumers that is a slug: « account-unknown » on a green badge
+     * teaches a Chef d'Unité nothing, in a language that is not theirs.
+     * `inbound_mail` cannot do better on its own, so the consumer names
+     * its own object (Api\MessageConsumerInterface::describeReference()).
+     */
+    public function testALinkShowsTheNameItsConsumerGivesItsReference(): void
+    {
+        $id = $this->store('m@x');
+        $this->messages->addLink($id, 'rental', 'LOC-1', LinkOrigin::REFERENCE, 0, null);
+
+        $body = $this->showWithConsumerNaming($id, static fn(string $r): string => 'compte inconnu');
+
+        $this->assertStringContainsString('compte inconnu', $body);
+        $this->assertStringNotContainsString('— LOC-1', $body);
+    }
+
+    public function testAReferenceItsConsumerCannotNameIsShownAsItStands(): void
+    {
+        // « LOC-2027-0012 » is already the name a manager uses out loud;
+        // null must not blank the badge.
+        $id = $this->store('m@x');
+        $this->messages->addLink($id, 'rental', 'LOC-1', LinkOrigin::REFERENCE, 0, null);
+
+        $body = $this->controller->show($this->get('/courrier/' . $id), ['id' => (string) $id])->getBody();
+
+        $this->assertStringContainsString('LOC-1', $body);
+    }
+
+    public function testAConsumerThatThrowsWhileNamingDoesNotTakeThePageDown(): void
+    {
+        $id = $this->store('m@x');
+        $this->messages->addLink($id, 'rental', 'LOC-1', LinkOrigin::REFERENCE, 0, null);
+
+        $body = $this->showWithConsumerNaming($id, static function (string $r): string {
+            throw new \RuntimeException('boom');
+        });
+
+        $this->assertStringContainsString('LOC-1', $body);
+    }
+
     // ── Gestures ────────────────────────────────────────────────────────
 
     public function testConfirmingAPropositionAssociatesTheMessage(): void

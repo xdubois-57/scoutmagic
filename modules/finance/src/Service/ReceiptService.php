@@ -51,7 +51,7 @@ class ReceiptService
      * receipt renderable as a thumbnail (Core\File\PdfRasterizer for PDF,
      * direct <img> for these two) without a third code path.
      */
-    private const ALLOWED_MIME_TYPES = [
+    public const ALLOWED_MIME_TYPES = [
         'application/pdf',
         'image/jpeg',
         'image/png',

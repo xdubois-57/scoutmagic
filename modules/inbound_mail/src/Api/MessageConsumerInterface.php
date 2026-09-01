@@ -139,6 +139,30 @@ interface MessageConsumerInterface
     public function canRead(string $businessReference, array $linkedMemberIds, string $role): bool;
 
     /**
+     * A human name for one of this consumer's business references, or null
+     * when the reference is already the best name there is.
+     *
+     * **The screens show the reference when there is nothing better**, and
+     * for half the consumers that is a slug: « account-12 », « camp-7 »,
+     * « account-unknown ». A Chef d'Unité reading « Finances —
+     * account-unknown » on a green badge learns nothing from it, and it is
+     * not even in their language.
+     *
+     * `inbound_mail` cannot do better on its own — it does not know what
+     * `account-12` is, and the whole point of §7.6 is that it never will.
+     * So the consumer says, in the same family as `displayName()` and
+     * `describeEvidence()`: what this module knows about itself, published
+     * for a screen that cannot know it.
+     *
+     * Null is a complete answer and the right one for a reference that
+     * already reads as a name — `rental`'s « LOC-2027-0012 » is one. A
+     * reference the consumer no longer recognises (a deleted object) is
+     * null too: the screen falls back to the raw reference, which is more
+     * honest than inventing a name for something that is gone.
+     */
+    public function describeReference(string $businessReference): ?string;
+
+    /**
      * The signals this consumer proposes on, in French, one short phrase
      * each — « référence explicite dans l'objet », « adresse de
      * l'expéditeur pendant le séjour ».

@@ -106,6 +106,11 @@ class SupportMessageConsumer implements MessageConsumerInterface, MessageRetenti
         return false;
     }
 
+    public function describeReference(string $businessReference): ?string
+    {
+        return null;
+    }
+
     public function describeEvidence(): array
     {
         return ['clé de corrélation émise par ce receveur, présente dans le sujet'];

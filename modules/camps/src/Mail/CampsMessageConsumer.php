@@ -273,6 +273,15 @@ class CampsMessageConsumer implements MessageConsumerInterface
             : AnalysisResult::linkedTo(self::CONSUMER_ID, self::referenceFor($campId), LinkOrigin::SENDER);
     }
 
+    public function describeReference(string $businessReference): ?string
+    {
+        // Not named yet: this module's reference is a slug like every
+        // other, and naming it means a repository lookup this class does
+        // not do today. Null keeps the screen exactly as it is rather than
+        // guessing.
+        return null;
+    }
+
     /**
      * @return string[]
      */

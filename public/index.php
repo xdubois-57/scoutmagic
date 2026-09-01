@@ -1297,6 +1297,11 @@ $fileRepository = new FileRepository($pdo);
 $attachedFileRemover = new \Core\File\AttachedFileRemover($fileRepository, $storagePath);
 $uploadHandler = new UploadHandler($fileRepository, $storagePath);
 $encryptedFileStorageService = new \Core\File\EncryptedFileStorageService($fileRepository, $encryptionService, $storagePath);
+// « Que contient ce fichier ? », posée une fois — the two writers store
+// two shapes (UploadHandler plain, EncryptedFileStorageService a GCM
+// blob) and a reader that picks one and assumes gets silence when it
+// guesses wrong (Core\File\StoredFileReader).
+$storedFileReader = new \Core\File\StoredFileReader($fileRepository, $encryptedFileStorageService, $storagePath);
 
 // The Desk import, its roster-replacement barrier and its retention.
 // Built here rather than beside the other import repositories above
@@ -3334,15 +3339,32 @@ if ($isEnabled('finance')) {
                             'member_ids' => $linkedMemberIds,
                         ];
                     },
-                    static function (int $fileId) use ($encryptedFileStorageService): ?string {
-                        try {
-                            return $encryptedFileStorageService->retrieve($fileId);
-                        } catch (\Throwable) {
-                            // The bytes are gone or unreadable. The
-                            // association still stands; a treasurer can
-                            // attach the file by hand.
-                            return null;
+                    // Core\File\StoredFileReader, never the encrypted
+                    // storage directly: an inbound-mail attachment is
+                    // written by UploadHandler and is NOT encrypted, so
+                    // retrieve() handed its plaintext to decrypt(), threw,
+                    // and the consumer's catch turned that into « pas
+                    // d'octets » — silently, on every message. The reader
+                    // asks files.encrypted first.
+                    //
+                    // And it says so when it still cannot read: the
+                    // consumer files nothing on a null, which is exactly
+                    // the silence that hid the bug for a day. An id and
+                    // nothing else — a filename is personal data (§7.9).
+                    static function (int $fileId) use ($storedFileReader, $journalService): ?string {
+                        $content = $storedFileReader->read($fileId);
+                        if ($content === null) {
+                            $journalService->log(
+                                'finance',
+                                'inbound_receipt_unreadable',
+                                'warning',
+                                'Pièce jointe illisible : aucun reçu créé',
+                                ['file_id' => $fileId],
+                                null
+                            );
                         }
+
+                        return $content;
                     },
                     // « Cette adresse anime-t-elle un seul staff ? ». Built
                     // on the site's ONE SectionStaffAuthorizationService,
