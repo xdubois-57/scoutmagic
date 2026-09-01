@@ -810,7 +810,7 @@ class SetupController extends AbstractController
         }
 
         try {
-            $mailService = MailServiceFactory::create($secrets, $this->dkimManager);
+            $mailService = MailServiceFactory::create($secrets, $this->dkimManager, null, $this->journalService);
             $mailService->send(
                 to: $recipient,
                 subject: 'Email de test',
@@ -820,16 +820,15 @@ class SetupController extends AbstractController
 
             return $this->json(['success' => true, 'message' => 'Email envoyé avec succès.']);
         } catch (\Throwable $e) {
-            // MailException/PHPMailer answer in English, and an SMTP
-            // transcript can echo back the credentials that were tried.
-            $this->journalService?->log(
-                'core',
-                'setup_test_mail_failed',
-                'info',
-                'Échec de l\'envoi de l\'email de test depuis la page de configuration',
-                ['error' => $e->getMessage()]
-            );
-
+            // The journal entry is MailService's own `mail_send_failed`,
+            // written at the point of failure for every send on the site
+            // — this one used to write a second entry of its own, with
+            // PHPMailer's message unredacted, and an SMTP transcript can
+            // echo back the credentials that were tried.
+            //
+            // What stays here is the answer on screen: MailException and
+            // PHPMailer both speak English, and the setup page is read by
+            // somebody who has not got the site working yet.
             return $this->json(['success' => false, 'message' => UserFacingMessage::from(
                 $e,
                 'L\'email de test n\'a pas pu être envoyé — vérifiez le serveur SMTP, le port, et les '

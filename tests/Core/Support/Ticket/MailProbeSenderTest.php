@@ -162,6 +162,62 @@ class MailProbeSenderTest extends TestCase
         )->fetch(\PDO::FETCH_ASSOC);
         $this->assertIsArray($row);
         $this->assertSame('warning', $row['level']);
+
+        // And the reason the box refused, one entry per address, from
+        // MailService itself — « la sonde n'est pas partie » without it
+        // says nothing anybody can act on.
+        $failure = $this->pdo->query(
+            "SELECT level FROM event_log WHERE event_type = 'mail_send_failed'"
+        )->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($failure);
+        $this->assertSame('error', $failure['level']);
+    }
+
+    /**
+     * @return array<string, array{int, array<string, mixed>|string, string}>
+     */
+    public static function refusalProvider(): array
+    {
+        return self::failureProvider() + [
+            'it relays no mailbox at all' => [
+                200,
+                ['status' => 'unavailable', 'addresses' => []],
+                MailProbeSender::FAILURE_NO_MAILBOX,
+            ],
+            'it counted a run of its own' => [
+                200,
+                ['status' => 'rate_limited'],
+                MailProbeSender::FAILURE_RATE_LIMITED,
+            ],
+        ];
+    }
+
+    /**
+     * All the administrator sees is « L'e-mail de test n'a pas pu partir »,
+     * whichever of these it was. Only the run that DID send used to be
+     * journaled, so the event journal — which is also what the diagnostic
+     * archive carries — said nothing whatsoever about a probe they had
+     * just watched fail.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('refusalProvider')]
+    public function testEveryRefusalIsWrittenDownAndNotOnlyTheRunsThatSent(
+        int $status,
+        array|string $body,
+        string $expectedReason
+    ): void {
+        $transport = is_string($body)
+            ? new RecordingProbeTransport(StatisticsTransportResponse::response($status, $body))
+            : $this->transport($status, $body);
+
+        $this->sender($transport)->send($this->now());
+
+        $row = $this->pdo->query(
+            "SELECT level, context FROM event_log WHERE event_type = 'support_mail_probe_not_sent'"
+        )->fetch(\PDO::FETCH_ASSOC);
+
+        $this->assertIsArray($row);
+        $this->assertSame('warning', $row['level']);
+        $this->assertStringContainsString($expectedReason, (string) $row['context']);
     }
 
     public function testASecondRunWithinTheHourNeverLeaves(): void
@@ -326,7 +382,8 @@ class MailProbeSenderTest extends TestCase
                 shortName: 'Unité test',
                 dkimManager: new DkimManager($this->projectRoot . '/storage/keys'),
                 dkimSelector: 'mail',
-                transport: $this->mailTransport
+                transport: $this->mailTransport,
+                journal: $journal
             ),
             $journal,
             '1.0.33'

@@ -1080,7 +1080,7 @@ $mailCaptureTransport = \Modules\TestTools\Mail\CaptureTransportFactory::forInst
     dirname(__DIR__) . '/storage'
 );
 
-$mailService = MailServiceFactory::create($secrets, $dkimManager, $mailCaptureTransport);
+$mailService = MailServiceFactory::create($secrets, $dkimManager, $mailCaptureTransport, $journalService);
 
 // Automatic e-mails (Core\Mail\Template, ARCHITECTURE.md §8.7bis).
 //
