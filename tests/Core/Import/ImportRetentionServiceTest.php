@@ -51,14 +51,18 @@ class ImportRetentionServiceTest extends TestCase
         $this->storage = new EncryptedFileStorageService($fileRepository, $encryption, $this->storagePath);
         $this->settings = new SettingService(new SettingRepository($this->pdo));
 
-        // Oldest first, so the newest ends up "current".
-        foreach (['2022-2023', '2023-2024', '2024-2025', '2025-2026'] as $label) {
+        // Oldest first, so the newest ends up "current" — and relative to
+        // the year the application is actually in, not four calendar years
+        // written out. Spelling them out made this class expire on
+        // 1 September (Tests\DatabaseTestHelper::scoutYear()).
+        foreach ([-3, -2, -1, 0] as $offset) {
+            $label = $this->yearLabel($offset);
             $start = substr($label, 0, 4) . '-09-01';
             $end = substr($label, 5, 4) . '-08-31';
             $stmt = $this->pdo->prepare(
                 'INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES (?, ?, ?, ?)'
             );
-            $stmt->execute([$label, $start, $end, $label === '2025-2026' ? 1 : 0]);
+            $stmt->execute([$label, $start, $end, $offset === 0 ? 1 : 0]);
             $this->years[$label] = (int) $this->pdo->lastInsertId();
         }
 
@@ -89,7 +93,7 @@ class ImportRetentionServiceTest extends TestCase
 
         $beyond = $this->service->yearsBeyondRetention();
 
-        $this->assertSame([$this->years['2023-2024'], $this->years['2022-2023']], $beyond);
+        $this->assertSame([$this->years[$this->yearLabel(-2)], $this->years[$this->yearLabel(-3)]], $beyond);
     }
 
     public function testTheRetentionIsConfigurable(): void
@@ -98,7 +102,7 @@ class ImportRetentionServiceTest extends TestCase
         $this->settings->set(ImportRetentionService::SETTING_KEY, '3');
 
         $this->assertSame(3, $this->service->retentionYears());
-        $this->assertSame([$this->years['2022-2023']], $this->service->yearsBeyondRetention());
+        $this->assertSame([$this->years[$this->yearLabel(-3)]], $this->service->yearsBeyondRetention());
     }
 
     public function testARetentionOfZeroIsNeverHonouredBelowOneYear(): void
@@ -110,27 +114,27 @@ class ImportRetentionServiceTest extends TestCase
         // reads all season; losing them mid-season is not a retention
         // choice anybody can meaningfully make.
         $this->assertSame(1, $this->service->retentionYears());
-        $this->assertNotContains($this->years['2025-2026'], $this->service->yearsBeyondRetention());
+        $this->assertNotContains($this->years[$this->yearLabel(0)], $this->service->yearsBeyondRetention());
     }
 
     public function testAYearPreparedInAdvanceIsNeverPurged(): void
     {
         $stmt = $this->pdo->prepare('INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES (?, ?, ?, 0)');
-        $stmt->execute(['2026-2027', '2026-09-01', '2027-08-31']);
+        $stmt->execute(\Tests\DatabaseTestHelper::scoutYear(1));
         $futureYearId = (int) $this->pdo->lastInsertId();
 
         $beyond = $this->service->yearsBeyondRetention();
 
         $this->assertNotContains($futureYearId, $beyond);
         // And the window is still two real seasons wide, not one plus the future.
-        $this->assertNotContains($this->years['2024-2025'], $beyond);
-        $this->assertContains($this->years['2023-2024'], $beyond);
+        $this->assertNotContains($this->years[$this->yearLabel(-1)], $beyond);
+        $this->assertContains($this->years[$this->yearLabel(-2)], $beyond);
     }
 
     public function testAPurgeTakesTheRowTheFileAndTheSnapshotTogether(): void
     {
-        [$oldImportId, $oldFileId, $oldPath] = $this->seedImport('2022-2023');
-        [$keptImportId, $keptFileId, $keptPath] = $this->seedImport('2025-2026');
+        [$oldImportId, $oldFileId, $oldPath] = $this->seedImport($this->yearLabel(-3));
+        [$keptImportId, $keptFileId, $keptPath] = $this->seedImport($this->yearLabel(0));
 
         $purged = $this->service->purge();
 
@@ -141,7 +145,7 @@ class ImportRetentionServiceTest extends TestCase
         $this->assertNull((new FileRepository($this->pdo))->findById($oldFileId));
         $this->assertFileDoesNotExist($oldPath);
         $this->assertNull($this->snapshots->findByImport($oldImportId));
-        $this->assertSame(0, $this->countSnapshotMembers($this->years['2022-2023']));
+        $this->assertSame(0, $this->countSnapshotMembers($this->years[$this->yearLabel(-3)]));
 
         // Untouched: everything inside the window.
         $this->assertNotNull($this->imports->findById($keptImportId));
@@ -152,8 +156,8 @@ class ImportRetentionServiceTest extends TestCase
 
     public function testAPurgeWithNothingToPurgeDoesNothingAndSaysNothing(): void
     {
-        $this->seedImport('2025-2026');
-        $this->seedImport('2024-2025');
+        $this->seedImport($this->yearLabel(0));
+        $this->seedImport($this->yearLabel(-1));
 
         $this->assertSame(0, $this->service->purge());
         $this->assertSame([], $this->journalEntries());
@@ -161,7 +165,7 @@ class ImportRetentionServiceTest extends TestCase
 
     public function testThePurgeIsJournaledWithCountersOnly(): void
     {
-        $this->seedImport('2022-2023');
+        $this->seedImport($this->yearLabel(-3));
         $this->service->purge();
 
         $entries = $this->journalEntries();
@@ -175,13 +179,13 @@ class ImportRetentionServiceTest extends TestCase
 
     public function testEveryImportOfAPurgedSeasonGoes(): void
     {
-        $this->seedImport('2022-2023');
-        $this->seedImport('2022-2023');
-        $this->seedImport('2023-2024');
+        $this->seedImport($this->yearLabel(-3));
+        $this->seedImport($this->yearLabel(-3));
+        $this->seedImport($this->yearLabel(-2));
 
         $this->assertSame(3, $this->service->purge());
-        $this->assertSame(0, $this->imports->countForYear($this->years['2022-2023']));
-        $this->assertSame(0, $this->imports->countForYear($this->years['2023-2024']));
+        $this->assertSame(0, $this->imports->countForYear($this->years[$this->yearLabel(-3)]));
+        $this->assertSame(0, $this->imports->countForYear($this->years[$this->yearLabel(-2)]));
     }
 
     /* ------------------------------------------------------------------ */
@@ -192,6 +196,12 @@ class ImportRetentionServiceTest extends TestCase
      *
      * @return array{int, int, string} import id, file id, absolute blob path
      */
+    /** The label of the scout year `$offset` years from the current one. */
+    private function yearLabel(int $offset = 0): string
+    {
+        return \Tests\DatabaseTestHelper::scoutYear($offset)[0];
+    }
+
     private function seedImport(string $yearLabel): array
     {
         $scoutYearId = $this->years[$yearLabel];

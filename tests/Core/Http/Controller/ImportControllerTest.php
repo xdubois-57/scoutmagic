@@ -51,7 +51,8 @@ class ImportControllerTest extends TestCase
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
 
         // Create scout year
-        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
+        [$label, $yearStart, $yearEnd] = DatabaseTestHelper::scoutYear();
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('{$label}', '{$yearStart}', '{$yearEnd}', 1)");
 
         // Create admin user
         $stmt = $this->pdo->prepare("INSERT INTO user_accounts (email_encrypted, email_blind_index, is_super_admin) VALUES (?, 'admin_idx', 1)");
@@ -190,7 +191,9 @@ class ImportControllerTest extends TestCase
         $body = $response->getBody();
         $this->assertStringContainsString('Import Desk', $body);
         $this->assertStringContainsString('Année scoute', $body);
-        $this->assertStringContainsString('2025-2026', $body);
+        // The year the page renders is the CURRENT one, so the assertion
+        // has to ask for that rather than for a year written out.
+        $this->assertStringContainsString(DatabaseTestHelper::scoutYear()[0], $body);
     }
 
     public function testIndexShowsUploadForm(): void

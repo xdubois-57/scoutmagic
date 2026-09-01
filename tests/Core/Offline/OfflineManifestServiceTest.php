@@ -59,7 +59,8 @@ class OfflineManifestServiceTest extends TestCase
         $this->sectionService = new SectionService($connection, $this->encryption, $memberBadgeRepository);
         $this->memberService = new MemberService(new MemberYearRepository($this->pdo), $this->encryption, $connection);
 
-        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
+        [$label, $yearStart, $yearEnd] = DatabaseTestHelper::scoutYear();
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('{$label}', '{$yearStart}', '{$yearEnd}', 1)");
         $this->scoutYearId = (int) $this->pdo->lastInsertId();
 
         $this->pdo->exec("INSERT INTO age_branches (desk_code, label, sort_order) VALUES ('LOU', 'Louveteaux', 20)");

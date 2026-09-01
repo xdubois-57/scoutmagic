@@ -73,7 +73,7 @@ class GroupLifecycleServiceTest extends TestCase
         $this->storagePath = sys_get_temp_dir() . '/groups_lifecycle_' . bin2hex(random_bytes(6));
         mkdir($this->storagePath, 0o777, true);
 
-        $this->currentYearId = GroupsTestHelper::createScoutYear($this->pdo, '2025-2026', true);
+        $this->currentYearId = GroupsTestHelper::createScoutYear($this->pdo, \Tests\DatabaseTestHelper::scoutYear()[0], true);
     }
 
     protected function tearDown(): void
@@ -351,7 +351,7 @@ class GroupLifecycleServiceTest extends TestCase
 
     public function testAGroupOfAFutureYearIsNeverPurgedEither(): void
     {
-        $nextYearId = GroupsTestHelper::createScoutYear($this->pdo, '2026-2027', false);
+        $nextYearId = GroupsTestHelper::createScoutYear($this->pdo, \Tests\DatabaseTestHelper::scoutYear(1)[0], false);
         $groupId = $this->group('L\'an prochain', scoutYearId: $nextYearId);
         $this->groupRepo->setClosed($groupId, $this->at('-36 months'));
 

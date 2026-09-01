@@ -43,7 +43,8 @@ class RosterReplacementGuardTest extends TestCase
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
 
-        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
+        [$label, $yearStart, $yearEnd] = DatabaseTestHelper::scoutYear();
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('{$label}', '{$yearStart}', '{$yearEnd}', 1)");
         $this->scoutYearId = (int) $this->pdo->lastInsertId();
 
         $this->guard = new RosterReplacementGuard(
@@ -123,7 +124,8 @@ class RosterReplacementGuardTest extends TestCase
     {
         // A year nobody has imported yet: nothing is "missing" from an
         // empty roster, and the barrier must stay silent.
-        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2026-2027', '2026-09-01', '2027-08-31', 0)");
+        [$label, $yearStart, $yearEnd] = DatabaseTestHelper::scoutYear(1);
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('{$label}', '{$yearStart}', '{$yearEnd}', 0)");
         $nextYearId = (int) $this->pdo->lastInsertId();
 
         $assessment = $this->guard->assess($this->parsedFile(['BAL1' => 20]), $nextYearId, 0);
@@ -138,7 +140,8 @@ class RosterReplacementGuardTest extends TestCase
         // A fully populated current year must not make next year's first
         // import look like a mass deactivation.
         $this->buildRoster(['BAL1' => 30, 'LOUV1' => 30, 'ECL1' => 30]);
-        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2026-2027', '2026-09-01', '2027-08-31', 0)");
+        [$label, $yearStart, $yearEnd] = DatabaseTestHelper::scoutYear(1);
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('{$label}', '{$yearStart}', '{$yearEnd}', 0)");
         $nextYearId = (int) $this->pdo->lastInsertId();
 
         $assessment = $this->guard->assess($this->parsedFile(['BAL1' => 5]), $nextYearId, 0);
