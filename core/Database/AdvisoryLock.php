@@ -36,10 +36,20 @@ namespace Core\Database;
  * and refusing instead would turn every such test into a silent no-op that
  * still passes — the worst of both.
  *
- * **`::query()`, never `::exec()`, to release.** `RELEASE_LOCK()` returns a
- * result set, and leaving its cursor open breaks the very next query on
- * the connection with "Cannot execute queries while other unbuffered
- * queries are active". MigrationRunner learned that the hard way.
+ * **The name is BOUND, never interpolated.** The three copies this
+ * replaces each spliced a class constant into the SQL, which is a literal
+ * and therefore harmless — but a shared helper takes its name as an
+ * argument, and a primitive that merely happens to be called with
+ * constants today is one refactor away from being called with a request
+ * value. `Tests\Security\SqlInjectionAuditTest` caught exactly that the
+ * moment the constant became a parameter, which is what that audit is
+ * for. Prepared statement, bound parameter, no exception for "it is only
+ * a lock name".
+ *
+ * **The cursor is closed explicitly.** `GET_LOCK()`/`RELEASE_LOCK()` return
+ * a result set, and leaving one open breaks the very next query on the
+ * connection with "Cannot execute queries while other unbuffered queries
+ * are active". MigrationRunner learned that the hard way.
  */
 final class AdvisoryLock
 {
@@ -50,10 +60,11 @@ final class AdvisoryLock
     public static function acquire(\PDO $pdo, string $name): bool
     {
         try {
-            $stmt = $pdo->query("SELECT GET_LOCK('" . $name . "', 0)");
+            $stmt = $pdo->prepare('SELECT GET_LOCK(?, 0)');
             if ($stmt === false) {
                 return false;
             }
+            $stmt->execute([$name]);
             $acquired = (int) $stmt->fetchColumn();
             $stmt->closeCursor();
 
@@ -73,8 +84,9 @@ final class AdvisoryLock
     public static function release(\PDO $pdo, string $name): void
     {
         try {
-            $stmt = $pdo->query("SELECT RELEASE_LOCK('" . $name . "')");
+            $stmt = $pdo->prepare('SELECT RELEASE_LOCK(?)');
             if ($stmt !== false) {
+                $stmt->execute([$name]);
                 $stmt->closeCursor();
             }
         } catch (\PDOException) {
