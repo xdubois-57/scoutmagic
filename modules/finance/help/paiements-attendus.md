@@ -33,6 +33,16 @@ réservation et sa caution. Quand chaque attente est seule de son espèce,
 la liste s'affiche directement : un sous-groupe par ligne n'apprendrait
 rien à personne.
 
+Ces groupes portent le nom que leur donne le module qui les a créés : le
+titre de l'article pour un formulaire, la référence et le nom du
+locataire pour une location. Un objet supprimé depuis n'a plus de nom, et
+le groupe s'affiche alors avec son numéro.
+
+La colonne « Nom/Contact » montre le texte écrit par le module quand il y
+en a un, sinon le nom du membre qui doit cette somme — son nom actuel,
+même s'il a quitté l'unité depuis. Elle reste vide pour une créance qui
+ne vise personne de l'unité, un locataire extérieur par exemple.
+
 ## Ce que vous ne voyez pas
 
 Les paiements attendus sur un compte que votre rôle ne vous laisse pas

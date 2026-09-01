@@ -458,6 +458,45 @@ class MemberService
     }
 
     /**
+     * « Comment s'appellent ces gens ? » — display names for a list of
+     * persistent member ids, in one pass.
+     *
+     * The **current** name, meaning the one on the member's newest annual
+     * row, so somebody who has left the unit is still named rather than
+     * shown as a dash. Callers hold ids that outlive a scout year — a
+     * finance receivable names its debtor by `members.id` precisely
+     * because it survives the year that saw it born.
+     *
+     * A member with no readable name is absent from the result rather than
+     * present with an empty string: "we do not know" and "their name is
+     * blank" are different answers, and only the caller knows what to
+     * print for the first.
+     *
+     * @param int[] $memberIds
+     * @return array<int, string> member id => display name
+     */
+    public function findNamesForMembers(array $memberIds): array
+    {
+        $names = [];
+
+        foreach ($this->memberYearRepo->findMostRecentNamesForMembers($memberIds) as $memberId => $row) {
+            $first = $row['first_name_encrypted'] !== null
+                ? $this->encryption->decrypt($row['first_name_encrypted'], 'member_years.first_name')
+                : '';
+            $last = $row['last_name_encrypted'] !== null
+                ? $this->encryption->decrypt($row['last_name_encrypted'], 'member_years.last_name')
+                : '';
+
+            $display = trim($first . ' ' . $last);
+            if ($display !== '') {
+                $names[$memberId] = $display;
+            }
+        }
+
+        return $names;
+    }
+
+    /**
      * The active roster of one scout year, as picker entries.
      *
      * The batched counterpart to getLinkedMembers()/findProfileByMemberAndYear()

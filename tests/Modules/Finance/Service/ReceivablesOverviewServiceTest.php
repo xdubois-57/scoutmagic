@@ -24,6 +24,9 @@ class ReceivablesOverviewServiceTest extends TestCase
     private \PDO $pdo;
     private ReceivablesOverviewService $service;
     private ExpectedReceivableService $receivableService;
+    private ExpectedReceivableRepository $repository;
+    private AccountRepository $accountRepository;
+    private \Modules\Finance\Service\AccountVisibility $visibility;
     private int $accountId;
 
     protected function setUp(): void
@@ -32,20 +35,20 @@ class ReceivablesOverviewServiceTest extends TestCase
         FinanceTestHelper::createTables($this->pdo);
 
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
-        $repository = new ExpectedReceivableRepository($this->pdo, $encryption);
+        $this->repository = new ExpectedReceivableRepository($this->pdo, $encryption);
         $transactionRepository = new TransactionRepository($this->pdo, $encryption);
-        $this->receivableService = FinanceTestHelper::receivableService($this->pdo, $encryption, $repository);
-        $this->service = new ReceivablesOverviewService(
-            $repository,
-            $this->receivableService,
-            new AccountRepository($this->pdo, $encryption),
-            new \Modules\Finance\Service\AccountVisibility(
-                // No badge assigned in these fixtures, so the treasurer
-                // rule is off and the module behaves exactly as it did
-                // before it existed — which is what these tests assert.
-                \Modules\Finance\Service\TreasurerScope::systemCaller()
-            )
+        $this->receivableService = FinanceTestHelper::receivableService($this->pdo, $encryption, $this->repository);
+        $this->accountRepository = new AccountRepository($this->pdo, $encryption);
+        $this->visibility = new \Modules\Finance\Service\AccountVisibility(
+            // No badge assigned in these fixtures, so the treasurer rule is
+            // off and the module behaves exactly as it did before it
+            // existed — which is what these tests assert.
+            \Modules\Finance\Service\TreasurerScope::systemCaller()
         );
+
+        // No describer: the shape a module nobody anticipated produces.
+        // The tests about naming build their own.
+        $this->service = $this->serviceWith();
 
         $stmt = $this->pdo->prepare("INSERT INTO finance_accounts (name, account_type) VALUES ('Compte', 'bank')");
         $stmt->execute();
@@ -67,7 +70,9 @@ class ReceivablesOverviewServiceTest extends TestCase
 
         $this->assertCount(1, $overview);
         $this->assertSame('news', $overview[0]['source_module']);
-        $this->assertSame('Formulaires', $overview[0]['source_label']);
+        // No describer wired in this fixture — the naming tests below own
+        // that question.
+        $this->assertSame('News', $overview[0]['source_label']);
         $this->assertCount(2, $overview[0]['instances']);
 
         $instance1 = current(array_filter($overview[0]['instances'], fn($i) => $i['source_reference_id'] === 1));
@@ -75,21 +80,214 @@ class ReceivablesOverviewServiceTest extends TestCase
         $this->assertSame(5500, $instance1['amount_due']);
     }
 
-    public function testTheTwoModulesThatRegisterReceivablesAreNamedInFrench(): void
+    // ── « Nom/Contact » : qui doit cet argent ───────────────────────────
+
+    /**
+     * `member_id` has always said WHO owes a receivable — the schema says
+     * so in as many words — and the column headed « Nom/Contact » printed
+     * « — » for one that carried a debtor and no free text.
+     */
+    public function testAReceivableWithNoLabelIsNamedAfterItsMember(): void
     {
-        // The fallback is ucfirst(module id) — « Rental » in front of a
-        // French chef d'unité. Both modules that actually register
-        // receivables today carry the name their own manifest declares.
-        $this->receivableService->createReceivable('rental', 45, $this->accountId, 30000, '+++400/0000/00004+++', 'LOC-2027-0012 — Jean Dupont');
-        $this->receivableService->createReceivable('rental', 45, $this->accountId, 15000, '+++500/0000/00005+++', 'Caution LOC-2027-0012 — Jean Dupont');
+        $this->receivableService->createReceivable('news', 1, $this->accountId, 2500, '+++100/0000/00034+++', null, 42);
+
+        $overview = $this->serviceNaming([42 => 'Jean Dupont'])->buildOverview(Role::INTENDANT);
+
+        $this->assertSame('Jean Dupont', $overview[0]['receivables'][0]['label']);
+    }
+
+    public function testTheSourceModulesOwnTextWins(): void
+    {
+        // « Caution LOC-2027-0012 — Jean Dupont » says more than a name:
+        // the module wrote it because it knew something this page does not.
+        $this->receivableService->createReceivable('news', 1, $this->accountId, 2500, '+++100/0000/00034+++', 'Caution — Jean Dupont', 42);
+
+        $overview = $this->serviceNaming([42 => 'Jean Dupont'])->buildOverview(Role::INTENDANT);
+
+        $this->assertSame('Caution — Jean Dupont', $overview[0]['receivables'][0]['label']);
+    }
+
+    public function testAMemberNobodyCanNameStaysUnnamed(): void
+    {
+        // "We do not know" is not "their name is blank": the template
+        // prints its own dash.
+        $this->receivableService->createReceivable('news', 1, $this->accountId, 2500, '+++100/0000/00034+++', null, 42);
+
+        $overview = $this->serviceNaming([])->buildOverview(Role::INTENDANT);
+
+        $this->assertNull($overview[0]['receivables'][0]['label']);
+    }
+
+    public function testAReceivableWithNoDebtorAtAllIsUnaffected(): void
+    {
+        // An outside renter is nobody's member — the column is empty and
+        // that is the truth.
+        $this->receivableService->createReceivable('news', 1, $this->accountId, 2500, '+++100/0000/00034+++', null);
+
+        $overview = $this->serviceNaming([42 => 'Jean Dupont'])->buildOverview(Role::INTENDANT);
+
+        $this->assertNull($overview[0]['receivables'][0]['label']);
+    }
+
+    public function testTheNamesAreResolvedInOneCallForTheWholePage(): void
+    {
+        // A lookup per row decrypts a name per row. Two hundred rows is
+        // two hundred round trips through the encryption service.
+        foreach ([1, 2, 3] as $i) {
+            $this->receivableService->createReceivable('news', $i, $this->accountId, 2500, '+++10' . $i . '/0000/0003' . $i . '+++', null, 40 + $i);
+        }
+
+        $calls = 0;
+        $service = $this->serviceWith(memberNames: function (array $ids) use (&$calls): array {
+            $calls++;
+
+            return [41 => 'Anna', 42 => 'Bruno', 43 => 'Carla'];
+        });
+
+        $labels = array_column($service->buildOverview(Role::INTENDANT)[0]['receivables'], 'label');
+
+        $this->assertSame(1, $calls);
+        $this->assertSame(['Anna', 'Bruno', 'Carla'], $labels);
+    }
+
+    public function testAResolverThatThrowsLeavesTheRowsUnnamedRatherThanThePageBroken(): void
+    {
+        $this->receivableService->createReceivable('news', 1, $this->accountId, 2500, '+++100/0000/00034+++', null, 42);
+
+        $overview = $this->serviceWith(memberNames: static function (array $ids): array {
+            throw new \RuntimeException('boom');
+        })->buildOverview(Role::INTENDANT);
+
+        $this->assertNull($overview[0]['receivables'][0]['label']);
+    }
+
+    public function testTheViewModelNeverCarriesAMemberIdToTheTemplate(): void
+    {
+        // A template has no use for one, and one it can reach is one it
+        // will eventually print.
+        $this->receivableService->createReceivable('news', 1, $this->accountId, 2500, '+++100/0000/00034+++', null, 42);
+
+        $overview = $this->serviceNaming([42 => 'Jean Dupont'])->buildOverview(Role::INTENDANT);
+
+        $this->assertArrayNotHasKey('member_id', $overview[0]['receivables'][0]);
+        $this->assertArrayNotHasKey('member_id', $overview[0]['instances'][0]['receivables'][0]);
+    }
+
+    /**
+     * @param array<int, string> $names
+     */
+    private function serviceNaming(array $names): ReceivablesOverviewService
+    {
+        return $this->serviceWith(memberNames: static fn(array $ids): array => $names);
+    }
+
+    // ── Le module source nomme ses propres créances ─────────────────────
+
+    /**
+     * Finance knows a source instance only as a numeric id — that is what
+     * lets this page work for any future module — so the group used to be
+     * headed « Rental #45 »: a primary key, in English, above rows already
+     * reading « LOC-2027-0012 — Jean Dupont ».
+     */
+    public function testTheSourceModuleNamesItsOwnGroupAndItsOwnInstances(): void
+    {
+        $this->givenARentalBookingWithItsDeposit();
+
+        $overview = $this->serviceWith([new FakeReceivableSourceDescriber(
+            'rental',
+            'Locations',
+            static fn(int $id): ?string => $id === 45 ? 'LOC-2027-0012 — Jean Dupont' : null
+        )])->buildOverview(Role::INTENDANT);
+
+        $this->assertSame('Locations', $overview[0]['source_label']);
+        // A booking and its deposit share a source_reference_id, so the
+        // middle level does group here — and now says what it groups.
+        $this->assertTrue($overview[0]['groups_instances']);
+        $this->assertSame('LOC-2027-0012 — Jean Dupont', $overview[0]['instances'][0]['instance_label']);
+    }
+
+    public function testASourceWithNoDescriberKeepsTheOldNames(): void
+    {
+        // A module nobody anticipated must still appear, rather than
+        // disappear for want of a describer.
+        $this->givenARentalBookingWithItsDeposit();
 
         $overview = $this->service->buildOverview(Role::INTENDANT);
 
+        $this->assertSame('Rental', $overview[0]['source_label']);
+        $this->assertSame('Rental #45', $overview[0]['instances'][0]['instance_label']);
+    }
+
+    public function testAReferenceItsModuleNoLongerRecognisesFallsBackToTheId(): void
+    {
+        // The booking was deleted. Naming the group by its id is honest;
+        // an invented name would not be.
+        $this->givenARentalBookingWithItsDeposit();
+
+        $overview = $this->serviceWith([new FakeReceivableSourceDescriber(
+            'rental',
+            'Locations',
+            static fn(int $id): ?string => null
+        )])->buildOverview(Role::INTENDANT);
+
         $this->assertSame('Locations', $overview[0]['source_label']);
-        // A booking and its security deposit share a source_reference_id,
-        // so the middle level does group here — and has to say something.
-        $this->assertTrue($overview[0]['groups_instances']);
-        $this->assertSame('Location #45', $overview[0]['instances'][0]['instance_label']);
+        $this->assertSame('Rental #45', $overview[0]['instances'][0]['instance_label']);
+    }
+
+    public function testADescriberThatThrowsDoesNotTakeThePageDown(): void
+    {
+        // One module unable to name its own object must not cost the
+        // treasurer the list of everybody's.
+        $this->givenARentalBookingWithItsDeposit();
+
+        $overview = $this->serviceWith([new FakeReceivableSourceDescriber(
+            'rental',
+            'Locations',
+            static function (int $id): ?string {
+                throw new \RuntimeException('boom');
+            },
+            throwOnSourceLabel: true
+        )])->buildOverview(Role::INTENDANT);
+
+        $this->assertSame('Rental', $overview[0]['source_label']);
+        $this->assertSame('Rental #45', $overview[0]['instances'][0]['instance_label']);
+    }
+
+    public function testADescriberOnlyEverSpeaksForItsOwnModule(): void
+    {
+        $this->givenARentalBookingWithItsDeposit();
+        $this->receivableService->createReceivable('news', 12, $this->accountId, 1000, '+++600/0000/00006+++', 'Alice');
+
+        $overview = $this->serviceWith([new FakeReceivableSourceDescriber(
+            'rental',
+            'Locations',
+            static fn(int $id): ?string => 'LOC-2027-0012 — Jean Dupont'
+        )])->buildOverview(Role::INTENDANT);
+
+        $byModule = array_column($overview, 'source_label', 'source_module');
+        $this->assertSame('Locations', $byModule['rental']);
+        $this->assertSame('News', $byModule['news'], 'the rental describer must not name another module');
+    }
+
+    private function givenARentalBookingWithItsDeposit(): void
+    {
+        $this->receivableService->createReceivable('rental', 45, $this->accountId, 30000, '+++400/0000/00004+++', 'LOC-2027-0012 — Jean Dupont');
+        $this->receivableService->createReceivable('rental', 45, $this->accountId, 15000, '+++500/0000/00005+++', 'Caution LOC-2027-0012 — Jean Dupont');
+    }
+
+    /**
+     * @param \Modules\Finance\Api\ReceivableSourceDescriberInterface[] $describers
+     */
+    private function serviceWith(array $describers = [], ?\Closure $memberNames = null): ReceivablesOverviewService
+    {
+        return new ReceivablesOverviewService(
+            $this->repository,
+            $this->receivableService,
+            $this->accountRepository,
+            $this->visibility,
+            $describers,
+            $memberNames
+        );
     }
 
     // ── Le niveau intermédiaire ne s'affiche que s'il groupe ────────────
@@ -270,5 +468,41 @@ class ReceivablesOverviewServiceTest extends TestCase
         $this->assertSame(2500, $overview[0]['amount_due']);
         $this->assertSame(0, $overview[0]['amount_received']);
         $this->assertSame(2500, $overview[0]['instances'][0]['amount_due']);
+    }
+}
+
+/**
+ * A source module naming its own receivables, without dragging that
+ * module's repositories into this test.
+ *
+ * @internal
+ */
+final class FakeReceivableSourceDescriber implements \Modules\Finance\Api\ReceivableSourceDescriberInterface
+{
+    public function __construct(
+        private string $sourceModule,
+        private string $sourceLabel,
+        private \Closure $onDescribeInstance,
+        private bool $throwOnSourceLabel = false
+    ) {
+    }
+
+    public function sourceModule(): string
+    {
+        return $this->sourceModule;
+    }
+
+    public function sourceLabel(): string
+    {
+        if ($this->throwOnSourceLabel) {
+            throw new \RuntimeException('boom');
+        }
+
+        return $this->sourceLabel;
+    }
+
+    public function describeInstance(int $sourceReferenceId): ?string
+    {
+        return ($this->onDescribeInstance)($sourceReferenceId);
     }
 }

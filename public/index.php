@@ -3484,11 +3484,41 @@ if ($isEnabled('finance')) {
     $financeSepaQrCodeForOthers = new \Modules\Finance\Service\SepaQrCodeService();
     $financeAccountForOthers = new \Modules\Finance\Service\FinanceAccountService($financeAccountRepo);
 
+    // Who names the groups on « Paiements attendus »
+    // (Api\ReceivableSourceDescriberInterface). Finance knows a source
+    // instance only as a numeric id — that is what lets the page work for
+    // any future module — so the module that created the expectation says
+    // what it is called, and the page stops heading a group « Location #45 ».
+    //
+    // Their repositories are built here rather than reused from the news
+    // and rental blocks below: those run later in this file, and a
+    // describer needing one of them would tie the finance block's position
+    // to theirs. A repository is a stateless reader; a second instance
+    // costs an object.
+    $financeSourceDescribers = [];
+    if ($isEnabled('rental')) {
+        $financeSourceDescribers[] = new \Modules\Rental\Finance\RentalReceivableDescriber(
+            new \Modules\Rental\Repository\RentalBookingRepository($pdo, $encryptionService)
+        );
+    }
+    if ($isEnabled('news')) {
+        $financeSourceDescribers[] = new \Modules\News\Finance\NewsReceivableDescriber(
+            new \Modules\News\Repository\FormRepository($pdo),
+            new \Modules\News\Repository\ArticleRepository($pdo)
+        );
+    }
+
     $financeReceivablesOverviewService = new \Modules\Finance\Service\ReceivablesOverviewService(
         $financeExpectedReceivableRepo,
         $financeExpectedReceivableForOthers,
         $financeAccountRepo,
-        $financeAccountVisibility
+        $financeAccountVisibility,
+        $financeSourceDescribers,
+        // « Comment s'appellent ces gens ? » as a question rather than as
+        // Core\Member\MemberService's whole surface. `member_id` has always
+        // said who owes a receivable; the column headed « Nom/Contact »
+        // printed « — » for one that carried a debtor and no free text.
+        static fn(array $memberIds): array => $memberService->findNamesForMembers($memberIds)
     );
     $frontController->registerController(
         \Modules\Finance\Controller\ReceivablesController::class,

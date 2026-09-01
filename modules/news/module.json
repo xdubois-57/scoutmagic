@@ -2,7 +2,7 @@
   "id": "news",
   "name": "Actualités",
   "description": "Articles d'actualité avec formulaires intégrés (inscriptions, paiements optionnels), référencement SEO et affiche A4 avec QR code.",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "enabled_by_default": true,
   "routes": [
     {
