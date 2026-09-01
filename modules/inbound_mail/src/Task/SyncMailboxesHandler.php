@@ -137,21 +137,27 @@ class SyncMailboxesHandler implements TaskHandlerInterface
             $service->syncAll(new \DateTimeImmutable());
         }
 
-        // Unconditionally, and NOT through bootstrap(): SchedulerRunner
-        // marks a task done only after handle() returns, so this very task
-        // is still `pending` right now and bootstrap()'s guard would find
-        // it, skip, and end the chain after a single run.
+        // Through rearm(), and NOT through bootstrap(): bootstrap() also
+        // CANCELS and re-queues to pull a run forward, which is not what
+        // the end of a run wants. rearm()'s own guard is the right one
+        // here — `claimOverdue()` marked this row `processing` before
+        // calling us, so it does not find itself and does queue the
+        // successor, while a DUPLICATE chain (born when a page view seeds
+        // the task during that same `processing` window) finds the
+        // successor pending and stands down. That last half is the fix:
+        // this call used to be an unguarded scheduleAfter(), so on the
+        // reference installation nine copies of this chain kept each other
+        // alive and the mailbox was polled nine times per pass.
         //
         // Re-read on every run rather than captured once: the chain is the
         // only thing that ever re-arms it, so a value read at startup would
         // be the value in force until the site restarts.
         $scheduler = new SchedulerService(new SchedulerRepository($pdo));
-        $scheduler->scheduleAfter(
+        $scheduler->rearmAfter(
             'inbound_mail',
             self::TASK_KEY,
-            self::intervalSeconds($context->settings),
-            [],
-            self::REFERENCE
+            self::REFERENCE,
+            self::intervalSeconds($context->settings)
         );
     }
 
@@ -211,18 +217,19 @@ class SyncMailboxesHandler implements TaskHandlerInterface
 
         $pending = $scheduler->find('inbound_mail', self::TASK_KEY, self::REFERENCE);
 
-        if ($pending === null) {
-            $scheduler->scheduleAfter('inbound_mail', self::TASK_KEY, $intervalSeconds, [], self::REFERENCE);
-
-            return;
+        // Drop a run queued further out than a whole interval — that is
+        // the pull-forward. Everything else is left where it is, and
+        // rearmAfter() below then either queues the first run or finds
+        // that one is already queued and stands down. Two branches
+        // collapsed into one, and the arming goes through the SAME
+        // guarded call as every other recurring chain: this method runs
+        // on every page view, so an unguarded one queued a row per
+        // request the moment its `find()` missed.
+        if ($pending !== null && self::isFurtherOutThan($pending, $intervalSeconds)) {
+            $scheduler->cancel((int) $pending['id']);
         }
 
-        if (!self::isFurtherOutThan($pending, $intervalSeconds)) {
-            return;
-        }
-
-        $scheduler->cancel((int) $pending['id']);
-        $scheduler->scheduleAfter('inbound_mail', self::TASK_KEY, $intervalSeconds, [], self::REFERENCE);
+        $scheduler->rearmAfter('inbound_mail', self::TASK_KEY, self::REFERENCE, $intervalSeconds);
     }
 
     /**

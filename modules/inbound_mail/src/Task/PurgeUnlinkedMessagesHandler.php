@@ -105,7 +105,7 @@ class PurgeUnlinkedMessagesHandler implements TaskHandlerInterface
         // is still `pending` and a guard would find it, skip, and end the
         // chain after a single run.
         (new SchedulerService(new SchedulerRepository($pdo)))
-            ->scheduleAfter('inbound_mail', self::TASK_KEY, self::INTERVAL_SECONDS, [], self::REFERENCE);
+            ->rearmAfter('inbound_mail', self::TASK_KEY, self::REFERENCE, self::INTERVAL_SECONDS);
     }
 
     /**
@@ -201,6 +201,6 @@ class PurgeUnlinkedMessagesHandler implements TaskHandlerInterface
 
     public static function bootstrap(SchedulerService $scheduler): void
     {
-        $scheduler->scheduleAfter('inbound_mail', self::TASK_KEY, self::INTERVAL_SECONDS, [], self::REFERENCE);
+        $scheduler->rearmAfter('inbound_mail', self::TASK_KEY, self::REFERENCE, self::INTERVAL_SECONDS);
     }
 }

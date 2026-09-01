@@ -219,9 +219,13 @@
     {% endif %}
     {# Installable PWA (Lot 1) — appVersion (Core\Maintenance\VersionFile)
        is the entire update mechanism: the query string changes on every
-       release, so the browser treats /sw.js as a new script and installs
-       it, purging every stale app-shell cache (see public/sw.js's own
-       activate handler). updateViaCache: 'none' additionally stops the
+       release OR any stylesheet or script changes (asset_version,
+       Core\Maintenance\AssetVersion), so the browser treats /sw.js as a
+       new script and installs it, purging every stale app-shell cache
+       (see public/sw.js's own activate handler). It used to be
+       app_version alone, which is why a deploy that did not cut a
+       release left every precached asset stale — new markup rendering
+       against the previous stylesheet. updateViaCache: 'none' additionally stops the
        browser from serving the WORKER SCRIPT ITSELF from its own HTTP
        cache — without it, a changed ?v= alone can still resolve to a
        byte-identical cached sw.js response on some browsers.
@@ -235,7 +239,7 @@
     <script nonce="{{ csp_nonce }}">
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', function () {
-            navigator.serviceWorker.register('/sw.js?v={{ app_version|default('0.0.0') }}&iv={{ pwa_icon_version|default(1) }}', { updateViaCache: 'none' });
+            navigator.serviceWorker.register('/sw.js?v={{ asset_version|default(app_version|default('0.0.0')) }}&iv={{ pwa_icon_version|default(1) }}', { updateViaCache: 'none' });
         });
     }
     </script>

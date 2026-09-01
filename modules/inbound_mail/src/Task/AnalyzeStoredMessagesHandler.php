@@ -76,7 +76,7 @@ class AnalyzeStoredMessagesHandler implements TaskHandlerInterface
         // is still `pending` right now and a guard would find it, skip, and
         // end the chain after a single run.
         (new SchedulerService(new SchedulerRepository($pdo)))
-            ->scheduleAfter('inbound_mail', self::TASK_KEY, self::INTERVAL_SECONDS, [], self::REFERENCE);
+            ->rearmAfter('inbound_mail', self::TASK_KEY, self::REFERENCE, self::INTERVAL_SECONDS);
     }
 
     private function analyzeBatch(InboundMessageRepository $messages, EncryptionService $encryption): void
@@ -106,6 +106,6 @@ class AnalyzeStoredMessagesHandler implements TaskHandlerInterface
      */
     public static function bootstrap(SchedulerService $scheduler): void
     {
-        $scheduler->scheduleAfter('inbound_mail', self::TASK_KEY, self::INTERVAL_SECONDS, [], self::REFERENCE);
+        $scheduler->rearmAfter('inbound_mail', self::TASK_KEY, self::REFERENCE, self::INTERVAL_SECONDS);
     }
 }

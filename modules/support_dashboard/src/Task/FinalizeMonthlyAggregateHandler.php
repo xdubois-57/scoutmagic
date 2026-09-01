@@ -64,7 +64,7 @@ class FinalizeMonthlyAggregateHandler implements TaskHandlerInterface
             }
         } finally {
             (new SchedulerService(new SchedulerRepository($context->connection->getPdo())))
-                ->scheduleAfter('support_dashboard', self::TASK_KEY, self::INTERVAL_SECONDS, [], self::REFERENCE);
+                ->rearmAfter('support_dashboard', self::TASK_KEY, self::REFERENCE, self::INTERVAL_SECONDS);
         }
     }
 }

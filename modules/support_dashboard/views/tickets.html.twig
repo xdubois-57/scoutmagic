@@ -13,15 +13,7 @@
 
 {% include 'partials/page_header.html.twig' with { title: 'Tickets de support' } only %}
 
-{# Deux pages, une seule entrée de menu : le menu nomme la fonction, ces
-   onglets nomment les écrans qu'elle contient. #}
-{% include 'partials/sub_nav.html.twig' with {
-    items: [
-        { label: 'Tableau de bord', url: '/support-dashboard' },
-        { label: 'Tickets', url: '/support-dashboard/tickets' },
-    ],
-    current: '/support-dashboard/tickets',
-} only %}
+{% include '@support_dashboard/_nav.html.twig' %}
 
 
 {# Filtres et recherche vivent dans la query string et nulle part ailleurs

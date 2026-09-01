@@ -96,7 +96,7 @@ class RefreshModelsHandler implements TaskHandlerInterface
 
         // Schedule next run in 7 days
         $nextRun = new \DateTimeImmutable('+7 days');
-        $schedulerService->schedule('llm_connector', 'refresh_models', $nextRun, [], 'weekly');
+        $schedulerService->rearm('llm_connector', 'refresh_models', 'weekly', $nextRun);
     }
 
     private function createDriver(string $driver, string $apiEndpoint, string $apiKey): LlmProviderInterface

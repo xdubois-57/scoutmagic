@@ -117,6 +117,7 @@ class SupportTicketControllerTest extends TestCase
             'the list' => ['/support-dashboard/tickets', 'index', 'GET'],
             'a ticket' => ['/support-dashboard/tickets/{id}', 'detail', 'GET'],
             'closing one' => ['/support-dashboard/tickets/{id}/close', 'close', 'POST'],
+            'reopening one' => ['/support-dashboard/tickets/{id}/reopen', 'reopen', 'POST'],
             'the analysis' => ['/support-dashboard/tickets/analyse', 'analyse', 'POST'],
         ];
     }

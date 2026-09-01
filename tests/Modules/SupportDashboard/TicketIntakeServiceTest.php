@@ -4,9 +4,18 @@ declare(strict_types=1);
 
 namespace Tests\Modules\SupportDashboard;
 
+use Core\Config\SettingRepository;
+use Core\Config\SettingService;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
+use Core\Notification\NotificationPreferenceRepository;
+use Core\Notification\NotificationRepository;
+use Core\Notification\NotificationService;
+use Core\Notification\PushSubscriptionRepository;
+use Core\Scheduler\SchedulerRepository;
+use Core\Scheduler\SchedulerService;
 use Core\Security\EncryptionService;
+use Core\Security\UserAccountRepository;
 use Modules\SupportDashboard\Repository\SupportInstallationRepository;
 use Modules\SupportDashboard\Repository\SupportTicketRepository;
 use Modules\SupportDashboard\Service\StatisticsIntakeService;
@@ -31,6 +40,7 @@ class TicketIntakeServiceTest extends TestCase
     private EncryptionService $encryption;
     private TicketIntakeService $service;
     private SupportTicketRepository $tickets;
+    private NotificationRepository $notifications;
 
     private const INSTALLATION_ID = '0a1b2c3d4e5f60718293a4b5c6d7e8f9';
     private const SECRET = 'f1e2d3c4b5a6978869504132231405f6f1e2d3c4b5a6978869504132231405f6';
@@ -45,10 +55,31 @@ class TicketIntakeServiceTest extends TestCase
         $installations = new SupportInstallationRepository($this->pdo);
         $this->tickets = new SupportTicketRepository($this->pdo, $this->encryption);
 
+        $this->notifications = new NotificationRepository($this->pdo, $this->encryption);
+        $notificationService = new NotificationService(
+            $this->notifications,
+            new PushSubscriptionRepository($this->pdo, $this->encryption),
+            new NotificationPreferenceRepository($this->pdo),
+            null,
+            new SettingService(new SettingRepository($this->pdo)),
+            new JournalService(new JournalRepository($this->pdo)),
+            new SchedulerService(new SchedulerRepository($this->pdo)),
+            new UserAccountRepository($this->pdo, $this->encryption)
+        );
+        $notificationService->registerModuleTypes('support_dashboard', [[
+            'id' => TicketIntakeService::NOTIFICATION_TICKET_RECEIVED,
+            'label' => 'Nouveau ticket de support',
+            'description' => 'desc',
+            'group' => 'Supervision',
+            'role_min' => 'superadmin',
+            'channels' => ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_off'],
+        ]]);
+
         $this->service = new TicketIntakeService(
             $installations,
             $this->tickets,
-            new JournalService(new JournalRepository($this->pdo))
+            new JournalService(new JournalRepository($this->pdo)),
+            $notificationService
         );
 
         $installations->register(
@@ -333,7 +364,82 @@ class TicketIntakeServiceTest extends TestCase
         $this->assertTrue($this->receive()->accepted);
     }
 
+    // ── The notification the receiver gets (« un super admin doit être
+    //    prévenu ») ───────────────────────────────────────────────────
+
+    /**
+     * The queue is not a mailbox anybody watches: without this, a ticket
+     * sent on a Friday evening waited for somebody to think of opening
+     * /support-dashboard/tickets.
+     */
+    public function testATicketTellsTheSuperadminsItArrived(): void
+    {
+        $userId = $this->seedUserAccount();
+
+        $this->receive();
+
+        $received = $this->notifications->findByUserAccountId($userId);
+
+        $this->assertCount(1, $received);
+        $this->assertSame('Nouveau ticket de support', $received[0]->title);
+        $this->assertStringContainsString('Import Desk', $received[0]->body);
+        $this->assertStringStartsWith('/support-dashboard/tickets/', (string) $received[0]->url);
+    }
+
+    /**
+     * A notification becomes a push payload on a phone and, for whoever
+     * switched that channel on, an e-mail. The description and the
+     * contact address are exactly what it may never carry — the same rule
+     * the journal entry beside it already obeys (SECURITY.md §11).
+     */
+    public function testTheNotificationCarriesNothingAnybodyWrote(): void
+    {
+        $userId = $this->seedUserAccount();
+
+        $this->receive([
+            'description' => 'Mon import Desk ne passe plus depuis hier.',
+            'contact_email' => 'chef@unite.be',
+        ]);
+
+        $received = $this->notifications->findByUserAccountId($userId);
+        $everything = $received[0]->title . ' ' . $received[0]->body . ' ' . (string) $received[0]->url;
+
+        $this->assertStringNotContainsString('import Desk ne passe plus', $everything);
+        $this->assertStringNotContainsString('chef@unite.be', $everything);
+    }
+
+    /**
+     * Nothing wired a notification service: the ticket is stored and
+     * journaled exactly as before rather than refused.
+     */
+    public function testWithoutANotificationServiceTheTicketStillLands(): void
+    {
+        $service = new TicketIntakeService(
+            new SupportInstallationRepository($this->pdo),
+            $this->tickets,
+            new JournalService(new JournalRepository($this->pdo))
+        );
+
+        $result = $service->receive($this->body(), 'Bearer ' . self::SECRET, '203.0.113.1', true);
+
+        $this->assertTrue($result->accepted);
+        $this->assertSame(1, $this->countTickets());
+    }
+
     // ── Fixtures ────────────────────────────────────────────────────────
+
+    private function seedUserAccount(): int
+    {
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO user_accounts (email_encrypted, email_blind_index, is_super_admin) VALUES (?, ?, 1)'
+        );
+        $stmt->execute([
+            $this->encryption->encrypt('chef@unite.be', 'user_accounts.email'),
+            $this->encryption->blindIndex(EncryptionService::normalizeEmailForIndex('chef@unite.be'), 'email'),
+        ]);
+
+        return (int) $this->pdo->lastInsertId();
+    }
 
     /**
      * @param array<string, mixed> $overrides

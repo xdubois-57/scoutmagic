@@ -69,6 +69,6 @@ class PurgeHelpAssistantHandler implements TaskHandlerInterface
         (new AssistantCacheRepository($pdo))->deleteOlderThan($cacheCutoff);
 
         $schedulerService = new SchedulerService(new SchedulerRepository($pdo));
-        $schedulerService->scheduleAfter('core', self::TASK_KEY, self::INTERVAL_SECONDS, [], self::REFERENCE);
+        $schedulerService->rearmAfter('core', self::TASK_KEY, self::REFERENCE, self::INTERVAL_SECONDS);
     }
 }

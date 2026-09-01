@@ -239,6 +239,51 @@ class SchedulerServiceTest extends TestCase
         );
     }
 
+    public function testRearmAfterIsRearmSaidAsADelay(): void
+    {
+        $this->assertTrue($this->service->rearmAfter('core', 'purge', 'daily', 3600));
+        $this->assertFalse($this->service->rearmAfter('core', 'purge', 'daily', 3600));
+
+        $rows = $this->service->findAllForTask('core', 'purge');
+        $this->assertCount(1, $rows);
+        $this->assertGreaterThan(
+            (new \DateTimeImmutable('+50 minutes'))->format('Y-m-d H:i:s'),
+            (string) $rows[0]['run_at']
+        );
+    }
+
+    /**
+     * The whole reason `rearmAfter()` exists, reproduced.
+     *
+     * A production installation ran `sync_mailboxes` NINE times per pass
+     * for weeks: nine duplicate chains, each re-arming blindly, each
+     * keeping the other eight company. With the guard the duplicates are
+     * self-healing — whichever copy runs first queues the successor, the
+     * other eight find it pending and stand down — so one pass is enough
+     * to be back to a single chain.
+     */
+    public function testDuplicateChainsCollapseToOneOnTheNextPass(): void
+    {
+        // Nine copies, exactly as the reference installation had them.
+        for ($i = 0; $i < 9; $i++) {
+            $this->service->schedule('inbound_mail', 'sync_mailboxes', new \DateTimeImmutable('-1 minute'), [], 'quarter_hourly');
+        }
+        $this->assertCount(9, $this->repo->claimOverdue());
+
+        // Each claimed row's handler re-arms, the way every recurring
+        // chain in this codebase now does.
+        for ($i = 0; $i < 9; $i++) {
+            $this->service->rearmAfter('inbound_mail', 'sync_mailboxes', 'quarter_hourly', 900);
+        }
+
+        $pending = array_filter(
+            $this->service->findAllForTask('inbound_mail', 'sync_mailboxes'),
+            static fn(array $row): bool => $row['status'] === 'pending'
+        );
+
+        $this->assertCount(1, $pending, 'nine chains must leave exactly one successor');
+    }
+
     public function testRearmTellsTheTwoReferencesApart(): void
     {
         $this->service->rearm('camps', 'geocode_places', 'a', 'tomorrow 04:00');

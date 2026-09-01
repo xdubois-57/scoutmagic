@@ -54,7 +54,7 @@ class ReenrollmentCampaignHandler implements TaskHandlerInterface
         } finally {
             // Re-armed whatever happened: a campaign whose poll died once
             // must not stop being a campaign.
-            $scheduler->scheduleAfter('registration', 'reenrollment_campaign', self::INTERVAL_SECONDS, [], self::REFERENCE);
+            $scheduler->rearmAfter('registration', 'reenrollment_campaign', self::REFERENCE, self::INTERVAL_SECONDS);
         }
     }
 
@@ -170,6 +170,6 @@ class ReenrollmentCampaignHandler implements TaskHandlerInterface
      */
     public static function ensureScheduled(SchedulerService $scheduler): void
     {
-        $scheduler->schedule('registration', 'reenrollment_campaign', new \DateTimeImmutable(), [], self::REFERENCE);
+        $scheduler->rearm('registration', 'reenrollment_campaign', self::REFERENCE, new \DateTimeImmutable());
     }
 }

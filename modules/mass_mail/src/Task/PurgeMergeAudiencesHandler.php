@@ -75,6 +75,6 @@ class PurgeMergeAudiencesHandler implements TaskHandlerInterface
         }
 
         $schedulerService = new SchedulerService(new SchedulerRepository($pdo));
-        $schedulerService->scheduleAfter('mass_mail', 'purge_merge_audiences', self::INTERVAL_SECONDS, [], self::REFERENCE);
+        $schedulerService->rearmAfter('mass_mail', 'purge_merge_audiences', self::REFERENCE, self::INTERVAL_SECONDS);
     }
 }

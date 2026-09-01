@@ -857,6 +857,29 @@ $settingService->register('support_last_ticket_sent_at', '', 'text', 'Date du de
 $settingService->register('support_ticket_categories', '', 'text', 'Catégories de tickets de support',
     'Liste des catégories publiée par le serveur de support lors du dernier échange. Renseignée automatiquement.',
     null, null, null, false, 292);
+// The archive's own bookkeeping (roadmap IT-26) and the mail probe's
+// (IT-27). These four were WRITTEN from the first day and never
+// registered, and `SettingService::setInternal()` throws on a key it does
+// not know — a throw both senders deliberately swallow, so that
+// bookkeeping can never turn a transmission that DID happen into a
+// failure an administrator would repeat. The two rules together made a
+// silent, permanent lie: the archive left, the confirmation said so, and
+// the page went on showing « Archive non transmise » for ever because the
+// reference it compares against was never written.
+// Tests\Architecture\SupportSettingsAreRegisteredTest now fails if a
+// sender gains a setting and this list does not.
+$settingService->register('support_last_ticket_archive_sent_at', '', 'text', "Date de transmission de la dernière archive",
+    "Horodatage de la dernière archive de diagnostic transmise au support. Renseigné automatiquement.",
+    null, null, null, false, 293);
+$settingService->register('support_last_ticket_archive_reference', '', 'text', "Ticket de la dernière archive transmise",
+    "Référence du ticket auquel la dernière archive de diagnostic a été jointe. Renseignée automatiquement.",
+    null, null, null, false, 294);
+$settingService->register('support_last_mail_probe_at', '', 'text', "Date de la dernière sonde e-mail",
+    "Horodatage de la dernière sonde de diagnostic envoyée, qui porte aussi la limite d'une sonde par heure. Renseigné automatiquement.",
+    null, null, null, false, 295);
+$settingService->register('support_last_mail_probe_key', '', 'text', "Clé de la dernière sonde e-mail",
+    "Clé de corrélation de la dernière sonde de diagnostic envoyée, pour la citer au support. Renseignée automatiquement.",
+    null, null, null, false, 296);
 // `installed_at` declares itself (Core\Statistics\InstallationDateService::
 // register()) because SetupController writes it before this file has ever
 // run — see that method's own comment. Backfilled here once for every
@@ -1008,7 +1031,15 @@ $twig->addGlobal('site_name', (string) ($settingService->get('site_name') ?: 'Un
 // a VERSION bump after a GitHub release install (§8.17) is the entire
 // update/cache-busting mechanism: a new query string on /sw.js makes the
 // browser see a new worker, which purges every cache not matching it.
-$twig->addGlobal('app_version', \Core\Maintenance\VersionFile::read(dirname(__DIR__)));
+$appVersion = \Core\Maintenance\VersionFile::read(dirname(__DIR__));
+$twig->addGlobal('app_version', $appVersion);
+// The token that actually busts a cache. `app_version` above stays the
+// human release number (the footer, the maintenance page, the offline
+// CONTENT cache's own name); this one carries a fingerprint of the
+// stylesheets and scripts on disk, so a deploy that does not cut a
+// release still reaches the browser. See Core\Maintenance\AssetVersion
+// for the two production defects that made it necessary.
+$twig->addGlobal('asset_version', \Core\Maintenance\AssetVersion::forProject(dirname(__DIR__), $appVersion));
 $twig->addGlobal('pwa_theme_color', (string) ($settingService->get('pwa_theme_color') ?: '#0d6efd'));
 
 // Create MailService — short_name, mail_from_address, mail_from_name and
@@ -4309,7 +4340,10 @@ if ($isEnabled('support_dashboard')) {
             new \Modules\SupportDashboard\Service\TicketIntakeService(
                 $supportInstallationRepo,
                 $supportTicketRepo,
-                $journalService
+                $journalService,
+                // Every superadmin of this receiver is told a ticket
+                // landed — the queue is not a mailbox anybody watches.
+                $notificationService
             ),
             // The archive arrives on its own route (roadmap IT-26) and is
             // stored exactly as it was on the installation that produced

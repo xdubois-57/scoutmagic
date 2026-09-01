@@ -79,13 +79,7 @@ class PurgeCapturedEmailsHandler implements TaskHandlerInterface
             // Rescheduled whatever happened, exactly like every other daily
             // task: a purge that threw must not be a purge that stops.
             (new SchedulerService(new SchedulerRepository($context->connection->getPdo())))
-                ->scheduleAfter(
-                    MailSandboxService::MODULE_ID,
-                    self::TASK_KEY,
-                    self::INTERVAL_SECONDS,
-                    [],
-                    self::REFERENCE
-                );
+                ->rearmAfter(MailSandboxService::MODULE_ID, self::TASK_KEY, self::REFERENCE, self::INTERVAL_SECONDS);
         }
     }
 }
