@@ -33,6 +33,7 @@ Before submitting any code:
 9. ☐ No secrets in source code.
 10. ☐ Sensitive actions logged via `JournalService`.
 11. ☐ Non-essential cookies checked via `CookieConsentService::isAllowed()` before being set.
+12. ☐ No unit data in a help-assistant prompt — not a member, not a section, not an amount, not aggregated, not anonymised. The assistant answers from help topics only (ARCHITECTURE.md §8.87), it has no tool-calling and no SQL, and the day it can reach the data every prompt injection in a topic or a member's name becomes an exfiltration path.
 
 ## Exception messages that reach a visitor
 

@@ -5,7 +5,8 @@ summary: Le bouton d'aide, le panneau contextuel et la liste de tous les sujets.
 category: Premiers pas
 role_min: public
 question: Où trouver de l'aide sur la page que je consulte ?
-question: Comment chercher un sujet dans l'aide ?
+question: À quoi sert le bouton avec un point d'interrogation ?
+related: recherche-dans-l-aide, assistant-d-aide
 paths: /aide, /aide/*
 ---
 
@@ -19,10 +20,10 @@ application.
 Le bouton rond avec un point d'interrogation se trouve à droite du fil
 de navigation, en haut de chaque page.
 
-- Si un ou plusieurs sujets concernent la page que vous consultez, le
-  bouton ouvre un panneau qui les affiche directement, sans quitter la
-  page.
-- Sinon, le bouton vous amène ici, sur la liste complète des sujets.
+Il ouvre un panneau, sans quitter la page. Le panneau commence toujours
+par un champ de recherche, et affiche en dessous les sujets qui
+concernent la page que vous consultez — ou, si aucun ne la concerne, de
+quoi chercher dans le reste.
 
 Quand plusieurs sujets concernent la même page, le panneau commence par
 la liste de leurs titres : touchez celui qui correspond à votre
@@ -31,9 +32,9 @@ question, puis revenez à la liste avec la flèche en haut du panneau.
 ## La page « Aide »
 
 Cette page rassemble tous les sujets auxquels vous avez accès, regroupés
-par espace du site. Le champ de recherche filtre les titres et les
-résumés : tapez un mot du problème que vous rencontrez, par exemple
-« photo » ou « mot de passe ».
+par espace du site. Le champ de recherche en haut fonctionne comme celui
+du panneau ; le sujet « Chercher dans l'aide » explique ce qu'il sait
+faire.
 
 Vous ne voyez que les sujets qui correspondent à votre rôle : un parent
 ne voit pas les sujets destinés aux animateurs, et inversement. Si un

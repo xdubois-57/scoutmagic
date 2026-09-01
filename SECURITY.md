@@ -746,3 +746,13 @@ Fixtures are keyed by route-pattern prefix, not by placeholder name: `{id}` is a
 ### The result, and how to read it
 
 **Zero over-permissive routes.** 68 refusals are stricter than `role_min`: a member may only edit their *own* record, a file goes through `FileAccessGuard`. That is defence in depth, and the report lists every one — they are to be read, not assumed.
+
+## 37. The help assistant's endpoint
+
+`POST /api/aide/assistant` (ARCHITECTURE.md §8.87) is the one place in the site where a visitor's free text reaches a third party, so each of its properties is deliberate.
+
+- **`role_min: chief`, enforced by the Router**, and CSRF-guarded like every other state-changing endpoint. Nothing about the caller's identity travels in the request: the role that builds the catalogue and re-checks every topic id is the session's, and the quota is charged to the signed-in account.
+- **Nothing personal goes out.** The prompt is built from help topics shipped in the release plus the question the reader typed, and from nothing else — no member, no section, no amount, aggregated or not. The assistant has no tool-calling and no database access; there is no code path from it to a table.
+- **The question is never journalled.** It is free text a human typed and can hold a name, an address, an amount, so the journal entry carries counters — topics retained, tokens spent, cache hit or not — and never the words (§11). For the same reason a conversation lives in the PHP session only, is cleared on logout, and expires after sixty idle minutes; and for the same reason the question travelling from `/aide` to `/aide/assistant` goes through `sessionStorage` rather than a query string, which would land in browser history and in every access log along the way.
+- **The answer is untrusted content.** It is rendered server-side through `Core\View\MarkdownRenderer` with `HelpController::RENDER_OPTIONS`, which escapes the HTML; the browser writes it into the page and writes everything else — the question, a topic title, an error — as text. A topic id returned by the model is re-validated by `HelpService::findById($id, $role)` before it opens a body or becomes a link, so an invented or out-of-role id disappears silently.
+- **Spending is bounded before the call, not after** — twenty questions an hour per account (`help_assistant_rate_limits`), recorded before the provider is reached so a failing provider cannot become an unlimited retry loop, and an answer cache consulted before the quota so a free answer spends nobody's allowance.

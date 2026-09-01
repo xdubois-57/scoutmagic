@@ -616,6 +616,156 @@ l'ancrage sur la page courante.
 
 ---
 
+## IT-09 — Les surfaces de l'assistant
+
+**Livré.**
+
+- **`Core\Help\Assistant\AssistantSession`** — la conversation dans
+  `$_SESSION`, encapsulée derrière `Core\Security\SessionStore` sur le
+  précédent de `ScoutYearSession` : six échanges, expiration après 60
+  minutes d'inactivité lue à l'accès, purge à la déconnexion
+  (`AuthController::logout()`). Aucun Service ne touche la session ; seul
+  le contrôleur l'appelle. Une conversation expirée est *remplacée* et
+  non prolongée — `history()` a déjà décidé qu'elle n'existait plus, et
+  la rallonger ressusciterait des échanges qu'on a dit oubliés.
+- **`Core\Http\Controller\HelpAssistantController`** — `GET /aide/assistant`
+  et `POST /api/aide/assistant`, `role_min: chief`, CSRF lu dans la
+  charge JSON (le motif de `AccountController`/`AuthController`, puisque
+  `api.js` poste du JSON et non `$_POST`). Chaque refus a son propre
+  statut : 429 quota, 503 connecteur absent, 502 échec fournisseur, 400
+  question inutilisable, 403 CSRF ou session sans compte. Le frontend
+  peut ainsi distinguer « revenez dans une heure » de « ça ne marchera
+  jamais ici ».
+- **Un partiel, deux surfaces** — `partials/help_assistant.html.twig`
+  inclus par la page et par le panneau, `public/assets/js/help-assistant.js`
+  liant les deux. Affichage en trois temps (« Je cherche dans l'aide… »,
+  puis les sujets retenus, puis la réponse) : un seul aller-retour HTTP,
+  mais deux appels côté serveur dont le second est le lent, et une
+  attente muette serait toute la latence sans rien à lire.
+- **« Demander à l'assistant » sous les résultats et nulle part
+  ailleurs** (`partials/help_assistant_invite.html.twig`), rendu
+  seulement si `help_assistant_available` — connecteur opérationnel *et*
+  rôle suffisant, les deux revérifiés côté serveur sur l'endpoint.
+- **La réponse passe par `MarkdownRenderer`** avec
+  `HelpController::RENDER_OPTIONS`, donc échappée, et c'est la seule
+  chose que le script écrit en HTML. Un id de sujet redevient un lien
+  seulement s'il correspond au format qu'impose le parseur.
+
+**Décidé en autonomie.**
+
+1. **La question voyage par `sessionStorage`, jamais par la query
+   string.** Depuis `/aide`, l'invite est un lien vers `/aide/assistant`
+   et la question doit suivre. Un `?q=` aurait été plus simple et aurait
+   déposé du texte libre — un nom, un montant — dans l'historique du
+   navigateur et dans tous les logs d'accès de la chaîne. Même
+   raisonnement que « le journal ne porte pas le texte des questions »
+   (SECURITY.md §11). Aucun cookie n'est ajouté.
+2. **La question est *déposée dans le champ*, jamais envoyée.** Depuis
+   le panneau comme depuis la page. Un envoi automatique dépenserait une
+   unité de quota et joindrait un fournisseur sur un clic destiné à
+   ouvrir un formulaire.
+3. **`help-assistant.js` est chargé par `base.html.twig` sur toutes les
+   pages** et ajouté au shell hors ligne de `public/sw.js`. Le panneau
+   voyage sur toutes les pages, donc son script aussi ; et c'est ce
+   script qui affiche « vous êtes hors connexion » — sans lui, hors
+   ligne, le champ avalerait une question sans rien dire.
+4. **`isAvailable()` est mémoïsé pour la requête.** Le panneau
+   l'interroge à chaque rendu de page et chaque palier coûte deux
+   requêtes ; rien ne peut activer un fournisseur en cours de requête.
+
+**Divergence.**
+
+1. **`/aide/assistant` reste couvert par l'entrée `child` `/aide/` de
+   `OfflineWhitelist`** (constaté en IT-01, tranché ici) : la page vaut
+   d'être lisible hors ligne — elle dit ce que l'assistant fait et ne
+   fait pas — et le POST est de toute façon intercepté par
+   `offline-nav.js` comme tout non-GET. Le commentaire de la whitelist
+   le dit désormais, pour que le prochain lecteur n'ait pas à trancher à
+   nouveau.
+
+**Corrigé au passage.** IT-08 enregistrait `HelpAssistantController` trois
+cents lignes **avant** la construction de `$helpAssistantService` — la
+variable n'existait pas encore. Le contrôleur est déplacé après le bloc
+`llm_connector`, qui est ce qui décide si le connecteur est un service ou
+`null`.
+
+**Vérifié par 22 cas PHP et 22 cas Vitest.** Frontière RBAC lue dans
+`public/index.php` puis passée au vrai `RbacGuard` (`chief` passe,
+`intendant` reçoit 403), l'ordre d'enregistrement `/aide/assistant` avant
+`/aide/{topic}`, `/aide` resté `public`, CSRF, quota → 429 sans que le
+fournisseur soit joint, connecteur absent → 503 et non 404, la réponse
+rendue et échappée (`<script>` écrit par le modèle, retrouvé en
+`&lt;script&gt;`), la question jamais journalisée, « rien trouvé » qui
+n'entre pas dans la conversation, et le panneau muet quand l'assistant
+n'est pas proposé. Côté navigateur : l'invite absente tant qu'aucune
+recherche n'a tourné, présente même quand la recherche n'a rien trouvé,
+le passage de la question par les deux chemins, l'affichage en trois
+temps, un titre de sujet écrit en texte et non en balises, un id refusé
+qui retombe sur `/aide`, et chaque refus du serveur affiché tel quel.
+
+---
+
+## IT-10 — Documentation et couverture
+
+**Livré.**
+
+- **`ARCHITECTURE.md` §8.87** « Searching the help, and the assistant » —
+  le pourquoi, pas l'implémentation : pourquoi la recherche est locale et
+  ne dépend pas de l'IA, pourquoi l'assistant vient après elle, pourquoi
+  le filtre de rôle est une *liste que le modèle ne reçoit pas* et non
+  une consigne, pourquoi il n'y a ni table de conversation ni réglage
+  d'activation. Renvoi croisé depuis §8.64, et deux lignes ajoutées à la
+  liste §14 « What Devin must never do ».
+- **`design.md` §7.11** — la place de la recherche et de l'assistant, le
+  lien vers la page documentée et ses trois règles, le champ `question:`
+  et ses règles d'écriture, et **les règles de révision du §6 du document
+  de chantier, devenues permanentes**.
+- **`specifications.md` §4.6** — deux lignes de plus dans le tableau
+  (« Recherche dans l'aide », « Assistant »), et la ligne « Aide »
+  corrigée : le panneau ouvre sur la recherche, plus sur les sujets.
+- **`AGENTS.md`** — point 12 de la checklist sécurité de chaque PR.
+- **`SECURITY.md` §37** — l'endpoint : plancher de rôle, CSRF, rien de
+  personnel qui sorte, question jamais journalisée, sortie non fiable
+  rendue échappée, id revalidé, quota débité avant l'appel.
+- **RGPD** — `rgpd_default.html` gagne une section **2.7 « Assistant
+  d'aide »** (finalité, seule la question transmise, la base jamais
+  consultée, aucune conservation, base légale) et la finalité du module
+  Connecteur IA nomme désormais l'assistant ; `RgpdContentService::buildSystemPrompt()`
+  gagne la **règle 34**, qui retire toute la section si aucun connecteur
+  n'est actif et, sinon, impose de traiter le fournisseur en
+  sous-traitant à part entière pour ce traitement.
+- **Deux sujets d'aide** : `recherche-dans-l-aide` (`public`) et
+  `assistant-d-aide` (`chief`), reliés entre eux et à `aide`.
+
+**Divergence.**
+
+1. **Le document demande la section `ARCHITECTURE.md` §8.70** ; ce numéro
+   est pris depuis (« A receipt's file follows its account »). La section
+   est écrite en **§8.87**, à la suite des existantes.
+2. **Le document demande un sujet d'id `assistant`** ; cet id est réservé
+   depuis IT-01, précisément parce qu'un sujet le portant serait listé,
+   cherchable et inatteignable derrière la route du même nom. Le sujet
+   s'appelle **`assistant-d-aide`**.
+
+**Corrigé au passage.** Le sujet `aide` décrivait encore le panneau
+d'avant IT-02 (« si un sujet concerne la page… sinon le bouton vous amène
+à la liste »), ce qui était devenu faux : le panneau ouvre toujours sur la
+recherche. C'est exactement la dérive que `HelpLabelDriftTest` traque dans
+les libellés, à ceci près qu'un comportement décrit n'est pas citable —
+elle ne se voit qu'en relisant.
+
+**L'ALLOWLIST de `HelpLabelDriftTest` gagne cinq entrées**, toutes des
+exemples de ce qu'un lecteur *taperait* — un sujet qui documente un champ
+où l'on écrit a des exemples qui sont des phrases par nature. Le ratchet
+garde les chaînes exactes, comme le reste de la liste.
+
+**Fait quand.** `HelpRegistry::loadErrors()` vide ; PHPStan et
+`npm run typecheck` propres ; Vitest 1745/1745 ; la suite PHP rend la
+liste d'échecs **identique, ligne pour ligne**, à celle de `main` (voir la
+note transverse ci-dessous).
+
+---
+
 ## Note transverse — la suite n'est plus verte, et ce n'est pas ce chantier
 
 Constaté pendant IT-02, à consigner parce que le critère « fait quand » de

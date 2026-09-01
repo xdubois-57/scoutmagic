@@ -91,6 +91,9 @@ final class HelpLabelDriftTest extends TestCase
         // An example value a unit would type.
         'attestations' => ['Attestation présence camp 2026'],
         'mon-compte' => ['Téléphone de Marie'],
+        // A word typed into the search field, quoted to show that accents
+        // and plurals do not matter.
+        'recherche-dans-l-aide' => ['médailles'],
         'camps-encoder' => ['On est allés là en 2012'],
         'config-envoi-mails' => [
             'les intendants de toutes les sections',
@@ -105,6 +108,16 @@ final class HelpLabelDriftTest extends TestCase
         'reponses-au-formulaire' => ['qui peut consulter les réponses'],
         'retrospectives' => ['lien seul'],
         'support-sondes-email' => ['jamais reçue'],
+        // Two questions the assistant can and cannot answer, and two ways
+        // of asking it the same thing — what a reader would type, never a
+        // control. This topic is about a field one writes into, so its
+        // examples are sentences by nature.
+        'assistant-d-aide' => [
+            'combien la famille Dupont doit-elle ?',
+            'où voir ce que les familles doivent encore ?',
+            "Je dois prévenir les parents d'une section que la réunion est annulée",
+            "envoi d'e-mails",
+        ],
         // The browser's own menu, and a print dialog's option.
         'installer-application' => [
             "Ajouter à l'écran d'accueil",
