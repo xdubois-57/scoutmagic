@@ -32,20 +32,90 @@ class SchedulerRepository
     }
 
     /**
-     * Every pending row's (module_id, task_key, reference) triple, for
-     * SchedulerService's opt-in rearm cache — the pending set is small
-     * (one row per recurring task plus whatever one-shots are queued).
+     * Every LIVE row's (module_id, task_key, reference) triple **and its
+     * status**, for SchedulerService's opt-in guard cache — the live set
+     * is small (one row per recurring task plus whatever one-shots are
+     * queued).
      *
-     * @return array<int, array{module_id: string, task_key: string, reference: string|null}>
+     * `processing` is in it, and that is the whole point: the two guards
+     * built on this cache need different answers. A handler re-arming
+     * itself must not see its own claimed row (or the chain ends after
+     * one run); a caller SEEDING a chain must, or it queues a duplicate
+     * of a task that is running right now. See SchedulerService::rearm()
+     * and ::seed().
+     *
+     * @return array<int, array{module_id: string, task_key: string, reference: string|null, status: string}>
      */
-    public function findPendingKeys(): array
+    public function findLiveKeys(): array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT module_id, task_key, reference FROM scheduled_actions WHERE status = ?'
+            "SELECT module_id, task_key, reference, status FROM scheduled_actions
+             WHERE status IN ('pending', 'processing')"
         );
-        $stmt->execute(['pending']);
-        /** @var array<int, array{module_id: string, task_key: string, reference: string|null}> */
+        $stmt->execute();
+        /** @var array<int, array{module_id: string, task_key: string, reference: string|null, status: string}> */
         return $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /**
+     * Whether this chain is alive: a row of it is queued or running.
+     *
+     * The twin of findByModuleAndKey() for a caller that seeds rather
+     * than re-arms — see SchedulerService::seed().
+     */
+    public function hasLive(string $moduleId, string $taskKey, string $reference): bool
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT 1 FROM scheduled_actions
+             WHERE module_id = ? AND task_key = ? AND reference = ?
+               AND status IN ('pending', 'processing') LIMIT 1"
+        );
+        $stmt->execute([$moduleId, $taskKey, $reference]);
+
+        return $stmt->fetchColumn() !== false;
+    }
+
+    /**
+     * Collapse a chain back to a single queued row, keeping the one that
+     * runs first.
+     *
+     * Rows sharing a (module, task, reference) triple ARE the same chain
+     * — that is what a reference means — so a second queued copy is a
+     * duplicate run and nothing else. Deleting rather than letting them
+     * drain: an installation that accumulated sixteen thousand of them
+     * would otherwise spend days running no-ops and writing a journal
+     * line for each.
+     *
+     * @return int how many duplicates were removed
+     */
+    public function collapsePending(string $moduleId, string $taskKey, string $reference): int
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT id FROM scheduled_actions
+             WHERE module_id = ? AND task_key = ? AND reference = ? AND status = 'pending'
+             ORDER BY run_at ASC, id ASC"
+        );
+        $stmt->execute([$moduleId, $taskKey, $reference]);
+        $ids = $stmt->fetchAll(\PDO::FETCH_COLUMN);
+        if (count($ids) < 2) {
+            return 0;
+        }
+
+        // The earliest keeps the chain's own cadence: dropping it and
+        // keeping a later copy would silently postpone the task.
+        array_shift($ids);
+
+        $deleted = 0;
+        // Deleted one at a time, and only while still `pending`: a pass
+        // that claims a row between the SELECT above and the DELETE below
+        // must not have it removed from under it.
+        $delete = $this->pdo->prepare("DELETE FROM scheduled_actions WHERE id = ? AND status = 'pending'");
+        foreach ($ids as $id) {
+            $delete->execute([(int) $id]);
+            $deleted += $delete->rowCount();
+        }
+
+        return $deleted;
     }
 
     /**

@@ -109,7 +109,14 @@ class ReconciliationControllerTest extends TestCase
             $financeService,
             $memberService,
             $scoutYearService,
-            new SepaQrCodeService()
+            new SepaQrCodeService(),
+            new \Modules\Finance\Service\ReceivableSearchService(
+                $this->receivables,
+                new ReceivableAllocationRepository($this->pdo),
+                $accountRepository,
+                $accountVisibility,
+                static fn (array $memberIds): array => $memberService->findNamesForMembers($memberIds)
+            )
         );
 
         $this->accountId = $accountRepository->create('Compte Unité', Account::TYPE_BANK, null, 'BE71096123456769', 'Unité SV025', 'intendant');
@@ -464,4 +471,63 @@ class ReconciliationControllerTest extends TestCase
 
         return $twig;
     }
+    // ── the four explanations, and the receivable picker ─────────────────
+
+    /**
+     * Two of the four rubrics explained themselves in an amber callout
+     * and two in small grey text, and the difference said nothing: it
+     * followed neither gravity nor urgency, only the order in which the
+     * rubrics were written. A reader necessarily sees a hierarchy in it —
+     * « celles-ci comptent, celles-là non » — and none of the four is an
+     * error: they are four situations to look at.
+     *
+     * @return array<string, array{string}>
+     */
+    public static function tabProvider(): array
+    {
+        return [
+            'à répartir' => ['split'],
+            'non imputés' => ['orphans'],
+            'trop-perçus' => ['overpaid'],
+            'mauvais compte' => ['cross_account'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('tabProvider')]
+    public function testEveryTabExplainsItselfInTheSameCallout(string $tab): void
+    {
+        $body = $this->controller->index($this->get(['tab' => $tab]), [])->getBody();
+
+        $this->assertStringContainsString('alert alert-warning mt-3', $body);
+    }
+
+    /**
+     * « Non imputés » asked for the receivable's id, with the help text
+     * « L'identifiant de la créance, repris dans l'export de la
+     * campagne » — a page telling its reader to leave, open a
+     * spreadsheet, find a line and come back with an integer.
+     */
+    public function testTheOrphansTabOffersASearchableReceivablePickerRatherThanAnIdField(): void
+    {
+        $this->receivable('Lucie', 4500, '+++123/4567/89012+++');
+        $this->credit('VIREMENT SANS COMMUNICATION', 45.00);
+
+        $body = $this->controller->index($this->get(['tab' => 'orphans']), [])->getBody();
+
+        $this->assertStringContainsString('receivable-picker', $body);
+        $this->assertStringNotContainsString("L'identifiant de la créance", $body);
+    }
+
+    public function testTheReceivablePickerAnswersWithTheAccountsOpenReceivables(): void
+    {
+        $this->receivable('Lucie', 4500, '+++123/4567/89012+++');
+
+        $response = $this->controller->searchReceivables($this->get(['q' => 'Lucie']), []);
+        $payload = json_decode($response->getBody(), true);
+
+        $this->assertTrue($payload['success']);
+        $this->assertCount(1, $payload['receivables']);
+        $this->assertSame(4500, $payload['receivables'][0]['remaining_cents']);
+    }
+
 }

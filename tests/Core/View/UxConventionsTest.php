@@ -226,6 +226,9 @@ final class UxConventionsTest extends TestCase
         '/finance/campaigns/{id}/labels',
         // The PNG of one receivable's QR, fetched by a mail client.
         '/finance/qr/{id}/{token}',
+        // JSON for the « Non imputés » receivable picker — the twin of
+        // /finance/movements/search below, never a page.
+        '/finance/reconciliation/creances',
         '/finance/movements/export',
         '/finance/movements/search',
         '/finance/movements/{id}/attachments',

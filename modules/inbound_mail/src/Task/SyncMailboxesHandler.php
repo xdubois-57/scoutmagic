@@ -219,17 +219,19 @@ class SyncMailboxesHandler implements TaskHandlerInterface
 
         // Drop a run queued further out than a whole interval — that is
         // the pull-forward. Everything else is left where it is, and
-        // rearmAfter() below then either queues the first run or finds
-        // that one is already queued and stands down. Two branches
-        // collapsed into one, and the arming goes through the SAME
-        // guarded call as every other recurring chain: this method runs
-        // on every page view, so an unguarded one queued a row per
-        // request the moment its `find()` missed.
+        // seedAfter() below then either queues the first run or finds
+        // the chain already alive and stands down.
+        //
+        // seedAfter() and not rearmAfter(): this method runs on every
+        // page view, and rearm()'s guard only sees `pending` rows — so
+        // for the whole length of a cron pass, during which this chain's
+        // row is `processing`, every request queued another copy due
+        // immediately. See SchedulerService::seed().
         if ($pending !== null && self::isFurtherOutThan($pending, $intervalSeconds)) {
             $scheduler->cancel((int) $pending['id']);
         }
 
-        $scheduler->rearmAfter('inbound_mail', self::TASK_KEY, self::REFERENCE, $intervalSeconds);
+        $scheduler->seedAfter('inbound_mail', self::TASK_KEY, self::REFERENCE, $intervalSeconds);
     }
 
     /**

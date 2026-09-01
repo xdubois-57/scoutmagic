@@ -99,7 +99,7 @@ final class HelpAssistantControllerTest extends TestCase
         $this->cleanupTopicDirs();
     }
 
-    private function controller(?FakeLlmConnector $connector): HelpAssistantController
+    private function controller(?FakeLlmConnector $connector, ?\Core\Http\Router $router = null): HelpAssistantController
     {
         $helpService = new HelpService(new HelpRegistry($this->topicDir));
 
@@ -114,7 +114,8 @@ final class HelpAssistantControllerTest extends TestCase
                 '1.2.3',
                 $connector
             ),
-            $helpService
+            $helpService,
+            $router !== null ? new \Core\Help\HelpPageLinkResolver($router) : null
         );
     }
 
@@ -282,10 +283,49 @@ final class HelpAssistantControllerTest extends TestCase
 
         $body = $this->decode($response->getBody());
         $this->assertTrue($body['success']);
-        $this->assertSame(
-            [['id' => 'envoi-de-mails', 'title' => 'Envoyer un e-mail groupé']],
-            $body['topics']
-        );
+        $this->assertSame('envoi-de-mails', $body['topics'][0]['id']);
+        $this->assertSame('Envoyer un e-mail groupé', $body['topics'][0]['title']);
+    }
+
+    /**
+     * The answer says « ouvrez Nouveau message » because that is where
+     * the thing is, and the reader was then left to find Nouveau message
+     * through the menus. The site already knows that link — a topic
+     * declares the paths it covers — it simply was not asked here.
+     */
+    public function testTheAnswerCarriesTheLinkToThePageItsTopicDocuments(): void
+    {
+        $router = new \Core\Http\Router();
+        $router->addRoute('GET', '/mass-mail', 'X', 'index', 'chief', ['label' => 'Nouveau message', 'parents' => []]);
+
+        $this->writeTopic($this->topicDir, 'envoi-de-mails', [
+            'title' => 'Envoyer un e-mail groupé',
+            'summary' => "Du brouillon au test, puis l'envoi.",
+            'role_min' => 'chief',
+            'question' => ["Comment prévenir tous les parents d'une section ?"],
+            'paths' => ['/mass-mail'],
+        ], "Ouvrez « Nouveau message ».\n");
+
+        $response = $this->controller($this->connectorAnswering(), $router)
+            ->ask($this->request(['question' => 'Comment écrire aux parents ?']), []);
+
+        $body = $this->decode($response->getBody());
+        $this->assertSame('/mass-mail', $body['topics'][0]['page_path']);
+        $this->assertSame('Nouveau message', $body['topics'][0]['page_label']);
+    }
+
+    /**
+     * A topic covering a family of pages names no member of it, and a
+     * guessed URL would be worse than none — the same rule
+     * HelpPageLinkResolver applies everywhere else.
+     */
+    public function testATopicWithNoExactPageCarriesNoLink(): void
+    {
+        $response = $this->controller($this->connectorAnswering(), new \Core\Http\Router())
+            ->ask($this->request(['question' => 'Comment écrire aux parents ?']), []);
+
+        $body = $this->decode($response->getBody());
+        $this->assertNull($body['topics'][0]['page_path']);
     }
 
     public function testAnAnsweredQuestionJoinsTheConversation(): void

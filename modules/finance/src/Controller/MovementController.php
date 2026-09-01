@@ -27,7 +27,6 @@ use Modules\Finance\Api\FinanceException;
 use Modules\Finance\Service\FinanceService;
 use Modules\Finance\Service\FirstReceiptResolver;
 use Modules\Finance\Service\MovementPresenter;
-use Modules\Finance\Service\ReceiptExtractionService;
 use Modules\Finance\Service\ReceiptService;
 use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
@@ -49,7 +48,6 @@ class MovementController extends AbstractController
         private AttachmentRepository $attachmentRepository,
         private TransactionAttachmentRepository $transactionAttachmentRepository,
         private ReceiptService $receiptService,
-        private ReceiptExtractionService $receiptExtractionService,
         private FirstReceiptResolver $firstReceiptResolver,
         private JournalService $journalService
     ) {
@@ -417,7 +415,7 @@ class MovementController extends AbstractController
             return $this->json(['success' => false, 'error' => $e->getMessage()], 400);
         }
 
-        $this->receiptExtractionService->scheduleExtraction($attachment->id);
+        // Queued by Service\ReceiptService::store() itself — see there.
         $this->journalService->log(
             'finance', 'receipt_uploaded', 'info', 'Reçu ajouté et associé depuis la page des mouvements',
             ['attachment_id' => $attachment->id, 'transaction_id' => $id], AuthSession::getUserAccountId()

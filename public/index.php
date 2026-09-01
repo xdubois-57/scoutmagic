@@ -2436,7 +2436,9 @@ $helpAssistantService = new \Core\Help\Assistant\AssistantService(
 // built three hundred lines later.
 $frontController->registerController(
     \Core\Http\Controller\HelpAssistantController::class,
-    new \Core\Http\Controller\HelpAssistantController($twig, $helpAssistantService, $helpService)
+    // The page-link resolver too: the answer names a page, and the reader
+    // was left to find it through the menus.
+    new \Core\Http\Controller\HelpAssistantController($twig, $helpAssistantService, $helpService, $helpPageLinkResolver)
 );
 
 // Whether the « Demander à l'assistant » control is offered at all —
@@ -3324,10 +3326,25 @@ if ($isEnabled('finance')) {
         $financeBulkCategorizationService, $financeAllocationService
     );
     $financeEncryptedFileStorage = new \Core\File\EncryptedFileStorageService($fileRepository, $encryptionService, $storagePath);
+    // Optional dependency on the llm_connector module (ARCHITECTURE.md
+    // §7.5) — reuses the same LlmConnectorInterface instance already
+    // built for RGPD content generation above; extraction is skipped
+    // gracefully whenever it's null/unavailable.
+    //
+    // Built HERE, above ReceiptService, because ReceiptService is what
+    // queues the extraction now: every way a receipt enters the site goes
+    // through its store(), the one arriving by e-mail included, and that
+    // path has no controller to remember on its behalf.
+    $financeReceiptExtractionService = new \Modules\Finance\Service\ReceiptExtractionService($schedulerService, $llmConnectorForOthers);
     $financeReceiptService = new \Modules\Finance\Service\ReceiptService(
         $financeAttachmentRepo, $financeAccountRepo, $financeTransactionAttachmentRepo, $financeEncryptedFileStorage,
-        $financeTransactionRepo, $settingService
+        $financeTransactionRepo, $settingService, $financeReceiptExtractionService
     );
+
+    // The matching service can now file a sorting-pile receipt onto the
+    // account of the movement it matched — which is what makes matching
+    // across every account possible at all.
+    $financeReceiptMatchingService->setReceiptService($financeReceiptService);
 
     // What another module reaches this one through (Api\ExpenseReceiptInterface,
     // ARCHITECTURE.md §7.5). It adds no storage path of its own — the
@@ -3434,11 +3451,6 @@ if ($isEnabled('finance')) {
     // flag, and SettingService caches settings once per request, so every
     // run after the first costs one array lookup and no query.
     $financeReceiptService->ensureReceiptFileOwnership();
-    // Optional dependency on the llm_connector module (ARCHITECTURE.md
-    // §7.5) — reuses the same LlmConnectorInterface instance already
-    // built for RGPD content generation above; extraction is skipped
-    // gracefully whenever it's null/unavailable.
-    $financeReceiptExtractionService = new \Modules\Finance\Service\ReceiptExtractionService($schedulerService, $llmConnectorForOthers);
     $financeFirstReceiptResolver = new \Modules\Finance\Service\FirstReceiptResolver($financeTransactionAttachmentRepo, $financeAttachmentRepo);
 
     // Built here rather than next to its own controller a few hundred
@@ -3468,7 +3480,7 @@ if ($isEnabled('finance')) {
         \Modules\Finance\Controller\MovementController::class,
         new \Modules\Finance\Controller\MovementController(
             $twig, $financeService, $financeTransactionRepo, $financeCategoryRepo, $financeFiscalYearRepo,
-            $financeAttachmentRepo, $financeTransactionAttachmentRepo, $financeReceiptService, $financeReceiptExtractionService,
+            $financeAttachmentRepo, $financeTransactionAttachmentRepo, $financeReceiptService,
             $financeFirstReceiptResolver, $journalService
         )
     );
@@ -3480,7 +3492,7 @@ if ($isEnabled('finance')) {
         \Modules\Finance\Controller\ReceiptController::class,
         new \Modules\Finance\Controller\ReceiptController(
             $twig, $financeAttachmentRepo, $financeTransactionAttachmentRepo, $financeTransactionRepo, $financeService,
-            $financeReceiptService, $financeReceiptExtractionService, $financeFirstReceiptResolver, $journalService
+            $financeReceiptService, $financeFirstReceiptResolver, $journalService
         )
     );
     $frontController->registerController(
@@ -3687,7 +3699,18 @@ if ($isEnabled('finance')) {
             $financeService,
             $memberService,
             $scoutYearService,
-            $financeSepaQrCodeForOthers
+            $financeSepaQrCodeForOthers,
+            // « Quelle créance ? » answered by typing a name instead of
+            // by looking an id up in a spreadsheet. Same member-name
+            // question as the Paiements attendus page above, asked the
+            // same way.
+            new \Modules\Finance\Service\ReceivableSearchService(
+                $financeExpectedReceivableRepo,
+                $financeAllocationRepo,
+                $financeAccountRepo,
+                $financeAccountVisibility,
+                static fn(array $memberIds): array => $memberService->findNamesForMembers($memberIds)
+            )
         )
     );
 

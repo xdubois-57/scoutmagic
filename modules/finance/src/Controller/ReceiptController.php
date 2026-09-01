@@ -27,7 +27,6 @@ use Modules\Finance\Service\FinanceService;
 use Modules\Finance\Service\FirstReceiptResolver;
 use Modules\Finance\Service\MovementPresenter;
 use Modules\Finance\Service\ReceiptDateNormalizer;
-use Modules\Finance\Service\ReceiptExtractionService;
 use Modules\Finance\Service\ReceiptService;
 
 class ReceiptController extends AbstractController
@@ -56,7 +55,6 @@ class ReceiptController extends AbstractController
         private TransactionRepository $transactionRepository,
         private FinanceService $financeService,
         private ReceiptService $receiptService,
-        private ReceiptExtractionService $receiptExtractionService,
         private FirstReceiptResolver $firstReceiptResolver,
         private JournalService $journalService
     ) {
@@ -358,7 +356,9 @@ class ReceiptController extends AbstractController
             return $e->getMessage();
         }
 
-        $this->receiptExtractionService->scheduleExtraction($attachment->id);
+        // The extraction is queued by Service\ReceiptService::store()
+        // itself, so that every way in gets it — including the one with
+        // no controller at all, a receipt arriving by e-mail.
         $this->journalService->log('finance', 'receipt_uploaded', 'info', 'Reçu ajouté', ['attachment_id' => $attachment->id, 'account_id' => $accountId], AuthSession::getUserAccountId());
 
         return null;
@@ -505,8 +505,6 @@ class ReceiptController extends AbstractController
         } catch (FinanceException $e) {
             return $this->render('@finance/receipts/form.html.twig', ['error' => $e->getMessage(), 'replace_id' => $id]);
         }
-
-        $this->receiptExtractionService->scheduleExtraction($newAttachment->id);
 
         $this->journalService->log('finance', 'receipt_replaced', 'info', 'Reçu remplacé', ['old_attachment_id' => $id, 'new_attachment_id' => $newAttachment->id], AuthSession::getUserAccountId());
 

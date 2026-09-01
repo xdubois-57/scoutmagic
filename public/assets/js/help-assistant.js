@@ -130,8 +130,16 @@
      * reader can check the answer against its source, which is the whole
      * reason the ids travel back at all.
      *
+     * And, when the server resolved one, the link to the PAGE each topic
+     * documents. The answer says « ouvrez Finances > Reçus » because that
+     * is where the thing is, and the reader was then left to find
+     * Finances > Reçus through the menus. `page_path` is
+     * Core\Help\HelpPageLinkResolver's answer, already role-checked and
+     * already suppressed for the page the reader is on — this file only
+     * decides whether to print it.
+     *
      * @param {HTMLElement} target
-     * @param {Array<{id: string, title: string}>} topics
+     * @param {Array<{id: string, title: string, page_path?: string|null, page_label?: string|null}>} topics
      */
     function renderTopics(target, topics) {
         if (!topics || topics.length === 0) {
@@ -150,6 +158,32 @@
             link.textContent = topic.title;
             target.appendChild(link);
         });
+
+        var pages = topics.filter(function (topic) {
+            // Only a path the SERVER produced is ever followed: an
+            // absolute one, starting with a single slash, is a page of
+            // this site and nothing else.
+            return typeof topic.page_path === 'string'
+                && topic.page_path.charAt(0) === '/'
+                && topic.page_path.charAt(1) !== '/';
+        });
+
+        if (pages.length > 0) {
+            var line = document.createElement('div');
+            line.appendChild(document.createTextNode('Aller sur la page : '));
+            pages.forEach(function (topic, index) {
+                if (index > 0) {
+                    line.appendChild(document.createTextNode(', '));
+                }
+                var pageLink = document.createElement('a');
+                pageLink.className = 'text-decoration-none';
+                pageLink.href = topic.page_path;
+                pageLink.textContent = topic.page_label || topic.title;
+                line.appendChild(pageLink);
+            });
+            target.appendChild(line);
+        }
+
         target.classList.remove('d-none');
     }
 

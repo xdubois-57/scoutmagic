@@ -299,6 +299,138 @@ class SchedulerServiceTest extends TestCase
         $this->assertNotNull($this->service->find('camps', 'geocode_places', 'ref'));
     }
 
+    // ── seeding a chain, from a caller that is not the task ─────────────
+
+    /**
+     * The bug this exists for, in one test.
+     *
+     * `SchedulerRepository::claimOverdue()` flips every overdue row to
+     * `processing` at the start of a pass, so for the whole length of
+     * that pass a running chain has NO pending row. rearm()'s guard only
+     * looks at `pending` — deliberately, so a handler re-arming itself
+     * does not find its own claimed row — and a seeder borrowing that
+     * guard therefore queued a fresh copy on every single web request
+     * that landed during a pass, each one with run_at = now and so
+     * already overdue.
+     *
+     * Which is a feedback loop, not a stray duplicate: every extra copy
+     * lengthens the next pass, a longer pass is a wider window, a wider
+     * window catches more requests. A real installation reached 16 387
+     * runs of one hourly task in forty-eight hours, and 99 % of its
+     * event journal was « tâche planifiée terminée ».
+     */
+    public function testSeedingStandsDownWhileTheChainIsRunning(): void
+    {
+        $this->service->seed('registration', 'reenrollment_campaign', 'poll', new \DateTimeImmutable());
+        $this->pdo->exec("UPDATE scheduled_actions SET status = 'processing'");
+
+        // Ten page views landing during the pass.
+        for ($i = 0; $i < 10; $i++) {
+            $this->assertFalse(
+                $this->service->seed('registration', 'reenrollment_campaign', 'poll', new \DateTimeImmutable())
+            );
+        }
+
+        $this->assertSame(1, $this->countRows('reenrollment_campaign'));
+    }
+
+    /**
+     * The distinction is not academic: the handler's own re-arm has to
+     * keep working from inside handle(), where its row is `processing`.
+     * A guard shared between the two would end every chain after one run.
+     */
+    public function testAHandlerStillRearmsItselfWhileItsOwnRowIsProcessing(): void
+    {
+        $this->service->seed('registration', 'reenrollment_campaign', 'poll', new \DateTimeImmutable());
+        $this->pdo->exec("UPDATE scheduled_actions SET status = 'processing'");
+
+        $this->assertTrue(
+            $this->service->rearmAfter('registration', 'reenrollment_campaign', 'poll', 3600)
+        );
+        $this->assertSame(2, $this->countRows('reenrollment_campaign'));
+    }
+
+    public function testSeedingQueuesTheFirstRunWhenNothingIsAlive(): void
+    {
+        $this->assertTrue($this->service->seedAfter('rental', 'expire_rental_holds', 'hourly', 3600));
+        $this->assertFalse($this->service->seedAfter('rental', 'expire_rental_holds', 'hourly', 3600));
+        $this->assertSame(1, $this->countRows('expire_rental_holds'));
+    }
+
+    /**
+     * A chain that finished with no successor — a run that died before
+     * its `finally` — has to be seedable again, or it stays dead.
+     */
+    public function testADoneChainIsSeededAgain(): void
+    {
+        $this->service->seedAfter('rental', 'expire_rental_holds', 'hourly', 3600);
+        $this->pdo->exec("UPDATE scheduled_actions SET status = 'done'");
+
+        $this->assertTrue($this->service->seedAfter('rental', 'expire_rental_holds', 'hourly', 3600));
+    }
+
+    /**
+     * Healing, not just prevention: an installation that already
+     * accumulated duplicates would otherwise spend days draining them,
+     * one no-op run and one journal line at a time. Two queued rows of
+     * one chain ARE the same chain — that is what a reference means.
+     */
+    public function testDuplicatesAlreadyQueuedAreCollapsedOnTheNextGuard(): void
+    {
+        for ($i = 0; $i < 20; $i++) {
+            $this->service->schedule(
+                'inbound_mail',
+                'purge_unlinked_messages',
+                new \DateTimeImmutable('+' . $i . ' minutes'),
+                [],
+                'inbound-mail-retention'
+            );
+        }
+        $this->assertSame(20, $this->countRows('purge_unlinked_messages'));
+
+        $this->service->seedAfter('inbound_mail', 'purge_unlinked_messages', 'inbound-mail-retention', 3600);
+
+        $this->assertSame(1, $this->countRows('purge_unlinked_messages'));
+    }
+
+    /**
+     * The survivor is the one that runs FIRST: keeping a later copy
+     * would silently postpone the task by the difference.
+     */
+    public function testTheCollapseKeepsTheEarliestQueuedRun(): void
+    {
+        $this->service->schedule('rental', 'expire_rental_holds', new \DateTimeImmutable('+3 hours'), [], 'hourly');
+        $earliest = $this->service->schedule('rental', 'expire_rental_holds', new \DateTimeImmutable('+1 hour'), [], 'hourly');
+        $this->service->schedule('rental', 'expire_rental_holds', new \DateTimeImmutable('+2 hours'), [], 'hourly');
+
+        $this->service->seedAfter('rental', 'expire_rental_holds', 'hourly', 3600);
+
+        $this->assertSame(1, $this->countRows('expire_rental_holds'));
+        $this->assertNotNull($this->repo->findById($earliest));
+    }
+
+    /**
+     * A handler that finds a successor already queued collapses the rest
+     * too — the chains that run often are the ones that accumulate.
+     */
+    public function testRearmCollapsesDuplicatesItFindsAsWell(): void
+    {
+        for ($i = 0; $i < 5; $i++) {
+            $this->service->schedule('core', 'send_notifications', new \DateTimeImmutable('+1 hour'), [], 'poll');
+        }
+
+        $this->assertFalse($this->service->rearmAfter('core', 'send_notifications', 'poll', 3600));
+        $this->assertSame(1, $this->countRows('send_notifications'));
+    }
+
+    private function countRows(string $taskKey): int
+    {
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM scheduled_actions WHERE task_key = ?');
+        $stmt->execute([$taskKey]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
     // ── the composition root's opt-in rearm cache ───────────────────────
 
     /**

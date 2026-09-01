@@ -23,10 +23,20 @@ use PHPUnit\Framework\TestCase;
  * 2. A duplicate chain NEVER DIES while each copy re-arms blindly: N rows
  *    run, N rows are queued, and the count is stable at N for ever.
  *
- * Closing (2) makes (1) harmless: whichever copy runs first queues the
- * successor, every other copy finds it pending and stands down, and the
- * chain is back to one row after a single pass. That is what `rearm()`
- * does and what `scheduleAfter()` deliberately does not.
+ * Closing (2) is what this test enforces: whichever copy runs first
+ * queues the successor, every other copy finds it pending and stands
+ * down. That is what `rearm()` does and what `scheduleAfter()`
+ * deliberately does not.
+ *
+ * It was believed to make (1) harmless, and it does not — it heals ONE
+ * duplicate per pass, and (1) births one per request that lands during a
+ * pass. The same installation later reached **24 896** « tâche planifiée
+ * terminée » in forty-eight hours, 99 % of its journal, with 16 387 runs
+ * of a single hourly task: each extra copy lengthens the next pass, a
+ * longer pass is a wider window, and a wider window catches more
+ * requests. (1) is closed on its own side by `SchedulerService::seed()`,
+ * whose guard sees `processing` too — see `ChainSeedingInvariantTest`,
+ * the sibling of this one.
  *
  * The signature of a recurring chain is its **fixed reference**: a
  * one-shot follow-up (a retry carrying a payload, a batch's next slice, a

@@ -65,7 +65,24 @@ class ReceiptService
         private TransactionAttachmentRepository $transactionAttachmentRepository,
         private EncryptedFileStorageService $fileStorage,
         private TransactionRepository $transactionRepository,
-        private ?SettingService $settingService = null
+        private ?SettingService $settingService = null,
+        /**
+         * The AI reading of a receipt, queued from store() so that EVERY
+         * way a receipt enters the site gets it.
+         *
+         * It used to be queued by the three controllers instead, and the
+         * fourth way in — a receipt arriving by e-mail, which reaches
+         * this class through Service\ExpenseReceiptService and no
+         * controller at all — therefore got none: it landed in the
+         * sorting pile with no amount, no date, no merchant and no
+         * chance of being matched to a movement. The single point every
+         * path goes through is the only place that cannot be forgotten
+         * by the next one.
+         *
+         * Null — llm_connector absent — is a no-op inside the service
+         * itself; a receipt is always usable with manual entry.
+         */
+        private ?ReceiptExtractionService $extractionService = null
     ) {
     }
 
@@ -213,6 +230,10 @@ class ReceiptService
 
         $attachment = $this->attachmentRepository->findById($id);
         \assert($attachment !== null);
+
+        // Queued here rather than by each caller — see the constructor.
+        $this->extractionService?->scheduleExtraction($attachment->id);
+
         return $attachment;
     }
 
@@ -333,6 +354,11 @@ class ReceiptService
 
         $attachment = $this->attachmentRepository->findById($newId);
         \assert($attachment !== null);
+
+        // A new file is a new reading — see the constructor for why this
+        // is queued here rather than by the caller.
+        $this->extractionService?->scheduleExtraction($attachment->id);
+
         return $attachment;
     }
 

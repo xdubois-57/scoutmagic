@@ -44,6 +44,7 @@ class ExpenseReceiptServiceTest extends TestCase
 {
     private \PDO $pdo;
     private AccountRepository $accounts;
+    private \Core\Scheduler\SchedulerService $extractionScheduler;
     private ExpenseReceiptService $service;
     private string $storagePath;
     private int $scoutYearId = 1;
@@ -60,12 +61,38 @@ class ExpenseReceiptServiceTest extends TestCase
         $this->accounts = new AccountRepository($this->pdo, $encryption);
         $this->storagePath = sys_get_temp_dir() . '/finance_expense_receipt_test_' . uniqid();
 
+        // The real extraction service, over a real scheduler: what is
+        // being pinned below is that a receipt arriving by e-mail gets
+        // the AI reading queued at all, and the queue is where that shows.
+        $this->extractionScheduler = new \Core\Scheduler\SchedulerService(
+            new \Core\Scheduler\SchedulerRepository($this->pdo)
+        );
         $receiptService = new ReceiptService(
             new AttachmentRepository($this->pdo, $encryption),
             $this->accounts,
             new TransactionAttachmentRepository($this->pdo),
             new EncryptedFileStorageService(new FileRepository($this->pdo), $encryption, $this->storagePath),
-            new TransactionRepository($this->pdo, $encryption)
+            new TransactionRepository($this->pdo, $encryption),
+            null,
+            new \Modules\Finance\Service\ReceiptExtractionService(
+                $this->extractionScheduler,
+                new class implements \Modules\LlmConnector\Api\LlmConnectorInterface {
+                    public function isAvailable(): bool
+                    {
+                        return true;
+                    }
+
+                    public function isTierAvailable(\Modules\LlmConnector\Api\LlmTier $tier): bool
+                    {
+                        return true;
+                    }
+
+                    public function complete(\Modules\LlmConnector\Api\LlmRequest $request): \Modules\LlmConnector\Api\LlmResponse
+                    {
+                        throw new \LogicException('jamais appelé : seule la mise en file est testée');
+                    }
+                }
+            )
         );
 
         $this->pdo->exec("INSERT INTO scout_years (id, label, start_date, end_date, is_current) VALUES (1, '2025-2026', '2025-09-01', '2026-08-31', 1)");
@@ -247,4 +274,42 @@ class ExpenseReceiptServiceTest extends TestCase
             '<?php echo 1;', 'application/x-httpd-php', 'facture.php', $accountId, null, null, 'admin', [], 7
         );
     }
+    /**
+     * A receipt that arrives by e-mail is read by the AI like any other.
+     *
+     * It was not: the extraction was queued by the three finance
+     * controllers, and this path has no controller at all — so a receipt
+     * mailed in landed in the sorting pile with no amount, no date and no
+     * merchant, which is also everything the movement matcher needs.
+     * « Je ne vois que le reçu » was the whole of it.
+     */
+    public function testAReceiptArrivingUnattendedGetsItsAiReadingQueued(): void
+    {
+        $accountId = $this->activeAccount('Unité', Account::TYPE_BANK, null);
+
+        $attachmentId = (int) $this->pdo->query('SELECT COALESCE(MAX(id), 0) FROM finance_attachments')->fetchColumn();
+        $this->service->storeUnattendedReceipt(self::PDF, 'application/pdf', 'recu.pdf', $accountId);
+
+        $this->assertNotNull(
+            $this->extractionScheduler->find('finance', 'extract_receipt_data', 'attachment-' . ($attachmentId + 1)),
+            "l'extraction n'a pas été mise en file"
+        );
+    }
+
+    /**
+     * Including the one nothing could place — that is the receipt with
+     * the most to gain from being read, since its amount and date are
+     * what will name its account.
+     */
+    public function testAReceiptLandingInTheSortingPileGetsItQueuedToo(): void
+    {
+        $this->service->storeUnattendedReceipt(self::PDF, 'application/pdf', 'recu.pdf', null);
+
+        $queued = $this->pdo->query(
+            "SELECT COUNT(*) FROM scheduled_actions WHERE task_key = 'extract_receipt_data'"
+        )->fetchColumn();
+
+        $this->assertSame(1, (int) $queued);
+    }
+
 }

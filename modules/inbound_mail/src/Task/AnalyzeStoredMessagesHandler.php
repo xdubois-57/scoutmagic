@@ -104,8 +104,13 @@ class AnalyzeStoredMessagesHandler implements TaskHandlerInterface
      * Seed the self-rescheduling chain. Without the first nudge nothing
      * ever runs.
      */
+    /**
+     * Called from the shared scheduler bootstrap, so on every request:
+     * seed() and not rearmAfter(), whose guard cannot see a chain whose
+     * only row is `processing` — see SchedulerService::seed().
+     */
     public static function bootstrap(SchedulerService $scheduler): void
     {
-        $scheduler->rearmAfter('inbound_mail', self::TASK_KEY, self::REFERENCE, self::INTERVAL_SECONDS);
+        $scheduler->seedAfter('inbound_mail', self::TASK_KEY, self::REFERENCE, self::INTERVAL_SECONDS);
     }
 }

@@ -2,7 +2,7 @@
   "id": "finance",
   "name": "Finances",
   "description": "Gestion financière de l'unité : comptes, exercices, catégorisation, import de relevés bancaires, mouvements, reçus.",
-  "version": "1.20.1",
+  "version": "1.21.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -149,6 +149,15 @@
       "role_min": "intendant",
       "label": "",
       "breadcrumb": { "label": "Rapprochement", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Finances", "path": "/finance" }] }
+    },
+    {
+      "path": "/finance/reconciliation/creances",
+      "method": "GET",
+      "controller": "Modules\\Finance\\Controller\\ReconciliationController",
+      "action": "searchReceivables",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
     },
     {
       "path": "/finance/reconciliation/split/{transactionId}",
