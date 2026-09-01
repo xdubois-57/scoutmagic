@@ -106,7 +106,7 @@
         var container = button.closest('.audit-timeline');
         var list = container.querySelector('.audit-timeline-list');
         var wrapper = button.closest('.audit-timeline-more-wrapper');
-        var page = parseInt(button.dataset.nextPage, 10) || 2;
+        var page = Number.parseInt(button.dataset.nextPage, 10) || 2;
 
         button.disabled = true;
         var url = '/api/audit/' + encodeURIComponent(container.dataset.entityType)

@@ -139,7 +139,7 @@
             role_min_view: selectEl('account-role-min-view').value
         };
         if (id) {
-            payload.id = parseInt(id, 10);
+            payload.id = Number.parseInt(id, 10);
         }
 
         // The submit button lives in the modal footer, tied to the form by
@@ -176,7 +176,7 @@
 
     /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('.toggle-account-btn')).forEach(btn => {
         btn.addEventListener('click', () => {
-            postAccountAction(btn.dataset.active === '1' ? 'deactivate' : 'activate', parseInt(btn.dataset.id, 10));
+            postAccountAction(btn.dataset.active === '1' ? 'deactivate' : 'activate', Number.parseInt(btn.dataset.id, 10));
         });
     });
 })();

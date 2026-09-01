@@ -25,7 +25,7 @@
                     {% for item in media %}
                         <div class="col">
                             <div class="card h-100">
-                                <img src="/gallery/media/{{ item.id }}/thumb" alt="{{ item.originalFilename ?? 'Photo du séjour' }}"
+                                <img src="/gallery/media/{{ item.id }}/thumb" alt="{{ item.originalFilename ?? 'Vue du séjour' }}"
                                      class="card-img-top" loading="lazy">
                                 <div class="card-footer bg-transparent p-2">
                                     <form method="post" action="/chefs/camps/sejours/{{ camp.id }}/photos/supprimer" data-confirm="Supprimer définitivement cette photo ?">

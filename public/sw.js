@@ -173,6 +173,26 @@ const CONFIG_CACHE_NAME = 'offline-config';
 const CONFIG_URL = 'https://offline-config.internal/v1';
 const CONTENT_CACHE_PREFIX = 'content-';
 
+/**
+ * Strip leading and trailing '/' without a regex.
+ *
+ * `^\/+` and `\/+$` both let the engine backtrack across a run of
+ * slashes, which is super-linear on a crafted path — and this runs on
+ * every navigation, against a pathname an attacker can choose. Two
+ * counters are linear by construction.
+ *
+ * @param {string} value
+ * @returns {string}
+ */
+function trimSlashes(value) {
+    let from = 0;
+    let to = value.length;
+    while (from < to && value[from] === '/') { from++; }
+    while (to > from && value[to - 1] === '/') { to--; }
+
+    return value.slice(from, to);
+}
+
 function storeOfflineConfig(data) {
     return caches.open(CONFIG_CACHE_NAME).then(function (cache) {
         return cache.put(CONFIG_URL, new Response(JSON.stringify(data), {
@@ -371,7 +391,7 @@ function isWhitelisted(pathname, whitelist) {
             if (pathname.indexOf(entry.path) !== 0) {
                 continue;
             }
-            const remainder = pathname.slice(entry.path.length).replace(/^\/+/, '').replace(/\/+$/, '');
+            const remainder = trimSlashes(pathname.slice(entry.path.length));
             if (remainder !== '' && remainder.indexOf('/') === -1) {
                 return true;
             }

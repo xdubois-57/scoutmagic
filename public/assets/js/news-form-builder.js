@@ -1082,10 +1082,10 @@
             capInput.value = field.capacity_max || '';
             limit.input.addEventListener('change', function () {
                 capInput.classList.toggle('d-none', !limit.input.checked);
-                field.capacity_max = limit.input.checked ? (parseInt(capInput.value, 10) || 0) : null;
+                field.capacity_max = limit.input.checked ? (Number.parseInt(capInput.value, 10) || 0) : null;
             });
             capInput.addEventListener('input', function () {
-                field.capacity_max = parseInt(capInput.value, 10) || 0;
+                field.capacity_max = Number.parseInt(capInput.value, 10) || 0;
             });
             capRow.appendChild(limit.wrapper);
             // Hidden label, inside this same row and right before the box it
@@ -1111,7 +1111,7 @@
                 priceInput.className = 'form-control';
                 priceInput.value = field.price_per_unit || '';
                 priceInput.addEventListener('input', function () {
-                    field.price_per_unit = priceInput.value !== '' ? parseFloat(priceInput.value) : null;
+                    field.price_per_unit = priceInput.value !== '' ? Number.parseFloat(priceInput.value) : null;
                     renderFieldList();
                 });
                 priceRow.appendChild(priceInput);
@@ -1274,9 +1274,9 @@
             var lines = [];
             numberFields.forEach(function (inputEl) {
                 var input = /** @type {HTMLInputElement} */ (inputEl);
-                var price = parseFloat(input.dataset.price);
+                var price = Number.parseFloat(input.dataset.price);
                 if (!price) return;
-                var qty = parseFloat(input.value) || 0;
+                var qty = Number.parseFloat(input.value) || 0;
                 var subtotal = qty * price;
                 total += subtotal;
                 lines.push('<p class="mb-1">' + input.dataset.label + ' : ' + qty + ' × ' + price.toFixed(2).replace('.', ',') + '€ = ' + subtotal.toFixed(2).replace('.', ',') + '€</p>');

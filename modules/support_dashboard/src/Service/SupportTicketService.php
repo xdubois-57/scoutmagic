@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\SupportDashboard\Service;
 
 use Core\Journal\JournalService;
+use Core\Service\TextNormalizerService;
 use Modules\SupportDashboard\Repository\SupportTicketRepository;
 use Modules\SupportDashboard\TicketCategory;
 
@@ -247,12 +248,19 @@ class SupportTicketService
     /**
      * Case- and accent-insensitive, because « problème » and « probleme »
      * are the same search to the person typing it.
+     *
+     * Delegates to Core\Service\TextNormalizerService::fold(), which is
+     * where this project's one accent-folding rule lives. This used to be
+     * `iconv('UTF-8', 'ASCII//TRANSLIT', …)`, which that helper's docblock
+     * names explicitly as the thing never to use: its output depends on the
+     * C library. On glibc « arrête » folds to « arrete »; on the libiconv
+     * that macOS and musl ship it comes back « arr^ete », so the search
+     * silently stopped ignoring accents on those hosts while CI, on glibc,
+     * stayed green and saw nothing.
      */
     private static function fold(string $value): string
     {
-        $folded = @iconv('UTF-8', 'ASCII//TRANSLIT', $value);
-
-        return mb_strtolower($folded !== false ? $folded : $value);
+        return TextNormalizerService::fold($value);
     }
 
     /**

@@ -50,6 +50,26 @@
     // 'child' means the entry's path plus EXACTLY one additional segment
     // — e.g. '/members/' covers '/members/12' but not
     // '/members/12/emails/5' (mass-mail content, two extra segments).
+    /**
+     * Strip leading and trailing '/' without a regex.
+     *
+     * `^\/+` and `\/+$` both let the engine backtrack across a run of
+     * slashes, which is super-linear on a crafted path — and this runs on
+     * every navigation, against a pathname an attacker can choose. Two
+     * counters are linear by construction.
+     *
+     * @param {string} value
+     * @returns {string}
+     */
+    function trimSlashes(value) {
+        var from = 0;
+        var to = value.length;
+        while (from < to && value[from] === '/') { from++; }
+        while (to > from && value[to - 1] === '/') { to--; }
+    
+        return value.slice(from, to);
+    }
+
     function isWhitelisted(pathname) {
         for (var i = 0; i < whitelist.length; i++) {
             var entry = whitelist[i];
@@ -57,7 +77,7 @@
                 if (pathname.indexOf(entry.path) !== 0) {
                     continue;
                 }
-                var remainder = pathname.slice(entry.path.length).replace(/^\/+/, '').replace(/\/+$/, '');
+                var remainder = trimSlashes(pathname.slice(entry.path.length));
                 if (remainder !== '' && remainder.indexOf('/') === -1) {
                     return true;
                 }

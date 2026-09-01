@@ -83,7 +83,7 @@
     }
 
     movementsBtn?.addEventListener('click', async function () {
-        var accountId = parseInt(/** @type {HTMLSelectElement} */ (document.getElementById('danger-movements-account')).value, 10);
+        var accountId = Number.parseInt(/** @type {HTMLSelectElement} */ (document.getElementById('danger-movements-account')).value, 10);
         var confirmed = await window.ScoutMagicConfirm.ask({
             message: 'Supprimer tous les mouvements de ce compte ? Cette action est irréversible.',
             confirmLabel: 'Supprimer'

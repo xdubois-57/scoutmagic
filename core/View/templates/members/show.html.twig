@@ -4,7 +4,7 @@
    etc.) lives in components.css, which base.html.twig does NOT load by
    default — every other page using these components (Staffs, trombinoscope,
    calendar) links it explicitly via this same block. Without this link the
-   photo/placeholder has no sizing rule at all and the <img> renders at its
+   photo/placeholder has no sizing rule at all and the image renders at its
    raw intrinsic size, which is the actual root cause of the member photo
    "taking the whole screen" — not the CSS technique itself. #}
 {% block stylesheets %}

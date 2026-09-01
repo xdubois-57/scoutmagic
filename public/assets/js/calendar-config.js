@@ -107,7 +107,7 @@
 
             var res = await api.postJson('/config/calendar/notifications', {
                 enabled: !!(notifyEnabled && notifyEnabled.checked),
-                days_before: parseInt(valueOf('notify-days-before'), 10)
+                days_before: Number.parseInt(valueOf('notify-days-before'), 10)
             });
             if (succeeded(res)) {
                 toastSuccess('Rappels enregistrés.');
@@ -126,7 +126,7 @@
     /** @type {NodeListOf<HTMLSelectElement>} */ (document.querySelectorAll('.visibility-select')).forEach(function (select) {
         select.addEventListener('change', async function () {
             var res = await api.postJson('/config/calendar/visibility', {
-                calendar_id: parseInt(select.dataset.calendarId, 10),
+                calendar_id: Number.parseInt(select.dataset.calendarId, 10),
                 visibility: select.value
             });
             if (succeeded(res)) {
@@ -146,7 +146,7 @@
         var lastAccepted = select.value;
         select.addEventListener('change', async function () {
             var res = await api.postJson('/config/calendar/edit-role', {
-                calendar_id: parseInt(select.dataset.calendarId, 10),
+                calendar_id: Number.parseInt(select.dataset.calendarId, 10),
                 edit_role_min: select.value
             });
             if (succeeded(res)) {
@@ -222,7 +222,7 @@
     /** @type {NodeListOf<HTMLButtonElement>} */ (document.querySelectorAll('.regenerate-btn')).forEach(function (btn) {
         btn.addEventListener('click', function () {
             return regenerateToken(btn, '/config/calendar/regenerate', {
-                calendar_id: parseInt(btn.dataset.calendarId, 10)
+                calendar_id: Number.parseInt(btn.dataset.calendarId, 10)
             });
         });
     });
@@ -246,7 +246,7 @@
 
             var res = await api.withDisabled(btn, function () {
                 return api.postJson('/config/calendar/delete', {
-                    calendar_id: parseInt(btn.dataset.calendarId, 10)
+                    calendar_id: Number.parseInt(btn.dataset.calendarId, 10)
                 });
             });
             if (!succeeded(res)) {

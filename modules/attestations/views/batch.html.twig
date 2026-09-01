@@ -160,7 +160,10 @@
                                             <select class="form-select form-select-sm"
                                                     form="attestations-assign-{{ line.id }}"
                                                     name="member_id"
-                                                    aria-label="Choisir le membre de l'attestation lue « {{ line.readName|default('sans nom lisible') }} »">
+                                                    {# The accessible name starts with the option text a sighted
+                                                       user reads (« Choisir un membre »), so voice control can say
+                                                       what it sees — WCAG 2.5.3, Label in Name. #}
+                                                    aria-label="Choisir un membre pour l'attestation lue « {{ line.readName|default('sans nom lisible') }} »">
                                                 <option value="">Choisir un membre…</option>
                                                 {% for candidateId in line.candidateMemberIds %}
                                                     <option value="{{ candidateId }}">

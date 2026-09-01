@@ -81,7 +81,7 @@
             name: inputEl('category-name').value,
             description: inputEl('category-description').value
         });
-        if (id) payload.id = parseInt(id, 10);
+        if (id) payload.id = Number.parseInt(id, 10);
 
         const res = await api.postJson('/config/finance/categories', payload);
         if (res.data && res.data.success) {
@@ -106,7 +106,7 @@
     }
 
     /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('.toggle-category-btn')).forEach(btn => {
-        btn.addEventListener('click', () => postCategoryAction(btn.dataset.active === '1' ? 'deactivate' : 'activate', parseInt(btn.dataset.id, 10)));
+        btn.addEventListener('click', () => postCategoryAction(btn.dataset.active === '1' ? 'deactivate' : 'activate', Number.parseInt(btn.dataset.id, 10)));
     });
 
     /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('.delete-category-btn')).forEach(btn => {
@@ -116,7 +116,7 @@
                 confirmLabel: 'Supprimer'
             });
             if (confirmed) {
-                postCategoryAction('delete', parseInt(btn.dataset.id, 10));
+                postCategoryAction('delete', Number.parseInt(btn.dataset.id, 10));
             }
         });
     });
@@ -288,9 +288,9 @@
         const id = inputEl('rule-id').value;
         const payload = /** @type {Object.<string, any>} */ (Object.assign({
             action: id ? 'update' : 'create',
-            category_id: parseInt(/** @type {HTMLSelectElement} */ (el('rule-category')).value, 10)
+            category_id: Number.parseInt(/** @type {HTMLSelectElement} */ (el('rule-category')).value, 10)
         }, ruleConditionsPayload()));
-        if (id) payload.id = parseInt(id, 10);
+        if (id) payload.id = Number.parseInt(id, 10);
 
         const res = await api.postJson('/config/finance/rules', payload);
         if (res.data && res.data.success) {
@@ -315,7 +315,7 @@
     }
 
     /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('.toggle-rule-btn')).forEach(btn => {
-        btn.addEventListener('click', () => postRuleAction(btn.dataset.active === '1' ? 'deactivate' : 'activate', { id: parseInt(btn.dataset.id, 10) }));
+        btn.addEventListener('click', () => postRuleAction(btn.dataset.active === '1' ? 'deactivate' : 'activate', { id: Number.parseInt(btn.dataset.id, 10) }));
     });
 
     document.getElementById('toggle-ai-rule-btn')?.addEventListener('click', async (e) => {
@@ -335,7 +335,7 @@
                 confirmLabel: 'Supprimer'
             });
             if (confirmed) {
-                postRuleAction('delete', { id: parseInt(btn.dataset.id, 10) });
+                postRuleAction('delete', { id: Number.parseInt(btn.dataset.id, 10) });
             }
         });
     });
@@ -365,7 +365,7 @@
     /** @returns {number[]} */
     function orderedRuleIds() {
         return Array.from(/** @type {NodeListOf<HTMLElement>} */ (rulesList.querySelectorAll('div[data-id]')))
-            .map(r => parseInt(r.dataset.id, 10));
+            .map(r => Number.parseInt(r.dataset.id, 10));
     }
 
     // --- Move up/down (touch-friendly alternative to drag-and-drop for rules) ---

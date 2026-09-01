@@ -68,7 +68,7 @@
   `aria-current="true"` marks the selected row. A screen reader, a JS-off
   browser and a cached offline page all work.
 
-  mode: 'multi' — rows are <button aria-pressed>, toggled by
+  mode: 'multi' — rows are buttons carrying aria-pressed, toggled by
   public/assets/js/select-bar.js, which dispatches a `select-bar:change`
   CustomEvent (detail: { selectedIds }) on the container after every
   toggle. The trigger summarises the selection rather than drawing every

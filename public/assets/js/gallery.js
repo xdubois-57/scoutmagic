@@ -258,7 +258,7 @@
 
         function persistOrder() {
             var ids = Array.from(grid.querySelectorAll('.gallery-media-item')).map(/** @param {HTMLElement} el */ function (el) {
-                return parseInt(el.dataset.mediaId, 10);
+                return Number.parseInt(el.dataset.mediaId, 10);
             });
             window.ScoutMagicApi.postJson(reorderUrl, { ordered_ids: ids }).then(function (res) {
                 var data = envelopeData(res);
@@ -299,7 +299,7 @@
 
         grid.querySelectorAll('.gallery-media-set-cover').forEach(/** @param {HTMLElement} btn */ function (btn) {
             btn.addEventListener('click', function () {
-                window.ScoutMagicApi.postJson(btn.dataset.url, { media_id: parseInt(btn.dataset.mediaId, 10) }).then(function (res) {
+                window.ScoutMagicApi.postJson(btn.dataset.url, { media_id: Number.parseInt(btn.dataset.mediaId, 10) }).then(function (res) {
                     var data = envelopeData(res);
                     if (data.success) {
                         window.location.reload();

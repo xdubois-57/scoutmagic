@@ -153,7 +153,7 @@
             var chosen = defaultNumberSelect.value;
             var res = await api.withDisabled(defaultNumberSave, function () {
                 return api.postJson('/admin/sos/default-number', {
-                    member_id: parseInt(chosen, 10)
+                    member_id: Number.parseInt(chosen, 10)
                 });
             });
             if (succeeded(res)) {
@@ -250,7 +250,7 @@
         Object.keys(cellStates).forEach(function (date) {
             Object.keys(cellStates[date]).forEach(function (memberId) {
                 cells.push({
-                    member_id: parseInt(memberId, 10),
+                    member_id: Number.parseInt(memberId, 10),
                     date: date,
                     state: cellStates[date][memberId]
                 });
@@ -553,7 +553,7 @@
             }
             e.preventDefault();
 
-            var page = parseInt(link.dataset.transitionsPage || '', 10);
+            var page = Number.parseInt(link.dataset.transitionsPage || '', 10);
             if (!Number.isFinite(page) || page < 1) {
                 return;
             }

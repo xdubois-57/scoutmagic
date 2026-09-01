@@ -54,7 +54,7 @@
     }
 
     badgeRows.forEach(function (row) {
-        var badgeId = parseInt(row.dataset.id, 10);
+        var badgeId = Number.parseInt(row.dataset.id, 10);
         var isDefault = row.dataset.default === '1';
         var nameInput = /** @type {HTMLInputElement|null} */ (row.querySelector('.badge-name-input'));
         var activeInput = /** @type {HTMLInputElement|null} */ (row.querySelector('.badge-active-input'));

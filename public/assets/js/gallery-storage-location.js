@@ -99,7 +99,7 @@
             });
             if (!confirmed) return;
             button.disabled = true;
-            window.ScoutMagicApi.postJson(button.dataset.url, { target_location_id: parseInt(select.value, 10) }).then(function (res) {
+            window.ScoutMagicApi.postJson(button.dataset.url, { target_location_id: Number.parseInt(select.value, 10) }).then(function (res) {
                 if (isNetworkFailure(res)) {
                     button.disabled = false;
                     return;
@@ -190,7 +190,7 @@
             // actuelle"), so testing an existing location otherwise sent an
             // empty secret and could only ever fail on authentication.
             window.ScoutMagicApi.postJson('/config/gallery/test-connection', {
-                location_id: parseInt(testBtn.dataset.locationId || '0', 10) || 0,
+                location_id: Number.parseInt(testBtn.dataset.locationId || '0', 10) || 0,
                 endpoint: /** @type {HTMLInputElement} */ (document.getElementById('s3-endpoint')).value,
                 region: /** @type {HTMLInputElement} */ (document.getElementById('s3-region')).value,
                 bucket: /** @type {HTMLInputElement} */ (document.getElementById('s3-bucket')).value,
@@ -241,7 +241,7 @@
                 }
                 var data = envelopeData(res);
                 if (data.success) {
-                    explainResult.innerHTML = '<div class="alert alert-light border mb-0 py-2">' + escapeHtml(data.explanation).replace(/\n/g, '<br>') + '</div>';
+                    explainResult.innerHTML = '<div class="alert alert-light border mb-0 py-2">' + escapeHtml(data.explanation).replaceAll('\n', '<br>') + '</div>';
                 } else {
                     explainResult.innerHTML = '<div class="alert alert-danger mb-0 py-2">' + escapeHtml(data.error || 'Échec de l\'analyse.') + '</div>';
                 }

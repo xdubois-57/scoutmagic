@@ -112,7 +112,11 @@ export function selectionUrl(currentUrl, selection) {
  */
 export function fragmentUrl(pageUrl) {
     const url = new URL(pageUrl, 'https://placeholder.invalid');
-    const path = url.pathname.replace(/\/+$/, '');
+    // A counter rather than `\/+$`, which backtracks across a run of
+    // slashes; same reasoning as public/sw.js's trimSlashes().
+    let end = url.pathname.length;
+    while (end > 0 && url.pathname[end - 1] === '/') { end--; }
+    const path = url.pathname.slice(0, end);
 
     return path + '/apercu' + (url.search ? url.search : '');
 }

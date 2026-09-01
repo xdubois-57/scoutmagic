@@ -111,7 +111,8 @@
 
             <div class="form-check form-switch mt-3">
                 <input class="form-check-input" type="checkbox" role="switch" id="is-open"
-                       name="is_open" value="1" {{ is_open ? 'checked' : '' }}>
+                       name="is_open" value="1"
+                       aria-checked="{{ is_open ? 'true' : 'false' }}" {{ is_open ? 'checked' : '' }}>
                 <label class="form-check-label" for="is-open">Campagne ouverte</label>
                 <div class="form-text">
                     Interrupteur manuel : il force l'état quelles que soient les dates ci-dessus. La fermer ici
