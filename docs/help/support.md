@@ -62,8 +62,9 @@ remplace la précédente.
 **Rien n'est jamais transmis automatiquement** : ni tâche planifiée, ni
 courriel, ni envoi décidé par le site. Vous pouvez la transmettre
 vous-même : en la téléchargeant, ou en la joignant à un ticket depuis
-« Contacter le support » — la page liste alors son contenu et sa taille,
-et vous demande de cocher que vous acceptez. Un envoi qui échoue ne fait
+« Contacter le support » — la page annonce alors sa taille et le nombre
+de rubriques qu'elle contient, avec un bouton « Voir le détail » qui les
+énumère, et vous demande de cocher que vous acceptez. Un envoi qui échoue ne fait
 pas perdre le ticket : il reste marqué « archive non transmise », avec un
 bouton pour réessayer.
 

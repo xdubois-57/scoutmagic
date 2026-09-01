@@ -24,15 +24,7 @@
     badge: ticket.status == 'closed' ? 'Clôturé' : 'Ouvert',
 } only %}
 
-{# Deux pages, une seule entrée de menu : le menu nomme la fonction, ces
-   onglets nomment les écrans qu'elle contient. #}
-{% include 'partials/sub_nav.html.twig' with {
-    items: [
-        { label: 'Tableau de bord', url: '/support-dashboard' },
-        { label: 'Tickets', url: '/support-dashboard/tickets' },
-    ],
-    current: '/support-dashboard/tickets',
-} only %}
+{% include '@support_dashboard/_nav.html.twig' %}
 
 
 <div class="card mb-3">
@@ -214,10 +206,16 @@
         {% else %}
             {# Le ticket est à sens unique : il n'y a pas de fil, et rien ne
                remonte vers l'instance. Cette note est donc le seul endroit
-               où ce qui s'est réellement passé est écrit (roadmap IT-28). #}
+               où ce qui s'est réellement passé est écrit (roadmap IT-28).
+
+               Le texte disait « la réponse part de votre propre
+               messagerie », ce qui laissait croire qu'un statut, lui,
+               remonterait. Il dit maintenant les deux faits : rien de
+               cette page n'atteint l'unité, et c'est donc à vous de la
+               contacter. Plus clair, pas plus long. #}
             <p class="small text-body-secondary">
-                Le ticket est à sens unique : la réponse part de votre propre messagerie. Cette note
-                reste ici, et c'est elle qui rendra le corpus exploitable plus tard.
+                L'unité ne voit rien de cette page : ni la clôture, ni cette note. C'est à vous de lui
+                répondre, par e-mail ou par téléphone. La note ne sert qu'ici, pour se relire plus tard.
             </p>
             <form method="post" action="/support-dashboard/tickets/{{ ticket.id }}/close">
                 {{ csrf_field()|raw }}

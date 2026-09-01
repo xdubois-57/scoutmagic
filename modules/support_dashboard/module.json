@@ -2,7 +2,7 @@
   "id": "support_dashboard",
   "name": "Tableau de bord support",
   "description": "Réception et consultation des rapports d'utilisation envoyés par les installations ScoutMagic.",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "enabled_by_default": false,
   "visible_when": ["statistics_receiver"],
   "routes": [
@@ -49,10 +49,10 @@
       "action": "index",
       "menu": "configuration",
       "role_min": "superadmin",
-      "label": "Support",
+      "label": "Supervision",
       "menu_icon": "bi-speedometer2",
       "menu_group": "exploitation",
-      "breadcrumb": { "label": "Support", "parents": ["Configuration"] }
+      "breadcrumb": { "label": "Supervision", "parents": ["Configuration"] }
     },
     {
       "path": "/support-dashboard/tickets",
@@ -137,6 +137,20 @@
     }
   ],
   "cookies": [],
+  "notifications": [
+    {
+      "id": "support_dashboard.ticket_received",
+      "label": "Nouveau ticket de support",
+      "description": "Quand une installation envoie un ticket de support à ce site. Le message ne porte que la référence et la catégorie — jamais ce qui a été écrit ni l'adresse de contact.",
+      "group": "Supervision",
+      "role_min": "superadmin",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "default_off"
+      }
+    }
+  ],
   "scheduled_tasks": [
     {
       "key": "purge_rate_limits",

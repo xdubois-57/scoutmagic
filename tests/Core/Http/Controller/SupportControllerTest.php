@@ -35,6 +35,7 @@ use Core\Support\SupportPackageState;
 use Core\Support\Task\GenerateSupportPackageHandler;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Core\View\TwigFactory;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 
@@ -130,15 +131,13 @@ class SupportControllerTest extends TestCase
         $this->identityService = new InstallationIdentityService($this->settings, $this->secretManager);
         $journalService = new JournalService(new JournalRepository($this->pdo));
 
-        $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
-        $this->twig = new Environment(new FilesystemLoader($templateDir), ['cache' => false, 'autoescape' => 'html']);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $this->twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
-        $this->twig->addFunction(new \Twig\TwigFunction('csrf_field', fn() => '<input type="hidden" name="_csrf_token" value="test">', ['is_safe' => ['html']]));
-        $this->twig->addFunction(new \Twig\TwigFunction('get_flash', fn() => null));
-        $this->twig->addFunction(new \Twig\TwigFunction('csrf_token', fn() => 'test'));
-        $this->twig->addFilter(new \Twig\TwigFilter('french_date', fn($d) => (string) $d));
+        // The REAL environment, not a hand-rolled one with the four
+        // helpers this page happened to need. A stub list drifts: the
+        // support page grew a `|datetime_fr` and every test in this class
+        // errored on an unknown filter, which says nothing about the page
+        // and everything about the harness. TwigFactory takes only a
+        // template directory, so there is no reason to reproduce it.
+        $this->twig = TwigFactory::create(dirname(__DIR__, 4) . '/core/View/templates', true);
         $this->twig->addGlobal('site_name', 'Test');
         $this->twig->addGlobal('menus', null);
         $this->twig->addGlobal('csp_nonce', 'n');
@@ -987,7 +986,14 @@ class SupportControllerTest extends TestCase
         $this->assertSame(404, $response->getStatusCode());
     }
 
-    public function testAnExistingPackageIsOfferedForDownloadOnPageLoad(): void
+    /**
+     * The stamp is the one timestamp of this page stored as ISO 8601
+     * **UTC**, and it is shown with its hour, on the clock the rest of
+     * the site runs on: 10:00 UTC in August is 12:00 in Brussels, and
+     * « générée le 19 août 2026 » with no hour never said whether the
+     * archive was built this morning or the evening before.
+     */
+    public function testAnExistingPackageIsOfferedForDownloadWithItsLocalGenerationTime(): void
     {
         $this->settingRepository->updateValue(null, SupportPackageState::FILE_ID, '7');
         $this->settingRepository->updateValue(null, SupportPackageState::GENERATED_AT, '2026-08-19T10:00:00+00:00');
@@ -996,7 +1002,8 @@ class SupportControllerTest extends TestCase
         $body = $this->controller->index(new Request('GET', '/config/support', [], [], [], []), [])->getBody();
 
         $this->assertStringContainsString('/files/7', $body);
-        $this->assertStringContainsString('2026-08-19T10:00:00+00:00', $body);
+        $this->assertStringContainsString('19/08/2026 à 12:00', $body);
+        $this->assertStringNotContainsString('2026-08-19T10:00:00+00:00', $body);
     }
 
     public function testThePageNeverOffersAnAutomaticTransmission(): void

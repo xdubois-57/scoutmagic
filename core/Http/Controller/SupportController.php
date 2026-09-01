@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Core\Http\Controller;
 
+use Core\Config\AppClock;
 use Core\Config\SettingService;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
@@ -179,7 +180,9 @@ class SupportController extends AbstractController
             // would leave the site first.
             'payload_json' => $this->payloadBuilder->buildJson(),
             'package_file_id' => $this->currentPackageFileId(),
-            'package_generated_at' => self::nonEmpty($this->settingService->get(SupportPackageState::GENERATED_AT)),
+            'package_generated_at' => self::onTheAppClock(
+                self::nonEmpty($this->settingService->get(SupportPackageState::GENERATED_AT))
+            ),
             'package_retention_days' => SupportPackageService::RETENTION_DAYS,
             // The mail probes (roadmap IT-27). The page has to say when
             // the button will work again rather than simply refusing:
@@ -654,6 +657,25 @@ class SupportController extends AbstractController
         $after = DateInput::fromStorage($later);
 
         return $before !== null && $after !== null && $before < $after;
+    }
+
+    /**
+     * The package's generation stamp, moved onto the clock the rest of
+     * the site is rendered on.
+     *
+     * It is the one timestamp of this page stored as ISO 8601 **UTC**
+     * (`Core\Support\SupportPackageService::nowIso()`) rather than as a
+     * naive `Europe/Brussels` value like every other column here, so
+     * printing it as-is showed an hour that is one or two off the one on
+     * the administrator's own clock — and « générée à 06:14 » for an
+     * archive built at 08:14 reads as a stale archive. Converted here
+     * rather than in Twig: `datetime_fr` formats, it does not travel.
+     */
+    private static function onTheAppClock(?string $storedUtc): ?string
+    {
+        $moment = DateInput::fromStorage($storedUtc);
+
+        return $moment?->setTimezone(AppClock::zone())->format('Y-m-d H:i:s');
     }
 
     private static function nonEmpty(mixed $value): ?string

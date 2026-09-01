@@ -139,21 +139,52 @@
 
                 {# La liste et la taille AVANT la case, jamais après :
                    accepter de transmettre « quelque chose » n'est pas
-                   accepter de transmettre ceci. #}
-                <p class="small text-body-secondary mb-1">
+                   accepter de transmettre ceci.
+
+                   Le détail est REPLIÉ par défaut : quinze rubriques
+                   décrites en une phrase chacune poussaient le bouton
+                   d'envoi hors de l'écran, et une page qu'il faut faire
+                   défiler pour trouver ce qu'on est venu faire n'est pas
+                   une page qu'on lit mieux. Ce qui reste visible est
+                   l'objet du consentement — ce que c'est, combien il
+                   pèse, combien de rubriques — et le détail s'ouvre d'un
+                   clic AU-DESSUS de la case, jamais après elle.
+
+                   Les deux cases, elles, restent hors du repli, et c'est
+                   technique autant qu'éthique : un `<input required>`
+                   dans un conteneur `display:none` est un contrôle que le
+                   navigateur ne peut pas mettre en avant, et Chrome
+                   refuse alors l'envoi sans rien afficher du tout. #}
+                {% set _entries = archive_contents|length %}
+                <p class="small text-body-secondary mb-2">
                     L'archive de diagnostic
-                    {% if archive_size_bytes %}
+                    {%- if archive_size_bytes %}
                         (<strong>{{ (archive_size_bytes / 1048576)|number_format(1, ',', ' ') }} Mo</strong>)
-                    {% else %}
+                    {%- else %}
                         (elle sera générée à l'envoi, puis jointe automatiquement)
+                    {%- endif %}
+                    {% if _entries > 0 %}
+                        contient {{ _entries }} rubrique{{ _entries > 1 ? 's' }} technique{{ _entries > 1 ? 's' }}.
+                    {% else %}
+                        sera jointe à ce ticket.
                     {% endif %}
-                    contient :
                 </p>
-                <ul class="small text-body-secondary">
-                    {% for entry in archive_contents %}
-                        <li>{{ entry.description }}</li>
-                    {% endfor %}
-                </ul>
+
+                {% if _entries > 0 %}
+                    <button type="button" class="btn btn-sm btn-outline-secondary mb-3"
+                            data-bs-toggle="collapse" data-bs-target="#ticket-archive-contents"
+                            aria-expanded="false" aria-controls="ticket-archive-contents">
+                        <i class="bi bi-info-circle" aria-hidden="true"></i> Voir le détail de ce que contient l'archive
+                    </button>
+
+                    <div class="collapse" id="ticket-archive-contents">
+                        <ul class="small text-body-secondary">
+                            {% for entry in archive_contents %}
+                                <li>{{ entry.description }}</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                {% endif %}
 
                 <div class="form-check mb-2">
                     <input class="form-check-input" type="checkbox" value="1"
@@ -345,9 +376,12 @@
 
         <p class="small text-body-secondary mt-2 mb-0 {% if not package_generated_at %}d-none{% endif %}"
            id="support-package-generated-at">
-            {# The stamp is stored ISO 8601 UTC; every other date on this page
-               is rendered in French, and this one was reading raw. #}
-            Archive disponible, générée le {% if package_generated_at %}{{ package_generated_at|french_date }}{% endif %}.
+            {# Le contrôleur a déjà ramené l'horodatage (stocké en UTC) sur
+               l'horloge de l'application ; `datetime_fr` le rend comme
+               partout ailleurs sur le site, l'heure comprise — « générée
+               le 12 juillet 2026 » ne dit pas si l'archive date de ce
+               matin ou d'avant-hier soir. #}
+            Archive disponible, générée le {% if package_generated_at %}{{ package_generated_at|datetime_fr }}{% endif %}.
         </p>
 
         <div class="alert alert-danger small mt-2 mb-0 d-none" id="support-package-error" role="alert"></div>

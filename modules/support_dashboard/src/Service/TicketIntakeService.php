@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\SupportDashboard\Service;
 
 use Core\Journal\JournalService;
+use Core\Notification\NotificationService;
 use Modules\SupportDashboard\Repository\SupportInstallationRepository;
 use Modules\SupportDashboard\Repository\SupportTicketRepository;
 use Modules\SupportDashboard\TicketCategory;
@@ -61,10 +62,24 @@ class TicketIntakeService
     /** Long enough to describe a problem, short enough to stay a ticket. */
     public const MAX_DESCRIPTION_LENGTH = 5000;
 
+    /**
+     * Declared in this module's `module.json` "notifications" section —
+     * `role_min: superadmin`, so its recipients ARE every superadmin of
+     * this receiver.
+     */
+    public const NOTIFICATION_TICKET_RECEIVED = 'support_dashboard.ticket_received';
+
     public function __construct(
         private SupportInstallationRepository $installations,
         private SupportTicketRepository $tickets,
-        private JournalService $journal
+        private JournalService $journal,
+        /**
+         * Null when nothing wired one — a ticket is then stored and
+         * journaled exactly as before, silently. The queue is not a
+         * mailbox anybody watches, so this is how a ticket stops waiting
+         * for somebody to think of opening the page.
+         */
+        private ?NotificationService $notifications = null
     ) {
     }
 
@@ -222,7 +237,72 @@ class TicketIntakeService
             ]
         );
 
+        // Last, and never before the ticket is stored, journaled and
+        // answered: whoever runs this receiver has to be told, but a
+        // receiver whose push keys are misconfigured must not start
+        // refusing tickets over it.
+        $this->announce($reference, $category);
+
         return TicketIntakeResult::accepted($reference);
+    }
+
+    /**
+     * Tell every superadmin of this receiver that a ticket landed.
+     *
+     * The queue is not a mailbox anybody watches. Without this, a ticket
+     * sent on a Friday evening waited for somebody to think of opening
+     * `/support-dashboard/tickets` — which is exactly the delay a support
+     * channel exists to remove.
+     *
+     * **Nothing a person wrote travels in it.** A notification becomes a
+     * push payload on a phone and, for whoever switched that channel on,
+     * an e-mail: the description and the contact address are precisely
+     * what it may never carry (SECURITY.md §11). The reference and the
+     * category are this site's own vocabulary and are enough to decide
+     * whether to open the page now.
+     *
+     * A failure is journaled rather than swallowed. Bookkeeping that
+     * fails in silence is how the archive line came to lie for weeks
+     * (ARCHITECTURE.md §8.4); an unsent notification must not cost the
+     * ticket, but it must leave a trace.
+     */
+    private function announce(string $reference, TicketCategory $category): void
+    {
+        if ($this->notifications === null) {
+            return;
+        }
+
+        try {
+            $recipients = $this->notifications->recipientsForType(self::NOTIFICATION_TICKET_RECEIVED);
+            if ($recipients === []) {
+                return;
+            }
+
+            $ticket = $this->tickets->findByReference($reference);
+
+            $this->notifications->dispatch(
+                self::NOTIFICATION_TICKET_RECEIVED,
+                $recipients,
+                [
+                    'title' => 'Nouveau ticket de support',
+                    'body' => $category->label() . ' — ' . $reference,
+                    'url' => $ticket !== null
+                        ? '/support-dashboard/tickets/' . $ticket['id']
+                        : '/support-dashboard/tickets',
+                ]
+            );
+        } catch (\Throwable $e) {
+            $this->journal->log(
+                'support_dashboard',
+                'support_ticket_notification_failed',
+                'warning',
+                "Ticket de support reçu, mais la notification n'a pas pu être envoyée",
+                [
+                    'ticket_reference' => $reference,
+                    'reason' => $e->getMessage(),
+                ]
+            );
+        }
     }
 
     private function isRateLimited(int $installationRowId): bool

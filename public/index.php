@@ -1031,7 +1031,15 @@ $twig->addGlobal('site_name', (string) ($settingService->get('site_name') ?: 'Un
 // a VERSION bump after a GitHub release install (§8.17) is the entire
 // update/cache-busting mechanism: a new query string on /sw.js makes the
 // browser see a new worker, which purges every cache not matching it.
-$twig->addGlobal('app_version', \Core\Maintenance\VersionFile::read(dirname(__DIR__)));
+$appVersion = \Core\Maintenance\VersionFile::read(dirname(__DIR__));
+$twig->addGlobal('app_version', $appVersion);
+// The token that actually busts a cache. `app_version` above stays the
+// human release number (the footer, the maintenance page, the offline
+// CONTENT cache's own name); this one carries a fingerprint of the
+// stylesheets and scripts on disk, so a deploy that does not cut a
+// release still reaches the browser. See Core\Maintenance\AssetVersion
+// for the two production defects that made it necessary.
+$twig->addGlobal('asset_version', \Core\Maintenance\AssetVersion::forProject(dirname(__DIR__), $appVersion));
 $twig->addGlobal('pwa_theme_color', (string) ($settingService->get('pwa_theme_color') ?: '#0d6efd'));
 
 // Create MailService — short_name, mail_from_address, mail_from_name and
@@ -4310,7 +4318,10 @@ if ($isEnabled('support_dashboard')) {
             new \Modules\SupportDashboard\Service\TicketIntakeService(
                 $supportInstallationRepo,
                 $supportTicketRepo,
-                $journalService
+                $journalService,
+                // Every superadmin of this receiver is told a ticket
+                // landed — the queue is not a mailbox anybody watches.
+                $notificationService
             ),
             // The archive arrives on its own route (roadmap IT-26) and is
             // stored exactly as it was on the installation that produced
