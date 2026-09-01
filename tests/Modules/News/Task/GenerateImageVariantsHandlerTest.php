@@ -75,6 +75,24 @@ class GenerateImageVariantsHandlerTest extends TestCase
         $this->assertSame('1', $settings->get(GenerateImageVariantsHandler::DONE_FLAG, 'news'));
     }
 
+    /**
+     * A one-shot pass whose failure shows up months later as an article
+     * image that 404s. Whether it ran, and on how many files, is the
+     * whole difference between two very different diagnoses.
+     */
+    public function testThePassSaysWhatItDid(): void
+    {
+        $this->storeLegacyNewsImage(new FileRepository($this->pdo));
+
+        (new GenerateImageVariantsHandler())->handle([], $this->taskContext());
+
+        $entry = (new JournalRepository($this->pdo))->search()[0];
+        $this->assertSame('news_image_variants_backfilled', $entry['event_type']);
+        $context = json_decode((string) $entry['context'], true);
+        $this->assertSame(1, $context['images']);
+        $this->assertSame(count(\Core\Photo\ImageVariantService::VARIANTS), $context['generated']);
+    }
+
     public function testFilesOutsideTheNewsImagesDirectoryAreLeftAlone(): void
     {
         $files = new FileRepository($this->pdo);

@@ -69,6 +69,38 @@ class ReconcileReceivablesHandlerTest extends TestCase
         $this->assertSame(4500, $allocations[0]->amountCents);
     }
 
+    /**
+     * An imputation that appears overnight, with nobody having touched
+     * anything, is exactly what a treasurer comes asking about — and the
+     * pass used to leave no trace of having done it.
+     */
+    public function testAPassThatChangedSomethingSaysSo(): void
+    {
+        (new ExpectedReceivableRepository($this->pdo, $this->encryption))
+            ->create('finance', 1, $this->accountId, 4500, '+++123/4567/89012+++', null);
+        (new TransactionRepository($this->pdo, $this->encryption))->create(
+            $this->accountId, $this->fiscalYearId, 'REF-1', '2026-02-18',
+            'Virement +++123/4567/89012+++', 45.00, null, null, Transaction::SOURCE_IMPORT, null
+        );
+
+        (new ReconcileReceivablesHandler())->handle([], $this->taskContext());
+
+        $entry = (new JournalRepository($this->pdo))->search()[0];
+        $this->assertSame('receivable_allocations_reconciled', $entry['event_type']);
+        $this->assertSame(1, json_decode((string) $entry['context'], true)['allocations']);
+    }
+
+    /**
+     * A settled installation writes nothing on this pass by design, and a
+     * nightly line saying so would be the flood rather than the answer.
+     */
+    public function testASettledInstallationLeavesNothingInTheJournal(): void
+    {
+        (new ReconcileReceivablesHandler())->handle([], $this->taskContext());
+
+        $this->assertSame([], (new JournalRepository($this->pdo))->search());
+    }
+
     public function testASecondRunWritesNothingMore(): void
     {
         (new ExpectedReceivableRepository($this->pdo, $this->encryption))

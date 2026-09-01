@@ -60,8 +60,34 @@ class ReconcileReceivablesHandler implements TaskHandlerInterface
             new AccountVisibility(TreasurerScope::systemCaller())
         );
 
+        $changed = 0;
+        $accounts = 0;
         foreach ($accountRepository->findAllOrdered() as $account) {
-            $service->reconcileAccount($account->id);
+            $written = $service->reconcileAccount($account->id);
+            if ($written > 0) {
+                $changed += $written;
+                $accounts++;
+            }
+        }
+
+        // Only when it changed something. A settled installation writes
+        // nothing on this pass by design, and a nightly line saying so
+        // would be the flood rather than the answer — `scheduler_task_done`
+        // already records that the task ran. But an imputation that
+        // appeared overnight, with nobody having touched anything, is
+        // exactly the thing a treasurer comes asking about.
+        if ($changed > 0) {
+            $context->journal->log(
+                'finance',
+                'receivable_allocations_reconciled',
+                'info',
+                sprintf(
+                    '%d imputation(s) recalculée(s) sur %d compte(s) par le rapprochement nocturne.',
+                    $changed,
+                    $accounts
+                ),
+                ['allocations' => $changed, 'accounts' => $accounts]
+            );
         }
 
         $this->scheduleNextRun($context);
