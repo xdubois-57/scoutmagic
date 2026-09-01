@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Maintenance;
 
+use Core\Database\AdvisoryLock;
+
 /**
  * Mutual exclusion for the one section of this application that overwrites
  * the live install directory: Task\InstallUpdateHandler's backup →
@@ -43,42 +45,16 @@ final class InstallLock
 
     /**
      * True when this connection now holds the lock, false when another
-     * connection does.
+     * connection does. The mechanism, its timeout-0 rule and its SQLite
+     * fallback all live in Database\AdvisoryLock.
      */
     public static function acquire(\PDO $pdo): bool
     {
-        try {
-            $stmt = $pdo->query("SELECT GET_LOCK('" . self::NAME . "', 0)");
-            if ($stmt === false) {
-                return false;
-            }
-            $acquired = (int) $stmt->fetchColumn();
-            $stmt->closeCursor();
-
-            return $acquired === 1;
-        } catch (\PDOException) {
-            // GET_LOCK() is MySQL/MariaDB-only and absent on the SQLite
-            // connection the fast tests use. Proceeding without mutual
-            // exclusion is right there: those tests never run two installs
-            // at once, and refusing instead would make every SQLite-backed
-            // test of the handler stand down without doing anything.
-            return true;
-        }
+        return AdvisoryLock::acquire($pdo, self::NAME);
     }
 
     public static function release(\PDO $pdo): void
     {
-        try {
-            // ::query(), not ::exec() — RELEASE_LOCK() returns a result set,
-            // and leaving its cursor open breaks the very next query on the
-            // connection with "Cannot execute queries while other unbuffered
-            // queries are active". MigrationRunner learned this the hard
-            // way; same shape, same fix.
-            $stmt = $pdo->query("SELECT RELEASE_LOCK('" . self::NAME . "')");
-            if ($stmt !== false) {
-                $stmt->closeCursor();
-            }
-        } catch (\PDOException) {
-        }
+        AdvisoryLock::release($pdo, self::NAME);
     }
 }

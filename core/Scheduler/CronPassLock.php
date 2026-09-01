@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Scheduler;
 
+use Core\Database\AdvisoryLock;
+
 /**
  * One cron pass at a time.
  *
@@ -56,45 +58,17 @@ final class CronPassLock
     public const NAME = 'scoutmagic_cron_pass';
 
     /**
-     * True when this connection now holds the lock, false when another
-     * connection does.
-     *
-     * A PDO driver with no `GET_LOCK()` (SQLite, in this class's own fast
-     * tests) answers true: proceeding without mutual exclusion is right
-     * there, since nothing runs two passes at once on one in-memory
-     * database, and refusing instead would make every such test a no-op.
-     * That is the same choice `Maintenance\InstallLock` makes, for the
-     * same reason.
+     * True when this pass now holds the lock, false when another pass
+     * does. The mechanism, its timeout-0 rule and its SQLite fallback all
+     * live in Database\AdvisoryLock.
      */
     public static function acquire(\PDO $pdo): bool
     {
-        try {
-            $stmt = $pdo->query("SELECT GET_LOCK('" . self::NAME . "', 0)");
-            if ($stmt === false) {
-                return false;
-            }
-            $acquired = (int) $stmt->fetchColumn();
-            $stmt->closeCursor();
-
-            return $acquired === 1;
-        } catch (\PDOException) {
-            return true;
-        }
+        return AdvisoryLock::acquire($pdo, self::NAME);
     }
 
     public static function release(\PDO $pdo): void
     {
-        try {
-            // ::query(), not ::exec() — RELEASE_LOCK() returns a result
-            // set, and leaving its cursor open breaks the very next query
-            // on the connection with "Cannot execute queries while other
-            // unbuffered queries are active". MigrationRunner learned this
-            // the hard way; same shape, same fix.
-            $stmt = $pdo->query("SELECT RELEASE_LOCK('" . self::NAME . "')");
-            if ($stmt !== false) {
-                $stmt->closeCursor();
-            }
-        } catch (\PDOException) {
-        }
+        AdvisoryLock::release($pdo, self::NAME);
     }
 }
