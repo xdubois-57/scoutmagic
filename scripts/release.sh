@@ -688,6 +688,11 @@ check_dependency_freshness_gate() {
         || found_outdated=1
     check_vendored_asset_freshness "Chart.js" "public/assets/vendor/chartjs/chart.umd.min.js" 'Chart\.js v[0-9]+\.[0-9]+\.[0-9]+' "chartjs/Chart.js" \
         || found_outdated=1
+    # Leaflet was vendored for the camps map without being added here, which
+    # AGENTS.md § CSS / frontend requires in the same change. Its banner reads
+    # "Leaflet 1.9.4" with no `v`, unlike the three above.
+    check_vendored_asset_freshness "Leaflet" "public/assets/vendor/leaflet/leaflet.js" 'Leaflet [0-9]+\.[0-9]+\.[0-9]+' "Leaflet/Leaflet" \
+        || found_outdated=1
 
     if [[ "${found_outdated}" -eq 1 ]]; then
         echo "ERROR: release blocked by the dependency freshness gate — outdated dependencies found (see above)." >&2
