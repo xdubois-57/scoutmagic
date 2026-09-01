@@ -21,6 +21,7 @@
                                 <input class="form-check-input" type="checkbox" role="switch"
                                        name="{{ category_id }}" id="cookie-{{ category_id }}"
                                        aria-labelledby="cookie-category-{{ category_id }}-label"
+                                       aria-checked="{{ category.accepted ? 'true' : 'false' }}"
                                        {% if category.accepted %}checked{% endif %}>
                             </div>
                         {% endif %}
