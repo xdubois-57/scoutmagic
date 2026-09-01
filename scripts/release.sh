@@ -206,9 +206,26 @@ if [[ "${SKIP_DAST_GATE}" -eq 0 ]]; then
     }
 fi
 
-# Get current version from latest git tag (default 0.0.0 if no tags)
-CURRENT=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+# Get current version from the latest RELEASE tag (default 0.0.0 if none).
+#
+# `--match` is not decoration. This repository also carries moving tags
+# the dev channel republishes — `dev-latest`, `dev-build` — and a bare
+# `git describe --tags --abbrev=0` returns whichever tag is newest,
+# which is one of those on any day a dev build was published. That is not
+# a hypothetical: it happened, and it failed in the worst possible order.
+# `IFS='.' read` split "dev-latest" into MAJOR="dev-latest", MINOR="",
+# PATCH="", a patch bump made "" + 1 = 1, and the script wrote
+# "dev-latest..1" into VERSION, committed it and PUSHED it to main before
+# dying on `fatal: 'vdev-latest..1' is not a valid tag name`. Every gate
+# had passed; the arithmetic had read the wrong tag.
+CURRENT=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' 2>/dev/null || echo "v0.0.0")
 CURRENT="${CURRENT#v}"  # strip leading v
+
+if [[ ! "${CURRENT}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "ERROR: the latest release tag reads '${CURRENT}', which is not MAJOR.MINOR.PATCH." >&2
+    echo "Refusing to compute a version from it. Check 'git tag --list \"v[0-9]*\"'." >&2
+    exit 1
+fi
 
 IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
 
@@ -221,6 +238,16 @@ esac
 
 NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
 TAG="v${NEW_VERSION}"
+
+# Belt to the braces above, and the half that actually protects main: the
+# previous failure was not that a bad version was computed, but that it
+# was committed and pushed before anything checked it. Whatever goes wrong
+# upstream, nothing below this line runs on a version that is not
+# MAJOR.MINOR.PATCH.
+if [[ ! "${NEW_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "ERROR: computed version '${NEW_VERSION}' is not MAJOR.MINOR.PATCH — refusing to commit or tag it." >&2
+    exit 1
+fi
 
 echo "Bumping version: ${CURRENT} → ${NEW_VERSION}"
 
