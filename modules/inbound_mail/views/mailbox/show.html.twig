@@ -71,7 +71,7 @@
             <li class="list-group-item d-flex flex-wrap justify-content-between align-items-center gap-2">
                 <div>
                     <div>
-                        {{ consumer_names[link.consumerId]|default(link.consumerId) }} — {{ link.businessReference }}
+                        {{ consumer_names[link.consumerId]|default(link.consumerId) }} — {{ reference_labels[link.consumerId][link.businessReference]|default(link.businessReference) }}
                         {% if link.attachmentId > 0 %}
                             <span class="text-body-secondary small">(une pièce jointe seulement)</span>
                         {% endif %}

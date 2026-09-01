@@ -221,6 +221,12 @@ class RentalMessageConsumer implements MessageConsumerInterface
         return AnalysisResult::nothing();
     }
 
+    public function describeReference(string $businessReference): ?string
+    {
+        // « LOC-2027-0012 » is already the name a manager uses out loud.
+        return null;
+    }
+
     /**
      * @return string[]
      */

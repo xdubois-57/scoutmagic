@@ -70,12 +70,15 @@ class InboundMailboxController extends AbstractController
             GeneralMailboxService::decodeCursor((string) $request->getQuery('apres', ''))
         );
 
+        $candidates = $this->candidatesFor($page['messages']);
+
         return $this->render('@inbound_mail/mailbox/index.html.twig', [
             'messages' => $page['messages'],
             'next_cursor' => $page['next_cursor'],
             'mailboxes' => $this->mailbox->mailboxNames(),
             'consumer_names' => $this->consumerNames(),
-            'candidates' => $this->candidatesFor($page['messages']),
+            'candidates' => $candidates,
+            'reference_labels' => $this->referenceLabels($page['messages'], $candidates),
             'filter_association' => $association,
             'filter_mailbox' => $mailboxId,
             'include_bulk' => $includeBulk,
@@ -94,9 +97,12 @@ class InboundMailboxController extends AbstractController
             return $this->notFound();
         }
 
+        $candidates = $this->mailbox->candidatesFor($message->id);
+
         return $this->render('@inbound_mail/mailbox/show.html.twig', [
             'message' => $message,
-            'candidates' => $this->mailbox->candidatesFor($message->id),
+            'candidates' => $candidates,
+            'reference_labels' => $this->referenceLabels([$message], [$message->id => $candidates]),
             'consumer_names' => $this->consumerNames(),
             'mailboxes' => $this->mailbox->mailboxNames(),
             'breadcrumb_trail' => [['label' => 'Courrier', 'url' => '/courrier']],
@@ -219,6 +225,63 @@ class InboundMailboxController extends AbstractController
         }
 
         return $names;
+    }
+
+    /**
+     * A human name for every business reference the page is about to
+     * render, keyed `consumerId` then `businessReference`.
+     *
+     * Built here rather than in the template for the same reason
+     * candidatesFor() is: a template that queried inside its own loop
+     * would ask the same consumer the same question once per row.
+     *
+     * A consumer that answers null is simply absent from the map, and the
+     * template falls back to the reference — which for `rental` is already
+     * the name a manager uses out loud.
+     *
+     * @param \Modules\InboundMail\Api\InboundMessage[] $messages
+     * @param array<int, \Modules\InboundMail\Api\MessageCandidate[]> $candidatesByMessage
+     * @return array<string, array<string, string>>
+     */
+    private function referenceLabels(array $messages, array $candidatesByMessage = []): array
+    {
+        $wanted = [];
+        foreach ($messages as $message) {
+            foreach ($message->links as $link) {
+                $wanted[$link->consumerId][$link->businessReference] = true;
+            }
+        }
+
+        foreach ($candidatesByMessage as $candidates) {
+            foreach ($candidates as $candidate) {
+                $wanted[$candidate->consumerId][$candidate->businessReference] = true;
+            }
+        }
+
+        $labels = [];
+        foreach ($wanted as $consumerId => $references) {
+            $consumer = $this->consumers->find($consumerId);
+            if ($consumer === null) {
+                continue;
+            }
+
+            foreach (array_keys($references) as $reference) {
+                // A consumer that throws while naming its own object must
+                // not take the courrier page down with it — the same
+                // posture every other callback into a consumer takes.
+                try {
+                    $label = $consumer->describeReference((string) $reference);
+                } catch (\Throwable) {
+                    $label = null;
+                }
+
+                if ($label !== null && $label !== '') {
+                    $labels[$consumerId][(string) $reference] = $label;
+                }
+            }
+        }
+
+        return $labels;
     }
 
     /**

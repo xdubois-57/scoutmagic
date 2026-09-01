@@ -181,6 +181,40 @@ class FinanceMessageConsumerTest extends TestCase
         $this->assertTrue($result->isEmpty());
     }
 
+    // ── Nommer ses propres références ───────────────────────────────────
+
+    /**
+     * The courrier screens show the business reference when they have
+     * nothing better, and « Finances — account-unknown » on a green badge
+     * teaches a Chef d'Unité nothing — in a language that is not theirs.
+     * `inbound_mail` cannot do better on its own: it does not know what
+     * `account-12` is, and by §7.6 it never will.
+     */
+    public function testTheSortingPileIsNamedInFrench(): void
+    {
+        $this->assertSame('compte inconnu', $this->consumer()->describeReference(FinanceMessageConsumer::REFERENCE_UNKNOWN));
+    }
+
+    public function testAnAccountReferenceIsNamedAfterTheAccount(): void
+    {
+        $this->assertSame(
+            'Compte courant',
+            $this->consumer()->describeReference(FinanceMessageConsumer::referenceFor($this->accountId))
+        );
+    }
+
+    public function testAnAccountThatNoLongerExistsHasNoName(): void
+    {
+        // The screen then shows the raw reference, which is more honest
+        // than a name for something that is gone.
+        $this->assertNull($this->consumer()->describeReference(FinanceMessageConsumer::referenceFor(9999)));
+    }
+
+    public function testAReferenceThatIsNotThisModulesHasNoName(): void
+    {
+        $this->assertNull($this->consumer()->describeReference('LOC-2027-0012'));
+    }
+
     // ── L'expéditeur anime un seul staff ────────────────────────────────
 
     public function testAReceiptFromAnAnimateurOfOneStaffIsFiledOnThatStaffsAccount(): void

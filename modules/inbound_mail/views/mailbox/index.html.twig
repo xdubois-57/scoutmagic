@@ -74,13 +74,13 @@
                         {% endif %}
                         {% for link in message.links %}
                             <span class="badge text-bg-success">
-                                {{ consumer_names[link.consumerId]|default(link.consumerId) }} — {{ link.businessReference }}
+                                {{ consumer_names[link.consumerId]|default(link.consumerId) }} — {{ reference_labels[link.consumerId][link.businessReference]|default(link.businessReference) }}
                             </span>
                         {% endfor %}
                         {% for candidate in own_candidates %}
                             <span class="badge text-bg-warning">
                                 Proposition {{ consumer_names[candidate.consumerId]|default(candidate.consumerId) }}
-                                — {{ candidate.businessReference }}
+                                — {{ reference_labels[candidate.consumerId][candidate.businessReference]|default(candidate.businessReference) }}
                             </span>
                         {% endfor %}
                     </div>

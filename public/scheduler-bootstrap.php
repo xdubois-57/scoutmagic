@@ -284,6 +284,11 @@ function scoutmagic_bootstrap_scheduler(
                         $encryptionService,
                         $storagePath
                     );
+                    $financeStoredFileReader = new \Core\File\StoredFileReader(
+                        $fileRepository,
+                        $financeFileStorage,
+                        $storagePath
+                    );
                     $financeReceipts = new \Modules\Finance\Service\ExpenseReceiptService(
                         $financeAccountRepository,
                         $financeTreasurerScope,
@@ -311,15 +316,31 @@ function scoutmagic_bootstrap_scheduler(
                         $financeReceipts,
                         // No actor: see above.
                         null,
-                        static function (int $fileId) use ($financeFileStorage): ?string {
-                            try {
-                                return $financeFileStorage->retrieve($fileId);
-                            } catch (\Throwable) {
-                                // The bytes are gone or unreadable. The
-                                // association still stands; a treasurer can
-                                // attach the file by hand.
-                                return null;
+                        // Core\File\StoredFileReader, never the encrypted
+                        // storage directly: the attachment this reads was
+                        // written by UploadHandler and is NOT encrypted, so
+                        // retrieve() handed plaintext to decrypt(), threw,
+                        // and the consumer's catch turned that into « pas
+                        // d'octets » — silently, on every message.
+                        //
+                        // And it says so when it still cannot read: an id
+                        // and nothing else, a filename being personal data
+                        // (§7.9). THIS is the path that matters — the
+                        // relève runs from the scheduler.
+                        static function (int $fileId) use ($financeStoredFileReader, $journalService): ?string {
+                            $content = $financeStoredFileReader->read($fileId);
+                            if ($content === null) {
+                                $journalService->log(
+                                    'finance',
+                                    'inbound_receipt_unreadable',
+                                    'warning',
+                                    'Pièce jointe illisible : aucun reçu créé',
+                                    ['file_id' => $fileId],
+                                    null
+                                );
                             }
+
+                            return $content;
                         },
                         // « Cette adresse anime-t-elle un seul staff ? ».
                         // $memberEmailRepository is NOT optional here: built

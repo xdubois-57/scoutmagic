@@ -15,6 +15,7 @@ use Modules\Finance\Repository\Account;
 use Modules\Finance\Repository\AccountRepository;
 use Modules\Finance\Service\AccountVisibility;
 use Modules\Finance\Service\IbanNormalizer;
+use Modules\Finance\Service\ReceiptService;
 use Modules\Finance\Service\TreasurerScope;
 use Modules\Finance\Service\TreasurerScopeService;
 use Modules\InboundMail\Api\AnalysisResult;
@@ -95,17 +96,22 @@ class FinanceMessageConsumer implements MessageConsumerInterface
     public const REFERENCE_UNKNOWN = self::REFERENCE_PREFIX . 'unknown';
 
     /**
-     * What a receipt can be. Deliberately narrower than what
-     * `inbound_mail` keeps: a spreadsheet is a document, and an accounting
-     * receipt it is not.
+     * What a receipt can be — **the receipt store's own list, not a copy
+     * of it**.
+     *
+     * It used to be a copy, and the copy had drifted: it accepted
+     * `image/heic` and `image/webp`, which `Service\ReceiptService`
+     * refuses (it keeps every receipt renderable as a thumbnail, and a
+     * browser draws neither). So a HEIC photo — an iPhone's default — was
+     * claimed here, refused there, and the refusal was swallowed by the
+     * `catch` in onLinked(): the message showed as filed and no receipt
+     * existed.
+     *
+     * Referencing the store means the two cannot disagree again. Still
+     * narrower than what `inbound_mail` keeps: a spreadsheet is a
+     * document, and an accounting receipt it is not.
      */
-    public const RECEIPT_MIME_TYPES = [
-        'application/pdf',
-        'image/jpeg',
-        'image/png',
-        'image/heic',
-        'image/webp',
-    ];
+    public const RECEIPT_MIME_TYPES = ReceiptService::ALLOWED_MIME_TYPES;
 
     public function __construct(
         private AccountRepository $accounts,
@@ -393,6 +399,23 @@ class FinanceMessageConsumer implements MessageConsumerInterface
         }
 
         return $visibility->isVisibleTo($this->accounts->findById($accountId), Role::fromString($role));
+    }
+
+    public function describeReference(string $businessReference): ?string
+    {
+        if ($businessReference === self::REFERENCE_UNKNOWN) {
+            return 'compte inconnu';
+        }
+
+        $accountId = self::accountIdFromReference($businessReference);
+        if ($accountId === null) {
+            return null;
+        }
+
+        // Null for an account that has since been deleted: the screen then
+        // shows the raw reference, which is more honest than a name for
+        // something that is gone.
+        return $this->accounts->findById($accountId)?->name;
     }
 
     /**

@@ -43,7 +43,16 @@ class FakeMessageConsumer implements MessageConsumerInterface
         private ?\Closure $onAnalyzeStored = null,
         private bool $readAnswer = true,
         private bool $throwsOnRead = false,
-        private bool $throwsOnLinked = false
+        private bool $throwsOnLinked = false,
+        /**
+         * What describeReference() answers, or null for "the reference is
+         * already the best name there is". A closure so a test can also
+         * make it throw — the courrier page must survive a consumer that
+         * cannot name its own object.
+         *
+         * @var (\Closure(string): ?string)|null
+         */
+        private ?\Closure $onDescribeReference = null
     ) {
     }
 
@@ -94,6 +103,13 @@ class FakeMessageConsumer implements MessageConsumerInterface
         }
 
         return $this->readAnswer;
+    }
+
+    public function describeReference(string $businessReference): ?string
+    {
+        return $this->onDescribeReference !== null
+            ? ($this->onDescribeReference)($businessReference)
+            : null;
     }
 
     /**
