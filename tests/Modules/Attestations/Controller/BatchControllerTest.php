@@ -155,7 +155,9 @@ class BatchControllerTest extends TestCase
         $this->assertStringContainsString('VANDENBRANDE Margaux', $body);
         $this->assertStringContainsString('nom lu dans le PDF', $body);
         $this->assertStringContainsString('Margaux Vandenbrande', $body);
-        $this->assertStringContainsString('2025-2026', $body);
+        // The badge shows the batch's scout year, which is the current one
+        // — so the assertion asks for that rather than for a year spelled out.
+        $this->assertStringContainsString(\Tests\DatabaseTestHelper::scoutYear()[0], $body);
     }
 
     /** Everything is distributed unless somebody says otherwise. */

@@ -11,27 +11,27 @@
 #}
 {% extends 'email/base.html.twig' %}
 {% block content %}
-    <p>Bonjour {{ booking.renterName }},</p>
-
-    <p>{{ announcement }}</p>
-
-    <p>
-        <strong>{{ asset.name }}</strong>, du {{ booking.arrivalDate|date_fr }}
-        au {{ booking.departureDate|date_fr }}<br>
-        Votre référence : <strong>{{ booking.reference }}</strong>
+    <h2 style="margin:0 0 20px;font-size:20px;line-height:1.3;color:#212529;">{{ decision_subject }}</h2>
+    <p style="margin:0 0 16px;">Bonjour {{ renter_name }},</p>
+    <p style="margin:0 0 16px;">{{ announcement }}</p>
+    <p style="margin:0 0 16px;">
+        <strong>{{ asset_name }}</strong>, du {{ arrival_date }} au {{ departure_date }}<br>
+        Votre référence : <strong>{{ reference }}</strong>
     </p>
-
     {% if manager_word %}
-        <blockquote style="margin:1em 0;padding-left:1em;border-left:3px solid #ccc;">
+        <blockquote style="margin:16px 0;padding:4px 0 4px 12px;border-left:3px solid #dee2e6;color:#4b5563;">
             {{ manager_word|nl2br }}
         </blockquote>
     {% endif %}
-
     {% if call_to_action %}
-        <p>{{ call_to_action }}</p>
+        <p style="margin:0 0 16px;">{{ call_to_action }}</p>
     {% endif %}
-
     {% if tracking_url %}
-        <p><a href="{{ tracking_url }}">Voir ma réservation</a></p>
+        <p style="margin:24px 0;text-align:center;">
+            <a href="{{ tracking_url }}"
+               style="display:inline-block;padding:12px 28px;background-color:#0d6efd;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:bold;">
+                Voir ma réservation
+            </a>
+        </p>
     {% endif %}
 {% endblock %}

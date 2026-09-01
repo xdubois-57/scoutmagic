@@ -1,15 +1,25 @@
-Confirmation — {{ article_title }}
+Nous avons bien reçu votre réponse
 
-Votre réponse a bien été enregistrée. Voici un récapitulatif :
+Bonjour,
 
-{% for line in answers %}{{ line.label }} : {{ line.value }}
-{% endfor %}
-{% if payment %}
-Montant à payer : {{ payment.total|money }}
-Compte : {{ payment.beneficiary }}
-IBAN : {{ payment.iban }}
-Communication structurée : {{ payment.communication }}
+Votre réponse pour {{ article_title }} est bien enregistrée.
+{% if answers_summary %}
+
+Voici ce que nous avons noté :
+
+{{ answers_summary }}
+{% endif %}
+{% if payment_summary %}
+
+Paiement :
+
+{{ payment_summary }}
 {% endif %}
 {% if edit_url %}
+
 Modifier mes réponses : {{ edit_url }}
 {% endif %}
+
+Vous recevez ce message parce que cette adresse a été utilisée pour répondre à ce formulaire.
+
+{% include 'email/signature.text.twig' %}

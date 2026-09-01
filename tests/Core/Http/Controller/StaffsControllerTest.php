@@ -80,7 +80,12 @@ class StaffsControllerTest extends TestCase
         );
 
         // Create scout year
-        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
+        // The CURRENT year, not a year spelled out: this fixture means
+        // « the year the application is in », and saying that as a
+        // literal made it expire on 1 September. See
+        // DatabaseTestHelper::scoutYear().
+        [$label, $yearStart, $yearEnd] = DatabaseTestHelper::scoutYear();
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('{$label}', '{$yearStart}', '{$yearEnd}', 1)");
         $this->scoutYearId = (int) $this->pdo->lastInsertId();
 
         // Create Twig

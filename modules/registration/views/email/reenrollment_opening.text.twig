@@ -4,9 +4,10 @@ Bonjour,
 
 Il est temps de nous dire si votre enfant revient l'année prochaine. La réponse se donne en ligne, en une minute, et vous pouvez la modifier jusqu'au {{ close_date }}.
 
-Concerné(s) :
-{% for name in member_names %}- {{ name }}
-{% endfor %}
+Cela concerne : {{ member_names }}.
+
 Répondre maintenant : {{ reenrollment_url }}
 
-Vous recevez cet email parce qu'un enfant est inscrit chez nous cette année.
+Vous recevez ce message parce qu'un enfant est inscrit chez nous cette année.
+
+{% include 'email/signature.text.twig' %}

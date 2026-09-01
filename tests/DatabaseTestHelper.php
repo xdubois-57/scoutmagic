@@ -7,6 +7,48 @@ namespace Tests;
 class DatabaseTestHelper
 {
     /**
+     * The `(label, start_date, end_date)` of a scout year, relative to the
+     * one the application considers current RIGHT NOW.
+     *
+     * Fixtures used to write that triple out by hand — `'2025-2026',
+     * '2025-09-01', '2026-08-31'` appears 127 times across this suite.
+     * That is correct for eleven months and wrong on the twelfth: a scout
+     * year turns over on 1 September (Core\Config\ScoutYearService::
+     * labelForDate()), and tests/bootstrap.php puts PHPUnit on Belgian
+     * time, so at 00:00 Brussels on 1 September the application starts
+     * resolving the NEXT year while the fixture still names the previous
+     * one. getCurrentYear() then finds no row, ensureYear() creates an
+     * empty one, and every member, function and section period the test
+     * seeded hangs off an id nothing asks for any more.
+     *
+     * That is not a hypothetical: on 2026-09-01 it took 80 tests across
+     * 22 classes red at once, on a suite green two hours earlier, with
+     * failures that name a missing member rather than a date.
+     *
+     * `$offsetYears` reaches the neighbours a test needs — -1 for last
+     * year, +1 for next — so a fixture can still say « the year before
+     * this one » without saying which calendar year that is.
+     *
+     * A test that genuinely means a FIXED year (a historical import, a
+     * date printed in an expected string) should keep writing it out:
+     * this is for the ones that mean « the current year » and only ever
+     * spelled it as a number.
+     *
+     * @return array{0: string, 1: string, 2: string}
+     */
+    public static function scoutYear(int $offsetYears = 0): array
+    {
+        $label = \Core\Config\ScoutYearService::labelForDate(new \DateTimeImmutable());
+        $startYear = ((int) explode('-', $label)[0]) + $offsetYears;
+
+        return [
+            sprintf('%d-%d', $startYear, $startYear + 1),
+            sprintf('%d-09-01', $startYear),
+            sprintf('%d-08-31', $startYear + 1),
+        ];
+    }
+
+    /**
      * Create an in-memory SQLite database with all core tables.
      */
     public static function createTestDatabase(): \PDO

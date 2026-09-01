@@ -1,10 +1,13 @@
-Désinscription d'une adresse email
+Une adresse s'est désinscrite des envois groupés
 
-L'adresse {{ unsubscribed_email }} vient de se désinscrire des emails groupés de {{ site_name }}.
+Bonjour,
 
-Cela signifie qu'elle ne recevra plus aucun email groupé, et qu'elle ne peut plus non plus être utilisée pour se connecter au site par lien magique. Cela peut aussi signifier que la personne concernée souhaite quitter l'unité — n'hésitez pas à vérifier si une action complémentaire est nécessaire.
-{% if member_names|length > 0 %}
-Membre(s) concerné(s) :
-{% for name in member_names %}- {{ name }}
-{% endfor %}
+L'adresse {{ unsubscribed_email }} vient de se désinscrire des emails groupés de l'unité.
+{% if member_names %}
+
+Membre(s) concerné(s) : {{ member_names }}.
 {% endif %}
+
+Cette adresse ne recevra plus aucun envoi groupé et ne peut plus servir à se connecter au site. Cela peut aussi vouloir dire que la personne souhaite quitter l'unité : un petit contact vaut souvent mieux qu'une supposition.
+
+{% include 'email/signature.text.twig' %}

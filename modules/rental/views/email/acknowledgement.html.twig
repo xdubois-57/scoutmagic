@@ -2,29 +2,31 @@
   The renter's acknowledgement. It carries the tracking link, which is their
   ONLY way back to their booking — they have no account to log into. That is
   why this email cannot be switched off (§6.28).
+
+  Everything it says comes from a DECLARED variable (module.json): the
+  shipped wording and a wording a unit rewrote then have exactly the same
+  substitutable surface, and the default text an administrator is offered
+  in Configuration > E-mails is this file with its placeholders intact.
 #}
 {% extends 'email/base.html.twig' %}
 {% block content %}
-    <p>Bonjour {{ booking.renterName }},</p>
-
-    <p>
-        Nous avons bien reçu votre demande de location pour <strong>{{ asset.name }}</strong>,
-        du {{ booking.arrivalDate|date_fr }} au {{ booking.departureDate|date_fr }}.
+    <h2 style="margin:0 0 20px;font-size:20px;line-height:1.3;color:#212529;">Nous avons bien reçu votre demande</h2>
+    <p style="margin:0 0 16px;">Bonjour {{ renter_name }},</p>
+    <p style="margin:0 0 16px;">
+        Nous avons bien reçu votre demande de location pour <strong>{{ asset_name }}</strong>, du
+        {{ arrival_date }} au {{ departure_date }}. Nous revenons vers vous dès que possible.
     </p>
-
-    <p>Votre référence : <strong>{{ booking.reference }}</strong></p>
-
-    <p><a href="{{ tracking_url }}">Suivre ma demande</a></p>
-
-    <p>
-        Conservez ce lien : il est personnel et c'est votre seul accès au suivi de
-        votre demande.
-    </p>
-
-    {% if booking.holdUntil %}
-        <p>
-            Nous bloquons ces dates jusqu'au
-            <strong>{{ booking.holdUntil|date_fr }}</strong>, le temps de vous répondre.
-        </p>
+    <p style="margin:0 0 16px;">Votre référence : <strong>{{ reference }}</strong></p>
+    {% if hold_note %}
+        <p style="margin:0 0 16px;">{{ hold_note }}</p>
     {% endif %}
+    <p style="margin:24px 0;text-align:center;">
+        <a href="{{ tracking_url }}"
+           style="display:inline-block;padding:12px 28px;background-color:#0d6efd;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:bold;">
+            Suivre ma demande
+        </a>
+    </p>
+    <p style="margin:0;font-size:13px;color:#6c757d;">
+        Conservez ce lien : il est personnel, et c'est votre seul accès au suivi de votre demande.
+    </p>
 {% endblock %}

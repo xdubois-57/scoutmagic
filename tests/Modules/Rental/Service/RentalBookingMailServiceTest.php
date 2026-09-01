@@ -362,13 +362,17 @@ final class RentalBookingMailServiceTest extends TestCase
 
             $this->assertStringStartsWith('<!DOCTYPE html>', trim($html), $name);
             $this->assertStringContainsString('<meta charset="UTF-8">', $html, $name);
-            $this->assertStringContainsString('max-width:560px', $html, $name);
-            // The frame names the site twice and only twice: the document
-            // title, and the one footer it draws itself.
+            $this->assertStringContainsString('max-width:600px', $html, $name);
+            // The frame names the site three times and only three: the
+            // document title, the signature and the footer — all three
+            // drawn by email/base.html.twig, none of them by a template.
             $this->assertStringContainsString('<title>Unité Test</title>', $html, $name);
-            $this->assertSame(2, substr_count($html, 'Unité Test'), $name);
+            $this->assertSame(3, substr_count($html, 'Unité Test'), $name);
+            // Signed once, by the frame, so that a reworded e-mail is
+            // signed too — and never by the template itself, which is
+            // where the three drifting sign-offs came from.
+            $this->assertSame(1, substr_count($html, 'Bien à vous'), $name);
             $this->assertStringNotContainsString('À bientôt', $html, $name);
-            $this->assertStringNotContainsString('Bien à vous', $html, $name);
             $this->assertStringNotContainsString('Bon séjour,', $html, $name);
         }
     }

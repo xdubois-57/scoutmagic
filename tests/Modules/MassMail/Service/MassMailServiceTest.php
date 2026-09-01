@@ -101,7 +101,8 @@ class MassMailServiceTest extends TestCase
             new MergeRenderer()
         );
 
-        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
+        [$label, $yearStart, $yearEnd] = DatabaseTestHelper::scoutYear();
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('{$label}', '{$yearStart}', '{$yearEnd}', 1)");
         $this->scoutYearId = (int) $this->pdo->lastInsertId();
         $this->pdo->exec("INSERT INTO age_branches (desk_code, label, sort_order) VALUES ('LOU', 'Louveteaux', 1)");
         $branchId = (int) $this->pdo->lastInsertId();
@@ -596,7 +597,8 @@ class MassMailServiceTest extends TestCase
 
     private function createPastScoutYear(): int
     {
-        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2024-2025', '2024-09-01', '2025-08-31', 0)");
+        [$label, $yearStart, $yearEnd] = DatabaseTestHelper::scoutYear(-1);
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('{$label}', '{$yearStart}', '{$yearEnd}', 0)");
         return (int) $this->pdo->lastInsertId();
     }
 
@@ -744,7 +746,8 @@ class MassMailServiceTest extends TestCase
 
     private function createFutureScoutYear(): int
     {
-        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2026-2027', '2026-09-01', '2027-08-31', 0)");
+        [$label, $yearStart, $yearEnd] = DatabaseTestHelper::scoutYear(1);
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('{$label}', '{$yearStart}', '{$yearEnd}', 0)");
         return (int) $this->pdo->lastInsertId();
     }
 
