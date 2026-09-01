@@ -1082,10 +1082,10 @@
             capInput.value = field.capacity_max || '';
             limit.input.addEventListener('change', function () {
                 capInput.classList.toggle('d-none', !limit.input.checked);
-                field.capacity_max = limit.input.checked ? (parseInt(capInput.value, 10) || 0) : null;
+                field.capacity_max = limit.input.checked ? (Number.parseInt(capInput.value, 10) || 0) : null;
             });
             capInput.addEventListener('input', function () {
-                field.capacity_max = parseInt(capInput.value, 10) || 0;
+                field.capacity_max = Number.parseInt(capInput.value, 10) || 0;
             });
             capRow.appendChild(limit.wrapper);
             // Hidden label, inside this same row and right before the box it

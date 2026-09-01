@@ -154,7 +154,7 @@
          */
         function checkedIds(selector) {
             return Array.from(/** @type {NodeListOf<HTMLInputElement>} */ (document.querySelectorAll(selector)))
-                .map(function (cb) { return parseInt(cb.value, 10); });
+                .map(function (cb) { return Number.parseInt(cb.value, 10); });
         }
 
         document.getElementById('cfg-list-save-btn')?.addEventListener('click', async function () {
@@ -228,8 +228,8 @@
         settingsForm.addEventListener('submit', async function (e) {
             e.preventDefault();
             var res = await api.postJson('/config/mass-mail/settings', {
-                batch_size: parseInt(inputEl('cfg-batch-size').value, 10),
-                batch_interval_minutes: parseInt(inputEl('cfg-batch-interval').value, 10)
+                batch_size: Number.parseInt(inputEl('cfg-batch-size').value, 10),
+                batch_interval_minutes: Number.parseInt(inputEl('cfg-batch-interval').value, 10)
             });
             if (!isSuccess(res)) {
                 toastError(res);

@@ -87,7 +87,7 @@
     roleSelects.forEach(function (select) {
         select.addEventListener('change', function () {
             save(select, '/config/functions/update', {
-                function_id: parseInt(select.dataset.id, 10),
+                function_id: Number.parseInt(select.dataset.id, 10),
                 role: select.value
             }).then(function (data) {
                 if (!data) {
@@ -118,7 +118,7 @@
         }
         leadInput.addEventListener('change', function () {
             save(leadInput, '/config/functions/flags', {
-                function_id: parseInt(group.dataset.id, 10),
+                function_id: Number.parseInt(group.dataset.id, 10),
                 lead: leadInput.checked
             });
         });
@@ -126,7 +126,7 @@
 
     // --- Sections ---
     sectionRows.forEach(function (row) {
-        var sectionId = parseInt(row.dataset.id, 10);
+        var sectionId = Number.parseInt(row.dataset.id, 10);
         var nameInput = /** @type {HTMLInputElement|null} */ (row.querySelector('.section-name-input'));
         var emailInput = /** @type {HTMLInputElement|null} */ (row.querySelector('.section-email-input'));
         var visibleInput = /** @type {HTMLInputElement|null} */ (row.querySelector('.section-visible-input'));
@@ -181,7 +181,7 @@
 
     // --- Age branches ---
     branchRows.forEach(function (row) {
-        var branchId = parseInt(row.dataset.id, 10);
+        var branchId = Number.parseInt(row.dataset.id, 10);
         var urlInput = /** @type {HTMLInputElement|null} */ (row.querySelector('.branch-url-input'));
         if (!urlInput) {
             return;

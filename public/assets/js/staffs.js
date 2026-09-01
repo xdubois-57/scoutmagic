@@ -137,7 +137,7 @@
             return;
         }
 
-        var memberYearId = parseInt(wrapper.dataset.memberYearId, 10);
+        var memberYearId = Number.parseInt(wrapper.dataset.memberYearId, 10);
         if (!(memberYearId > 0)) {
             return;
         }
@@ -163,7 +163,7 @@
             var assigned = nextSelected.has(badgeId);
             var res = await api.postJson('/chefs/staffs/badge-toggle', {
                 member_year_id: memberYearId,
-                badge_id: parseInt(badgeId, 10)
+                badge_id: Number.parseInt(badgeId, 10)
             });
 
             if (res.data && res.data.success) {

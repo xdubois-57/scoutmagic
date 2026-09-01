@@ -59,7 +59,9 @@
         if (url.charAt(0) === '/' || url.charAt(0) === '#') {
             return url;
         }
-        if (/^[^@\s/]+@[^@\s/]+\.[^@\s/]+$/.test(url)) {
+        // The label class excludes '.', so the domain groups cannot
+        // backtrack against each other on a long non-matching input.
+        if (/^[^@\s/]+@[^@\s/.]+(?:\.[^@\s/.]+)+$/.test(url)) {
             return 'mailto:' + url;
         }
         return 'https://' + url;

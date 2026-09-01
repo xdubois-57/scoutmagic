@@ -68,7 +68,7 @@
      * @returns {number} 0 when the card carries no usable id
      */
     function memberYearIdOf(card) {
-        var parsed = parseInt(card.dataset.memberYearId, 10);
+        var parsed = Number.parseInt(card.dataset.memberYearId, 10);
         return parsed > 0 ? parsed : 0;
     }
 
@@ -141,7 +141,7 @@
 
             buttons.forEach(function (btn) {
                 btn.addEventListener('click', async function () {
-                    var offset = parseInt(btn.dataset.offset, 10);
+                    var offset = Number.parseInt(btn.dataset.offset, 10);
 
                     setButtonsDisabled(true);
                     try {
@@ -151,7 +151,7 @@
                             return;
                         }
                         buttons.forEach(function (b) {
-                            b.classList.toggle('active', parseInt(b.dataset.offset, 10) === offset);
+                            b.classList.toggle('active', Number.parseInt(b.dataset.offset, 10) === offset);
                         });
                         if (label) {
                             // Server text, so text — never markup.

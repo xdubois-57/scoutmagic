@@ -68,7 +68,7 @@
     }
 
     function updateHint() {
-        var year = parseInt((birthDateInput.value || '').slice(0, 4), 10);
+        var year = Number.parseInt((birthDateInput.value || '').slice(0, 4), 10);
         if (!year || String(year).length !== 4) {
             hint.textContent = '';
             updateFriendWishes(null);

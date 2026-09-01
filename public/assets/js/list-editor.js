@@ -96,7 +96,7 @@
                 if (!activeUrl) return;
                 var nextActive = toggle.dataset.active !== '1';
                 toggle.disabled = true;
-                window.ScoutMagicApi.postJson(activeUrl, { id: parseInt(toggle.dataset.id, 10), active: nextActive })
+                window.ScoutMagicApi.postJson(activeUrl, { id: Number.parseInt(toggle.dataset.id, 10), active: nextActive })
                     .then(function (res) {
                         var data = res.data || {};
                         toggle.disabled = false;
@@ -126,7 +126,7 @@
                     confirmLabel: 'Supprimer'
                 });
                 if (!confirmed) return;
-                window.ScoutMagicApi.postJson(deleteUrl, { id: parseInt(btn.dataset.id, 10) }).then(function (res) {
+                window.ScoutMagicApi.postJson(deleteUrl, { id: Number.parseInt(btn.dataset.id, 10) }).then(function (res) {
                     var data = res.data || {};
                     if (data.success) {
                         window.location.reload();

@@ -170,7 +170,7 @@
     function selectScoutYears(yearIds) {
         mmSelectedYearIds = yearIds;
         yearCheckboxes().forEach(cb => {
-            cb.checked = yearIds.includes(parseInt(cb.value, 10));
+            cb.checked = yearIds.includes(Number.parseInt(cb.value, 10));
         });
         // Also the path that runs when an existing email is REOPENED, which
         // is the one that would otherwise show a future-year draft with no
@@ -188,7 +188,7 @@
     // Delegated (checkboxes are rebuilt on every populateScoutYearCheckboxes() call).
     el('mm-scout-year-group').addEventListener('change', (e) => {
         if (!(e.target instanceof Element) || !e.target.classList.contains('mm-year-checkbox')) return;
-        mmSelectedYearIds = yearCheckboxes().filter(cb => cb.checked).map(cb => parseInt(cb.value, 10));
+        mmSelectedYearIds = yearCheckboxes().filter(cb => cb.checked).map(cb => Number.parseInt(cb.value, 10));
         updateFutureYearWarning();
     });
 
@@ -450,7 +450,7 @@
                 cb.disabled = true;
             } else {
                 const entry = [MM_DATA.scoutYears.previous, MM_DATA.scoutYears.current, MM_DATA.scoutYears.next]
-                    .find(y => y.id === parseInt(cb.value, 10));
+                    .find(y => y.id === Number.parseInt(cb.value, 10));
                 cb.disabled = entry ? !entry.available : false;
             }
         });
@@ -628,8 +628,8 @@
         if (!option) return { list_type: null, list_id: null, list_section_id: null };
         return {
             list_type: option.dataset.type,
-            list_id: option.dataset.listId ? parseInt(option.dataset.listId, 10) : null,
-            list_section_id: option.dataset.listSectionId ? parseInt(option.dataset.listSectionId, 10) : null,
+            list_id: option.dataset.listId ? Number.parseInt(option.dataset.listId, 10) : null,
+            list_section_id: option.dataset.listSectionId ? Number.parseInt(option.dataset.listSectionId, 10) : null,
         };
     }
 
@@ -639,7 +639,7 @@
         const payload = {
             subject: inputEl('mm-subject').value,
             body_html: el('mm-body-content').innerHTML,
-            section_id: parseInt(selectEl('mm-section').value, 10),
+            section_id: Number.parseInt(selectEl('mm-section').value, 10),
             list_type: listSelection.list_type,
             list_id: listSelection.list_id,
             list_section_id: listSelection.list_section_id,

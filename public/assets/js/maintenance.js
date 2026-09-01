@@ -123,7 +123,9 @@
         /** @param {unknown} fraction */
         function showMigrationProgress(fraction) {
             if (!detailEl) return;
-            if (typeof fraction !== 'number' || !isFinite(fraction)) {
+            // Number.isFinite rather than the global: they differ only for
+            // non-numbers, which the typeof guard has already excluded.
+            if (typeof fraction !== 'number' || !Number.isFinite(fraction)) {
                 detailEl.textContent = '';
                 return;
             }
@@ -649,7 +651,7 @@
         var restoreErrorEl = document.getElementById('restore-backup-error');
         if (restoreProgressEl) restoreProgressEl.classList.remove('d-none');
         pollResetStatus(
-            parseInt(restoreIdMatch[1], 10),
+            Number.parseInt(restoreIdMatch[1], 10),
             function () { window.location.href = '/config/maintenance'; },
             function (message) {
                 if (restoreProgressEl) restoreProgressEl.classList.add('d-none');

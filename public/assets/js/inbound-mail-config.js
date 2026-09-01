@@ -184,11 +184,11 @@
             var res = await api.withDisabled(testBtn, function () {
                 return api.postJson('/config/courrier-entrant/test-connexion', {
                     host: hostInput ? hostInput.value : '',
-                    port: portInput ? parseInt(portInput.value, 10) : 993,
+                    port: portInput ? Number.parseInt(portInput.value, 10) : 993,
                     encryption: encryptionSelect ? encryptionSelect.value : 'ssl',
                     username: usernameInput ? usernameInput.value : '',
                     password: passwordInput ? passwordInput.value : '',
-                    mailbox_id: idInput ? parseInt(idInput.value, 10) : 0
+                    mailbox_id: idInput ? Number.parseInt(idInput.value, 10) : 0
                 });
             });
 

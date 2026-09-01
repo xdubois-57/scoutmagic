@@ -12,14 +12,14 @@
     if (!container) return;
 
     var token = container.dataset.token;
-    var pollInterval = Math.max(3, parseInt(container.dataset.pollInterval, 10) || 8) * 1000;
+    var pollInterval = Math.max(3, Number.parseInt(container.dataset.pollInterval, 10) || 8) * 1000;
     var status = container.dataset.status;
     var canVote = container.dataset.canVote === '1';
     var voteMode = container.dataset.voteMode;
     var isUnitChief = container.dataset.isUnitChief === '1';
-    var maxLength = parseInt(container.dataset.maxLength, 10) || 140;
+    var maxLength = Number.parseInt(container.dataset.maxLength, 10) || 140;
     var aiAvailable = container.dataset.aiAvailable === '1';
-    var remainingBudget = container.dataset.remainingBudget !== '' ? parseInt(container.dataset.remainingBudget, 10) : null;
+    var remainingBudget = container.dataset.remainingBudget !== '' ? Number.parseInt(container.dataset.remainingBudget, 10) : null;
     var budgetEl = document.getElementById('retro-budget-remaining');
 
     // The local postJson() copy this file carried resolved to

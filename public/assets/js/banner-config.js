@@ -49,7 +49,7 @@
     roleSelects.forEach(function (select) {
         select.addEventListener('change', function () {
             api.postJson('/config/banner/role-min', {
-                id: parseInt(select.dataset.id || '', 10),
+                id: Number.parseInt(select.dataset.id || '', 10),
                 role_min: select.value
             }).then(function (res) {
                 if (res.data && res.data.success) {

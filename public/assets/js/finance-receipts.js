@@ -24,7 +24,7 @@
 
     // A STRING, not an integer. The sorting pile — the receipts no account
     // claims — is addressed as 'unassigned', which has no id to parse, and
-    // parseInt() would turn it into NaN and every request into a 404. It
+    // Number.parseInt() would turn it into NaN and every request into a 404. It
     // travels to /finance/receipts/search verbatim.
     const currentAccountId = /** @type {HTMLElement} */ (grid).dataset.accountId || '';
     const isSortingPile = currentAccountId === 'unassigned';
@@ -195,7 +195,7 @@
         document.querySelectorAll('#receipts-grid .page-link[data-page]').forEach(link => {
             link.addEventListener('click', (e) => {
                 e.preventDefault();
-                fetchReceipts(parseInt(/** @type {HTMLElement} */ (link).dataset.page, 10));
+                fetchReceipts(Number.parseInt(/** @type {HTMLElement} */ (link).dataset.page, 10));
             });
         });
 
@@ -218,7 +218,7 @@
                 // not from a round-trip: it is the same number they can
                 // see, and a dialog that has to fetch before it can warn is
                 // a dialog that sometimes opens without the warning.
-                const movementCount = parseInt(el.dataset.movementCount || '0', 10);
+                const movementCount = Number.parseInt(el.dataset.movementCount || '0', 10);
                 const warning = document.getElementById('change-account-warning');
                 if (movementCount > 0) {
                     warning.textContent = 'Ce reçu est associé à ' + movementCount + ' mouvement'
@@ -357,7 +357,7 @@
             list.querySelectorAll('.unlink-movement-btn').forEach(btn => {
                 btn.addEventListener('click', async () => {
                     await window.ScoutMagicApi.postJson('/finance/receipts/' + currentMovementsAttachmentId + '/dissociate', {
-                        transaction_id: parseInt(/** @type {HTMLElement} */ (btn).dataset.transactionId, 10)
+                        transaction_id: Number.parseInt(/** @type {HTMLElement} */ (btn).dataset.transactionId, 10)
                     });
                     loadMovements(currentMovementsAttachmentId);
                     fetchReceipts(currentPage);
