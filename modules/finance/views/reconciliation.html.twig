@@ -204,6 +204,16 @@
                             <div class="col-12 col-md-auto">
                                 <button type="submit" class="btn btn-sm btn-primary tap-target">Rattacher à une créance</button>
                             </div>
+                            {# Under the row and not under the field it
+                               describes: a `row align-items-end` aligns
+                               the BOTTOMS of its columns, so a help text
+                               below one input pushes that input up and
+                               leaves it out of line with the amount
+                               beside it. #}
+                            <p class="form-text col-12 mb-0">
+                                Tapez un nom : la liste ne propose que les créances de ce compte qui
+                                attendent encore un paiement.
+                            </p>
                         </form>
                     </div>
                 {% endfor %}

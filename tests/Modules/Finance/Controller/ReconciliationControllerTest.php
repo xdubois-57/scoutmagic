@@ -518,6 +518,30 @@ class ReconciliationControllerTest extends TestCase
         $this->assertStringNotContainsString("L'identifiant de la créance", $body);
     }
 
+    /**
+     * A `row align-items-end` aligns the BOTTOMS of its columns, not its
+     * controls, so anything under one field lifts that field's input out
+     * of line with the amount beside it. That is exactly how the Créance
+     * and Montant inputs came to sit on two different lines.
+     */
+    public function testNothingIsRenderedUnderTheReceivableFieldItself(): void
+    {
+        $this->receivable('Lucie', 4500, '+++123/4567/89012+++');
+        $this->credit('VIREMENT SANS COMMUNICATION', 45.00);
+
+        $body = $this->controller->index($this->get(['tab' => 'orphans']), [])->getBody();
+
+        // The suggestions overlay rather than push: absolute, out of the
+        // column's height (public/assets/css/components.css).
+        $this->assertStringContainsString('receivable-picker__results', $body);
+
+        // And the picker's own block ends at its hidden input — nothing
+        // in flow after the control.
+        $picker = substr($body, (int) strpos($body, 'receivable-picker" data-account-id'));
+        $picker = substr($picker, 0, (int) strpos($picker, '</div>'));
+        $this->assertStringNotContainsString('form-text', $picker);
+    }
+
     public function testTheReceivablePickerAnswersWithTheAccountsOpenReceivables(): void
     {
         $this->receivable('Lucie', 4500, '+++123/4567/89012+++');

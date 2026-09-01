@@ -387,6 +387,52 @@ final class UxConventionsTest extends TestCase
         self::assertSame([], $messages, "$rule (see design.md §7):\n" . implode("\n", $messages));
     }
 
+    /**
+     * A horizontal form aligns the BOTTOMS of its columns, not its
+     * controls — so anything rendered below one field pushes that field's
+     * control up and leaves it out of line with the one beside it.
+     *
+     * Reported from « Rapprochement > Non imputés », where the Créance
+     * input sat visibly higher than the Montant input: the first carried
+     * a help text and the second did not. Two other pages had the same
+     * defect in its milder form, a submit button sitting lower than the
+     * input it belongs to.
+     *
+     * The fix is never CSS, and that is why this is a test rather than a
+     * rule in a stylesheet: the explanation belongs under the FORM, where
+     * it describes the whole gesture, and not under one of its fields.
+     * Nothing below a control, and the alignment takes care of itself.
+     */
+    public function testAnInlineFormPutsNoHelpTextUnderOneOfItsFields(): void
+    {
+        $found = [];
+
+        foreach (self::templates() as $rel) {
+            $lines = preg_split('/\R/', self::templateSource($rel)) ?: [];
+            foreach ($lines as $index => $line) {
+                if (!str_contains($line, 'align-items-end')) {
+                    continue;
+                }
+
+                // The `include` that follows a row opener, as far as its
+                // own closing `%}` — long enough for the longest field
+                // declaration in the corpus, short enough not to reach
+                // the next form.
+                $window = implode("\n", array_slice($lines, $index, 45));
+                if (preg_match('/help:\s*[\'"]/', $window) === 1) {
+                    $found[$rel] = ($found[$rel] ?? 0) + 1;
+                }
+            }
+        }
+
+        self::assertMatchesAllowlist(
+            $found,
+            [],
+            'A `row align-items-end` aligns column bottoms, so a help text under one field '
+                . 'lifts its control out of line with the next one — put the sentence under the form'
+        );
+    }
+
     public function testNoInlineEventHandlerAttributes(): void
     {
         $found = [];

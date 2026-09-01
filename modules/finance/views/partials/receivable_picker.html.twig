@@ -4,9 +4,9 @@
   The field this replaces asked for the receivable's **id**, and said so:
   « L'identifiant de la créance, repris dans l'export de la campagne ».
   That is a page telling its reader to leave, open a spreadsheet, find a
-  line and come back with an integer — and the page next to it has always
+  line and come back with an integer. The page next to it has always
   answered « quel mouvement ? » by searching (the receipts picker, over
-  /finance/movements/search). This is that same shape for the other half
+  /finance/movements/search); this is that same shape for the other half
   of an imputation.
 
   A partial rather than markup in one page, because a receivable is
@@ -16,6 +16,15 @@
   receivables of one household: a closed list that short is a `select`,
   and turning it into a search box would hide three options behind an
   empty box.
+
+  **Nothing renders BELOW the input, and that is a layout rule, not a
+  preference.** These pickers sit in a `row g-2 align-items-end`, which
+  aligns the BOTTOMS of the columns and not the controls — so anything
+  under one field (a help text, a result list, a confirmation line)
+  pushes that field's input up and leaves it out of line with the amount
+  beside it. The suggestions are therefore an absolutely-positioned
+  dropdown, the way an autocomplete has always been, and the chosen
+  receivable is shown IN the input rather than under it.
 
   Parameters:
     picker_id            -- unique, prefixes every id inside
@@ -34,7 +43,6 @@
         wrapper_class: 'mb-0',
         placeholder: 'Nom, communication ou identifiant…',
         autocomplete: 'off',
-        help: "Tapez un nom : la liste ne propose que les créances de ce compte qui attendent encore un paiement.",
     } only %}
 
     {# The value the form actually submits. Hidden because what the
@@ -43,7 +51,6 @@
        here not to have to know. #}
     <input type="hidden" name="{{ field_name }}" value="" data-receivable-value>
 
-    <p class="small mb-0 mt-1 d-none" data-receivable-chosen></p>
-    <div class="list-group list-group-flush border rounded-3 mt-1 d-none" data-receivable-results
+    <div class="receivable-picker__results list-group d-none" data-receivable-results
          role="listbox" aria-label="Créances proposées"></div>
 </div>

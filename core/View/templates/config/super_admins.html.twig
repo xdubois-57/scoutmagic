@@ -26,7 +26,6 @@
                         required: true,
                         autocomplete: 'email',
                         wrapper_class: '',
-                        help: "Si aucun compte n'existe pour cette adresse, il est créé. La personne se connecte ensuite avec un lien magique, depuis la page de connexion.",
                     } only %}
                 </div>
                 <div class="col-12 col-md-auto">
@@ -34,6 +33,14 @@
                         <i class="bi bi-plus-lg" aria-hidden="true"></i> Ajouter
                     </button>
                 </div>
+                {# Under the row, not under the field: `align-items-end`
+                   aligns the BOTTOMS of the columns, so a help text below
+                   one of them pushes its control up and leaves the button
+                   beside it out of line. #}
+                <p class="form-text col-12 mb-0">
+                    Si aucun compte n'existe pour cette adresse, il est créé. La personne se
+                    connecte ensuite avec un lien magique, depuis la page de connexion.
+                </p>
             </form>
         </div>
     </div>

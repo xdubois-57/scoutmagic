@@ -452,6 +452,22 @@ Genuinely out of reach, and why: `setup/index.html.twig` (the installer
 renders before the theme exists), a label carrying markup (« Tapez
 **EFFACER** pour confirmer »), and a `<select>` with `<optgroup>`.
 
+**In a horizontal form, nothing goes below a control.** A `row g-2
+align-items-end` — the shape every inline form on this site uses — aligns
+the BOTTOMS of its columns, not the controls inside them. So a help text
+under one field makes that column taller and lifts its input out of line
+with the field beside it, which is exactly how « Rapprochement > Non
+imputés » came to show its Créance and Montant inputs on two different
+lines; a submit button beside a field with a help text sits too low for
+the same reason. The explanation goes **under the form**, in a
+`<p class="form-text col-12">`, where it describes the whole gesture
+rather than one of its fields — and a control that needs to show
+something (an autocomplete's suggestions) shows it in an
+absolutely-positioned overlay, never in the flow.
+`Tests\Core\View\UxConventionsTest::testAnInlineFormPutsNoHelpTextUnderOneOfItsFields()`
+keeps it that way, because nothing about a `help:` inside a row looks
+wrong at the call site.
+
 ### 7.10 Files and lists
 
 `partials/drop_zone.html.twig` is the one « déposez un fichier ici » zone

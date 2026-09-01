@@ -26,25 +26,29 @@
     function wire(picker) {
         var search = picker.querySelector('input[type="text"], input:not([type])');
         var hidden = picker.querySelector('[data-receivable-value]');
-        var chosen = picker.querySelector('[data-receivable-chosen]');
         var results = picker.querySelector('[data-receivable-results]');
-        if (!search || !hidden || !chosen || !results) {
+        if (!search || !hidden || !results) {
             return;
         }
 
         var timeout = null;
 
+        /**
+         * The choice is shown IN the input, and not on a line under it:
+         * anything below the control makes this column taller than the
+         * amount beside it, and `align-items-end` then aligns the bottoms
+         * rather than the two inputs. Which is the misalignment this
+         * control was reported for.
+         */
         function choose(row) {
             hidden.value = String(row.id);
-            chosen.textContent = 'Créance choisie : ' + row.label + ' — reste ' + euros(row.remaining_cents);
-            chosen.classList.remove('d-none');
             results.classList.add('d-none');
-            results.innerHTML = '';
-            search.value = row.label;
+            results.replaceChildren();
+            search.value = row.label + ' — reste ' + euros(row.remaining_cents);
         }
 
         function render(rows) {
-            results.innerHTML = '';
+            results.replaceChildren();
             if (rows.length === 0) {
                 results.classList.add('d-none');
                 return;
@@ -82,7 +86,6 @@
             // the treasurer has since edited is the one failure this
             // control could produce silently.
             hidden.value = '';
-            chosen.classList.add('d-none');
 
             clearTimeout(timeout);
             timeout = setTimeout(run, DEBOUNCE_MS);
@@ -94,6 +97,19 @@
         search.addEventListener('focus', function () {
             if (hidden.value === '' && results.classList.contains('d-none')) {
                 run();
+            }
+        });
+
+        // An overlay has to be closable without choosing anything —
+        // otherwise it sits on top of the amount field beside it.
+        document.addEventListener('click', function (event) {
+            if (!picker.contains(/** @type {Node} */ (event.target))) {
+                results.classList.add('d-none');
+            }
+        });
+        search.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape') {
+                results.classList.add('d-none');
             }
         });
     }

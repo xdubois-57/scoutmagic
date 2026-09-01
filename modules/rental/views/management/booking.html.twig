@@ -193,13 +193,16 @@
                             {% include 'partials/form_field.html.twig' with {
                                 field_id: 'option-until', field_name: 'until', type: 'datetime-local',
                                 label: 'Option jusqu\'au',
-                                help: 'Laisser vide et enregistrer lève le blocage.',
                                 value: booking.holdUntil ? booking.holdUntil|date('Y-m-d\\TH:i') : '',
                             } only %}
                         </div>
                         <div class="col-12 col-sm-5">
                             <button type="submit" class="btn btn-outline-secondary w-100">Enregistrer l'option</button>
                         </div>
+                        {# Under the row, not under the field — see
+                           design.md §7.6: `align-items-end` aligns the
+                           bottoms of the columns, not their controls. #}
+                        <p class="form-text col-12 mb-0">Laisser vide et enregistrer lève le blocage.</p>
                     </form>
                 </div>
             </div>
