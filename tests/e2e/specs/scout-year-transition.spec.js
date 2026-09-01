@@ -153,6 +153,21 @@ async function chooseYear(form, label) {
  * @param {string} key
  */
 async function toggleStep(page, key) {
+    // Wait for the page to REACT before clicking it.
+    //
+    // Ticking a step is not markup: public/assets/js/admin-scout-year.js
+    // binds a `change` listener that submits the step's form. A click
+    // landing before that listener exists toggles the box and submits
+    // nothing, so the POST below never comes and this helper waits out its
+    // ceiling on a request the page was never going to make. That is what
+    // made this spec fail intermittently — « waitForResponse: Timeout
+    // 10000ms exceeded » on one run, 71/71 on the next.
+    //
+    // Same marker convention as support/sos.js and support/confirm-dialog.js.
+    await page.waitForFunction(
+        () => document.documentElement.classList.contains('scout-year-js')
+    );
+
     // The POST is what the round-trip hangs on, and the page it redirects
     // to is already the one we are on — so waiting on the URL would resolve
     // instantly and assert against the pre-submit DOM. Wait on the request

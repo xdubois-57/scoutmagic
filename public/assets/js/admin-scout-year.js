@@ -38,4 +38,25 @@
             }
         });
     });
+
+    // Every listener above is now attached, and this says so.
+    //
+    // Same convention, and the same reason, as sos-admin.js's `sos-js`
+    // marker and confirm.js's delegated flag: a step is ticked by a
+    // listener bound HERE, not by markup, so a page whose HTML has
+    // rendered is not yet a page that reacts. A click landing in that
+    // window toggles the box and submits nothing — no error, no request,
+    // no effect — and whoever was waiting for the POST waits out their
+    // ceiling instead.
+    //
+    // Nobody working by hand can lose that race: reading a thirteen-step
+    // workflow takes far longer than this file needs. A browser suite
+    // can, and did — specs/scout-year-transition.spec.js ticks four steps
+    // in a row and failed intermittently on « waitForResponse: Timeout
+    // 10000ms exceeded », passing 71/71 on the very next run.
+    //
+    // The class is the only honest proof that this file ran: written from
+    // here rather than into the template, so a page whose JavaScript
+    // failed to load never claims otherwise.
+    document.documentElement.classList.add('scout-year-js');
 })();
