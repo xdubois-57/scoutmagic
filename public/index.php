@@ -2599,7 +2599,7 @@ $uploadController->setJournalService($journalService);
 $frontController->registerController(UploadController::class, $uploadController);
 $frontController->registerController(\Core\Http\Controller\PwaController::class, new \Core\Http\Controller\PwaController($twig, $settingService, $unitLogoService));
 $frontController->registerController(JournalController::class, new JournalController($twig, $journalRepo, $userAccountRepo));
-$frontController->registerController(TemporaryMemberController::class, new TemporaryMemberController($twig, $memberSearchService, $scoutYearResolver, $journalService));
+$frontController->registerController(TemporaryMemberController::class, new TemporaryMemberController($twig, $memberSearchService, $scoutYearResolver, $journalService, $memberYearRepo));
 $frontController->registerController(SettingsController::class, new SettingsController($twig, $settingService, $journalService, $unitLogoService, $notificationService, $userAccountRepo));
 $frontController->registerController(SupportController::class, new SupportController(
     $twig,

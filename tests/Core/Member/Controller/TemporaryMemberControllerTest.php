@@ -67,7 +67,8 @@ class TemporaryMemberControllerTest extends TestCase
             $twig,
             $searchService,
             $resolver,
-            new JournalService($this->journalRepo)
+            new JournalService($this->journalRepo),
+            $memberYearRepo
         );
 
         if (session_status() !== PHP_SESSION_ACTIVE) {
@@ -135,6 +136,36 @@ class TemporaryMemberControllerTest extends TestCase
             $this->enc->encrypt('Mowgli', 'member_years.totem'),
             $this->enc->encrypt('anime@test.be', 'member_years.email'),
             $isActive ? 1 : 0,
+        ]);
+
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    /**
+     * A second annual row for the same person, in a later year — what a
+     * prepared staff year leaves behind.
+     *
+     * @return int the new member_years.id
+     */
+    private function seedAnotherYearForSameMember(int $memberYearId, string $label): int
+    {
+        $stmt = $this->pdo->prepare('SELECT member_id FROM member_years WHERE id = ?');
+        $stmt->execute([$memberYearId]);
+        $memberId = (int) $stmt->fetchColumn();
+
+        $yearId = (new ScoutYearService($this->pdo))->ensureYear($label);
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, totem_encrypted, email_encrypted, is_active)
+             VALUES (?, ?, ?, ?, ?, ?, 1)'
+        );
+        $stmt->execute([
+            $memberId,
+            $yearId,
+            $this->enc->encrypt('Jean', 'member_years.first_name'),
+            $this->enc->encrypt('Dupont', 'member_years.last_name'),
+            $this->enc->encrypt('Mowgli', 'member_years.totem'),
+            $this->enc->encrypt('anime@test.be', 'member_years.email'),
         ]);
 
         return (int) $this->pdo->lastInsertId();
@@ -220,14 +251,70 @@ class TemporaryMemberControllerTest extends TestCase
         $this->assertNull(TemporaryMemberSession::get());
     }
 
-    public function testAddRejectsAMemberFromAnotherScoutYear(): void
+    public function testAddRefusesAMemberWithNoRowInTheYearInEffect(): void
     {
+        // Present in 2024-2025 only, while the session looks at 2025-2026.
+        // The override must always name a row of the year in effect, so
+        // this is refused — but with a sentence, not a bare 404: the admin
+        // is looking at a real member's real sheet, and « introuvable »
+        // would describe neither.
         $memberYearId = $this->seedMember($this->otherYearId);
 
         $response = $this->controller->add($this->post("/admin/members/{$memberYearId}/temporary-access"), ['id' => (string) $memberYearId]);
 
-        $this->assertSame(404, $response->getStatusCode());
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertStringContainsString(
+            'pas inscrit cette année scoute',
+            (string) (\Core\Http\FlashMessage::get()['message'] ?? '')
+        );
         $this->assertNull(TemporaryMemberSession::get());
+    }
+
+    /**
+     * The bug this method exists for, and it only ever bit the staff.
+     *
+     * MemberSearchController::show() normalises onto the member's MOST
+     * RECENT annual row — deliberately, so a link carrying a past year's id
+     * still shows the current sheet. The button on that page therefore
+     * carries NEXT year's id for anyone who already has a row there, which
+     * from the moment a staff year is prepared is every animateur. The
+     * handler looked that id up in the year in effect, did not find it, and
+     * answered 404 — for the staff, and for nobody else.
+     */
+    public function testAddAcceptsTheIdOfALaterYearAndSetsTheRowForTheYearInEffect(): void
+    {
+        $memberYearId = $this->seedMember();
+        $nextYearId = $this->seedAnotherYearForSameMember($memberYearId, '2026-2027');
+
+        $response = $this->controller->add(
+            $this->post("/admin/members/{$nextYearId}/temporary-access"),
+            ['id' => (string) $nextYearId]
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            $memberYearId,
+            TemporaryMemberSession::get(),
+            'the override must name the row of the year in effect, never the one the sheet displayed'
+        );
+    }
+
+    public function testTheJournalNamesTheRowActuallySetNotTheOneAskedFor(): void
+    {
+        $memberYearId = $this->seedMember();
+        $nextYearId = $this->seedAnotherYearForSameMember($memberYearId, '2026-2027');
+
+        $this->controller->add(
+            $this->post("/admin/members/{$nextYearId}/temporary-access"),
+            ['id' => (string) $nextYearId]
+        );
+
+        $stmt = $this->pdo->query(
+            "SELECT context FROM event_log WHERE event_type = 'temporary_member_added' ORDER BY id DESC LIMIT 1"
+        );
+        $this->assertNotFalse($stmt);
+
+        $this->assertStringContainsString('"member_year_id":' . $memberYearId, (string) $stmt->fetchColumn());
     }
 
     public function testAddRejectsAnUnknownMember(): void

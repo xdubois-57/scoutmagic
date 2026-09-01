@@ -1,0 +1,63 @@
+{#
+    One list of expected payments — the table on a wide screen, cards on a
+    phone.
+
+    Extracted so the page can render the same rows whether or not the
+    source's instances are worth grouping (Service\ReceivablesOverviewService,
+    `groups_instances`): two copies of this markup would be two places for
+    the columns to drift apart.
+
+    Requires `rows`. `focus_reference_id` is optional — the
+    source_reference_id the page was opened FOR, marked with
+    `data-scroll-focus` so public/assets/js/scroll-into-focus.js brings it
+    into view; 0 means the page was not opened for any particular one.
+#}
+{% set focus = focus_reference_id|default(0) %}
+
+<div class="table-responsive d-none d-md-block">
+    <table class="table table-sm align-middle">
+        <thead>
+            <tr>
+                <th>Nom/Contact</th>
+                <th class="text-end">Attendu</th>
+                <th class="text-end">Reçu</th>
+                <th>Communication</th>
+                <th>Statut</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in rows %}
+                <tr {{ focus and row.source_reference_id == focus ? 'data-scroll-focus' : '' }}>
+                    <td>{{ row.label ?? '—' }}</td>
+                    <td class="text-end">{{ row.amount_due|money_cents }}</td>
+                    <td class="text-end">{{ row.amount_received|money_cents }}</td>
+                    <td class="font-monospace small">{{ row.communication }}</td>
+                    <td>
+                        {% include 'partials/status_badge.html.twig' with {
+                            status: row.status == 'paid' ? 'done' : (row.status == 'partial' ? 'in_progress' : 'neutral'),
+                            label: row.status == 'paid' ? 'Payé' : (row.status == 'partial' ? 'Partiel' : 'Non payé'),
+                        } only %}
+                    </td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="d-flex flex-column gap-2 d-md-none">
+    {% for row in rows %}
+        <div class="border rounded-3 p-2" {{ focus and row.source_reference_id == focus ? 'data-scroll-focus' : '' }}>
+            <div class="d-flex justify-content-between">
+                <span>{{ row.label ?? '—' }}</span>
+                {% include 'partials/status_badge.html.twig' with {
+                    status: row.status == 'paid' ? 'done' : (row.status == 'partial' ? 'in_progress' : 'neutral'),
+                    label: row.status == 'paid' ? 'Payé' : (row.status == 'partial' ? 'Partiel' : 'Non payé'),
+                } only %}
+            </div>
+            <div class="text-body-secondary small">
+                {{ row.amount_received|money_cents }} reçu / {{ row.amount_due|money_cents }} attendu
+            </div>
+            <div class="font-monospace small text-body-secondary">{{ row.communication }}</div>
+        </div>
+    {% endfor %}
+</div>
