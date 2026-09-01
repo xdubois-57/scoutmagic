@@ -114,7 +114,7 @@
                 stopGenerationTimer();
                 generateStatus.innerHTML = generateErrorHtml(res);
                 generateBtn.disabled = false;
-                return Promise.resolve();
+                return undefined;
             }
 
             if (data.running === true) {
@@ -132,12 +132,12 @@
                 }
                 generateStatus.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> ' + successMessage + '</span>';
                 setTimeout(function () { generateStatus.textContent = ''; }, 5000);
-                return Promise.resolve();
+                return undefined;
             }
 
             generateStatus.innerHTML = generateErrorHtml({ ok: false, status: 0, data: data });
 
-            return Promise.resolve();
+            return undefined;
         });
     }
 
@@ -164,7 +164,7 @@
                     generateStatus.innerHTML = generateErrorHtml(res);
                     generateBtn.disabled = false;
 
-                    return Promise.resolve();
+                    return undefined;
                 }
 
                 return pollGeneration(successMessage);
