@@ -19,6 +19,7 @@ use Core\Security\HtmlSanitizer;
 use Core\Service\DateInput;
 use Modules\InboundMail\Repository\InboundMailboxRepository;
 use Modules\InboundMail\Repository\InboundMessageRepository;
+use Modules\InboundMail\Service\AnalysisJournal;
 use Modules\InboundMail\Service\AnalysisResultApplier;
 use Modules\InboundMail\Service\AttachmentPolicy;
 use Modules\InboundMail\Service\MailboxClientFactory;
@@ -106,7 +107,13 @@ class SyncMailboxesHandler implements TaskHandlerInterface
          * consumer is offered every message, which is what the contract was
          * before the configuration screen existed.
          */
-        private ?MailboxScopeService $scopeService = null
+        private ?MailboxScopeService $scopeService = null,
+        /**
+         * What the arrival pass leaves in the journal — one line per
+         * message stored, and one per consumer that threw. Null writes
+         * nothing.
+         */
+        private ?AnalysisJournal $analysisJournal = null
     ) {
     }
 
@@ -131,7 +138,8 @@ class SyncMailboxesHandler implements TaskHandlerInterface
                 new UploadHandler(new FileRepository($pdo), $context->storagePath),
                 $this->quotaService,
                 new FileRepository($pdo),
-                $this->scopeService
+                $this->scopeService,
+                $this->analysisJournal
             );
 
             $service->syncAll(new \DateTimeImmutable());

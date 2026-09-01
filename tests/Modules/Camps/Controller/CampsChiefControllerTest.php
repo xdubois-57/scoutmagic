@@ -752,9 +752,15 @@ class CampsChiefControllerTest extends TestCase
      *
      * @param list<array{from: string, to: string, message: int}> $moves
      */
+    /**
+     * @param \Modules\InboundMail\Api\InboundAttachment[] $attachments
+     */
     private function controllerWithUnsortedMessage(
         array &$moves,
-        ?\Modules\LlmConnector\Api\LlmConnectorInterface $llm = null
+        ?\Modules\LlmConnector\Api\LlmConnectorInterface $llm = null,
+        string $bodyText = 'Nous confirmons du 12 au 19 juillet 2028. Prix : 2450 €.',
+        ?\Modules\Camps\Mail\AttachmentTextReader $attachmentText = null,
+        array $attachments = []
     ): CampsChiefController {
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $audit = new AuditService(new AuditRepository($this->pdo, $encryption));
@@ -783,8 +789,9 @@ class CampsChiefControllerTest extends TestCase
             messageId: '<abc@mail>',
             inReplyTo: null,
             sentAt: new \DateTimeImmutable('2027-11-02 09:00:00'),
-            bodyText: 'Nous confirmons du 12 au 19 juillet 2028. Prix : 2450 €.',
-            bodyHtml: ''
+            bodyText: $bodyText,
+            bodyHtml: '',
+            attachments: $attachments
         );
 
         $inbound = $this->createMock(\Modules\InboundMail\Api\InboundMailInterface::class);
@@ -836,9 +843,86 @@ class CampsChiefControllerTest extends TestCase
                 $duplicates,
                 new \Modules\Camps\Mail\MessageReader(),
                 $settings,
-                $llm
+                $llm,
+                $attachmentText
             )
         );
+    }
+
+    /**
+     * « Créer un camp depuis ce message » on a message whose booking is in
+     * the PDF, which is how a real one arrives.
+     *
+     * The complaint this comes from: the form came back with a name and
+     * nothing else, « on dirait que l'IA ne regarde pas le contrat attaché
+     * à l'e-mail ». It did not — the reading stopped at the body, and the
+     * body was « Bonjour, ».
+     */
+    public function testTheFormIsPreFilledFromTheContractInTheAttachment(): void
+    {
+        $storagePath = sys_get_temp_dir() . '/campsprefill_' . uniqid();
+        mkdir($storagePath . '/inbound', 0700, true);
+
+        try {
+            $files = new \Core\File\FileRepository($this->pdo);
+            $bytes = (string) file_get_contents(
+                dirname(__DIR__, 3) . '/fixtures/pdf/camp_booking_contract.pdf'
+            );
+            file_put_contents($storagePath . '/inbound/contrat.pdf', $bytes);
+            $fileId = $files->create(
+                'inbound/contrat.pdf',
+                'contrat.pdf',
+                'application/pdf',
+                strlen($bytes),
+                'chief',
+                'inbound_mail',
+                null,
+                false
+            );
+
+            $moves = [];
+            $controller = $this->controllerWithUnsortedMessage(
+                $moves,
+                $this->llmNaming('Centre de camp Le Grand Pré'),
+                // A one-word body and a contract, the way they really come.
+                'Bonjour,',
+                new \Modules\Camps\Mail\AttachmentTextReader(
+                    new \Core\File\StoredFileReader(
+                        $files,
+                        new \Core\File\EncryptedFileStorageService(
+                            $files,
+                            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)),
+                            $storagePath
+                        ),
+                        $storagePath
+                    )
+                ),
+                [new \Modules\InboundMail\Api\InboundAttachment(
+                    1,
+                    42,
+                    $fileId,
+                    'contrat.pdf',
+                    'application/pdf',
+                    strlen($bytes),
+                    'hash'
+                )]
+            );
+
+            $html = $controller->create(
+                new Request('GET', '/chefs/camps/nouveau', ['message' => '42'], [], [], []),
+                []
+            )->getBody();
+
+            $this->assertStringContainsString('2026-09-18', $html);
+            $this->assertStringContainsString('2026-09-20', $html);
+            $this->assertStringContainsString('Centre de camp Le Grand Pré', $html);
+        } finally {
+            foreach (glob($storagePath . '/inbound/*') ?: [] as $file) {
+                @unlink($file);
+            }
+            @rmdir($storagePath . '/inbound');
+            @rmdir($storagePath);
+        }
     }
 
     /** A connector answering one place name, read out of the body. */
@@ -846,6 +930,10 @@ class CampsChiefControllerTest extends TestCase
     {
         $llm = $this->createStub(\Modules\LlmConnector\Api\LlmConnectorInterface::class);
         $llm->method('isAvailable')->willReturn(true);
+        // The tier the reading itself uses — canNamePlaces() asks this one,
+        // not isAvailable(), and a stub that answered only the wider
+        // question was silently naming nothing.
+        $llm->method('isTierAvailable')->willReturn(true);
         $llm->method('complete')->willReturn(new \Modules\LlmConnector\Api\LlmResponse(
             (string) json_encode(['place_name' => $placeName]),
             ['place_name' => $placeName],

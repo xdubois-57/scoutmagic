@@ -462,7 +462,6 @@ function scoutmagic_bootstrap_scheduler(
                         $campsCampRepo,
                         $pdo,
                         $encryptionService,
-                        $settingService,
                         $inboundMail,
                         new \Modules\Camps\Service\DocumentService(
                             new \Modules\Camps\Repository\DocumentRepository($pdo),
@@ -483,10 +482,39 @@ function scoutmagic_bootstrap_scheduler(
                             new \Modules\Camps\Service\DuplicatePlaceDetector($campsPlaceRepo, $llm),
                             $campsMessageReader,
                             $settingService,
-                            $llm
+                            $llm,
+                            // The deferred pass is exactly where an
+                            // attachment's BYTES are allowed to be read
+                            // (§8.58) — never inside the sync loop.
+                            new \Modules\Camps\Mail\AttachmentTextReader(
+                                new \Core\File\StoredFileReader(
+                                    $fileRepository,
+                                    new \Core\File\EncryptedFileStorageService(
+                                        $fileRepository,
+                                        $encryptionService,
+                                        $storagePath
+                                    ),
+                                    $storagePath
+                                ),
+                                null,
+                                // The last resort: a scanned contract,
+                                // transcribed at the OCR tier. A PDF that
+                                // carries its own text never costs a call.
+                                $llm
+                            ),
+                            // Every refusal of this path lands in the
+                            // journal, named. It is the module's most
+                            // asked-about behaviour and was its most silent.
+                            $journalService
                         )
                     ));
                 }
+
+                // Both passes go through this registry, so both get the
+                // same journal — including for the failures it swallows.
+                $registry->setAnalysisJournal(
+                    new \Modules\InboundMail\Service\AnalysisJournal($journalService)
+                );
 
                 return $registry;
         };
@@ -550,7 +578,12 @@ function scoutmagic_bootstrap_scheduler(
                     new \Modules\InboundMail\Service\MailboxScopeService(
                         new \Modules\InboundMail\Repository\InboundMailboxRepository($pdo, $encryptionService),
                         $registry
-                    )
+                    ),
+                    // One journal line per message stored, saying what each
+                    // module made of it — including « rien », which is the
+                    // answer a unit most often needs and the one this
+                    // pipeline never gave.
+                    new \Modules\InboundMail\Service\AnalysisJournal($journalService)
                 );
             }
         );
@@ -570,7 +603,10 @@ function scoutmagic_bootstrap_scheduler(
             'inbound_mail',
             \Modules\InboundMail\Task\AnalyzeStoredMessagesHandler::TASK_KEY,
             static fn(\Core\Scheduler\TaskContext $context): \Core\Scheduler\TaskHandlerInterface
-                => new \Modules\InboundMail\Task\AnalyzeStoredMessagesHandler($inboundConsumerRegistry($context))
+                => new \Modules\InboundMail\Task\AnalyzeStoredMessagesHandler(
+                    $inboundConsumerRegistry($context),
+                    new \Modules\InboundMail\Service\AnalysisJournal($journalService)
+                )
         );
         \Modules\InboundMail\Task\AnalyzeStoredMessagesHandler::bootstrap($schedulerService);
 

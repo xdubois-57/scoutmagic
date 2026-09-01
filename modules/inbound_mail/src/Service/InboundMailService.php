@@ -581,4 +581,19 @@ class InboundMailService implements InboundMailInterface
     {
         return $this->mailboxRepository->countEnabled() > 0;
     }
+
+    /**
+     * Answered from the box's own purpose, and from nowhere else.
+     *
+     * A missing box answers false rather than throwing: a consumer asking
+     * about a message whose mailbox has since been deleted is a normal
+     * race, and « je ne sais pas » and « non » lead to the same, safe,
+     * behaviour here.
+     */
+    public function isDedicatedTo(string $consumerId, int $mailboxId): bool
+    {
+        $mailbox = $this->mailboxRepository->findById($mailboxId);
+
+        return $mailbox !== null && $mailbox->isDedicated() && $mailbox->dedicatedTo === $consumerId;
+    }
 }

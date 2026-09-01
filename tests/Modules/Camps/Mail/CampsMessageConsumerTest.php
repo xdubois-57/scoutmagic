@@ -190,19 +190,16 @@ class CampsMessageConsumerTest extends TestCase
         // way now (§8.58); what a dedicated box buys is that this module's
         // own users see all of it, which the mailbox configuration says
         // rather than a fake business object.
-        $this->setDedicatedMailboxes((string) self::DEDICATED_MAILBOX);
-
-        $this->assertNull($this->consumer()->claim(
+        $this->assertNull($this->consumer($this->dedicatedTo(self::DEDICATED_MAILBOX))->claim(
             $this->message('newsletter@campingbelgique.be', 'Nos offres', null, [], self::DEDICATED_MAILBOX)
         ));
     }
 
     public function testADedicatedMailboxStillPrefersARealStayOverUnsorted(): void
     {
-        $this->setDedicatedMailboxes((string) self::DEDICATED_MAILBOX);
         $this->contacts->create($this->campId, null, null, 'lambert@example.org', null, null);
 
-        $claim = $this->consumer()->claim(
+        $claim = $this->consumer($this->dedicatedTo(self::DEDICATED_MAILBOX))->claim(
             $this->message('lambert@example.org', 'Bonjour', null, [], self::DEDICATED_MAILBOX)
         );
 
@@ -211,25 +208,40 @@ class CampsMessageConsumerTest extends TestCase
 
     public function testTheSharedMailboxIsUnaffectedByTheDedicatedSetting(): void
     {
-        $this->setDedicatedMailboxes((string) self::DEDICATED_MAILBOX);
-
         // The same unknown sender, in the ordinary mailbox: still not
         // ours, or the module would swallow mail meant for others.
-        $this->assertNull($this->consumer()->claim(
+        $this->assertNull($this->consumer($this->dedicatedTo(self::DEDICATED_MAILBOX))->claim(
             $this->message('newsletter@campingbelgique.be', 'Nos offres', null, [], self::SHARED_MAILBOX)
         ));
     }
 
-    public function testSeveralDedicatedMailboxesAreSupported(): void
+    public function testTheDedicatedBoxIsTheOneInboundMailNamesAndNotTheOldSetting(): void
     {
-        $this->setDedicatedMailboxes('2, 7 ,9');
+        // The regression this test exists for. `camps_dedicated_mailbox_ids`
+        // was this module's own list of dedicated boxes; the « Portée des
+        // modules » screen took the question over and never wrote to that
+        // list again. The module kept reading it, so a unit that declared
+        // its camps box on the new screen had automatic stay creation
+        // silently switched off — and nothing anywhere said so.
+        $this->pdo->prepare(
+            'INSERT INTO settings (module_id, setting_key, setting_value, default_value,
+                                   setting_type, label, description)
+             VALUES (?, ?, ?, ?, ?, ?, ?)'
+        )->execute(['camps', 'camps_dedicated_mailbox_ids', '', '', 'text', 'Boîtes dédiées', '']);
 
-        $this->assertSame([2, 7, 9], $this->consumer()->dedicatedMailboxIds());
-    }
+        $stayFromMail = $this->createMock(\Modules\Camps\Mail\StayFromMailService::class);
+        $stayFromMail->method('isAutomatic')->willReturn(true);
+        $stayFromMail->expects($this->once())->method('createFrom')->willReturn($this->campId);
 
-    public function testNoDedicatedMailboxIsTheDefault(): void
-    {
-        $this->assertSame([], $this->consumer()->dedicatedMailboxIds());
+        $consumer = new CampsMessageConsumer(
+            $this->camps, $this->pdo, $this->encryption,
+            $this->dedicatedTo(self::DEDICATED_MAILBOX), null, null, $stayFromMail
+        );
+
+        $this->assertSame(
+            'camp-' . $this->campId,
+            $consumer->analyzeStored($this->unattachedMessage(self::DEDICATED_MAILBOX))->links[0]->businessReference
+        );
     }
 
     public function testOnlyAStayReferenceReadsBackAsAStay(): void
@@ -253,7 +265,7 @@ class CampsMessageConsumerTest extends TestCase
         // pass over a row nobody can even see.
         $documents = $this->documentService();
         $consumer = new CampsConsumerV1Adapter(
-            $this->camps, $this->pdo, $this->encryption, $this->settings, null, $documents
+            $this->camps, $this->pdo, $this->encryption, null, $documents
         );
 
         $consumer->onMessageStored($this->storedMessage('camp-99999'));
@@ -268,7 +280,7 @@ class CampsMessageConsumerTest extends TestCase
     {
         $documents = $this->documentService();
         $consumer = new CampsConsumerV1Adapter(
-            $this->camps, $this->pdo, $this->encryption, $this->settings, null, $documents
+            $this->camps, $this->pdo, $this->encryption, null, $documents
         );
 
         $consumer->onMessageStored($this->storedMessage('camp-' . $this->campId));
@@ -288,7 +300,7 @@ class CampsMessageConsumerTest extends TestCase
         // to whoever runs the old one.
         $documents = $this->documentService();
         $consumer = new CampsConsumerV1Adapter(
-            $this->camps, $this->pdo, $this->encryption, $this->settings, null, $documents
+            $this->camps, $this->pdo, $this->encryption, null, $documents
         );
         $message = $this->storedMessage('camp-' . $this->campId);
         $consumer->onMessageStored($message);
@@ -309,7 +321,7 @@ class CampsMessageConsumerTest extends TestCase
         // service — there is nobody to file for during a synchronisation.
         // Detaching then has nothing to do, and must not throw.
         $consumer = new CampsConsumerV1Adapter(
-            $this->camps, $this->pdo, $this->encryption, $this->settings, null, null
+            $this->camps, $this->pdo, $this->encryption, null, null
         );
 
         $consumer->onUnlinked($this->storedMessage('camp-' . $this->campId), new MessageLink(
@@ -325,7 +337,7 @@ class CampsMessageConsumerTest extends TestCase
     {
         $documents = $this->documentService();
         $consumer = new CampsConsumerV1Adapter(
-            $this->camps, $this->pdo, $this->encryption, $this->settings, null, $documents
+            $this->camps, $this->pdo, $this->encryption, null, $documents
         );
         $message = $this->storedMessage('camp-' . $this->campId);
         $consumer->onMessageStored($message);
@@ -434,18 +446,30 @@ class CampsMessageConsumerTest extends TestCase
     }
 
     /**
-     * Written straight into `settings`: SettingService::set() refuses a
-     * key the module registration has not declared yet, and this test
-     * exercises the consumer rather than the settings machinery.
+     * An `inbound_mail` that declares those boxes dedicated to Camps.
+     *
+     * The module used to answer this question itself, from a list of ids in
+     * its own settings; `Service\MailboxScopeService` took it over and the
+     * old list stopped being written, so on every installation configured
+     * through the new screen the module thought it had no dedicated box at
+     * all. The consumer now asks, and these tests ask the same way.
      */
-    private function setDedicatedMailboxes(string $value): void
+    private function dedicatedTo(int ...$mailboxIds): InboundMailInterface
     {
-        $stmt = $this->pdo->prepare(
-            'INSERT INTO settings (module_id, setting_key, setting_value, default_value, setting_type, label, description)
-             VALUES (?, ?, ?, ?, ?, ?, ?)'
-        );
-        $stmt->execute(['camps', 'camps_dedicated_mailbox_ids', $value, '', 'text', 'Boîtes dédiées', '']);
-        $this->settings = new SettingService(new SettingRepository($this->pdo));
+        return new class ($mailboxIds) implements InboundMailInterface {
+            use \Tests\Modules\InboundMail\InertInboundMail;
+
+            /** @param int[] $mailboxIds */
+            public function __construct(private array $mailboxIds)
+            {
+            }
+
+            public function isDedicatedTo(string $consumerId, int $mailboxId): bool
+            {
+                return $consumerId === CampsMessageConsumer::CONSUMER_ID
+                    && in_array($mailboxId, $this->mailboxIds, true);
+            }
+        };
     }
 
     // ── canRead(): who may open a stay's mail (§8.3, IT-02) ─────────────
@@ -492,7 +516,7 @@ class CampsMessageConsumerTest extends TestCase
     private function consumer(?InboundMailInterface $inbound = null): CampsConsumerV1Adapter
     {
         return new CampsConsumerV1Adapter(
-            $this->camps, $this->pdo, $this->encryption, $this->settings, $inbound, null
+            $this->camps, $this->pdo, $this->encryption, $inbound, null
         );
     }
 
@@ -532,14 +556,14 @@ class CampsMessageConsumerTest extends TestCase
         // On the DEFERRED pass, where a stored message and a bounded
         // hourly job already meet — `createFrom()` reads the body and may
         // call the AI connector, neither of which CandidateMessage carries.
-        $this->setDedicatedMailboxes((string) self::DEDICATED_MAILBOX);
+        $dedicated = self::DEDICATED_MAILBOX;
         $stayFromMail = $this->createMock(\Modules\Camps\Mail\StayFromMailService::class);
         $stayFromMail->method('isAutomatic')->willReturn(true);
         $stayFromMail->expects($this->once())->method('createFrom')->willReturn($this->campId);
 
         $consumer = new CampsMessageConsumer(
-            $this->camps, $this->pdo, $this->encryption, $this->settings,
-            null, null, null, $stayFromMail
+            $this->camps, $this->pdo, $this->encryption,
+            $this->dedicatedTo($dedicated), null, null, $stayFromMail
         );
 
         $result = $consumer->analyzeStored($this->unattachedMessage(self::DEDICATED_MAILBOX));
@@ -551,13 +575,14 @@ class CampsMessageConsumerTest extends TestCase
     {
         // On the unit's public address a supplier's quotation would become
         // a camp. The guard is the box, not the message.
+        $dedicated = self::DEDICATED_MAILBOX;
         $stayFromMail = $this->createMock(\Modules\Camps\Mail\StayFromMailService::class);
         $stayFromMail->method('isAutomatic')->willReturn(true);
         $stayFromMail->expects($this->never())->method('createFrom');
 
         $consumer = new CampsMessageConsumer(
-            $this->camps, $this->pdo, $this->encryption, $this->settings,
-            null, null, null, $stayFromMail
+            $this->camps, $this->pdo, $this->encryption,
+            $this->dedicatedTo($dedicated), null, null, $stayFromMail
         );
 
         $this->assertTrue($consumer->analyzeStored($this->unattachedMessage(self::SHARED_MAILBOX))->isEmpty());
@@ -565,14 +590,14 @@ class CampsMessageConsumerTest extends TestCase
 
     public function testAUnitThatTurnedAutomaticCreationOffGetsNothing(): void
     {
-        $this->setDedicatedMailboxes((string) self::DEDICATED_MAILBOX);
+        $dedicated = self::DEDICATED_MAILBOX;
         $stayFromMail = $this->createMock(\Modules\Camps\Mail\StayFromMailService::class);
         $stayFromMail->method('isAutomatic')->willReturn(false);
         $stayFromMail->expects($this->never())->method('createFrom');
 
         $consumer = new CampsMessageConsumer(
-            $this->camps, $this->pdo, $this->encryption, $this->settings,
-            null, null, null, $stayFromMail
+            $this->camps, $this->pdo, $this->encryption,
+            $this->dedicatedTo($dedicated), null, null, $stayFromMail
         );
 
         $this->assertTrue($consumer->analyzeStored($this->unattachedMessage(self::DEDICATED_MAILBOX))->isEmpty());
@@ -582,14 +607,14 @@ class CampsMessageConsumerTest extends TestCase
     {
         // The deferred pass runs an hour later. A message somebody filed
         // by hand in between must not also become a stay of its own.
-        $this->setDedicatedMailboxes((string) self::DEDICATED_MAILBOX);
+        $dedicated = self::DEDICATED_MAILBOX;
         $stayFromMail = $this->createMock(\Modules\Camps\Mail\StayFromMailService::class);
         $stayFromMail->method('isAutomatic')->willReturn(true);
         $stayFromMail->expects($this->never())->method('createFrom');
 
         $consumer = new CampsMessageConsumer(
-            $this->camps, $this->pdo, $this->encryption, $this->settings,
-            null, null, null, $stayFromMail
+            $this->camps, $this->pdo, $this->encryption,
+            $this->dedicatedTo($dedicated), null, null, $stayFromMail
         );
 
         $this->assertTrue(
@@ -605,8 +630,8 @@ class CampsMessageConsumerTest extends TestCase
         $stayFromMail->expects($this->never())->method('createFrom');
 
         $consumer = new CampsConsumerV1Adapter(
-            $this->camps, $this->pdo, $this->encryption, $this->settings,
-            null, null, null, $stayFromMail
+            $this->camps, $this->pdo, $this->encryption,
+            $this->dedicatedTo(self::DEDICATED_MAILBOX), null, null, $stayFromMail
         );
 
         $consumer->onMessageStored($this->bookingMessage('camp-' . $this->campId));
@@ -614,14 +639,14 @@ class CampsMessageConsumerTest extends TestCase
 
     public function testAMessageNobodyCouldTurnIntoAStayIsLeftAlone(): void
     {
-        $this->setDedicatedMailboxes((string) self::DEDICATED_MAILBOX);
+        $dedicated = self::DEDICATED_MAILBOX;
         $stayFromMail = $this->createMock(\Modules\Camps\Mail\StayFromMailService::class);
         $stayFromMail->method('isAutomatic')->willReturn(true);
         $stayFromMail->method('createFrom')->willReturn(null);
 
         $consumer = new CampsMessageConsumer(
-            $this->camps, $this->pdo, $this->encryption, $this->settings,
-            null, null, null, $stayFromMail
+            $this->camps, $this->pdo, $this->encryption,
+            $this->dedicatedTo($dedicated), null, null, $stayFromMail
         );
 
         // Nothing associated, nothing thrown: the message stays attached
@@ -629,6 +654,41 @@ class CampsMessageConsumerTest extends TestCase
         // users find it, and a human decides.
         $this->assertTrue($consumer->analyzeStored($this->unattachedMessage(self::DEDICATED_MAILBOX))->isEmpty());
         $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM camp_documents')->fetchColumn());
+    }
+
+    public function testABoxNobodyDeclaredDedicatedSaysSoRatherThanSayingNothing(): void
+    {
+        // The complaint: a contract is sent to the camps address, nothing
+        // is created, and the journal has not a word about it. Each guard
+        // now names itself — see Mail\StayFromMailService::journalSkip().
+        $stayFromMail = $this->createMock(\Modules\Camps\Mail\StayFromMailService::class);
+        $stayFromMail->method('isAutomatic')->willReturn(true);
+        $stayFromMail->expects($this->once())
+            ->method('journalSkip')
+            ->with(55, \Modules\Camps\Mail\StayFromMailService::SKIP_MAILBOX_NOT_DEDICATED);
+
+        $consumer = new CampsMessageConsumer(
+            $this->camps, $this->pdo, $this->encryption,
+            $this->dedicatedTo(self::DEDICATED_MAILBOX), null, null, $stayFromMail
+        );
+
+        $consumer->analyzeStored($this->unattachedMessage(self::SHARED_MAILBOX));
+    }
+
+    public function testAMessageSomethingElseAlreadyClaimedIsNotJournalledAsARefusal(): void
+    {
+        // Bounded on purpose: a message another module filed is not one
+        // anybody is wondering about, and a line per claimed message would
+        // be the flood this journal exists to avoid, not the answer.
+        $stayFromMail = $this->createMock(\Modules\Camps\Mail\StayFromMailService::class);
+        $stayFromMail->expects($this->never())->method('journalSkip');
+
+        $consumer = new CampsMessageConsumer(
+            $this->camps, $this->pdo, $this->encryption,
+            $this->dedicatedTo(self::DEDICATED_MAILBOX), null, null, $stayFromMail
+        );
+
+        $consumer->analyzeStored($this->bookingMessage('camp-' . $this->campId));
     }
 
     /** A stored message with no association at all — the deferred pass's subject. */

@@ -62,6 +62,11 @@ trait InertInboundMail
         return false;
     }
 
+    public function isDedicatedTo(string $consumerId, int $mailboxId): bool
+    {
+        return false;
+    }
+
     /**
      * @param string[] $messageIds
      */

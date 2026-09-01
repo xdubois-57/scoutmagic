@@ -71,8 +71,10 @@ class StayFromMailServiceTest extends TestCase
         $this->asked = [];
     }
 
-    private function service(?LlmConnectorInterface $llm = null): StayFromMailService
-    {
+    private function service(
+        ?LlmConnectorInterface $llm = null,
+        ?\Modules\Camps\Mail\AttachmentTextReader $attachments = null
+    ): StayFromMailService {
         return new StayFromMailService(
             $this->camps,
             new CampService($this->camps, $this->audit, $this->places),
@@ -80,10 +82,196 @@ class StayFromMailServiceTest extends TestCase
             new DuplicatePlaceDetector($this->places, null),
             new MessageReader(),
             $this->settings,
-            $llm
+            $llm,
+            $attachments,
+            new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo))
         );
     }
 
+    // ── The booking that arrives as a PDF ───────────────────────────────
+
+    /**
+     * The message that prompted all of this: a one-word covering note and
+     * a contract in the attachment.
+     *
+     * Reading `subject + bodyText` alone, this service saw nothing at all
+     * in such a message and refused it for want of dates — which is exactly
+     * what a unit reported: « j'ai envoyé un contrat de location à camps et
+     * il ne s'est rien passé ».
+     */
+    public function testAContractInAPdfBecomesAStay(): void
+    {
+        $storagePath = sys_get_temp_dir() . '/stayfrompdf_' . uniqid();
+        mkdir($storagePath . '/inbound', 0700, true);
+
+        try {
+            $files = new \Core\File\FileRepository($this->pdo);
+            $bytes = (string) file_get_contents(
+                dirname(__DIR__, 3) . '/fixtures/pdf/camp_booking_contract.pdf'
+            );
+            file_put_contents($storagePath . '/inbound/contrat.pdf', $bytes);
+            $fileId = $files->create(
+                'inbound/contrat.pdf',
+                'contrat.pdf',
+                'application/pdf',
+                strlen($bytes),
+                'chief',
+                'inbound_mail',
+                null,
+                false
+            );
+
+            $reader = new \Modules\Camps\Mail\AttachmentTextReader(new \Core\File\StoredFileReader(
+                $files,
+                new \Core\File\EncryptedFileStorageService(
+                    $files,
+                    new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)),
+                    $storagePath
+                ),
+                $storagePath
+            ));
+
+            $campId = $this->service($this->llmAnswering('Centre de camp Le Grand Pré'), $reader)->createFrom(
+                $this->messageWithAttachment($fileId, strlen($bytes))
+            );
+
+            $this->assertNotNull($campId);
+            $camp = $this->camps->findById($campId);
+            $this->assertSame('2026-09-18', $camp?->startDate);
+            $this->assertSame('2026-09-20', $camp?->endDate);
+            $this->assertSame('Centre de camp Le Grand Pré', $this->places->findById((int) $camp?->placeId)?->name);
+
+            // And the model was shown the contract, not just « Bonjour, ».
+            $this->assertStringContainsString('Arrivee: 18-09-26', $this->asked[0]->prompt);
+        } finally {
+            foreach (glob($storagePath . '/inbound/*') ?: [] as $file) {
+                @unlink($file);
+            }
+            @rmdir($storagePath . '/inbound');
+            @rmdir($storagePath);
+        }
+    }
+
+    public function testWithoutTheAttachmentReaderTheSameMessageSaysItHasNoDates(): void
+    {
+        // The behaviour before, kept as a test so the difference is on the
+        // record: a one-word body has nothing to read, and now says so.
+        $this->assertNull($this->service()->createFrom($this->messageWithAttachment(1, 100)));
+        $this->assertSame(
+            'no_dates',
+            json_decode((string) $this->journalEntries()[0]['context'], true)['reason']
+        );
+    }
+
+    private function messageWithAttachment(int $fileId, int $sizeBytes): InboundMessage
+    {
+        $base = $this->message(fromName: 'Emeline', subject: 'Contrat de location', body: 'Bonjour,');
+
+        return new InboundMessage(
+            id: $base->id,
+            mailboxId: $base->mailboxId,
+            consumerId: '',
+            businessReference: '',
+            linkOrigin: $base->linkOrigin,
+            subject: $base->subject,
+            fromEmail: $base->fromEmail,
+            fromName: $base->fromName,
+            messageId: $base->messageId,
+            inReplyTo: $base->inReplyTo,
+            sentAt: $base->sentAt,
+            bodyText: $base->bodyText,
+            bodyHtml: '',
+            toEmails: [],
+            attachments: [new \Modules\InboundMail\Api\InboundAttachment(
+                1,
+                $base->id,
+                $fileId,
+                'contrat.pdf',
+                'application/pdf',
+                $sizeBytes,
+                'hash'
+            )]
+        );
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function journalEntries(): array
+    {
+        return (new \Core\Journal\JournalRepository($this->pdo))->search();
+    }
+
+    // ── Saying WHY nothing was created ──────────────────────────────────
+
+    /**
+     * The whole complaint, in one test: automatic creation is a chain of
+     * five guards, any of which is an ordinary « non », and from outside
+     * all five looked identical — nothing happened, nowhere.
+     */
+    public function testAMessageWithNoDatesSaysSoInTheJournal(): void
+    {
+        // What a real one looks like: a rental contract as a PDF, with a
+        // one-word body. The dates are in the attachment, which this path
+        // does not read — and until now nothing said that either.
+        $this->service()->createFrom($this->message(subject: 'Contrat de location', body: 'Bonjour,'));
+
+        $entry = $this->journalEntries()[0];
+        $this->assertSame('camps_stay_from_mail_skipped', $entry['event_type']);
+        $this->assertSame('no_dates', json_decode((string) $entry['context'], true)['reason']);
+        $this->assertStringContainsString('période de séjour', $entry['description']);
+    }
+
+    public function testAMessageWhosePlaceCouldNotBeNamedSaysSoInTheJournal(): void
+    {
+        // Dates, but no connector and no known place: the most confusing
+        // of the five, because everything the unit can see about the
+        // message looks right.
+        $this->service()->createFrom(
+            $this->message(fromName: 'Luc', subject: 'Réservation', body: 'Du 12 au 19 juillet 2028.')
+        );
+
+        $this->assertSame(
+            'no_place',
+            json_decode((string) $this->journalEntries()[0]['context'], true)['reason']
+        );
+    }
+
+    public function testTurningAutomaticCreationOffIsWrittenDownToo(): void
+    {
+        $this->setAutomatic('0');
+
+        $this->service()->createFrom($this->message(body: 'Du 12 au 19 juillet 2028.'));
+
+        $this->assertSame(
+            'not_automatic',
+            json_decode((string) $this->journalEntries()[0]['context'], true)['reason']
+        );
+    }
+
+    public function testAStayThatIsCreatedIsWrittenDownAsWell(): void
+    {
+        $campId = $this->service($this->llmAnswering('Domaine de Mozet'))->createFrom(
+            $this->message(body: 'Du 12 au 19 juillet 2028, Domaine de Mozet.')
+        );
+
+        $this->assertNotNull($campId);
+        $entry = $this->journalEntries()[0];
+        $this->assertSame('camps_stay_created_from_mail', $entry['event_type']);
+        $this->assertSame($campId, json_decode((string) $entry['context'], true)['camp_id']);
+    }
+
+    public function testTheJournalNeverNamesTheSenderOrTheSubject(): void
+    {
+        // A journal entry travels in the diagnostic archive (§7.9): an
+        // internal message id and a reason, and nothing else.
+        $this->service()->createFrom($this->message(subject: 'Contrat Fresnaye', body: 'Bonjour,'));
+
+        $entry = $this->journalEntries()[0];
+        $whole = $entry['description'] . '|' . (string) $entry['context'];
+        $this->assertStringNotContainsString('@', $whole);
+        $this->assertStringNotContainsString('Fresnaye', $whole);
+    }
     /** A connector that answers one place name, and remembers what it was asked. */
     private function llmAnswering(string $placeName): LlmConnectorInterface
     {

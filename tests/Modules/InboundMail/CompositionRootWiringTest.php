@@ -65,8 +65,8 @@ class CompositionRootWiringTest extends TestCase
     {
         $bootstrap = self::source('scheduler-bootstrap.php');
 
-        $this->assertStringContainsString(
-            'new \\Modules\\InboundMail\\Task\\AnalyzeStoredMessagesHandler($inboundConsumerRegistry($context))',
+        $this->assertMatchesRegularExpression(
+            '/new \\\\Modules\\\\InboundMail\\\\Task\\\\AnalyzeStoredMessagesHandler\(\s*\$inboundConsumerRegistry\(\$context\)/',
             $bootstrap
         );
         // And it is seeded, or the self-rescheduling chain never starts and

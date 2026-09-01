@@ -10,6 +10,7 @@ namespace Modules\Camps\Mail;
 
 use Core\Audit\AuditSource;
 use Core\Config\SettingService;
+use Core\Journal\JournalService;
 use Modules\Camps\Repository\Camp;
 use Modules\Camps\Repository\CampRepository;
 use Modules\Camps\Service\CampService;
@@ -118,9 +119,73 @@ class StayFromMailService
          * module absent, disabled, or unusable — means match-only: this
          * service then never names a place, it only recognises one.
          */
-        private ?LlmConnectorInterface $llm = null
+        private ?LlmConnectorInterface $llm = null,
+        /**
+         * What the message's attachments say (`Mail\AttachmentTextReader`).
+         *
+         * Null reads the body alone, which is what this service did — and
+         * what made it blind to the ordinary case: a booking arrives as a
+         * PDF contract with a one-word covering note, so everything worth
+         * reading was in the one place nothing looked.
+         */
+        private ?AttachmentTextReader $attachmentText = null,
+        /**
+         * Where every refusal goes (see `journalSkip()`). Optional the way
+         * everything else here is: without it this service behaves exactly
+         * as it did, silently.
+         */
+        private ?JournalService $journal = null
     ) {
     }
+
+    /**
+     * Why no stay came out of a message — the one thing this path never
+     * said.
+     *
+     * Automatic creation is a chain of six guards, any of which is a
+     * perfectly ordinary « non », and until now all six looked identical
+     * from outside: nothing happened. A unit whose camps box produced no
+     * stay could not tell « le réglage est éteint » from « le message
+     * n'annonce aucune date » from « aucun lieu n'a pu être nommé faute de
+     * connecteur IA » — three different problems, two of which the unit
+     * can fix themselves in a minute.
+     *
+     * The message id and the reason, and nothing else: no subject, no
+     * sender, no place name, since a journal entry travels in a support
+     * archive (§7.9). The id is the handle to open the message in
+     * « Courrier ».
+     */
+    public function journalSkip(int $messageId, string $reason): void
+    {
+        $this->journal?->log(
+            'camps',
+            'camps_stay_from_mail_skipped',
+            'info',
+            sprintf('Message #%d : aucun séjour créé — %s.', $messageId, self::REASONS[$reason] ?? $reason),
+            ['message_id' => $messageId, 'reason' => $reason]
+        );
+    }
+
+    /**
+     * What each reason means, in the words a chief would use. Kept next to
+     * the constants that produce them so a new guard cannot be added
+     * without a sentence to go with it.
+     */
+    public const REASONS = [
+        self::SKIP_NOT_AUTOMATIC => 'le réglage « Créer un camp depuis un message » est désactivé',
+        self::SKIP_MAILBOX_NOT_DEDICATED =>
+            'la boîte n\'est pas déclarée dédiée aux camps (Configuration > Courrier entrant)',
+        self::SKIP_NO_DATES => 'le message n\'annonce pas de période de séjour lisible',
+        self::SKIP_NO_PLACE =>
+            'aucun terrain connu ne correspond, et aucun nom de lieu n\'a pu être lu dans le message',
+        self::SKIP_REFUSED => 'la création du séjour a été refusée',
+    ];
+
+    public const SKIP_NOT_AUTOMATIC = 'not_automatic';
+    public const SKIP_MAILBOX_NOT_DEDICATED = 'mailbox_not_dedicated';
+    public const SKIP_NO_DATES = 'no_dates';
+    public const SKIP_NO_PLACE = 'no_place';
+    public const SKIP_REFUSED = 'refused';
 
     /**
      * Whether a message may become a stay on its own. Off means the
@@ -133,10 +198,11 @@ class StayFromMailService
     }
 
     /**
-     * Whether a message body may be read by the model at all.
+     * Whether a message may be read by the model at all.
      *
      * The whole of the AI half hangs off this one answer, and the RGPD
-     * page says so: with a connector, the text of a message reaches the
+     * page says so: with a connector, the text of a message — its subject,
+     * its body, and the readable text of its attachments — reaches the
      * configured provider; without one, nothing leaves the installation.
      */
     public function canNamePlaces(): bool
@@ -185,6 +251,8 @@ class StayFromMailService
     public function createFrom(InboundMessage $message): ?int
     {
         if (!$this->isAutomatic()) {
+            $this->journalSkip($message->id, self::SKIP_NOT_AUTOMATIC);
+
             return null;
         }
 
@@ -194,17 +262,23 @@ class StayFromMailService
         // message would otherwise be billed for the privilege of being
         // refused.
         if ($this->reader->readDateRange($this->textOf($message)) === null) {
+            $this->journalSkip($message->id, self::SKIP_NO_DATES);
+
             return null;
         }
 
         $values = $this->readValues($message);
         if (!$this->isUsable($values)) {
+            $this->journalSkip($message->id, self::SKIP_NO_DATES);
+
             return null;
         }
 
         try {
             $placeId = $this->resolvePlaceId($message, $values['place_name']);
             if ($placeId === null) {
+                $this->journalSkip($message->id, self::SKIP_NO_PLACE);
+
                 return null;
             }
 
@@ -233,9 +307,20 @@ class StayFromMailService
             // message simply stays unattached, where the chief d'unité and
             // this module's own users both see it, and a human decides.
             // Throwing would sink the whole pass over one badly-worded
-            // e-mail.
+            // e-mail. It is written down, though — a refusal nobody can see
+            // is indistinguishable from a message nobody looked at.
+            $this->journalSkip($message->id, self::SKIP_REFUSED);
+
             return null;
         }
+
+        $this->journal?->log(
+            'camps',
+            'camps_stay_created_from_mail',
+            'info',
+            sprintf('Message #%d : séjour #%d créé ou retrouvé depuis le courrier.', $message->id, $campId),
+            ['message_id' => $message->id, 'camp_id' => $campId, 'place_id' => $placeId]
+        );
 
         // No `move()` any more: there is no `unsorted` association to move
         // the message OFF. The caller returns this id as an analysis
@@ -417,9 +502,27 @@ class StayFromMailService
         return str_contains($name, '@') ? '' : $name;
     }
 
-    /** Everything of a message the readers look at, subject included. */
+    /**
+     * Everything of a message the readers look at: subject, body, and what
+     * its attachments say.
+     *
+     * Memoised per message because `createFrom()` asks twice — once for
+     * the dates alone, before deciding whether the model is worth calling —
+     * and a PDF extraction is not a thing to do twice for one answer.
+     *
+     * @var array<int, string>
+     */
+    private array $textCache = [];
+
     private function textOf(InboundMessage $message): string
     {
-        return trim($message->subject . "\n" . $message->bodyText);
+        if (!isset($this->textCache[$message->id])) {
+            $attachments = $this->attachmentText?->read($message->attachments) ?? '';
+            $this->textCache[$message->id] = trim(
+                $message->subject . "\n" . $message->bodyText . ($attachments === '' ? '' : "\n" . $attachments)
+            );
+        }
+
+        return $this->textCache[$message->id];
     }
 }

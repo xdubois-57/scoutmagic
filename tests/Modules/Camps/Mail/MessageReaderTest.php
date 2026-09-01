@@ -46,6 +46,24 @@ class MessageReaderTest extends TestCase
                 '2030-07-05',
                 '2030-07-15',
             ],
+            // The shape a camp site's own contract uses — labelled ends,
+            // two-digit year, times attached. Reading only « du … au … »
+            // is why a real booking contract said nothing to this module.
+            'arrival and departure, two-digit year' => [
+                "Arrivée:18-09-26  16:30:00\tDépart: 20-09-26  16:00:00",
+                '2026-09-18',
+                '2026-09-20',
+            ],
+            'arrival and departure, four-digit year' => [
+                'Arrivee : 18/09/2026 Depart : 20/09/2026',
+                '2026-09-18',
+                '2026-09-20',
+            ],
+            'arrival and departure with « le »' => [
+                'Arrivée le 18.09.2026, départ le 20.09.2026',
+                '2026-09-18',
+                '2026-09-20',
+            ],
         ];
     }
 
@@ -67,6 +85,15 @@ class MessageReaderTest extends TestCase
             // Far more often a meeting, an invoice or a deadline than the
             // day a camp starts.
             'a single date' => ['Rendez-vous le 12 juillet 2028.'],
+            // Two dates are not an arrival and a departure just because
+            // there are two of them.
+            'two dates with no labels' => ['Facture du 18-09-26, échéance 20-09-26.'],
+            'labels with no dates' => ['Arrivée le matin, départ en soirée.'],
+            'a departure before its arrival' => ['Arrivée : 20-09-26 Départ : 18-09-26'],
+            'a day that does not exist' => ['Arrivée : 31-02-26 Départ : 20-09-26'],
+            'labels three lines apart' => [
+                'Arrivée : 18-09-26' . str_repeat(' — merci de votre confiance', 5) . ' Départ : 20-09-26',
+            ],
             'a month with no days' => ['Nous serons complets en juillet 2028.'],
             'an impossible date' => ['du 31 au 32 février 2028'],
             'a backwards range' => ['du 19 au 12 juillet 2028'],

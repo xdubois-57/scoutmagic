@@ -211,6 +211,26 @@ interface InboundMailInterface
     public function isCollecting(): bool;
 
     /**
+     * Whether that box is the one the operator declared to be **this
+     * consumer's own** — `Api\MailboxPurpose::DEDICATED`.
+     *
+     * A consumer may legitimately read a signal more strongly on its own
+     * address than on the unit's public one: `camps@unite.be` receives
+     * nothing but camp mail, so a message there that states its dates may
+     * become a stay, where the same message on the unit's shared address
+     * may not. The arrival pass already gets this answer on
+     * `Api\CandidateMessage::$mailboxDedicatedTo`; this is the same
+     * question for the deferred pass, which works from a stored message.
+     *
+     * It exists because a consumer must not answer it for itself. Camps
+     * used to, from a list of ids in its own settings, and the answer went
+     * stale the day the configuration screen took the question over: a box
+     * declared dedicated there stayed « not dedicated » for the module it
+     * was dedicated to, and nothing anywhere said so.
+     */
+    public function isDedicatedTo(string $consumerId, int $mailboxId): bool;
+
+    /**
      * The business object a message belongs to, found from the Message-IDs
      * a reply names — §7.6's second level, and the reason a reply carrying
      * no reference still lands on the right file.

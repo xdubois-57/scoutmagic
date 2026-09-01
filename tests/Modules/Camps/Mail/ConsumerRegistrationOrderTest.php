@@ -48,7 +48,18 @@ final class ConsumerRegistrationOrderTest extends TestCase
         );
     }
 
-    public function testTheDedicatedMailboxSettingWarnsAboutOtherModules(): void
+    /**
+     * The old list of dedicated boxes is retired, and its description has
+     * to say so.
+     *
+     * It used to carry the warning about pointing two modules at one
+     * mailbox — a warning the « Portée des modules » screen now gives in
+     * place. What matters here is the opposite: a superadmin must not spend
+     * an afternoon filling in a field the module stopped reading, which is
+     * exactly how the automatic stay creation came to be off on an
+     * installation that had configured everything correctly.
+     */
+    public function testTheRetiredDedicatedMailboxSettingSaysWhereTheAnswerLivesNow(): void
     {
         $manifest = json_decode(
             (string) file_get_contents(dirname(__DIR__, 4) . '/modules/camps/module.json'),
@@ -63,10 +74,7 @@ final class ConsumerRegistrationOrderTest extends TestCase
             }
         }
 
-        // Registration order protects the code path; only this sentence
-        // protects the administrator who points two modules at one
-        // mailbox.
-        $this->assertStringContainsString('exclue', $description);
-        $this->assertStringContainsString('location', $description);
+        $this->assertStringContainsString('HISTORIQUE', $description);
+        $this->assertStringContainsString('Courrier entrant', $description);
     }
 }

@@ -4623,8 +4623,7 @@ if ($isEnabled('camps')) {
                 new \Modules\Camps\Mail\CampsMessageConsumer(
                     $campsCampRepo,
                     $pdo,
-                    $encryptionService,
-                    $settingService
+                    $encryptionService
                 )
         );
     }
@@ -4650,7 +4649,22 @@ if ($isEnabled('camps')) {
     $campsStayFromMail = new \Modules\Camps\Mail\StayFromMailService(
         $campsCampRepo, $campsCampService, $campsPlaceService,
         $campsDuplicateDetector, $campsMessageReader, $settingService,
-        $llmConnectorForOthers ?? null
+        $llmConnectorForOthers ?? null,
+        // A booking arrives as a PDF contract with a one-word covering
+        // note: everything worth reading is in the attachment, which is
+        // the one place this module did not look. The connector is the
+        // last resort only — a scanned contract, transcribed at the OCR
+        // tier — and a text layer never costs a call.
+        new \Modules\Camps\Mail\AttachmentTextReader(
+            $storedFileReader,
+            null,
+            $llmConnectorForOthers ?? null
+        ),
+        // Why no stay came out of a message. On the web path it only ever
+        // fires through « Créer un camp depuis ce message », which is a
+        // person asking — and a person asking deserves the same answer in
+        // the journal as the hourly task.
+        $journalService
     );
     $frontController->registerController(
         \Modules\Camps\Controller\CampsMailController::class,
