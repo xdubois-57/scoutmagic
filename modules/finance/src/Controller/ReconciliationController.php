@@ -22,6 +22,7 @@ use Modules\Finance\Api\FinanceException;
 use Modules\Finance\Service\FinanceService;
 use Modules\Finance\Service\IbanNormalizer;
 use Modules\Finance\Service\ReceivableAllocationService;
+use Modules\Finance\Service\ReceivableSearchService;
 use Modules\Finance\Service\ReconciliationService;
 use Twig\Environment;
 
@@ -44,8 +45,49 @@ class ReconciliationController extends AbstractController
         private FinanceService $financeService,
         private MemberService $members,
         private ScoutYearService $scoutYears,
-        private ?SepaQrCodeInterface $sepaQrCode = null
+        private ?SepaQrCodeInterface $sepaQrCode = null,
+        /**
+         * « Quelle créance ? » answered by typing a name — see
+         * searchReceivables(). Null simply leaves the picker with nothing
+         * to offer, and the field still accepts an id typed by hand.
+         */
+        private ?ReceivableSearchService $receivableSearch = null
     ) {
+    }
+
+    /**
+     * `GET /finance/reconciliation/creances` — the receivables of one
+     * account, filtered by what the treasurer typed. JSON, no page.
+     *
+     * The « Non imputés » form used to ask for a receivable's **id**,
+     * with the help text « L'identifiant de la créance, repris dans
+     * l'export de la campagne »: leave the page, open a spreadsheet, find
+     * the line, come back and type an integer. The page next to it has
+     * always answered « quel mouvement ? » by searching, and there is no
+     * reason the other half of an imputation should be harder.
+     *
+     * @param array<string, string> $params
+     */
+    public function searchReceivables(Request $request, array $params): Response
+    {
+        $role = Role::fromString(AuthSession::getRole());
+        $account = $this->financeService->resolveSelectedAccount($role, $request->getQuery('account_id'));
+
+        if ($account === null || $this->receivableSearch === null) {
+            return $this->json(['success' => true, 'receivables' => []]);
+        }
+
+        $amount = $request->getQuery('near_amount_cents');
+
+        return $this->json([
+            'success' => true,
+            'receivables' => $this->receivableSearch->search(
+                $account->id,
+                $role,
+                (string) $request->getQuery('q', ''),
+                is_numeric($amount) ? (int) $amount : null
+            ),
+        ]);
     }
 
     /**

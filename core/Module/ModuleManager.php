@@ -37,6 +37,19 @@ class ModuleManager
     /** @var string[] */
     private array $enabledModuleIds = [];
 
+    /**
+     * The same modules, with the name their manifest gives them.
+     *
+     * Core does not know any module's name and must not learn one; this
+     * is the manifests' own answer, kept as they are read. It is what
+     * lets a page name a module the way its own menu entry does instead
+     * of showing `inbound_mail` to somebody who has only ever seen
+     * « Courrier entrant ».
+     *
+     * @var array<string, string> id => name
+     */
+    private array $enabledModuleNames = [];
+
     public function __construct(
         private string $modulesDir,
         private SettingService $settingService,
@@ -493,6 +506,7 @@ class ModuleManager
             }
 
             $this->enabledModuleIds[] = $module->manifest->id;
+            $this->enabledModuleNames[$module->manifest->id] = $module->manifest->name;
             $this->loadModule($module->manifest, $modulePosition);
             $modulePosition++;
         }
@@ -621,6 +635,38 @@ class ModuleManager
     public function getEnabledModuleIds(): array
     {
         return $this->enabledModuleIds;
+    }
+
+    /**
+     * The enabled modules, `id => the name their manifest gives them`.
+     *
+     * @return array<string, string>
+     */
+    public function getEnabledModuleNames(): array
+    {
+        return $this->enabledModuleNames;
+    }
+
+    /**
+     * Every module ON DISK, `id => name`, enabled or not.
+     *
+     * Wider than getEnabledModuleNames() on purpose: a disabled module's
+     * settings rows survive its deactivation, so the Réglages page has
+     * sections to label for modules that are not loaded at all.
+     *
+     * @param ModuleInfo[] $modules already-discovered modules, when the
+     *        caller has them — discoverModules() re-scans the directory
+     *        and re-reads the registry, which is not free.
+     * @return array<string, string>
+     */
+    public function moduleNames(?array $modules = null): array
+    {
+        $names = [];
+        foreach ($modules ?? $this->discoverModules() as $module) {
+            $names[$module->manifest->id] = $module->manifest->name;
+        }
+
+        return $names;
     }
 
     /**

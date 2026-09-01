@@ -82,6 +82,14 @@
             ],
         } only %}
 
+        {# Les quatre rubriques expliquent leur situation dans le MÊME
+           encadré. Deux le faisaient en petit texte gris et deux en
+           `alert-warning`, et la différence ne disait rien : elle ne
+           suivait ni la gravité ni l'urgence, seulement l'ordre dans
+           lequel les rubriques ont été écrites. Un lecteur y voit
+           forcément une hiérarchie — « celles-ci comptent, celles-là
+           non » — alors qu'aucune des quatre n'est une erreur : ce sont
+           quatre situations à regarder. #}
         {# ---------------------------------------------------- à répartir #}
         {% if tab == 'split' %}
             <div class="alert alert-warning mt-3" role="alert">
@@ -152,11 +160,11 @@
 
         {# --------------------------------------------------- non imputés #}
         {% if tab == 'orphans' %}
-            <p class="text-body-secondary small mt-3">
+            <div class="alert alert-warning mt-3" role="alert">
                 Ces crédits ne portent aucune communication reconnue. Rattachez-les à une créance, ou
                 laissez-les — un reste non imputé n'est pas une erreur en soi : ce peut être un paiement pour
                 quelque chose qui n'a pas encore été facturé.
-            </p>
+            </div>
 
             {% if view.orphans is empty %}
                 {% include 'partials/empty_state.html.twig' with {
@@ -175,12 +183,13 @@
                               class="row g-2 align-items-end">
                             {{ csrf_field()|raw }}
                             <input type="hidden" name="account_id" value="{{ selected_account.id }}">
-                            <div class="col-12 col-md-4">
-                                {% include 'partials/form_field.html.twig' with {
-                                    field_id: 'attach-receivable-' ~ item.transaction_id,
+                            <div class="col-12 col-md-5">
+                                {% include '@finance/partials/receivable_picker.html.twig' with {
+                                    picker_id: 'attach-receivable-' ~ item.transaction_id,
                                     field_name: 'receivable_id',
-                                    label: 'Créance', type: 'number', size: 'sm', wrapper_class: 'mb-0',
-                                    help: "L'identifiant de la créance, repris dans l'export de la campagne.",
+                                    label: 'Créance',
+                                    account_id: selected_account.id,
+                                    near_amount_cents: item.amount_cents,
                                 } only %}
                             </div>
                             <div class="col-12 col-md-3">
@@ -195,6 +204,16 @@
                             <div class="col-12 col-md-auto">
                                 <button type="submit" class="btn btn-sm btn-primary tap-target">Rattacher à une créance</button>
                             </div>
+                            {# Under the row and not under the field it
+                               describes: a `row align-items-end` aligns
+                               the BOTTOMS of its columns, so a help text
+                               below one input pushes that input up and
+                               leaves it out of line with the amount
+                               beside it. #}
+                            <p class="form-text col-12 mb-0">
+                                Tapez un nom : la liste ne propose que les créances de ce compte qui
+                                attendent encore un paiement.
+                            </p>
                         </form>
                     </div>
                 {% endfor %}
@@ -203,11 +222,11 @@
 
         {# ---------------------------------------------------- trop-perçus #}
         {% if tab == 'overpaid' %}
-            <p class="text-body-secondary small mt-3">
+            <div class="alert alert-warning mt-3" role="alert">
                 Ces créances ont reçu plus que leur montant, d'un seul versement ou de plusieurs dont la somme
                 dépasse. Le rapprochement automatique n'impute <strong>jamais</strong> au-delà du montant
                 restant : l'excédent atterrit ici.
-            </p>
+            </div>
 
             {% if view.overpaid is empty %}
                 {% include 'partials/empty_state.html.twig' with {
@@ -348,4 +367,11 @@
             {% endfor %}
         {% endif %}
     {% endif %}
+
+    {# Loaded for the whole page rather than inside the « Non imputés »
+       branch: a tab is a server-side render, and a script tag that only
+       exists on one of the four would have to be remembered by the next
+       tab that wants a receivable picker. It wires nothing when the page
+       carries none. #}
+    <script src="{{ asset('/assets/js/finance-receivable-picker.js') }}" defer nonce="{{ csp_nonce }}"></script>
 {% endblock %}

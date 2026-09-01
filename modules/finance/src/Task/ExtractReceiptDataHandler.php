@@ -15,11 +15,13 @@ use Core\File\PdfTextExtractor;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 use Modules\Finance\Repository\Attachment;
+use Modules\Finance\Repository\AccountRepository;
 use Modules\Finance\Repository\AttachmentRepository;
 use Modules\Finance\Repository\TransactionAttachmentRepository;
 use Modules\Finance\Repository\TransactionRepository;
 use Modules\Finance\Service\ReceiptDateNormalizer;
 use Modules\Finance\Service\ReceiptMatchingService;
+use Modules\Finance\Service\ReceiptService;
 use Modules\LlmConnector\Api\LlmConnectorInterface;
 use Modules\LlmConnector\Api\LlmException;
 use Modules\LlmConnector\Api\LlmRequest;
@@ -182,12 +184,28 @@ class ExtractReceiptDataHandler implements TaskHandlerInterface
         // here to pick up whatever updateSuggestedData() above just wrote.
         $updatedAttachment = $attachmentRepository->findById($attachmentId);
         if ($updatedAttachment !== null) {
+            $transactionRepository = new TransactionRepository($pdo, $context->encryption);
+            $transactionAttachmentRepository = new TransactionAttachmentRepository($pdo);
+            $accountRepository = new AccountRepository($pdo, $context->encryption);
+
             $matchingService = new ReceiptMatchingService(
                 $attachmentRepository,
-                new TransactionRepository($pdo, $context->encryption),
-                new TransactionAttachmentRepository($pdo),
+                $transactionRepository,
+                $transactionAttachmentRepository,
                 $context->journal,
-                $llmConnector
+                $llmConnector,
+                // What files a sorting-pile receipt onto the account of
+                // the movement it turned out to belong to. Without it a
+                // receipt that arrived by e-mail and could not be placed
+                // stays unplaced for ever, however exactly its amount and
+                // date answer a movement two accounts over.
+                new ReceiptService(
+                    $attachmentRepository,
+                    $accountRepository,
+                    $transactionAttachmentRepository,
+                    $fileStorage,
+                    $transactionRepository
+                )
             );
             $matchingService->matchReceipt($updatedAttachment);
         }

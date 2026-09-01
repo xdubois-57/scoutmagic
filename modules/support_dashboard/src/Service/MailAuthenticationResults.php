@@ -45,17 +45,23 @@ final class MailAuthenticationResults
     }
 
     /**
-     * The verdict for one mechanism, from `Authentication-Results` first
-     * and then from the mechanism's own header where there is one
+     * The verdict for one mechanism: from any `Authentication-Results`
+     * first, then from the mechanism's own header where there is one
      * (`Received-SPF`), because plenty of hosts write one and not the
      * other.
      */
     private static function verdict(string $headers, string $mechanism): string
     {
-        if (preg_match('/^Authentication-Results:.*/mi', $headers, $lines) === 1) {
-            // The header folds across lines, so the continuation lines
-            // (leading whitespace) belong to it too.
-            $block = self::unfold($headers, 'Authentication-Results');
+        // EVERY `Authentication-Results`, not just the first. Each hop
+        // that checks anything prepends one of its own, and plenty of
+        // providers write one header per mechanism — so reading only the
+        // first reported « absent » for a mechanism that had passed two
+        // lines further down. The topmost one that names the mechanism
+        // wins, which is the last server to have checked it.
+        //
+        // The header folds across lines, so the continuation lines
+        // (leading whitespace) belong to it too.
+        foreach (self::unfoldAll($headers, 'Authentication-Results') as $block) {
             if (preg_match('/\b' . preg_quote($mechanism, '/') . '=([a-z]+)/i', $block, $m) === 1) {
                 return strtolower($m[1]);
             }
@@ -90,13 +96,6 @@ final class MailAuthenticationResults
         }
 
         return $relays;
-    }
-
-    private static function unfold(string $headers, string $name): string
-    {
-        $all = self::unfoldAll($headers, $name);
-
-        return $all[0] ?? '';
     }
 
     /**

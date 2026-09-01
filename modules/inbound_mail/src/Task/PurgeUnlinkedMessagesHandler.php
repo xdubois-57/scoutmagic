@@ -199,8 +199,12 @@ class PurgeUnlinkedMessagesHandler implements TaskHandlerInterface
         return true;
     }
 
+    /**
+     * Called from the shared scheduler bootstrap, so on every request —
+     * see SchedulerService::seed() for why that must not be rearmAfter().
+     */
     public static function bootstrap(SchedulerService $scheduler): void
     {
-        $scheduler->rearmAfter('inbound_mail', self::TASK_KEY, self::REFERENCE, self::INTERVAL_SECONDS);
+        $scheduler->seedAfter('inbound_mail', self::TASK_KEY, self::REFERENCE, self::INTERVAL_SECONDS);
     }
 }

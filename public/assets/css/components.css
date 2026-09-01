@@ -1164,3 +1164,33 @@
         display: inline-block;
     }
 }
+
+/* ---------------------------------------------------------------------
+   Le sélecteur de créance (modules/finance/views/partials/
+   receivable_picker.html.twig).
+
+   Les suggestions sont une liste déroulante POSITIONNÉE, pas un bloc dans
+   le flux, et c'est une règle de mise en page plutôt qu'un goût : ces
+   sélecteurs vivent dans un `row g-2 align-items-end`, qui aligne le BAS
+   des colonnes et non les contrôles. Tout ce qui pend sous un champ — un
+   texte d'aide, une liste de résultats — remonte l'input de ce champ et
+   le désaligne de celui d'à côté. C'est exactement le défaut signalé sur
+   « Non imputés », où le champ Créance et le champ Montant ne se
+   trouvaient plus sur la même ligne.
+   --------------------------------------------------------------------- */
+.receivable-picker {
+    position: relative;
+}
+
+.receivable-picker__results {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    /* Au-dessus du champ suivant et des cartes en dessous, sous les
+       modales de Bootstrap (1050) et sa barre de navigation (1030). */
+    z-index: 1000;
+    max-height: 16rem;
+    overflow-y: auto;
+    box-shadow: var(--bs-box-shadow, 0 .5rem 1rem rgba(0, 0, 0, .15));
+}

@@ -135,13 +135,18 @@
                             maxlength: 255,
                             required: true,
                             size: 'sm',
-                            help: "Garde alternée, colocation… Le foyer réapparaîtra si sa composition change.",
                             wrapper_class: 'mb-0',
                         } only %}
                     </div>
                     <div class="col-12 col-sm-auto">
                         <button type="submit" class="btn btn-sm btn-outline-secondary w-100 w-sm-auto">Ignorer</button>
                     </div>
+                    {# Under the row, not under the field — see design.md
+                       §7.6: `align-items-end` aligns the bottoms of the
+                       columns, not their controls. #}
+                    <p class="form-text col-12 mb-0">
+                        Garde alternée, colocation… Le foyer réapparaîtra si sa composition change.
+                    </p>
                 </form>
             </div>
         {% endif %}

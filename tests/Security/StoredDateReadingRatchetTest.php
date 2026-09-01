@@ -55,10 +55,11 @@ class StoredDateReadingRatchetTest extends TestCase
                 . 'inside the try/catch that is the whole point of the class.',
         ],
         'core/Scheduler/SchedulerService.php' => [
-            'count' => 1,
-            'reason' => 'rearm() takes a strtotime-style expression ("tomorrow 05:00") from a '
-                . 'task handler in this repository, never from a request. The one edge worth '
-                . 'closing — the empty string, which is *now* — is refused explicitly there.',
+            'count' => 2,
+            'reason' => 'rearm() and its seeding twin seed() both take a strtotime-style '
+                . 'expression ("tomorrow 05:00") from a task handler or a composition root in '
+                . 'this repository, never from a request. The one edge worth closing — the '
+                . 'empty string, which is *now* — is refused explicitly in each.',
         ],
         'core/Maintenance/Task/AutoBackupHandler.php' => [
             'count' => 1,

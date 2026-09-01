@@ -56,18 +56,15 @@ class ConfigModulesController extends AbstractController
             'requirements_met' => $this->moduleManager->areRequirementsSatisfied($mod->manifest->id, $modules),
         ], $modules);
 
-        // Hard dependencies are declared as ids; the page shows names. Core
-        // never knows any module's name, so the map is built from the
-        // manifests themselves — an id with no module on disk keeps the id
-        // as its own label (the template's |default).
-        $moduleNames = [];
-        foreach ($modules as $mod) {
-            $moduleNames[$mod->manifest->id] = $mod->manifest->name;
-        }
-
         return $this->render('config/modules.html.twig', [
             'modules' => $moduleItems,
-            'module_names' => $moduleNames,
+            // Hard dependencies are declared as ids; the page shows
+            // names. Core never knows any module's name, so the map is
+            // the manifests' own answer — an id with no module on disk
+            // keeps the id as its own label (the template's |default).
+            // Passing the already-discovered set rather than letting it
+            // re-scan: this page has it in hand.
+            'module_names' => $this->moduleManager->moduleNames($modules),
         ]);
     }
 

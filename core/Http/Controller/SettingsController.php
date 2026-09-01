@@ -52,7 +52,14 @@ class SettingsController extends AbstractController
         private JournalService $journal,
         private UnitLogoService $unitLogoService,
         private NotificationService $notificationService,
-        private UserAccountRepository $userAccountRepository
+        private UserAccountRepository $userAccountRepository,
+        /**
+         * Only to name the sections — see index(). Nullable so a test
+         * that drives one setting does not have to stand up module
+         * discovery; the page then falls back to the id, as it always
+         * did.
+         */
+        private ?\Core\Module\ModuleManager $moduleManager = null
     ) {
     }
 
@@ -82,6 +89,21 @@ class SettingsController extends AbstractController
                 $group['settings'],
                 static fn(array $setting): bool => ($setting['setting_type'] ?? 'text') !== 'secret'
             ));
+        }
+
+        // One section per module, named the way its own menu entry names
+        // it. The repository has no business knowing a module's name and
+        // fell back to `ucfirst(module_id)`, which is how this page came
+        // to offer « Inbound_mail », « Mass_mail », « Sos_staff » and
+        // « Llm_connector » to somebody who has only ever read
+        // « Courrier entrant », « Envoi de mails », « SOS Staff d'U » and
+        // « Connecteur IA » in the menu. The map is the manifests' own
+        // answer, and a module whose settings outlived its removal from
+        // disk keeps the id it had.
+        foreach ($this->moduleManager?->moduleNames() ?? [] as $moduleId => $name) {
+            if (isset($groups[$moduleId])) {
+                $groups[$moduleId]['label'] = $name;
+            }
         }
 
         $html = $this->twig->render('config/settings.html.twig', [

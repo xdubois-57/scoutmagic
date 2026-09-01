@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\InboundMail\Repository;
 
+use Core\Mail\RawHeaderBlock;
 use Core\Security\EncryptionService;
 use Core\Service\DateInput;
 use Modules\InboundMail\Api\AttachmentOmission;
@@ -61,34 +62,17 @@ class InboundMessageRepository
      * is cut and **says so inside itself**, the way the support package's
      * collectors declare their own truncation: a diagnosis read from a
      * silently shortened header block is a diagnosis of the wrong message.
+     *
+     * The rule itself now lives in `Core\Mail\RawHeaderBlock`, because a
+     * second table keeps a header block too — the diagnostic probes of
+     * `Modules\SupportDashboard` — and neither module may reach into the
+     * other's repository for it. These two stay as aliases: they are what
+     * this class's own tests and readers already look for.
      */
-    public const MAX_RAW_HEADERS_BYTES = 16384;
+    public const MAX_RAW_HEADERS_BYTES = RawHeaderBlock::MAX_BYTES;
 
     /** The marker a truncated header block ends with. */
-    public const RAW_HEADERS_TRUNCATION_MARKER = '(… en-têtes tronqués à ';
-
-    /**
-     * Bound a raw header block, declaring the cut inside the value itself.
-     *
-     * Cut on a line boundary where there is one within reach, so the last
-     * header kept is a whole header rather than half of one that a reader
-     * would parse as something else.
-     */
-    private static function boundHeaders(string $rawHeaders): string
-    {
-        if (strlen($rawHeaders) <= self::MAX_RAW_HEADERS_BYTES) {
-            return $rawHeaders;
-        }
-
-        $cut = substr($rawHeaders, 0, self::MAX_RAW_HEADERS_BYTES);
-        $lastBreak = strrpos($cut, "\n");
-        if ($lastBreak !== false && $lastBreak > 0) {
-            $cut = substr($cut, 0, $lastBreak);
-        }
-
-        return $cut . "\n" . self::RAW_HEADERS_TRUNCATION_MARKER
-            . self::MAX_RAW_HEADERS_BYTES . ' octets)';
-    }
+    public const RAW_HEADERS_TRUNCATION_MARKER = RawHeaderBlock::TRUNCATION_MARKER;
 
     public function __construct(
         private \PDO $pdo,
@@ -152,7 +136,7 @@ class InboundMessageRepository
             $this->encryption->encrypt($bodyHtml, 'inbound_messages.body_html'),
             $rawHeaders === null || $rawHeaders === ''
                 ? null
-                : $this->encryption->encrypt(self::boundHeaders($rawHeaders), 'inbound_messages.raw_headers'),
+                : $this->encryption->encrypt(RawHeaderBlock::bounded($rawHeaders), 'inbound_messages.raw_headers'),
             $sentAt->format('Y-m-d H:i:s'),
             $isBulk ? 1 : 0,
         ]);

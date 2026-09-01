@@ -16,11 +16,15 @@ class MailServiceFactory
      * @param array<string, string> $secrets
      * @param MailTransportInterface|null $transport Delivery step override; null keeps
      *                                               the default PhpMailerTransport.
+     * @param \Core\Journal\JournalService|null $journal Where a send that fails is written
+     *                                               down. Null only for the setup wizard,
+     *                                               which may have no database yet.
      */
     public static function create(
         array $secrets,
         DkimManager $dkimManager,
-        ?MailTransportInterface $transport = null
+        ?MailTransportInterface $transport = null,
+        ?\Core\Journal\JournalService $journal = null
     ): MailService {
         return new MailService(
             mode: $secrets['mail_mode'] ?? 'local',
@@ -33,7 +37,8 @@ class MailServiceFactory
             smtpPort: isset($secrets['smtp_port']) ? (int) $secrets['smtp_port'] : null,
             smtpUser: $secrets['smtp_user'] ?? null,
             smtpPassword: $secrets['smtp_password'] ?? null,
-            transport: $transport ?? new PhpMailerTransport()
+            transport: $transport ?? new PhpMailerTransport(),
+            journal: $journal
         );
     }
 }

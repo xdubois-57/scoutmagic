@@ -184,6 +184,72 @@ class MailProbeServiceTest extends TestCase
     }
 
     /**
+     * A reading is not evidence. « SPF non renseigné » is a claim about
+     * what a server wrote down, and the only way to tell a right reading
+     * from a wrong one is to look at what was written — which is exactly
+     * how « les trois absents » turned out to be an IMAP client that
+     * passed no header block at all.
+     */
+    public function testTheHeaderBlockIsKeptBesideTheReadingItProduced(): void
+    {
+        $service = $this->service(['support@scoutmagic.be']);
+        $issued = $service->issueFor('unite-de-test', 'Bearer ' . $this->secret, true, $this->now());
+        $headers = "Received: from mx.example.be by mail.scoutmagic.be\r\n"
+            . "Authentication-Results: mail.scoutmagic.be; spf=pass\r\n";
+
+        $service->claim(
+            '[Unité test] Sonde de diagnostic ' . (string) $issued['correlation_key'],
+            $headers,
+            $this->now(),
+            $this->now()
+        );
+
+        $this->assertSame($headers, $service->resultsFor($this->installationRowId())[0]['raw_headers']);
+    }
+
+    /**
+     * The block carries hosts and IP addresses, like the parsed chain it
+     * is read from, and it is stored the same way.
+     */
+    public function testTheHeaderBlockNeverSitsInTheTableInCleartext(): void
+    {
+        $service = $this->service(['support@scoutmagic.be']);
+        $issued = $service->issueFor('unite-de-test', 'Bearer ' . $this->secret, true, $this->now());
+
+        $service->claim(
+            '[Unité test] Sonde de diagnostic ' . (string) $issued['correlation_key'],
+            "Received: from mx.example.be [198.51.100.7]\r\n",
+            $this->now(),
+            $this->now()
+        );
+
+        $stored = (string) $this->pdo->query('SELECT raw_headers_encrypted FROM support_mail_probes')->fetchColumn();
+        $this->assertNotSame('', $stored);
+        $this->assertStringNotContainsString('198.51.100.7', $stored);
+    }
+
+    /**
+     * A client that supplies none is a complete answer, and a different
+     * one from « pas encore reçue » — the page has to be able to say so.
+     */
+    public function testAProbeReceivedWithNoHeadersAtAllKeepsNone(): void
+    {
+        $service = $this->service(['support@scoutmagic.be']);
+        $issued = $service->issueFor('unite-de-test', 'Bearer ' . $this->secret, true, $this->now());
+
+        $service->claim(
+            '[Unité test] Sonde de diagnostic ' . (string) $issued['correlation_key'],
+            null,
+            $this->now(),
+            $this->now()
+        );
+
+        $result = $service->resultsFor($this->installationRowId())[0];
+        $this->assertNotNull($result['received_at']);
+        $this->assertNull($result['raw_headers']);
+    }
+
+    /**
      * A probe nobody ever answered stays a row saying so — which is the
      * whole reason a key is issued per address rather than counted.
      */

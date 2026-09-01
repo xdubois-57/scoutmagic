@@ -11,13 +11,17 @@ namespace Core\Scheduler;
 class SchedulerService
 {
     /**
-     * Pending (module, task, reference) triples, loaded once — see
-     * $cachePendingRearms. Null until first needed, or after an
-     * invalidating write (cancel/purge).
+     * Live (module, task, reference) triples and the statuses they are
+     * in, loaded once — see $cachePendingRearms. Null until first needed,
+     * or after an invalidating write (cancel/purge).
      *
-     * @var array<string, true>|null
+     * The status is part of it because the two guards read it
+     * differently: rearm() asks « is one QUEUED », seed() asks « is this
+     * chain alive at all ».
+     *
+     * @var array<string, array<string, true>>|null key => set of statuses
      */
-    private ?array $pendingRearmKeys = null;
+    private ?array $liveKeys = null;
 
     /**
      * $cachePendingRearms trades one query for the ~20 per-request
@@ -81,6 +85,13 @@ class SchedulerService
         array $payload = []
     ): bool {
         if ($this->hasPendingRearm($moduleId, $taskKey, $reference)) {
+            // One queued row is the chain; anything beyond it is a
+            // duplicate run and nothing else. Collapsing here rather than
+            // in a migration is what heals an installation that already
+            // accumulated them — see SchedulerRepository::
+            // collapsePending() and seed() below for how they got there.
+            $this->collapse($moduleId, $taskKey, $reference);
+
             return false;
         }
 
@@ -138,6 +149,99 @@ class SchedulerService
     }
 
     /**
+     * Queue the FIRST run of a recurring chain, from a caller that is not
+     * the task itself — a composition root's `ensureScheduled()` /
+     * `bootstrap()`, which runs on every single request.
+     *
+     * **Its guard is not rearm()'s, and that difference is the bug this
+     * exists to close.** rearm() deliberately only sees `pending` rows,
+     * so a handler re-arming itself from inside handle() does not find
+     * its own claimed row and does queue a successor. A seeder with that
+     * same guard queues a duplicate of a task that is *running right
+     * now*, because SchedulerRepository::claimOverdue() flips every
+     * overdue row to `processing` at the start of a pass: for the whole
+     * length of that pass the chain has no pending row, and every web
+     * request that lands queues another copy — with `run_at` = now, so
+     * already overdue.
+     *
+     * That is a positive feedback loop, not a one-off duplicate: each
+     * extra copy makes the next pass longer, a longer pass is a wider
+     * window, and a wider window catches more requests. One installation
+     * reached **sixteen thousand** runs of a single hourly task in
+     * forty-eight hours, and 99 % of its event journal was « tâche
+     * planifiée terminée ».
+     *
+     * So a seeder asks the honest question — « is this chain alive at
+     * all » — and a running task answers yes. Nothing is lost: every
+     * chain re-arms itself in its own `finally`.
+     *
+     * @param array<string, mixed> $payload
+     * @return bool whether it queued the first run
+     */
+    public function seed(
+        string $moduleId,
+        string $taskKey,
+        string $reference,
+        \DateTimeInterface|string $when,
+        array $payload = []
+    ): bool {
+        if ($this->hasLiveChain($moduleId, $taskKey, $reference)) {
+            $this->collapse($moduleId, $taskKey, $reference);
+
+            return false;
+        }
+
+        if (is_string($when) && trim($when) === '') {
+            throw new \InvalidArgumentException('seed() needs a moment, not an empty string.');
+        }
+
+        $this->schedule(
+            $moduleId,
+            $taskKey,
+            $when instanceof \DateTimeInterface ? $when : new \DateTimeImmutable($when),
+            $payload,
+            $reference
+        );
+
+        return true;
+    }
+
+    /**
+     * seed() said as a delay — the shape every bootstrap() wants.
+     *
+     * @param array<string, mixed> $payload
+     */
+    public function seedAfter(
+        string $moduleId,
+        string $taskKey,
+        string $reference,
+        int $delaySeconds,
+        array $payload = []
+    ): bool {
+        return $this->seed(
+            $moduleId,
+            $taskKey,
+            $reference,
+            (new \DateTimeImmutable())->modify('+' . max(0, $delaySeconds) . ' seconds'),
+            $payload
+        );
+    }
+
+    /**
+     * Back to one queued row, keeping the one that runs first.
+     *
+     * Cheap in the ordinary case — the guard above already established
+     * there is at least one, and collapsePending() returns without a
+     * write unless there are two.
+     */
+    private function collapse(string $moduleId, string $taskKey, string $reference): void
+    {
+        if ($this->repository->collapsePending($moduleId, $taskKey, $reference) > 0) {
+            $this->liveKeys = null;
+        }
+    }
+
+    /**
      * Schedule an action at a specific time.
      *
      * @param array<string, mixed> $payload
@@ -160,8 +264,8 @@ class SchedulerService
             $requestedByUserAccountId
         );
 
-        if ($this->pendingRearmKeys !== null) {
-            $this->pendingRearmKeys[$this->pendingRearmKey($moduleId, $taskKey, $reference)] = true;
+        if ($this->liveKeys !== null) {
+            $this->liveKeys[$this->liveKey($moduleId, $taskKey, $reference)]['pending'] = true;
         }
 
         return $id;
@@ -203,7 +307,7 @@ class SchedulerService
         // The row is addressed by id, so its (module, task, reference)
         // triple is unknown here — drop the whole snapshot rather than
         // guess.
-        $this->pendingRearmKeys = null;
+        $this->liveKeys = null;
     }
 
     /**
@@ -256,7 +360,7 @@ class SchedulerService
     {
         $deleted = $this->repository->deleteOlderThan($moduleId, $taskKey, $cutoff->format('Y-m-d H:i:s'));
         if ($deleted > 0) {
-            $this->pendingRearmKeys = null;
+            $this->liveKeys = null;
         }
 
         return $deleted;
@@ -275,22 +379,39 @@ class SchedulerService
             return $this->find($moduleId, $taskKey, $reference) !== null;
         }
 
-        if ($this->pendingRearmKeys === null) {
-            $this->pendingRearmKeys = [];
-            foreach ($this->repository->findPendingKeys() as $row) {
-                $key = $this->pendingRearmKey(
+        return isset($this->statusesOf($moduleId, $taskKey, $reference)['pending']);
+    }
+
+    private function hasLiveChain(string $moduleId, string $taskKey, string $reference): bool
+    {
+        if (!$this->cachePendingRearms) {
+            return $this->repository->hasLive($moduleId, $taskKey, $reference);
+        }
+
+        return $this->statusesOf($moduleId, $taskKey, $reference) !== [];
+    }
+
+    /**
+     * @return array<string, true> the statuses this triple is live in
+     */
+    private function statusesOf(string $moduleId, string $taskKey, string $reference): array
+    {
+        if ($this->liveKeys === null) {
+            $this->liveKeys = [];
+            foreach ($this->repository->findLiveKeys() as $row) {
+                $key = $this->liveKey(
                     (string) $row['module_id'],
                     (string) $row['task_key'],
                     $row['reference'] !== null ? (string) $row['reference'] : null
                 );
-                $this->pendingRearmKeys[$key] = true;
+                $this->liveKeys[$key][(string) $row['status']] = true;
             }
         }
 
-        return isset($this->pendingRearmKeys[$this->pendingRearmKey($moduleId, $taskKey, $reference)]);
+        return $this->liveKeys[$this->liveKey($moduleId, $taskKey, $reference)] ?? [];
     }
 
-    private function pendingRearmKey(string $moduleId, string $taskKey, ?string $reference): string
+    private function liveKey(string $moduleId, string $taskKey, ?string $reference): string
     {
         // NUL never appears in these values, so the triple cannot collide.
         return $moduleId . "\0" . $taskKey . "\0" . ($reference ?? "\0");

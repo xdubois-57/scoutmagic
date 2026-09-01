@@ -63,7 +63,12 @@
     </div>
 </div>
 
-<div class="card mb-4" id="ai-prompt-card" style="display: none;">
+{# `data-generation-running` is read once by rgpd-config.js on load. Server
+   state and not a fetch: the run outlives the request that asked for it,
+   so the button has to be right on the first paint rather than after a
+   round trip. #}
+<div class="card mb-4" id="ai-prompt-card" style="display: none;"
+     data-generation-running="{{ generation_running|default(false) ? '1' : '0' }}">
     <div class="card-body">
         <h2 class="h6 mb-3">Prompt de personnalisation (IA)</h2>
         <p class="text-body-secondary">

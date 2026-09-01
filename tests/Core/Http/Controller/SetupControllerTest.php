@@ -23,6 +23,8 @@ class SetupControllerTest extends TestCase
     private DkimManager $dkimManager;
     private \Twig\Environment $twig;
     private string $schemaPath;
+    private \PDO $pdoForMailTests;
+    private SetupController $controllerForMailTests;
 
     protected function setUp(): void
     {
@@ -1372,6 +1374,142 @@ class SetupControllerTest extends TestCase
         // getting past PHPMailer's synchronous From-address validation
         // proves mail_from_address was read from the request body.
         $this->assertStringNotContainsString('Invalid address', (string) ($decoded['message'] ?? ''));
+    }
+
+    /**
+     * An already-initialised installation reads `secrets.enc` and ignored
+     * the form entirely, so changing an SMTP user or password and pressing
+     * « Envoyer un test » re-tested the OLD credentials — and answered
+     * « Email envoyé avec succès » whenever those still worked, which is
+     * the worst possible answer. The button's own caption promises the
+     * opposite: « Teste les paramètres SMTP actuellement saisis ci-dessus
+     * (pas encore besoin d'enregistrer) ».
+     *
+     * Read through the journal entry MailService writes on a failed send,
+     * because it is the one place the RESOLVED settings surface. The
+     * failure itself is PHPMailer's synchronous From validation, so
+     * nothing here opens a socket.
+     */
+    public function testTestEmailPrefersTheValuesInTheFormOverTheStoredOnes(): void
+    {
+        $journal = $this->initialiseSmtpInstallation();
+
+        $response = $this->postTestEmail([
+            'mail_from_address' => 'pas-une-adresse',
+        ]);
+
+        $this->assertFalse(json_decode($response->getBody(), true)['success']);
+        $this->assertStringContainsString('Invalid address', $this->lastMailFailure($journal)['reason']);
+    }
+
+    /**
+     * The password field is the one that is NOT pre-filled, and the label
+     * under it says so: empty means « keep the current one », exactly as
+     * saving already behaves. `configured` is false the moment any of
+     * host/user/password is missing, so it is what proves the stored
+     * password was carried over rather than blanked.
+     */
+    public function testAnEmptyPasswordKeepsTheStoredOne(): void
+    {
+        $journal = $this->initialiseSmtpInstallation();
+
+        $this->postTestEmail([
+            'smtp_password' => '',
+            'smtp_user' => 'nouvel-utilisateur',
+            'mail_from_address' => 'pas-une-adresse',
+        ]);
+
+        $this->assertTrue($this->lastMailFailure($journal)['configured']);
+    }
+
+    /**
+     * Every other field IS pre-filled, so an empty one is a deliberate
+     * clear and has to travel as such — otherwise the form can never test
+     * anything but what is already stored.
+     */
+    public function testAClearedFieldIsTestedAsCleared(): void
+    {
+        $journal = $this->initialiseSmtpInstallation();
+
+        $this->postTestEmail([
+            'smtp_user' => '',
+            'mail_from_address' => 'pas-une-adresse',
+        ]);
+
+        $this->assertFalse($this->lastMailFailure($journal)['configured']);
+    }
+
+    /**
+     * A complete SMTP installation, with a journal wired so a failed send
+     * says which settings it actually used.
+     */
+    private function initialiseSmtpInstallation(): \Core\Journal\JournalRepository
+    {
+        $this->secretManager->generateMasterKey();
+        $this->secretManager->writeSecrets([
+            'db_host' => 'localhost', 'db_port' => 3306, 'db_name' => 'test',
+            'db_user' => 'root', 'db_password' => 'pass',
+            'site_name' => 'Mon Unité', 'short_name' => '25SV',
+            'base_url' => 'https://example.com',
+            'mail_mode' => 'smtp',
+            'smtp_host' => 'smtp.enregistre.be',
+            'smtp_port' => '587',
+            'smtp_user' => 'utilisateur-enregistre',
+            'smtp_password' => 'mot-de-passe-enregistre',
+            'mail_from_address' => 'unite@example.com',
+            'mail_from_name' => 'Mon Unité',
+            'dkim_selector' => 'mail', 'dmarc_report_email' => '',
+        ]);
+
+        $this->pdoForMailTests = DatabaseTestHelper::createTestDatabase();
+        $repository = new \Core\Journal\JournalRepository($this->pdoForMailTests);
+
+        $this->controllerForMailTests = new SetupController(
+            $this->twig,
+            $this->secretManager,
+            $this->dkimManager,
+            $this->schemaPath
+        );
+        $this->controllerForMailTests->setJournalService(new \Core\Journal\JournalService($repository));
+
+        return $repository;
+    }
+
+    /**
+     * @param array<string, string> $formValues what the page posts on top
+     *        of the fields every test here sends unchanged
+     */
+    private function postTestEmail(array $formValues): \Core\Http\Response
+    {
+        $request = new Request('POST', '/setup/test-email', [], $formValues + [
+            '_csrf_token' => $this->issueCsrfToken(),
+            'recipient' => 'someone@example.com',
+            'mail_mode' => 'smtp',
+            'smtp_host' => 'smtp.saisi.be',
+            'smtp_port' => '587',
+            'smtp_user' => 'utilisateur-saisi',
+            'smtp_password' => 'mot-de-passe-saisi',
+            'mail_from_address' => 'unite@example.com',
+            'mail_from_name' => 'Mon Unité',
+            'short_name' => '25SV',
+            'dkim_selector' => 'mail',
+        ], [], []);
+
+        return $this->controllerForMailTests->testEmail($request, []);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function lastMailFailure(\Core\Journal\JournalRepository $repository): array
+    {
+        $row = $this->pdoForMailTests
+            ->query("SELECT context FROM event_log WHERE event_type = 'mail_send_failed' ORDER BY id DESC LIMIT 1")
+            ->fetch(\PDO::FETCH_ASSOC);
+
+        $this->assertIsArray($row, 'aucun échec d\'envoi journalisé');
+
+        return json_decode((string) $row['context'], true);
     }
 
     public function testGenerateDkimKeyRejectsInvalidCsrfToken(): void

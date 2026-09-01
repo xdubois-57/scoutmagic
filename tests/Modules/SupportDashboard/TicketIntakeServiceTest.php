@@ -237,7 +237,7 @@ class TicketIntakeServiceTest extends TestCase
         $this->assertNotNull($ticket);
         $this->assertSame('Mon import Desk ne passe plus depuis hier.', $ticket['description']);
         $this->assertSame('chef@unite.be', $ticket['contact_email']);
-        $this->assertSame(TicketCategory::DESK_IMPORT, $ticket['category']);
+        $this->assertSame(TicketCategory::of('desk_import'), $ticket['category']);
         $this->assertSame(SupportTicketRepository::STATUS_OPEN, $ticket['status']);
         $this->assertSame('1.0.33', $ticket['site_version']);
         $this->assertSame('8.4.3', $ticket['php_version']);

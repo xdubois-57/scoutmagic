@@ -158,13 +158,13 @@ class SupportTicketServiceTest extends TestCase
 
     public function testTheCategoryFilterKeepsOnlyThatCategory(): void
     {
-        $this->ticket('Un souci de courriel.', TicketCategory::EMAIL);
-        $this->ticket("Un souci d'installation.", TicketCategory::INSTALLATION);
+        $this->ticket('Un souci de courriel.', TicketCategory::of('email'));
+        $this->ticket("Un souci d'installation.", TicketCategory::of('installation'));
 
         $found = $this->service->list($this->filters(['category' => 'email', 'status' => 'all']));
 
         $this->assertCount(1, $found);
-        $this->assertSame(TicketCategory::EMAIL, $found[0]['category']);
+        $this->assertSame(TicketCategory::of('email'), $found[0]['category']);
     }
 
     /**
@@ -258,9 +258,9 @@ class SupportTicketServiceTest extends TestCase
 
     public function testOnlyTheCategoriesActuallyPresentAreOffered(): void
     {
-        $this->ticket('Un souci de courriel.', TicketCategory::EMAIL);
+        $this->ticket('Un souci de courriel.', TicketCategory::of('email'));
 
-        $this->assertSame([TicketCategory::EMAIL], $this->service->categoriesInUse());
+        $this->assertSame([TicketCategory::of('email')], $this->service->categoriesInUse());
     }
 
     /**
@@ -271,11 +271,11 @@ class SupportTicketServiceTest extends TestCase
         return TicketListFilters::fromQuery($query);
     }
 
-    private function ticket(string $description, TicketCategory $category = TicketCategory::OTHER): int
+    private function ticket(string $description, ?TicketCategory $category = null): int
     {
         $reference = $this->tickets->create(
             $this->installationId,
-            $category,
+            $category ?? TicketCategory::of('other'),
             $description,
             'chef@unite.be',
             '1.0.33',

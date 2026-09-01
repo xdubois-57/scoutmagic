@@ -193,6 +193,85 @@ function scoutmagic_bootstrap_scheduler(
 
     $enabledModuleIds = $moduleManager->getEnabledModuleIds();
 
+    // ── The RGPD document: the one CORE handler a bare `new` cannot make ─
+    //
+    // Every other core handler is instantiated by CoreTaskHandlers with no
+    // arguments. This one needs a whole Core\View\RgpdContentService, and
+    // that service is only truthful when the two SubProcessorProvider hooks
+    // (§7.4) are attached to it: they are what let the generated document
+    // state the AI provider and the gallery's S3 storage this installation
+    // actually engages. A service built without them would produce a legal
+    // document that under-declares its own sub-processors — silently, and
+    // only on the trigger that generates it.
+    //
+    // A lazy factory, so no web request pays for the graph, and the two
+    // hooks guarded by their modules' live state exactly as the
+    // capabilities above are.
+    $runner->registerHandlerFactory(
+        'core',
+        \Core\View\Task\GenerateRgpdContentHandler::TASK_KEY,
+        static function (\Core\Scheduler\TaskContext $context) use (
+            $pdo,
+            $encryptionService,
+            $settingService,
+            $schedulerService,
+            $journalService,
+            $moduleManager,
+            $enabledModuleIds
+        ): \Core\Scheduler\TaskHandlerInterface {
+            return new \Core\View\Task\GenerateRgpdContentHandler(
+                new \Core\View\RgpdGenerationRunner(
+                    static function () use (
+                        $pdo,
+                        $encryptionService,
+                        $settingService,
+                        $journalService,
+                        $moduleManager,
+                        $enabledModuleIds
+                    ): \Core\View\RgpdContentService {
+                        $providerRepository = new \Modules\LlmConnector\Repository\ProviderRepository($pdo, $encryptionService);
+                        $modelRepository = new \Modules\LlmConnector\Repository\ProviderModelRepository($pdo);
+                        $hasLlm = in_array('llm_connector', $enabledModuleIds, true);
+
+                        $service = new \Core\View\RgpdContentService(
+                            $moduleManager,
+                            $settingService,
+                            $hasLlm
+                                ? new \Modules\LlmConnector\Service\LlmConnectorService(
+                                    $providerRepository,
+                                    $modelRepository,
+                                    $journalService
+                                )
+                                : null
+                        );
+
+                        if ($hasLlm) {
+                            $service->addSubProcessorProvider(
+                                new \Modules\LlmConnector\Service\LlmSubProcessorService($providerRepository, $modelRepository)
+                            );
+                        }
+
+                        if (in_array('gallery', $enabledModuleIds, true)) {
+                            $service->addSubProcessorProvider(
+                                new \Modules\Gallery\Service\GalleryStorageSubProcessorService(
+                                    new \Modules\Gallery\Repository\StorageLocationRepository($pdo, $encryptionService)
+                                )
+                            );
+                        }
+
+                        return $service;
+                    },
+                    $settingService,
+                    $schedulerService,
+                    new \Core\View\EditableContentService(
+                        new \Core\View\EditableContentRepository($pdo)
+                    ),
+                    $journalService
+                )
+            );
+        }
+    );
+
     // ── Inbound mail's sync: the one handler a manifest cannot resolve ──
     //
     // It needs the message-consumer registry, which only a composition

@@ -64,8 +64,56 @@ class ReceiptMatchingServiceTest extends TestCase
     {
         return new ReceiptMatchingService(
             $this->attachmentRepository, $this->transactionRepository, $this->transactionAttachmentRepository,
-            $this->journalService, $llmConnector
+            $this->journalService, $llmConnector, $this->receiptService()
         );
+    }
+
+    /**
+     * The same service without anything able to move a receipt onto an
+     * account — the shape a caller that only ever matches attributed
+     * receipts builds.
+     */
+    private function serviceWithoutFiling(): ReceiptMatchingService
+    {
+        return new ReceiptMatchingService(
+            $this->attachmentRepository, $this->transactionRepository, $this->transactionAttachmentRepository,
+            $this->journalService, null
+        );
+    }
+
+    private function receiptService(): \Modules\Finance\Service\ReceiptService
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+
+        return new \Modules\Finance\Service\ReceiptService(
+            $this->attachmentRepository,
+            new AccountRepository($this->pdo, $encryption),
+            $this->transactionAttachmentRepository,
+            new \Core\File\EncryptedFileStorageService(
+                new \Core\File\FileRepository($this->pdo),
+                $encryption,
+                sys_get_temp_dir()
+            ),
+            $this->transactionRepository
+        );
+    }
+
+    /**
+     * A receipt in the sorting pile: no account at all, which is where a
+     * document arriving by e-mail from an address nothing could place
+     * lands.
+     */
+    private function createUnattributedReceipt(?float $suggestedAmount, ?string $suggestedDate, string $uploadedAt): Attachment
+    {
+        $id = $this->attachmentRepository->create(
+            null, $this->fileId, 'application/pdf', 'facture.pdf', $suggestedAmount, $suggestedDate, null, null
+        );
+        $this->pdo->prepare('UPDATE finance_attachments SET uploaded_at = ? WHERE id = ?')->execute([$uploadedAt, $id]);
+
+        $receipt = $this->attachmentRepository->findById($id);
+        \assert($receipt !== null);
+
+        return $receipt;
     }
 
     private function createReceipt(?float $suggestedAmount, ?string $suggestedDate, string $uploadedAt, ?string $suggestedLabel = null): Attachment
@@ -395,4 +443,114 @@ class ReceiptMatchingServiceTest extends TestCase
 
         $this->addToAssertionCount(1);
     }
+    // --- The sorting pile: matched against every account ---------------
+
+    /**
+     * A receipt with no account used to be skipped outright, which left
+     * the one case the sorting pile exists for at its least helpful: the
+     * module knows the amount, the date and the merchant, and refuses to
+     * look at the movement answering all three because it does not yet
+     * know which account to look in. Backwards — the movement is what
+     * NAMES the account.
+     */
+    public function testAReceiptWithNoAccountIsMatchedAgainstEveryAccount(): void
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $otherAccountId = (new AccountRepository($this->pdo, $encryption))
+            ->create('Autre compte', Account::TYPE_BANK, null, null, null, 'intendant');
+
+        $receipt = $this->createUnattributedReceipt(42.00, '2026-10-01', '2026-10-01 10:00:00');
+        $movement = $this->createTransaction('2026-10-02', -42.00, 'Fournitures', $otherAccountId);
+
+        $this->service()->matchReceipt($receipt);
+
+        $this->assertSame(
+            [$movement->id],
+            $this->transactionAttachmentRepository->findTransactionIdsForAttachment($receipt->id)
+        );
+    }
+
+    /**
+     * Finding the movement settles both questions at once: the receipt
+     * is filed on the account the movement belongs to, because
+     * ReceiptService::associate() guarantees a receipt and its movements
+     * share one.
+     */
+    public function testTheAccountIsTakenFromTheMovementThatWasMatched(): void
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $otherAccountId = (new AccountRepository($this->pdo, $encryption))
+            ->create('Autre compte', Account::TYPE_BANK, null, null, null, 'intendant');
+
+        $receipt = $this->createUnattributedReceipt(42.00, '2026-10-01', '2026-10-01 10:00:00');
+        $this->createTransaction('2026-10-02', -42.00, 'Fournitures', $otherAccountId);
+
+        $this->service()->matchReceipt($receipt);
+
+        $filed = $this->attachmentRepository->findById($receipt->id);
+        $this->assertNotNull($filed);
+        $this->assertSame($otherAccountId, $filed->accountId);
+    }
+
+    /**
+     * Nothing is loosened to look wider: the amount is still the hard
+     * gate, and an ambiguous set still ends in silence — on the sorting
+     * pile more than anywhere, since a wrong guess there invents an
+     * account as well as an association.
+     */
+    public function testAnAmountFoundOnTwoAccountsLeavesTheReceiptInThePile(): void
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $otherAccountId = (new AccountRepository($this->pdo, $encryption))
+            ->create('Autre compte', Account::TYPE_BANK, null, null, null, 'intendant');
+
+        $receipt = $this->createUnattributedReceipt(42.00, '2026-10-01', '2026-10-01 10:00:00');
+        $this->createTransaction('2026-10-02', -42.00, 'Fournitures', $otherAccountId);
+        $this->createTransaction('2026-10-02', -42.00, 'Fournitures', $this->accountId);
+
+        $this->service()->matchReceipt($receipt);
+
+        $this->assertSame([], $this->transactionAttachmentRepository->findTransactionIdsForAttachment($receipt->id));
+        $filed = $this->attachmentRepository->findById($receipt->id);
+        $this->assertNotNull($filed);
+        $this->assertNull($filed->accountId);
+    }
+
+    /**
+     * Without anything able to file the receipt, a match could only be
+     * recorded by breaking the invariant that a receipt and its movements
+     * share an account. Not matching is the honest outcome.
+     */
+    public function testWithoutAWayToFileItNothingIsMatchedForThePile(): void
+    {
+        $receipt = $this->createUnattributedReceipt(42.00, '2026-10-01', '2026-10-01 10:00:00');
+        $this->createTransaction('2026-10-02', -42.00, 'Fournitures');
+
+        $this->serviceWithoutFiling()->matchReceipt($receipt);
+
+        $this->assertSame([], $this->transactionAttachmentRepository->findTransactionIdsForAttachment($receipt->id));
+    }
+
+    /**
+     * An attributed receipt keeps looking at its own account alone: a
+     * movement on another account is not its business, and matching it
+     * there would move a receipt somebody had already filed.
+     */
+    public function testAnAttributedReceiptStillOnlySeesItsOwnAccount(): void
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $otherAccountId = (new AccountRepository($this->pdo, $encryption))
+            ->create('Autre compte', Account::TYPE_BANK, null, null, null, 'intendant');
+
+        $receipt = $this->createReceipt(42.00, '2026-10-01', '2026-10-01 10:00:00');
+        $this->createTransaction('2026-10-02', -42.00, 'Fournitures', $otherAccountId);
+
+        $this->service()->matchReceipt($receipt);
+
+        $this->assertSame([], $this->transactionAttachmentRepository->findTransactionIdsForAttachment($receipt->id));
+        $filed = $this->attachmentRepository->findById($receipt->id);
+        $this->assertNotNull($filed);
+        $this->assertSame($this->accountId, $filed->accountId);
+    }
+
 }

@@ -43,6 +43,18 @@ class SupportTicketSender
     /** The category list the receiver last published (JSON). */
     public const CATEGORIES_SETTING = 'support_ticket_categories';
 
+    /**
+     * How a per-module category is spelled on the wire — the same string
+     * `Modules\SupportDashboard\TicketCategory::MODULE_PREFIX` accepts on
+     * the other side. Repeated rather than imported because core must
+     * keep working with the support_dashboard module absent, which is the
+     * ordinary case: exactly one installation in the world runs it.
+     */
+    public const MODULE_CATEGORY_PREFIX = 'module_';
+
+    /** The escape hatch, which stays last whatever else is offered. */
+    public const OTHER_CATEGORY = 'other';
+
     /** No identity could be provisioned — `secrets.enc` is unavailable. */
     public const FAILURE_NO_IDENTITY = 'no_identity';
     /** The receiver never answered, or answered nothing readable. */
@@ -63,7 +75,17 @@ class SupportTicketSender
          * with no builder still sends a ticket — the report is context,
          * never the point.
          */
-        private ?StatisticsPayloadBuilder $payloadBuilder = null
+        private ?StatisticsPayloadBuilder $payloadBuilder = null,
+        /**
+         * The modules this installation has enabled, `id => human name`,
+         * as `Core\Module\ModuleManager::getEnabledModuleNames()` gives
+         * them. One category is minted per entry — see categories().
+         * Empty for a caller with no module manager, which simply offers
+         * the fixed list.
+         *
+         * @var array<string, string>
+         */
+        private array $moduleNames = []
     ) {
     }
 
@@ -169,12 +191,32 @@ class SupportTicketSender
     }
 
     /**
-     * The categories to offer, most recent knowledge first: what the
-     * receiver last published, or the list this version ships with.
+     * The categories to offer: the fixed vocabulary — what the receiver
+     * last published, or the list this version ships with — plus one
+     * entry per enabled module, slotted in ahead of « Autre ».
+     *
+     * **The modules are added HERE and never received**, because which
+     * modules are enabled is a fact about this installation and about no
+     * other. The receiver publishes a vocabulary for every unit at once;
+     * offering a unit « Locations » because the receiver happens to run
+     * the rental module would be a category for a feature that unit does
+     * not have, and losing « Camps » because the receiver does not run it
+     * would be worse.
+     *
+     * Ahead of « Autre » because « Autre » is the escape hatch and an
+     * escape hatch that is not last is the only answer anybody picks.
      *
      * @return list<array{value: string, label: string}>
      */
     public function categories(): array
+    {
+        return $this->withModuleCategories($this->fixedCategories());
+    }
+
+    /**
+     * @return list<array{value: string, label: string}>
+     */
+    private function fixedCategories(): array
     {
         $stored = json_decode((string) ($this->settingService->get(self::CATEGORIES_SETTING) ?? ''), true);
         if (!is_array($stored) || $stored === []) {
@@ -193,6 +235,38 @@ class SupportTicketSender
         }
 
         return $categories;
+    }
+
+    /**
+     * @param list<array{value: string, label: string}> $fixed
+     * @return list<array{value: string, label: string}>
+     */
+    private function withModuleCategories(array $fixed): array
+    {
+        if ($this->moduleNames === []) {
+            return $fixed;
+        }
+
+        $modules = [];
+        foreach ($this->moduleNames as $moduleId => $name) {
+            $modules[] = [
+                'value' => self::MODULE_CATEGORY_PREFIX . $moduleId,
+                'label' => $name,
+            ];
+        }
+        usort($modules, static fn (array $a, array $b): int => strcoll($a['label'], $b['label']));
+
+        $escapeHatch = [];
+        $before = [];
+        foreach ($fixed as $entry) {
+            if ($entry['value'] === self::OTHER_CATEGORY) {
+                $escapeHatch[] = $entry;
+                continue;
+            }
+            $before[] = $entry;
+        }
+
+        return array_merge($before, $modules, $escapeHatch);
     }
 
     /**

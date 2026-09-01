@@ -167,9 +167,16 @@ class ReenrollmentCampaignHandler implements TaskHandlerInterface
      * Queue the very first poll. Idempotent, so calling it on every
      * request costs one indexed lookup and re-arms the chain by itself if
      * a run ever failed before scheduling its successor.
+     *
+     * Through seed() and not rearm(): rearm()'s guard only sees `pending`
+     * rows, so every request landing while a cron pass held this chain's
+     * row `processing` queued another copy — with run_at = now, hence
+     * immediately overdue. This task is what ran 16 387 times in
+     * forty-eight hours on a real installation. See SchedulerService::
+     * seed().
      */
     public static function ensureScheduled(SchedulerService $scheduler): void
     {
-        $scheduler->rearm('registration', 'reenrollment_campaign', self::REFERENCE, new \DateTimeImmutable());
+        $scheduler->seed('registration', 'reenrollment_campaign', self::REFERENCE, new \DateTimeImmutable());
     }
 }

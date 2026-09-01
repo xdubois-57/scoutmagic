@@ -2,7 +2,7 @@
   "id": "inbound_mail",
   "name": "Courrier entrant",
   "description": "Passerelle de courrier entrant en lecture seule : connecte une ou plusieurs boîtes IMAP, détecte les nouveaux messages et les met à disposition des autres modules. Ne modifie jamais la boîte distante.",
-  "version": "1.7.1",
+  "version": "1.7.3",
   "enabled_by_default": false,
   "routes": [
     {

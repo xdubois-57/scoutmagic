@@ -59,8 +59,27 @@ class ReceiptMatchingService
         private TransactionRepository $transactionRepository,
         private TransactionAttachmentRepository $transactionAttachmentRepository,
         private JournalService $journalService,
-        private ?LlmConnectorInterface $llmConnector = null
+        private ?LlmConnectorInterface $llmConnector = null,
+        /**
+         * How a receipt is moved onto an account — needed only for the
+         * sorting pile (see matchReceipt()). Null leaves a receipt with
+         * no account unmatched, which is what this service did before:
+         * associating it with a movement anyway would break the
+         * invariant that a receipt and its movements share an account.
+         */
+        private ?ReceiptService $receiptService = null
     ) {
+    }
+
+    /**
+     * Late-bound, because the two services are built one after the other
+     * and this one comes first: the import service needs it before a
+     * ReceiptService exists. A setter rather than reordering the whole
+     * finance block around one optional collaborator.
+     */
+    public function setReceiptService(ReceiptService $receiptService): void
+    {
+        $this->receiptService = $receiptService;
     }
 
     /**
@@ -70,11 +89,34 @@ class ReceiptMatchingService
      */
     public function matchReceipt(Attachment $receipt): void
     {
-        if ($receipt->accountId === null || $this->isAlreadyAssociated($receipt->id)) {
+        if ($this->isAlreadyAssociated($receipt->id)) {
             return;
         }
 
-        $candidates = $this->candidateTransactions($receipt->accountId);
+        // **A receipt with no account is matched against EVERY account.**
+        //
+        // It used to be skipped outright, and that left the one case the
+        // sorting pile exists for at its least helpful: a receipt arrives
+        // by e-mail from an address nothing could place, so the module
+        // knows the amount and the date and the merchant, and refuses to
+        // look at the movement that answers to all three because it does
+        // not yet know which account to look in. But that is backwards —
+        // the movement is what NAMES the account, and finding it settles
+        // both questions at once.
+        //
+        // Nothing is loosened to do it: the amount is still the hard gate
+        // of the rule-based pass, and an ambiguous set still ends in
+        // silence. What widens is only where the candidates come from.
+        $unattributed = $receipt->accountId === null;
+        if ($unattributed && $this->receiptService === null) {
+            // Nothing here can move a receipt onto an account, so a match
+            // could only be recorded by breaking the invariant that a
+            // receipt and its movements share one. Not matching is the
+            // honest outcome.
+            return;
+        }
+
+        $candidates = $this->candidateTransactions($unattributed ? null : $receipt->accountId);
 
         $match = $this->findRuleBasedMatch($receipt, $candidates);
         if ($match !== null) {
@@ -332,22 +374,56 @@ class ReceiptMatchingService
     }
 
     /**
+     * The movements a receipt could still be attached to.
+     *
+     * A null account means every account — the sorting pile's case, where
+     * the movement is what will name the account (see matchReceipt()).
+     *
      * @return Transaction[]
      */
-    private function candidateTransactions(int $accountId): array
+    private function candidateTransactions(?int $accountId): array
     {
         // Hash set, not in_array() over the full id list: this runs once
         // per pending receipt on every import, so the linear scan made the
         // post-import matching pass quadratic.
         $associatedIds = array_flip($this->transactionAttachmentRepository->findAssociatedTransactionIds());
+        $transactions = $accountId === null
+            ? $this->transactionRepository->findAll()
+            : $this->transactionRepository->findByAccountId($accountId);
+
         return array_values(array_filter(
-            $this->transactionRepository->findByAccountId($accountId),
+            $transactions,
             fn(Transaction $t) => !isset($associatedIds[$t->id])
         ));
     }
 
     private function associate(Attachment $receipt, Transaction $transaction, string $eventType, string $message): void
     {
+        // A receipt from the sorting pile is FILED first, on the account
+        // the movement belongs to: Service\ReceiptService::associate()
+        // guarantees a receipt and its movements share an account, and
+        // recording the association the other way round would leave the
+        // two disagreeing. The movement is the evidence for both facts,
+        // so both are written from it.
+        if ($receipt->accountId === null && $this->receiptService !== null) {
+            try {
+                $this->receiptService->reassign($receipt->id, $transaction->accountId);
+            } catch (\Throwable) {
+                // The account went away between the two reads. Filing
+                // nothing beats filing it somewhere it cannot be seen.
+                return;
+            }
+
+            $this->journalService->log(
+                'finance',
+                'receipt_auto_filed',
+                'info',
+                'Reçu sans compte rattaché automatiquement au compte du mouvement trouvé',
+                ['attachment_id' => $receipt->id, 'account_id' => $transaction->accountId],
+                null
+            );
+        }
+
         $this->transactionAttachmentRepository->associate($transaction->id, $receipt->id);
 
         $this->journalService->log(

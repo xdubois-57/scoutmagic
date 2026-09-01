@@ -82,22 +82,22 @@ class MailProbeSender
     public function send(\DateTimeImmutable $now): MailProbeResult
     {
         if ($this->rateLimitedUntil($now) !== null) {
-            return MailProbeResult::failed(self::FAILURE_RATE_LIMITED);
+            return $this->refuse(self::FAILURE_RATE_LIMITED);
         }
 
         $guard = $this->identityService->firstFailingGuard();
         if ($guard !== null) {
-            return MailProbeResult::failed($guard);
+            return $this->refuse($guard);
         }
 
         $endpoint = $this->identityService->endpointFor(TicketIdentityService::MAIL_PROBE_PATH);
         if ($endpoint === null) {
-            return MailProbeResult::failed(TicketIdentityService::GUARD_NO_DESTINATION);
+            return $this->refuse(TicketIdentityService::GUARD_NO_DESTINATION);
         }
 
         $identity = $this->identityService->ensureIdentity();
         if ($identity === null) {
-            return MailProbeResult::failed(self::FAILURE_NO_IDENTITY);
+            return $this->refuse(self::FAILURE_NO_IDENTITY);
         }
 
         try {
@@ -108,38 +108,41 @@ class MailProbeSender
                 'ScoutMagic/' . $this->appVersion . ' (+mail-probe)'
             );
         } catch (\Throwable) {
-            return MailProbeResult::failed(self::FAILURE_UNREACHABLE);
+            return $this->refuse(self::FAILURE_UNREACHABLE);
         }
 
         if (!$response->isSuccessful()) {
-            return MailProbeResult::failed(self::FAILURE_UNREACHABLE);
+            return $this->refuse(self::FAILURE_UNREACHABLE);
         }
 
         $answer = json_decode((string) $response->body, true);
         if (!is_array($answer)) {
-            return MailProbeResult::failed(self::FAILURE_MALFORMED_ANSWER);
+            return $this->refuse(self::FAILURE_MALFORMED_ANSWER);
         }
 
         $status = is_string($answer['status'] ?? null) ? (string) $answer['status'] : '';
         if ($status === 'rate_limited') {
-            // The receiver counts from its own clock, which is the one
-            // that matters; record the refusal locally so the next press
-            // does not travel either.
-            $this->writeSetting(self::LAST_SENT_AT_SETTING, $now->format('Y-m-d H:i:s'));
-
-            return MailProbeResult::failed(self::FAILURE_RATE_LIMITED);
+            // Deliberately NOT recorded locally. The local stamp means
+            // « this installation sent probes at T », and a refusal is
+            // not a send: stamping it restarted the local hour from the
+            // moment of the refusal, so pressing the button every few
+            // minutes pushed the window ahead of itself and it never
+            // reopened at all. The cost of not stamping is one round trip
+            // per press inside the receiver's own window, which is what
+            // the honest answer costs.
+            return $this->refuse(self::FAILURE_RATE_LIMITED);
         }
         if ($status === 'unavailable') {
-            return MailProbeResult::failed(self::FAILURE_NO_MAILBOX);
+            return $this->refuse(self::FAILURE_NO_MAILBOX);
         }
         if ($status !== 'issued') {
-            return MailProbeResult::failed(self::FAILURE_MALFORMED_ANSWER);
+            return $this->refuse(self::FAILURE_MALFORMED_ANSWER);
         }
 
         $key = is_string($answer['correlation_key'] ?? null) ? (string) $answer['correlation_key'] : '';
         $addresses = $this->addressesIn($answer['addresses'] ?? null);
         if ($key === '' || $addresses === []) {
-            return MailProbeResult::failed(self::FAILURE_MALFORMED_ANSWER);
+            return $this->refuse(self::FAILURE_MALFORMED_ANSWER);
         }
 
         // Written before the first send: a key that was issued has to be
@@ -156,6 +159,23 @@ class MailProbeSender
             }
         }
 
+        if ($delivered === 0) {
+            // Nothing left, so there is nothing to remember. The stamp
+            // held anyway, and that was the whole of the bug: an
+            // administrator whose relay was misconfigured watched the
+            // probe fail, fixed the relay, pressed again — and was told
+            // « il y en a déjà eu un il y a moins d'une heure », which
+            // was not true and had no way of becoming untrue for an
+            // hour. A rate limit exists to cap what actually goes out;
+            // capping what did not go out is just a lock with no key.
+            //
+            // Only a run that completed and delivered nothing clears it:
+            // a request that dies inside the loop above never reaches
+            // here, and its key stays recoverable exactly as intended.
+            $this->writeSetting(self::LAST_SENT_AT_SETTING, '');
+            $this->writeSetting(self::LAST_KEY_SETTING, '');
+        }
+
         $this->journalService->log(
             'core',
             'support_mail_probe_sent',
@@ -168,6 +188,10 @@ class MailProbeSender
         );
 
         if ($delivered === 0) {
+            // The run itself is already journaled just above, delivered=0
+            // and all; a second entry would say the same thing twice, and
+            // the reason each address refused is MailService's own
+            // `mail_send_failed`, one per box.
             return MailProbeResult::failed(self::FAILURE_MAIL_REFUSED);
         }
 
@@ -266,6 +290,35 @@ class MailProbeSender
         }
 
         return $valid;
+    }
+
+    /**
+     * A probe run that never got as far as sending anything, written
+     * down — same posture, and the same reason, as the ticket sender's
+     * own refusals.
+     *
+     * All the person sees is « L'e-mail de test n'a pas pu partir »,
+     * whether the receiver was unreachable, refused the run, or named no
+     * mailbox at all. Only the run that DID send was journaled, so the
+     * one place anybody looks afterwards — the event journal, which is
+     * also what the diagnostic archive carries — said nothing whatsoever
+     * about a probe the administrator had just watched fail.
+     *
+     * `warning`, not `error`: nothing here is broken, an attempt did not
+     * get through. The reason is one of this class's own constants; the
+     * receiver's prose stays out, exactly as it does for a ticket.
+     */
+    private function refuse(string $reason): MailProbeResult
+    {
+        $this->journalService->log(
+            'core',
+            'support_mail_probe_not_sent',
+            'warning',
+            'Sonde e-mail de diagnostic non envoyée',
+            ['reason' => $reason]
+        );
+
+        return MailProbeResult::failed($reason);
     }
 
     /**

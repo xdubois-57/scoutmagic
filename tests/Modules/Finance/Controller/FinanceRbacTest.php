@@ -298,13 +298,13 @@ class FinanceRbacTest extends TestCase
             ),
             'MovementController' => new MovementController(
                 $this->twig, $this->financeService, $this->transactionRepository, $this->categoryRepository, $this->fiscalYearRepository,
-                $this->attachmentRepository, $this->transactionAttachmentRepository, $this->receiptService, $this->receiptExtractionService,
+                $this->attachmentRepository, $this->transactionAttachmentRepository, $this->receiptService,
                 $this->firstReceiptResolver, $this->journalService
             ),
             'ImportController' => new ImportController($this->twig, $this->financeService, $this->importService, $this->parserFactory, $this->checkpointRepository),
             'ReceiptController' => new ReceiptController(
                 $this->twig, $this->attachmentRepository, $this->transactionAttachmentRepository, $this->transactionRepository, $this->financeService,
-                $this->receiptService, $this->receiptExtractionService, $this->firstReceiptResolver, $this->journalService
+                $this->receiptService, $this->firstReceiptResolver, $this->journalService
             ),
             'ConfigController' => new ConfigController($this->twig, $this->financeService, $this->schedulerService),
             'ConfigAccountController' => new ConfigAccountController(

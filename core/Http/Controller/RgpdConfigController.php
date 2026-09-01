@@ -18,6 +18,7 @@ use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\View\EditableContentService;
 use Core\View\RgpdContentService;
+use Core\View\RgpdGenerationRunner;
 use Twig\Environment;
 
 class RgpdConfigController extends AbstractController
@@ -28,7 +29,14 @@ class RgpdConfigController extends AbstractController
         private RgpdContentService $rgpdContentService,
         private SettingService $settingService,
         private ModuleManager $moduleManager,
-        private JournalService $journalService
+        private JournalService $journalService,
+        /**
+         * Where the generation actually happens — a scheduled task, not
+         * this request. Null on an installation with no scheduler wired,
+         * which answers « indisponible » rather than silently going back
+         * to a call that times out.
+         */
+        private ?RgpdGenerationRunner $generationRunner = null
     ) {
     }
 
@@ -63,6 +71,12 @@ class RgpdConfigController extends AbstractController
             'prompt' => $prompt,
             'current_content' => $currentContent,
             'llm_available' => $llmAvailable,
+            // Rendered rather than fetched: the generation runs in a
+            // scheduled task and outlives by minutes the request that
+            // asked for it, so the page has to be RIGHT on first paint —
+            // a reload mid-run picks the ticker back up instead of
+            // showing an idle button beside a job in flight.
+            'generation_running' => $this->generationRunner?->isRunning() ?? false,
         ]);
     }
 
@@ -115,7 +129,19 @@ class RgpdConfigController extends AbstractController
     }
 
     /**
-     * POST /config/rgpd/generate — generate RGPD content via AI and save it automatically
+     * POST /config/rgpd/generate — **queue** the generation; the page
+     * polls generateStatus() for the outcome.
+     *
+     * It used to generate inside this request, and the request is where
+     * it broke: the system prompt carries the whole 135 KB reference
+     * document, the model is asked for a ten-section HTML document across
+     * up to three sequential calls, and the provider timeout of ninety
+     * seconds cut it every time — « Échec de génération : Timeout lors de
+     * l'appel au fournisseur IA » on a call that had not failed so much
+     * as not finished. Raising the number only moves the wall: a shared
+     * host's front-end proxy cuts long before a model finishes writing
+     * ten sections. So it goes where every other multi-minute job of this
+     * site goes (see Core\View\RgpdGenerationRunner).
      *
      * @param array<string, string> $params
      */
@@ -148,76 +174,49 @@ class RgpdConfigController extends AbstractController
             ], 400);
         }
 
-        // Wrap the ENTIRE flow (generation + auto-save) so that ANY exception,
-        // including ones thrown by sanitization or the DB layer during
-        // auto-save, always results in a valid JSON error response instead
-        // of an uncaught exception (which would produce an HTML error page
-        // and break response.json() on the client — this manifests in Safari
-        // as "The string did not match the expected pattern.").
-        try {
-            $generatedContent = $this->rgpdContentService->generateWithAi($prompt);
-
-            // Auto-save the generated content
-            $this->settingService->setInternal('rgpd_generation_mode', 'ai');
-            $this->settingService->setInternal('rgpd_custom_prompt', $prompt);
-            $this->editableContentService->set('rgpd.text', $generatedContent, 'rich_text', $userId);
-        } catch (\Throwable $e) {
-            // Log detailed error information including stack trace
-            $errorDetails = [
-                'error' => $e->getMessage(),
-                'error_class' => get_class($e),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-                'trace_preview' => array_slice($e->getTrace(), 0, 5),
-            ];
-
-            // `error` is a member of event_log.level since the level was
-            // added for uncaught throwables (ARCHITECTURE.md §8.6). It was
-            // not, and this call site used 'info' because writing 'error'
-            // made the INSERT itself throw a PDOException — defeating the
-            // whole point of this catch block, which is a clean JSON error
-            // response instead of an uncaught exception. A failed AI
-            // generation is an error, and the journal page can now filter
-            // for it.
-            $this->journalService->log(
-                'core',
-                'rgpd_generation_failed',
-                'error',
-                'Échec de génération du contenu RGPD via IA',
-                $errorDetails,
-                $userId
-            );
-
-            // Core\View\RgpdGenerationException's three messages (service
-            // unavailable, answer still truncated, generated text not naming
-            // the unit as data controller) are written for this admin and
-            // survive. Everything else — the regex failures in
-            // sanitizeHtmlOutput(), a PDO error from the auto-save — gets
-            // the sentence below instead. Detail is in the journal entry
-            // just above, stack trace included.
+        if ($this->generationRunner === null) {
             return $this->json([
                 'success' => false,
-                'error' => 'Échec de génération : ' . UserFacingMessage::from(
-                    $e,
-                    'le texte produit n\'a pas pu être traité et n\'a pas été enregistré. Réessayez, ou '
-                    . 'simplifiez les instructions personnalisées.'
-                ),
-            ], 500);
+                'error' => "La génération en arrière-plan n'est pas disponible sur cette installation.",
+            ], 503);
+        }
+
+        if (!$this->generationRunner->scheduleBackgroundRun($prompt, $userId)) {
+            return $this->json([
+                'success' => false,
+                'error' => 'Une génération est déjà en cours. Attendez qu\'elle se termine.',
+            ], 409);
         }
 
         $this->journalService->log(
             'core',
-            'rgpd_content_generated',
+            'rgpd_generation_queued',
             'info',
-            'Contenu RGPD généré via IA et enregistré automatiquement',
+            'Génération du contenu RGPD demandée',
             ['prompt_length' => strlen($prompt)],
             $userId
         );
 
-        return $this->json([
-            'success' => true,
-            'content' => $generatedContent,
-        ]);
+        return $this->json(['success' => true, 'queued' => true]);
+    }
+
+    /**
+     * GET /config/rgpd/generate/status — « où en est-elle ? ».
+     *
+     * The generation runs on the next cron pass, so the page has to be
+     * able to say « en cours » across a reload and a closed laptop alike:
+     * the state is in the settings table, never in the session that
+     * asked.
+     *
+     * @param array<string, string> $params
+     */
+    public function generateStatus(Request $request, array $params): Response
+    {
+        if ($this->generationRunner === null) {
+            return $this->json(['success' => true, 'running' => false, 'status' => 'idle']);
+        }
+
+        return $this->json(['success' => true] + $this->generationRunner->status());
     }
 
     /**

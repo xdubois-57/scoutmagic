@@ -13,6 +13,7 @@ use Core\Help\Assistant\AssistantAnswer;
 use Core\Help\Assistant\AssistantException;
 use Core\Help\Assistant\AssistantService;
 use Core\Help\Assistant\AssistantSession;
+use Core\Help\HelpPageLinkResolver;
 use Core\Help\HelpService;
 use Core\Http\Request;
 use Core\Http\Response;
@@ -51,6 +52,12 @@ class HelpAssistantController extends AbstractController
         Environment $twig,
         private readonly AssistantService $assistant,
         private readonly HelpService $helpService,
+        /**
+         * « Aller sur la page », for each topic the answer was built
+         * from. Null — no resolver wired — leaves the topic links alone,
+         * which is what the assistant offered before.
+         */
+        private readonly ?HelpPageLinkResolver $pageLinks = null,
     ) {
         parent::__construct($twig);
     }
@@ -157,8 +164,32 @@ class HelpAssistantController extends AbstractController
             'answer_html' => $answer->foundNothing
                 ? ''
                 : MarkdownRenderer::toHtml($answer->text, HelpController::RENDER_OPTIONS),
+            // Each consulted topic, and — this is the addition — the
+            // PAGE it documents.
+            //
+            // The answer says « ouvrez Finances > Reçus » because that is
+            // where the thing is, and the reader then had to go and find
+            // Finances > Reçus through the menus. The site already knows
+            // that link: a topic declares the paths it covers, and
+            // Core\Help\HelpPageLinkResolver has turned that into « aller
+            // sur la page » for the help pages since it was written. It
+            // simply was not asked here.
+            //
+            // Same three rules as everywhere else it is used: only an
+            // `exact` path is a link (a topic covering a family of pages
+            // names no member of it), the role checked is the TARGET
+            // route's, and the page you are already on is not offered.
             'topics' => array_map(
-                static fn ($topic): array => ['id' => $topic->id, 'title' => $topic->title],
+                function ($topic) use ($role, $currentPath): array {
+                    $page = $this->pageLinks?->resolve($topic, $role, $currentPath !== '' ? $currentPath : null);
+
+                    return [
+                        'id' => $topic->id,
+                        'title' => $topic->title,
+                        'page_path' => $page['path'] ?? null,
+                        'page_label' => $page['label'] ?? null,
+                    ];
+                },
                 $answer->topics
             ),
         ]);

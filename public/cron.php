@@ -203,7 +203,7 @@ $dkimManager = new DkimManager(__DIR__ . '/../storage/keys');
 foreach (['short_name', 'mail_from_address', 'mail_from_name', 'dkim_selector'] as $mailSecretKey) {
     $secrets[$mailSecretKey] = (string) ($settingService->get($mailSecretKey) ?: ($secrets[$mailSecretKey] ?? ''));
 }
-$mailService = MailServiceFactory::create($secrets, $dkimManager);
+$mailService = MailServiceFactory::create($secrets, $dkimManager, null, $journalService);
 
 // Web Push (Core\Notification) — same construction as public/index.php.
 // Null when VAPID keys aren't provisioned yet (e.g. this script running

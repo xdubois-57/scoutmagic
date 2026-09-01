@@ -91,10 +91,63 @@
             });
     }
 
+    /** How often the page asks whether the background run has finished. */
+    var POLL_INTERVAL_MS = 3000;
+
+    /**
+     * Waits for the queued generation to finish, then shows the outcome.
+     *
+     * The work happens in a scheduled task now — the document takes
+     * minutes to write and the provider timeout was what an administrator
+     * used to see instead (Core\View\RgpdGenerationRunner) — so the
+     * result arrives by asking rather than by returning. The state lives
+     * in the settings table, not in this page: reloading mid-run picks the
+     * ticker back up rather than losing the run.
+     *
+     * @param {string} successMessage
+     */
+    function pollGeneration(successMessage) {
+        return api.getJson('/config/rgpd/generate/status').then(function (res) {
+            var data = res.data;
+
+            if (!data || data.success !== true) {
+                stopGenerationTimer();
+                generateStatus.innerHTML = generateErrorHtml(res);
+                generateBtn.disabled = false;
+                return Promise.resolve();
+            }
+
+            if (data.running === true) {
+                return new Promise(function (resolve) {
+                    setTimeout(function () { resolve(pollGeneration(successMessage)); }, POLL_INTERVAL_MS);
+                });
+            }
+
+            stopGenerationTimer();
+            generateBtn.disabled = false;
+
+            if (data.status === 'done') {
+                if (typeof data.content === 'string') {
+                    preview.innerHTML = data.content;
+                }
+                generateStatus.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> ' + successMessage + '</span>';
+                setTimeout(function () { generateStatus.textContent = ''; }, 5000);
+                return Promise.resolve();
+            }
+
+            generateStatus.innerHTML = generateErrorHtml({ ok: false, status: 0, data: data });
+
+            return Promise.resolve();
+        });
+    }
+
     /**
      * The generate call shared by the automatic (mode switch) and manual
      * (button) paths — same request, same status line, different base
      * message and success wording.
+     *
+     * The POST only QUEUES the run: what comes back is « c'est parti »,
+     * and the outcome is polled for.
      *
      * @param {string} prompt
      * @param {string} tickerMessage
@@ -106,16 +159,29 @@
 
         return api.postJson('/config/rgpd/generate', { prompt: prompt })
             .then(function (res) {
-                stopGenerationTimer();
-                if (res.data && res.data.success) {
-                    preview.innerHTML = res.data.content;
-                    generateStatus.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> ' + successMessage + '</span>';
-                    setTimeout(function () { generateStatus.textContent = ''; }, 5000);
-                } else {
+                if (!res.data || res.data.success !== true) {
+                    stopGenerationTimer();
                     generateStatus.innerHTML = generateErrorHtml(res);
+                    generateBtn.disabled = false;
+
+                    return Promise.resolve();
                 }
-            })
-            .finally(function () { generateBtn.disabled = false; });
+
+                return pollGeneration(successMessage);
+            });
+    }
+
+    // A run queued before this page was opened — or before it was
+    // reloaded — is still a run: pick its ticker back up rather than
+    // showing an idle button beside a job in flight.
+    //
+    // Read off the server-rendered attribute rather than fetched, so the
+    // page is right on its first paint and so opening this page costs no
+    // request of its own.
+    if (aiPromptCard.dataset.generationRunning === '1') {
+        generateBtn.disabled = true;
+        startGenerationTimer('Génération en cours');
+        pollGeneration('Contenu généré et enregistré.');
     }
 
     // Auto-save on mode change

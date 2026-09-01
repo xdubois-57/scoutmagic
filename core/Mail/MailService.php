@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Core\Mail;
 
+use Core\Journal\JournalService;
 use PHPMailer\PHPMailer\PHPMailer;
 
 class MailService
@@ -29,7 +30,16 @@ class MailService
         // call sites of send() never learn a transport exists. The
         // composition root swaps it (and only it) to capture mail instead
         // of sending it.
-        private MailTransportInterface $transport = new PhpMailerTransport()
+        private MailTransportInterface $transport = new PhpMailerTransport(),
+        /**
+         * Where a delivery that did NOT happen is written down.
+         *
+         * Nullable, and only because of the one caller that has no
+         * journal to give: Core\Http\Controller\SetupController tests
+         * the values sitting in the setup form, on an installation whose
+         * database may not exist yet. Every composition root passes it.
+         */
+        private ?JournalService $journal = null
     ) {
     }
 
@@ -161,8 +171,116 @@ class MailService
             // message that would have gone out.
             $this->transport->deliver($mail);
         } catch (\Exception $e) {
-            throw new MailException($mail->ErrorInfo ?: $e->getMessage());
+            $reason = $mail->ErrorInfo ?: $e->getMessage();
+            $this->journalFailure($reason);
+
+            throw new MailException($reason);
         }
+    }
+
+    /**
+     * An e-mail that did not leave, written down — **whatever** the
+     * caller then does with the exception.
+     *
+     * Here and not in the callers, because the callers are the problem.
+     * There are some ninety send() sites; a handful journal a failure
+     * themselves, a handful more swallow the exception on purpose
+     * (`catch (MailException) {}` — a notification is not worth failing
+     * the action it accompanies), and the rest turn it into a message on
+     * a screen that is gone as soon as the page is reloaded. The result
+     * was an administrator watching « l'e-mail de test n'a pas pu
+     * partir » and finding nothing at all in /admin/journal — which is
+     * also what the diagnostic archive carries, so the failure was
+     * invisible from both ends at once. One entry at the single point
+     * every one of those paths goes through is the only version of this
+     * that cannot be forgotten by the next call site.
+     *
+     * `error`, not `warning`: something the site decided to send did not
+     * go out. Nothing above this line judges whether the caller thought
+     * it important, and nothing should — the whole point is that the
+     * journal stops depending on that judgement.
+     *
+     * The entry never fails the send. It is already the failure path, and
+     * a journal insert that throws (no table yet, a database that just
+     * went away — the very conditions under which mail also stops
+     * working) must not replace a MailException the caller knows how to
+     * read with a PDOException it does not.
+     */
+    private function journalFailure(string $reason): void
+    {
+        try {
+            $this->journal?->log(
+                'core',
+                'mail_send_failed',
+                'error',
+                'Échec d\'envoi d\'un e-mail',
+                [
+                    // Which of the two configurations was in play, and
+                    // whether it was complete at all — « not configured »
+                    // and « the relay refused » are the same sentence on
+                    // screen and completely different problems.
+                    'mode' => $this->getDeliveryMode(),
+                    'configured' => $this->isDeliveryConfigured(),
+                    'origin' => self::callerOutsideThisNamespace(),
+                    'reason' => self::redact($reason),
+                ]
+            );
+        } catch (\Throwable) {
+            // Swallowed on purpose — see the docblock.
+        }
+    }
+
+    /**
+     * What the transport said, with e-mail addresses taken out.
+     *
+     * PHPMailer's `ErrorInfo` quotes the conversation, and the useful
+     * half of it — « 550 5.1.1 User unknown », « Could not authenticate »,
+     * « SMTP connect() failed » — arrives glued to the address that
+     * failed. That address is personal data, this journal is readable by
+     * every admin and travels to the maintainer inside the diagnostic
+     * archive, and SECURITY.md's rule for journal entries has no
+     * exception for « it was in the error message ». The SMTP code and
+     * the server's words are what diagnoses the problem anyway; the
+     * address only says which member happened to be next in the queue.
+     *
+     * Bounded too: `event_log.context` is JSON on a shared-hosting
+     * database, and a transport that answers with a wall of text is
+     * exactly the transport that is misbehaving.
+     */
+    private static function redact(string $reason): string
+    {
+        $clean = (string) preg_replace(
+            '/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/u',
+            '[adresse]',
+            trim($reason)
+        );
+
+        return mb_substr($clean, 0, 400);
+    }
+
+    /**
+     * The first frame that is not this class — « which feature was trying
+     * to send », in a service that is deliberately told nothing about it.
+     *
+     * send() takes a recipient, a subject and a body and nothing that
+     * says why, which is right: ninety call sites should not each have to
+     * name themselves, and the subject is the one field that regularly
+     * carries somebody's name. A class name is neither personal data nor
+     * something that drifts, and it is the difference between « an e-mail
+     * failed » and « the support probe's e-mail failed ».
+     */
+    private static function callerOutsideThisNamespace(): string
+    {
+        foreach (debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 8) as $frame) {
+            $class = (string) ($frame['class'] ?? '');
+            if ($class === '' || str_starts_with($class, 'Core\\Mail\\')) {
+                continue;
+            }
+
+            return $class . '::' . $frame['function'];
+        }
+
+        return 'inconnu';
     }
 
     private function extractDomain(string $email): string

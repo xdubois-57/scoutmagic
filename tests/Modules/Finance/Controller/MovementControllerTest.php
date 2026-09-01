@@ -119,7 +119,7 @@ class MovementControllerTest extends TestCase
 
         $this->controller = new MovementController(
             $twig, $financeService, $this->transactionRepository, $this->categoryRepository, $this->fiscalYearRepository,
-            $attachmentRepository, $transactionAttachmentRepository, $receiptService, $receiptExtractionService,
+            $attachmentRepository, $transactionAttachmentRepository, $receiptService,
             $firstReceiptResolver, $journalService
         );
 

@@ -89,13 +89,12 @@ class ExpireRentalHoldsHandler implements TaskHandlerInterface
      * and never queues a duplicate — and it re-arms the chain by itself if
      * a run ever fails before it could schedule its successor.
      */
+    /**
+     * Called from a composition root, so on every request — see
+     * SchedulerService::seed() for why that must not be rearm().
+     */
     public static function bootstrap(SchedulerService $scheduler): void
     {
-        $scheduler->rearm(
-            'rental',
-            self::TASK_KEY,
-            self::REFERENCE,
-            new \DateTimeImmutable('+' . self::INTERVAL_SECONDS . ' seconds')
-        );
+        $scheduler->seedAfter('rental', self::TASK_KEY, self::REFERENCE, self::INTERVAL_SECONDS);
     }
 }

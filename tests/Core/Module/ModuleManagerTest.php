@@ -846,4 +846,43 @@ class ModuleManagerTest extends TestCase
         }
         @rmdir($cacheDir);
     }
+    /**
+     * Core never knows any module's name, so every page that shows one
+     * asks the manifests. Without this the Réglages page fell back to
+     * `ucfirst(module_id)` and offered « Valid_module » to somebody who
+     * has only ever read the module's real name in the menu.
+     */
+    public function testModuleNamesAreTheOnesTheManifestsGive(): void
+    {
+        $names = $this->manager->moduleNames();
+
+        $this->assertSame('Module de test valide', $names['valid_module']);
+        $this->assertSame('Second Module', $names['second_module']);
+    }
+
+    /**
+     * Wider than the enabled set on purpose: a disabled module's settings
+     * rows survive its deactivation, so there are sections to label for
+     * modules that are not loaded at all.
+     */
+    public function testModuleNamesCoversModulesThatAreNotEnabled(): void
+    {
+        $this->manager->loadEnabledModules();
+
+        $this->assertArrayNotHasKey('second_module', $this->manager->getEnabledModuleNames());
+        $this->assertArrayHasKey('second_module', $this->manager->moduleNames());
+    }
+
+    public function testEnabledModuleNamesAreTheEnabledOnesOnly(): void
+    {
+        $this->manager->activate('valid_module', null);
+        $this->manager->loadEnabledModules();
+
+        $this->assertSame('Module de test valide', $this->manager->getEnabledModuleNames()['valid_module']);
+        $this->assertSame(
+            $this->manager->getEnabledModuleIds(),
+            array_keys($this->manager->getEnabledModuleNames())
+        );
+    }
+
 }

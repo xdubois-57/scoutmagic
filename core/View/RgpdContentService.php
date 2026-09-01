@@ -138,7 +138,15 @@ class RgpdContentService
             prompt: "Génère le contenu RGPD complet en HTML selon la structure imposée dans le prompt système.",
             tier: LlmTier::CAPABLE,
             systemPrompt: $systemPrompt,
-            timeoutSeconds: 90,
+            // Generous, because nothing is waiting on it any more: this
+            // runs inside a scheduled task (Core\View\Task\
+            // GenerateRgpdContentHandler), not inside a page load. Ninety
+            // seconds was the ceiling a browser could stand, and it was
+            // the wrong ceiling for the job — a ~38 000-token system
+            // prompt asking a mid-sized model for a ten-section HTML
+            // document is minutes of work, and « Timeout lors de l'appel
+            // au fournisseur IA » was what an administrator saw for it.
+            timeoutSeconds: 600,
             // The full 10-section document this prompt demands runs well
             // past LlmConnectorService::DEFAULT_MAX_TOKENS (4096, tuned for
             // short replies) — without this override, every provider was
@@ -154,15 +162,18 @@ class RgpdContentService
             maxTokens: 8192
         );
 
-        // The RGPD system prompt is unusually large (full default content +
-        // detailed rules) and completeWithContinuation() below may issue
-        // several sequential calls, so the provider can take much longer to
-        // respond than PHP's default 30s max_execution_time. That limit is a
-        // hard script timeout — unlike the provider's own HTTP timeout, it
-        // is NOT catchable and would otherwise produce a raw fatal error
-        // page instead of a normal exception. Raise it just for this call.
+        // The RGPD system prompt is unusually large — the whole 135 KB
+        // reference document, around 38 000 tokens, before a single rule
+        // is added — and completeWithContinuation() below may issue
+        // several sequential calls, so the provider can take much longer
+        // to respond than PHP's default 30s max_execution_time. That limit
+        // is a hard script timeout — unlike the provider's own HTTP
+        // timeout, it is NOT catchable and would otherwise produce a raw
+        // fatal error page instead of a normal exception. The caller
+        // raises it too (RgpdGenerationRunner); this stays because the
+        // method must be safe to call from anywhere.
         $previousLimit = ini_get('max_execution_time');
-        set_time_limit(300);
+        set_time_limit(1800);
 
         try {
             $content = $this->completeWithContinuation($request);

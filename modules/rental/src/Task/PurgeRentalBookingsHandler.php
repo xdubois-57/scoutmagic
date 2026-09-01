@@ -104,13 +104,12 @@ class PurgeRentalBookingsHandler implements TaskHandlerInterface
         );
     }
 
+    /**
+     * Called from a composition root, so on every request — see
+     * SchedulerService::seed() for why that must not be rearm().
+     */
     public static function bootstrap(SchedulerService $scheduler): void
     {
-        $scheduler->rearm(
-            'rental',
-            self::TASK_KEY,
-            self::REFERENCE,
-            new \DateTimeImmutable('+' . self::INTERVAL_SECONDS . ' seconds')
-        );
+        $scheduler->seedAfter('rental', self::TASK_KEY, self::REFERENCE, self::INTERVAL_SECONDS);
     }
 }

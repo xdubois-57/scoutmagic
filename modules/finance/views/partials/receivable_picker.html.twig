@@ -1,0 +1,56 @@
+{#
+  « Quelle créance ? », answered by typing a name.
+
+  The field this replaces asked for the receivable's **id**, and said so:
+  « L'identifiant de la créance, repris dans l'export de la campagne ».
+  That is a page telling its reader to leave, open a spreadsheet, find a
+  line and come back with an integer. The page next to it has always
+  answered « quel mouvement ? » by searching (the receipts picker, over
+  /finance/movements/search); this is that same shape for the other half
+  of an imputation.
+
+  A partial rather than markup in one page, because a receivable is
+  chosen in more than one gesture and the next one must not have to
+  reinvent the control. It is deliberately NOT used for « imputer sur une
+  autre créance du foyer », whose choices are the two or three other
+  receivables of one household: a closed list that short is a `select`,
+  and turning it into a search box would hide three options behind an
+  empty box.
+
+  **Nothing renders BELOW the input, and that is a layout rule, not a
+  preference.** These pickers sit in a `row g-2 align-items-end`, which
+  aligns the BOTTOMS of the columns and not the controls — so anything
+  under one field (a help text, a result list, a confirmation line)
+  pushes that field's input up and leaves it out of line with the amount
+  beside it. The suggestions are therefore an absolutely-positioned
+  dropdown, the way an autocomplete has always been, and the chosen
+  receivable is shown IN the input rather than under it.
+
+  Parameters:
+    picker_id            -- unique, prefixes every id inside
+    field_name           -- the name the chosen id is submitted under
+    label                -- the visible label
+    account_id           -- the account the search is narrowed to
+    near_amount_cents    -- optional: with no search text, the receivables
+                            owing exactly this come first
+#}
+<div class="receivable-picker" data-account-id="{{ account_id }}"
+     {% if near_amount_cents is defined and near_amount_cents is not null %}data-near-amount-cents="{{ near_amount_cents }}"{% endif %}>
+    {% include 'partials/form_field.html.twig' with {
+        field_id: picker_id ~ '-search',
+        label: label,
+        size: 'sm',
+        wrapper_class: 'mb-0',
+        placeholder: 'Nom, communication ou identifiant…',
+        autocomplete: 'off',
+    } only %}
+
+    {# The value the form actually submits. Hidden because what the
+       treasurer picks is a person, and what an imputation needs is an id:
+       showing the id in the box would be showing them the thing they came
+       here not to have to know. #}
+    <input type="hidden" name="{{ field_name }}" value="" data-receivable-value>
+
+    <div class="receivable-picker__results list-group d-none" data-receivable-results
+         role="listbox" aria-label="Créances proposées"></div>
+</div>

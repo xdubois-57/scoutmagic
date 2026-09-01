@@ -107,7 +107,8 @@ class SupportDashboardTestHelper
             expires_at TEXT NOT NULL,
             received_at TEXT NULL,
             delay_seconds INTEGER NULL,
-            authentication_encrypted BLOB NULL
+            authentication_encrypted BLOB NULL,
+            raw_headers_encrypted BLOB NULL
         )');
 
         $pdo->exec('CREATE TABLE support_ticket_analyses (

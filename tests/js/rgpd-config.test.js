@@ -25,14 +25,19 @@ async function settle() {
     await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-/** @param {string} mode the radio checked on first paint */
-function buildDom(mode = 'default') {
+/**
+ * @param {string} mode the radio checked on first paint
+ * @param {boolean} running whether the server says a run is in flight —
+ *        rendered as an attribute, not fetched, so the page is right on
+ *        its first paint (the run outlives the request that asked for it)
+ */
+function buildDom(mode = 'default', running = false) {
     document.head.innerHTML = '<meta name="csrf-token" content="tok">';
     document.body.innerHTML = `
         <label><input type="radio" name="mode" value="default" ${mode === 'default' ? 'checked' : ''}></label>
         <label><input type="radio" name="mode" value="custom" ${mode === 'custom' ? 'checked' : ''}></label>
         <label><input type="radio" name="mode" value="ai" ${mode === 'ai' ? 'checked' : ''}></label>
-        <div id="ai-prompt-card"><textarea id="ai-prompt"></textarea></div>
+        <div id="ai-prompt-card" data-generation-running="${running ? '1' : '0'}"><textarea id="ai-prompt"></textarea></div>
         <button id="generate-btn">Générer</button>
         <span id="generate-status"></span>
         <button id="reset-btn">Réinitialiser</button>
@@ -45,9 +50,12 @@ function buildDom(mode = 'default') {
     `;
 }
 
-/** @param {string} [mode] */
-async function boot(mode) {
-    buildDom(mode);
+/**
+ * @param {string} [mode]
+ * @param {boolean} [running]
+ */
+async function boot(mode, running) {
+    buildDom(mode, running);
     vi.resetModules();
     // The real fetch toolbox — rgpd-config.js posts through the shared
     // window.ScoutMagicApi envelope (base.html.twig guarantees the load
@@ -180,7 +188,13 @@ describe('rgpd-config.js: which controls each generation mode shows', () => {
         ai.dispatchEvent(new Event('change'));
         await settle();
 
-        expect(fetchedUrls()).toEqual(['/config/rgpd/reset', '/config/rgpd/generate']);
+        // The POST queues; the status call that follows is the polling
+        // that replaced waiting on the response.
+        expect(fetchedUrls()).toEqual([
+            '/config/rgpd/reset',
+            '/config/rgpd/generate',
+            '/config/rgpd/generate/status',
+        ]);
         expect(bodyOf(1)).toMatchObject({ prompt: 'Association scoute' }); // trimmed
     });
 });
@@ -210,8 +224,14 @@ describe('rgpd-config.js: the generate button', () => {
             .toContain('Erreur : réponse serveur invalide.');
     });
 
-    it('paints the generated content into the preview on success', async () => {
-        global.fetch = vi.fn(() => jsonResponse({ success: true, content: '<p>Texte généré.</p>' }));
+    // The POST only QUEUES: the document takes minutes to write, so the
+    // work moved to a scheduled task and the outcome is polled for
+    // (Core\View\RgpdGenerationRunner). Nothing about the button changes;
+    // what changes is where the answer comes from.
+    it('paints the generated content into the preview once the run reports done', async () => {
+        global.fetch = vi.fn((url) => (String(url).includes('/status')
+            ? jsonResponse({ success: true, running: false, status: 'done', content: '<p>Texte généré.</p>' })
+            : jsonResponse({ success: true, queued: true })));
         await boot('ai');
 
         document.getElementById('generate-btn').click();
@@ -219,5 +239,43 @@ describe('rgpd-config.js: the generate button', () => {
 
         expect(document.querySelector('.rich-text-field-preview').innerHTML).toBe('<p>Texte généré.</p>');
         expect(document.getElementById('generate-status').textContent).toContain('Contenu généré et enregistré');
+    });
+
+    it('keeps polling while the run is still going, and reports the failure it ends on', async () => {
+        let statusCalls = 0;
+        global.fetch = vi.fn((url) => {
+            if (!String(url).includes('/status')) {
+                return jsonResponse({ success: true, queued: true });
+            }
+            statusCalls += 1;
+
+            return statusCalls === 1
+                ? jsonResponse({ success: true, running: true, status: 'running' })
+                : jsonResponse({ success: true, running: false, status: 'failed', error: 'Échec de génération : boum.' });
+        });
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        await boot('ai');
+
+        document.getElementById('generate-btn').click();
+        await settle();
+        await vi.advanceTimersByTimeAsync(3000);
+        await settle();
+
+        vi.useRealTimers();
+        expect(statusCalls).toBeGreaterThan(1);
+        expect(document.getElementById('generate-status').textContent).toContain('Échec de génération : boum.');
+        expect(/** @type {HTMLButtonElement} */ (document.getElementById('generate-btn')).disabled).toBe(false);
+    });
+
+    // The run outlives the request that asked for it — by minutes — so a
+    // reload has to pick the ticker back up rather than show an idle
+    // button beside a job in flight.
+    it('resumes the ticker for a run that was already going when the page loaded', async () => {
+        global.fetch = vi.fn(() => jsonResponse({ success: true, running: true, status: 'running' }));
+        await boot('ai', true);
+        await settle();
+
+        expect(/** @type {HTMLButtonElement} */ (document.getElementById('generate-btn')).disabled).toBe(true);
+        expect(document.getElementById('generate-status').textContent).toContain('Génération en cours');
     });
 });

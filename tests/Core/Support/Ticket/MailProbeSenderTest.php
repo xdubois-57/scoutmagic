@@ -162,6 +162,116 @@ class MailProbeSenderTest extends TestCase
         )->fetch(\PDO::FETCH_ASSOC);
         $this->assertIsArray($row);
         $this->assertSame('warning', $row['level']);
+
+        // And the reason the box refused, one entry per address, from
+        // MailService itself — « la sonde n'est pas partie » without it
+        // says nothing anybody can act on.
+        $failure = $this->pdo->query(
+            "SELECT level FROM event_log WHERE event_type = 'mail_send_failed'"
+        )->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($failure);
+        $this->assertSame('error', $failure['level']);
+    }
+
+    /**
+     * A rate limit exists to cap what actually goes out. Capping what did
+     * NOT go out is a lock with no key: an administrator whose relay was
+     * misconfigured watched the probe fail, fixed the relay, pressed
+     * again — and was told « il y en a déjà eu un il y a moins d'une
+     * heure », which was untrue and had no way of becoming untrue for an
+     * hour.
+     */
+    public function testARunThatDeliveredNothingIsNotRememberedAsARun(): void
+    {
+        $this->mailTransport->failFor = '*';
+        $sender = $this->sender($this->issuing(['support@scoutmagic.be']));
+
+        $sender->send($this->now());
+
+        $this->assertNull($sender->rateLimitedUntil($this->now()));
+        // And no key to go looking for either: the receiver was told to
+        // expect messages that never arrived.
+        $this->assertNull($sender->lastRun());
+    }
+
+    /**
+     * The press right after that one has to travel, since the local gate
+     * is the only thing that could have stopped it.
+     */
+    public function testTheNextPressAfterATotalFailureTravelsAgain(): void
+    {
+        $this->mailTransport->failFor = '*';
+        $transport = $this->issuing(['support@scoutmagic.be']);
+        $sender = $this->sender($transport);
+
+        $sender->send($this->now());
+        $this->mailTransport->failFor = null;
+        $result = $sender->send($this->now()->modify('+2 minutes'));
+
+        $this->assertCount(2, $transport->calls);
+        $this->assertTrue($result->sent);
+    }
+
+    /**
+     * The local stamp means « this installation sent probes at T », and a
+     * refusal is not a send. Stamping it restarted the local hour from
+     * the moment of the refusal, so pressing every few minutes pushed the
+     * window ahead of itself and it never reopened at all.
+     */
+    public function testAReceiverRefusalDoesNotRestartTheLocalWindow(): void
+    {
+        $sender = $this->sender($this->transport(200, ['status' => 'rate_limited']));
+
+        $sender->send($this->now());
+
+        $this->assertNull($sender->rateLimitedUntil($this->now()->modify('+1 minute')));
+    }
+
+    /**
+     * @return array<string, array{int, array<string, mixed>|string, string}>
+     */
+    public static function refusalProvider(): array
+    {
+        return self::failureProvider() + [
+            'it relays no mailbox at all' => [
+                200,
+                ['status' => 'unavailable', 'addresses' => []],
+                MailProbeSender::FAILURE_NO_MAILBOX,
+            ],
+            'it counted a run of its own' => [
+                200,
+                ['status' => 'rate_limited'],
+                MailProbeSender::FAILURE_RATE_LIMITED,
+            ],
+        ];
+    }
+
+    /**
+     * All the administrator sees is « L'e-mail de test n'a pas pu partir »,
+     * whichever of these it was. Only the run that DID send used to be
+     * journaled, so the event journal — which is also what the diagnostic
+     * archive carries — said nothing whatsoever about a probe they had
+     * just watched fail.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('refusalProvider')]
+    public function testEveryRefusalIsWrittenDownAndNotOnlyTheRunsThatSent(
+        int $status,
+        array|string $body,
+        string $expectedReason
+    ): void {
+        $transport = is_string($body)
+            ? new RecordingProbeTransport(StatisticsTransportResponse::response($status, $body))
+            : $this->transport($status, $body);
+
+        $this->sender($transport)->send($this->now());
+
+        $row = $this->pdo->query(
+            "SELECT level, context FROM event_log WHERE event_type = 'support_mail_probe_not_sent'"
+        )->fetch(\PDO::FETCH_ASSOC);
+
+        $this->assertIsArray($row);
+        $this->assertSame('warning', $row['level']);
+        $this->assertStringContainsString($expectedReason, (string) $row['context']);
     }
 
     public function testASecondRunWithinTheHourNeverLeaves(): void
@@ -326,7 +436,8 @@ class MailProbeSenderTest extends TestCase
                 shortName: 'Unité test',
                 dkimManager: new DkimManager($this->projectRoot . '/storage/keys'),
                 dkimSelector: 'mail',
-                transport: $this->mailTransport
+                transport: $this->mailTransport,
+                journal: $journal
             ),
             $journal,
             '1.0.33'

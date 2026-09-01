@@ -2,8 +2,8 @@
 id: config-reinscription
 title: Piloter la campagne de réinscription
 summary: Les dates, les rappels, l'interrupteur et le suivi de la campagne.
-category: Configuration
-role_min: superadmin
+category: Espace chefs d'U
+role_min: admin
 question: Comment ouvrir la campagne de réinscription aux familles ?
 question: Comment relancer les familles qui n'ont pas répondu ?
 paths: /config/reinscription
