@@ -501,8 +501,12 @@
                         notification lorsqu'elle sera prête.
                     </p>
                     <form id="full-backup-form" {{ not zip_encryption_supported ? 'class="d-none"' : '' }}>
-                        <div class="mb-2">
-                            <label class="form-label small">Portée</label>
+                        {# A group of radios is labelled by a <legend> inside a
+                           <fieldset>, not by a loose <label> pointing at nothing:
+                           a screen reader announces the legend with each option,
+                           which is the whole point of the grouping. #}
+                        <fieldset class="mb-2 border-0 p-0">
+                            <legend class="form-label small float-none w-auto">Portée</legend>
                             <div class="form-check">
                                 <input class="form-check-input" type="radio" name="scope" id="scope-config" value="full_config" checked>
                                 <label class="form-check-label small" for="scope-config">Configuration seule (paramètres, structure — sans les données membres)</label>
@@ -517,7 +521,7 @@
                                     <label class="form-check-label small" for="scope-with-gallery">Site complet, avec la galerie photo</label>
                                 </div>
                             {% endif %}
-                        </div>
+                        </fieldset>
                         {% include 'partials/form_field.html.twig' with {
                             field_id: 'full-backup-password', type: 'password',
                             label: "Mot de passe de l'archive", required: true,

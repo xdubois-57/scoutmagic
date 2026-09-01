@@ -185,8 +185,8 @@ const CONTENT_CACHE_PREFIX = 'content-';
  * @returns {string}
  */
 function trimSlashes(value) {
-    var from = 0;
-    var to = value.length;
+    let from = 0;
+    let to = value.length;
     while (from < to && value[from] === '/') { from++; }
     while (to > from && value[to - 1] === '/') { to--; }
 
