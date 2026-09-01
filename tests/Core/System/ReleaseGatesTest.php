@@ -7,11 +7,20 @@ namespace Tests\Core\System;
 use PHPUnit\Framework\TestCase;
 
 /**
- * `scripts/release.sh` runs its gates in parallel, and adding one means
- * touching six places that no compiler connects: the skip flag's
- * variable, its argument case, its documentation in the header, the
- * `launch_gate` call, the line that reads the gate's report file, and
- * the assembled Markdown report.
+ * `scripts/release.sh` runs its gates in two waves — the ones that take
+ * seconds first and in order (`run_fast_gate`), the long ones in parallel
+ * afterwards (`launch_gate`) — and adding one means touching six places
+ * that no compiler connects: the skip flag's variable, its argument case,
+ * its documentation in the header, the call that starts it, the line that
+ * reads the gate's report file, and the assembled Markdown report.
+ *
+ * **Which of the two launchers a gate uses is a scheduling decision, and
+ * this test deliberately does not have an opinion on it.** What it holds
+ * is that every gate function is started by ONE of them: a gate moved from
+ * one wave to the other must not fall out of the checks below, and when
+ * the fast wave was introduced it did exactly that — four gates stopped
+ * being seen as launched at all, and the test that exists to catch a gate
+ * nobody runs went red for gates that run perfectly well.
  *
  * Miss one and the release still works, which is the problem. Forget the
  * report line and the release notes silently omit a gate that ran.
@@ -31,14 +40,21 @@ class ReleaseGatesTest extends TestCase
     }
 
     /**
-     * The gate keys, taken from the `launch_gate` calls — the one place
-     * that decides what actually runs.
+     * Either launcher, because either one actually runs the gate.
+     *
+     * @see LAUNCHERS
+     */
+    private const LAUNCHERS = '(?:launch_gate|run_fast_gate)';
+
+    /**
+     * The gate keys, taken from the launch calls — the one place that
+     * decides what actually runs.
      *
      * @return list<string>
      */
     private static function launchedKeys(): array
     {
-        preg_match_all('/^\s*launch_gate\s+([a-z_]+)\s/m', self::script(), $matches);
+        preg_match_all('/^\s*' . self::LAUNCHERS . '\s+([a-z_]+)\s/m', self::script(), $matches);
 
         return array_values(array_unique($matches[1]));
     }
@@ -68,12 +84,15 @@ class ReleaseGatesTest extends TestCase
         $orphans = [];
 
         foreach (self::gateFunctions() as $name) {
-            if (preg_match('/launch_gate\s+\S+\s+"[^"]*"\s+check_' . preg_quote($name, '/') . '_gate\b/', $script) !== 1) {
+            if (preg_match(
+                '/' . self::LAUNCHERS . '\s+\S+\s+"[^"]*"\s+check_' . preg_quote($name, '/') . '_gate\b/',
+                $script
+            ) !== 1) {
                 $orphans[] = "check_{$name}_gate";
             }
         }
 
-        $this->assertSame([], $orphans, 'these gate functions are never passed to launch_gate — they never run');
+        $this->assertSame([], $orphans, 'these gate functions are passed to neither launcher — they never run');
     }
 
     /**

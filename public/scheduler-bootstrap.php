@@ -495,7 +495,12 @@ function scoutmagic_bootstrap_scheduler(
                                         $storagePath
                                     ),
                                     $storagePath
-                                )
+                                ),
+                                null,
+                                // The last resort: a scanned contract,
+                                // transcribed at the OCR tier. A PDF that
+                                // carries its own text never costs a call.
+                                $llm
                             ),
                             // Every refusal of this path lands in the
                             // journal, named. It is the module's most
