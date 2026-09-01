@@ -37,6 +37,16 @@ class MigrationRunnerChunkingTest extends TestCase
     {
         $this->tmpDir = sys_get_temp_dir() . '/migration_chunking_test_' . uniqid();
         mkdir($this->tmpDir);
+        // Canonicalised, because MigrationRunner canonicalises too: it keys
+        // both the schema-hash setting and the resumable progress row on
+        // realpath() of the schema file (ARCHITECTURE.md §10, « One file is
+        // one migration, however it is spelled »). On Linux sys_get_temp_dir()
+        // is already canonical and the difference never shows; on macOS
+        // /var/folders/... resolves to /private/var/folders/..., so a test
+        // deriving its expected key from the raw path looked for a setting
+        // the runner had written under a different name — and failed on a
+        // path difference while claiming the chunking was broken.
+        $this->tmpDir = realpath($this->tmpDir);
         $this->schemaPath = $this->tmpDir . '/schema.sql';
         file_put_contents(
             $this->schemaPath,
