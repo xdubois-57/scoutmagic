@@ -76,12 +76,6 @@ class ReconcileReceivablesHandler implements TaskHandlerInterface
             return;
         }
 
-        $schedulerService->schedule(
-            'finance',
-            'reconcile_receivables',
-            new \DateTimeImmutable('tomorrow 04:00'),
-            [],
-            self::REFERENCE
-        );
+        $schedulerService->rearm('finance', 'reconcile_receivables', self::REFERENCE, new \DateTimeImmutable('tomorrow 04:00'));
     }
 }

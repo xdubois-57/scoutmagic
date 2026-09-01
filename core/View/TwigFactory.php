@@ -108,8 +108,15 @@ class TwigFactory
         // a stale script against a new page. Every template reference to
         // /assets/ must go through it — pinned by
         // Tests\Core\View\AssetVersioningTest.
+        // `asset_version` rather than `app_version`: the release version
+        // does not change between two deploys of the same release, and
+        // `main` sits at one release across dozens of merges — so this
+        // query string stopped busting anything at all. See
+        // Core\Maintenance\AssetVersion. The fallback chain keeps a
+        // test-built environment (which sets neither global) working.
         $environment->addFunction(new TwigFunction('asset', function (string $path) use ($environment): string {
-            $version = (string) ($environment->getGlobals()['app_version'] ?? 'dev');
+            $globals = $environment->getGlobals();
+            $version = (string) ($globals['asset_version'] ?? $globals['app_version'] ?? 'dev');
 
             return $path . '?v=' . rawurlencode($version);
         }));

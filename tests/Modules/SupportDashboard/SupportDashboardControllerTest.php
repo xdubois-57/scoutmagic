@@ -129,7 +129,12 @@ class SupportDashboardControllerTest extends TestCase
             ->handle(new Request('GET', '/support-dashboard', [], [], [], []));
 
         $this->assertSame(200, $response->getStatusCode());
-        $this->assertStringContainsString('Tableau de bord support', $response->getBody());
+        // « Supervision » is the menu entry — it was « Support », the same
+        // label the unit's own /config/support page carries, so a receiver
+        // showed two identical lines under Configuration. « Tableau de
+        // bord » is this screen inside it, the way finance names its own.
+        $this->assertStringContainsString('Tableau de bord', $response->getBody());
+        $this->assertStringContainsString('Supervision', $response->getBody());
     }
 
     public function testAdminIsRejectedByTheGuard(): void

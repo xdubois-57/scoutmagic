@@ -11,8 +11,11 @@ use Core\Http\Controller\SupportController;
 use Core\Http\FrontController;
 use Core\Http\Request;
 use Core\Http\Router;
+use Core\File\EncryptedFileStorageService;
+use Core\File\FileRepository;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
+use Core\Security\EncryptionService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Scheduler\SchedulerRepository;
@@ -22,6 +25,7 @@ use Core\Statistics\InstallationDateService;
 use Core\Statistics\InstallationIdentityService;
 use Core\Statistics\StatisticsPayloadBuilder;
 use Core\Statistics\StatisticsSender;
+use Core\Support\Ticket\ArchiveTransportInterface;
 use Core\Support\Ticket\SupportArchiveSender;
 use Core\Support\Ticket\SupportTicketSender;
 use Core\Support\Ticket\TicketIdentityService;
@@ -31,6 +35,7 @@ use Core\Support\SupportPackageState;
 use Core\Support\Task\GenerateSupportPackageHandler;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Core\View\TwigFactory;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 
@@ -63,6 +68,28 @@ final class SupportRecordingTransport implements StatisticsTransportInterface
 }
 
 /**
+ * The archive half of the same seam. Separate class because the interface
+ * is separate (`Core\Support\Ticket\ArchiveTransportInterface`), and
+ * declared here for the same PSR-4 reason as the one above.
+ */
+final class SupportRecordingArchiveTransport implements ArchiveTransportInterface
+{
+    /** @var array<int, array{url: string, bytes: int}> */
+    public array $calls = [];
+
+    public function __construct(private ?StatisticsTransportResponse $response = null)
+    {
+    }
+
+    public function postArchive(string $url, string $bytes, string $bearerToken, string $userAgent): StatisticsTransportResponse
+    {
+        $this->calls[] = ['url' => $url, 'bytes' => strlen($bytes)];
+
+        return $this->response ?? StatisticsTransportResponse::response(200, '{"status":"accepted"}');
+    }
+}
+
+/**
  * @group database
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
@@ -78,6 +105,7 @@ class SupportControllerTest extends TestCase
     private InstallationIdentityService $identityService;
     private SupportRecordingTransport $ticketTransport;
     private SupportRecordingTransport $transport;
+    private SupportRecordingArchiveTransport $archiveTransport;
     private int $userId;
 
     protected function setUp(): void
@@ -103,15 +131,13 @@ class SupportControllerTest extends TestCase
         $this->identityService = new InstallationIdentityService($this->settings, $this->secretManager);
         $journalService = new JournalService(new JournalRepository($this->pdo));
 
-        $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
-        $this->twig = new Environment(new FilesystemLoader($templateDir), ['cache' => false, 'autoescape' => 'html']);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $this->twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
-        $this->twig->addFunction(new \Twig\TwigFunction('csrf_field', fn() => '<input type="hidden" name="_csrf_token" value="test">', ['is_safe' => ['html']]));
-        $this->twig->addFunction(new \Twig\TwigFunction('get_flash', fn() => null));
-        $this->twig->addFunction(new \Twig\TwigFunction('csrf_token', fn() => 'test'));
-        $this->twig->addFilter(new \Twig\TwigFilter('french_date', fn($d) => (string) $d));
+        // The REAL environment, not a hand-rolled one with the four
+        // helpers this page happened to need. A stub list drifts: the
+        // support page grew a `|datetime_fr` and every test in this class
+        // errored on an unknown filter, which says nothing about the page
+        // and everything about the harness. TwigFactory takes only a
+        // template directory, so there is no reason to reproduce it.
+        $this->twig = TwigFactory::create(dirname(__DIR__, 4) . '/core/View/templates', true);
         $this->twig->addGlobal('site_name', 'Test');
         $this->twig->addGlobal('menus', null);
         $this->twig->addGlobal('csp_nonce', 'n');
@@ -124,7 +150,24 @@ class SupportControllerTest extends TestCase
         );
         $this->transport = new SupportRecordingTransport();
         $this->ticketTransport = new SupportRecordingTransport();
+        $this->archiveTransport = new SupportRecordingArchiveTransport();
         $ticketIdentity = new TicketIdentityService($this->settings, $this->identityService, $journalService);
+        // The archive sender is wired here rather than left null: the
+        // « Archive transmise » / « non transmise » line only renders when
+        // one is present, and it was precisely that line that lied in
+        // production while every test rendered a page without it.
+        $archiveSender = new SupportArchiveSender(
+            $this->settings,
+            $ticketIdentity,
+            new EncryptedFileStorageService(
+                new FileRepository($this->pdo),
+                new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)),
+                $this->projectRoot . '/storage'
+            ),
+            $this->archiveTransport,
+            $journalService,
+            '1.0.33'
+        );
         $this->controller = new SupportController(
             $this->twig,
             $this->settings,
@@ -147,7 +190,8 @@ class SupportControllerTest extends TestCase
                 $journalService,
                 '1.0.33'
             ),
-            $ticketIdentity
+            $ticketIdentity,
+            $archiveSender
         );
 
         $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index, is_super_admin) VALUES (?, ?, 1)');
@@ -452,6 +496,51 @@ class SupportControllerTest extends TestCase
 
         $this->assertSame(302, $response->getStatusCode());
         $this->assertSame('', (string) $this->settings->get(SupportArchiveSender::ARCHIVE_REFERENCE_SETTING));
+    }
+
+    /**
+     * The symptom a superadmin actually reported: the archive left, the
+     * confirmation said so, and the page went on saying « Archive non
+     * transmise » — for ever, because the reference it compares against
+     * was never written.
+     *
+     * The root cause was a setting nobody registered, which
+     * `Tests\Architecture\SupportSettingsAreRegisteredTest` now guards.
+     * This test pins the other half: given the bookkeeping IS written,
+     * the badge has to flip.
+     */
+    public function testATransmittedArchiveStopsSayingItIsNotTransmitted(): void
+    {
+        $this->settings->setInternal(SupportTicketSender::LAST_REFERENCE_SETTING, 'SUP-7KQ4F2');
+        $this->settings->setInternal(SupportTicketSender::LAST_SENT_AT_SETTING, '2026-09-01 08:14:02');
+
+        $before = $this->controller->index(new Request('GET', '/config/support', [], [], [], []), [])->getBody();
+        $this->assertStringContainsString('Archive non transmise', $before);
+
+        // What SupportArchiveSender records on a successful send.
+        $this->settings->setInternal(SupportArchiveSender::ARCHIVE_REFERENCE_SETTING, 'SUP-7KQ4F2');
+        $this->settings->setInternal(SupportArchiveSender::ARCHIVE_SENT_AT_SETTING, '2026-09-01 08:14:05');
+
+        $after = $this->controller->index(new Request('GET', '/config/support', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Archive transmise', $after);
+        $this->assertStringNotContainsString('Archive non transmise', $after);
+    }
+
+    /**
+     * The bookkeeping is per ticket, not a global flag: an archive sent
+     * for the PREVIOUS ticket must not make the new one look complete.
+     */
+    public function testAnArchiveFromAnEarlierTicketDoesNotCountForThisOne(): void
+    {
+        $this->settings->setInternal(SupportArchiveSender::ARCHIVE_REFERENCE_SETTING, 'SUP-OLDONE');
+        $this->settings->setInternal(SupportArchiveSender::ARCHIVE_SENT_AT_SETTING, '2026-08-30 10:00:00');
+        $this->settings->setInternal(SupportTicketSender::LAST_REFERENCE_SETTING, 'SUP-7KQ4F2');
+        $this->settings->setInternal(SupportTicketSender::LAST_SENT_AT_SETTING, '2026-09-01 08:14:02');
+
+        $body = $this->controller->index(new Request('GET', '/config/support', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Archive non transmise', $body);
     }
 
     public function testWithoutATicketThereIsNothingToAttachAnArchiveTo(): void
@@ -897,7 +986,14 @@ class SupportControllerTest extends TestCase
         $this->assertSame(404, $response->getStatusCode());
     }
 
-    public function testAnExistingPackageIsOfferedForDownloadOnPageLoad(): void
+    /**
+     * The stamp is the one timestamp of this page stored as ISO 8601
+     * **UTC**, and it is shown with its hour, on the clock the rest of
+     * the site runs on: 10:00 UTC in August is 12:00 in Brussels, and
+     * « générée le 19 août 2026 » with no hour never said whether the
+     * archive was built this morning or the evening before.
+     */
+    public function testAnExistingPackageIsOfferedForDownloadWithItsLocalGenerationTime(): void
     {
         $this->settingRepository->updateValue(null, SupportPackageState::FILE_ID, '7');
         $this->settingRepository->updateValue(null, SupportPackageState::GENERATED_AT, '2026-08-19T10:00:00+00:00');
@@ -906,7 +1002,8 @@ class SupportControllerTest extends TestCase
         $body = $this->controller->index(new Request('GET', '/config/support', [], [], [], []), [])->getBody();
 
         $this->assertStringContainsString('/files/7', $body);
-        $this->assertStringContainsString('2026-08-19T10:00:00+00:00', $body);
+        $this->assertStringContainsString('19/08/2026 à 12:00', $body);
+        $this->assertStringNotContainsString('2026-08-19T10:00:00+00:00', $body);
     }
 
     public function testThePageNeverOffersAnAutomaticTransmission(): void

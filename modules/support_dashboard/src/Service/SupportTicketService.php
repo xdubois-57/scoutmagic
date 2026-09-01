@@ -213,6 +213,38 @@ class SupportTicketService
     }
 
     /**
+     * Reopen a closed ticket.
+     *
+     * A ticket is closed on a judgement — « je pense que c'est réglé » —
+     * and a judgement can turn out to be wrong three days later when the
+     * unit writes back. Without this the only way back was a second
+     * ticket, which loses the first one's note and its archive.
+     *
+     * @return bool false when the ticket does not exist or is already open
+     */
+    public function reopen(int $id): bool
+    {
+        $ticket = $this->tickets->find($id);
+        if ($ticket === null) {
+            return false;
+        }
+
+        if (!$this->tickets->reopen($id)) {
+            return false;
+        }
+
+        $this->journal->log(
+            'support_dashboard',
+            'support_ticket_reopened',
+            'info',
+            'Ticket de support rouvert',
+            ['reference' => (string) $ticket['reference']]
+        );
+
+        return true;
+    }
+
+    /**
      * Case- and accent-insensitive, because « problème » and « probleme »
      * are the same search to the person typing it.
      */

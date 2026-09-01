@@ -302,6 +302,34 @@ class SupportTicketRepository
     }
 
     /**
+     * Put a closed ticket back in the open queue.
+     *
+     * CLOSED-only, the mirror of `close()`'s OPEN-only guard: reopening
+     * twice must not silently do anything, and a race between two
+     * maintainers must resolve to one act.
+     *
+     * **The resolution note is kept.** It is the only record of what was
+     * done the first time, and a ticket that comes back is exactly when
+     * that record is worth reading — so it stays on the row and the page
+     * shows it above the form rather than being erased by the reopening.
+     *
+     * Clearing `closed_at` also moves the archive off the ninety-day
+     * post-closure clock and back onto the one-year absolute cap
+     * (`findArchivesToPurge()`), which is the correct answer: a ticket
+     * that is open again is not a ticket whose archive should be about to
+     * disappear.
+     */
+    public function reopen(int $id): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE support_tickets SET status = ?, closed_at = NULL WHERE id = ? AND status = ?'
+        );
+        $stmt->execute([self::STATUS_OPEN, $id, self::STATUS_CLOSED]);
+
+        return $stmt->rowCount() > 0;
+    }
+
+    /**
      * Forget the archive, keeping the ticket.
      *
      * Called by the purge once the archive's own retention is up. The

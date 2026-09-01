@@ -106,7 +106,7 @@ class PurgeCampaignFilesHandler implements TaskHandlerInterface
             }
         } finally {
             $scheduler = new SchedulerService(new SchedulerRepository($pdo));
-            $scheduler->scheduleAfter('finance', self::TASK_KEY, self::INTERVAL_SECONDS, [], self::REFERENCE);
+            $scheduler->rearmAfter('finance', self::TASK_KEY, self::REFERENCE, self::INTERVAL_SECONDS);
         }
     }
 }

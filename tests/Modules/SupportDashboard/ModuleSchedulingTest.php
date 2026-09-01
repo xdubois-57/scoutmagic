@@ -128,8 +128,12 @@ class ModuleSchedulingTest extends TestCase
             $this->assertSame('daily', $handler::REFERENCE, $handler . ' does not use the daily reference');
 
             $source = (string) file_get_contents((string) (new \ReflectionClass($handler))->getFileName());
+            // rearmAfter(), not scheduleAfter(): the guarded form is now
+            // the only acceptable one for a recurring chain — see
+            // Tests\Architecture\RecurringTasksRearmTest for what the
+            // unguarded one did to a production journal.
             $this->assertStringContainsString(
-                'scheduleAfter(',
+                'rearmAfter(',
                 $source,
                 $handler . ' never reschedules itself, so it would run exactly once.'
             );

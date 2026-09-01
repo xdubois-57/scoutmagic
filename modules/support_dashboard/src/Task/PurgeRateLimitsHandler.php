@@ -52,7 +52,7 @@ class PurgeRateLimitsHandler implements TaskHandlerInterface
                 ->deleteExpired(new \DateTimeImmutable());
         } finally {
             $scheduler = new SchedulerService(new SchedulerRepository($context->connection->getPdo()));
-            $scheduler->scheduleAfter('support_dashboard', self::TASK_KEY, self::INTERVAL_SECONDS, [], self::REFERENCE);
+            $scheduler->rearmAfter('support_dashboard', self::TASK_KEY, self::REFERENCE, self::INTERVAL_SECONDS);
         }
     }
 }

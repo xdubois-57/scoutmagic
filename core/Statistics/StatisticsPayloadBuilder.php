@@ -8,11 +8,13 @@ declare(strict_types=1);
 
 namespace Core\Statistics;
 
+use Core\Config\ScoutYearService;
 use Core\Config\SettingService;
 use Core\Mail\MailService;
 use Core\Maintenance\VersionFile;
 use Core\Member\UnitStaffSectionService;
 use Core\Module\ModuleManager;
+use Core\ScoutYear\ScoutYearResolver;
 use Core\Service\DateInput;
 
 /**
@@ -176,9 +178,34 @@ class StatisticsPayloadBuilder
      * The scout year the public site is on — never the preview year and
      * never the staff year, both of which are staff-side working state.
      */
+    /**
+     * The year every page of the site is showing — which is NOT simply
+     * the `current_scout_year_id` setting.
+     *
+     * That setting ships at `0` and stays there unless somebody pins a
+     * year by hand; `Core\ScoutYear\ScoutYearResolver` then falls back to
+     * the year the date says we are in, and that fallback is the normal
+     * case rather than the exception. Reading the setting alone made
+     * « membres actifs », « sections actives » and the scout-year label
+     * null on every installation that never pinned it — most of them — so
+     * the two counts a maintainer reads while answering a ticket showed
+     * « Non renseigné » on a site that knew both perfectly well.
+     *
+     * The fallback is a plain lookup, deliberately: `ScoutYearService::
+     * getCurrentYear()` CREATES the row when it is missing, and building a
+     * report is a read. A year that does not exist yet stays null, which
+     * is this class's rule 1 — unavailable is null, never zero.
+     */
     private function publicScoutYearId(): ?int
     {
-        $id = (int) ($this->settingValue('current_scout_year_id') ?? '0');
+        $pinned = (int) ($this->settingValue(ScoutYearResolver::SETTING_PUBLIC_YEAR) ?? '0');
+        if ($pinned > 0) {
+            return $pinned;
+        }
+
+        $stmt = $this->pdo->prepare('SELECT id FROM scout_years WHERE label = ?');
+        $stmt->execute([ScoutYearService::labelForDate(new \DateTimeImmutable('now'))]);
+        $id = (int) $stmt->fetchColumn();
 
         return $id > 0 ? $id : null;
     }

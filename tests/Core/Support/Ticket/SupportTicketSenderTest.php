@@ -224,6 +224,55 @@ class SupportTicketSenderTest extends TestCase
     }
 
     /**
+     * A ticket that did NOT leave is written down too.
+     *
+     * Only the success was journaled, and that is the worse half to have:
+     * an administrator presses « Envoyer le ticket », nothing gets
+     * through, and the event journal — which is also what the diagnostic
+     * archive carries — says nothing at all. That is how a real « je crois
+     * avoir envoyé un ticket » became unanswerable from either end: no
+     * entry on the sender, no entry on the receiver, and no way to tell
+     * whether it had ever been attempted.
+     */
+    public function testATicketThatDoesNotLeaveIsJournaledWithItsReason(): void
+    {
+        $result = $this->sender($this->transport(502, []))
+            ->send('desk_import', 'Une phrase que personne ne doit relire ici.', 'chef@unite.be');
+
+        $this->assertFalse($result->sent);
+
+        $row = $this->pdo->query(
+            "SELECT level, description, context FROM event_log WHERE event_type = 'support_ticket_not_sent'"
+        )->fetch(\PDO::FETCH_ASSOC);
+
+        $this->assertIsArray($row, 'a failed send must leave a trace');
+        // A failed attempt is not a broken site.
+        $this->assertSame('warning', $row['level']);
+        $this->assertStringContainsString(SupportTicketSender::FAILURE_UNREACHABLE, (string) $row['context']);
+        $this->assertStringContainsString('desk_import', (string) $row['context']);
+        // Same rule as the success entry beside it.
+        $this->assertStringNotContainsString('personne ne doit relire', (string) $row['context']);
+        $this->assertStringNotContainsString('chef@unite.be', (string) $row['context']);
+    }
+
+    /**
+     * Every refusal, including the ones that never open a socket.
+     */
+    public function testAGuardRefusalIsJournaledJustTheSame(): void
+    {
+        $this->settings->setInternal('statistics_destination', 'http://scoutmagic.be');
+
+        $this->sender($this->transport(200, []))->send('other', 'Bonjour', 'chef@unite.be');
+
+        $context = $this->pdo->query(
+            "SELECT context FROM event_log WHERE event_type = 'support_ticket_not_sent'"
+        )->fetchColumn();
+
+        $this->assertIsString($context);
+        $this->assertStringContainsString(TicketIdentityService::GUARD_INSECURE_DESTINATION, $context);
+    }
+
+    /**
      * The guards belong to the report and are called, not copied: a
      * destination that is not HTTPS stops the send before a socket is
      * opened.

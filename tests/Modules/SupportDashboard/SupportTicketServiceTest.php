@@ -185,6 +185,47 @@ class SupportTicketServiceTest extends TestCase
     }
 
     /**
+     * A closure is a judgement, and a judgement can be wrong three days
+     * later when the unit writes back. Reopening keeps the note — it is
+     * the only record of what was done the first time, and a ticket that
+     * comes back is exactly when it is worth reading — and clears
+     * `closed_at`, which also takes the archive off the ninety-day
+     * post-closure clock.
+     */
+    public function testReopeningKeepsTheNoteAndPutsTheTicketBackInTheQueue(): void
+    {
+        $id = $this->ticket('Un souci.');
+        $this->service->close($id, 'Cron absent chez eux.', new \DateTimeImmutable());
+
+        $this->assertTrue($this->service->reopen($id));
+
+        $ticket = $this->tickets->find($id);
+        $this->assertSame(SupportTicketRepository::STATUS_OPEN, $ticket['status']);
+        $this->assertNull($ticket['closed_at']);
+        $this->assertSame('Cron absent chez eux.', $ticket['resolution_note']);
+
+        // Back in the default list, which is the whole point.
+        $this->assertSame([$id], array_column($this->service->list($this->filters([])), 'id'));
+    }
+
+    /**
+     * The mirror of close()'s OPEN-only guard: reopening an open ticket
+     * must not silently do nothing-and-say-yes, and two maintainers
+     * clicking at once resolve to one act.
+     */
+    public function testReopeningIsNotRepeatableAndRefusesAnUnknownTicket(): void
+    {
+        $id = $this->ticket('Un souci.');
+
+        $this->assertFalse($this->service->reopen($id), 'an open ticket cannot be reopened');
+
+        $this->service->close($id, null, new \DateTimeImmutable());
+        $this->assertTrue($this->service->reopen($id));
+        $this->assertFalse($this->service->reopen($id));
+        $this->assertFalse($this->service->reopen($id + 9999));
+    }
+
+    /**
      * « Clos sans note » and « clos avec une note vide » are the same
      * fact; only one of them should be representable.
      */

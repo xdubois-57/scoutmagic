@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Core\Statistics;
 
+use Core\Config\ScoutYearService;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Cookie\CookieConsentService;
@@ -233,6 +234,39 @@ class StatisticsPayloadBuilderTest extends TestCase
 
         $this->assertSame(3, $payload['usage']['active_members']);
         $this->assertSame(2, $payload['usage']['active_sections']);
+    }
+
+    /**
+     * The counts a maintainer reads while answering a ticket used to be
+     * « Non renseigné » on almost every installation, and the payload was
+     * where it went wrong: `current_scout_year_id` ships at 0 and stays
+     * there unless somebody pins a year by hand, while every page of the
+     * site falls back to the year the date is in
+     * (Core\ScoutYear\ScoutYearResolver). Reading only the setting meant
+     * the report said « I don't know » about a site that knew.
+     *
+     * The label is computed rather than written down: a year hard-coded
+     * here is a test that breaks by itself on the 1st of September.
+     */
+    public function testTheCountsFallBackToTheYearTheDateIsInLikeTheRestOfTheSite(): void
+    {
+        $label = ScoutYearService::labelForDate(new \DateTimeImmutable('now'));
+
+        $stmt = $this->pdo->prepare('INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES (?, ?, ?, 1)');
+        $stmt->execute([$label, substr($label, 0, 4) . '-09-01', substr($label, 5, 4) . '-08-31']);
+        $scoutYearId = (int) $this->pdo->lastInsertId();
+
+        // Deliberately NOT pinned — this is the shipped default.
+        $this->assertSame('0', $this->settings->get('current_scout_year_id'));
+
+        $this->seedMember($scoutYearId, $this->seedSection('BALA'));
+        $this->seedMember($scoutYearId, $this->seedSection('LOUV'));
+
+        $payload = $this->builder()->build();
+
+        $this->assertSame(2, $payload['usage']['active_members']);
+        $this->assertSame(2, $payload['usage']['active_sections']);
+        $this->assertSame($label, $payload['scout_year']['label']);
     }
 
     public function testActiveSectionsExcludesStaffDu(): void

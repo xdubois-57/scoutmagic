@@ -1,0 +1,26 @@
+{#
+  Sous-navigation de « Supervision » — deux écrans, une seule entrée de
+  menu : le menu nomme la fonction, ces onglets nomment les écrans
+  qu'elle contient.
+
+  Le composant est le `partials/page_picker.html.twig` partagé, comme
+  finance, fees, rental et groups : c'est la couche pages[] → nav rail
+  écrite une fois (design.md §7.6). Ce module a d'abord embarqué sa
+  propre rangée en `nav-pills`, ce qui redonnait à la sous-navigation du
+  site un troisième style visuel — exactement ce que le page_picker
+  existe pour empêcher.
+
+  `match_prefix` : une page de détail appartient à l'onglet d'où on
+  l'ouvre. /support-dashboard/tickets/12 sélectionne « Tickets », et le
+  plus long préfixe gagne, donc jamais aussi « Tableau de bord ».
+#}
+{% include 'partials/page_picker.html.twig' with {
+    picker_id: 'support-dashboard-page-picker',
+    pages: [
+        {'url': '/support-dashboard', 'label': 'Tableau de bord'},
+        {'url': '/support-dashboard/tickets', 'label': 'Tickets'},
+    ],
+    current_path: current_path,
+    match_prefix: true,
+    aria_label: 'Pages Supervision',
+} only %}

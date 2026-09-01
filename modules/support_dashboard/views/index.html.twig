@@ -1,5 +1,5 @@
 {% extends 'base.html.twig' %}
-{% block title %}Tableau de bord support — {{ site_name }}{% endblock %}
+{% block title %}Supervision — {{ site_name }}{% endblock %}
 
 {# Les blocs <pre> de cette page (description, note, analyse, JSON brut)
    sont mis en forme dans components.css, que base.html.twig ne charge
@@ -14,17 +14,9 @@
 {% block content %}
 {% import _self as display %}
 
-{% include 'partials/page_header.html.twig' with { title: 'Tableau de bord support' } only %}
+{% include 'partials/page_header.html.twig' with { title: 'Tableau de bord' } only %}
 
-{# Deux pages, une seule entrée de menu : le menu nomme la fonction, ces
-   onglets nomment les écrans qu'elle contient. #}
-{% include 'partials/sub_nav.html.twig' with {
-    items: [
-        { label: 'Tableau de bord', url: '/support-dashboard' },
-        { label: 'Tickets', url: '/support-dashboard/tickets' },
-    ],
-    current: '/support-dashboard',
-} only %}
+{% include '@support_dashboard/_nav.html.twig' %}
 
 
 {# ---------------------------------------------------------------- #}
