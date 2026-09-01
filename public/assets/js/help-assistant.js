@@ -66,8 +66,14 @@
     /**
      * One exchange: what was asked, and the room the answer will land in.
      *
+     * The status line carries a turning spinner and not only its sentence.
+     * Two calls happen server-side and the second is the slow one, so a
+     * line of still text for two or three seconds reads as a page that has
+     * stopped responding — the spinner is what says the wait is the site
+     * working rather than the site stuck.
+     *
      * @param {string} question
-     * @returns {{block: HTMLElement, status: HTMLElement, answer: HTMLElement, topics: HTMLElement}}
+     * @returns {{block: HTMLElement, status: HTMLElement, statusText: HTMLElement, spinner: HTMLElement, answer: HTMLElement, topics: HTMLElement}}
      */
     function openExchange(question) {
         var block = document.createElement('div');
@@ -76,7 +82,18 @@
         var asked = paragraph('fw-semibold mb-2', question);
         block.appendChild(asked);
 
-        var status = paragraph('small text-body-secondary mb-2', "Je cherche dans l'aide…");
+        var status = document.createElement('p');
+        status.className = 'small text-body-secondary mb-2 d-flex align-items-center gap-2';
+
+        var spinner = document.createElement('span');
+        spinner.className = 'spinner-border spinner-border-sm flex-shrink-0';
+        spinner.setAttribute('role', 'status');
+        spinner.setAttribute('aria-hidden', 'true');
+        status.appendChild(spinner);
+
+        var statusText = document.createElement('span');
+        statusText.textContent = "Je cherche dans l'aide…";
+        status.appendChild(statusText);
         block.appendChild(status);
 
         var topics = document.createElement('div');
@@ -87,7 +104,25 @@
         answer.className = 'help-content rich-text';
         block.appendChild(answer);
 
-        return { block: block, status: status, answer: answer, topics: topics };
+        return {
+            block: block,
+            status: status,
+            statusText: statusText,
+            spinner: spinner,
+            answer: answer,
+            topics: topics
+        };
+    }
+
+    /**
+     * The wait is over, whatever the outcome — the spinner goes with it.
+     *
+     * @param {{spinner: HTMLElement, statusText: HTMLElement}} exchange
+     * @param {string} message
+     */
+    function settle(exchange, message) {
+        exchange.spinner.remove();
+        exchange.statusText.textContent = message;
     }
 
     /**
@@ -122,23 +157,30 @@
      * @param {HTMLElement} scope
      */
     function bind(scope) {
+        // The form is the FULL PAGE's; the panel has none — its search box
+        // is the field, and « Demander à l'assistant » is the send. So
+        // everything below treats the form and the input as optional, and
+        // only the thread is required.
         var form = /** @type {HTMLFormElement|null} */ (scope.querySelector('[data-help-assistant-form]'));
         var input = /** @type {HTMLInputElement|null} */ (scope.querySelector('[data-help-assistant-input]'));
         var thread = /** @type {HTMLElement|null} */ (scope.querySelector('[data-help-assistant-thread]'));
+        var history = /** @type {HTMLElement|null} */ (scope.querySelector('[data-help-assistant-history]'));
         var submit = /** @type {HTMLButtonElement|null} */ (scope.querySelector('[data-help-assistant-submit]'));
+        var clear = /** @type {HTMLButtonElement|null} */ (scope.querySelector('[data-help-assistant-clear]'));
         var offline = /** @type {HTMLElement|null} */ (scope.querySelector('[data-help-assistant-offline]'));
-        if (!form || !input || !thread) {
+        if (!thread) {
             return;
         }
 
+        var busy = false;
+
         function refreshOnlineState() {
-            if (!offline) {
-                return;
-            }
             var isOffline = navigator.onLine === false;
-            offline.classList.toggle('d-none', !isOffline);
+            if (offline) {
+                offline.classList.toggle('d-none', !isOffline);
+            }
             if (submit) {
-                submit.disabled = isOffline;
+                submit.disabled = isOffline || busy;
             }
         }
 
@@ -146,60 +188,63 @@
         window.addEventListener('online', refreshOnlineState);
         window.addEventListener('offline', refreshOnlineState);
 
-        /**
-         * The question the local search handed over, put in the field as
-         * it was typed — and left there. Sending it is the visitor's
-         * move: an automatic submit would spend a quota unit and reach a
-         * provider on a click meant to open a form.
-         *
-         * @param {string} question
-         */
-        function adopt(question) {
-            if (question === '') {
+        function refreshClearState() {
+            if (clear && input) {
+                clear.classList.toggle('d-none', input.value === '');
+            }
+        }
+
+        if (clear && input) {
+            clear.addEventListener('click', function () {
+                input.value = '';
+                refreshClearState();
                 input.focus();
+            });
+            input.addEventListener('input', refreshClearState);
+            refreshClearState();
+        }
+
+        /**
+         * One question, from the moment it leaves to the moment it is
+         * answered. Reached three ways — the page's own form, the panel's
+         * « Demander à l'assistant », and a question handed over from
+         * /aide — and all three go through here, so the three behave the
+         * same.
+         *
+         * @param {string} raw
+         */
+        async function ask(raw) {
+            var question = raw.trim();
+            if (question === '' || busy) {
                 return;
             }
-            input.value = question;
-            input.focus();
-            input.setSelectionRange(question.length, question.length);
-        }
 
-        // The panel reveals this block in place and says so (help-search.js
-        // dispatches on the host); the page gets the same question through
-        // sessionStorage, having just been navigated to.
-        scope.addEventListener('scoutmagic:help-assistant-ask', function (e) {
-            var detail = /** @type {CustomEvent} */ (e).detail;
-            adopt(detail && typeof detail.question === 'string' ? detail.question : '');
-        });
-
-        var handedOver = takePendingQuestion();
-        if (handedOver !== '') {
-            adopt(handedOver);
-        }
-
-        form.addEventListener('submit', async function (e) {
-            e.preventDefault();
-
-            var question = input.value.trim();
-            if (question === '') {
-                return;
+            busy = true;
+            if (input) {
+                input.value = '';
+                refreshClearState();
+            }
+            if (submit) {
+                submit.disabled = true;
+            }
+            // The conversation is named as soon as there is one to name.
+            if (history) {
+                history.classList.remove('d-none');
             }
 
             var exchange = openExchange(question);
             thread.appendChild(exchange.block);
-            input.value = '';
-            if (submit) {
-                submit.disabled = true;
-            }
 
             var api = window.ScoutMagicApi;
             var res = api
                 ? await api.postJson(ENDPOINT, { question: question, path: window.location.pathname })
                 : { ok: false, status: 0, data: null };
 
-            if (submit) {
-                submit.disabled = navigator.onLine === false;
-            }
+            busy = false;
+            refreshOnlineState();
+            // Whoever asked can offer to ask again — in the panel that is
+            // help-search.js re-enabling its button.
+            scope.dispatchEvent(new CustomEvent('scoutmagic:help-assistant-idle', { bubbles: true }));
 
             if (!res.ok || !res.data || res.data.success !== true) {
                 // The server's own sentence when it wrote one — every
@@ -208,18 +253,22 @@
                 var message = (res.data && typeof res.data.error === 'string' && res.data.error !== '')
                     ? res.data.error
                     : "L'assistant n'a pas pu répondre. Réessayez dans un instant.";
-                exchange.status.textContent = message;
+                settle(exchange, message);
                 exchange.status.classList.add('text-danger');
                 return;
             }
 
             if (res.data.found_nothing === true) {
-                exchange.status.textContent = "Je n'ai rien trouvé sur ce point dans l'aide de ce site. "
-                    + "Reformulez votre question, ou parcourez les sujets depuis la page Aide.";
+                settle(
+                    exchange,
+                    "Je n'ai rien trouvé sur ce point dans l'aide de ce site. "
+                        + "Reformulez votre question, ou parcourez les sujets depuis la page Aide."
+                );
                 return;
             }
 
             renderTopics(exchange.topics, res.data.topics || []);
+            settle(exchange, '');
             exchange.status.classList.add('d-none');
             // Already escaped server-side by Core\View\MarkdownRenderer —
             // this is the ONE place this file writes HTML, and the reason
@@ -231,7 +280,30 @@
             if (typeof exchange.block.scrollIntoView === 'function') {
                 exchange.block.scrollIntoView({ block: 'nearest' });
             }
+        }
+
+        // Handed over by the local search: the panel dispatches this on
+        // the assistant it just revealed, and /aide leaves the question in
+        // sessionStorage before navigating here. Sent straight away in
+        // both cases — pressing « Demander à l'assistant » IS the request,
+        // and making someone press a second button to confirm what they
+        // just asked for is the friction this replaced.
+        scope.addEventListener('scoutmagic:help-assistant-ask', function (e) {
+            var detail = /** @type {CustomEvent} */ (e).detail;
+            void ask(detail && typeof detail.question === 'string' ? detail.question : '');
         });
+
+        var handedOver = takePendingQuestion();
+        if (handedOver !== '') {
+            void ask(handedOver);
+        }
+
+        if (form && input) {
+            form.addEventListener('submit', function (e) {
+                e.preventDefault();
+                void ask(input.value);
+            });
+        }
     }
 
     function init() {

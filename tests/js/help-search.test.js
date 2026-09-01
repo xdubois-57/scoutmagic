@@ -274,6 +274,7 @@ describe('handing a question over to the assistant', () => {
 
     const PANEL_INVITE = `
         <div data-help-assistant-invite-zone hidden>
+            <p data-help-assistant-invite-preamble>Aucun de ces sujets ne répond ?</p>
             <button type="button" data-help-assistant-invite>Demander à l'assistant</button>
         </div>
         <div data-help-assistant-host hidden><div data-help-assistant></div></div>`;
@@ -329,7 +330,7 @@ describe('handing a question over to the assistant', () => {
             .toBe('changer mon adresse');
     });
 
-    it('opens the assistant in place inside the panel, question in hand', async () => {
+    it('sends the question straight away inside the panel — the click is the question', async () => {
         buildScope(PANEL_INVITE);
         await boot();
 
@@ -343,13 +344,120 @@ describe('handing a question over to the assistant', () => {
 
         expect(click.defaultPrevented).toBe(true);
         expect(document.querySelector('[data-help-assistant-host]').hidden).toBe(false);
+        // Asked, not prefilled into a second field for the visitor to
+        // press send on.
         expect(received).toEqual(['changer mon adresse']);
-        // The offer has been taken up; repeating it under every subsequent
-        // search would be noise.
-        expect(document.querySelector('[data-help-assistant-invite-zone]').hidden).toBe(true);
+        // And nothing else can be asked until this one comes back.
+        expect(document.querySelector('[data-help-assistant-invite]').disabled).toBe(true);
+        // The line above the button was an opening question; it has been
+        // answered by the fact that they pressed it.
+        expect(document.querySelector('[data-help-assistant-invite-preamble]').hidden).toBe(true);
+    });
 
+    it('offers the button again once the exchange comes back', async () => {
+        buildScope(PANEL_INVITE);
+        await boot();
+
+        type('changer mon adresse');
+        document.querySelector('[data-help-assistant-invite]')
+            .dispatchEvent(new Event('click', { cancelable: true, bubbles: true }));
+        expect(document.querySelector('[data-help-assistant-invite]').disabled).toBe(true);
+
+        document.querySelector('[data-help-assistant]').dispatchEvent(
+            new CustomEvent('scoutmagic:help-assistant-idle', { bubbles: true })
+        );
+
+        // With one field on this screen, this button is also how the
+        // second question is asked — so it stays, and it stays usable.
+        expect(document.querySelector('[data-help-assistant-invite]').disabled).toBe(false);
         type('photo');
-        expect(document.querySelector('[data-help-assistant-invite-zone]').hidden).toBe(true);
+        expect(document.querySelector('[data-help-assistant-invite-zone]').hidden).toBe(false);
+    });
+
+    it('asks nothing on an empty field', async () => {
+        buildScope(PANEL_INVITE);
+        await boot();
+
+        const received = [];
+        document.querySelector('[data-help-assistant]')
+            .addEventListener('scoutmagic:help-assistant-ask', (e) => received.push(e.detail.question));
+
+        const click = new Event('click', { cancelable: true, bubbles: true });
+        document.querySelector('[data-help-assistant-invite]').dispatchEvent(click);
+
+        expect(received).toEqual([]);
+        expect(click.defaultPrevented).toBe(true);
+    });
+
+    it('clears a long question in one click, so the next one can be typed', async () => {
+        document.body.innerHTML = `
+            <script type="application/json" id="help-search-index">${JSON.stringify(CORPUS)}</script>
+            <div data-help-search-scope>
+                <form>
+                    <input data-help-search-input value="">
+                    <button type="button" class="d-none" data-help-search-clear>×</button>
+                </form>
+                <div data-help-search-results hidden></div>
+                <div data-help-search-default>LISTE COMPLÈTE</div>
+            </div>`;
+        await boot();
+
+        const clear = document.querySelector('[data-help-search-clear]');
+        // Nothing to clear, nothing shown.
+        expect(clear.classList.contains('d-none')).toBe(true);
+
+        type('je dois prévenir les parents que la réunion est annulée');
+        expect(clear.classList.contains('d-none')).toBe(false);
+
+        clear.dispatchEvent(new Event('click', { bubbles: true }));
+
+        expect(document.querySelector('[data-help-search-input]').value).toBe('');
+        expect(clear.classList.contains('d-none')).toBe(true);
+        // And the surface is back to its own content, as if never typed.
+        expect(document.querySelector('[data-help-search-results]').hidden).toBe(true);
+        expect(document.querySelector('[data-help-search-default]').hidden).toBe(false);
+    });
+
+    it('says the assistant needs a connection rather than vanishing offline', async () => {
+        const online = Object.getOwnPropertyDescriptor(Navigator.prototype, 'onLine');
+        Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => false });
+        document.body.innerHTML = `
+            <script type="application/json" id="help-search-index">${JSON.stringify(CORPUS)}</script>
+            <div data-help-search-scope>
+                <form><input data-help-search-input value=""></form>
+                <div data-help-search-results hidden></div>
+                <div data-help-assistant-invite-zone hidden>
+                    <p class="d-none" data-help-assistant-invite-offline>hors connexion</p>
+                    <button type="button" data-help-assistant-invite>Demander à l'assistant</button>
+                </div>
+                <div data-help-assistant-host hidden><div data-help-assistant></div></div>
+                <div data-help-search-default>LISTE COMPLÈTE</div>
+            </div>`;
+        await boot();
+
+        const received = [];
+        document.querySelector('[data-help-assistant]')
+            .addEventListener('scoutmagic:help-assistant-ask', (e) => received.push(e.detail.question));
+
+        type('changer mon adresse');
+
+        // The results are there — they are ranked on the device. The
+        // assistant is not, and the button says which.
+        expect(document.querySelector('[data-help-search-results]').hidden).toBe(false);
+        expect(document.querySelector('[data-help-assistant-invite-offline]').classList.contains('d-none')).toBe(false);
+        expect(document.querySelector('[data-help-assistant-invite]').disabled).toBe(true);
+
+        document.querySelector('[data-help-assistant-invite]')
+            .dispatchEvent(new Event('click', { cancelable: true, bubbles: true }));
+        expect(received).toEqual([]);
+
+        Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => true });
+        window.dispatchEvent(new Event('online'));
+        expect(document.querySelector('[data-help-assistant-invite]').disabled).toBe(false);
+
+        if (online) {
+            Object.defineProperty(Navigator.prototype, 'onLine', online);
+        }
     });
 
     it('binds nothing when the assistant is not on offer', async () => {

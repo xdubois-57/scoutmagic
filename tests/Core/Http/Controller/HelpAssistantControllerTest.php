@@ -333,7 +333,17 @@ final class HelpAssistantControllerTest extends TestCase
         // …and the same partial the page uses, ready to be revealed in
         // place rather than a second implementation of it (D3).
         $this->assertStringContainsString('data-help-assistant-host', $html);
-        $this->assertStringContainsString('data-help-assistant-form', $html);
+        $this->assertStringContainsString('data-help-assistant-thread', $html);
+
+        // But NO field of its own. The panel already has the search box,
+        // and « Demander à l'assistant » sends what is typed there: two
+        // boxes one under the other on the same screen is the thing a
+        // reader cannot make sense of.
+        $this->assertStringNotContainsString('data-help-assistant-form', $html);
+        $this->assertStringNotContainsString('data-help-assistant-input', $html);
+        // One field, so it must be emptiable without selecting a long
+        // question by hand to type the next one.
+        $this->assertStringContainsString('data-help-search-clear', $html);
     }
 
     public function testThePanelSaysNothingAboutTheAssistantWhenItIsNotOnOffer(): void

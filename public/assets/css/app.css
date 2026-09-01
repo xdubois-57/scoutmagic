@@ -674,6 +674,17 @@ body:has(> #cookie-banner) {
     }
 }
 
+/* The help search field carries its own clear button (the × before the
+   search icon), because the native one that `type=search` gets exists in
+   WebKit and Chromium and nowhere else — a Firefox reader would have no
+   way to empty a long question but the keyboard. Suppressing the native
+   decoration leaves exactly one cross, in the same place, everywhere. */
+[data-help-search-input]::-webkit-search-cancel-button,
+[data-help-search-input]::-webkit-search-decoration {
+    -webkit-appearance: none;
+    appearance: none;
+}
+
 /* Help topic content — the Markdown body of a topic, rendered by
    Core\View\MarkdownRenderer with heading_base_level 2 (the page's real
    <h1> is the topic title). Scoped sizes keep those <h2>/<h3> reading as

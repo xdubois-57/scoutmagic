@@ -16,7 +16,12 @@
    Parameters:
    - available   whether the connector is operational (the assistant is
                  offered at all)
-   - compact     true inside the panel, false on the full page
+   - compact     true inside the panel, false on the full page. The panel
+                 gets NO field of its own: it already has the search box,
+                 and « Demander à l'assistant » sends what is typed there
+                 straight away. Two boxes one under the other on the same
+                 screen is the thing a reader cannot make sense of — which
+                 one searches? which one asks? — so there is one.
 
    data-* only, no inline handlers (CSP — design.md §7.5). #}
 {% set available = available|default(false) %}
@@ -33,6 +38,18 @@
             elle, fonctionne toujours — y compris hors connexion.
         </p>
     {% else %}
+        {# Named, because an unlabelled stack of question-and-answer
+           blocks reads as "something the page decided to show me". It is
+           a conversation, it is yours, and it does not outlive your
+           visit — all three are worth one line. Revealed by
+           help-assistant.js with the first exchange. #}
+        <div class="d-none" data-help-assistant-history>
+            <h3 class="h6 fw-semibold mb-1">Vos échanges avec l'assistant</h3>
+            <p class="small text-body-secondary mb-2">
+                Ils disparaissent à votre déconnexion : rien n'est conservé.
+            </p>
+        </div>
+
         <div class="mb-3" data-help-assistant-thread aria-live="polite"></div>
 
         {# Offline, the exchange cannot happen: the answer comes from a
@@ -45,22 +62,35 @@
             la recherche ci-dessus fonctionne sans.
         </p>
 
-        <form data-help-assistant-form>
-            <label for="help-assistant-question{{ compact ? '-panel' : '' }}" class="visually-hidden">
-                Votre question pour l'assistant
-            </label>
-            <div class="input-group">
-                <input type="text" class="form-control"
-                       id="help-assistant-question{{ compact ? '-panel' : '' }}"
-                       name="question" autocomplete="off" maxlength="500"
-                       placeholder="Posez votre question…"
-                       data-help-assistant-input>
-                <button type="submit" class="btn btn-primary" data-help-assistant-submit>
-                    <i class="bi bi-send" aria-hidden="true"></i>
-                    <span class="visually-hidden">Envoyer</span>
-                </button>
-            </div>
-        </form>
+        {% if not compact %}
+            {# Only on the full page, where this is the ONLY field. In the
+               panel the search box above does this job. #}
+            <form data-help-assistant-form>
+                <label for="help-assistant-question" class="visually-hidden">
+                    Votre question pour l'assistant
+                </label>
+                <div class="input-group">
+                    <input type="text" class="form-control"
+                           id="help-assistant-question"
+                           name="question" autocomplete="off" maxlength="500"
+                           placeholder="Posez votre question…"
+                           data-help-assistant-input>
+                    {# Emptying a long question by hand to type the next one
+                       is the kind of small friction that stops people
+                       asking a second one. Shown only when there is
+                       something to clear. #}
+                    <button type="button" class="btn btn-outline-secondary d-none"
+                            data-help-assistant-clear>
+                        <i class="bi bi-x-lg" aria-hidden="true"></i>
+                        <span class="visually-hidden">Effacer la question</span>
+                    </button>
+                    <button type="submit" class="btn btn-primary" data-help-assistant-submit>
+                        <i class="bi bi-send" aria-hidden="true"></i>
+                        <span class="visually-hidden">Envoyer</span>
+                    </button>
+                </div>
+            </form>
+        {% endif %}
 
         <p class="form-text mb-0">
             L'assistant répond uniquement à partir des sujets d'aide de ce site. Il ne
