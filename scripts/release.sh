@@ -818,6 +818,62 @@ GATE_EXIT=()
 # (contention, not a real bug). A background subshell can't bash-`wait` on
 # a sibling subshell's PID (they aren't each other's children), so the
 # dependency is a polled sentinel file instead.
+# A gate that finishes in seconds runs HERE, in order, before anything
+# long is started — and the release stops at the first one that refuses.
+#
+# Measured on the reference machine: deployment 2 s (one curl), SonarQube
+# 4 s (one API call), dependency freshness ~5 s, security ~5 s. Against
+# tests (~12 min), end-to-end (~7 min) and the dynamic scan (~13 min,
+# and it waits for end-to-end).
+#
+# Parallelising a two-second check buys nothing and costs the thing that
+# matters: the script used to `wait` on all seven gates whatever
+# happened, so a SonarQube gate refusing in four seconds — an analysis
+# missing for the released commit, a finding still to dismiss — still
+# burned the full twenty-five minutes before saying so. These four are
+# preconditions rather than statements about the code: if production is
+# not on this commit, or Sonar has not analysed it, running the browser
+# suite proves nothing anyone needs.
+#
+# On failure this prints the same block the parallel report prints and
+# exits immediately, so nothing below it ever starts. A gate recorded in
+# the arrays by this function therefore always passed, which is what lets
+# the collection loop treat an empty PID as a zero exit.
+run_fast_gate() {
+    local key="$1" label="$2" func="$3"
+    local status=0
+
+    GATE_KEYS+=("${key}")
+    GATE_LABELS+=("${label}")
+    GATE_PIDS+=("")
+
+    export GATE_REPORT_FILE="${GATE_TMP_DIR}/${key}.report"
+    # `set +e` inside the subshell, exactly as launch_gate does it, and for
+    # the same reason: several gate functions are WRITTEN for errexit being
+    # off and say so in their own comments — check_sonar_gate's `|| exit 1`
+    # only makes sense because a failing command there does not kill the
+    # shell by itself. Running them under this script's global `set -e`
+    # would abort them at a different point than they expect, which is a
+    # behaviour change disguised as a scheduling change.
+    (
+        set +e
+        "${func}"
+        exit $?
+    ) > "${GATE_TMP_DIR}/${key}.log" 2>&1 < /dev/null || status=$?
+    unset GATE_REPORT_FILE
+
+    if [[ "${status}" -ne 0 ]]; then
+        echo ""
+        echo "❌ ${label} gate FAILED — last 60 lines (full log: ${GATE_TMP_DIR}/${key}.log):"
+        tail -n 60 "${GATE_TMP_DIR}/${key}.log" | sed 's/^/    /'
+        echo "" >&2
+        echo "ERROR: release blocked by the ${label} gate. No long-running gate was started." >&2
+        exit 1
+    fi
+
+    echo "✅ ${label} gate passed (${label} runs before the long gates)"
+}
+
 launch_gate() {
     local key="$1" label="$2" func="$3" depends_on="${4:-}"
     GATE_KEYS+=("${key}")
@@ -847,20 +903,48 @@ launch_gate() {
     GATE_PIDS+=("$!")
 }
 
+# ---------------------------------------------------------------
+# The fast gates, in order, before anything long starts.
+#
+# Each finishes in seconds and each is a PRECONDITION rather than a
+# statement about the code: production must already be on this commit,
+# SonarQube must already have analysed it, no dependency may be
+# outdated, no advisory open. Running the browser suite before those
+# hold proves nothing anybody needs, and used to cost twenty-five
+# minutes before the refusal was even printed.
+# ---------------------------------------------------------------
 if [[ "${SKIP_DEPLOYMENT_CHECK}" -eq 1 ]]; then
     echo "WARNING: --skip-deployment-check used — ${PRODUCTION_URL} was NOT checked for this release. Emergency use only: verify it manually right after publishing." >&2
     DEPLOYMENT_GATE_REPORT_LINE="ignoré (\`--skip-deployment-check\`) — à vérifier manuellement."
 else
-    launch_gate deployment "Deployment" check_deployment_gate
+    run_fast_gate deployment "Deployment" check_deployment_gate
 fi
 
 if [[ "${SKIP_SECURITY_GATE}" -eq 1 ]]; then
     echo "WARNING: --skip-security-gate used — composer audit, npm audit, open CodeQL findings and open Dependabot alerts were NONE of them checked for this release. Emergency use only: verify and resolve them immediately after publishing." >&2
     SECURITY_GATE_REPORT_LINE="ignoré (\`--skip-security-gate\`) — à vérifier manuellement."
 else
-    launch_gate security "Security" check_security_gate
+    run_fast_gate security "Security" check_security_gate
 fi
 
+if [[ "${SKIP_DEPENDENCY_CHECK}" -eq 1 ]]; then
+    echo "WARNING: --skip-dependency-check used — outdated Composer/vendored front-end dependencies were NOT checked for this release. Emergency use only: update them immediately after publishing." >&2
+    DEPENDENCY_GATE_REPORT_LINE="ignoré (\`--skip-dependency-check\`) — à vérifier manuellement."
+else
+    run_fast_gate dependency "Dependency freshness" check_dependency_freshness_gate
+fi
+
+if [[ "${SKIP_SONAR_GATE}" -eq 1 ]]; then
+    echo "WARNING: --skip-sonar-gate used — active SonarQube Cloud security findings, HIGH-or-above severity findings, unreviewed Security Hotspots, and the Quality Gate were NOT checked for this release. Emergency use only: verify and resolve them immediately after publishing." >&2
+    SONAR_GATE_REPORT_LINE="ignoré (\`--skip-sonar-gate\`) — à vérifier manuellement."
+else
+    run_fast_gate sonar "SonarQube Cloud" check_sonar_gate
+fi
+
+# ---------------------------------------------------------------
+# The long gates, in parallel, now that every precondition holds.
+# Their MySQL chain (tests -> e2e -> dast) is unchanged.
+# ---------------------------------------------------------------
 if [[ "${SKIP_TESTS_GATE}" -eq 1 ]]; then
     echo "WARNING: --skip-tests-gate used — PHPStan, PHPUnit, JavaScript static analysis (npm run typecheck), AND the JavaScript unit tests (npm run test:coverage) were NOT run for this release. Emergency use only: run them immediately after publishing and fix any failure." >&2
     TESTS_GATE_REPORT_LINE="ignoré (\`--skip-tests-gate\`) — PHPStan, PHPUnit, l'analyse statique JavaScript et les tests JavaScript non exécutés, à vérifier manuellement."
@@ -902,37 +986,35 @@ else
     fi
 fi
 
-if [[ "${SKIP_DEPENDENCY_CHECK}" -eq 1 ]]; then
-    echo "WARNING: --skip-dependency-check used — outdated Composer/vendored front-end dependencies were NOT checked for this release. Emergency use only: update them immediately after publishing." >&2
-    DEPENDENCY_GATE_REPORT_LINE="ignoré (\`--skip-dependency-check\`) — à vérifier manuellement."
-else
-    launch_gate dependency "Dependency freshness" check_dependency_freshness_gate
-fi
-
-if [[ "${SKIP_SONAR_GATE}" -eq 1 ]]; then
-    echo "WARNING: --skip-sonar-gate used — active SonarQube Cloud security findings, HIGH-or-above severity findings, unreviewed Security Hotspots, and the Quality Gate were NOT checked for this release. Emergency use only: verify and resolve them immediately after publishing." >&2
-    SONAR_GATE_REPORT_LINE="ignoré (\`--skip-sonar-gate\`) — à vérifier manuellement."
-else
-    launch_gate sonar "SonarQube Cloud" check_sonar_gate
-fi
-
 GATE_COUNT="${#GATE_KEYS[@]}"
 
-if [[ "${GATE_COUNT}" -gt 0 ]]; then
-    gate_label_list=""
-    gi=0
-    while [[ "${gi}" -lt "${GATE_COUNT}" ]]; do
+# Only the gates that were LAUNCHED are running in parallel. The fast ones
+# already ran and already reported, so naming them here would announce
+# work that is finished.
+gate_label_list=""
+gi=0
+parallel_count=0
+while [[ "${gi}" -lt "${GATE_COUNT}" ]]; do
+    if [[ -n "${GATE_PIDS[${gi}]}" ]]; then
         gate_label_list="${gate_label_list}${gate_label_list:+, }${GATE_LABELS[${gi}]}"
-        gi=$((gi + 1))
-    done
+        parallel_count=$((parallel_count + 1))
+    fi
+    gi=$((gi + 1))
+done
+if [[ "${parallel_count}" -gt 0 ]]; then
     echo ""
-    echo "Running ${GATE_COUNT} gate(s) in parallel: ${gate_label_list}..."
+    echo "Running ${parallel_count} long gate(s) in parallel: ${gate_label_list}..."
 fi
 
 GATES_FAILED=0
 gi=0
 while [[ "${gi}" -lt "${GATE_COUNT}" ]]; do
-    if wait "${GATE_PIDS[${gi}]}"; then
+    if [[ -z "${GATE_PIDS[${gi}]}" ]]; then
+        # A fast gate, already run by run_fast_gate(). It has no PID to
+        # wait on, and it can only be here if it passed — the failing
+        # branch of that function exits the script.
+        GATE_EXIT+=(0)
+    elif wait "${GATE_PIDS[${gi}]}"; then
         GATE_EXIT+=(0)
     else
         GATE_EXIT+=("$?")
