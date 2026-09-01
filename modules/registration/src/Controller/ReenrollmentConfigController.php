@@ -21,9 +21,18 @@ use Modules\Registration\Service\ReenrollmentCampaignService;
 use Twig\Environment;
 
 /**
- * Configuration > Réinscription (`role_min: superadmin`): the campaign's
+ * Espace chefs d'U > Réinscription (`role_min: admin`): the campaign's
  * window, its two reminder delays, the manual switch, and how far along it
  * is.
+ *
+ * **Beside « Inscriptions », not under Configuration.** The two pages are
+ * the same job a year apart — deciding when the unit asks the families a
+ * question and watching the answers come in — and that job belongs to the
+ * chef d'unité, not to whoever administers the server. It sat in
+ * Configuration at `superadmin`, which put a yearly campaign behind the
+ * one role a unit may not have at hand. The path is unchanged: a page
+ * that moves menu is not a page that moves address, and the bookmarks and
+ * the help topic's `paths` both point here.
  *
  * **The tracking counts and never names.** How many families have
  * answered, how many animés are announced leaving, how many are still
