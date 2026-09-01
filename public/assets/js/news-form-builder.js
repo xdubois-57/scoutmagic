@@ -1111,7 +1111,7 @@
                 priceInput.className = 'form-control';
                 priceInput.value = field.price_per_unit || '';
                 priceInput.addEventListener('input', function () {
-                    field.price_per_unit = priceInput.value !== '' ? parseFloat(priceInput.value) : null;
+                    field.price_per_unit = priceInput.value !== '' ? Number.parseFloat(priceInput.value) : null;
                     renderFieldList();
                 });
                 priceRow.appendChild(priceInput);
@@ -1274,9 +1274,9 @@
             var lines = [];
             numberFields.forEach(function (inputEl) {
                 var input = /** @type {HTMLInputElement} */ (inputEl);
-                var price = parseFloat(input.dataset.price);
+                var price = Number.parseFloat(input.dataset.price);
                 if (!price) return;
-                var qty = parseFloat(input.value) || 0;
+                var qty = Number.parseFloat(input.value) || 0;
                 var subtotal = qty * price;
                 total += subtotal;
                 lines.push('<p class="mb-1">' + input.dataset.label + ' : ' + qty + ' × ' + price.toFixed(2).replace('.', ',') + '€ = ' + subtotal.toFixed(2).replace('.', ',') + '€</p>');
