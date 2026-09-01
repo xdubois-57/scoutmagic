@@ -44,8 +44,20 @@ if [[ "$#" -ne 1 || -z "${1:-}" ]]; then
 fi
 
 # Resolved BEFORE the cd below, so a relative path means what the caller
-# meant by it. `realpath -m` does not require the file to exist yet.
-ARTIFACT="$(realpath -m "$1")"
+# meant by it, and without requiring the file to exist yet.
+#
+# `realpath -m` would say this in one word, but -m is a GNU extension and
+# BSD/macOS realpath rejects it outright — `realpath: illegal option --
+# m`. That killed a release AFTER it had bumped VERSION, committed it and
+# pushed the v1.0.39 tag, which is the worst place to discover a
+# portability problem. Resolving the directory (which has to exist to be
+# written into) and appending the basename is the portable equivalent.
+ARTIFACT_DIR="$(dirname "$1")"
+if [[ ! -d "${ARTIFACT_DIR}" ]]; then
+    echo "ERROR: the artifact's directory does not exist: ${ARTIFACT_DIR}" >&2
+    exit 1
+fi
+ARTIFACT="$(cd "${ARTIFACT_DIR}" && pwd)/$(basename "$1")"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_ROOT}"
