@@ -2,27 +2,22 @@
 
 declare(strict_types=1);
 
-namespace Tests\Core\Http\Controller;
+namespace Tests\Core\View;
 
 use Core\Config\SettingService;
-use Core\Http\Controller\RgpdConfigController;
-use Core\Http\Request;
 use Core\Journal\JournalService;
 use Core\Module\ModuleManager;
-use Core\Security\AuthSession;
 use Core\View\EditableContentService;
 use Core\View\RgpdContentService;
 use Core\View\RgpdGenerationException;
 use PHPUnit\Framework\TestCase;
-use Twig\Environment;
-use Twig\Loader\ArrayLoader;
 
 /**
- * RgpdConfigController::generate() catches \Throwable on purpose (any
- * uncaught exception here would return an HTML error page to a fetch()
- * that expects JSON). That makes it the single display site for two very
- * different kinds of message, and the whole reason
- * Core\View\RgpdGenerationException exists:
+ * Core\View\RgpdGenerationRunner::runInBackground() catches \Throwable on
+ * purpose: it is a scheduled task, and an uncaught exception there would
+ * leave the page waiting on a run that will never report. That makes it
+ * the single display site for two very different kinds of message, and
+ * the whole reason Core\View\RgpdGenerationException exists:
  *
  * - the three refusals RgpdContentService writes FOR the admin — the AI
  *   service being unusable, an answer still truncated after every
@@ -34,14 +29,9 @@ use Twig\Loader\ArrayLoader;
  *   auto-save. These name an internal step, mean nothing to an admin, and
  *   must never be shown.
  */
-final class RgpdConfigControllerErrorMessagesTest extends TestCase
+#[\PHPUnit\Framework\Attributes\Group('database')]
+final class RgpdGenerationErrorMessagesTest extends TestCase
 {
-    protected function tearDown(): void
-    {
-        AuthSession::logout();
-        unset($_SESSION['_csrf_token']);
-    }
-
     public function testTheGenerationRefusalWrittenForTheAdminSurvives(): void
     {
         $refusal = 'Le contenu généré ne désigne pas clairement « 57e Unité » comme responsable du '
@@ -105,46 +95,39 @@ final class RgpdConfigControllerErrorMessagesTest extends TestCase
     }
 
     /**
-     * Drives generate() with a RgpdContentService that throws $thrown, and
-     * returns the `error` string the admin's browser receives.
+     * Drives a background run whose RgpdContentService throws $thrown, and
+     * returns the `error` string the admin's browser is eventually shown.
+     *
+     * The generation moved off the request — the document takes minutes
+     * to write, and the provider timeout was what an administrator saw
+     * instead (Core\View\RgpdGenerationRunner) — so the single display
+     * site for these two kinds of message moved with it. What is being
+     * pinned is unchanged: which sentence survives, which is substituted,
+     * and that the substituted one is still journalled in full.
      */
     private function errorFrom(\Throwable $thrown, ?JournalService $journal = null): string
     {
-        AuthSession::login(1, 'super@example.org', 'superadmin');
-
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
-        $token = bin2hex(random_bytes(32));
-        $_SESSION['_csrf_token'] = $token;
+        $pdo = \Tests\DatabaseTestHelper::createTestDatabase();
+        $settingService = new SettingService(new \Core\Config\SettingRepository($pdo));
 
         $rgpdContentService = $this->createStub(RgpdContentService::class);
         $rgpdContentService->method('isAvailable')->willReturn(true);
         $rgpdContentService->method('generateWithAi')->willThrowException($thrown);
 
-        $moduleManager = $this->createStub(ModuleManager::class);
-        $moduleManager->method('getEnabledModuleIds')->willReturn(['llm_connector']);
-
-        $controller = new RgpdConfigController(
-            new Environment(new ArrayLoader(['config/rgpd.html.twig' => ''])),
+        $runner = new \Core\View\RgpdGenerationRunner(
+            static fn (): RgpdContentService => $rgpdContentService,
+            $settingService,
+            new \Core\Scheduler\SchedulerService(new \Core\Scheduler\SchedulerRepository($pdo)),
             $this->createStub(EditableContentService::class),
-            $rgpdContentService,
-            $this->createStub(SettingService::class),
-            $moduleManager,
             $journal ?? $this->createStub(JournalService::class)
         );
 
-        $request = $this->createConfiguredStub(Request::class, [
-            'getRawBody' => (string) json_encode(['_csrf_token' => $token, 'prompt' => 'Test']),
-        ]);
+        $runner->runInBackground('Test', 1);
 
-        $response = $controller->generate($request, []);
-        self::assertSame(500, $response->getStatusCode());
+        $status = $runner->status();
+        self::assertFalse($status['running']);
+        self::assertSame('failed', $status['status']);
 
-        $decoded = json_decode($response->getBody(), true);
-        self::assertIsArray($decoded);
-        self::assertFalse($decoded['success']);
-
-        return (string) $decoded['error'];
+        return (string) ($status['error'] ?? '');
     }
 }

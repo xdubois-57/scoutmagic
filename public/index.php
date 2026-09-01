@@ -2208,6 +2208,7 @@ $router->addRoute('POST', '/config/superadmins/toggle-active', SuperAdminAccount
 $router->addRoute('GET', '/config/rgpd', RgpdConfigController::class, 'index', 'superadmin', ['label' => 'RGPD', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
 $router->addRoute('POST', '/config/rgpd/save', RgpdConfigController::class, 'save', 'superadmin');
 $router->addRoute('POST', '/config/rgpd/generate', RgpdConfigController::class, 'generate', 'superadmin');
+$router->addRoute('GET', '/config/rgpd/generate/status', RgpdConfigController::class, 'generateStatus', 'superadmin');
 $router->addRoute('POST', '/config/rgpd/reset', RgpdConfigController::class, 'reset', 'superadmin');
 
 // Staffs
@@ -5981,7 +5982,22 @@ $frontController->registerController(
 );
 
 // RGPD configuration controller
-$frontController->registerController(RgpdConfigController::class, new RgpdConfigController($twig, $editableContentService, $rgpdContentService, $settingService, $moduleManager, $journalService));
+// The RGPD document is generated in the background — the job is minutes
+// long, and the provider timeout is what an administrator used to see
+// (Core\View\RgpdGenerationRunner). This runner is the PAGE's half: it
+// queues a run and reports on it, and never generates anything itself.
+$rgpdGenerationRunner = new \Core\View\RgpdGenerationRunner(
+    // Already built, hooks attached — the page's own. The handler that
+    // does the work builds its own equivalent in
+    // public/scheduler-bootstrap.php, which is where every scheduler
+    // registration lives (§8.17: two entry points, one wiring).
+    static fn (): \Core\View\RgpdContentService => $rgpdContentService,
+    $settingService,
+    $schedulerService,
+    $editableContentService,
+    $journalService
+);
+$frontController->registerController(RgpdConfigController::class, new RgpdConfigController($twig, $editableContentService, $rgpdContentService, $settingService, $moduleManager, $journalService, $rgpdGenerationRunner));
 
 // Bypass RBAC for /setup routes ONLY while the site has no secrets yet —
 // i.e. the first-run installer, where there is no database, no account and
