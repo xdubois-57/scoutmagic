@@ -65,9 +65,25 @@ final class InstallationProfile
     /**
      * Hosts that are a local installation whatever their shape.
      *
+     * `host.docker.internal` is the exact name Docker Desktop publishes for
+     * "the machine running the container", so an installation answering to
+     * it is a developer's machine by construction — never a deployment.
+     * scripts/dast.sh gives the throwaway instance that name off Linux, so
+     * that the browser (whose requests ZAP resolves from inside its own
+     * container) and the instance agree about what the instance is called.
+     * Without this line the security scan lost modules/test_tools to the
+     * visible_when filter and specs/journal-uncaught-error.spec.js got a
+     * 404 for /test-tools.
+     *
+     * The exact name and not the whole `.internal` TLD, even though
+     * StatisticsSender::NON_PUBLIC_TLDS reasonably lists it: a company
+     * intranet may legitimately serve a real installation from
+     * `scoutmagic.internal`, and that one should not be handed the test
+     * toolbox. This name cannot be anything but loopback.
+     *
      * @var array<int, string>
      */
-    private const LOCAL_HOSTS = ['localhost', '127.0.0.1', '::1'];
+    private const LOCAL_HOSTS = ['localhost', '127.0.0.1', '::1', 'host.docker.internal'];
 
     /**
      * Last DNS labels that mark a local installation ("unite.test",

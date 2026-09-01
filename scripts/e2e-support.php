@@ -187,6 +187,33 @@ function e2e_free_port(): int
  * server, the provisioning, the settings and Playwright's baseURL can
  * never disagree about what the instance is called.
  *
+ * The HOST is `localhost` unless E2E_BASE_HOST says otherwise, and only
+ * scripts/dast.sh sets it, only on Docker Desktop. There the browser
+ * reaches the instance as `host.docker.internal`, because ZAP resolves
+ * every request from inside its container where `localhost` is the
+ * container itself. An instance still calling ITSELF `localhost` then
+ * builds absolute links — a magic-link email, a password-reset link, a
+ * registration tracking link, a passkey's Relying Party ID — pointing at
+ * a host ZAP cannot reach, and those scenarios fail while the rest pass.
+ *
+ * The three properties above were re-checked against that name before
+ * this was allowed, because the concern is real and dast.sh records it:
+ *
+ *   - isPublicHost() already answers false for it, and not by accident:
+ *     `.internal` is in its NON_PUBLIC_TLDS list beside `.local` and
+ *     `.test`. A scanning bench cannot start reporting outward.
+ *   - DestinationMatcher still sees the instance as its own destination,
+ *     because `statistics_destination` is written from THIS function too,
+ *     so both sides move together.
+ *   - WebAuthn is unaffected: an rpId must be a domain rather than an IP
+ *     literal, and this is one.
+ *
+ * The one real difference is OgScraperService: on `localhost` it refuses
+ * because the name resolves to a private address, and under this name it
+ * refuses because the name does not resolve from the server at all. The
+ * documented degradation groups-discussion.spec.js relies on is the same
+ * refusal either way, for a different stated reason.
+ *
  * The scheme is `http` unless E2E_BASE_SCHEME says otherwise. Only
  * scripts/dast.sh sets it, to `https`: the security scan puts a TLS
  * terminator in front of `php -S` (scripts/dast-tls-proxy.php) because
@@ -204,7 +231,9 @@ function e2e_base_url(int $port): string
         exit(1);
     }
 
-    return $scheme . '://localhost:' . $port;
+    $host = ((string) getenv('E2E_BASE_HOST')) ?: 'localhost';
+
+    return $scheme . '://' . $host . ':' . $port;
 }
 
 /**

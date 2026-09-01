@@ -499,6 +499,24 @@ ZAP_PORT="${DAST_ZAP_PORT:-$(php "${SUPPORT}" free-port)}"
 # instance calling itself 127.0.0.1 cannot register a passkey at all, and
 # the browser suite's passkey scenario is part of the traffic this scan
 # replays).
+# The host the INSTANCE calls itself, decided here because provisioning
+# needs it and the ZAP block below runs much later. Linux keeps
+# `localhost` exactly as before; on Docker Desktop the browser reaches the
+# instance through ZAP, which resolves names inside its own container, so
+# the instance has to agree or every absolute link it builds (magic-link
+# e-mail, password reset, registration tracking, passkey rpId) points at a
+# host ZAP cannot reach. See e2e_base_url()'s docblock for the three
+# properties that were re-checked against this name.
+if [[ "$(uname -s)" == "Linux" ]]; then
+    INSTANCE_HOST="localhost"
+else
+    INSTANCE_HOST="host.docker.internal"
+fi
+export E2E_BASE_HOST="${INSTANCE_HOST}"
+
+# Host-side probing keeps using localhost: this script, the readiness
+# poll and the authorization matrix all run on the host, where
+# host.docker.internal does not resolve.
 BASE_URL="https://localhost:${PORT}"
 
 echo "DAST: generating a self-signed certificate for this run."
@@ -609,7 +627,7 @@ if [[ "$(uname -s)" == "Linux" ]]; then
     ZAP_LISTEN_HOST="127.0.0.1"
 else
     ZAP_NETWORK_ARGS=(--publish "127.0.0.1:${ZAP_PORT}:${ZAP_PORT}" --add-host "host.docker.internal:host-gateway")
-    ZAP_TARGET="https://host.docker.internal:${PORT}"
+    ZAP_TARGET="https://${INSTANCE_HOST}:${PORT}"
     ZAP_PROXY="http://127.0.0.1:${ZAP_PORT}"
     ZAP_LISTEN_HOST="0.0.0.0"
     echo "DAST: not Linux — ZAP will reach the instance as ${ZAP_TARGET}."
@@ -638,26 +656,24 @@ fi
 # HTTPS connection with its own CA, so the browser never sees the
 # instance's certificate, and ZAP does not verify it.
 #
-# NECESSARY BUT NOT YET SUFFICIENT ON DOCKER DESKTOP. This restores the
-# traffic — ZAP records the site map it used to leave empty — and most of
-# the suite passes. What still fails is every scenario that follows a link
-# the SERVER built: the instance is provisioned through
-# scripts/e2e-support.php e2e_base_url(), which hardcodes `localhost`, so
-# a magic-link email and a passkey's Relying Party ID still name a host
-# ZAP resolves to its own container. Measured: the password login and the
-# public pages pass, the magic link and the passkey do not.
+# THE INSTANCE NOW AGREES, which is what makes this gate runnable off
+# Linux at all. It used to restore the traffic and no more: ZAP recorded
+# its site map, most of the suite passed, and every scenario following a
+# link the SERVER built still failed, because e2e_base_url() hardcoded
+# `localhost` — so a magic-link e-mail, a password reset, a registration
+# tracking link and a passkey's Relying Party ID all named a host ZAP
+# resolved to its own container. Measured on macOS: 8 of 50 specs failed
+# that way, and raising DAST_TIMEOUT_FACTOR to 10 changed nothing, which
+# is what proved it was not latency.
 #
-# Making the instance agree is NOT the one-line change it looks like, and
-# e2e_base_url()'s own docblock is where to start before trying: three
-# documented behaviours are keyed to the literal name `localhost` — most
-# sharply Core\Statistics\StatisticsSender::isPublicHost(), which refuses
-# to report BECAUSE it recognises that name. An instance calling itself
-# host.docker.internal may consider itself a public host and start
-# reporting outward from a security scanning bench. Any fix has to answer
-# that first.
+# The three behaviours keyed to the literal `localhost` were the reason to
+# be careful, and each was checked against the new name rather than
+# assumed — the sharpest of them, StatisticsSender::isPublicHost(),
+# already answers false because `.internal` is in its NON_PUBLIC_TLDS
+# list. e2e_base_url()'s docblock records all three.
 #
-# Until then the dynamic gate is a Linux/CI gate: it runs green there (and
-# on af70f87c it did), and needs --skip-dast-gate to release from macOS.
+# Linux is untouched: INSTANCE_HOST is `localhost` there, so CI runs the
+# byte-identical harness it always did.
 BROWSER_URL="${ZAP_TARGET}"
 
 echo "DAST: starting OWASP ZAP (${DAST_ZAP_IMAGE}) on ${ZAP_PROXY}."
