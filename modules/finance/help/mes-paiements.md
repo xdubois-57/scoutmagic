@@ -4,6 +4,9 @@ title: Payer ce que votre famille doit
 summary: Où trouver le montant, la communication et le code QR, et pourquoi un virement par enfant.
 category: Espace membres
 role_min: identified
+question: Combien dois-je payer pour l'inscription de mon enfant ?
+question: Quelle communication faut-il mettre sur le virement ?
+question: J'ai payé, pourquoi le montant s'affiche-t-il toujours ?
 paths: /
 related: campagnes, rappels
 ---

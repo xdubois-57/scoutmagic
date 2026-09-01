@@ -4,6 +4,8 @@ title: Orienter un message
 summary: Confirmer une proposition, retirer une association, et ce qui disparaît quand.
 category: Espace chefs d'U
 role_min: admin
+question: Comment classer un e-mail reçu dans le bon dossier ?
+question: Comment défaire une association faite par erreur ?
 paths: /courrier/*
 related: courrier-unite, courrier-entrant
 ---

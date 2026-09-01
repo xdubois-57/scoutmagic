@@ -18,7 +18,6 @@ use Core\Maintenance\BackupException;
 use Core\Maintenance\BackupRepository;
 use Core\Maintenance\BackupService;
 use Core\Maintenance\RequesterNotice;
-use Core\Scheduler\SchedulerKick;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
@@ -146,10 +145,12 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 //
                 // The resume path below already does exactly the right
                 // thing, on a later scheduler pass where nothing is mixed;
-                // it is now the only path that migrates.
+                // it is now the only path that migrates. That pass is the
+                // next crontab tick — at most a minute — rather than a
+                // self-directed HTTP hop, for the reason spelled out in
+                // Task\InstallUpdateHandler at the same point.
                 $source = (string) ($payload['source'] ?? 'server');
                 $this->scheduleMigrationResume($context, $safetyBackupId, $source, $requestedBy);
-                SchedulerKick::now($context);
 
                 return;
             } catch (\Throwable $restoreError) {

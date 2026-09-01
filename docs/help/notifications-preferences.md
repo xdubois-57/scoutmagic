@@ -4,6 +4,9 @@ title: Régler ses préférences de notification
 summary: Choisir les canaux par type, les heures calmes et la discrétion.
 category: Espace membres
 role_min: identified
+question: Comment recevoir moins de notifications ?
+question: Comment recevoir les notifications par e-mail aussi ?
+question: Comment ne plus être dérangé le soir et la nuit ?
 paths: /notifications/preferences
 related: notifications, mon-compte
 ---

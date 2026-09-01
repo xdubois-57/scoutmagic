@@ -4,6 +4,9 @@ title: Envoyer une photo au site
 summary: L'écran d'envoi partagé : choisir un fichier, prendre une photo, et ce que le site en fait.
 category: Espace membres
 role_min: identified
+question: Quelle taille de photo le site accepte-t-il ?
+question: Pourquoi ma photo est-elle refusée à l'envoi ?
+question: Comment prendre une photo directement depuis le site ?
 paths: /upload
 related: mon-compte, page-membre
 ---

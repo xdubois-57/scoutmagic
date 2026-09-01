@@ -4,6 +4,9 @@ title: Se connecter au site
 summary: Le lien magique, le mot de passe et la clé numérique, pas à pas.
 category: Premiers pas
 role_min: public
+question: Comment se connecter sans mot de passe ?
+question: Je n'ai pas reçu mon lien de connexion, que faire ?
+question: J'ai oublié mon mot de passe, comment faire ?
 paths: /login, /auth/verify, /password-reset/*
 related: un-email-plusieurs-animes, mon-compte, adresses-email
 ---

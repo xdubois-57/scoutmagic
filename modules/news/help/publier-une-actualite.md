@@ -4,6 +4,8 @@ title: Publier une actualité avec formulaire
 summary: Rédiger un article, construire son formulaire, suivre les réponses.
 category: Espace animateurs
 role_min: chief
+question: Comment publier une annonce sur le site de l'unité ?
+question: Comment créer un formulaire d'inscription à une activité ?
 paths: /news/manage, /news/create, /news/*/edit
 related: actualites, reponses-au-formulaire, publipostage, finances
 ---

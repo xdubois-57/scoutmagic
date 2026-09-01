@@ -4,6 +4,9 @@ title: Consulter le calendrier
 summary: Les activités de l'unité, mois par mois, et l'abonnement depuis votre agenda.
 category: Espace membres
 role_min: public
+question: Où voir les dates des prochaines activités ?
+question: Comment ajouter le calendrier de l'unité dans mon agenda ?
+question: Comment voir seulement les activités de ma section ?
 paths: /calendar
 related: calendrier-animateurs, installer-application
 ---

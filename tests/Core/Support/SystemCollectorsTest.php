@@ -330,7 +330,7 @@ class SystemCollectorsTest extends TestCase
         $this->assertStringContainsString('open_basedir : ', $report);
         $this->assertStringContainsString('disable_functions : ', $report);
         $this->assertStringContainsString('## Boucle HTTP vers soi-même', $report);
-        $this->assertStringContainsString("## Réglages de l'ordonnanceur", $report);
+        $this->assertStringContainsString('## Adresse de référence', $report);
     }
 
     /**
@@ -379,33 +379,21 @@ class SystemCollectorsTest extends TestCase
     }
 
     /**
-     * The archive is emailed. The continuation secret authenticates a
-     * request to this site's own scheduler endpoint, so it is reported as
-     * present or absent and never printed — Core\Security\CapabilityToken,
-     * contract point 2.
+     * The archive is emailed, so nothing in it may be a credential. This
+     * file used to report whether the scheduler's continuation secret
+     * existed (present/absent, never the value); the secret and the
+     * mechanism are gone, and what is left is `base_url` — the site's
+     * public address, which the archive already carries in a dozen places.
      */
-    public function testBackgroundExecutionNeverPrintsTheContinuationSecret(): void
+    public function testBackgroundExecutionReportsTheBaseUrlAndNothingSecret(): void
     {
-        mkdir($this->storagePath . '/keys', 0700, true);
-        mkdir($this->storagePath . '/config', 0700, true);
-        $secretManager = new \Core\Security\SecretManager(
-            $this->storagePath . '/keys/master.key',
-            $this->storagePath . '/config/secrets.enc'
-        );
-        $secretManager->generateMasterKey();
-        $secretManager->writeSecrets(['scheduler_continuation_secret' => 'the-secret-that-must-not-travel']);
+        $this->settings->register('base_url', '', 'text', 'base', 'test', null, null, null, false, 900);
+        $this->settings->setInternal('base_url', 'https://unite-exemple.be');
 
         $report = $this->runCollector(new BackgroundExecutionCollector())['entries']['background-execution.txt'];
 
-        $this->assertStringContainsString('Secret de continuation : présent', $report);
-        $this->assertStringNotContainsString('the-secret-that-must-not-travel', $report);
-    }
-
-    public function testAnInstallationWithNoContinuationSecretSaysSoRatherThanGuessing(): void
-    {
-        $report = $this->runCollector(new BackgroundExecutionCollector())['entries']['background-execution.txt'];
-
-        $this->assertStringContainsString('Secret de continuation : ABSENT', $report);
+        $this->assertStringContainsString('base_url : https://unite-exemple.be', $report);
+        $this->assertStringNotContainsString('Secret', $report);
     }
 
     // --- cron-cadence.txt ---
@@ -414,7 +402,6 @@ class SystemCollectorsTest extends TestCase
     {
         \Core\Scheduler\CronRunHistory::register($this->settings);
         $this->settings->register('cron_last_run', '0', 'number', 'cron', 'test', null, null, null, false, 999);
-        $this->settings->register('scheduler_last_run', '0', 'number', 'pseudo', 'test', null, null, null, false, 999);
     }
 
     /**
@@ -429,7 +416,7 @@ class SystemCollectorsTest extends TestCase
         $report = $this->runCollector(new CronCadenceCollector())['entries']['cron-cadence.txt'];
 
         $this->assertStringContainsString('VRAI CRON : jamais détecté.', $report);
-        $this->assertStringContainsString('PSEUDO-CRON : jamais déclenché.', $report);
+        $this->assertStringContainsString('Rien ne fait donc avancer la file', $report);
     }
 
     /**

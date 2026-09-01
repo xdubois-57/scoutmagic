@@ -4,6 +4,9 @@ title: Gérer les adresses e-mail d'un animé
 summary: Ajouter, confirmer, désactiver ou supprimer une adresse de contact.
 category: Espace membres
 role_min: identified
+question: Comment ajouter l'adresse e-mail de l'autre parent ?
+question: Pourquoi une adresse e-mail doit-elle être confirmée ?
+question: Comment supprimer une ancienne adresse de contact ?
 paths: /members/*
 related: un-email-plusieurs-animes, se-connecter, page-membre
 ---

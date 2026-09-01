@@ -13,9 +13,8 @@ declare(strict_types=1);
 // web request must never reach it: public/.htaccess only rewrites paths
 // that do NOT exist on disk, so GET /cron.php would otherwise execute the
 // full scheduler pass — backups, updates, resets, journal purge — for any
-// anonymous visitor, with none of the once-per-60s throttle the in-request
-// scheduler tail in public/index.php applies. There is nothing to serve to
-// a browser here, so a non-CLI entry is a flat 404.
+// anonymous visitor, at whatever rate they cared to ask for it. There is
+// nothing to serve to a browser here, so a non-CLI entry is a flat 404.
 if (PHP_SAPI !== 'cli') {
     http_response_code(404);
     exit;
@@ -120,6 +119,32 @@ $connection = new Connection(
 
 $pdo = $connection->getPdo();
 
+// ONE pass at a time (Core\Scheduler\CronPassLock).
+//
+// The crontab starts a pass every minute; a pass is not bounded by a
+// minute. It migrates the whole declared schema with a 900 s budget, then
+// runs every overdue task, and a single handler — a full backup, an
+// update install, one LLM call per uncategorised movement — can outlast
+// several ticks on its own. Nothing used to stop those passes overlapping
+// because, until the crontab became a requirement, there was rarely a
+// crontab to overlap with.
+//
+// Taken here, before anything is stamped or done: a pass that stands down
+// has not completed, so it must not write `cron_last_run` (which means "a
+// full pass finished") nor a `CronRunHistory` entry.
+//
+// **And it exits SILENTLY**, which is the deliberate part. Anything this
+// script prints becomes an email from the host's cron daemon, so a backup
+// running for ten minutes would send ten "skipped" emails — the operator
+// would either learn to ignore the mailbox or turn the crontab off, and
+// both are worse than the overlap. Skipping is normal operation, not an
+// incident: `Core\Scheduler\CronHealth` still reads the site as active
+// throughout, because the heartbeat at the top of this file is written
+// before the lock is ever asked for.
+if (!\Core\Scheduler\CronPassLock::acquire($pdo)) {
+    exit(0);
+}
+
 $encryptionService = EncryptionService::fromEncodedKeys(
     (string) ($secrets['encryption_key'] ?? ''),
     (string) ($secrets['blind_index_key'] ?? '')
@@ -128,14 +153,15 @@ $encryptionService = EncryptionService::fromEncodedKeys(
 // Create services
 $settingService = new SettingService(new SettingRepository($pdo));
 
-// Marks that THIS entry point (a real crontab), not just the poor-man's-
-// cron in public/index.php (which stamps its own 'scheduler_last_run' on
-// every web hit), actually ran — Core\Http\Controller\
-// NotificationConfigController warns on /config/notifications when this
-// is missing or stale, since a member-facing push relying solely on the
-// poor-man's-cron only ever fires on someone's next page view.
+// Marks that a full pass of THIS entry point completed. It is written
+// here and nowhere else, which is what makes it evidence: a web request
+// cannot produce it. Core\Http\Controller\NotificationConfigController
+// warns on /config/notifications when it is missing or stale, and
+// Core\Scheduler\CronHealth reads it beside the heartbeat and the ring
+// buffer — a crontab is a requirement now, and this is one of the three
+// traces that says whether the installation actually has one.
 $settingService->register('cron_last_run', '0', 'number', 'Dernier passage du cron réel',
-    'Horodatage (timestamp Unix) du dernier passage de public/cron.php — jamais mis à jour par le pseudo-cron. Lecture seule.',
+    'Horodatage (timestamp Unix) du dernier passage complet de public/cron.php — écrit par lui seul. Lecture seule.',
     null, null, null, false, 999);
 $cronSettingRepository = new SettingRepository($pdo);
 $cronSettingRepository->updateValue(null, 'cron_last_run', (string) time());
@@ -330,3 +356,10 @@ $deleted = $journalService->cleanup($retentionDays);
 if ($processed > 0 || $deleted > 0) {
     echo "Processed {$processed} task(s), deleted {$deleted} old journal entry/entries.\n";
 }
+
+// Belt and braces: a MySQL/MariaDB advisory lock belongs to a CONNECTION
+// and the server drops it the instant that connection closes — which is
+// what happens when this process ends, however it ends, so a pass killed
+// mid-flight can never wedge the next one. Releasing here just means a
+// pass that finished normally lets go at a point this file chose.
+\Core\Scheduler\CronPassLock::release($pdo);

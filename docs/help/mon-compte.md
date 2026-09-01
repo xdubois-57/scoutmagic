@@ -4,6 +4,9 @@ title: Gérer « Mon compte »
 summary: Votre photo, votre nom, votre mot de passe, vos clés numériques et les notifications de cet appareil.
 category: Espace membres
 role_min: identified
+question: Comment changer ma photo de profil ?
+question: Comment définir un mot de passe pour me connecter ?
+question: Comment se connecter avec l'empreinte ou le visage ?
 paths: /account
 related: se-connecter, envoyer-une-photo, notifications-preferences, cookies
 ---

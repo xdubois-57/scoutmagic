@@ -4,6 +4,8 @@ title: Modifier les réglages du site
 summary: La page Réglages : les paramètres du site et des modules, groupe par groupe.
 category: Configuration
 role_min: superadmin
+question: Où change-t-on le nom ou les couleurs du site ?
+question: Où trouver le réglage d'une fonction précise du site ?
 paths: /config/settings
 related: modules, installation-serveur
 ---

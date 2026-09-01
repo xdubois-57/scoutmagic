@@ -328,10 +328,10 @@ export E2E_MAILDROP
 
 # The instance itself, for the one thing a scenario cannot do through the
 # browser: turn the task queue. Background work (a gallery upload's
-# renditions, a notification's push) finishes in public/cron.php, and the
-# application's own poor-man's cron runs at most once a minute — a minute
-# a test cannot spend. tests/e2e/support/scheduler.js runs the instance's
-# cron entry point through scripts/e2e-support.php run-scheduler.
+# renditions, a notification's push) finishes in public/cron.php, which is
+# the ONLY thing that runs a scheduler pass — and this throwaway instance
+# has no crontab. tests/e2e/support/scheduler.js runs the instance's cron
+# entry point through scripts/e2e-support.php run-scheduler.
 # The application instance itself lives one level down (see the
 # `provision` call below) — this names THAT directory, the one
 # holding public/cron.php.

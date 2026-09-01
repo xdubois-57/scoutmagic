@@ -4,6 +4,8 @@ title: Introduire une demande de location
 summary: Le formulaire public, ce qu'il demande et ce qui se passe après l'envoi.
 category: Premiers pas
 role_min: public
+question: Comment réserver le local d'une unité scoute ?
+question: Que se passe-t-il après l'envoi de ma demande de location ?
 paths: /locations/*/demande
 related: locations, locations-suivi
 ---

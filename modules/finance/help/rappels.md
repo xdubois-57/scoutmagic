@@ -4,6 +4,8 @@ title: Envoyer un rappel de paiement
 summary: Préparer le publipostage de rappel d'une campagne, et marquer les familles notifiées.
 category: Espace animateurs
 role_min: intendant
+question: Comment relancer les familles qui n'ont pas encore payé ?
+question: Comment éviter de relancer deux fois la même famille ?
 paths: /finance/campaigns/*
 related: campagnes, rapprochement, mes-paiements, publipostage
 ---

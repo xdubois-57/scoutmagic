@@ -4,6 +4,8 @@ title: Réécrire les emails automatiques
 summary: La liste de tous les emails que le site envoie tout seul, et comment en changer le texte.
 category: Configuration
 role_min: superadmin
+question: Comment changer le texte d'un e-mail automatique du site ?
+question: Quels e-mails le site envoie-t-il tout seul ?
 paths: /config/emails, /config/emails/*
 related: reglages, config-notifications, adresses-email
 ---

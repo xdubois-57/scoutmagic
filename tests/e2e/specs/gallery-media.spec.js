@@ -30,6 +30,7 @@ import { answerCookieBanner } from '../support/cookie-banner.js';
 import { autoConfirm, collectToasts } from '../support/confirm-dialog.js';
 import { loginAsAdmin, loginAsMember } from '../support/admin-login.js';
 import { noisePngBuffer, pngBuffer } from '../support/png.js';
+import { runScheduler } from '../support/scheduler.js';
 import { scaled } from '../support/timeouts.js';
 
 const ALBUM_TITLE = `Camp d'été E2E ${Date.now()}`;
@@ -182,9 +183,12 @@ test('a chief uploads plain and chunked, reorders by drag, and a member browses 
 
     // ---------------------------------------------------------------
     // The member's side: the album in the list, the grid, the lightbox.
-    // Thumbnails exist once ProcessPhoto ran — reloading is also what
-    // lets the poor-man's cron drive that task.
+    // Thumbnails exist once gallery/process_photo has run, and the only
+    // thing that runs it is a cron pass — the application no longer turns
+    // its own queue on the tail of a web request. So the scenario turns it
+    // deliberately, through the instance's real public/cron.php.
     // ---------------------------------------------------------------
+    await runScheduler();
     const member = await browser.newContext();
     try {
         const memberPage = await member.newPage();
@@ -198,6 +202,10 @@ test('a chief uploads plain and chunked, reorders by drag, and a member browses 
         // Wait the processing pipeline out: every tile a real <img>, no
         // spinner left.
         await expect.poll(async () => {
+            // Another pass per attempt: a rendition still queued behind
+            // another task finishes on the next one, and nothing else in
+            // this instance turns the queue.
+            await runScheduler();
             await memberPage.reload({ waitUntil: 'load' });
             return memberPage.locator('.gallery-lightbox-trigger img').count();
         }, {

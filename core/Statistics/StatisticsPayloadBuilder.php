@@ -306,10 +306,10 @@ class StatisticsPayloadBuilder
     }
 
     /**
-     * `cron_last_run` is stamped only by public/cron.php (§8.24), never by
-     * the in-request poor-man's-cron tail — so a recent value is proof a
-     * real crontab is driving the scheduler, and its absence or staleness
-     * is proof it is not.
+     * `cron_last_run` is stamped only by public/cron.php (§8.24), and by
+     * nothing a web request does — so a recent value is proof a real
+     * crontab is driving the scheduler, and its absence or staleness is
+     * proof that nothing is.
      */
     private function schedulerMode(): string
     {

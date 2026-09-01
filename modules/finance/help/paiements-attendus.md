@@ -4,6 +4,9 @@ title: Les paiements attendus
 summary: Ce que les familles et les locataires doivent, comparé à ce qui est arrivé sur le compte.
 category: Espace animateurs
 role_min: intendant
+question: Où voir ce que les familles doivent encore ?
+question: Comment savoir qui n'a pas encore payé ?
+question: Pourquoi un paiement reste-t-il marqué « Partiel » ?
 paths: /finance/receivables
 related: finances, rapprochement, importer-extraits
 ---

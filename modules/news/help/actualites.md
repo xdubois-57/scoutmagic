@@ -4,6 +4,8 @@ title: Lire les actualités et s'inscrire
 summary: Les articles de l'unité et leurs formulaires d'inscription.
 category: Premiers pas
 role_min: public
+question: Où lire les nouvelles de l'unité ?
+question: Comment inscrire mon enfant à une activité annoncée ?
 paths: /news, /news/*, /news/*/form/responses/*/edit
 related: publier-une-actualite, decouvrir-le-site
 ---

@@ -4,6 +4,8 @@ title: Suivre une demande d'inscription
 summary: La page de suivi, ses statuts, et les adresses e-mail de suivi.
 category: Premiers pas
 role_min: public
+question: Où en est ma demande d'inscription ?
+question: Que veut dire « En attente d'examen » sur ma demande ?
 paths: /inscriptions/suivi/demande/*, /inscriptions/suivi/*/*, /inscriptions/suivi/emails/confirm/*
 related: inscrire-un-enfant, se-connecter
 ---

@@ -166,6 +166,42 @@ class HelpServiceTest extends TestCase
         $this->assertCount(2, array_merge(...array_values($service->search('test', Role::PUBLIC))));
     }
 
+    public function testSearchAlsoLooksInTheDeclaredQuestions(): void
+    {
+        // The whole point of the field: it carries the words people
+        // actually type when the title uses different ones.
+        $dir = $this->makeTopicDir();
+        $this->writeTopic($dir, 'publipostage', [
+            'title' => 'Publipostage',
+            'summary' => 'Un envoi personnalisé.',
+            'question' => ['Comment envoyer un mail personnalisé depuis un fichier Excel ?'],
+        ]);
+        $this->writeTopic($dir, 'autre', ['title' => 'Sans rapport', 'summary' => 'Rien ici.']);
+
+        $service = $this->service($dir);
+
+        $this->assertCount(1, $service->search('excel', Role::PUBLIC));
+        // Accent folding applies to a question exactly as to a title.
+        $this->assertCount(1, $service->search('PERSONNALISE', Role::PUBLIC));
+        $this->assertSame([], $service->search('tableur', Role::PUBLIC));
+    }
+
+    public function testAQuestionOnAnOutOfRoleTopicIsNeverSearchable(): void
+    {
+        // The role filter comes first, as it does for every other field:
+        // a question is content, not an index that escapes the gate.
+        $dir = $this->makeTopicDir();
+        $this->writeTopic($dir, 'confidentiel', [
+            'role_min' => 'admin',
+            'question' => ['Comment consulter le journal du site ?'],
+        ]);
+
+        $service = $this->service($dir);
+
+        $this->assertSame([], $service->search('journal', Role::CHIEF));
+        $this->assertCount(1, $service->search('journal', Role::ADMIN));
+    }
+
     // --- Related topics ---
 
     public function testRelatedIgnoresUnknownIdsAndFiltersByRole(): void

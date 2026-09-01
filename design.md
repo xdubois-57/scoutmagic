@@ -515,6 +515,36 @@ covered by a topic, existing or new (AGENTS.md checklists), which
 `tests/Core/Help/HelpMenuCoverageTest` enforces over every page the
 application renders.
 
+**La recherche d'abord, l'assistant ensuite** (ARCHITECTURE.md §8.87).
+Le panneau s'ouvre toujours sur un champ de recherche, y compris sur une
+page qu'aucun sujet ne couvre — une page sans sujet n'est plus un cul-de-sac
+mais la porte d'entrée du corpus. Le classement se fait dans le navigateur,
+sans réseau : la recherche répond hors ligne, à tous les rôles, et sans
+fournisseur d'IA configuré.
+
+« Demander à l'assistant » n'apparaît **que sous les résultats** de cette
+recherche, jamais au-dessus et jamais à sa place, et seulement si le
+connecteur est opérationnel et le rôle suffisant (`chief`). L'ordre est
+la décision : on cherche une page dont on connaît un mot, et on demande à
+l'assistant quand la recherche n'a pas répondu. La question déjà tapée
+suit le lecteur, telle quelle, et se retrouve dans le champ — elle n'est
+jamais envoyée à sa place.
+
+Deux surfaces pour une seule conversation : un état du panneau, et la
+page `/aide/assistant` pour l'échange qui mérite plus de place qu'un
+tiroir. Même partiel, même endpoint, même session. Les sujets que
+l'assistant a lus s'affichent en liens sous sa réponse : elle se vérifie
+contre sa source.
+
+**Le lien vers la page documentée.** Un sujet ouvert depuis `/aide` ou
+depuis un résultat de recherche affiche « Aller sur la page « X » »
+(`Core\Help\HelpPageLinkResolver`) — un lecteur qui lit comment faire
+quelque chose veut ensuite aller le faire. Trois règles : seuls les
+chemins `exact` d'un sujet donnent un lien (un motif ne désigne aucune
+page précise) ; le rôle vérifié est celui de la **route cible**, pas
+celui du sujet ; et la page sur laquelle on se trouve déjà est omise —
+c'est le cas ordinaire dans le panneau.
+
 Five categories, and a topic belongs in one of them unless there is a
 reason it cannot: **Premiers pas**, **Espace membres**, **Espace
 animateurs**, **Espace chefs d'U**, **Configuration**. They follow the
@@ -548,6 +578,49 @@ animateurs**, **Espace chefs d'U**, **Configuration**. They follow the
 - Le rendu ne connaît ni tableau, ni bloc de code, ni liste imbriquée :
   titres `##`, paragraphes, listes à puces, listes numérotées, gras,
   italique, `code` en ligne, un encadré `> `, et une image `/assets/`.
+
+**Le champ `question:`** — répétable, 2 à 4 par sujet, exigé par
+`HelpInvariantsTest`. Une seule source qui alimente à la fois le
+classement de la recherche locale et le catalogue que voit l'assistant :
+une question bien écrite améliore les deux d'un coup, et aucun des deux
+ne peut diverger de l'autre.
+
+- Formulées **comme un animateur les taperait**, pas comme un sommaire.
+  « Comment prévenir tous les parents d'une section ? », jamais « Envoi
+  d'e-mails groupés ».
+- Elles portent le vocabulaire réel des gens, y compris quand il diffère
+  du titre : c'est tout l'intérêt du champ. Un sujet « Publipostage »
+  gagne « Comment envoyer un mail personnalisé depuis un fichier
+  Excel ? ».
+- Jamais deux fois la même question dans le corpus. Deux sujets qui
+  revendiquent la même question sont une ambiguïté réelle, qui perdrait
+  autant la recherche locale que le modèle.
+- **Si l'on n'arrive pas à en formuler deux vraies, le sujet décrit un
+  écran au lieu de documenter une tâche : il se réécrit, il ne
+  s'enrichit pas.** C'est un diagnostic, pas une formalité.
+
+**Réviser un sujet existant.** Ce qui précède dit comment *écrire* ;
+ceci dit comment *réviser*, et vaut pour toute reprise du corpus.
+
+- Ouvrir les vues Twig et le contrôleur de la page couverte. Un sujet se
+  révise en regardant l'écran réel, jamais de mémoire.
+- Vérifier chaque libellé cité dans le corps. Un libellé absent des
+  templates est une dérive à corriger, pas une formulation à conserver —
+  `tests/Core/Help/HelpLabelDriftTest` relit l'interface et le vérifie,
+  avec une liste d'exceptions courte et justifiée sujet par sujet.
+- Vérifier que le `role_min` du sujet correspond au plancher réel de la
+  route qu'il couvre.
+- Un sujet documente une **tâche**, pas un écran. On n'énumère pas les
+  champs d'un formulaire ; on explique ce qu'on cherche à obtenir et ce
+  qui peut mal tourner. Première phrase : à quoi sert cette page, en une
+  ligne, pour quelqu'un qui vient d'arriver dessus. Puis le déroulé.
+  L'avertissement en dernier.
+- Ne pas documenter l'évident. Un bouton « Enregistrer » ne mérite pas de
+  phrase ; on écrit ce qu'on ne devine pas : préconditions, effets de
+  bord, ordre des opérations.
+- **Corriger ce qui est faux, compléter ce qui manque, ne pas réécrire ce
+  qui est correct.** Une révision qui reformule tout devient irrelisable,
+  et personne ne peut plus dire ce qui a changé.
 
 ### 7.12 Rich text
 

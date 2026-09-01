@@ -4,6 +4,9 @@ title: La page d'un animé ou d'un membre
 summary: Ce que montre la page personnelle : photo, section, documents, informations.
 category: Espace membres
 role_min: identified
+question: Où voir la fiche de mon enfant ?
+question: Où trouver les documents de la section de mon enfant ?
+question: Comment changer la photo de mon enfant ?
 paths: /members/*, /members/*/emails/*
 related: adresses-email, un-email-plusieurs-animes, envoyer-une-photo, mon-compte
 ---

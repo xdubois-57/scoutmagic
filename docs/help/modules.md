@@ -4,6 +4,9 @@ title: Activer et désactiver les modules
 summary: Choisir les fonctions du site, gérer leurs dépendances et leur ordre dans les menus.
 category: Configuration
 role_min: superadmin
+question: Comment activer une nouvelle fonction du site ?
+question: Que se passe-t-il si je désactive un module ?
+question: Comment changer l'ordre des entrées dans les menus ?
 paths: /config/modules
 related: reglages
 ---

@@ -11,6 +11,7 @@ namespace Core\Http;
 use Core\Config\AppConfig;
 use Core\Database\ConstraintViolation;
 use Core\Help\HelpException;
+use Core\Help\HelpPageLinkResolver;
 use Core\Help\HelpService;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Controller\HelpController;
@@ -44,7 +45,12 @@ class FrontController
         // $offlineWhitelist above: many test call sites build a
         // FrontController with three arguments. Null means no help
         // button/panel (route_help stays an empty list).
-        private ?HelpService $helpService = null
+        private ?HelpService $helpService = null,
+        // The « aller sur la page » link a panel topic carries
+        // (Core\Help\HelpPageLinkResolver). Optional and trailing for the
+        // same reason as $helpService above; null simply means the panel
+        // renders as it did before the link existed.
+        private ?HelpPageLinkResolver $helpPageLinks = null
     ) {
         $this->rbacGuard = new RbacGuard();
     }
@@ -79,10 +85,7 @@ class FrontController
         // future non-web entry point) — never blocking in that case.
         if ($this->maintenanceGate !== null) {
             $bypassRequested = $request->getQuery(MaintenanceGate::BYPASS_QUERY_PARAM) !== null;
-            // The path goes in because one route must never be gated: the
-            // scheduler's continuation endpoint, which is how an update in
-            // 'migrating' gets finished at all. See MaintenanceGate.
-            $blockingUpdate = $this->maintenanceGate->checkBlocking($bypassRequested, $request->getPath());
+            $blockingUpdate = $this->maintenanceGate->checkBlocking($bypassRequested);
             if ($blockingUpdate !== null) {
                 return $this->renderMaintenanceInProgress($blockingUpdate);
             }
@@ -248,7 +251,7 @@ class FrontController
      * offline, so its content ships inside the page rather than being
      * fetched on open.
      *
-     * @return array<int, array{id: string, title: string, summary: string, html: string}>
+     * @return array<int, array{id: string, title: string, summary: string, html: string, page_link: ?array{path: string, label: string}}>
      */
     private function buildRouteHelp(Request $request): array
     {
@@ -273,6 +276,13 @@ class FrontController
                     'title' => $topic->title,
                     'summary' => $topic->summary,
                     'html' => MarkdownRenderer::toHtml($topic->body(), HelpController::RENDER_OPTIONS),
+                    // Almost always null here, and that is the point: the
+                    // panel usually opens ON the page the topic documents,
+                    // and HelpPageLinkResolver drops the link to the page
+                    // you are already reading. It surfaces on the pages a
+                    // topic covers as a neighbour rather than as its
+                    // subject.
+                    'page_link' => $this->helpPageLinks?->resolve($topic, $role, $request->getPath()),
                 ];
             }
         } catch (HelpException $e) {

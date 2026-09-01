@@ -71,17 +71,20 @@
             de discussion sur ce site.
         </p>
 
-        {# Ce qui part automatiquement, dit avant l'envoi et non après :
-           l'identité de l'installation est ce qui permet au mainteneur de
-           savoir de quel site on parle, et une case à cocher rétrospective
-           ne serait pas un consentement (roadmap IT-25). #}
+        {# Tout ce qui part est dit AVANT le bouton, jamais après : une case
+           cochée rétrospectivement ne serait pas un consentement. C'est
+           aussi ici que se dit la chose la plus inattendue — le rapport
+           d'utilisation part avec le ticket même si l'envoi quotidien est
+           coupé. #}
         <div class="alert alert-info small">
             <strong>Partent avec votre message :</strong> l'identifiant de cette installation,
-            la version du site et la version de PHP. Rien d'autre — aucune donnée de membre,
-            aucun journal, aucun fichier.
-            {% if not ticket_telemetry_enabled %}
-                L'envoi quotidien de statistiques reste désactivé : ouvrir un ticket ne l'active pas.
+            la version du site, la version de PHP, et le <strong>rapport d'utilisation</strong>
+            (compteurs agrégés et informations techniques — aucune donnée de membre).
+            {% if not statistics_enabled %}
+                L'envoi <em>quotidien</em> de statistiques reste désactivé : seul ce ticket en emporte un,
+                et seulement parce que vous cliquez.
             {% endif %}
+            S'y ajoutent l'archive de diagnostic et un e-mail de test, décrits ci-dessous.
         </div>
 
         {% if ticket_guard %}
@@ -132,6 +135,49 @@
                     help: "C'est à cette adresse que la réponse arrivera.",
                 } only %}
 
+                <h3 class="h6 mt-4">Ce que vous acceptez d'envoyer</h3>
+
+                {# La liste et la taille AVANT la case, jamais après :
+                   accepter de transmettre « quelque chose » n'est pas
+                   accepter de transmettre ceci. #}
+                <p class="small text-body-secondary mb-1">
+                    L'archive de diagnostic
+                    {% if archive_size_bytes %}
+                        (<strong>{{ (archive_size_bytes / 1048576)|number_format(1, ',', ' ') }} Mo</strong>)
+                    {% else %}
+                        (elle sera générée à l'envoi, puis jointe automatiquement)
+                    {% endif %}
+                    contient :
+                </p>
+                <ul class="small text-body-secondary">
+                    {% for entry in archive_contents %}
+                        <li>{{ entry.description }}</li>
+                    {% endfor %}
+                </ul>
+
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="checkbox" value="1"
+                           id="archive_acknowledged" name="archive_acknowledged" required>
+                    <label class="form-check-label small" for="archive_acknowledged">
+                        {# Le destinataire est nommé — un consentement qui ne dit
+                           pas à qui n'en est pas un — mais par son nom et non
+                           par l'URL de `statistics_destination` : celle-ci reste
+                           hors de cette page, sans quoi une unité se demanderait
+                           si elle est censée la changer. #}
+                        J'ai pris connaissance du contenu de cette archive et j'accepte de la transmettre
+                        à l'équipe qui développe ScoutMagic.
+                    </label>
+                </div>
+
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" value="1"
+                           id="probe_acknowledged" name="probe_acknowledged" required>
+                    <label class="form-check-label small" for="probe_acknowledged">
+                        J'accepte que le site envoie un e-mail de test au support, pour vérifier que mes
+                        e-mails arrivent bien. Il ne contient qu'une clé de corrélation, aucune donnée personnelle.
+                    </label>
+                </div>
+
                 <button type="submit" class="btn btn-primary">Envoyer le ticket</button>
             </form>
         {% endif %}
@@ -148,100 +194,40 @@
                 Le site n'interroge pas le serveur ensuite : la suite se passe par e-mail.
             </p>
 
-            {% if archive_available %}
-                <h3 class="h6 mt-3">Joindre l'archive de diagnostic</h3>
+            {% if probe_last_run %}
+                <p class="small text-body-secondary mb-0 mt-1">
+                    Dernier e-mail de test : clé <code>{{ probe_last_run.key }}</code>{% if probe_last_run.sent_at %}, {{ probe_last_run.sent_at }}{% endif %}.
+                    Son résultat se lit chez le support, pas ici.
+                </p>
+            {% endif %}
 
+            {% if archive_available %}
                 {% if archive_transmitted %}
-                    <p class="small mb-0">
+                    <p class="small mb-0 mt-2">
                         {% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Archive transmise' } only %}
                         {% if archive_transmitted_at %}— {{ archive_transmitted_at }}{% endif %}
                     </p>
-                {% elseif archive_size_bytes is null %}
-                    <p class="small text-body-secondary mb-0">
-                        {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'Archive non transmise' } only %}
-                        Générez d'abord une archive de support ci-dessous, puis revenez ici.
-                    </p>
                 {% else %}
-                    {# La liste et la taille AVANT la case, jamais après :
-                       accepter de transmettre « quelque chose » n'est pas
-                       accepter de transmettre ceci (roadmap IT-26). #}
-                    <p class="small text-body-secondary mb-1">
+                    {# Le seul chemin manuel restant : un renvoi quand
+                       l'envoi automatique n'a pas abouti. Il n'apparaît
+                       donc que dans ce cas. #}
+                    <p class="small text-body-secondary mb-1 mt-2">
                         {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'Archive non transmise' } only %}
-                        L'archive conservée pèse
-                        <strong>{{ (archive_size_bytes / 1048576)|number_format(1, ',', ' ') }} Mo</strong>
-                        et contient :
+                        {% if archive_size_bytes is null %}
+                            Elle est peut-être encore en cours de génération : revenez dans quelques minutes.
+                        {% endif %}
                     </p>
-                    <ul class="small text-body-secondary">
-                        {% for entry in archive_contents %}
-                            <li>{{ entry.description }}</li>
-                        {% endfor %}
-                    </ul>
-
-                    <form method="post" action="/config/support/ticket/archive">
-                        {{ csrf_field()|raw }}
-                        <div class="form-check mb-2">
-                            <input class="form-check-input" type="checkbox" value="1"
-                                   id="archive_acknowledged" name="archive_acknowledged" required>
-                            <label class="form-check-label small" for="archive_acknowledged">
-                                J'ai pris connaissance du contenu de cette archive et j'accepte de la transmettre
-                                à {{ archive_destination }}.
-                            </label>
-                        </div>
-                        <button type="submit" class="btn btn-outline-primary">
-                            Transmettre l'archive au support
-                        </button>
-                    </form>
+                    {% if archive_size_bytes %}
+                        <form method="post" action="/config/support/ticket/archive">
+                            {{ csrf_field()|raw }}
+                            <input type="hidden" name="archive_acknowledged" value="1">
+                            <button type="submit" class="btn btn-sm btn-outline-primary">
+                                Réessayer la transmission de l'archive
+                            </button>
+                        </form>
+                    {% endif %}
                 {% endif %}
             {% endif %}
-        {% endif %}
-    </div>
-</div>
-{% endif %}
-
-{% if probe_available %}
-<div class="card mb-3">
-    <div class="card-body">
-        <h2 class="h5 mb-3">Tester l'acheminement des e-mails</h2>
-
-        <p class="small text-body-secondary">
-            Le bouton « Envoyer un e-mail de test » de la page Courriel prouve que votre serveur a
-            <em>accepté</em> le message. Il ne dit rien de la suite : SPF, DKIM, DMARC, un délai de
-            mise en quarantaine, ou un message supprimé sans avertissement. Cette sonde envoie un
-            message vers une boîte du support, qui vous dira ce qui est arrivé et dans quel état.
-        </p>
-
-        <div class="alert alert-info small">
-            <strong>Ce que la sonde contient :</strong> une clé de corrélation et rien d'autre.
-            Aucune donnée personnelle, aucun nom, aucune adresse de membre.
-        </div>
-
-        <form method="post" action="/config/support/mail-probe">
-            {{ csrf_field()|raw }}
-            <button type="submit" class="btn btn-outline-primary"
-                    {% if probe_rate_limited_until %}disabled{% endif %}>
-                Envoyer une sonde de diagnostic
-            </button>
-            {# Un bouton grisé sans motif est exactement le silence que
-               cette fonction sert à lever : la page dit quand il revient. #}
-            {% if probe_rate_limited_until %}
-                <p class="small text-body-secondary mb-0 mt-2">
-                    Une sonde a déjà été envoyée il y a moins d'une heure : réessayez à partir de
-                    {{ probe_rate_limited_until }}.
-                </p>
-            {% endif %}
-        </form>
-
-        {% if probe_last_run %}
-            <hr>
-            <h3 class="h6">Dernière sonde</h3>
-            <p class="small mb-0">
-                Clé <code>{{ probe_last_run.key }}</code>
-                {% if probe_last_run.sent_at %}— {{ probe_last_run.sent_at }}{% endif %}
-            </p>
-            <p class="small text-body-secondary mb-0 mt-1">
-                Le résultat — réception, délai, SPF, DKIM, DMARC — se lit chez le support, pas ici :
-                c'est lui qui reçoit le message.
-            </p>
         {% endif %}
     </div>
 </div>

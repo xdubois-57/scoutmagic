@@ -1,0 +1,39 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{% extends 'base.html.twig' %}
+{% block title %}Assistant — {{ site_name }}{% endblock %}
+{% block content %}
+<div class="page-narrow">
+    {% include 'partials/page_header.html.twig' with {
+        title: "Assistant",
+        subtitle: "Posez votre question en français : l'assistant cherche la réponse dans les sujets d'aide de ce site."
+    } only %}
+
+    {# The same partial the help panel includes — one conversation, one
+       endpoint, one script (ARCHITECTURE.md §8.87). This page exists for
+       the exchange that wants more room than a drawer, not for a second
+       implementation of it. #}
+    {% include 'partials/help_assistant.html.twig' with {
+        available: assistant_available,
+        compact: false
+    } only %}
+
+    <section class="mt-4 pt-3 border-top">
+        <h2 class="h6 fw-semibold text-body-secondary">Ce que l'assistant sait, et ce qu'il ignore</h2>
+        <p class="small text-body-secondary mb-2">
+            Il lit uniquement les sujets d'aide de ce site, ceux auxquels votre rôle
+            donne accès. Il ne consulte jamais les données de votre unité : ni les
+            membres, ni les sections, ni les montants. Il ne peut donc pas répondre à
+            « combien la famille Dupont doit-elle ? », mais bien à « où voir ce que les
+            familles doivent encore ? ».
+        </p>
+        <p class="small text-body-secondary mb-0">
+            Vos échanges ne sont conservés nulle part : ils disparaissent à la
+            déconnexion. Pour parcourir la documentation vous-même,
+            <a href="/aide" class="text-decoration-none">tous les sujets</a> sont là.
+        </p>
+    </section>
+</div>
+{% endblock %}

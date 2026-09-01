@@ -4,18 +4,24 @@ title: Tester l'acheminement des e-mails
 summary: Vérifier que vos messages arrivent vraiment, et dans quel état.
 category: Configuration
 role_min: superadmin
+question: Comment savoir si nos e-mails arrivent en spam ?
+question: Comment tester l'acheminement d'un e-mail vers une adresse ?
 paths: /config/support
 related: support, config-emails
 ---
 
-Le bouton « Envoyer un e-mail de test » de la page Courriel prouve une
-seule chose : votre serveur a **accepté** le message. C'est déjà utile,
+Le bouton « M'envoyer un test », sur la page d'un modèle d'e-mail, prouve
+une seule chose : votre serveur a **accepté** le message. C'est déjà utile,
 et c'est loin d'être toute l'histoire — un message accepté peut être
 rejeté plus loin, mis en quarantaine une heure, ou supprimé sans
 avertissement par le fournisseur du destinataire.
 
 La sonde répond à la suite. Elle envoie un message vers une boîte de
 l'équipe de support, qui vous dira ce qui est arrivé.
+
+Elle **part avec votre ticket** : il n'y a pas de bouton séparé. En
+cochant « J'accepte que le site envoie un e-mail de test au support », vous
+l'autorisez, et elle est envoyée en même temps que le ticket.
 
 ## Ce que la sonde contient
 
@@ -38,9 +44,10 @@ personne ne lit.
 
 ## Une sonde par heure
 
-Un bouton qui écrit vers plusieurs boîtes est un amplificateur : une
-seule sonde par heure part de votre site. Si le bouton est grisé, la page
-vous dit à partir de quand il redevient disponible.
+Un envoi qui écrit vers plusieurs boîtes est un amplificateur : une seule
+sonde par heure part de votre site. Si vous ouvrez deux tickets dans la
+même heure, le second n'en envoie pas — la confirmation vous le dit, et
+le ticket part quand même.
 
 ## Si l'envoi échoue
 
@@ -51,6 +58,12 @@ précise qui pose problème, pas votre serveur.
 
 ## Où se lit le résultat
 
-Chez le support, pas ici : c'est lui qui reçoit le message. Communiquez
-la clé affichée sous le bouton quand vous ouvrez un ticket, et elle
-suffira à retrouver ce qui est arrivé.
+Chez le support, pas ici : c'est lui qui reçoit le message. La clé
+s'affiche dans la confirmation et sous le dernier ticket envoyé ; elle
+suffit à retrouver ce qui est arrivé.
+
+**« En attente » n'est pas « jamais reçue ».** Tant que la clé n'a pas
+expiré — 48 heures — le message peut encore arriver : une mise en
+quarantaine de quarante minutes est précisément ce que la sonde sert à
+révéler. Ce n'est qu'après l'expiration que l'absence devient un
+constat.

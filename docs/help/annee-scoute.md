@@ -4,6 +4,9 @@ title: Passer à la nouvelle année scoute
 summary: Le parcours guidé en trois temps pour basculer le site sur l'année suivante.
 category: Espace chefs d'U
 role_min: admin
+question: Comment faire passer le site à l'année scoute suivante ?
+question: Que faut-il finir avant de basculer d'année ?
+question: Peut-on revenir en arrière après la bascule d'année ?
 paths: /admin/scout-year
 related: import-desk, membres-par-section
 ---

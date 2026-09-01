@@ -29,6 +29,7 @@ import { answerCookieBanner } from '../support/cookie-banner.js';
 import { loginAsAdmin, loginAsMember } from '../support/admin-login.js';
 import { closeDetailDialog, openComposer, openCreateGroupForm, waitForGroupsJsReady } from '../support/groups.js';
 import { pngBuffer } from '../support/png.js';
+import { runScheduler } from '../support/scheduler.js';
 import { scaled } from '../support/timeouts.js';
 
 const GROUP_NAME = `Intendance camp ${Date.now()}`;
@@ -192,9 +193,13 @@ test('a mention travels to a notification, a pin asks its duration, "Vu par" nam
         await expect(feed.getByRole('article').filter({ hasText: PHOTO_MESSAGE }).first()).toBeVisible();
 
         // The gallery page needs the ProcessPhoto task to have produced a
-        // thumbnail; reloading is also what drives the cron that runs it.
+        // thumbnail, and the ONLY thing that runs that task is a cron pass
+        // — the application no longer turns its own queue on the tail of a
+        // web request. So the scenario turns it, once per attempt, through
+        // the instance's real public/cron.php.
         await memberPage.goto(`${groupUrl}/gallery`, { waitUntil: 'domcontentloaded' });
         await expect.poll(async () => {
+            await runScheduler();
             await memberPage.reload({ waitUntil: 'load' });
             return memberPage.locator('.gallery-lightbox-trigger img').count();
         }, {

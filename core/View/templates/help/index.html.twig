@@ -28,49 +28,75 @@
         </div>
     {% endif %}
 
-    {# Plain GET, deliberately: the search travels as ?q= and nothing is
-       persisted anywhere — no cookie, no session state (ARCHITECTURE.md
-       §8.64). No CSRF field either, this form changes nothing. #}
-    <form method="get" action="/aide" role="search" class="mb-4">
-        <label for="help-search" class="visually-hidden">Rechercher dans l'aide</label>
-        <div class="input-group">
-            <input type="search" class="form-control" id="help-search" name="q"
-                   value="{{ query }}" placeholder="Rechercher un sujet…">
-            <button type="submit" class="btn btn-outline-secondary">
-                <i class="bi bi-search" aria-hidden="true"></i>
-                <span class="visually-hidden">Rechercher</span>
-            </button>
-        </div>
-    </form>
+    {# The search scope (public/assets/js/help-search.js, the same three
+       markers the help panel carries): the field, the results it fills,
+       and the category listing it hides while a query is typed. Nothing
+       here is a second implementation of the panel's search — one file
+       binds both surfaces.
 
-    {% if grouped_topics is empty %}
-        {% include 'partials/empty_state.html.twig' with {
-            message: 'Aucun sujet ne correspond à votre recherche.',
-            icon: 'bi-search'
-        } only %}
-    {% endif %}
-
-    {% for category, topics in grouped_topics %}
-        <section class="mb-4">
-            <h2 class="h5 fw-semibold border-bottom pb-2 mb-3">{{ category }}</h2>
-            <div class="list-group list-group-flush">
-                {% for topic in topics %}
-                    <a href="/aide/{{ topic.id }}" class="list-group-item list-group-item-action border-0 px-0 py-2">
-                        <div class="d-flex align-items-center gap-2">
-                            <span class="fw-semibold">{{ topic.title }}</span>
-                            {% if topic.moduleId %}
-                                {# Discreet marker for a topic shipped by a module
-                                   (docs/module-development.md § Help topics) — it
-                                   disappears with the module, and the badge says
-                                   why a topic can come and go. #}
-                                <span class="badge text-bg-light border fw-normal">Module</span>
-                            {% endif %}
-                        </div>
-                        <div class="small text-body-secondary">{{ topic.summary }}</div>
-                    </a>
-                {% endfor %}
+       The form itself stays a plain GET, deliberately: the search travels
+       as ?q= and nothing is persisted anywhere — no cookie, no session
+       state (ARCHITECTURE.md §8.64). No CSRF field either, this form
+       changes nothing. With scripting off it is the whole search
+       (Core\Help\HelpService::search()); with scripting on the script
+       intercepts the submit and ranks locally, so the round trip is
+       simply not taken. #}
+    <div data-help-search-scope>
+        <form method="get" action="/aide" role="search" class="mb-4">
+            <label for="help-search" class="visually-hidden">Rechercher dans l'aide</label>
+            <div class="input-group">
+                <input type="search" class="form-control" id="help-search" name="q"
+                       value="{{ query }}" placeholder="Rechercher un sujet…"
+                       autocomplete="off" data-help-search-input>
+                <button type="submit" class="btn btn-outline-secondary">
+                    <i class="bi bi-search" aria-hidden="true"></i>
+                    <span class="visually-hidden">Rechercher</span>
+                </button>
             </div>
-        </section>
-    {% endfor %}
+        </form>
+
+        <div class="mb-4" data-help-search-results hidden></div>
+
+        {# The assistant does not live on this page — it has one of its
+           own (/aide/assistant) and a state in the help panel, and a
+           third copy of the same conversation is exactly what the shared
+           partial exists to avoid. So here the invite is a link, and
+           help-search.js hands the typed question over to the page. #}
+        {% include 'partials/help_assistant_invite.html.twig' with {
+            inline: false
+        } only %}
+
+        <div data-help-search-default>
+            {% if grouped_topics is empty %}
+                {% include 'partials/empty_state.html.twig' with {
+                    message: 'Aucun sujet ne correspond à votre recherche.',
+                    icon: 'bi-search'
+                } only %}
+            {% endif %}
+
+            {% for category, topics in grouped_topics %}
+                <section class="mb-4">
+                    <h2 class="h5 fw-semibold border-bottom pb-2 mb-3">{{ category }}</h2>
+                    <div class="list-group list-group-flush">
+                        {% for topic in topics %}
+                            <a href="/aide/{{ topic.id }}" class="list-group-item list-group-item-action border-0 px-0 py-2">
+                                <div class="d-flex align-items-center gap-2">
+                                    <span class="fw-semibold">{{ topic.title }}</span>
+                                    {% if topic.moduleId %}
+                                        {# Discreet marker for a topic shipped by a module
+                                           (docs/module-development.md § Help topics) — it
+                                           disappears with the module, and the badge says
+                                           why a topic can come and go. #}
+                                        <span class="badge text-bg-light border fw-normal">Module</span>
+                                    {% endif %}
+                                </div>
+                                <div class="small text-body-secondary">{{ topic.summary }}</div>
+                            </a>
+                        {% endfor %}
+                    </div>
+                </section>
+            {% endfor %}
+        </div>
+    </div>
 </div>
 {% endblock %}

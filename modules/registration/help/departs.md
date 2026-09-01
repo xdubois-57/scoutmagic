@@ -4,6 +4,8 @@ title: Annoncer les départs
 summary: Marquer les animés qui ne reviendront pas l'année prochaine.
 category: Espace animateurs
 role_min: chief
+question: Comment signaler qu'un animé ne revient pas l'an prochain ?
+question: Où voir les animés qui quittent l'unité ?
 paths: /departs
 related: previsions, passage
 ---

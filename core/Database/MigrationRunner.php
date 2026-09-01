@@ -511,46 +511,21 @@ class MigrationRunner
     }
 
     /**
-     * @see migrate()'s doc comment for why this exists.
+     * @see migrate()'s doc comment for why this exists. The lock's own
+     * rules — timeout 0, the SQLite fallback, ::query() to release — live
+     * in AdvisoryLock, shared with Maintenance\InstallLock and
+     * Scheduler\CronPassLock.
      */
+    private const LOCK_NAME = 'scoutmagic_schema_migration';
+
     private function acquireMigrationLock(): bool
     {
-        try {
-            $stmt = $this->connection->getPdo()->query("SELECT GET_LOCK('scoutmagic_schema_migration', 0)");
-            if ($stmt === false) {
-                return false;
-            }
-            $acquired = $stmt->fetchColumn();
-            $stmt->closeCursor();
-            return (int) $acquired === 1;
-        } catch (\PDOException) {
-            // GET_LOCK() is MySQL/MariaDB-specific and unavailable on the
-            // SQLite connection this class's local tests use — proceeding
-            // without mutual exclusion there is safe (see migrate()'s
-            // comment above the call site).
-            return true;
-        }
+        return AdvisoryLock::acquire($this->connection->getPdo(), self::LOCK_NAME);
     }
 
     private function releaseMigrationLock(): void
     {
-        try {
-            // ::query(), not ::exec() — RELEASE_LOCK() is a SELECT-style
-            // function call that returns a result set, and exec() is only
-            // for statements that don't (INSERT/UPDATE/DELETE/DDL). Used
-            // via exec() here, the row it returns is never read, leaving
-            // its cursor open on the connection — the very next query
-            // (the caller's next request, or a test's own follow-up
-            // assertion right after migrate() returns) then fails with
-            // "Cannot execute queries while other unbuffered queries are
-            // active". This runs at the end of every migrate() call, so
-            // it broke the very next query almost every time.
-            $stmt = $this->connection->getPdo()->query("SELECT RELEASE_LOCK('scoutmagic_schema_migration')");
-            if ($stmt !== false) {
-                $stmt->closeCursor();
-            }
-        } catch (\PDOException) {
-        }
+        AdvisoryLock::release($this->connection->getPdo(), self::LOCK_NAME);
     }
 
     /**

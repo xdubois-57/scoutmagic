@@ -32,8 +32,8 @@ use Core\Scheduler\TaskContext;
  * $handlerClass()` (Core\Scheduler\SchedulerRunner, Core\Scheduler\
  * TaskCapabilities), so it has no constructor to inject anything into and
  * receives every dependency it will ever have through TaskContext. That
- * is exactly the shape Core\Scheduler\SchedulerKick::now() already has,
- * for exactly the same reason.
+ * is exactly the shape Core\Statistics\StatisticsServiceFactory already
+ * has, for exactly the same reason.
  *
  * Nobody to tell is a no-op, not an error: an automatic run has no
  * requester at all (`update_history.requested_by`/the task payload's

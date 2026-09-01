@@ -31,12 +31,27 @@ use PHPUnit\Framework\TestCase;
  *
  * The rest pins the editorial charter (design.md §7.11) where a rule is
  * mechanically checkable: topic length, at most one warning callout, no
- * external link except the federation's site.
+ * external link except the federation's site, and — since the corpus was
+ * enriched — two to four `question:` lines per topic, each unique across
+ * the whole corpus.
+ *
+ * The other half of "the corpus still describes the real screens" is
+ * Tests\Core\Help\HelpLabelDriftTest, which checks the labels the bodies
+ * quote against the interface itself.
  */
 final class HelpInvariantsTest extends TestCase
 {
     private const FEDERATION_HOST_SUFFIX = 'lesscouts.be';
     private const MAX_BODY_WORDS = 500; // charter says ~400 — hard stop with headroom
+
+    /**
+     * A `question:` line is what someone would type into the search box,
+     * not a section heading: it ends with a question mark and stays short
+     * enough to read in a result list.
+     */
+    private const MAX_QUESTION_LENGTH = 80;
+    private const MIN_QUESTIONS_PER_TOPIC = 2;
+    private const MAX_QUESTIONS_PER_TOPIC = 4;
 
     /** @return string repo root */
     private static function root(): string
@@ -173,6 +188,112 @@ final class HelpInvariantsTest extends TestCase
                 );
             }
         }
+    }
+
+    /**
+     * Every topic carries 2 to 4 `question:` lines, and each one has the
+     * shape of a question.
+     *
+     * This was deliberately not mandatory while the corpus was being
+     * enriched category by category — a rule that fails on 120 files the
+     * day it lands teaches nobody anything. All four passes are done
+     * (docs/chantiers/aide-recherche-assistant.md, IT-03 to IT-06), so it
+     * is mandatory now: a topic arriving without questions is invisible
+     * to the instant search for every word its title does not happen to
+     * use, which is the failure this whole field exists to prevent.
+     *
+     * The floor of two is the real rule, not a formality. If a second
+     * genuine question cannot be written for a topic, the topic is
+     * describing a screen instead of documenting a task, and it wants
+     * rewriting rather than enriching (design.md §7.11).
+     */
+    public function testEveryTopicCarriesTwoToFourQuestions(): void
+    {
+        $topics = self::shippedTopics();
+        $this->assertNotEmpty($topics, 'The shipped corpus must not be empty.');
+
+        foreach ($topics as $topic) {
+            $count = count($topic->questions);
+            $this->assertNotSame(
+                0,
+                $count,
+                "Help topic '{$topic->id}' ({$topic->filePath}) declares no `question:` line. Write two to four, in the words somebody searching would type — and if a second real one cannot be written, the topic describes a screen instead of documenting a task."
+            );
+            $this->assertGreaterThanOrEqual(
+                self::MIN_QUESTIONS_PER_TOPIC,
+                $count,
+                "Help topic '{$topic->id}' declares {$count} question(s) — a topic worth enriching carries at least " . self::MIN_QUESTIONS_PER_TOPIC . ". One real question means the topic answers one thing; if a second cannot be written, the topic describes a screen instead of documenting a task."
+            );
+            $this->assertLessThanOrEqual(
+                self::MAX_QUESTIONS_PER_TOPIC,
+                $count,
+                "Help topic '{$topic->id}' declares {$count} questions — the charter allows at most " . self::MAX_QUESTIONS_PER_TOPIC . ". Past that the topic is covering several tasks and should be split."
+            );
+
+            foreach ($topic->questions as $question) {
+                $this->assertStringEndsWith(
+                    '?',
+                    $question,
+                    "Help topic '{$topic->id}' declares a `question` that is not one: \"{$question}\". Write it as the person searching would type it, question mark included."
+                );
+                $length = mb_strlen($question);
+                $this->assertLessThanOrEqual(
+                    self::MAX_QUESTION_LENGTH,
+                    $length,
+                    "Help topic '{$topic->id}' declares a {$length}-character question — the limit is " . self::MAX_QUESTION_LENGTH . ", so it stays readable in a result list: \"{$question}\"."
+                );
+            }
+        }
+    }
+
+    /**
+     * Two topics claiming the same question is a real ambiguity, not a
+     * duplication to tolerate: the local search would have to rank them
+     * arbitrarily, and so would the assistant's selection step. Compared
+     * on the same folded form the search uses, so « Comment inviter un
+     * animateur ? » and « Comment inviter un animateur? » collide.
+     */
+    public function testNoQuestionIsClaimedByTwoTopics(): void
+    {
+        $seen = [];
+        $declared = 0;
+        foreach (self::shippedTopics() as $topic) {
+            foreach ($topic->questions as $question) {
+                $declared++;
+                $key = self::foldQuestion($question);
+                $this->assertArrayNotHasKey(
+                    $key,
+                    $seen,
+                    "Help topics '" . ($seen[$key] ?? '') . "' and '{$topic->id}' both claim the question \"{$question}\" — two topics answering the same question is an ambiguity to resolve in the corpus, not a tie for the search to break."
+                );
+                $seen[$key] = $topic->id;
+            }
+        }
+
+        // Stated as a total as well, so the invariant is asserted even
+        // while the corpus is still being enriched and the loop above has
+        // nothing to compare.
+        $this->assertCount($declared, $seen, 'Every declared question must be unique across the whole corpus.');
+    }
+
+    /**
+     * Lowercased, accents folded, punctuation and runs of whitespace
+     * collapsed — enough that two spellings of one question compare
+     * equal without pulling in a normalizer this test does not own.
+     */
+    private static function foldQuestion(string $question): string
+    {
+        $folded = strtr(mb_strtolower($question, 'UTF-8'), [
+            'à' => 'a', 'â' => 'a', 'ä' => 'a',
+            'é' => 'e', 'è' => 'e', 'ê' => 'e', 'ë' => 'e',
+            'î' => 'i', 'ï' => 'i',
+            'ô' => 'o', 'ö' => 'o',
+            'ù' => 'u', 'û' => 'u', 'ü' => 'u',
+            'ç' => 'c', 'œ' => 'oe', 'æ' => 'ae',
+            '’' => "'",
+        ]);
+
+        return trim((string) preg_replace('/[^a-z0-9]+/u', ' ', $folded));
     }
 
     public function testEveryTopicRespectsTheMechanicallyCheckableCharterRules(): void

@@ -4,6 +4,8 @@ title: Les points d'attention
 summary: Ce qui ne va pas dans l'unité aujourd'hui, recalculé à chaque consultation.
 category: Espace chefs d'U
 role_min: admin
+question: Qu'est-ce qui ne va pas dans l'unité en ce moment ?
+question: Comment faire disparaître un point d'attention ?
 paths: /admin/points-attention
 related: import-desk, import-historique, staffs
 ---

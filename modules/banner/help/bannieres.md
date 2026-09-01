@@ -4,6 +4,8 @@ title: Gérer les bannières de l'accueil
 summary: Les messages d'annonce affichés en haut de la page d'accueil.
 category: Espace chefs d'U
 role_min: admin
+question: Comment afficher une annonce en haut de la page d'accueil ?
+question: Comment faire disparaître un bandeau d'annonce ?
 paths: /config/banner
 related: edition-du-site, decouvrir-le-site
 ---

@@ -1,0 +1,70 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{# The assistant, shared by its two surfaces (ARCHITECTURE.md §8.87): the
+   help panel's third state, and the /aide/assistant page. One partial,
+   one endpoint, one script — two copies of a conversation would drift on
+   the day one of them gained a state the other did not.
+
+   Nothing here is rendered by the server except the shell: the exchanges
+   arrive from POST /api/aide/assistant and are built by
+   public/assets/js/help-assistant.js, node by node. The answer is a
+   model's output, so it is escaped server-side by MarkdownRenderer before
+   it ever gets here.
+
+   Parameters:
+   - available   whether the connector is operational (the assistant is
+                 offered at all)
+   - compact     true inside the panel, false on the full page
+
+   data-* only, no inline handlers (CSP — design.md §7.5). #}
+{% set available = available|default(false) %}
+{% set compact = compact|default(false) %}
+
+<div class="help-assistant" data-help-assistant>
+    {% if not available %}
+        {# The degraded state that is not an error: this site has no AI
+           provider configured, which is a normal way for a unit to run.
+           Say what still works rather than what does not. #}
+        <p class="small text-body-secondary mb-0">
+            L'assistant n'est pas disponible sur ce site : il demande qu'un fournisseur
+            d'intelligence artificielle soit configuré. La recherche dans l'aide,
+            elle, fonctionne toujours — y compris hors connexion.
+        </p>
+    {% else %}
+        <div class="mb-3" data-help-assistant-thread aria-live="polite"></div>
+
+        {# Offline, the exchange cannot happen: the answer comes from a
+           provider on the internet. offline-nav.js intercepts the POST and
+           opens its own dialog, and this line says so before the visitor
+           types a paragraph for nothing. #}
+        <p class="small text-body-secondary d-none" data-help-assistant-offline>
+            <i class="bi bi-wifi-off" aria-hidden="true"></i>
+            Vous êtes hors connexion. L'assistant a besoin d'internet ;
+            la recherche ci-dessus fonctionne sans.
+        </p>
+
+        <form data-help-assistant-form>
+            <label for="help-assistant-question{{ compact ? '-panel' : '' }}" class="visually-hidden">
+                Votre question pour l'assistant
+            </label>
+            <div class="input-group">
+                <input type="text" class="form-control"
+                       id="help-assistant-question{{ compact ? '-panel' : '' }}"
+                       name="question" autocomplete="off" maxlength="500"
+                       placeholder="Posez votre question…"
+                       data-help-assistant-input>
+                <button type="submit" class="btn btn-primary" data-help-assistant-submit>
+                    <i class="bi bi-send" aria-hidden="true"></i>
+                    <span class="visually-hidden">Envoyer</span>
+                </button>
+            </div>
+        </form>
+
+        <p class="form-text mb-0">
+            L'assistant répond uniquement à partir des sujets d'aide de ce site. Il ne
+            consulte jamais les données de votre unité.
+        </p>
+    {% endif %}
+</div>

@@ -4,6 +4,8 @@ title: Le courrier des camps
 summary: Ce que le site reprend de vos e-mails, ce qu'il ne touchera jamais, et l'écran où vous triez.
 category: Espace animateurs
 role_min: chief
+question: Pourquoi les e-mails du propriétaire arrivent-ils sur le séjour ?
+question: Comment dédier une adresse e-mail aux camps ?
 paths: /chefs/camps/courrier
 related: camps-courrier-ecran, camps, camps-propositions, config-camps
 ---

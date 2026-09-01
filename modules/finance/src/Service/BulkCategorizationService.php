@@ -49,10 +49,14 @@ class BulkCategorizationService
     private const RUN_TASK_KEY = 'run_categorization_rules';
 
     /**
-     * Ceiling for a background run. The poor man's cron executes this inside
-     * a normal web request, whose default max_execution_time (often 30s) is
-     * far below what one LLM call per uncategorized movement needs — and
-     * exceeding it is a fatal error that skips the finally block below.
+     * Ceiling for a background run. The pass that executes this now always
+     * runs under the CLI SAPI (public/cron.php), where max_execution_time
+     * is 0 — but this batch makes one LLM call per uncategorized movement,
+     * so it still needs a ceiling of its own rather than none at all. It
+     * used to be executed inside an ordinary web request by the poor man's
+     * cron, where exceeding max_execution_time is a fatal error that skips
+     * the finally block below; that is the failure this number was first
+     * written for, and it costs nothing to keep guarding against.
      */
     private const RUN_TIME_LIMIT_SECONDS = 1800;
 
@@ -80,8 +84,8 @@ class BulkCategorizationService
      * How long a "running" marker is trusted before it is treated as
      * abandoned. The flag is cleared by runInBackground()'s finally block,
      * but nothing clears it if the scheduled task is never picked up at all
-     * (the poor man's cron depends on a page load — see public/index.php)
-     * or if the process dies before that block runs. Without an expiry the
+     * (a crontab that stopped firing — Core\Scheduler\CronHealth) or if
+     * the process dies before that block runs. Without an expiry the
      * config page's "Exécuter les règles" button then stayed disabled for
      * ever, with no way to reset it from the UI. An hour is far longer than
      * any real run: the batch makes one LLM call per uncategorized movement.
@@ -91,16 +95,16 @@ class BulkCategorizationService
     /**
      * Whether Task\RunCategorizationRulesHandler is currently queued or
      * running — set the moment Controller\ConfigRuleController schedules
-     * the task (before it has actually started, since the poor man's
-     * cron may not pick it up for up to a minute — see public/index.php),
-     * cleared once runInBackground() finishes, success or failure.
+     * the task (before it has actually started, since the next cron pass
+     * may be up to a minute away), cleared once runInBackground()
+     * finishes, success or failure.
      *
      * A marker older than RUNNING_STALE_AFTER_SECONDS is reported as not
-     * running: see that constant for why one can be left behind. The most
-     * likely way that happens is not an exception at all — the poor man's
-     * cron runs the batch inside an ordinary web request, and exceeding
-     * max_execution_time is a fatal error, which skips runInBackground()'s
-     * finally block entirely.
+     * running: see that constant for why one can be left behind. It is not
+     * always an exception — a pass killed mid-batch (the host recycling the
+     * process, a fatal on a time limit) skips runInBackground()'s finally
+     * block entirely, and the expiry is the only thing that then frees the
+     * button.
      */
     public function isRunning(): bool
     {
@@ -144,7 +148,7 @@ class BulkCategorizationService
 
     /**
      * Schedules Task\RunCategorizationRulesHandler to run in the
-     * background (picked up by the poor man's cron — public/index.php) —
+     * background (picked up by the next cron pass — public/cron.php) —
      * the single entry point both Controller\ConfigRuleController's
      * button and Service\ImportService (right after a successful import)
      * go through, so the "already running" guard only has to live in one

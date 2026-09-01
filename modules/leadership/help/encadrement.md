@@ -4,6 +4,8 @@ title: Suivre l'encadrement de l'unité
 summary: Les listes de formation de l'unité et le ratio ONE, lus dans l'import Desk.
 category: Espace chefs d'U
 role_min: admin
+question: Combien d'animateurs brevetés compte l'unité ?
+question: Sommes-nous en règle avec le ratio d'encadrement ONE ?
 paths: /admin/leadership, /admin/leadership/training
 related: encadrement-obligations, import-desk, membres-admin, annee-scoute
 ---

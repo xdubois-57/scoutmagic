@@ -77,6 +77,19 @@ class SupportTicketSenderTest extends TestCase
         }
     }
 
+    /**
+     * The closed list of what a ticket body carries.
+     *
+     * `statistics` joined it deliberately: a report sent as its own call
+     * arrived as its own event, and the receiver could not tie it to the
+     * ticket it explained. Anything else appearing here is a change to
+     * what leaves a unit's server, which is exactly the kind of change
+     * that should not pass unnoticed — hence the exact-match assertion.
+     *
+     * The sender under test is built WITHOUT a payload builder, so the
+     * key is present and null; `Tests\Core\Support\Ticket\
+     * TicketCarriesStatisticsTest` covers the report itself.
+     */
     public function testWhatLeavesIsTheTicketAndTheIdentityAndNothingElse(): void
     {
         $transport = $this->transport(200, ['status' => 'accepted', 'ticket_reference' => 'SUP-7KQ4F2']);
@@ -91,7 +104,15 @@ class SupportTicketSenderTest extends TestCase
 
         $body = json_decode($call['body'], true);
         $this->assertSame(
-            ['installation_id', 'category', 'description', 'contact_email', 'site_version', 'php_version'],
+            [
+                'installation_id',
+                'category',
+                'description',
+                'contact_email',
+                'site_version',
+                'php_version',
+                'statistics',
+            ],
             array_keys($body)
         );
         $this->assertSame('desk_import', $body['category']);

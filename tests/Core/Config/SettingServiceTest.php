@@ -108,6 +108,71 @@ class SettingServiceTest extends TestCase
         $this->assertNull($this->service->get('gone', 'calendar'));
     }
 
+    // --- deleteCoreSettings(): the only way a CORE setting ever goes ---
+
+    /**
+     * Core settings have no pruning mechanism at all: pruneUndeclared() is
+     * scoped to a module_id, and nothing anywhere removes a
+     * `module_id IS NULL` row that the composition root stopped
+     * registering. That was harmless only while core never retired a
+     * setting; retiring seven of them (the scheduler-continuation and
+     * migration-chain settings) is what this exists for.
+     */
+    public function testDeleteCoreSettingsRemovesExactlyTheNamedCoreRows(): void
+    {
+        $this->service->register('scheduler_max_hops', '30', 'number', 'Plafond', 'Desc');
+        $this->service->register('scheduler_chain_hops', '0', 'number', 'Compteur', 'Desc', null, null, null, false);
+        $this->service->register('base_url', 'https://exemple.be', 'url', 'URL', 'Desc');
+
+        $this->assertSame(
+            2,
+            $this->repo->deleteCoreSettings(['scheduler_max_hops', 'scheduler_chain_hops'])
+        );
+
+        $this->assertNull($this->repo->findByModuleAndKey(null, 'scheduler_max_hops'));
+        $this->assertNull($this->repo->findByModuleAndKey(null, 'scheduler_chain_hops'));
+        $this->assertNotNull($this->repo->findByModuleAndKey(null, 'base_url'));
+    }
+
+    /**
+     * Unlike pruneUndeclared(), this deletes non-editable rows too — the
+     * retired settings included internal counters nobody could ever see,
+     * and leaving those behind would defeat the point. The safety here is
+     * that the caller names every key, rather than computing a difference.
+     */
+    public function testDeleteCoreSettingsRemovesNonEditableRowsAsWell(): void
+    {
+        $this->service->register('migration_chain_hops', '0', 'number', 'Interne', 'Desc', null, null, null, false);
+
+        $this->assertSame(1, $this->repo->deleteCoreSettings(['migration_chain_hops']));
+        $this->assertNull($this->repo->findByModuleAndKey(null, 'migration_chain_hops'));
+    }
+
+    /**
+     * A module's row that happens to share a key with a retired core one
+     * must survive: the two are different settings, and only the core one
+     * was retired.
+     */
+    public function testDeleteCoreSettingsNeverTouchesAModuleRowOfTheSameName(): void
+    {
+        $this->service->register('shared_key', '1', 'text', 'Coeur', 'Desc');
+        $this->service->register('shared_key', '1', 'text', 'Module', 'Desc', 'gallery');
+
+        $this->assertSame(1, $this->repo->deleteCoreSettings(['shared_key']));
+
+        $this->assertNull($this->repo->findByModuleAndKey(null, 'shared_key'));
+        $this->assertNotNull($this->repo->findByModuleAndKey('gallery', 'shared_key'));
+    }
+
+    public function testDeleteCoreSettingsIsANoOpOnAnEmptyListAndOnKeysThatDoNotExist(): void
+    {
+        $this->service->register('kept', '1', 'text', 'Gardé', 'Desc');
+
+        $this->assertSame(0, $this->repo->deleteCoreSettings([]));
+        $this->assertSame(0, $this->repo->deleteCoreSettings(['never_registered']));
+        $this->assertNotNull($this->repo->findByModuleAndKey(null, 'kept'));
+    }
+
     public function testRegisterSelfHealsDefaultValueOnAnAlreadyExistingRow(): void
     {
         $this->service->register('existing', 'original', 'text', 'Label', 'Desc');

@@ -4,6 +4,8 @@ title: Corriger les tarifs de cotisation dans Desk
 summary: Les foyers dont la catégorie encodée ne correspond pas au nombre de personnes qui y vivent.
 category: Espace chefs d'U
 role_min: admin
+question: Quelles familles paient un tarif qui ne correspond pas ?
+question: Comment corriger une catégorie de cotisation mal encodée ?
 paths: /admin/fees/tarifs
 related: cotisations, import-desk, membres-admin
 ---

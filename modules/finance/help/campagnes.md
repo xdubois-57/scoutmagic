@@ -4,6 +4,8 @@ title: Lancer une campagne de paiement
 summary: Facturer un montant à chaque membre d'une liste, et suivre les paiements reçus.
 category: Espace animateurs
 role_min: intendant
+question: Comment réclamer la cotisation à toutes les familles ?
+question: Comment savoir qui a payé et qui n'a pas payé ?
 paths: /finance/campaigns, /finance/campaigns/new, /finance/campaigns/*
 related: etiquettes-paiement, rappels, rapprochement, mes-paiements, finances, importer-extraits, outils-finance
 ---

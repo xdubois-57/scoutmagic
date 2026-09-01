@@ -47,16 +47,19 @@ class SupportTicketServiceTest extends TestCase
             new JournalService(new JournalRepository($this->pdo))
         );
 
+        // The shape the real payload builder produces. It used to carry
+        // top-level `scoutmagic_version` / `active_members` keys, which
+        // exist nowhere in a real report — the fixture was written against
+        // a reader that looked in the wrong place, so both agreed and the
+        // page rendered « Non renseigné » in production.
         $this->installationId = $this->registerInstallation('unite-de-test', [
             'statistics_schema_version' => 1,
             'installation_id' => 'unite-de-test',
             'instance_url' => 'https://unite-de-test.example.be',
             'scoutmagic' => ['version' => '1.0.33', 'is_dev_build' => false],
-            'scoutmagic_version' => '1.0.34',
-            'active_members' => 118,
-            'active_sections' => 6,
-            'installation_method' => 'archive',
-            'php_version' => '8.4.1',
+            'usage' => ['active_members' => 118, 'active_sections' => 6],
+            'installation' => ['method' => 'archive'],
+            'runtime' => ['php_version' => '8.4.1'],
         ]);
     }
 
@@ -74,10 +77,11 @@ class SupportTicketServiceTest extends TestCase
         $this->assertNotNull($detail);
         $this->assertSame('unite-de-test', $detail['installation']['public_id']);
         $this->assertSame('https://unite-de-test.example.be', $detail['installation']['instance_url']);
-        $this->assertSame('1.0.34', $detail['installation']['scoutmagic_version']);
+        $this->assertSame('1.0.33', $detail['installation']['scoutmagic_version']);
         $this->assertSame(118, $detail['installation']['active_members']);
         $this->assertSame(6, $detail['installation']['active_sections']);
         $this->assertSame('archive', $detail['installation']['installation_method']);
+        $this->assertSame('8.4.1', $detail['installation']['php_version']);
     }
 
     /**

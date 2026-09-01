@@ -4,6 +4,8 @@ title: Ne plus recevoir les e-mails de l'unité
 summary: Le lien de désinscription, ce qu'il arrête et ce qu'il n'arrête pas.
 category: Premiers pas
 role_min: public
+question: Comment ne plus recevoir les e-mails de l'unité ?
+question: Je me suis désinscrit, pourquoi je reçois encore des mails ?
 paths: /mass-mail/unsubscribe/*
 related: envoi-de-mails, adresses-email
 ---

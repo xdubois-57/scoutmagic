@@ -883,12 +883,38 @@
    wrote is read left to right, and a horizontal scrollbar under a
    paragraph is a paragraph nobody finishes. Without this a single long
    line pushes the whole page sideways at 375px, which is what it did. */
-.support-analysis,
 .support-ticket-description {
     max-height: 30rem;
     overflow-y: auto;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+}
+
+/* The cross-ticket analysis is rendered HTML, not a <pre>: `pre-wrap`
+   here would turn every newline BETWEEN elements into visible blank
+   space, which is what it did while this shared the rule above. Its
+   headings are capped small on purpose — they sit inside a card whose
+   own <h2> must stay the loudest thing in it. */
+.support-analysis {
+    max-height: 30rem;
+    overflow-y: auto;
+    overflow-wrap: anywhere;
+}
+
+.support-analysis > :first-child {
+    margin-top: 0;
+}
+
+.support-analysis > :last-child {
+    margin-bottom: 0;
+}
+
+.support-analysis h4,
+.support-analysis h5,
+.support-analysis h6 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-top: 1rem;
 }
 
 /* ── Availability month grid (Core\View\MonthGrid\DayStateGridBuilder,

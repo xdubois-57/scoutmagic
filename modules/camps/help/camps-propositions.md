@@ -4,6 +4,8 @@ title: Les informations lues dans un message
 summary: Ce que le site sait lire dans un e-mail reçu, et pourquoi il ne réécrit jamais ce que vous avez tapé.
 category: Espace animateurs
 role_min: chief
+question: Pourquoi le prix lu dans un e-mail ne s'écrit-il pas tout seul ?
+question: Comment appliquer les dates trouvées dans un message ?
 paths: /chefs/camps/sejours/*
 related: camps-courrier, camps
 ---

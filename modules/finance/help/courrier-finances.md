@@ -4,6 +4,8 @@ title: Un reçu reçu par e-mail
 summary: Comment le site décide où classer une pièce jointe, ce qu'il fait tout seul et ce qu'il vous laisse.
 category: Espace animateurs
 role_min: intendant
+question: Une facture est arrivée par e-mail, comment la classer ?
+question: Pourquoi une pièce jointe n'est-elle pas classée toute seule ?
 paths: /finance/receipts
 related: recus, courrier-entrant, courrier-unite
 ---

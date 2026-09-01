@@ -4,6 +4,8 @@ title: Gérer les comptes superadmin
 summary: Les comptes qui administrent le site en dehors du Desk : en ajouter un, retirer le droit, suspendre un accès, et les changements que le site refuse.
 category: Configuration
 role_min: superadmin
+question: Comment donner les droits d'administration à quelqu'un ?
+question: Comment retirer l'accès d'un ancien administrateur ?
 paths: /config/superadmins
 related: config-desk, mon-compte, journal
 ---

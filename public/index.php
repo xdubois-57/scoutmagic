@@ -417,14 +417,11 @@ $migrationIsPending = $migrationRunner->isPending($schemaFiles);
 \Core\Debug\RequestTimeline::mark('migration_pending_check_done', ['pending' => $migrationIsPending]);
 
 if ($migrationIsPending) {
-    $migrationStepPath = \Core\Database\MigrationChain::STEP_PATH;
-
-    // The chain that finishes this migration when nobody is watching.
-    // Everything about it — the settings it steers on, the ordering of
-    // flush and hop — lives in the class: this branch runs before the
-    // application's SettingService exists, exits before reaching it, and
-    // is entered by no test and no browser. See MigrationChain.
-    $migrationChain = \Core\Database\MigrationChain::forPendingMigration($connection->getPdo());
+    // Written out as a literal on purpose: this branch runs before the
+    // application's own services exist, and the only other spelling of
+    // this path is the fetch() in the progress page a few lines below,
+    // in the same file and in plain sight.
+    $migrationStepPath = '/api/system/migration-step';
 
     if ($request->getMethod() === 'POST' && $request->getPath() === $migrationStepPath) {
         // This endpoint runs live DDL and is reachable before any session,
@@ -469,12 +466,11 @@ if ($migrationIsPending) {
             'progress' => round($stepResult->progressFraction, 3),
         ]);
 
-        // What makes the chain a chain: the ignition below only ever emits
-        // one hop.
-        $migrationChain?->afterSlice($stepResult->complete);
-
-        // Everything from here on is after the response, for the reason
-        // afterSlice() flushes it: none of it is the poller's to wait for.
+        // Everything from here on is after the response: none of it is the
+        // poller's to wait for.
+        if (function_exists('fastcgi_finish_request')) {
+            @fastcgi_finish_request();
+        }
 
         // A slice that ran is proof the update that queued this migration
         // is alive. The watchdog in Maintenance\UpdateHistoryRepository
@@ -489,22 +485,15 @@ if ($migrationIsPending) {
             // watchdog degrades to what it measured before.
         }
 
-        // The migration is only half of what the update still has to do.
-        // The other half — VERSION, update_history, backup purge,
-        // notification — is the `install_update` resume task sitting in
-        // the queue, and the chain that just finished the schema has no
-        // reason of its own to run it. Without this hand-back the update
-        // stays at 'migrating' until some unrelated request arrives, which
-        // is exactly the race the fifteen-minute watchdog kept winning.
-        // Opportunistic like every other self-request here: a failure
-        // leaves the queue to drain the way it always did.
-        if ($stepResult->complete) {
-            \Core\Scheduler\SchedulerKick::fromPdo(
-                $connection->getPdo(),
-                $migrationJournal,
-                (string) ($secrets['scheduler_continuation_secret'] ?? '')
-            );
-        }
+        // The migration is only half of what an update still has to do:
+        // VERSION, update_history, the backup purge and the notification
+        // all live in the queued `install_update` resume task. This
+        // endpoint used to hand back to the scheduler over a self-directed
+        // HTTP hop once `complete` flipped true, because an installation
+        // with no crontab had no other way to run that task. The crontab
+        // is now a requirement verified at installation, so the next pass
+        // — at most a minute away — picks it up, and this endpoint's job
+        // ends where the schema does.
         exit;
     }
 
@@ -579,12 +568,6 @@ if ($migrationIsPending) {
 </html>
 HTML);
 
-    // Ignition. This request was going to show a progress page to whoever
-    // asked — which, when the asker is Scheduler\SchedulerKick's hop after
-    // an install, is nobody at all. Starting the chain here is what stops
-    // a pending migration from waiting on a human: see MigrationChain, and
-    // the thirty-minute production stall that class documents.
-    $migrationChain?->afterProgressPage();
     exit;
 }
 
@@ -703,9 +686,6 @@ $settingService->register('auto_update_last_push_at', '', 'text', 'Dernière pou
 $settingService->register('auto_update_last_push_result', '', 'text', 'Résultat de la dernière poussée',
     'Ce que le webhook a fait de cette poussée : « ok » si l\'installation a été programmée, sinon la raison du rejet. Géré automatiquement.',
     null, null, null, false, 127);
-$settingService->register('scheduler_last_run', '0', 'number', 'Dernier passage du planificateur',
-    'Horodatage Unix du dernier passage du planificateur de tâches. Géré automatiquement.',
-    null, null, null, false, 200);
 $settingService->register('current_scout_year_id', '0', 'number', 'Année scoute publique (ID)',
     'Identifiant de l\'année scoute vue par tout le monde. Gérée depuis la page « Année scoute ».',
     null, '^[0-9]+$', null, false, 210);
@@ -979,56 +959,41 @@ $schedulerRepo = new SchedulerRepository($pdo);
 $schedulerService = new SchedulerService($schedulerRepo, cachePendingRearms: true);
 $schedulerRunner = new SchedulerRunner($schedulerRepo, $journalService);
 
-// Scheduler self-continuation (ARCHITECTURE.md §8.5): the poor man's cron
-// below only ever advances the queue when somebody visits, which made every
-// task late and killed the one task long enough to need a second slice.
-// These three settings are what the mechanism is steered by — never a
-// hardcoded budget, since max_execution_time differs per host.
-$settingService->register(
-    \Core\Scheduler\SchedulerContinuation::BUDGET_SETTING, '75', 'number',
-    'Budget d\'une tranche d\'ordonnanceur (secondes)',
-    'Durée au-delà de laquelle une tranche de tâches de fond cesse d\'en démarrer de nouvelles et passe la main à la suivante. À garder nettement sous le max_execution_time du serveur.',
-    null, null, null, true, 900
-);
-$settingService->register(
-    \Core\Scheduler\SchedulerContinuation::MAX_HOPS_SETTING, '30', 'number',
-    'Nombre maximum de tranches enchaînées',
-    'Plafond dur du nombre de fois qu\'une même chaîne de tâches de fond peut se relancer elle-même. Une chaîne qui ne peut pas se terminer est pire qu\'une file qui se vide lentement.',
-    null, null, null, true, 901
-);
-$settingService->register(
-    \Core\Scheduler\SchedulerContinuation::HOPS_SETTING, '0', 'number',
-    'Tranches enchaînées de la chaîne en cours (interne)',
-    'Compteur interne remis à zéro au démarrage de chaque chaîne ; sert à faire respecter le plafond ci-dessus.',
-    null, null, null, false, 902
-);
-
-// The hop authenticates itself to its own site with a shared secret, kept
-// in secrets.enc alongside github_webhook_secret rather than in `settings`
-// (AGENTS.md § Setting types: a credential does not live in a table an
-// admin page renders). Generated once, on the first request that finds
-// none — there is no admin action to hang it off, unlike the webhook's.
-$schedulerSecret = (string) ($secrets['scheduler_continuation_secret'] ?? '');
-if ($schedulerSecret === '') {
-    try {
-        $schedulerSecret = \Core\Security\CapabilityToken::generate();
-        $secretManager->writeSecrets($secrets + ['scheduler_continuation_secret' => $schedulerSecret]);
-        $secrets['scheduler_continuation_secret'] = $schedulerSecret;
-    } catch (\Throwable) {
-        // No secret, no hops — the queue falls back to advancing on visits,
-        // exactly as it did before this existed. Never a fatal.
-        $schedulerSecret = '';
-    }
+// The self-continuation chain is gone, and so are the rows it steered on.
+// A real crontab is now a requirement, verified before a first install can
+// complete (Scheduler\CronHealth, Http\Controller\SetupController::save()),
+// so public/cron.php is the one engine: nothing hops, nothing is throttled
+// on a visit, and the queue's worst-case latency is the cron period rather
+// than the interval between two visitors.
+//
+// Core settings are NEVER pruned. Module\ModuleManager::
+// pruneUndeclaredSettings() only ever touches rows with a module_id;
+// nothing at all removes a `module_id IS NULL` row that stopped being
+// registered, so dropping the register() calls alone would leave seven
+// orphan rows on every installed site — three of them visible on
+// Configuration > Réglages, editable, and doing nothing. Hence this
+// one-time cleanup, in the same shape as the notifications-v2 and
+// settings_migrated blocks above: guarded by its own boolean so it costs
+// one cheap read per request once it has run.
+if ($settingService->get('scheduler_chain_settings_pruned') !== '1') {
+    $settingService->register('scheduler_chain_settings_pruned', '0', 'boolean',
+        'Nettoyage des réglages de chaînage effectué',
+        'Indique si les réglages de l\'ancien enchaînement de tranches (ordonnanceur et migration) ont été supprimés.',
+        null, null, null, false, 999);
+    $settingRepo->deleteCoreSettings([
+        'scheduler_slice_seconds',
+        'scheduler_max_hops',
+        'scheduler_chain_hops',
+        'migration_chain_max_hops',
+        'migration_chain_hops',
+        'migration_chain_last_hop_at',
+        // Written by the poor man's cron and by nothing else. Its one
+        // remaining reader was the support package's cron-cadence.txt,
+        // which now reports the real crontab and nothing beside it.
+        'scheduler_last_run',
+    ]);
+    $settingRepo->updateValue(null, 'scheduler_chain_settings_pruned', '1');
 }
-
-$schedulerContinuation = new \Core\Scheduler\SchedulerContinuation(
-    $schedulerRunner,
-    $schedulerRepo,
-    $settingService,
-    $journalService,
-    $pdo,
-    $schedulerSecret
-);
 
 // Register param() Twig function — reads from settings database
 $twig->addFunction(new TwigFunction('param', function (string $key, ?string $moduleId = null) use ($settingService): string {
@@ -1706,6 +1671,11 @@ $helpRegistry = new \Core\Help\HelpRegistry(
     \Core\Maintenance\VersionFile::read(dirname(__DIR__))
 );
 $helpService = new \Core\Help\HelpService($helpRegistry);
+// The « aller sur la page » link a topic carries (Core\Help\
+// HelpPageLinkResolver): it reads the router's own table for the label
+// and the role floor of the page a topic documents, so the link never
+// points at a 403 and never has to be written by hand in a topic file.
+$helpPageLinkResolver = new \Core\Help\HelpPageLinkResolver($router);
 
 // Create ModuleManager (modules loaded after core routes are registered)
 $modulesDir = __DIR__ . '/../modules';
@@ -1814,6 +1784,11 @@ $schedulerService->rearm('core', 'check_stable_update', 'daily', new DateTimeImm
 // Same bootstrap for the human-check rate-limit purge (Core\Security\
 // HumanCheck\Task\PurgeHumanCheckRateLimitsHandler).
 $schedulerService->rearm('core', 'purge_human_check_rate_limits', \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler::REFERENCE, new DateTimeImmutable());
+
+// Same bootstrap for the help assistant's own purge (Core\Help\Assistant\
+// Task\PurgeHelpAssistantHandler): rate-limit rows past the quota window
+// and cached answers no running version can still reach.
+$schedulerService->rearm('core', \Core\Help\Assistant\Task\PurgeHelpAssistantHandler::TASK_KEY, \Core\Help\Assistant\Task\PurgeHelpAssistantHandler::REFERENCE, new DateTimeImmutable());
 
 // Same bootstrap for the daily usage-statistics report (Core\Statistics\
 // Task\SendStatisticsHandler). The very first occurrence runs immediately;
@@ -1998,7 +1973,17 @@ $router->addRoute('POST', '/api/rich-text-content', EditableContentController::c
 // empty on purpose: the help belongs to no menu, and a `parents` entry
 // that matches no MenuBuilder label renders as dead text (design.md §7.3).
 $router->addRoute('GET', '/aide', \Core\Http\Controller\HelpController::class, 'index', 'public', ['label' => 'Aide', 'parents' => []]);
+// BEFORE /aide/{topic}, and this order is the whole wiring: Router::
+// resolve() keeps the FIRST route that matches, so the topic route
+// registered after it would otherwise swallow /aide/assistant and answer
+// 404 for a topic nobody wrote. Core\Help\HelpFrontMatterParser reserves
+// the id 'assistant' from the other side, so a topic can never claim it.
+$router->addRoute('GET', '/aide/assistant', \Core\Http\Controller\HelpAssistantController::class, 'page', 'chief', ['label' => 'Assistant', 'parents' => [], 'ancestors' => [['label' => 'Aide', 'path' => '/aide']]]);
 $router->addRoute('GET', '/aide/{topic}', \Core\Http\Controller\HelpController::class, 'show', 'public', ['label' => 'Aide', 'parents' => [], 'ancestors' => [['label' => 'Aide', 'path' => '/aide']]]);
+// The endpoint both surfaces post to. role_min: chief like the page —
+// the local search stays public, the assistant does not (locked
+// decision D4).
+$router->addRoute('POST', '/api/aide/assistant', \Core\Http\Controller\HelpAssistantController::class, 'ask', 'chief');
 
 // Cookie consent
 $router->addRoute('GET', '/cookies', CookieController::class, 'preferences', 'public', ['label' => 'Préférences cookies', 'parents' => []]);
@@ -2135,9 +2120,6 @@ $router->addRoute('POST', '/config/support/ticket', SupportController::class, 's
 // The archive, on its own call (roadmap IT-26): an upload that times out
 // must never take the ticket with it.
 $router->addRoute('POST', '/config/support/ticket/archive', SupportController::class, 'sendArchive', 'superadmin');
-// The diagnostic mail probes (roadmap IT-27): what the Courriel page's own
-// test send cannot answer — whether the message ARRIVED, and in what state.
-$router->addRoute('POST', '/config/support/mail-probe', SupportController::class, 'sendMailProbe', 'superadmin');
 $router->addRoute('GET', '/api/support/package-status/{id}', SupportController::class, 'packageStatus', 'superadmin');
 
 // Scheduled actions
@@ -2162,18 +2144,6 @@ $router->addRoute('POST', '/api/maintenance/webhook-secret', MaintenanceControll
 // GitHubWebhookService::verifySignature()) is what authenticates it
 // instead. See Core\Http\Controller\WebhookController's own docblock.
 $router->addRoute('POST', '/api/webhook/github', \Core\Http\Controller\WebhookController::class, 'github', 'public');
-
-// The second machine-to-machine route, and public for the same reason: the
-// caller is this installation's own PHP process, with no session for
-// RbacGuard to reason about. A shared secret is the whole authorisation.
-// See Core\Http\Controller\SchedulerContinuationController.
-// The path is written out as a literal, not as SchedulerContinuationRoute::
-// PATH, because tests/Security/AuthorizationMatrixInventoryTest parses this
-// file for route literals and refuses to audit a list it could not fully
-// parse — a route invisible to the authorization matrix is worse than a
-// duplicated string. Tests\Core\Scheduler\SchedulerContinuationRouteTest
-// pins the two to each other so they cannot drift apart in silence.
-$router->addRoute('POST', '/api/scheduler/continue', \Core\Http\Controller\SchedulerContinuationController::class, 'continue', 'public');
 
 // Édition du site — shrunk to just the configuration-mode toggle
 // (module registry and badges split out below); moved to "Espace chefs d'U"
@@ -2281,6 +2251,18 @@ $twig->addGlobal('menus', $menus);
 // cache a page it will only ever get a 403 for).
 $twig->addGlobal('offline_whitelist', $offlineWhitelist->getEntriesForRole(Role::fromString($currentRole)));
 
+// The help corpus the instant search ranks (Core\Help\HelpSearchIndex),
+// serialized into every page by base.html.twig — same timing and the same
+// reason as the offline whitelist just above: built once every enabled
+// module has registered its own topics, and filtered to the viewer's
+// effective role, because a blob in the page source is readable whatever
+// the script does with it. Front matter only, no bodies: ~15 KB, and the
+// registry already holds it in memory.
+$twig->addGlobal(
+    'help_search_index',
+    (new \Core\Help\HelpSearchIndex($helpService, $helpPageLinkResolver))->forRole(Role::fromString($currentRole))
+);
+
 // Determine the active menu section AND which specific page button should
 // be highlighted from the current path. A page's own sub-routes (e.g.
 // finance's /finance/movements, /finance/receipts — registered with an
@@ -2357,7 +2339,7 @@ $householdService = new \Core\Member\Household\HouseholdService(
 
 // Handle the request
 $maintenanceGate = new \Core\Maintenance\MaintenanceGate($updateHistoryRepository);
-$frontController = new FrontController($router, $twig, $config, $offlineWhitelist, $maintenanceGate, $helpService);
+$frontController = new FrontController($router, $twig, $config, $offlineWhitelist, $maintenanceGate, $helpService, $helpPageLinkResolver);
 
 // Entity change history pages (Core\Audit) — registered here rather than
 // next to its route, because $frontController does not exist yet at the
@@ -2372,7 +2354,7 @@ $frontController->registerController(
 // module had its chance to register topics.
 $frontController->registerController(
     \Core\Http\Controller\HelpController::class,
-    new \Core\Http\Controller\HelpController($twig, $helpService)
+    new \Core\Http\Controller\HelpController($twig, $helpService, $helpPageLinkResolver)
 );
 
 // LLM connector — the module's ONE block: its config page, the connector
@@ -2399,6 +2381,45 @@ if ($isEnabled('llm_connector')) {
         )
     );
 }
+
+// The help assistant (Core\Help\Assistant, ARCHITECTURE.md §8.87) —
+// built HERE and not next to $helpService above, because it is the one
+// consumer of the LLM connector that lives in core, and
+// $llmConnectorForOthers only exists once the module's block just above
+// has run. Null there means the assistant answers "unavailable" and the
+// local search carries on exactly as before (§7.5).
+$helpAssistantService = new \Core\Help\Assistant\AssistantService(
+    $helpService,
+    new \Core\Help\Assistant\AssistantCatalog($helpService),
+    new \Core\Help\Assistant\AssistantRateLimitRepository($pdo),
+    new \Core\Help\Assistant\AssistantCacheRepository($pdo),
+    $journalService,
+    \Core\Maintenance\VersionFile::read(dirname(__DIR__)),
+    $llmConnectorForOthers
+);
+
+// The assistant's two surfaces (the panel's third state and
+// /aide/assistant). Registered HERE, after the service exists: the
+// llm_connector block just above is what decides whether the connector
+// is a service or null, and a controller cannot be handed a dependency
+// built three hundred lines later.
+$frontController->registerController(
+    \Core\Http\Controller\HelpAssistantController::class,
+    new \Core\Http\Controller\HelpAssistantController($twig, $helpAssistantService, $helpService)
+);
+
+// Whether the « Demander à l'assistant » control is offered at all —
+// read by the help panel, which base.html.twig ships on every page. Both
+// halves are checked here and re-checked server-side on the endpoint:
+// the role floor (locked decision D4 — the assistant is `chief`, the
+// local search stays `public`), and the connector actually being
+// operational (D7 — no activation setting, availability IS the switch).
+// The role test comes first so that a visitor below the floor costs no
+// query at all.
+$twig->addGlobal(
+    'help_assistant_available',
+    Role::fromString($currentRole)->hasAccess(Role::CHIEF) && $helpAssistantService->isAvailable()
+);
 
 // RGPD content service (may use LLM if module is active). Each module's
 // effective sub-processors reach it through the Core\Module\
@@ -2545,10 +2566,6 @@ $githubWebhookService = new \Core\Maintenance\GitHubWebhookService(
 $frontController->registerController(\Core\Http\Controller\WebhookController::class, new \Core\Http\Controller\WebhookController(
     $twig, $githubWebhookService, $secretManager, $journalService
 ));
-$frontController->registerController(
-    \Core\Http\Controller\SchedulerContinuationController::class,
-    new \Core\Http\Controller\SchedulerContinuationController($twig, $schedulerContinuation)
-);
 $passwordResetController = new PasswordResetController($twig, $passwordResetService);
 $passwordResetController->setHumanCheck($humanCheckService);
 $frontController->registerController(PasswordResetController::class, $passwordResetController);
@@ -2621,7 +2638,10 @@ $frontController->registerController(SupportController::class, new SupportContro
         $ticketIdentityService,
         new \Core\Statistics\StreamStatisticsTransport(),
         $journalService,
-        \Core\Maintenance\VersionFile::read(dirname(__DIR__))
+        \Core\Maintenance\VersionFile::read(dirname(__DIR__)),
+        // The usage report travels inside the ticket, so the receiver can
+        // tie the two together — which a separately-sent report could not.
+        $statisticsPayloadBuilder
     ),
     $ticketIdentityService,
     // The archive, on its own transport: megabytes uphill from a shared
@@ -5931,59 +5951,31 @@ $response->send();
 // session_start() holds an exclusive lock on the session file for the
 // whole script lifetime unless released early — without this, any other
 // request carrying the same session cookie (another tab, a background
-// fetch, the next click) would queue up and block for as long as the
-// scheduler/cleanup work below takes, making a single slow task look like
-// every page load is stuck.
+// fetch, the next click) would queue up and block for as long as anything
+// still running after the response takes, making one slow request look
+// like every page load is stuck.
 if (session_status() === PHP_SESSION_ACTIVE) {
     session_write_close();
 }
 \Core\Debug\RequestTimeline::mark('session_write_close_done');
 
-// Poor man's cron — the IGNITION, not the engine. It is still throttled to
-// once a minute, because that throttle protects against traffic triggering
-// the scheduler, and it is still keyed off a visit. What changed is what
-// happens next: instead of one pass that stops when this request ends, it
-// starts a CHAIN (Core\Scheduler\SchedulerContinuation) that carries on by
-// asking the site to continue, until the queue is empty or the chain hits
-// its ceiling. The throttle deliberately does NOT apply to those chained
-// hops — they arrive on their own route, never through this block — since
-// it exists to bound how often traffic starts work, not to interrupt work
-// already under way and already behind an exclusion lock.
-$lastRun = (int) $settingService->get('scheduler_last_run');
-$now = time();
-if (($now - $lastRun) > 60) {
-    \Core\Debug\RequestTimeline::mark('poor_man_cron_triggered', ['seconds_since_last_run' => $now - $lastRun]);
-    try {
-        $settingRepo->updateValue(null, 'scheduler_last_run', (string) $now);
-        if (function_exists('fastcgi_finish_request')) {
-            fastcgi_finish_request();
-        }
-        \Core\Debug\RequestTimeline::mark('scheduler_process_overdue_begin');
-        $schedulerContinuation->beginChain();
-        $schedulerContinuation->runSliceAndContinue();
-        \Core\Debug\RequestTimeline::mark('scheduler_process_overdue_done');
-        $retentionDays = (int) ($settingService->get('journal_retention_days') ?: '730');
-        \Core\Debug\RequestTimeline::mark('journal_cleanup_begin');
-        $journalService->cleanup($retentionDays);
-        \Core\Debug\RequestTimeline::mark('journal_cleanup_done');
-        // Same rhythm as the journal cleanup, same reason: bots probing
-        // /login and PDF previews both leave artifacts nothing else ever
-        // deletes (see LoginThrottler::purgeStale() / PdfThumbnailCache).
-        $loginThrottler->purgeStale();
-        \Core\File\PdfThumbnailCache::purgeStale($storagePath);
-        \Core\Debug\RequestTimeline::mark('stale_artifact_purge_done');
-    } catch (\Throwable $e) {
-        // Silently ignore scheduler errors in poor man's cron
-    }
-}
+// The poor man's cron used to run here: a once-a-minute, visit-triggered
+// scheduler slice followed by the journal cleanup and the two stale-artifact
+// purges. It is gone. A real crontab is a requirement now — verified live on
+// the setup page, and refused outright on a first install while it is not
+// active (Scheduler\CronHealth, Http\Controller\SetupController::save()) —
+// so public/cron.php is the ONE engine, and every one of those four jobs is
+// something it already does on every pass (the scheduler pass, the journal
+// cleanup, LoginThrottler::purgeStale(), PdfThumbnailCache::purgeStale()).
+// Nothing was lost, and a visitor no longer pays for background work that a
+// per-minute crontab does on time. See ARCHITECTURE.md § 8.5.
 
 // Debug timeline flush (?debug=1) — gated on an already-authenticated
 // admin session rather than a shared secret: the operator triggering this
 // is browsing the live site as themselves, and the alternative (a secret
 // URL param anyone could replay) would make this a standing, unauthenticated
-// way to force extra journal writes on every request. Written last, after
-// the poor-man's-cron tail above, so a slow scheduled task shows up in the
-// same timeline as the request that happened to trigger it.
+// way to force extra journal writes on every request. Written last, so a
+// slow request shows up in the same timeline in full.
 if (\Core\Debug\RequestTimeline::isActive() && \Core\Security\AuthSession::isAuthenticated()
     && in_array(\Core\Security\AuthSession::getRole(), ['admin', 'superadmin'], true)
 ) {

@@ -4,6 +4,8 @@ title: L'écran du courrier des camps
 summary: Ce que la liste montre, confirmer une proposition, et ce que « Retirer » veut dire.
 category: Espace animateurs
 role_min: chief
+question: Où lire les e-mails reçus au sujet d'un camp ?
+question: Que veut dire retirer un message d'un séjour ?
 paths: /chefs/camps/courrier
 related: camps-courrier, courrier-unite
 ---

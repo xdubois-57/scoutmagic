@@ -4,6 +4,8 @@ title: Dépouiller les réponses à un formulaire
 summary: Lire les inscriptions reçues, suivre les paiements, exporter, écrire aux répondants.
 category: Espace animateurs
 role_min: intendant
+question: Où voir qui s'est inscrit à notre activité ?
+question: Comment exporter les inscriptions reçues en Excel ?
 paths: /news/*/form/responses
 related: publier-une-actualite, modifier-une-reponse, publipostage, recus
 ---

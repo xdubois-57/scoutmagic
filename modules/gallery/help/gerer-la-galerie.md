@@ -4,6 +4,9 @@ title: Publier des photos dans la galerie
 summary: Créer un album, téléverser photos et vidéos, choisir la couverture.
 category: Espace animateurs
 role_min: chief
+question: Comment créer un album photo pour ma section ?
+question: Comment mettre en ligne les photos du week-end ?
+question: Comment choisir la photo de couverture d'un album ?
 paths: /gallery/manage, /gallery/create, /gallery/*/edit
 related: galerie, staffs
 ---

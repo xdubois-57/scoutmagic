@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Core\Http\Controller;
 
+use Core\Help\HelpPageLinkResolver;
 use Core\Help\HelpService;
 use Core\Http\Request;
 use Core\Http\Response;
@@ -58,9 +59,18 @@ class HelpController extends AbstractController
         'wrapped_list_items' => true,
     ];
 
+    /**
+     * @param ?HelpPageLinkResolver $pageLinks The « aller sur la page »
+     *        link of a topic (Core\Help\HelpPageLinkResolver). Optional
+     *        and trailing for the same reason FrontController's
+     *        HelpService is: the tests and entry points that predate it
+     *        keep constructing this controller with two arguments, and a
+     *        topic without the link renders exactly as it did before.
+     */
     public function __construct(
         Environment $twig,
         private readonly HelpService $helpService,
+        private readonly ?HelpPageLinkResolver $pageLinks = null,
     ) {
         parent::__construct($twig);
     }
@@ -109,6 +119,10 @@ class HelpController extends AbstractController
             'topic' => $topic,
             'content_html' => MarkdownRenderer::toHtml($topic->body(), self::RENDER_OPTIONS),
             'related_topics' => $this->helpService->relatedTopics($topic, $role),
+            // The documented page itself, when the topic names exactly one
+            // and this visitor may open it. Null is the ordinary case for a
+            // topic covering a family of pages — see HelpPageLinkResolver.
+            'page_link' => $this->pageLinks?->resolve($topic, $role, $request->getPath()),
             'breadcrumb_current' => $topic->title,
         ]);
     }

@@ -4,6 +4,8 @@ title: Configurer le calendrier
 summary: Qui voit et qui modifie chaque calendrier, valeurs par défaut, flux d'agenda et rappels.
 category: Configuration
 role_min: superadmin
+question: Comment créer un calendrier réservé aux animateurs ?
+question: Qui a le droit de modifier un calendrier ?
 paths: /config/calendar
 related: calendrier, calendrier-animateurs
 ---

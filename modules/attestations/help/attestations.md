@@ -4,6 +4,8 @@ title: Déposer un lot d'attestations
 summary: Déposer le PDF reçu de la fédération et le laisser se découper en une attestation par membre.
 category: Espace chefs d'U
 role_min: admin
+question: Comment découper le PDF d'attestations de la fédération ?
+question: Où déposer le lot d'attestations fiscales reçu ?
 paths: /admin/attestations
 related: attestations-verifier, membres-admin
 ---

@@ -4,6 +4,8 @@ title: Retrouver un lieu de camp
 summary: Les terrains où l'unité a campé, les séjours qui y ont eu lieu et ce qu'en ont pensé les staffs précédents.
 category: Espace animateurs
 role_min: chief
+question: Où avons-nous déjà campé les années précédentes ?
+question: Comment retrouver le terrain d'un camp passé ?
 paths: /chefs/camps, /chefs/camps/lieux/*, /chefs/camps/sejours/*
 related: camps-encoder
 ---

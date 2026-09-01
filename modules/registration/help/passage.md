@@ -4,6 +4,8 @@ title: Répartir les passages et les arrivées
 summary: Donner une section aux nouveaux inscrits et aux animés qui changent de branche.
 category: Espace chefs d'U
 role_min: admin
+question: Comment répartir les animés dans les sections pour l'an prochain ?
+question: Comment placer un nouvel inscrit dans une section ?
 paths: /passage
 related: passage-repartition-automatique, departs, previsions, gerer-les-demandes
 ---

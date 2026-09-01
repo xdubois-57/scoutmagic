@@ -4,6 +4,9 @@ title: Gérer les locations d'un bien
 summary: Les réservations, les paiements, les documents et le séjour.
 category: Espace membres
 role_min: identified
+question: Comment traiter une demande de location reçue ?
+question: Comment envoyer le contrat de location au locataire ?
+question: Comment savoir si un locataire a payé son acompte ?
 paths: /mes-locations, /mes-locations/*, /mes-locations/*/calendrier, /mes-locations/*/gabarits, /mes-locations/*/reservations, /mes-locations/*/reservations/*, /mes-locations/*/reservations/*/sejour, /mes-locations/*/reservations/*/document/*
 related: locations, config-locations, courrier-entrant, locations-reglages, locations-conformite
 ---
