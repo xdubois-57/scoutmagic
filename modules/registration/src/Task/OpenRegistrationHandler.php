@@ -92,7 +92,7 @@ class OpenRegistrationHandler implements TaskHandlerInterface
         }
 
         $schedulerService = new SchedulerService(new SchedulerRepository($context->connection->getPdo()));
-        $schedulerService->scheduleAfter('registration', 'open_registration', self::INTERVAL_SECONDS, [], self::REFERENCE);
+        $schedulerService->rearmAfter('registration', 'open_registration', self::REFERENCE, self::INTERVAL_SECONDS);
     }
 
     /**

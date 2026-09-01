@@ -70,6 +70,6 @@ class SendResponseDigestHandler implements TaskHandlerInterface
         $digestService->sendPendingDigests();
 
         $schedulerService = new SchedulerService(new SchedulerRepository($pdo));
-        $schedulerService->schedule('news', 'send_response_digest', new \DateTimeImmutable('+1 day'), [], self::REFERENCE);
+        $schedulerService->rearm('news', 'send_response_digest', self::REFERENCE, new \DateTimeImmutable('+1 day'));
     }
 }

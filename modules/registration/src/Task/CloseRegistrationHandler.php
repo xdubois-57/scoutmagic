@@ -53,6 +53,6 @@ class CloseRegistrationHandler implements TaskHandlerInterface
         }
 
         $schedulerService = new SchedulerService(new SchedulerRepository($context->connection->getPdo()));
-        $schedulerService->scheduleAfter('registration', 'close_registration', self::INTERVAL_SECONDS, [], self::REFERENCE);
+        $schedulerService->rearmAfter('registration', 'close_registration', self::REFERENCE, self::INTERVAL_SECONDS);
     }
 }

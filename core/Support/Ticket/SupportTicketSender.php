@@ -77,17 +77,17 @@ class SupportTicketSender
     {
         $guard = $this->identityService->firstFailingGuard();
         if ($guard !== null) {
-            return SupportTicketResult::failed($guard);
+            return $this->refuse($guard, $category);
         }
 
         $endpoint = $this->identityService->endpoint();
         if ($endpoint === null) {
-            return SupportTicketResult::failed(TicketIdentityService::GUARD_NO_DESTINATION);
+            return $this->refuse(TicketIdentityService::GUARD_NO_DESTINATION, $category);
         }
 
         $identity = $this->identityService->ensureIdentity();
         if ($identity === null) {
-            return SupportTicketResult::failed(self::FAILURE_NO_IDENTITY);
+            return $this->refuse(self::FAILURE_NO_IDENTITY, $category);
         }
 
         $body = (string) json_encode([
@@ -125,16 +125,16 @@ class SupportTicketSender
         } catch (\Throwable) {
             // Deliberately not the exception's message: it can quote the
             // request, and the request carries what somebody wrote.
-            return SupportTicketResult::failed(self::FAILURE_UNREACHABLE);
+            return $this->refuse(self::FAILURE_UNREACHABLE, $category);
         }
 
         if (!$response->isSuccessful()) {
-            return SupportTicketResult::failed(self::FAILURE_UNREACHABLE);
+            return $this->refuse(self::FAILURE_UNREACHABLE, $category);
         }
 
         $answer = json_decode((string) $response->body, true);
         if (!is_array($answer)) {
-            return SupportTicketResult::failed(self::FAILURE_MALFORMED_ANSWER);
+            return $this->refuse(self::FAILURE_MALFORMED_ANSWER, $category);
         }
 
         // Whatever else happened, the receiver's own list of categories is
@@ -144,14 +144,14 @@ class SupportTicketSender
         $this->rememberCategories($answer['categories'] ?? null);
 
         if (($answer['status'] ?? '') !== 'accepted') {
-            return SupportTicketResult::failed(self::FAILURE_REFUSED);
+            return $this->refuse(self::FAILURE_REFUSED, $category);
         }
 
         $reference = is_string($answer['ticket_reference'] ?? null)
             ? (string) $answer['ticket_reference']
             : null;
         if ($reference === null || $reference === '') {
-            return SupportTicketResult::failed(self::FAILURE_MALFORMED_ANSWER);
+            return $this->refuse(self::FAILURE_MALFORMED_ANSWER, $category);
         }
 
         $this->writeSetting(self::LAST_REFERENCE_SETTING, $reference);
@@ -227,6 +227,38 @@ class SupportTicketSender
      * reads as a failure — same posture as the statistics sender's own
      * state writes.
      */
+    /**
+     * A ticket that did NOT leave, written down.
+     *
+     * Only the success was journaled, and that turned out to be the worst
+     * possible half: an administrator presses « Envoyer le ticket », the
+     * send fails, and the one place anybody would look afterwards — the
+     * event journal, which is also what the diagnostic archive carries —
+     * says nothing at all. « Je crois que j'ai envoyé un ticket » is then
+     * unanswerable from either end. A support channel whose failures are
+     * invisible is a support channel nobody can debug, which is exactly
+     * how this came to be found: from an archive in which no entry
+     * mentioned a ticket the unit was sure they had sent.
+     *
+     * `warning`, not `error`: nothing is broken here, an attempt did not
+     * get through — and the same reason keeps the CATEGORY in and the
+     * description and the contact address out. The reason is one of this
+     * class's own constants, never the receiver's prose, because prose
+     * can quote the request and the request carries what somebody wrote.
+     */
+    private function refuse(string $reason, string $category): SupportTicketResult
+    {
+        $this->journalService->log(
+            'core',
+            'support_ticket_not_sent',
+            'warning',
+            "Ticket de support non envoyé",
+            ['reason' => $reason, 'category' => $category]
+        );
+
+        return SupportTicketResult::failed($reason);
+    }
+
     private function writeSetting(string $key, string $value): void
     {
         try {

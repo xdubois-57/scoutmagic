@@ -117,6 +117,28 @@ class SupportTicketController extends AbstractController
     }
 
     /**
+     * `POST /support-dashboard/tickets/{id}/reopen`
+     *
+     * @param array<string, string> $params
+     */
+    public function reopen(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, '/support-dashboard/tickets')) !== null) {
+            return $guard;
+        }
+
+        $id = (int) ($params['id'] ?? 0);
+
+        if ($this->ticketService->reopen($id)) {
+            FlashMessage::set('success', 'Ticket rouvert.');
+        } else {
+            FlashMessage::set('error', 'Ce ticket est introuvable ou déjà ouvert.');
+        }
+
+        return $this->redirect('/support-dashboard/tickets/' . $id);
+    }
+
+    /**
      * `POST /support-dashboard/tickets/analyse` — one run, on an explicit
      * gesture.
      *

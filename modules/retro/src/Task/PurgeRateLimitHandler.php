@@ -43,6 +43,6 @@ class PurgeRateLimitHandler implements TaskHandlerInterface
             return;
         }
 
-        $schedulerService->schedule('retro', 'purge_rate_limits', new \DateTimeImmutable('+1 day'), [], self::REFERENCE);
+        $schedulerService->rearm('retro', 'purge_rate_limits', self::REFERENCE, new \DateTimeImmutable('+1 day'));
     }
 }

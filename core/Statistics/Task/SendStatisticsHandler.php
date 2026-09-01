@@ -54,7 +54,7 @@ class SendStatisticsHandler implements TaskHandlerInterface
             $sender->send();
         } finally {
             $scheduler = new SchedulerService(new SchedulerRepository($context->connection->getPdo()));
-            $scheduler->scheduleAfter('core', self::TASK_KEY, self::INTERVAL_SECONDS, [], self::REFERENCE);
+            $scheduler->rearmAfter('core', self::TASK_KEY, self::REFERENCE, self::INTERVAL_SECONDS);
         }
     }
 }

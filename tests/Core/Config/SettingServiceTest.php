@@ -430,6 +430,54 @@ class SettingServiceTest extends TestCase
         $this->assertSame('first', $this->service->get('claimable'));
     }
 
+    /**
+     * Two requests booting the same module at the same moment.
+     *
+     * register() decides « the row exists » from a cache loaded at the
+     * start of the request; `settings` has a unique index on
+     * (module_id, setting_key), so the second INSERT gets a 23000. It used
+     * to escape — register() runs from the composition root, so the loser
+     * of the race 500ed the whole page. Seen in production on
+     * `fees-fees_federal_scale_url`, in a support archive's event journal
+     * as an uncaught PDOException.
+     *
+     * The row the loser wanted exists with the values it wanted, so the
+     * race has no loser: absorbed, cache dropped, page served.
+     */
+    public function testARowInsertedByAConcurrentRequestIsNotAFatalError(): void
+    {
+        // The second request loads its snapshot first — the row does not
+        // exist yet, so its register() will decide to INSERT.
+        $stale = new SettingService(new SettingRepository($this->pdo));
+        $this->assertNull($stale->get('race_key', 'fees'));
+
+        // The first request wins the race and creates the row.
+        $winner = new SettingService(new SettingRepository($this->pdo));
+        $winner->register('race_key', 'v', 'text', 'L', 'D', 'fees');
+
+        // The loser now INSERTs against a unique index that is taken.
+        $stale->register('race_key', 'v', 'text', 'L', 'D', 'fees');
+
+        $this->assertSame('v', $stale->get('race_key', 'fees'));
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query("SELECT COUNT(*) FROM settings WHERE setting_key = 'race_key'")->fetchColumn()
+        );
+    }
+
+    /**
+     * A genuine SQL fault must still be loud — the absorption above is
+     * for the duplicate key and for nothing else.
+     */
+    public function testAnySqlFaultOtherThanTheDuplicateStillThrows(): void
+    {
+        $this->pdo->exec('DROP TABLE settings');
+
+        $this->expectException(\PDOException::class);
+
+        $this->service->register('anything', 'v', 'text', 'L', 'D');
+    }
+
     public function testClaimIfEmptyReportsFalseForAnUnknownSetting(): void
     {
         $this->assertFalse($this->service->claimIfEmpty('never_registered', 'value'));

@@ -135,18 +135,42 @@ class SettingService
             return;
         }
 
-        $this->repository->insert(
-            $moduleId,
-            $key,
-            $defaultValue,
-            $type,
-            $label,
-            $description,
-            $validationRegex,
-            $selectOptions !== null ? json_encode($selectOptions) : null,
-            $editable,
-            $sortOrder
-        );
+        try {
+            $this->repository->insert(
+                $moduleId,
+                $key,
+                $defaultValue,
+                $type,
+                $label,
+                $description,
+                $validationRegex,
+                $selectOptions !== null ? json_encode($selectOptions) : null,
+                $editable,
+                $sortOrder
+            );
+        } catch (\PDOException $e) {
+            // Another request registered the same key between this one's
+            // cache load and this INSERT. `settings` has a unique index on
+            // (module_id, setting_key), so the loser of that race got a
+            // 23000 — and, because register() runs from the composition
+            // root, an UNCAUGHT one: the whole page 500ed. Seen in
+            // production on `fees-fees_federal_scale_url` while two
+            // requests booted the module at once.
+            //
+            // The row now exists with exactly the values this call wanted,
+            // so the race has no loser: swallow the duplicate and carry on.
+            // Anything else is re-thrown — a real SQL fault must still be
+            // loud.
+            if (($e->errorInfo[0] ?? '') !== '23000') {
+                throw $e;
+            }
+
+            // The snapshot this call decided from is provably stale.
+            $this->clearCache();
+
+            return;
+        }
+
         $this->cache[$cacheKey] = $defaultValue;
         $this->defaults[$cacheKey] = $defaultValue;
     }

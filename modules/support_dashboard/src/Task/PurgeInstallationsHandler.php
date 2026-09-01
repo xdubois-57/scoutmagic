@@ -73,7 +73,7 @@ class PurgeInstallationsHandler implements TaskHandlerInterface
             // Rescheduled whatever happened, exactly like the other daily
             // tasks: a purge that threw must not be a purge that stops.
             (new SchedulerService(new SchedulerRepository($context->connection->getPdo())))
-                ->scheduleAfter('support_dashboard', self::TASK_KEY, self::INTERVAL_SECONDS, [], self::REFERENCE);
+                ->rearmAfter('support_dashboard', self::TASK_KEY, self::REFERENCE, self::INTERVAL_SECONDS);
         }
     }
 }

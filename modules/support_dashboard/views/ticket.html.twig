@@ -199,11 +199,32 @@
 
         {% if ticket.status == 'closed' %}
             {% if ticket.resolution_note %}
-                <pre class="border rounded p-3 bg-body-tertiary small mb-0 support-ticket-description">{{ ticket.resolution_note }}</pre>
+                <pre class="border rounded p-3 bg-body-tertiary small mb-3 support-ticket-description">{{ ticket.resolution_note }}</pre>
             {% else %}
-                <p class="small text-body-secondary mb-0">Clôturé sans note de résolution.</p>
+                <p class="small text-body-secondary mb-3">Clôturé sans note de résolution.</p>
             {% endif %}
+
+            {# Une clôture est un jugement — « je pense que c'est réglé » —
+               et un jugement peut se révéler faux trois jours plus tard,
+               quand l'unité réécrit. Sans ce bouton, le seul retour en
+               arrière était un second ticket, qui perd la note du premier
+               et son archive. #}
+            <form method="post" action="/support-dashboard/tickets/{{ ticket.id }}/reopen">
+                {{ csrf_field()|raw }}
+                <button type="submit" class="btn btn-outline-primary">Rouvrir le ticket</button>
+            </form>
+            <p class="small text-body-secondary mb-0 mt-2">
+                La note ci-dessus est conservée, et l'archive repart sur sa durée de conservation
+                d'origine plutôt que sur les quatre-vingt-dix jours qui suivent une clôture.
+            </p>
         {% else %}
+            {% if ticket.resolution_note %}
+                {# Rouvert : la note de la clôture précédente est le seul
+                   récit de ce qui avait été fait, et c'est précisément
+                   quand un ticket revient qu'elle vaut d'être relue. #}
+                <p class="small text-body-secondary mb-1">Note de la clôture précédente, conservée :</p>
+                <pre class="border rounded p-3 bg-body-tertiary small mb-3 support-ticket-description">{{ ticket.resolution_note }}</pre>
+            {% endif %}
             {# Le ticket est à sens unique : il n'y a pas de fil, et rien ne
                remonte vers l'instance. Cette note est donc le seul endroit
                où ce qui s'est réellement passé est écrit (roadmap IT-28).
@@ -225,6 +246,7 @@
                     label: 'Note de résolution',
                     type: 'textarea',
                     rows: 5,
+                    value: ticket.resolution_note|default(''),
                     help: "Ce qui s'est passé et ce qui l'a réglé. Facultatif, mais c'est ce qui se relit dans un an.",
                 } only %}
                 <button type="submit" class="btn btn-primary">Clôturer le ticket</button>

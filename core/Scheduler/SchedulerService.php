@@ -102,6 +102,42 @@ class SchedulerService
     }
 
     /**
+     * `rearm()` said as a delay — the guarded twin of `scheduleAfter()`.
+     *
+     * Every recurring chain in this codebase says « in N seconds », and
+     * saying it through `rearm()` meant spelling that as a relative
+     * string. Twenty-odd handlers therefore reached for the UNGUARDED
+     * `scheduleAfter()` instead, and that is exactly how a production
+     * installation came to run `sync_mailboxes` NINE times per pass: a
+     * page view that lands while the chain's row is `processing` arms a
+     * second chain (the seed's guard only sees `pending`), and an
+     * unguarded re-arm then keeps both alive for ever. The journal was
+     * 91 % « tâche planifiée terminée » as a result.
+     *
+     * With the guard, a duplicate is self-healing rather than permanent:
+     * whichever copy runs first queues the successor, every other copy
+     * finds it pending and stands down, and the chain is back to one row
+     * after a single pass.
+     *
+     * @param array<string, mixed> $payload
+     */
+    public function rearmAfter(
+        string $moduleId,
+        string $taskKey,
+        string $reference,
+        int $delaySeconds,
+        array $payload = []
+    ): bool {
+        return $this->rearm(
+            $moduleId,
+            $taskKey,
+            $reference,
+            (new \DateTimeImmutable())->modify('+' . max(0, $delaySeconds) . ' seconds'),
+            $payload
+        );
+    }
+
+    /**
      * Schedule an action at a specific time.
      *
      * @param array<string, mixed> $payload

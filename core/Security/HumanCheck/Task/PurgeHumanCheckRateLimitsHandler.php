@@ -42,6 +42,6 @@ class PurgeHumanCheckRateLimitsHandler implements TaskHandlerInterface
         $repository->deleteOlderThan($cutoff);
 
         $schedulerService = new SchedulerService(new SchedulerRepository($pdo));
-        $schedulerService->scheduleAfter('core', 'purge_human_check_rate_limits', self::INTERVAL_SECONDS, [], self::REFERENCE);
+        $schedulerService->rearmAfter('core', 'purge_human_check_rate_limits', self::REFERENCE, self::INTERVAL_SECONDS);
     }
 }

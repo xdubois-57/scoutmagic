@@ -38,6 +38,6 @@ class PurgeNotificationsHandler implements TaskHandlerInterface
         $repository->deleteReadOlderThan($cutoff);
 
         $schedulerService = new SchedulerService(new SchedulerRepository($context->connection->getPdo()));
-        $schedulerService->scheduleAfter('core', 'purge_notifications', self::INTERVAL_SECONDS, [], self::REFERENCE);
+        $schedulerService->rearmAfter('core', 'purge_notifications', self::REFERENCE, self::INTERVAL_SECONDS);
     }
 }

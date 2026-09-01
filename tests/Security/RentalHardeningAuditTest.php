@@ -385,8 +385,11 @@ class RentalHardeningAuditTest extends TestCase
                 $file = (new \ReflectionClass($task['handler']))->getFileName();
                 $this->assertIsString($file);
 
+                // rearmAfter() specifically: an unguarded scheduleAfter()
+                // re-arms the chain AND keeps every duplicate copy of it
+                // alive (Tests\Architecture\RecurringTasksRearmTest).
                 $this->assertStringContainsString(
-                    'scheduleAfter(',
+                    'rearmAfter(',
                     self::code($file),
                     basename($file) . ' must re-arm its own chain.'
                 );

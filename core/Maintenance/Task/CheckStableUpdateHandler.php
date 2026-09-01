@@ -88,7 +88,7 @@ class CheckStableUpdateHandler implements TaskHandlerInterface
             return;
         }
 
-        $schedulerService->schedule('core', self::TASK_KEY, self::nextRunAt(new \DateTimeImmutable()), [], self::REFERENCE);
+        $schedulerService->rearm('core', self::TASK_KEY, self::REFERENCE, self::nextRunAt(new \DateTimeImmutable()));
     }
 
     /**

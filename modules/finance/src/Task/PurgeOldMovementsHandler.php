@@ -199,6 +199,6 @@ class PurgeOldMovementsHandler implements TaskHandlerInterface
         }
 
         $nextRun = new \DateTimeImmutable('+1 month');
-        $schedulerService->schedule('finance', 'purge_old_movements', $nextRun, [], self::REFERENCE);
+        $schedulerService->rearm('finance', 'purge_old_movements', self::REFERENCE, $nextRun);
     }
 }

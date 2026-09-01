@@ -128,7 +128,7 @@ class AutoBackupHandler implements TaskHandlerInterface
         // NOT DateInput::fromStorage(), which refuses relative expressions
         // on purpose (SECURITY.md § 35).
         $interval = self::INTERVALS[$frequency] ?? '+1 day';
-        $schedulerService->schedule('core', 'auto_backup', new \DateTimeImmutable($interval), [], self::REFERENCE);
+        $schedulerService->rearm('core', 'auto_backup', self::REFERENCE, new \DateTimeImmutable($interval));
     }
 
     /**

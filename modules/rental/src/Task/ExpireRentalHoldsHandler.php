@@ -79,7 +79,7 @@ class ExpireRentalHoldsHandler implements TaskHandlerInterface
         // is still `pending` right now and bootstrap()'s guard would find
         // it, skip, and end the chain after a single run.
         SchedulerService::forPdo($pdo)
-            ->scheduleAfter('rental', self::TASK_KEY, self::INTERVAL_SECONDS, [], self::REFERENCE);
+            ->rearmAfter('rental', self::TASK_KEY, self::REFERENCE, self::INTERVAL_SECONDS);
     }
 
     /**

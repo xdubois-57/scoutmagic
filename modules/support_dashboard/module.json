@@ -84,6 +84,15 @@
       "label": ""
     },
     {
+      "path": "/support-dashboard/tickets/{id}/reopen",
+      "method": "POST",
+      "controller": "Modules\\SupportDashboard\\Controller\\SupportTicketController",
+      "action": "reopen",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
       "path": "/support-dashboard/tickets/analyse",
       "method": "POST",
       "controller": "Modules\\SupportDashboard\\Controller\\SupportTicketController",

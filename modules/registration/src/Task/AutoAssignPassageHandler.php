@@ -97,6 +97,6 @@ class AutoAssignPassageHandler implements TaskHandlerInterface
         }
 
         $schedulerService = new SchedulerService(new SchedulerRepository($pdo));
-        $schedulerService->scheduleAfter('registration', 'auto_assign_passage', self::INTERVAL_SECONDS, [], self::REFERENCE);
+        $schedulerService->rearmAfter('registration', 'auto_assign_passage', self::REFERENCE, self::INTERVAL_SECONDS);
     }
 }

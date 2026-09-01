@@ -59,7 +59,7 @@ class PurgeImportsHandler implements TaskHandlerInterface
             $service->purge();
         } finally {
             $scheduler = new SchedulerService(new SchedulerRepository($pdo));
-            $scheduler->scheduleAfter('core', self::TASK_KEY, self::INTERVAL_SECONDS, [], self::REFERENCE);
+            $scheduler->rearmAfter('core', self::TASK_KEY, self::REFERENCE, self::INTERVAL_SECONDS);
         }
     }
 }
