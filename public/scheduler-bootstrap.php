@@ -4,10 +4,11 @@
  * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
  *
  * The scheduler's SHARED composition root, required — and called
- * identically — by both entry points: public/index.php (the poor man's
- * cron at the tail of every web request) and public/cron.php (a real
- * crontab). Everything the scheduler needs beyond the base services is
- * assembled here and nowhere else:
+ * identically — by both entry points: public/cron.php, which is the only
+ * thing that ever RUNS a pass, and public/index.php, which no longer runs
+ * one at all but still needs the same wiring to arm the recurring tasks
+ * and to schedule work a request creates. Everything the scheduler needs
+ * beyond the base services is assembled here and nowhere else:
  *
  *   - the TaskContext handlers run with, including the optional
  *     cross-module CAPABILITIES (Core\Scheduler\TaskCapabilities) a

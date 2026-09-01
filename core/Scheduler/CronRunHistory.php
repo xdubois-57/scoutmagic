@@ -26,9 +26,12 @@ use Core\Config\SettingService;
  * small enough that the row stays a few hundred bytes in `settings`.
  *
  * Deliberately written by `public/cron.php` alone, exactly like
- * `cron_last_run` — the poor man's cron in `public/index.php` stamps
- * `scheduler_last_run` instead, and mixing the two would erase the very
- * distinction the support package needs to report.
+ * `cron_last_run`. That used to be a distinction worth protecting — the
+ * poor man's cron stamped `scheduler_last_run` on every web hit, and
+ * mixing the two would have erased the only way to tell a driven queue
+ * from a visited one. The poor man's cron is gone; writing this from
+ * anywhere but a real cron pass would now be worse still, since it is the
+ * only measure of whether the installation has an engine at all.
  */
 final class CronRunHistory
 {

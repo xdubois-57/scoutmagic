@@ -23,7 +23,7 @@ use Modules\Gallery\Service\StorageLocationService;
 /**
  * Background photo resize (module spec) — scheduled by Service\
  * MediaService::upload() right after the original is stored, runs on the
- * next scheduler tick (real cron or the poor-man's-cron in public/index.php).
+ * next scheduler tick — the crontab pass, at most a minute away.
  */
 class ProcessPhotoHandler implements TaskHandlerInterface
 {

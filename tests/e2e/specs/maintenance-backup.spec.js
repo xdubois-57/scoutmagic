@@ -29,6 +29,7 @@ import { expect, test } from '@playwright/test';
 
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { loginAsAdmin } from '../support/admin-login.js';
+import { runScheduler } from '../support/scheduler.js';
 import { scaled } from '../support/timeouts.js';
 
 const ARCHIVE_PASSWORD = 'Archive-e2e-2024!';
@@ -96,6 +97,13 @@ test('maintenance backups run to completion, the auto-save saves, and the danger
     await page.locator('#full-backup-password').fill(ARCHIVE_PASSWORD);
     await page.locator('#full-backup-submit').click();
     await expect(page.locator('#full-backup-progress')).toBeVisible();
+
+    // The backup itself is a scheduled task, and public/cron.php is the
+    // only thing that runs one — the application does not turn its own
+    // queue on the tail of a request any more, and this instance has no
+    // crontab. The progress bar being visible means the fetch came back
+    // with a backup id, so the row is committed and a pass will claim it.
+    await runScheduler();
 
     // The polling loop ends in window.location.reload(); waiting for the
     // finished row IS waiting for the poll to have seen 'done'. The

@@ -7,7 +7,6 @@ namespace Tests\Core\Maintenance;
 use Core\Maintenance\MaintenanceGate;
 use Core\Maintenance\UpdateHistory;
 use Core\Maintenance\UpdateHistoryRepository;
-use Core\Scheduler\SchedulerContinuationRoute;
 use Core\Security\AuthSession;
 use PHPUnit\Framework\TestCase;
 
@@ -115,49 +114,5 @@ class MaintenanceGateTest extends TestCase
         $gate = new MaintenanceGate($this->repositoryReturning($this->inProgressHistory()));
 
         $this->assertNull($gate->checkBlocking(true));
-    }
-
-    /**
-     * The regression that cost six updates in forty-eight hours on
-     * scoutmagic.be: Task\InstallUpdateHandler sets the status to
-     * 'migrating' and hops onto this route so another process finishes the
-     * job, and the gate answered that hop with the maintenance page —
-     * because the row it gates on is the very update the hop came to
-     * advance. Nothing else was going to run it: the poor man's cron at
-     * the end of public/index.php is throttled to once a minute and had
-     * just been stamped by the pass that ran the install.
-     */
-    public function testTheSchedulerContinuationEndpointIsNeverGated(): void
-    {
-        $this->startTestSession();
-        $gate = new MaintenanceGate($this->repositoryReturning($this->inProgressHistory()));
-
-        $this->assertNull($gate->checkBlocking(false, SchedulerContinuationRoute::PATH));
-    }
-
-    public function testTheContinuationExemptionDoesNotLeakToOtherPaths(): void
-    {
-        $this->startTestSession();
-        $history = $this->inProgressHistory();
-        $gate = new MaintenanceGate($this->repositoryReturning($history));
-
-        $this->assertSame($history, $gate->checkBlocking(false, '/api/scheduler'));
-        $this->assertSame($history, $gate->checkBlocking(false, '/'));
-    }
-
-    /**
-     * findInProgress() marks a stale row failed as a side effect. The hop
-     * must not be what triggers that on the update it is finishing, so the
-     * exemption is checked before the repository is asked anything at all.
-     */
-    public function testTheExemptedRouteNeverAsksTheRepository(): void
-    {
-        $this->startTestSession();
-        $repository = $this->createMock(UpdateHistoryRepository::class);
-        $repository->expects($this->never())->method('findInProgress');
-
-        $this->assertNull(
-            (new MaintenanceGate($repository))->checkBlocking(false, SchedulerContinuationRoute::PATH)
-        );
     }
 }

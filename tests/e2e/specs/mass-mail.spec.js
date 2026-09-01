@@ -30,6 +30,7 @@ import { autoConfirm } from '../support/confirm-dialog.js';
 import { loginAsAdmin } from '../support/admin-login.js';
 import { pngBuffer } from '../support/png.js';
 import { readMailbox, waitForMail } from '../support/maildrop.js';
+import { runScheduler } from '../support/scheduler.js';
 import { scaled } from '../support/timeouts.js';
 
 const SUBJECT = `Fête d'unité — infos pratiques ${Date.now()}`;
@@ -38,8 +39,9 @@ const TEST_RECIPIENT = 'relecture@example.invalid';
 const ATTACHMENT_NAME = 'plan-acces.png';
 
 test('a mass mail walks draft → test → sending, and really lands in the members\' mailboxes', async ({ page }) => {
-    // The real delivery below waits out the poor-man's cron (at most one
-    // scheduler pass per minute) — well past the default test budget.
+    // The real delivery below turns the instance's own cron several times
+    // and waits for the batch to drain — well past the default test
+    // budget.
     test.setTimeout(scaled(180_000));
 
     const memberEmail = process.env.E2E_MEMBER_EMAIL;
@@ -149,15 +151,18 @@ test('a mass mail walks draft → test → sending, and really lands in the memb
     await dialog.locator('#mm-start-sending-btn').click();
     await expect(dialog.locator('#mm-status-badge')).toHaveText(/Envoi en cours|Envoyé/);
 
-    // The batch task is driven by the scheduler, which this instance runs
-    // through the poor-man's cron — a pass at most once per minute, and
-    // only on the tail of a request. Reloading the tracking page is both
-    // the request stream that lets the cron fire AND the page under test.
+    // The batch task is driven by the scheduler, and public/cron.php is the
+    // only thing that runs one — the application does not turn its own
+    // queue on the tail of a request any more. So the scenario turns it,
+    // once per polling attempt: a batch that re-arms itself for the next
+    // chunk needs several passes, and the tracking page is reloaded in the
+    // same loop because it is also the page under test.
     await dialog.locator('#mm-tracking-link').click();
     await page.waitForURL(/\/mass-mail\/\d+\/tracking/, { waitUntil: 'domcontentloaded' });
     await expect(page.getByText(memberEmail).first()).toBeVisible();
 
     await expect.poll(async () => {
+        await runScheduler();
         await page.reload({ waitUntil: 'domcontentloaded' });
         return readMailbox().some(
             (message) => message.to.includes(memberEmail) && message.subject.includes(SUBJECT),

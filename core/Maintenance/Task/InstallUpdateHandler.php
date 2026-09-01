@@ -24,7 +24,6 @@ use Core\Maintenance\UpdateException;
 use Core\Maintenance\UpdateHistory;
 use Core\Maintenance\UpdateHistoryRepository;
 use Core\Maintenance\VersionFile;
-use Core\Scheduler\SchedulerKick;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
@@ -248,11 +247,17 @@ class InstallUpdateHandler implements TaskHandlerInterface
                 $updateHistoryRepository->setStatus($historyId, 'migrating');
                 $this->scheduleMigrationResume($context, $historyId, $downloadUrl, $sourceType);
 
-                // ...and started now rather than at the next cron tick or
-                // the next visitor's page load, which would just be
-                // "migrate on somebody's request" wearing a different hat.
-                SchedulerKick::now($context);
-
+                // ...and picked up by the next cron pass, which a real
+                // crontab makes at most a minute away. This used to fire a
+                // self-directed HTTP hop (Scheduler\SchedulerKick) so the
+                // migration would not wait for a visitor, because an
+                // installation without a crontab had no other engine.
+                // A crontab is now a requirement, verified before a first
+                // install can even complete (Scheduler\CronHealth,
+                // Http\Controller\SetupController::save()), so the wait is
+                // bounded by the cron period instead of by traffic and the
+                // hop is one moving part fewer on the path that has broken
+                // production most often.
                 return;
             } catch (\Throwable $installError) {
                 $this->rollbackToSafetyBackup(

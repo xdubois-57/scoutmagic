@@ -1039,3 +1039,153 @@ bloc surveille ont la même signature : elles ne produisent aucune erreur.
 La ligne de crontab est écrite à un seul endroit,
 `CronHealth::crontabLine()`, et porte toujours `php ` devant le chemin.
 C'est ce préfixe, et rien d'autre, qui a coûté les jours de silence.
+
+## IT-11 — Le crontab est le moteur, tout le reste part
+
+IT-10 a rendu le crontab vérifiable, puis obligatoire : le battement de
+cœur, `CronHealth`, la pastille de la page d'installation et le refus de
+`SetupController::save()` tant qu'aucun passage réel n'a été observé.
+Aucune installation neuve ne peut donc plus exister sans vrai cron. Reste
+à en tirer la conséquence, et elle est désagréable à écrire : tout ce que
+ce dépôt a construit pendant des mois pour faire avancer sa file *sans*
+crontab est désormais de la complexité en trop, sur le chemin — la mise à
+jour non surveillée — où la complexité a coûté le plus cher.
+
+Ce n'était pas du mauvais code. Le pseudo-cron, `SchedulerContinuation` et
+`MigrationChain` répondaient chacun à une panne de production réelle et
+mesurée, et chacun l'a corrigée. Mais ils partageaient une propriété qu'on
+ne voit qu'après coup : ils faisaient tourner le site *assez bien* pour
+que personne ne remarque qu'il n'avait pas de cron. C'est exactement
+l'argument d'IT-10, retourné — un filet qui masque la panne qu'il rattrape
+est la raison pour laquelle la panne a duré des jours.
+
+### Fait
+
+- **Supprimés** : `Scheduler\SchedulerContinuation`,
+  `SchedulerContinuationRoute`, `SchedulerKick`, `SliceOutcome`,
+  `Database\MigrationChain`, `Http\SelfRequest`, la route
+  `POST /api/scheduler/continue` et son contrôleur, et le pseudo-cron au
+  pied de `public/index.php`.
+- **Rien n'est perdu avec cette queue de requête.** Elle faisait une
+  tranche d'ordonnanceur, la purge du journal, `LoginThrottler::
+  purgeStale()` et `PdfThumbnailCache::purgeStale()` — vérifié :
+  `public/cron.php` fait déjà les quatre, à chaque passage. Ce qui part,
+  c'est un visiteur qui payait pour du travail de fond et une file dont la
+  latence était l'intervalle entre deux visites.
+- **`Core\Scheduler\CronPassLock`** — un passage à la fois. Un crontab à
+  la minute lance un passage toutes les soixante secondes ; un passage
+  n'est pas borné par soixante secondes. Même idiome que
+  `Maintenance\InstallLock` : un `GET_LOCK` nommé, **délai 0, jamais
+  autre chose**, pris avant tout tampon et tout travail. Le passage qui
+  ne l'obtient pas sort **en silence** — voir plus bas.
+- **`MaintenanceGate` n'a plus d'exemption**, puisque la seule qu'elle
+  avait visait la route de continuation. `checkBlocking()` ne prend plus
+  de chemin, `FrontController` n'en passe plus.
+- **`InstallUpdateHandler` et `RestoreBackupHandler`** ne migrent
+  toujours pas dans le processus qui a remplacé les fichiers — c'est le
+  contrat d'IT-07 et il ne bouge pas. Ils ne réveillent simplement plus
+  l'ordonnanceur d'un coup de `SchedulerKick::now()` : le passage cron
+  suivant, à une minute au plus, ramasse la tâche de reprise.
+- **Sept réglages supprimés**, et un nettoyage ponctuel pour les enlever
+  des sites déjà installés (voir « Surpris »).
+- **Le harnais de bout en bout** ne provisionne plus
+  `scheduler_max_hops` à zéro — le réglage n'existe plus — et les deux
+  scénarios qui *attendaient* le pseudo-cron appellent maintenant
+  `runScheduler()` explicitement.
+
+### Surpris
+
+**Les réglages du cœur ne sont jamais élagués, et personne ne l'avait
+écrit.** `ModuleManager::pruneUndeclaredSettings()` existe, fonctionne, et
+ne regarde que les lignes portant un `module_id` : rien, nulle part, ne
+supprime une ligne `module_id IS NULL` que la racine de composition a
+cessé d'enregistrer. Retirer les sept appels à `register()` aurait donc
+laissé sept lignes orphelines sur chaque site installé — dont trois
+`editable`, donc trois lignes affichées sur Configuration > Réglages,
+modifiables, et sans le moindre effet. D'où `SettingRepository::
+deleteCoreSettings()` et un bloc ponctuel gardé par son propre booléen
+dans `public/index.php`, exactement dans la forme des nettoyages
+`notifications v2` et `settings_migrated` qui le précèdent. Le cas est
+assez piégeux pour mériter d'être nommé : la seule chose qui rendait
+l'absence d'élagage inoffensive jusqu'ici, c'est que le cœur n'avait
+jamais retiré de réglage.
+
+**Le passage sauté ne doit rien afficher.** La tentation est forte
+d'écrire « pass skipped, another one is running » sur la sortie standard
+— c'est une information, et elle est vraie. C'est aussi un courriel du
+démon cron de l'hébergeur, par minute : une sauvegarde de dix minutes en
+enverrait dix. Un administrateur qui apprend à ignorer cette boîte est un
+administrateur qui ratera le message qui comptait. Sauter est un
+fonctionnement normal, pas un incident, et `CronHealth` continue de voir
+l'installation `active` pendant toute la durée du passage long — le
+battement de cœur est écrit tout en haut de `cron.php`, avant même que le
+verrou soit demandé.
+
+**Le verrou se libère tout seul, et c'est ce qui le rend sûr.** Un verrou
+consultatif MySQL/MariaDB appartient à une *connexion* ; le serveur le
+relâche à l'instant où cette connexion disparaît, ce qui arrive quand le
+processus PHP se termine, de quelque façon que ce soit. Un passage tué en
+plein vol ne peut donc pas bloquer tous les suivants — la propriété que
+`MigrationChain` devait obtenir à la main, avec son délai de 120 s de
+péremption de chaîne. Le `release()` explicite en fin de script n'est
+qu'une politesse. Un test le prouve en lâchant une troisième connexion
+sur le sol.
+
+**`countOverdue()` n'a plus d'appelant de production.** C'était la
+question « reste-t-il du travail ? » que posait une tranche pour décider
+si elle méritait un saut. La méthode reste : elle est triviale, testée,
+et c'est l'assertion d'état de file que les tests de l'ordonnanceur
+utilisent. Sa docstring dit maintenant qu'elle n'a plus d'appelant, ce
+qui vaut mieux qu'un commentaire qui décrit un mécanisme disparu.
+
+**Cinq tests ne portaient pas sur ce qui disparaissait.**
+`SchedulerContinuationTest` mélangeait les conditions du saut — qui
+partent — et le comportement de `SchedulerRunner::processOverdue()` —
+qui reste : le budget qui arrête un passage *entre* deux tâches, les
+lignes réclamées mais non démarrées qui repartent en `pending` sans
+compter comme un échec, et surtout la garantie dont dépend tout IT-07,
+« une tâche créée pendant un passage n'est jamais exécutée par ce
+passage ». Les supprimer avec le fichier aurait retiré le filet sous la
+frontière de la mise à jour. Ils vivent maintenant dans
+`Tests\Core\Scheduler\SchedulerPassTest`.
+
+**Le budget de tranche reste, sans appelant.** `processOverdue()` accepte
+toujours une échéance ; `public/cron.php` ne lui en passe aucune (SAPI
+CLI, `max_execution_time` à 0, et c'est le verrou qui borne un passage
+long). C'est donc une capacité, plus un comportement courant — gardée
+avec ses tests, parce que c'est le mécanisme dont aurait besoin n'importe
+quel appelant budgété futur, et parce que le même fichier de test épingle
+la garantie ci-dessus.
+
+### Écarté
+
+- **Supprimer `Support\Collector\BackgroundExecutionCollector`.** Le
+  fichier `background-execution.txt` avait été écrit pour diagnostiquer
+  la boucle HTTP de continuation, qui n'existe plus. Mais ce qu'il mesure
+  vraiment — `disable_functions`, `open_basedir`, `max_execution_time`,
+  et si le site sait s'atteindre lui-même par son propre nom public —
+  reste ce qui explique pourquoi un webhook, un téléchargement de mise à
+  jour ou une sonde échouent chez un hébergeur donné, et rien d'autre ne
+  le rapporte. Le collecteur reste ; sa section « Réglages de
+  l'ordonnanceur » (budget, plafond, compteur, présence du secret) part
+  avec les réglages, remplacée par la seule `base_url`.
+- **Retirer le point d'entrée de migration de `MaintenanceController::
+  updateStatus()`.** Il fait une tranche de 5 s par sondage pendant qu'une
+  mise à jour est en `migrating`, ce qui ressemble à un troisième moteur.
+  Ce n'en est pas un : c'est l'administrateur qui *regarde* sa mise à jour
+  et dont le navigateur rafraîchit déjà toutes les trois secondes. Le
+  supprimer ne simplifierait rien et ralentirait la seule situation où
+  quelqu'un attend vraiment devant l'écran.
+- **Toucher au budget/à la reprise de `MigrationRunner`.** Le crontab
+  migre tout d'un coup sous CLI, donc les points de reprise pourraient
+  sembler inutiles. Ils ne le sont pas : la page de progression et le
+  sondage de la page Maintenance travaillent tous deux par tranches de
+  5 s, et une installation neuve migre depuis le navigateur de
+  l'installateur. Le checkpoint est ce qui rend un onglet fermé sans
+  conséquence.
+- **Garder `scheduler_last_run`.** Il n'était pas dans la liste des
+  réglages condamnés — mais plus rien ne l'écrit une fois le pseudo-cron
+  parti, et son unique lecteur (`cron-cadence.txt`) l'aurait affiché
+  « jamais déclenché » pour toujours, à côté d'un vrai cron actif. Une
+  ligne fausse dans un paquet de diagnostic coûte plus cher qu'une ligne
+  absente : il part avec les six autres.

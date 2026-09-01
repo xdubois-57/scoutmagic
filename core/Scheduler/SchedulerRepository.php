@@ -102,9 +102,8 @@ class SchedulerRepository
 
     /**
      * Atomically claim overdue tasks for processing — safe under concurrent
-     * callers (two requests racing the "poor man's cron" tail at the end of
-     * public/index.php, or a real crontab hitting public/cron.php at the
-     * same moment a request does). The previous implementation ran a
+     * callers (two crontab passes overlapping, or a pass racing anything
+     * else that turns the queue). The previous implementation ran a
      * blanket "SET status = processing WHERE status = pending" UPDATE and
      * then re-SELECTed *every* row currently in 'processing' state — which
      * hands back rows a concurrent call just claimed too, since the SELECT
@@ -184,9 +183,11 @@ class SchedulerRepository
 
     /**
      * How many tasks are due right now — the cheap "is there still work?"
-     * question Core\Scheduler\SchedulerContinuation asks to decide whether
-     * a slice earned another hop. Counts only 'pending' rows, so a task
-     * another process is currently running is not work this one can do.
+     * question, without claiming anything. Counts only 'pending' rows, so a
+     * task another process is currently running is not work this one can
+     * do. Its production caller was the self-continuation chain, which is
+     * gone; what is left is the queue-state assertion the scheduler's own
+     * tests make (Tests\Core\Scheduler\SchedulerPassTest).
      */
     public function countOverdue(): int
     {
