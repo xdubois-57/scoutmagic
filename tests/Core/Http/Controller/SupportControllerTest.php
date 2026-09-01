@@ -378,14 +378,59 @@ class SupportControllerTest extends TestCase
         return $transport;
     }
 
-    private function sendTicket(): \Core\Http\Response
+    /**
+     * @param array<string, string> $overrides
+     */
+    private function sendTicket(array $overrides = []): \Core\Http\Response
     {
-        return $this->controller->sendTicket(new Request('POST', '/config/support/ticket', [], [
+        return $this->controller->sendTicket(new Request('POST', '/config/support/ticket', [], array_replace([
             '_csrf_token' => (string) $_POST['_csrf_token'],
             'ticket_category' => 'desk_import',
             'ticket_description' => 'Mon import Desk ne passe plus depuis hier.',
             'ticket_contact_email' => 'chef@unite.be',
-        ], [], []), []);
+            // Both boxes: the form cannot be submitted without them, and
+            // the server refuses a POST that omits either.
+            'archive_acknowledged' => '1',
+            'probe_acknowledged' => '1',
+        ], $overrides), [], []), []);
+    }
+
+    /**
+     * @return array<string, array{array<string, string>}>
+     */
+    public static function missingAcknowledgementProvider(): array
+    {
+        return [
+            'no archive box' => [['archive_acknowledged' => '']],
+            'no probe box' => [['probe_acknowledged' => '']],
+            'neither box' => [['archive_acknowledged' => '', 'probe_acknowledged' => '']],
+        ];
+    }
+
+    /**
+     * The two boxes are the whole consent for what leaves beside the
+     * message, and `required` in the browser is a decoration a hand-made
+     * POST walks past. Verified on the server, which is what posting
+     * without them proves.
+     *
+     * @param array<string, string> $overrides
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('missingAcknowledgementProvider')]
+    public function testNoTicketLeavesWithoutBothAcknowledgements(array $overrides): void
+    {
+        $this->issueCsrfToken();
+        $this->ticketTransport = $this->respondWith(200, (string) json_encode([
+            'status' => 'accepted',
+            'ticket_reference' => 'SUP-7KQ4F2',
+        ]));
+
+        $this->sendTicket($overrides);
+
+        $this->assertSame([], $this->ticketTransport->calls, 'nothing may leave without both boxes');
+        $this->assertSame(
+            '',
+            (string) $this->settings->get(SupportTicketSender::LAST_REFERENCE_SETTING)
+        );
     }
 
     /**

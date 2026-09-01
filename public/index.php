@@ -2130,9 +2130,6 @@ $router->addRoute('POST', '/config/support/ticket', SupportController::class, 's
 // The archive, on its own call (roadmap IT-26): an upload that times out
 // must never take the ticket with it.
 $router->addRoute('POST', '/config/support/ticket/archive', SupportController::class, 'sendArchive', 'superadmin');
-// The diagnostic mail probes (roadmap IT-27): what the Courriel page's own
-// test send cannot answer — whether the message ARRIVED, and in what state.
-$router->addRoute('POST', '/config/support/mail-probe', SupportController::class, 'sendMailProbe', 'superadmin');
 $router->addRoute('GET', '/api/support/package-status/{id}', SupportController::class, 'packageStatus', 'superadmin');
 
 // Scheduled actions
@@ -2616,7 +2613,10 @@ $frontController->registerController(SupportController::class, new SupportContro
         $ticketIdentityService,
         new \Core\Statistics\StreamStatisticsTransport(),
         $journalService,
-        \Core\Maintenance\VersionFile::read(dirname(__DIR__))
+        \Core\Maintenance\VersionFile::read(dirname(__DIR__)),
+        // The usage report travels inside the ticket, so the receiver can
+        // tie the two together — which a separately-sent report could not.
+        $statisticsPayloadBuilder
     ),
     $ticketIdentityService,
     // The archive, on its own transport: megabytes uphill from a shared

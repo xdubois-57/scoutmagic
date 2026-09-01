@@ -10,6 +10,7 @@ namespace Core\Support\Ticket;
 
 use Core\Config\SettingService;
 use Core\Journal\JournalService;
+use Core\Statistics\StatisticsPayloadBuilder;
 use Core\Statistics\StatisticsTransportInterface;
 
 /**
@@ -56,7 +57,13 @@ class SupportTicketSender
         private TicketIdentityService $identityService,
         private StatisticsTransportInterface $transport,
         private JournalService $journalService,
-        private string $appVersion
+        private string $appVersion,
+        /**
+         * The usage report a ticket carries with it. Nullable so a caller
+         * with no builder still sends a ticket — the report is context,
+         * never the point.
+         */
+        private ?StatisticsPayloadBuilder $payloadBuilder = null
     ) {
     }
 
@@ -90,6 +97,22 @@ class SupportTicketSender
             'contact_email' => $contactEmail,
             'site_version' => $this->appVersion,
             'php_version' => PHP_VERSION,
+            // The usage report travels WITH the ticket, always, even on an
+            // installation that keeps the daily report switched off.
+            //
+            // It is not a change of heart about telemetry: the daily
+            // report stays off, nothing is scheduled, and this leaves only
+            // when somebody presses « Envoyer le ticket ». It is here
+            // because a bug report without « which version, which
+            // hosting, how many members » is a question a maintainer
+            // cannot answer, and because a report sent as a SEPARATE call
+            // could not be tied to the ticket it explains — which is
+            // exactly what happened before: a report arrived, a ticket
+            // arrived, and nothing said they were one event.
+            //
+            // The page says so above the button, in the same breath as
+            // the identity, because this is the largest thing that leaves.
+            'statistics' => $this->payloadBuilder?->build(),
         ]);
 
         try {

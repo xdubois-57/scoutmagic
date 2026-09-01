@@ -54,7 +54,7 @@ class SupportTicketControllerTest extends TestCase
             'installation_id' => 'unite-de-test',
             'instance_url' => 'https://unite-de-test.example.be',
             'scoutmagic' => ['version' => '1.0.33', 'is_dev_build' => false],
-            'active_members' => 118,
+            'usage' => ['active_members' => 118, 'active_sections' => 6],
         ];
         $installationId = (new SupportInstallationRepository($this->pdo))->register(
             'unite-de-test',

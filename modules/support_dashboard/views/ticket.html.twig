@@ -24,6 +24,17 @@
     badge: ticket.status == 'closed' ? 'Clôturé' : 'Ouvert',
 } only %}
 
+{# Deux pages, une seule entrée de menu : le menu nomme la fonction, ces
+   onglets nomment les écrans qu'elle contient. #}
+{% include 'partials/sub_nav.html.twig' with {
+    items: [
+        { label: 'Tableau de bord', url: '/support-dashboard' },
+        { label: 'Tickets', url: '/support-dashboard/tickets' },
+    ],
+    current: '/support-dashboard/tickets',
+} only %}
+
+
 <div class="card mb-3">
     <div class="card-body">
         <div class="row">
@@ -58,19 +69,54 @@
                 elle n'a jamais envoyé de rapport. Le ticket, lui, reste lisible.
             </p>
         {% else %}
+            {% if statistics_drifted %}
+                {# Le seul cas où les deux colonnes méritent d'être
+                   comparées : ce qui tournait quand le problème a été
+                   signalé n'est plus ce qui tourne aujourd'hui. #}
+                <div class="alert alert-warning small">
+                    L'installation a changé depuis l'envoi du ticket. La colonne de gauche est ce qui
+                    tournait au moment du signalement ; celle de droite, ce qu'elle a rapporté depuis.
+                </div>
+            {% endif %}
             <div class="row">
                 {{ detail.field('Instance', ticket.installation.instance_url) }}
                 {{ detail.field("Identifiant d'installation", ticket.installation.public_id) }}
-                {{ detail.field('Version rapportée', ticket.installation.scoutmagic_version) }}
-                {{ detail.field('Membres actifs', ticket.installation.active_members) }}
-                {{ detail.field('Sections actives', ticket.installation.active_sections) }}
-                {{ detail.field("Méthode d'installation", ticket.installation.installation_method) }}
-                {{ detail.field('PHP rapporté', ticket.installation.php_version) }}
-                {{ detail.field('Base de données', ticket.installation.database_version) }}
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-sm align-middle small mb-1">
+                    <thead>
+                        <tr>
+                            <th scope="col"></th>
+                            <th scope="col">Au moment du ticket</th>
+                            <th scope="col">Dernières nouvelles</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in statistics_comparison %}
+                            <tr>
+                                <th scope="row" class="fw-normal text-body-secondary">{{ row.label }}</th>
+                                <td{% if row.changed %} class="fw-semibold"{% endif %}>
+                                    {% if row.at_ticket is null or row.at_ticket == '' %}
+                                        <span class="text-body-secondary">Non renseigné</span>
+                                    {% else %}{{ row.at_ticket }}{% endif %}
+                                </td>
+                                <td{% if row.changed %} class="fw-semibold"{% endif %}>
+                                    {% if row.latest is null or row.latest == '' %}
+                                        <span class="text-body-secondary">Non renseigné</span>
+                                    {% else %}{{ row.latest }}{% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
             </div>
             <p class="small text-body-secondary mb-0">
-                Ces valeurs viennent du dernier rapport d'utilisation accepté, pas du ticket : elles
-                peuvent être plus récentes ou plus anciennes que lui.
+                La colonne de gauche est figée : c'est le rapport que l'instance a joint à son ticket.
+                Celle de droite est le dernier rapport accepté, quel qu'en soit le moment.
+                {% if ticket.statistics_snapshot is null %}
+                    Ce ticket ne portait pas de rapport — il vient d'une version antérieure à cette fonction.
+                {% endif %}
             </p>
         {% endif %}
     </div>
@@ -126,7 +172,15 @@
                                     {% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Reçue' } only %}
                                     {{ probe.received_at }}
                                 {% else %}
-                                    {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'Jamais reçue' } only %}
+                                    {# « En attente » et « jamais reçue » sont deux
+                                       faits différents : tant que la clé n'a pas
+                                       expiré, le message peut encore arriver, et
+                                       dire « jamais » avant l'heure est un
+                                       diagnostic faux. #}
+                                    {% include 'partials/status_badge.html.twig' with {
+                                        status: 'pending',
+                                        label: probe.expires_at < 'now'|date('Y-m-d H:i:s') ? 'Jamais reçue' : 'En attente',
+                                    } only %}
                                 {% endif %}
                             </td>
                             {% for mechanism in ['spf', 'dkim', 'dmarc'] %}

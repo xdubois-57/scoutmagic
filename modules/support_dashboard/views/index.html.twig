@@ -16,6 +16,17 @@
 
 {% include 'partials/page_header.html.twig' with { title: 'Tableau de bord support' } only %}
 
+{# Deux pages, une seule entrée de menu : le menu nomme la fonction, ces
+   onglets nomment les écrans qu'elle contient. #}
+{% include 'partials/sub_nav.html.twig' with {
+    items: [
+        { label: 'Tableau de bord', url: '/support-dashboard' },
+        { label: 'Tickets', url: '/support-dashboard/tickets' },
+    ],
+    current: '/support-dashboard',
+} only %}
+
+
 {# ---------------------------------------------------------------- #}
 {# Indicator tiles — always recomputed on the currently filtered set. #}
 {# ---------------------------------------------------------------- #}

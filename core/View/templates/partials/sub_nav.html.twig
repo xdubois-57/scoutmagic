@@ -1,0 +1,42 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  Sub-navigation between the pages of ONE menu entry.
+
+  It exists because a feature can be two pages without being two lines in
+  the menu: a menu that grows a line per screen stops being a map. The
+  entry names the feature; this names the screens inside it.
+
+  Usage:
+  {% include 'partials/sub_nav.html.twig' with {
+      items: [
+          { label: 'Tableau de bord', url: '/support-dashboard' },
+          { label: 'Tickets', url: '/support-dashboard/tickets' },
+      ],
+      current: '/support-dashboard',
+  } only %}
+
+  `current` is compared exactly, so a sub-page with its own detail routes
+  passes the parent's path rather than the request's — a detail screen
+  belongs to the tab it was opened from, and a tab bar with nothing
+  selected reads as broken.
+
+  Not Bootstrap's `nav-tabs`: these navigate to real URLs rather than
+  toggling panes, so they are links that look like tabs and never carry
+  `role="tab"`, which would promise a keyboard behaviour they do not have.
+#}
+<nav class="mb-3" aria-label="Sections de cette page">
+    <ul class="nav nav-pills gap-1">
+        {% for item in items %}
+            <li class="nav-item">
+                <a class="nav-link{% if item.url == current %} active{% endif %}"
+                   href="{{ item.url }}"
+                   {% if item.url == current %}aria-current="page"{% endif %}>
+                    {{ item.label }}
+                </a>
+            </li>
+        {% endfor %}
+    </ul>
+</nav>
