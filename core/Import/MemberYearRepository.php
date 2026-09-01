@@ -305,6 +305,53 @@ class MemberYearRepository
     }
 
     /**
+     * The most recent encrypted name of each of these members — the same
+     * shape as findMostRecentEmailBlindIndexesForMembers() above, and for
+     * the same kind of caller: a page holding a list of member ids and
+     * needing to print who they are.
+     *
+     * "Most recent" is the newest scout year the member has a row for, so
+     * somebody who has left the unit is still named — which is the whole
+     * point here, since the ids come from records that outlive a year.
+     *
+     * Returns the CIPHERTEXT: this class has no encryption service, and
+     * Core\Member\MemberService is where a name gets decrypted.
+     *
+     * @param int[] $memberIds
+     * @return array<int, array{first_name_encrypted: ?string, last_name_encrypted: ?string}>
+     */
+    public function findMostRecentNamesForMembers(array $memberIds): array
+    {
+        $memberIds = array_values(array_unique(array_map('intval', $memberIds)));
+        if ($memberIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($memberIds), '?'));
+        // Oldest year first so the loop keeps overwriting with newer ones:
+        // one pass, no window function, and the same answer per member as
+        // an ORDER BY … LIMIT 1 per id would give.
+        $stmt = $this->pdo->prepare(
+            "SELECT my.member_id, my.first_name_encrypted, my.last_name_encrypted
+             FROM member_years my
+             JOIN scout_years sy ON sy.id = my.scout_year_id
+             WHERE my.member_id IN ({$placeholders})
+             ORDER BY sy.start_date ASC"
+        );
+        $stmt->execute($memberIds);
+
+        $names = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $names[(int) $row['member_id']] = [
+                'first_name_encrypted' => $row['first_name_encrypted'],
+                'last_name_encrypted' => $row['last_name_encrypted'],
+            ];
+        }
+
+        return $names;
+    }
+
+    /**
      * Find all member_year rows for a given email blind index and scout year.
      *
      * @return array<int, array<string, mixed>>
