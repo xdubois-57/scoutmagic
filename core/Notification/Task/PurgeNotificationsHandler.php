@@ -35,7 +35,21 @@ class PurgeNotificationsHandler implements TaskHandlerInterface
         $repository = new NotificationRepository($context->connection->getPdo(), $context->encryption);
         $retentionDays = (int) ($context->settings->get('notifications_retention_days') ?: 90);
         $cutoff = (new \DateTimeImmutable())->modify("-{$retentionDays} days");
-        $repository->deleteReadOlderThan($cutoff);
+        $deleted = $repository->deleteReadOlderThan($cutoff);
+
+        // A count and a retention, never a recipient or a title (§7.9).
+        // Silence here meant « mes notifications ont disparu » had no
+        // answer at all — not even « la conservation les a prises, elle
+        // est réglée à 90 jours ».
+        if ($deleted > 0) {
+            $context->journal->log(
+                'core',
+                'notifications_purged',
+                'info',
+                sprintf('%d notification(s) lue(s) supprimée(s) après %d jours.', $deleted, $retentionDays),
+                ['deleted' => $deleted, 'retention_days' => $retentionDays]
+            );
+        }
 
         $schedulerService = new SchedulerService(new SchedulerRepository($context->connection->getPdo()));
         $schedulerService->rearmAfter('core', 'purge_notifications', self::REFERENCE, self::INTERVAL_SECONDS);

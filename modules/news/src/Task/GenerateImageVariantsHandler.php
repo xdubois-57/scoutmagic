@@ -43,21 +43,38 @@ class GenerateImageVariantsHandler implements TaskHandlerInterface
             $context->storagePath
         );
 
+        $images = 0;
+        $generated = 0;
         foreach ($fileRepository->findIdsByPathPrefix('news/images/') as $fileId) {
             $file = $fileRepository->findById($fileId);
             if ($file === null) {
                 continue;
             }
 
+            $images++;
             foreach (ImageVariantService::VARIANTS as $variant) {
                 if ($variantService->resolvePath($file->relativePath, $variant) === null) {
                     // generate() never throws — an image that cannot be
                     // decoded is simply left without derivatives, exactly
                     // like the upload path.
                     $variantService->generate($fileId, $variant);
+                    $generated++;
                 }
             }
         }
+
+        // A one-shot pass that runs once in an installation's life, and
+        // whose failure shows up months later as an article image that
+        // 404s. Saying it happened, and on how many files, is the whole
+        // difference between « la reprise n'a jamais tourné » and « elle a
+        // tourné et cette image-là n'a pas pu être décodée ».
+        $context->journal->log(
+            'news',
+            'news_image_variants_backfilled',
+            'info',
+            sprintf('Reprise des vignettes d\'articles : %d image(s) parcourue(s), %d déclinaison(s) produite(s).', $images, $generated),
+            ['images' => $images, 'generated' => $generated]
+        );
 
         $context->settings->setInternal(self::DONE_FLAG, '1', 'news');
     }

@@ -71,6 +71,26 @@ class GeocodePlacesHandler implements TaskHandlerInterface
             new \DateTimeImmutable()
         );
 
+        // A refusal is stamped and never retried, so without this line a
+        // place that never appears on the map has no explanation anywhere
+        // — and « pourquoi mes lieux ne sont pas sur la carte » is the
+        // question this module gets. The place id and nothing else: the
+        // address is what was refused, and it does not need repeating in
+        // a journal that travels in a support archive.
+        if (($point['latitude'] ?? null) === null) {
+            $context->journal->log(
+                'camps',
+                'camps_place_not_geocoded',
+                'info',
+                sprintf(
+                    'Lieu #%d : adresse non reconnue par le service de géocodage. '
+                    . 'Les coordonnées peuvent être saisies à la main, et le seront alors définitivement.',
+                    $place->id
+                ),
+                ['place_id' => $place->id]
+            );
+        }
+
         if ($places->countPendingGeocoding() > 0) {
             $this->rescheduleSoon($pdo);
         }
