@@ -121,6 +121,15 @@ class StayFromMailService
          */
         private ?LlmConnectorInterface $llm = null,
         /**
+         * What the message's attachments say (`Mail\AttachmentTextReader`).
+         *
+         * Null reads the body alone, which is what this service did — and
+         * what made it blind to the ordinary case: a booking arrives as a
+         * PDF contract with a one-word covering note, so everything worth
+         * reading was in the one place nothing looked.
+         */
+        private ?AttachmentTextReader $attachmentText = null,
+        /**
          * Where every refusal goes (see `journalSkip()`). Optional the way
          * everything else here is: without it this service behaves exactly
          * as it did, silently.
@@ -189,10 +198,11 @@ class StayFromMailService
     }
 
     /**
-     * Whether a message body may be read by the model at all.
+     * Whether a message may be read by the model at all.
      *
      * The whole of the AI half hangs off this one answer, and the RGPD
-     * page says so: with a connector, the text of a message reaches the
+     * page says so: with a connector, the text of a message — its subject,
+     * its body, and the readable text of its attachments — reaches the
      * configured provider; without one, nothing leaves the installation.
      */
     public function canNamePlaces(): bool
@@ -492,9 +502,27 @@ class StayFromMailService
         return str_contains($name, '@') ? '' : $name;
     }
 
-    /** Everything of a message the readers look at, subject included. */
+    /**
+     * Everything of a message the readers look at: subject, body, and what
+     * its attachments say.
+     *
+     * Memoised per message because `createFrom()` asks twice — once for
+     * the dates alone, before deciding whether the model is worth calling —
+     * and a PDF extraction is not a thing to do twice for one answer.
+     *
+     * @var array<int, string>
+     */
+    private array $textCache = [];
+
     private function textOf(InboundMessage $message): string
     {
-        return trim($message->subject . "\n" . $message->bodyText);
+        if (!isset($this->textCache[$message->id])) {
+            $attachments = $this->attachmentText?->read($message->attachments) ?? '';
+            $this->textCache[$message->id] = trim(
+                $message->subject . "\n" . $message->bodyText . ($attachments === '' ? '' : "\n" . $attachments)
+            );
+        }
+
+        return $this->textCache[$message->id];
     }
 }

@@ -82,7 +82,59 @@ class MessageReader
             return $this->range((int) $m[3], (int) $m[2], (int) $m[1], (int) $m[6], (int) $m[5], (int) $m[4]);
         }
 
+        // "Arrivée: 18-09-26 16:30  Départ: 20-09-26 16:00" — the shape a
+        // camp site's own contract uses, and the reason this reader saw
+        // nothing in the documents that matter most. It is as explicit as
+        // « du … au … »: the two ends are LABELLED, so reading them is not
+        // a guess, and the labels are what allows a two-digit year here
+        // where the free-text forms above still demand four.
+        if (preg_match(
+            '~\barriv[ée]e?' . self::LABEL_GAP . self::NUMERIC_DATE
+            . '.{0,80}?\bd[ée]part' . self::LABEL_GAP . self::NUMERIC_DATE . '~su',
+            $text,
+            $m
+        ) === 1) {
+            return $this->range(
+                self::year($m[3]),
+                (int) $m[2],
+                (int) $m[1],
+                self::year($m[6]),
+                (int) $m[5],
+                (int) $m[4]
+            );
+        }
+
         return null;
+    }
+
+    /**
+     * A day-first numeric date: 18-09-26, 18/09/2026, 18.09.2026.
+     *
+     * Day-first and never month-first. Every date a Belgian camp site
+     * prints is day-first, and a reader that hedged would turn 03-04-26
+     * into two plausible stays three weeks apart with no way to tell which
+     * — exactly the ambiguity this class answers with silence everywhere
+     * else.
+     */
+    /**
+     * What may sit between the label and its date: a colon, « le », or
+     * nothing at all. Deliberately short — a label three words away from a
+     * date is not a label for it.
+     */
+    private const LABEL_GAP = '\s*(?::|\ble\b)?\s*';
+
+    private const NUMERIC_DATE = '(\d{1,2})[-/.](\d{1,2})[-/.](\d{4}|\d{2})(?!\d)';
+    // Four digits BEFORE two, and no digit allowed after: the other way
+    // round, « 18/09/2026 » matched a year of « 20 » and read 2020.
+
+    /**
+     * A two-digit year is this century. 26 is 2026: a contract for a camp
+     * in 1926 is not a case worth being wrong about in the other
+     * direction.
+     */
+    private static function year(string $raw): int
+    {
+        return mb_strlen($raw) === 2 ? 2000 + (int) $raw : (int) $raw;
     }
 
     /**

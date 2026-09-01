@@ -483,6 +483,20 @@ function scoutmagic_bootstrap_scheduler(
                             $campsMessageReader,
                             $settingService,
                             $llm,
+                            // The deferred pass is exactly where an
+                            // attachment's BYTES are allowed to be read
+                            // (§8.58) — never inside the sync loop.
+                            new \Modules\Camps\Mail\AttachmentTextReader(
+                                new \Core\File\StoredFileReader(
+                                    $fileRepository,
+                                    new \Core\File\EncryptedFileStorageService(
+                                        $fileRepository,
+                                        $encryptionService,
+                                        $storagePath
+                                    ),
+                                    $storagePath
+                                )
+                            ),
                             // Every refusal of this path lands in the
                             // journal, named. It is the module's most
                             // asked-about behaviour and was its most silent.

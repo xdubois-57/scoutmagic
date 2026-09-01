@@ -4650,6 +4650,10 @@ if ($isEnabled('camps')) {
         $campsCampRepo, $campsCampService, $campsPlaceService,
         $campsDuplicateDetector, $campsMessageReader, $settingService,
         $llmConnectorForOthers ?? null,
+        // A booking arrives as a PDF contract with a one-word covering
+        // note: everything worth reading is in the attachment, which is
+        // the one place this module did not look.
+        new \Modules\Camps\Mail\AttachmentTextReader($storedFileReader),
         // Why no stay came out of a message. On the web path it only ever
         // fires through « Créer un camp depuis ce message », which is a
         // person asking — and a person asking deserves the same answer in

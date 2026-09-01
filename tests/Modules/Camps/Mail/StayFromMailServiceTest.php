@@ -71,8 +71,10 @@ class StayFromMailServiceTest extends TestCase
         $this->asked = [];
     }
 
-    private function service(?LlmConnectorInterface $llm = null): StayFromMailService
-    {
+    private function service(
+        ?LlmConnectorInterface $llm = null,
+        ?\Modules\Camps\Mail\AttachmentTextReader $attachments = null
+    ): StayFromMailService {
         return new StayFromMailService(
             $this->camps,
             new CampService($this->camps, $this->audit, $this->places),
@@ -81,7 +83,114 @@ class StayFromMailServiceTest extends TestCase
             new MessageReader(),
             $this->settings,
             $llm,
+            $attachments,
             new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo))
+        );
+    }
+
+    // ── The booking that arrives as a PDF ───────────────────────────────
+
+    /**
+     * The message that prompted all of this: a one-word covering note and
+     * a contract in the attachment.
+     *
+     * Reading `subject + bodyText` alone, this service saw nothing at all
+     * in such a message and refused it for want of dates — which is exactly
+     * what a unit reported: « j'ai envoyé un contrat de location à camps et
+     * il ne s'est rien passé ».
+     */
+    public function testAContractInAPdfBecomesAStay(): void
+    {
+        $storagePath = sys_get_temp_dir() . '/stayfrompdf_' . uniqid();
+        mkdir($storagePath . '/inbound', 0700, true);
+
+        try {
+            $files = new \Core\File\FileRepository($this->pdo);
+            $bytes = (string) file_get_contents(
+                dirname(__DIR__, 3) . '/fixtures/pdf/camp_booking_contract.pdf'
+            );
+            file_put_contents($storagePath . '/inbound/contrat.pdf', $bytes);
+            $fileId = $files->create(
+                'inbound/contrat.pdf',
+                'contrat.pdf',
+                'application/pdf',
+                strlen($bytes),
+                'chief',
+                'inbound_mail',
+                null,
+                false
+            );
+
+            $reader = new \Modules\Camps\Mail\AttachmentTextReader(new \Core\File\StoredFileReader(
+                $files,
+                new \Core\File\EncryptedFileStorageService(
+                    $files,
+                    new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)),
+                    $storagePath
+                ),
+                $storagePath
+            ));
+
+            $campId = $this->service($this->llmAnswering('Centre de camp Le Grand Pré'), $reader)->createFrom(
+                $this->messageWithAttachment($fileId, strlen($bytes))
+            );
+
+            $this->assertNotNull($campId);
+            $camp = $this->camps->findById($campId);
+            $this->assertSame('2026-09-18', $camp?->startDate);
+            $this->assertSame('2026-09-20', $camp?->endDate);
+            $this->assertSame('Centre de camp Le Grand Pré', $this->places->findById((int) $camp?->placeId)?->name);
+
+            // And the model was shown the contract, not just « Bonjour, ».
+            $this->assertStringContainsString('Arrivee: 18-09-26', $this->asked[0]->prompt);
+        } finally {
+            foreach (glob($storagePath . '/inbound/*') ?: [] as $file) {
+                @unlink($file);
+            }
+            @rmdir($storagePath . '/inbound');
+            @rmdir($storagePath);
+        }
+    }
+
+    public function testWithoutTheAttachmentReaderTheSameMessageSaysItHasNoDates(): void
+    {
+        // The behaviour before, kept as a test so the difference is on the
+        // record: a one-word body has nothing to read, and now says so.
+        $this->assertNull($this->service()->createFrom($this->messageWithAttachment(1, 100)));
+        $this->assertSame(
+            'no_dates',
+            json_decode((string) $this->journalEntries()[0]['context'], true)['reason']
+        );
+    }
+
+    private function messageWithAttachment(int $fileId, int $sizeBytes): InboundMessage
+    {
+        $base = $this->message(fromName: 'Emeline', subject: 'Contrat de location', body: 'Bonjour,');
+
+        return new InboundMessage(
+            id: $base->id,
+            mailboxId: $base->mailboxId,
+            consumerId: '',
+            businessReference: '',
+            linkOrigin: $base->linkOrigin,
+            subject: $base->subject,
+            fromEmail: $base->fromEmail,
+            fromName: $base->fromName,
+            messageId: $base->messageId,
+            inReplyTo: $base->inReplyTo,
+            sentAt: $base->sentAt,
+            bodyText: $base->bodyText,
+            bodyHtml: '',
+            toEmails: [],
+            attachments: [new \Modules\InboundMail\Api\InboundAttachment(
+                1,
+                $base->id,
+                $fileId,
+                'contrat.pdf',
+                'application/pdf',
+                $sizeBytes,
+                'hash'
+            )]
         );
     }
 
