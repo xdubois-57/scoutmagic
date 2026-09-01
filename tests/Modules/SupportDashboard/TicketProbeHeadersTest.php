@@ -127,7 +127,7 @@ class TicketProbeHeadersTest extends TestCase
     {
         $body = $this->detailBody();
 
-        $this->assertStringContainsString('En-têtes reçus', $body);
+        $this->assertStringContainsString('<summary>En-têtes reçus</summary>', $body);
         $this->assertStringContainsString('Authentication-Results: mx.receveur.be; spf=pass', $body);
         $this->assertStringContainsString('203.0.113.7', $body);
     }
@@ -169,6 +169,27 @@ class TicketProbeHeadersTest extends TestCase
         $this->assertStringContainsString('réussi', $body);
         $this->assertStringContainsString('non renseigné', $body);
         $this->assertStringContainsString('Authentication-Results: mx.receveur.be; dkim=pass', $body);
+    }
+
+    /**
+     * The first thing the maintainer will see after this ships: the
+     * probes already in the table were received before any header block
+     * was kept, and there is nothing to back-fill them from. The row has
+     * to say WHY it shows three « non renseigné » rather than leaving
+     * them looking like a verdict — « aucun en-tête conservé » is itself
+     * the explanation, and the answer is to send a fresh probe.
+     */
+    public function testAProbeReceivedBeforeHeadersWereKeptSaysSoRatherThanShowingNothing(): void
+    {
+        $this->pdo->exec('UPDATE support_mail_probes SET raw_headers_encrypted = NULL');
+
+        $body = $this->detailBody();
+
+        // The explanatory paragraph under the table names « En-têtes
+        // reçus » whatever happens; what must be gone is the disclosure
+        // itself.
+        $this->assertStringNotContainsString('<summary>En-têtes reçus</summary>', $body);
+        $this->assertStringContainsString('Aucun en-tête conservé pour cette sonde', $body);
     }
 
     public function testDownloadingTheProbesOfATicketThatDoesNotExistIsANotFound(): void
