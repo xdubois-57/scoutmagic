@@ -29,7 +29,7 @@ export function applyVisibility(form) {
 
     form.querySelectorAll('[data-scope-section]').forEach(function (node) {
         var section = /** @type {HTMLElement} */ (node);
-        section.hidden = section.getAttribute('data-scope-section') !== chosen;
+        section.hidden = section.dataset.scopeSection !== chosen;
     });
 
     // On a shared box, « qui peut lire » only means something once the
@@ -38,7 +38,7 @@ export function applyVisibility(form) {
     // module whose answer the operator never touched.
     form.querySelectorAll('[data-scope-analyze]').forEach(function (node) {
         var toggle = /** @type {HTMLInputElement} */ (node);
-        var id = toggle.getAttribute('data-scope-analyze');
+        var id = toggle.dataset.scopeAnalyze;
         var block = /** @type {HTMLElement|null} */ (
             form.querySelector('[data-scope-read="' + id + '"]')
         );
@@ -61,7 +61,7 @@ export function init(root) {
     form.addEventListener('change', function (event) {
         var target = event.target;
         if (target instanceof HTMLElement
-            && (target.hasAttribute('data-scope-purpose') || target.hasAttribute('data-scope-analyze'))) {
+            && (target.dataset.scopePurpose !== undefined || target.dataset.scopeAnalyze !== undefined)) {
             applyVisibility(/** @type {HTMLFormElement} */ (form));
         }
     });

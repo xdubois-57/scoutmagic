@@ -371,7 +371,7 @@
             /** @type {number[]} */
             var excludedIds = [];
             document.querySelectorAll('.excluded-section-checkbox:not(:checked):not(:disabled)').forEach(function (cb) {
-                excludedIds.push(parseInt(/** @type {HTMLInputElement} */ (cb).value, 10));
+                excludedIds.push(Number.parseInt(/** @type {HTMLInputElement} */ (cb).value, 10));
             });
 
             var res = await api.withDisabled(checkbox, function () {

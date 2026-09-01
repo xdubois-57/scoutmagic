@@ -149,9 +149,9 @@
         // (the mass-mail-list.js precedent) and adds the CSRF token to the
         // body and the X-CSRF-Token header itself.
         const res = await api.postJson('/finance/movements/' + currentDetailsMovementId, {
-            category_id: categoryVal !== '' ? parseInt(categoryVal, 10) : null,
+            category_id: categoryVal !== '' ? Number.parseInt(categoryVal, 10) : null,
             comment: inputEl('md-comment').value,
-            fiscal_year_id: parseInt(selectEl('md-fiscal-year').value, 10)
+            fiscal_year_id: Number.parseInt(selectEl('md-fiscal-year').value, 10)
         }, { method: 'PATCH' });
         if (res.data && res.data.success) {
             window.location.reload();

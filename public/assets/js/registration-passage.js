@@ -55,7 +55,7 @@
         var scope = currentScope();
 
         document.querySelectorAll('.passage-stats-scope').forEach(function (block) {
-            /** @type {HTMLElement} */ (block).hidden = block.getAttribute('data-scope') !== scope;
+            /** @type {HTMLElement} */ (block).hidden = /** @type {HTMLElement} */ (block).dataset.scope !== scope;
         });
 
         var warning = document.getElementById('passage-arrivals-warning');
@@ -130,7 +130,7 @@
         button.addEventListener('click', function () {
             /** @type {Record<string, number>} */
             var payload = {};
-            payload[select.dataset.field || ''] = parseInt(select.value, 10);
+            payload[select.dataset.field || ''] = Number.parseInt(select.value, 10);
 
             feedback(cell, 'Enregistrement…', false);
 
@@ -212,7 +212,7 @@
         field.addEventListener('change', function () {
             /** @type {Record<string, number>} */
             var payload = {};
-            payload[field.dataset.field || 'preferred_section_id'] = parseInt(field.value, 10);
+            payload[field.dataset.field || 'preferred_section_id'] = Number.parseInt(field.value, 10);
             autoSave(field, field.parentElement && field.parentElement.querySelector('.passage-wish-feedback'), payload);
         });
     });
@@ -396,7 +396,7 @@
 
         save.addEventListener('click', function () {
             api.withDisabled(save, function () {
-                return autoSave(save, box, { matched_member_id: parseInt(picker.value, 10) });
+                return autoSave(save, box, { matched_member_id: Number.parseInt(picker.value, 10) });
             });
         });
     });

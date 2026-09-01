@@ -41,7 +41,7 @@
             return;
         }
 
-        var maxMedia = parseInt(form.dataset.maxMedia, 10) || 4;
+        var maxMedia = Number.parseInt(form.dataset.maxMedia, 10) || 4;
         var selectedFiles = [];
 
         // --- Media picker: the visible <input type="file"> is a UI-only
@@ -335,7 +335,7 @@
         // photo. Cleared the moment a post actually publishes; never
         // touched by the network failure path, so the draft is exactly
         // as recoverable after a failed retry as before the first one.
-        var draftTtlMinutes = parseInt(form.dataset.draftTtlMinutes, 10) || 60;
+        var draftTtlMinutes = Number.parseInt(form.dataset.draftTtlMinutes, 10) || 60;
         var draftKey = 'groups-draft-' + (form.dataset.groupId || '0');
         var draftSaveTimer = null;
 
@@ -520,9 +520,11 @@
         }
 
         function pollMaxOptions() {
-            var declared = pollDetails ? parseInt(pollDetails.dataset.maxOptions || '', 10) : NaN;
+            var declared = pollDetails ? Number.parseInt(pollDetails.dataset.maxOptions || '', 10) : Number.NaN;
 
-            return isNaN(declared) ? 10 : declared;
+            // Number.isNaN rather than the global: they differ only for
+            // non-numbers, and `declared` is a number either way here.
+            return Number.isNaN(declared) ? 10 : declared;
         }
 
         /** @param {number} index */
@@ -1224,7 +1226,7 @@
                 return;
             }
             var count = /** @type {HTMLElement} */ (thread.querySelector('.groups-thread-count'));
-            if (!count || (parseInt(count.dataset.count, 10) || 0) > 0) {
+            if (!count || (Number.parseInt(count.dataset.count, 10) || 0) > 0) {
                 return;
             }
             /** @type {HTMLInputElement} */ (
@@ -1282,7 +1284,7 @@
     function replyDraftTtlMinutes() {
         var composer = /** @type {HTMLFormElement} */ (document.getElementById('groups-post-form'));
 
-        return (composer && parseInt(composer.dataset.draftTtlMinutes, 10)) || 60;
+        return (composer && Number.parseInt(composer.dataset.draftTtlMinutes, 10)) || 60;
     }
 
     /**
@@ -1455,7 +1457,7 @@
             return;
         }
 
-        var count = Math.max(0, (parseInt(label.dataset.count, 10) || 0) + delta);
+        var count = Math.max(0, (Number.parseInt(label.dataset.count, 10) || 0) + delta);
         label.dataset.count = String(count);
         if (count === 0) {
             label.textContent = 'Commenter';

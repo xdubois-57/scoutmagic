@@ -54,8 +54,11 @@
      * @returns {ArrayBuffer}
      */
     function base64ToBuffer(b64) {
-        var bin = atob(String(b64).replace(/-/g, '+').replace(/_/g, '/'));
-        return Uint8Array.from(bin, function (c) { return c.charCodeAt(0); }).buffer;
+        var bin = atob(String(b64).replaceAll('-', '+').replaceAll('_', '/'));
+        // codePointAt is safe here where it would not be on arbitrary text:
+        // atob() returns a BINARY string, every code unit 0-255, so no
+        // surrogate pair can exist for the two to disagree about.
+        return Uint8Array.from(bin, function (c) { return c.codePointAt(0); }).buffer;
     }
 
     /**
@@ -63,8 +66,12 @@
      * @returns {string}
      */
     function bufferToBase64(buf) {
-        return btoa(String.fromCharCode.apply(null, /** @type {any} */ (new Uint8Array(buf))))
-            .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+        // Same reasoning as base64ToBuffer: every byte is 0-255, so
+        // fromCodePoint and fromCharCode agree exactly. The padding strip is
+        // bounded to {1,2} rather than `+` because base64 never emits more,
+        // which also removes the backtracking a bare `=+$` allows.
+        return btoa(String.fromCodePoint.apply(null, /** @type {any} */ (new Uint8Array(buf))))
+            .replaceAll('+', '-').replaceAll('/', '_').replace(/={1,2}$/, '');
     }
 
     /**
@@ -187,7 +194,7 @@
             }
 
             var res = await api.postJson('/account/passkey/delete', {
-                id: parseInt(btn.dataset.id || '', 10)
+                id: Number.parseInt(btn.dataset.id || '', 10)
             });
 
             if (!res.ok || !res.data || !res.data.success) {

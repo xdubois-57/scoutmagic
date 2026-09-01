@@ -213,7 +213,7 @@
         e.preventDefault();
         var isUpdate = idInput.value !== '';
         var payload = /** @type {Object.<string, any>} */ ({
-            calendar_id: parseInt(calendarSelect.value, 10),
+            calendar_id: Number.parseInt(calendarSelect.value, 10),
             title: titleInput.value,
             start_date: startDateInput.value,
             end_date: endDateInput.value,
@@ -226,7 +226,7 @@
             payload.auto_create_retro = retroAutoCreateInput.checked;
         }
         if (isUpdate) {
-            payload.event_id = parseInt(idInput.value, 10);
+            payload.event_id = Number.parseInt(idInput.value, 10);
         }
 
         var res = await api.withDisabled(submitBtn, function () {
@@ -248,7 +248,7 @@
 
         var res = await api.withDisabled(deleteBtn, function () {
             return api.postJson('/chefs/calendar/event-delete', {
-                event_id: parseInt(idInput.value, 10)
+                event_id: Number.parseInt(idInput.value, 10)
             });
         });
         if (res.data && res.data.success) {
