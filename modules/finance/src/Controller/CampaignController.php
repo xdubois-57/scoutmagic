@@ -155,7 +155,6 @@ class CampaignController extends AbstractController
             'reminder_available' => $this->reminderService->isAvailable(),
             'scout_year' => $this->scoutYearLabel($campaign->scoutYearId),
             'account' => $this->financeService->getAccount($campaign->accountId),
-            'breadcrumb_trail' => [['label' => 'Campagnes', 'url' => '/finance/campaigns']],
         ]);
     }
 
@@ -448,7 +447,6 @@ class CampaignController extends AbstractController
             'accounts' => $this->financeService->getAccountsForUser($role),
             'scout_years' => array_reverse($years),
             'current_scout_year_id' => $current['id'],
-            'breadcrumb_trail' => [['label' => 'Campagnes', 'url' => '/finance/campaigns']],
         ]);
     }
 

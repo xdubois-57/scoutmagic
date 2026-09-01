@@ -81,7 +81,6 @@ class CampsMailController extends AbstractController
             'camp_options' => $this->campOptions(),
             'has_inbound_mail' => $this->inboundMail !== null && $this->inboundMail->isCollecting(),
             'breadcrumb_current' => 'Courrier des camps',
-            'breadcrumb_trail' => [['label' => 'Camps', 'url' => '/chefs/camps']],
         ]);
     }
 

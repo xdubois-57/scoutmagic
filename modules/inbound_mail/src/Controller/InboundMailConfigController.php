@@ -463,9 +463,6 @@ class InboundMailConfigController extends AbstractController
     {
         return [
             'mailbox' => $mailbox,
-            'breadcrumb_trail' => [
-                ['label' => 'Courrier entrant', 'url' => '/config/courrier-entrant'],
-            ],
             'csrf_token' => CsrfGuard::generateToken(),
         ];
     }

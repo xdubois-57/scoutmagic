@@ -2,7 +2,7 @@
   "id": "test_tools",
   "name": "Outils de test",
   "description": "Boîte à outils réservée à l'installation de référence et aux installations locales de développement. Le bac à sable e-mail, qui capture les messages sortants au lieu de les envoyer, et de quoi provoquer une vraie erreur pour vérifier qu'elle atterrit bien dans le journal du site.",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "enabled_by_default": false,
   "visible_when": [
     "reference_installation",
@@ -71,7 +71,7 @@
       "menu": "configuration",
       "role_min": "superadmin",
       "label": "",
-      "breadcrumb": { "label": "Message capturé", "parents": ["Configuration"], "ancestors": [{ "label": "Bac à sable e-mail", "path": "/test-tools/mail-sandbox" }] }
+      "breadcrumb": { "label": "Message capturé", "parents": ["Configuration"], "ancestors": [{ "label": "Outils de test", "path": "/test-tools" }, { "label": "Bac à sable e-mail", "path": "/test-tools/mail-sandbox" }] }
     }
   ],
   "settings": [

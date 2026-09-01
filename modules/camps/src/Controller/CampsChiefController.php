@@ -1081,11 +1081,16 @@ class CampsChiefController extends AbstractController
      * `parents` entry because both halves are dynamic: a place's name and
      * a place's id are not things a static manifest can know.
      *
+     * « Camps » itself is NOT in here: it is static, so every route that
+     * calls this declares it as its own `breadcrumb.ancestors` in
+     * module.json. Naming it in both places is how the bar came to render
+     * « Camps / Camps ».
+     *
      * @return array<int, array{label: string, url: string}>
      */
     private function trail(?Place $place = null, ?Camp $camp = null): array
     {
-        $trail = [['label' => 'Camps', 'url' => '/chefs/camps']];
+        $trail = [];
         if ($place !== null) {
             $trail[] = ['label' => $place->name, 'url' => '/chefs/camps/lieux/' . $place->id];
         }

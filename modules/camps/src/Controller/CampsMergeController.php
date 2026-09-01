@@ -64,7 +64,6 @@ class CampsMergeController extends AbstractController
             'candidate_options' => $this->placeOptions($place, $target),
             'breadcrumb_current' => 'Fusionner ' . $place->name,
             'breadcrumb_trail' => [
-                ['label' => 'Camps', 'url' => '/chefs/camps'],
                 ['label' => $place->name, 'url' => '/chefs/camps/lieux/' . $place->id],
             ],
         ]);
@@ -187,7 +186,6 @@ class CampsMergeController extends AbstractController
             ),
             'breadcrumb_current' => 'Fusionner ce séjour',
             'breadcrumb_trail' => [
-                ['label' => 'Camps', 'url' => '/chefs/camps'],
                 ['label' => $place !== null ? $place->name : 'Lieu', 'url' => '/chefs/camps/lieux/' . $camp->placeId],
             ],
         ]);

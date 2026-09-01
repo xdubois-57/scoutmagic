@@ -271,7 +271,6 @@ class GroupController extends AbstractController
             'side_members' => $sideMembers['members'],
             'side_members_total' => $sideMembers['total'],
             'side_photos' => $this->sidePhotos($group, $canModerate),
-            'breadcrumb_trail' => [['label' => 'Groupes', 'url' => '/groups']],
             'breadcrumb_current' => $this->label($group, $context),
         ]);
     }

@@ -164,7 +164,6 @@ class CampsAttachmentController extends AbstractController
             'has_email' => $contact->email !== null,
             'breadcrumb_current' => 'Anonymiser un contact',
             'breadcrumb_trail' => [
-                ['label' => 'Camps', 'url' => '/chefs/camps'],
                 ['label' => 'Séjour', 'url' => '/chefs/camps/sejours/' . $contact->campId],
             ],
         ]);
@@ -501,7 +500,7 @@ class CampsAttachmentController extends AbstractController
      */
     private function trail(Camp $camp, ?string $placeName): array
     {
-        $trail = [['label' => 'Camps', 'url' => '/chefs/camps']];
+        $trail = [];
         if ($placeName !== null) {
             $trail[] = ['label' => $placeName, 'url' => '/chefs/camps/lieux/' . $camp->placeId];
         }

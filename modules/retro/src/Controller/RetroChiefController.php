@@ -312,9 +312,6 @@ class RetroChiefController extends AbstractController
 
         return [
             'board' => $board,
-            'breadcrumb_trail' => [
-                ['label' => 'Rétrospectives', 'url' => '/retro'],
-            ],
             'events' => $events,
             'calendar_enabled' => in_array('calendar', $this->moduleManager->getEnabledModuleIds(), true),
             'default_max_comment_length' => (int) ($this->settingService->get('retro_default_max_comment_length', 'retro') ?: 140),

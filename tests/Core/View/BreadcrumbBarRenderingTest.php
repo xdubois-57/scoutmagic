@@ -370,4 +370,72 @@ class BreadcrumbBarRenderingTest extends TestCase
         $this->assertMatchesRegularExpression('/data-open-menu="espace_chefs">Espace animateurs<\/button>/', $html);
         $this->assertMatchesRegularExpression('/data-open-menu="espace_admin">Espace chefs d&#039;U<\/button>/', $html);
     }
+
+    /**
+     * « Camps / Camps ». The route declared « Camps » as its static
+     * ancestor and the controller passed the very same page again as a
+     * trail entry; the bar rendered the step twice, one after the other.
+     *
+     * Both declarations were individually reasonable and neither author
+     * could see the other, so the bar is where they have to be reconciled
+     * — even now that the duplicated declarations themselves are gone.
+     */
+    public function testTheSameAncestorPageDeclaredByBothSourcesRendersOnce(): void
+    {
+        $html = $this->render(
+            ['label' => 'Courrier des camps', 'parents' => ['Espace animateurs']],
+            '/chefs/camps/courrier',
+            'Courrier des camps',
+            [],
+            [['label' => 'Camps', 'url' => '/chefs/camps']],
+            [['label' => 'Camps', 'url' => '/chefs/camps']]
+        );
+
+        $this->assertSame(1, substr_count($html, 'href="/chefs/camps"'));
+        // Home icon + the parent + the single « Camps » + the current page.
+        $this->assertSame(4, substr_count($html, '<li class="breadcrumb-item'));
+    }
+
+    /**
+     * De-duplication is on the url, because the url is what a step IS.
+     * Two steps that merely share a label are two different pages and the
+     * visitor needs both.
+     */
+    public function testTwoDifferentPagesSharingALabelBothStay(): void
+    {
+        $html = $this->render(
+            ['label' => 'Documents', 'parents' => []],
+            '/chefs/camps/sejours/7/documents',
+            null,
+            [],
+            [['label' => 'Été', 'url' => '/chefs/camps/lieux/3'], ['label' => 'Été', 'url' => '/chefs/camps/sejours/7']],
+            [['label' => 'Camps', 'url' => '/chefs/camps']]
+        );
+
+        $this->assertSame(1, substr_count($html, 'href="/chefs/camps/lieux/3"'));
+        $this->assertSame(1, substr_count($html, 'href="/chefs/camps/sejours/7"'));
+    }
+
+    /**
+     * The route's static ancestors stay ahead of the controller's dynamic
+     * ones, and the outermost occurrence is the one that survives — the
+     * trail is read from the top down, so a duplicate cannot be allowed to
+     * pull a step further in than where it belongs.
+     */
+    public function testTheOutermostOccurrenceOfADuplicatedStepIsTheOneKept(): void
+    {
+        $html = $this->render(
+            ['label' => 'Message capturé', 'parents' => []],
+            '/test-tools/mail-sandbox/9',
+            null,
+            [],
+            [['label' => 'Outils de test', 'url' => '/test-tools'], ['label' => 'Bac à sable', 'url' => '/test-tools/mail-sandbox']],
+            [['label' => 'Outils de test', 'url' => '/test-tools']]
+        );
+
+        $this->assertLessThan(
+            strpos($html, 'href="/test-tools/mail-sandbox"'),
+            strpos($html, 'href="/test-tools"')
+        );
+    }
 }

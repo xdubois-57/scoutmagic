@@ -88,7 +88,27 @@
    so one placement reaches mobile, desktop browser and installed PWA
    alike. The <ol> grows and the button never shrinks, so a long trail
    truncates before the button ever leaves the screen. #}
-{% set ancestor_steps = (route_breadcrumb_ancestors|default([]))|merge(breadcrumb_trail|default([])) %}
+{# The two sources are merged and then DE-DUPLICATED on url, because they
+   overlap in practice: a controller passes a `breadcrumb_trail` naming the
+   list its page hangs under, the route already declares the same page as a
+   static `ancestor`, and the bar rendered « Camps / Camps ». Both
+   declarations are individually reasonable — one is the route's, one is
+   the controller's — and neither author can see the other from where they
+   are standing, so the fix belongs here, at the one place they meet.
+
+   On url and not on label: the url is what a step IS. Two steps leading to
+   the same page are one step however each source chose to name it, and the
+   outermost wins because the trail is read from the top down. Two steps
+   that merely share a label are genuinely different pages and both
+   stay. #}
+{% set ancestor_steps = [] %}
+{% set ancestor_urls = [] %}
+{% for step in (route_breadcrumb_ancestors|default([]))|merge(breadcrumb_trail|default([])) %}
+    {% if step.url not in ancestor_urls %}
+        {% set ancestor_urls = ancestor_urls|merge([step.url]) %}
+        {% set ancestor_steps = ancestor_steps|merge([step]) %}
+    {% endif %}
+{% endfor %}
 <nav class="breadcrumb-bar{{ ancestor_steps is not empty ? ' breadcrumb-bar--has-trail' : '' }} border-bottom bg-body-tertiary px-3 py-2 align-items-center" aria-label="Fil d'Ariane">
     <ol class="breadcrumb mb-0 small align-items-center flex-grow-1" style="min-width:0;">
         <li class="breadcrumb-item"><a href="/" class="text-decoration-none" aria-label="Accueil"><i class="bi bi-house-door" aria-hidden="true"></i></a></li>

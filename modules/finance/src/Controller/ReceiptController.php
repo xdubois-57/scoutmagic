@@ -265,9 +265,6 @@ class ReceiptController extends AbstractController
 
         return $this->render('@finance/receipts/form.html.twig', [
             'accounts' => $accounts,
-            'breadcrumb_trail' => [
-                ['label' => 'Reçus', 'url' => '/finance/receipts'],
-            ],
             'selected_account' => $account,
             'replace_id' => $replaceId !== null ? (int) $replaceId : null,
         ]);

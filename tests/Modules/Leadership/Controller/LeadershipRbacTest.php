@@ -18,6 +18,7 @@ use Core\Journal\JournalService;
 use Core\Member\MemberYearService;
 use Core\Import\MemberYearRepository;
 use Core\Member\SectionService;
+use Core\Module\ModuleManifest;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\AuthSession;
 use Core\Security\EncryptionService;
@@ -396,16 +397,25 @@ class LeadershipRbacTest extends TestCase
      * real `breadcrumb` declaration attached — without it the bar renders
      * the home icon and stops, and a trail assertion would pass on an
      * empty bar.
+     *
+     * The declaration is read from the real `module.json` rather than
+     * retyped here, because it is now the manifest that carries the way
+     * back to the hub: the controller used to pass a hand-built trail
+     * naming the same page the route already declared, and the bar
+     * rendered « Encadrement / Encadrement ». A copy of the declaration
+     * in this file would keep passing after somebody deleted the real
+     * one. The hub route itself is registered too, since
+     * Router::ancestorTrailFor() drops an ancestor whose route it cannot
+     * resolve — which is right for a disabled module and would silently
+     * empty this assertion.
      */
     private function withBreadcrumb(string $path, string $controller, string $action): FrontController
     {
         $class = "Modules\\Leadership\\Controller\\{$controller}";
 
         $router = new Router();
-        $router->addRoute('GET', $path, $class, $action, 'admin', [
-            'label' => 'Encadrement',
-            'parents' => ["Espace chefs d'U"],
-        ]);
+        $router->addRoute('GET', '/admin/leadership', $class, 'index', 'admin');
+        $router->addRoute('GET', $path, $class, $action, 'admin', $this->manifestBreadcrumbFor($path));
 
         $configFile = sys_get_temp_dir() . '/test_leadership_config_' . uniqid() . '.php';
         file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
@@ -414,6 +424,21 @@ class LeadershipRbacTest extends TestCase
         $frontController->registerController($class, $this->instantiate($controller));
 
         return $frontController;
+    }
+
+    /**
+     * @return ?array{label: string, parents: array<string>, ancestors?: array<int, array{label: string, path: string}>}
+     */
+    private function manifestBreadcrumbFor(string $path): ?array
+    {
+        $manifest = ModuleManifest::fromFile(dirname(__DIR__, 4) . '/modules/leadership/module.json');
+        foreach ($manifest->routes as $route) {
+            if ($route['path'] === $path && strtoupper($route['method']) === 'GET') {
+                return $route['breadcrumb'];
+            }
+        }
+
+        self::fail("No GET route declared for {$path} in modules/leadership/module.json");
     }
 
     /**

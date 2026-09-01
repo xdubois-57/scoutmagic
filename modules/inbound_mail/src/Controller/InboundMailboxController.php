@@ -105,7 +105,6 @@ class InboundMailboxController extends AbstractController
             'reference_labels' => $this->referenceLabels([$message], [$message->id => $candidates]),
             'consumer_names' => $this->consumerNames(),
             'mailboxes' => $this->mailbox->mailboxNames(),
-            'breadcrumb_trail' => [['label' => 'Courrier', 'url' => '/courrier']],
             'csrf_token' => CsrfGuard::generateToken(),
         ]);
     }

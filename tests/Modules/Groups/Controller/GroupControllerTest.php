@@ -92,6 +92,25 @@ class GroupControllerTest extends TestCase
     }
 
     /**
+     * The route's own breadcrumb declaration, read from the real
+     * manifest rather than retyped, so deleting it there fails a test
+     * here instead of silently emptying the assertion.
+     *
+     * @return array<string, mixed>
+     */
+    private function manifestBreadcrumbFor(string $path): array
+    {
+        $manifest = \Core\Module\ModuleManifest::fromFile(dirname(__DIR__, 4) . '/modules/groups/module.json');
+        foreach ($manifest->routes as $route) {
+            if ($route['path'] === $path && strtoupper($route['method']) === 'GET') {
+                return $route['breadcrumb'] ?? self::fail("No breadcrumb declared for GET {$path}");
+            }
+        }
+
+        self::fail("No GET route declared for {$path} in modules/groups/module.json");
+    }
+
+    /**
      * @param int[] $linkedMemberIds
      */
     /**
@@ -100,7 +119,11 @@ class GroupControllerTest extends TestCase
      *        breadcrumb`) — FrontController::handle() sets this as a Twig
      *        global on every real request; left unset by default here
      *        exactly as it always has been, since no other test in this
-     *        file asserts on the rendered breadcrumb bar.
+     *        file asserts on the rendered breadcrumb bar. Its `ancestors`
+     *        are resolved into the second global the bar reads, the way
+     *        Router::ancestorTrailFor() does for a real request — role
+     *        filtering aside, which needs a Router this test has no reason
+     *        to build.
      */
     private function controller(
         array $linkedMemberIds,
@@ -170,6 +193,10 @@ class GroupControllerTest extends TestCase
         $twig->addGlobal('csp_nonce', 'test');
         if ($routeBreadcrumb !== null) {
             $twig->addGlobal('route_breadcrumb', $routeBreadcrumb);
+            $twig->addGlobal('route_breadcrumb_ancestors', array_map(
+                static fn (array $a): array => ['label' => $a['label'], 'url' => $a['path']],
+                $routeBreadcrumb['ancestors'] ?? []
+            ));
         }
         $twig->addFunction(new \Twig\TwigFunction('param', fn(...$a) => ''));
 
@@ -748,7 +775,12 @@ class GroupControllerTest extends TestCase
     /**
      * partials/breadcrumb_bar.html.twig: the group's own name replaces the
      * route's static "Groupe" label, and a real link back to "Groupes"
-     * (the module's list page) appears ahead of it.
+     * (the module's list page) appears ahead of it — once.
+     *
+     * The declaration comes from the real module.json because that is now
+     * the only place naming that ancestor: this controller used to pass
+     * the same page again as a `breadcrumb_trail`, and the bar rendered
+     * « Groupes / Groupes ».
      */
     public function testShowBreadcrumbNamesTheGroupAndLinksBackToTheGroupList(): void
     {
@@ -756,7 +788,7 @@ class GroupControllerTest extends TestCase
         $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator, 1);
         $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MBC1', $this->sectionId, $this->currentYearId);
 
-        $body = $this->controller([$member], 'identified', true, null, ['label' => 'Groupe', 'parents' => ['Espace membres']])
+        $body = $this->controller([$member], 'identified', true, null, $this->manifestBreadcrumbFor('/groups/{id}'))
             ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
             ->getBody();
 

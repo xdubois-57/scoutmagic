@@ -2,7 +2,7 @@
   "id": "retro",
   "name": "Rétrospectives",
   "description": "Boards de rétrospective anonymes après un événement d'unité : trois colonnes de commentaires (ce qui a bien marché / à améliorer / suggestions) et un vote, accessibles via un lien ou un QR code, sans jamais lier un commentaire à une personne.",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "enabled_by_default": false,
   "routes": [
     {

@@ -57,9 +57,6 @@ class ConfigCategoryController extends AbstractController
         }
 
         return $this->render('@finance/config/categories.html.twig', [
-            'breadcrumb_trail' => [
-                ['label' => 'Finances', 'url' => '/config/finance'],
-            ],
             'categories' => $categories,
             'active_categories' => $this->financeService->getActiveCategories(),
             'categories_by_id' => $categoriesById,
