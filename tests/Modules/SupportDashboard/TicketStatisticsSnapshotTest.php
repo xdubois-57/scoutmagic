@@ -74,7 +74,7 @@ class TicketStatisticsSnapshotTest extends TestCase
     {
         $body = [
             'installation_id' => 'unite-de-test',
-            'category' => TicketCategory::OTHER->value,
+            'category' => TicketCategory::OTHER,
             'description' => $description,
             'contact_email' => 'chef@unite.be',
             'site_version' => '1.0.40',

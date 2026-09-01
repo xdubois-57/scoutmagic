@@ -206,6 +206,73 @@ class SupportTicketSenderTest extends TestCase
         $this->assertSame(TicketCategories::shipped(), $this->sender($this->transport(200, []))->categories());
     }
 
+    /**
+     * « De quel module s'agit-il » is a question the receiver cannot ask
+     * for every unit at once: two units run different sets, and
+     * publishing the receiver's own modules would offer a unit
+     * « Locations » for a feature it does not have while losing « Camps »
+     * for one it does. So the module half is minted here, from what THIS
+     * installation has enabled, and named the way each module's own menu
+     * entry names it.
+     */
+    public function testOneCategoryPerEnabledModuleNamedTheWayItsMenuNamesIt(): void
+    {
+        $categories = $this->sender($this->transport(200, []), [
+            'inbound_mail' => 'Courrier entrant',
+            'camps' => 'Camps',
+        ])->categories();
+
+        $values = array_column($categories, 'value');
+        $this->assertContains('module_camps', $values);
+        $this->assertContains('module_inbound_mail', $values);
+        $this->assertSame(
+            'Courrier entrant',
+            $categories[array_search('module_inbound_mail', $values, true)]['label']
+        );
+    }
+
+    /**
+     * « Autre » is the escape hatch, and an escape hatch that is not last
+     * is the only answer anybody picks.
+     */
+    public function testTheEscapeHatchStaysLastWhateverElseIsOffered(): void
+    {
+        $categories = $this->sender($this->transport(200, []), ['camps' => 'Camps'])->categories();
+
+        $this->assertSame('other', $categories[array_key_last($categories)]['value']);
+    }
+
+    /**
+     * The modules are added to whatever fixed list is in force, the
+     * receiver's own included — the two halves have different owners and
+     * neither replaces the other.
+     */
+    public function testTheModulesAreAddedToTheListTheReceiverPublished(): void
+    {
+        $this->settings->setInternal(
+            SupportTicketSender::CATEGORIES_SETTING,
+            '[{"value":"nouvelle","label":"Nouvelle"},{"value":"other","label":"Autre"}]'
+        );
+
+        $values = array_column($this->sender($this->transport(200, []), ['camps' => 'Camps'])->categories(), 'value');
+
+        $this->assertSame(['nouvelle', 'module_camps', 'other'], $values);
+    }
+
+    /**
+     * An installation problem is one somebody has before they have a site
+     * to report it from, so the tickets filed under « Installation » were
+     * about everything else. « Vie privée » took its place, which is a
+     * question units really do ask.
+     */
+    public function testTheShippedListRetiresInstallationAndOffersPrivacy(): void
+    {
+        $values = array_column(TicketCategories::shipped(), 'value');
+
+        $this->assertNotContains('installation', $values);
+        $this->assertContains('privacy', $values);
+    }
+
     public function testTheJournalEntryCarriesTheReferenceAndNotAWordOfTheDescription(): void
     {
         $this->sender($this->transport(200, ['status' => 'accepted', 'ticket_reference' => 'SUP-7KQ4F2']))
@@ -315,7 +382,12 @@ class SupportTicketSenderTest extends TestCase
         );
     }
 
-    private function sender(StatisticsTransportInterface $transport): SupportTicketSender
+    /**
+     * @param array<string, string> $moduleNames the modules this
+     *        installation has enabled, as the composition root passes
+     *        them; empty for the fixed list alone
+     */
+    private function sender(StatisticsTransportInterface $transport, array $moduleNames = []): SupportTicketSender
     {
         $journal = new JournalService(new JournalRepository($this->pdo));
 
@@ -328,7 +400,9 @@ class SupportTicketSenderTest extends TestCase
             ),
             $transport,
             $journal,
-            '1.0.33'
+            '1.0.33',
+            null,
+            $moduleNames
         );
     }
 }

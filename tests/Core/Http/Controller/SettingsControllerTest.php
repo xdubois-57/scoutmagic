@@ -28,6 +28,8 @@ use Twig\Loader\FilesystemLoader;
 
 class SettingsControllerTest extends TestCase
 {
+    private \Twig\Environment $twigForModuleNames;
+
     private SettingsController $controller;
     private SettingService $settingService;
     private JournalService $journalService;
@@ -90,6 +92,7 @@ class SettingsControllerTest extends TestCase
         $twig->addFunction(new \Twig\TwigFunction('file_url', fn() => ''));
         $twig->addFunction(new \Twig\TwigFunction('param', fn(string $k) => (string) ($this->settingService->get($k) ?? '')));
 
+        $this->twigForModuleNames = $twig;
         $this->controller = new SettingsController(
             $twig,
             $this->settingService,
@@ -97,6 +100,30 @@ class SettingsControllerTest extends TestCase
             $this->unitLogoService,
             $this->notificationService,
             $this->userAccountRepository
+        );
+    }
+
+    /**
+     * The same controller, told where the modules are.
+     */
+    private function controllerKnowingItsModules(): SettingsController
+    {
+        return new SettingsController(
+            $this->twigForModuleNames,
+            $this->settingService,
+            $this->journalService,
+            $this->unitLogoService,
+            $this->notificationService,
+            $this->userAccountRepository,
+            new \Core\Module\ModuleManager(
+                dirname(__DIR__, 3) . '/fixtures/modules',
+                $this->settingService,
+                new \Core\Cookie\CookieConsentService([]),
+                new \Core\View\MenuBuilder(\Core\Security\Role::fromString('admin')),
+                new \Core\Module\ModuleRegistryRepository($this->pdo),
+                $this->journalService,
+                new \Core\Http\Router()
+            )
         );
     }
 
@@ -400,4 +427,44 @@ class SettingsControllerTest extends TestCase
 
         return $request;
     }
+    /**
+     * One section per module, named the way its own menu entry names it.
+     * `SettingRepository` has no business knowing a module's name and
+     * fell back to `ucfirst(module_id)` — which is how this page came to
+     * offer « Inbound_mail », « Mass_mail » and « Sos_staff » to somebody
+     * who has only ever read « Courrier entrant », « Envoi de mails » and
+     * « SOS Staff d'U ».
+     */
+    public function testAModuleSectionIsNamedByItsManifestAndNotByItsId(): void
+    {
+        $this->settingService->register('un_reglage', 'x', 'text', 'Un réglage', 'x', 'valid_module');
+        $this->settingService->clearCache();
+
+        $body = $this->controllerKnowingItsModules()->index(
+            new Request('GET', '/config/settings', [], [], [], []),
+            []
+        )->getBody();
+
+        $this->assertStringContainsString('Module de test valide', $body);
+        $this->assertStringNotContainsString('Valid_module', $body);
+    }
+
+    /**
+     * A module whose settings outlived its removal from disk keeps the id
+     * it had — there is nothing better to call it, and an unnamed section
+     * is worse than a technical one.
+     */
+    public function testAModuleThatIsNoLongerOnDiskKeepsItsId(): void
+    {
+        $this->settingService->register('un_reglage', 'x', 'text', 'Un réglage', 'x', 'module_disparu');
+        $this->settingService->clearCache();
+
+        $body = $this->controllerKnowingItsModules()->index(
+            new Request('GET', '/config/settings', [], [], [], []),
+            []
+        )->getBody();
+
+        $this->assertStringContainsString('Module_disparu', $body);
+    }
+
 }

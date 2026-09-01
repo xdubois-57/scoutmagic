@@ -150,7 +150,7 @@ class PurgeTicketsHandlerTest extends TestCase
         $this->assertNull($ticket['archive_file_id']);
         $this->assertNull($ticket['archive_received_at']);
         $this->assertSame('Un cron absent chez eux.', $ticket['resolution_note']);
-        $this->assertSame(TicketCategory::INSTALLATION, $ticket['category']);
+        $this->assertSame(TicketCategory::of('installation'), $ticket['category']);
     }
 
     /**
@@ -215,7 +215,7 @@ class PurgeTicketsHandlerTest extends TestCase
     {
         $reference = $this->tickets->create(
             $this->installationId,
-            TicketCategory::INSTALLATION,
+            TicketCategory::of('installation'),
             "L'installation s'arrête à l'étape 3.",
             'chef@unite.be',
             '1.0.33',

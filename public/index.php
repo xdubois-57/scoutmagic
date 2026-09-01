@@ -2653,7 +2653,7 @@ $frontController->registerController(UploadController::class, $uploadController)
 $frontController->registerController(\Core\Http\Controller\PwaController::class, new \Core\Http\Controller\PwaController($twig, $settingService, $unitLogoService));
 $frontController->registerController(JournalController::class, new JournalController($twig, $journalRepo, $userAccountRepo));
 $frontController->registerController(TemporaryMemberController::class, new TemporaryMemberController($twig, $memberSearchService, $scoutYearResolver, $journalService, $memberYearRepo));
-$frontController->registerController(SettingsController::class, new SettingsController($twig, $settingService, $journalService, $unitLogoService, $notificationService, $userAccountRepo));
+$frontController->registerController(SettingsController::class, new SettingsController($twig, $settingService, $journalService, $unitLogoService, $notificationService, $userAccountRepo, $moduleManager));
 $frontController->registerController(SupportController::class, new SupportController(
     $twig,
     $settingService,
@@ -2672,7 +2672,12 @@ $frontController->registerController(SupportController::class, new SupportContro
         \Core\Maintenance\VersionFile::read(dirname(__DIR__)),
         // The usage report travels inside the ticket, so the receiver can
         // tie the two together — which a separately-sent report could not.
-        $statisticsPayloadBuilder
+        $statisticsPayloadBuilder,
+        // One category per enabled module, named the way its own menu
+        // entry names it. Minted here and never received: which modules
+        // are enabled is a fact about THIS installation, and the receiver
+        // publishes one vocabulary for every unit at once.
+        $moduleManager->getEnabledModuleNames()
     ),
     $ticketIdentityService,
     // The archive, on its own transport: megabytes uphill from a shared

@@ -775,39 +775,7 @@ class SetupController extends AbstractController
             return $this->json(['success' => false, 'message' => 'Adresse email invalide.']);
         }
 
-        if ($this->secretManager->isInitialized()) {
-            $secrets = $this->secretManager->readSecrets();
-
-            // short_name, mail_from_address, mail_from_name and
-            // dkim_selector all live in the settings table (migrated out
-            // of secrets.enc by public/index.php's one-time migration) —
-            // without this merge, mail_from_address in particular comes
-            // out permanently empty on any install that already ran that
-            // migration, which makes PHPMailer reject the send outright
-            // ("Invalid address: (From): "), same root cause fixed in
-            // public/index.php and public/cron.php.
-            if ($this->settingService !== null) {
-                foreach (['short_name', 'mail_from_address', 'mail_from_name', 'dkim_selector'] as $mailSecretKey) {
-                    $secrets[$mailSecretKey] = (string) ($this->settingService->get($mailSecretKey) ?: ($secrets[$mailSecretKey] ?? ''));
-                }
-            }
-        } else {
-            // First-time setup: nothing is persisted yet, so test the
-            // values currently sitting in the form instead — same
-            // "test the in-progress values, not what's saved" approach as
-            // testDatabase().
-            $secrets = [
-                'mail_mode' => (string) $request->getBody('mail_mode', 'local'),
-                'smtp_host' => (string) $request->getBody('smtp_host', ''),
-                'smtp_port' => (string) $request->getBody('smtp_port', '587'),
-                'smtp_user' => (string) $request->getBody('smtp_user', ''),
-                'smtp_password' => (string) $request->getBody('smtp_password', ''),
-                'mail_from_address' => (string) $request->getBody('mail_from_address', ''),
-                'mail_from_name' => (string) $request->getBody('mail_from_name', ''),
-                'short_name' => (string) $request->getBody('short_name', ''),
-                'dkim_selector' => (string) $request->getBody('dkim_selector', ''),
-            ];
-        }
+        $secrets = $this->mailSecretsUnderTest($request);
 
         try {
             $mailService = MailServiceFactory::create($secrets, $this->dkimManager, null, $this->journalService);
@@ -835,6 +803,72 @@ class SetupController extends AbstractController
                 . 'identifiants saisis ci-dessus.'
             )]);
         }
+    }
+
+    /**
+     * The mail settings a test send should actually use: **what is in the
+     * form**, falling back to what is stored for anything the form did
+     * not send.
+     *
+     * The button underneath says « Teste les paramètres SMTP actuellement
+     * saisis ci-dessus (pas encore besoin d'enregistrer) », and on an
+     * already-initialised installation that was simply untrue: the whole
+     * branch read `secrets.enc` and ignored the form, so changing an SMTP
+     * user or password and pressing Test re-tested the OLD credentials —
+     * with a green « Email envoyé avec succès » when the old ones still
+     * worked, which is the worst possible answer. Testing before saving
+     * is the entire point of the button; saving in order to test is how
+     * a wrong password gets written down.
+     *
+     * Every field is pre-filled with the value in force, so an empty one
+     * is a deliberate clear and travels as such. The password is the one
+     * exception, and only because it is the one field that is NOT
+     * pre-filled: empty means « keep the current one », exactly as the
+     * label under it says and exactly as saving already behaves.
+     *
+     * The fallbacks are per key, not all-or-nothing: `short_name`,
+     * `mail_from_address`, `mail_from_name` and `dkim_selector` live in
+     * the settings table (migrated out of `secrets.enc`), and reading
+     * them from the secrets alone is what once made `mail_from_address`
+     * come out permanently empty — PHPMailer then refuses the send
+     * outright with « Invalid address: (From): ».
+     *
+     * @return array<string, string>
+     */
+    private function mailSecretsUnderTest(Request $request): array
+    {
+        $stored = $this->secretManager->isInitialized() ? $this->secretManager->readSecrets() : [];
+
+        $storedValue = function (string $key) use ($stored): string {
+            if (in_array($key, ['short_name', 'mail_from_address', 'mail_from_name', 'dkim_selector'], true)) {
+                $fromSettings = (string) ($this->settingService?->get($key) ?? '');
+                if ($fromSettings !== '') {
+                    return $fromSettings;
+                }
+            }
+
+            return (string) ($stored[$key] ?? '');
+        };
+
+        $secrets = [];
+        foreach ([
+            'mail_mode',
+            'smtp_host',
+            'smtp_port',
+            'smtp_user',
+            'mail_from_address',
+            'mail_from_name',
+            'short_name',
+            'dkim_selector',
+        ] as $key) {
+            $posted = $request->getBody($key);
+            $secrets[$key] = $posted === null ? $storedValue($key) : (string) $posted;
+        }
+
+        $password = (string) $request->getBody('smtp_password', '');
+        $secrets['smtp_password'] = $password !== '' ? $password : $storedValue('smtp_password');
+
+        return $secrets;
     }
 
     /**

@@ -122,11 +122,14 @@ class MailProbeSender
 
         $status = is_string($answer['status'] ?? null) ? (string) $answer['status'] : '';
         if ($status === 'rate_limited') {
-            // The receiver counts from its own clock, which is the one
-            // that matters; record the refusal locally so the next press
-            // does not travel either.
-            $this->writeSetting(self::LAST_SENT_AT_SETTING, $now->format('Y-m-d H:i:s'));
-
+            // Deliberately NOT recorded locally. The local stamp means
+            // « this installation sent probes at T », and a refusal is
+            // not a send: stamping it restarted the local hour from the
+            // moment of the refusal, so pressing the button every few
+            // minutes pushed the window ahead of itself and it never
+            // reopened at all. The cost of not stamping is one round trip
+            // per press inside the receiver's own window, which is what
+            // the honest answer costs.
             return $this->refuse(self::FAILURE_RATE_LIMITED);
         }
         if ($status === 'unavailable') {
@@ -154,6 +157,23 @@ class MailProbeSender
             if ($this->deliver($address, $key)) {
                 $delivered++;
             }
+        }
+
+        if ($delivered === 0) {
+            // Nothing left, so there is nothing to remember. The stamp
+            // held anyway, and that was the whole of the bug: an
+            // administrator whose relay was misconfigured watched the
+            // probe fail, fixed the relay, pressed again — and was told
+            // « il y en a déjà eu un il y a moins d'une heure », which
+            // was not true and had no way of becoming untrue for an
+            // hour. A rate limit exists to cap what actually goes out;
+            // capping what did not go out is just a lock with no key.
+            //
+            // Only a run that completed and delivered nothing clears it:
+            // a request that dies inside the loop above never reaches
+            // here, and its key stays recoverable exactly as intended.
+            $this->writeSetting(self::LAST_SENT_AT_SETTING, '');
+            $this->writeSetting(self::LAST_KEY_SETTING, '');
         }
 
         $this->journalService->log(

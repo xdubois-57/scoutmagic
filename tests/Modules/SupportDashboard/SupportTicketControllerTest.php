@@ -65,7 +65,7 @@ class SupportTicketControllerTest extends TestCase
 
         $reference = $this->tickets->create(
             $installationId,
-            TicketCategory::DESK_IMPORT,
+            TicketCategory::of('desk_import'),
             "L'import Desk s'arrête à mi-parcours.",
             'chef@unite.be',
             '1.0.33',

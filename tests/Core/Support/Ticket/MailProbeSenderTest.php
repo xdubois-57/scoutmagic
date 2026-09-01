@@ -174,6 +174,60 @@ class MailProbeSenderTest extends TestCase
     }
 
     /**
+     * A rate limit exists to cap what actually goes out. Capping what did
+     * NOT go out is a lock with no key: an administrator whose relay was
+     * misconfigured watched the probe fail, fixed the relay, pressed
+     * again — and was told « il y en a déjà eu un il y a moins d'une
+     * heure », which was untrue and had no way of becoming untrue for an
+     * hour.
+     */
+    public function testARunThatDeliveredNothingIsNotRememberedAsARun(): void
+    {
+        $this->mailTransport->failFor = '*';
+        $sender = $this->sender($this->issuing(['support@scoutmagic.be']));
+
+        $sender->send($this->now());
+
+        $this->assertNull($sender->rateLimitedUntil($this->now()));
+        // And no key to go looking for either: the receiver was told to
+        // expect messages that never arrived.
+        $this->assertNull($sender->lastRun());
+    }
+
+    /**
+     * The press right after that one has to travel, since the local gate
+     * is the only thing that could have stopped it.
+     */
+    public function testTheNextPressAfterATotalFailureTravelsAgain(): void
+    {
+        $this->mailTransport->failFor = '*';
+        $transport = $this->issuing(['support@scoutmagic.be']);
+        $sender = $this->sender($transport);
+
+        $sender->send($this->now());
+        $this->mailTransport->failFor = null;
+        $result = $sender->send($this->now()->modify('+2 minutes'));
+
+        $this->assertCount(2, $transport->calls);
+        $this->assertTrue($result->sent);
+    }
+
+    /**
+     * The local stamp means « this installation sent probes at T », and a
+     * refusal is not a send. Stamping it restarted the local hour from
+     * the moment of the refusal, so pressing every few minutes pushed the
+     * window ahead of itself and it never reopened at all.
+     */
+    public function testAReceiverRefusalDoesNotRestartTheLocalWindow(): void
+    {
+        $sender = $this->sender($this->transport(200, ['status' => 'rate_limited']));
+
+        $sender->send($this->now());
+
+        $this->assertNull($sender->rateLimitedUntil($this->now()->modify('+1 minute')));
+    }
+
+    /**
      * @return array<string, array{int, array<string, mixed>|string, string}>
      */
     public static function refusalProvider(): array

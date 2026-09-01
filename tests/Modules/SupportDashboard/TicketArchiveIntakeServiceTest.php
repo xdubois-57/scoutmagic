@@ -70,7 +70,7 @@ class TicketArchiveIntakeServiceTest extends TestCase
         );
         $this->reference = $this->tickets->create(
             $installationRowId,
-            TicketCategory::DESK_IMPORT,
+            TicketCategory::of('desk_import'),
             'Une description.',
             'chef@unite.be',
             '1.0.33',
