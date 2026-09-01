@@ -112,4 +112,39 @@ class MailAuthenticationResultsTest extends TestCase
         $this->assertStringContainsString('relay.example.be', $relays[0]);
         $this->assertStringContainsString('mx.example.be', $relays[0]);
     }
+    /**
+     * Every hop that checks anything prepends an `Authentication-Results`
+     * of its own, and plenty of providers write one header per mechanism.
+     * Reading only the first reported « non renseigné » for a verdict
+     * that was written two lines further down — which, next to an IMAP
+     * client that passed no headers at all, is the second reason a
+     * correctly-configured domain read as unconfigured.
+     */
+    public function testAVerdictIsFoundInAnyAuthenticationResultsHeaderAndNotOnlyTheFirst(): void
+    {
+        $results = MailAuthenticationResults::parse(
+            "Authentication-Results: mx2.receveur.be; dmarc=pass header.from=example.be\r\n"
+                . "Authentication-Results: mx1.receveur.be; spf=pass smtp.mailfrom=example.be\r\n"
+                . "Authentication-Results: mx1.receveur.be; dkim=pass header.d=example.be\r\n"
+        );
+
+        $this->assertSame('pass', $results['spf']);
+        $this->assertSame('pass', $results['dkim']);
+        $this->assertSame('pass', $results['dmarc']);
+    }
+
+    /**
+     * The topmost header naming a mechanism wins, because headers are
+     * prepended: the top one is the last server to have checked.
+     */
+    public function testTheTopmostVerdictForOneMechanismIsTheOneReported(): void
+    {
+        $results = MailAuthenticationResults::parse(
+            "Authentication-Results: mx2.receveur.be; spf=fail smtp.mailfrom=example.be\r\n"
+                . "Authentication-Results: mx1.receveur.be; spf=pass smtp.mailfrom=example.be\r\n"
+        );
+
+        $this->assertSame('fail', $results['spf']);
+    }
+
 }

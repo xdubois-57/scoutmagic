@@ -213,6 +213,18 @@ CREATE TABLE support_mail_probes (
     -- JSON object. Encrypted because the chain carries IP addresses and
     -- server names, and shown only to a superadmin.
     authentication_encrypted BLOB NULL,
+    -- The header block itself, exactly as the receiving server wrote it.
+    --
+    -- A reading is not evidence. « SPF absent » is a claim about what a
+    -- server wrote down, and the only way to tell it from a bug in the
+    -- reading is to look at what was actually written — which is how the
+    -- reading turned out to be right and the header block turned out to
+    -- be empty, because the IMAP client never passed one. Kept for the
+    -- same 48-hour-plus-retention life as the row, encrypted for the same
+    -- reason the parsed chain is, and bounded like every other stored
+    -- header block (Modules\InboundMail\Repository\
+    -- InboundMessageRepository::MAX_RAW_HEADERS_BYTES).
+    raw_headers_encrypted BLOB NULL,
     INDEX idx_support_mail_probes_key (correlation_key),
     INDEX idx_support_mail_probes_installation (installation_id, issued_at),
     CONSTRAINT fk_support_mail_probes_installation FOREIGN KEY (installation_id)

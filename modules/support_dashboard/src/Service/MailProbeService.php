@@ -201,7 +201,14 @@ class MailProbeService
             (int) $probe['id'],
             $receivedAt,
             $receivedAt->getTimestamp() - $issuedAt->getTimestamp(),
-            MailAuthenticationResults::parse($rawHeaders)
+            MailAuthenticationResults::parse($rawHeaders),
+            // The block the reading was made from, kept alongside it. A
+            // reading is not evidence: « SPF absent » is a claim about
+            // what a server wrote down, and telling that apart from a bug
+            // in the reading takes the header block itself — which is how
+            // « tout absent » turned out to be an IMAP client that never
+            // passed one.
+            $rawHeaders
         );
 
         return true;

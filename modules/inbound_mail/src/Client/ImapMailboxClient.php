@@ -16,6 +16,7 @@ use Webklex\PHPIMAP\Attachment;
 use Webklex\PHPIMAP\Client;
 use Webklex\PHPIMAP\ClientManager;
 use Webklex\PHPIMAP\Folder;
+use Webklex\PHPIMAP\Header;
 use Webklex\PHPIMAP\IMAP;
 use Webklex\PHPIMAP\Message;
 
@@ -177,6 +178,12 @@ class ImapMailboxClient implements IncomingMailboxClientInterface
     private function toFetchedMessage(Message $message, string $folder, int $uid): FetchedMessage
     {
         $from = $message->getFrom()->first();
+        // `getHeader()` is declared nullable by the library, and a
+        // message it never parsed a header for would be exactly the one
+        // whose headers are being asked about. Read defensively rather
+        // than through `?->`, which PHPStan rejects here because it
+        // narrows the type at this point.
+        $header = $message->getHeader();
         $toEmails = [];
         foreach ($message->getTo()->toArray() as $recipient) {
             $mail = is_object($recipient) ? ($recipient->mail ?? null) : null;
@@ -200,7 +207,20 @@ class ImapMailboxClient implements IncomingMailboxClientInterface
             sentAt: self::sentAt($message),
             bodyText: $message->getTextBody(),
             bodyHtml: $message->getHTMLBody(),
-            attachments: $this->toFetchedAttachments($message)
+            attachments: $this->toFetchedAttachments($message),
+            // The header block exactly as the receiving server wrote it.
+            //
+            // This was simply not passed, and the omission was invisible
+            // from the tests: `Client\FakeMailboxClient` parses real MIME
+            // through `Mime\MimeMessageParser`, which fills it, so every
+            // test about headers passed while the wire path handed every
+            // consumer an empty string. What it cost is the whole point
+            // of `Api\MessageRetentionPreference::wantsRawHeaders()`
+            // (roadmap IT-22): the diagnostic mail probe read
+            // « SPF absent, DKIM absent, DMARC absent » on every message
+            // ever received, which is what an empty header block says and
+            // not what any of those servers did.
+            rawHeaders: $header instanceof Header ? $header->raw : ''
         );
     }
 

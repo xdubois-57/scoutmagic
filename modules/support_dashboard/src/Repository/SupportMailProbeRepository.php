@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\SupportDashboard\Repository;
 
+use Core\Mail\RawHeaderBlock;
 use Core\Security\EncryptionService;
 use Core\Service\DateInput;
 
@@ -111,19 +112,33 @@ class SupportMailProbeRepository
     }
 
     /**
-     * @param array<string, mixed> $authentication
+     * @param array<string, mixed> $authentication the reading
+     * @param ?string $rawHeaders what the reading was made from — null
+     *        when the client could supply no header block at all, which
+     *        is itself the answer to « pourquoi tout est absent »
      */
-    public function markReceived(int $probeId, \DateTimeImmutable $receivedAt, int $delaySeconds, array $authentication): void
-    {
+    public function markReceived(
+        int $probeId,
+        \DateTimeImmutable $receivedAt,
+        int $delaySeconds,
+        array $authentication,
+        ?string $rawHeaders = null
+    ): void {
         $stmt = $this->pdo->prepare(
             'UPDATE support_mail_probes
-             SET received_at = ?, delay_seconds = ?, authentication_encrypted = ?
+             SET received_at = ?, delay_seconds = ?, authentication_encrypted = ?, raw_headers_encrypted = ?
              WHERE id = ?'
         );
         $stmt->execute([
             $receivedAt->format('Y-m-d H:i:s'),
             max(0, $delaySeconds),
             $this->encryption->encrypt((string) json_encode($authentication), 'support_mail_probes.authentication'),
+            $rawHeaders === null || $rawHeaders === ''
+                ? null
+                : $this->encryption->encrypt(
+                    RawHeaderBlock::bounded($rawHeaders),
+                    'support_mail_probes.raw_headers'
+                ),
             $probeId,
         ]);
     }
@@ -160,6 +175,16 @@ class SupportMailProbeRepository
         return [
             'id' => (int) $row['id'],
             'installation_id' => (int) $row['installation_id'],
+            // Null on a probe received before this column existed, and on
+            // one whose client supplied no headers — two different facts
+            // the page has to be able to tell apart from « pas encore
+            // reçue ».
+            'raw_headers' => ($row['raw_headers_encrypted'] ?? null) !== null
+                ? $this->encryption->decrypt(
+                    (string) $row['raw_headers_encrypted'],
+                    'support_mail_probes.raw_headers'
+                )
+                : null,
             'correlation_key' => (string) $row['correlation_key'],
             'mailbox_address' => $this->encryption->decrypt(
                 (string) $row['mailbox_address_encrypted'],

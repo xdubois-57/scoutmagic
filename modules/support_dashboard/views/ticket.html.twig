@@ -142,53 +142,16 @@
 <div class="card mb-3">
     <div class="card-body">
         <h2 class="h5 mb-3">Sondes e-mail de cette installation</h2>
-        <div class="table-responsive">
-            <table class="table table-sm align-middle small">
-                <thead>
-                    <tr>
-                        <th scope="col">Boîte</th>
-                        <th scope="col">Émise</th>
-                        <th scope="col">Réception</th>
-                        <th scope="col">SPF</th>
-                        <th scope="col">DKIM</th>
-                        <th scope="col">DMARC</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for probe in ticket.probes %}
-                        <tr>
-                            <td>{{ probe.mailbox_address }}</td>
-                            <td>{{ probe.issued_at }}</td>
-                            <td>
-                                {% if probe.received_at %}
-                                    {% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Reçue' } only %}
-                                    {{ probe.received_at }}
-                                {% else %}
-                                    {# « En attente » et « jamais reçue » sont deux
-                                       faits différents : tant que la clé n'a pas
-                                       expiré, le message peut encore arriver, et
-                                       dire « jamais » avant l'heure est un
-                                       diagnostic faux. #}
-                                    {% include 'partials/status_badge.html.twig' with {
-                                        status: 'pending',
-                                        label: probe.expires_at < 'now'|date('Y-m-d H:i:s') ? 'Jamais reçue' : 'En attente',
-                                    } only %}
-                                {% endif %}
-                            </td>
-                            {% for mechanism in ['spf', 'dkim', 'dmarc'] %}
-                                <td>
-                                    {% if probe.authentication is null %}
-                                        <span class="text-body-secondary">—</span>
-                                    {% else %}
-                                        {{ probe.authentication[mechanism]|default('absent') }}
-                                    {% endif %}
-                                </td>
-                            {% endfor %}
-                        </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
+        {% include '@support_dashboard/partials/probes_table.html.twig' with { probes: ticket.probes } only %}
+        <p class="small text-body-secondary mb-2">
+            « Non renseigné » veut dire que le serveur de réception n'a rien écrit sur ce mécanisme,
+            ce qui n'est pas la même chose qu'un échec. Ouvrez « En-têtes reçus » pour lire ce qui a
+            réellement été écrit : c'est la seule façon de distinguer une lecture juste d'une lecture
+            fausse.
+        </p>
+        <a class="btn btn-outline-secondary btn-sm" href="/support-dashboard/tickets/{{ ticket.id }}/sondes">
+            Télécharger les sondes et leurs en-têtes
+        </a>
     </div>
 </div>
 {% endif %}

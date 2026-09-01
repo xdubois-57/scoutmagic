@@ -12,6 +12,7 @@ use Core\Http\Controller\AbstractController;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
+use Modules\SupportDashboard\Service\MailProbeReport;
 use Modules\SupportDashboard\Service\SupportTicketService;
 use Modules\SupportDashboard\Service\TicketAnalysisService;
 use Modules\SupportDashboard\Service\TicketListFilters;
@@ -91,6 +92,43 @@ class SupportTicketController extends AbstractController
                 ['label' => 'Tickets de support', 'url' => '/support-dashboard/tickets'],
             ],
         ]);
+    }
+
+    /**
+     * `GET /support-dashboard/tickets/{id}/sondes` — the probes of this
+     * ticket's installation, headers and all, as a text file.
+     *
+     * **Not folded into the diagnostic archive**, although that is where
+     * it was looked for: the archive is the file the instance uploaded,
+     * built and encrypted before any of this happened, and there is
+     * nothing to add to it that would not mean rewriting somebody else's
+     * evidence. What was missing is on this side of the wire. So it is
+     * its own file, offered next to the archive.
+     *
+     * Plain text because a header block is plain text — see
+     * `Service\MailProbeReport`.
+     *
+     * @param array<string, string> $params
+     */
+    public function probes(Request $request, array $params): Response
+    {
+        $ticket = $this->ticketService->detail((int) ($params['id'] ?? 0));
+        if ($ticket === null) {
+            return new Response('', 404);
+        }
+
+        $report = MailProbeReport::build(
+            (string) ($ticket['reference'] ?? ''),
+            is_array($ticket['probes'] ?? null) ? $ticket['probes'] : []
+        );
+
+        return (new Response($report))
+            ->setHeader('Content-Type', 'text/plain; charset=utf-8')
+            ->setHeader(
+                'Content-Disposition',
+                'attachment; filename="sondes-' . preg_replace('/[^A-Za-z0-9_-]/', '', (string) ($ticket['reference'] ?? 'ticket')) . '.txt"'
+            )
+            ->setHeader('Content-Length', (string) strlen($report));
     }
 
     /**
