@@ -888,9 +888,45 @@ Every automatic e-mail your module sends must be declared in `module.json` under
 - **`template` is the Twig file you ship**, under your module's Twig namespace (`@your_module/email/…`). It stays what is rendered as long as nobody has customised the e-mail. Ship the `.text.twig` twin beside it as before — multipart is mandatory (`SECURITY.md` §8).
 - **`variables` are the placeholders an administrator may insert**, written `{{ name }}` and substituted as **plain strings** — the stored content is never evaluated as Twig. Give each a French `label` (the wording of the insertion button) and a realistic `example` (what the preview and the test send show). A `name` is a lowercase identifier; anything else is refused at load time.
 - **Declare flat, substitutable values.** `{{ reference }}`, not `{{ booking.reference }}`: string substitution has no notion of an object, so a variable an administrator can insert has to be a value you can hand over as a string.
-- **Never declare `site_name`.** The header, the footer and the unit's name belong to `email/base.html.twig`, which stays code and is not customisable.
+- **Never declare `site_name`.** The header, the footer, the closing formula and the unit's name belong to `email/base.html.twig`, which stays code and is not customisable.
 - **`editable` is optional and defaults to `true`.** Declare `false` for an authentication e-mail — anything carrying a login link, a password reset or an address confirmation. An administrator who broke one would shut somebody out with no way back in, and the refusal is enforced on the server, not merely by hiding a button.
 - Declaring an e-mail changes nothing about how you send it: keep rendering your Twig and calling `MailService::send()`. The declaration is what puts it in the inventory.
+
+### Your shipped template IS the default wording
+
+Configuration > E-mails seeds its editor with your shipped template's own `content` block, rendered with **each declared variable standing for itself** — `{{ member_names }}`, not « Camille Dupont ». That is what an administrator starts from, and it is why the two rules below are correctness rules rather than style ones. `Tests\Core\Mail\Template\ShippedEmailTemplateTest` fails the build on either.
+
+1. **Everything the template renders comes from a declared variable.** Both halves are rendered under `strict_variables` with the declared names and nothing else, so a template reaching for anything you did not declare fails immediately. A template that walked `booking.renterName` while the manifest declared `reference` produced « Bonjour , du  au  » as the default wording an administrator was offered — and lost the renter's name and both dates the day anybody reworded it.
+2. **Every declared variable appears in the shipped body.** A variable nobody can see in the default text is an insertion button for something the e-mail never said.
+
+The one exception is content a customised body could never carry anyway — an image, typically. Write it `{{ x|default('') }}` (or `{% if x|default(false) %}`), which says "shipped only" out loud and keeps the strict render honest: `news.confirmation` does exactly that for its SEPA QR code, and declares `payment_summary` beside it so the amount, the IBAN and the structured communication survive into a reworded e-mail.
+
+Two consequences worth knowing before you declare anything:
+
+- **A list is not a variable.** Build it into one string, one item per line, and render it `{{ x|nl2br }}` in the HTML half — the renderer turns a value's line breaks into `<br>` when it substitutes into a customised body, so both paths agree. `retro.board_closed` (`board_content`) and `rental.practical_info` (`contacts`) are the worked examples.
+- **An optional value is a whole sentence, not a fragment.** A customised body has no `{% if %}` to hide an empty variable behind, so `{{ hold_note }}` carries « Nous bloquons ces dates jusqu'au 12/03/2027, le temps de vous répondre. » or nothing at all — never a bare date that would leave « Nous bloquons ces dates jusqu'au . » in somebody's message.
+
+### The house style of an e-mail
+
+Every message the site sends should read as if the same person wrote it. The frame does part of that on its own — `email/base.html.twig` adds the closing formula (« Bien à vous », then the unit's name) and the footer to every e-mail, shipped or reworded, so **never sign off inside a template**. The rest is convention, and a new e-mail is expected to follow it:
+
+```twig
+{% extends 'email/base.html.twig' %}
+{% block content %}
+    <h2 style="margin:0 0 20px;font-size:20px;line-height:1.3;color:#212529;">Le titre</h2>
+    <p style="margin:0 0 16px;">Bonjour {{ renter_name }},</p>
+    <p style="margin:0 0 16px;">Ce qui vient de se passer, en une ou deux phrases.</p>
+    <p style="margin:24px 0;text-align:center;">
+        <a href="{{ some_url }}"
+           style="display:inline-block;padding:12px 28px;background-color:#0d6efd;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:bold;">
+            L'action attendue
+        </a>
+    </p>
+    <p style="margin:0;font-size:13px;color:#6c757d;">La précision secondaire, ou pourquoi ce message arrive.</p>
+{% endblock %}
+```
+
+Title, greeting, what happened, one call to action, one closing note — in that order, in French, vouvoyé, and without exclamation marks. The `.text.twig` twin says the same things in the same order, plain, and ends with `{% include 'email/signature.text.twig' %}`.
 
 ## Offline pages (`Core\Offline\OfflineWhitelist`)
 

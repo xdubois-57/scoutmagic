@@ -42,7 +42,13 @@ use Twig\Environment;
  * (`partials/rich_text_field.html.twig`, `public/assets/js/
  * rich-text-field.js`) pointed at this controller's own save URL rather
  * than the generic one — nothing is forked, only aimed elsewhere. The
- * subject is a plain text field: it is one line, it must never carry
+ * variable insertion buttons are rendered INSIDE that modal, through the
+ * extra-toolbar slot `partials/rich_text_editor.html.twig` exposes: they
+ * write at the caret, and the caret is in there. Offered only on the page
+ * behind it, adding three variables to a message meant saving, copying a
+ * placeholder, reopening the editor and pasting — three times over.
+ *
+ * The subject is a plain text field: it is one line, it must never carry
  * markup, and a rich-text editor for it would invite exactly that.
  */
 class EmailTemplateController extends AbstractController
@@ -106,7 +112,7 @@ class EmailTemplateController extends AbstractController
             'editable' => $template->editable,
             'customised' => $override !== null,
             'subject' => $override['subject'] ?? $template->defaultSubject,
-            'body_html' => $override['body_html'] ?? $this->shippedBody($template),
+            'body_html' => $override['body_html'] ?? $this->shippedBody($template, $this->placeholderContext($template)),
             'preview' => $this->preview($template),
             'test_recipient' => AuthSession::getEmail() ?? '',
         ]);
@@ -263,10 +269,7 @@ class EmailTemplateController extends AbstractController
             return $this->redirect($this->editUrl($template->id));
         }
 
-        $email = $this->renderer->render(
-            $template->id,
-            $template->exampleValues() + ['site_name' => $this->siteName()]
-        );
+        $email = $this->renderer->render($template->id, $this->exampleContext($template));
 
         try {
             $this->mailService->send($to, $email->subject, $email->bodyHtml, $email->bodyText);
@@ -374,22 +377,26 @@ class EmailTemplateController extends AbstractController
 
     private function currentBody(EmailTemplate $template): string
     {
-        return $this->overrides->find($template->id)['body_html'] ?? $this->shippedBody($template);
+        return $this->overrides->find($template->id)['body_html']
+            ?? $this->shippedBody($template, $this->placeholderContext($template));
     }
 
     /**
-     * The shipped template's own `content` block, rendered with the
-     * registry's example values — the starting point an administrator
-     * edits, rather than an empty box they have to rewrite from nothing.
+     * The shipped template's own `content` block — the starting point an
+     * administrator edits, rather than an empty box they have to rewrite
+     * from nothing.
      *
      * The block rather than the whole document: `email/base.html.twig`
-     * carries `<!DOCTYPE html>` and the frame, which is code and stays
-     * out of the editor.
+     * carries `<!DOCTYPE html>`, the frame and the signature, which are
+     * code and stay out of the editor.
+     *
+     * @param array<string, mixed> $context what the declared variables
+     *        render as — their PLACEHOLDERS when this is the editor's
+     *        seed (placeholderContext()), their EXAMPLES when it is the
+     *        preview (exampleContext()).
      */
-    private function shippedBody(EmailTemplate $template): string
+    private function shippedBody(EmailTemplate $template, array $context): string
     {
-        $context = $template->exampleValues() + ['site_name' => $this->siteName()];
-
         try {
             return $this->twig->load($template->template)->renderBlock('content', $context);
         } catch (\Throwable) {
@@ -409,7 +416,7 @@ class EmailTemplateController extends AbstractController
      */
     private function preview(EmailTemplate $template): array
     {
-        $context = $template->exampleValues() + ['site_name' => $this->siteName()];
+        $context = $this->exampleContext($template);
         $override = $this->overrides->find($template->id);
 
         if ($override !== null) {
@@ -420,7 +427,10 @@ class EmailTemplateController extends AbstractController
 
             return [
                 'subject' => $rendered->subject,
-                'body_html' => $this->substituted($template, $override['body_html'], $context),
+                // Through the renderer's own substitution, not a second
+                // copy of it: what the preview shows has to be what the
+                // send produces, escaping included.
+                'body_html' => $this->renderer->substituteIntoHtml($template, $override['body_html'], $context),
             ];
         }
 
@@ -430,15 +440,18 @@ class EmailTemplateController extends AbstractController
             // {{ board_title }} », and rental's decision subject is
             // nothing BUT one — and a preview showing braces where the
             // real e-mail shows words is not a preview.
-            'subject' => $this->substituted($template, $template->defaultSubject, $context),
-            'body_html' => $this->shippedBody($template),
+            'subject' => $this->substitutedSubject($template, $template->defaultSubject, $context),
+            'body_html' => $this->shippedBody($template, $context),
         ];
     }
 
     /**
+     * A subject line is not markup: it is substituted as it is, exactly
+     * as EmailTemplateRenderer does before handing it to MailService.
+     *
      * @param array<string, string> $context
      */
-    private function substituted(EmailTemplate $template, string $text, array $context): string
+    private function substitutedSubject(EmailTemplate $template, string $text, array $context): string
     {
         foreach ($template->variables as $variable) {
             $text = str_replace(
@@ -449,6 +462,47 @@ class EmailTemplateController extends AbstractController
         }
 
         return $text;
+    }
+
+    /**
+     * The registry's example values — what the preview and the test send
+     * render with, so an administrator judges a message rather than a row
+     * of braces.
+     *
+     * @return array<string, string>
+     */
+    private function exampleContext(EmailTemplate $template): array
+    {
+        return $template->exampleValues() + ['site_name' => $this->siteName()];
+    }
+
+    /**
+     * The same context with each declared variable standing for ITSELF —
+     * `{{ member_names }}` rather than « Camille Dupont ».
+     *
+     * This is what the editor is seeded with, and it is the whole
+     * difference between a default wording that keeps working and one
+     * that does not. Seeded with the examples, the very first save froze
+     * somebody's example values into the e-mail: every family then read
+     * « Bonjour Camille Dupont » whoever they were, because the
+     * placeholders the renderer substitutes had been replaced by their
+     * own examples before the administrator ever saw the text.
+     *
+     * `site_name` is the one value still written out, and for the
+     * opposite reason: it is deliberately NOT a declared variable, so the
+     * renderer would never substitute it and the braces would be sent as
+     * braces.
+     *
+     * @return array<string, string>
+     */
+    private function placeholderContext(EmailTemplate $template): array
+    {
+        $values = [];
+        foreach ($template->variables as $variable) {
+            $values[$variable->name] = '{{ ' . $variable->name . ' }}';
+        }
+
+        return $values + ['site_name' => $this->siteName()];
     }
 
     /**

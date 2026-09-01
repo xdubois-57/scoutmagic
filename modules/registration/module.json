@@ -731,6 +731,11 @@
           "name": "reenrollment_url",
           "label": "Lien vers la page de réinscription",
           "example": "https://exemple.be/reinscription"
+        },
+        {
+          "name": "member_names",
+          "label": "Membre(s) concerné(s)",
+          "example": "Camille Dupont, Louis Dupont"
         }
       ]
     },
@@ -755,6 +760,11 @@
           "name": "reenrollment_url",
           "label": "Lien vers la page de réinscription",
           "example": "https://exemple.be/reinscription"
+        },
+        {
+          "name": "member_names",
+          "label": "Membre(s) concerné(s)",
+          "example": "Camille Dupont, Louis Dupont"
         }
       ]
     },
@@ -779,6 +789,11 @@
           "name": "reenrollment_url",
           "label": "Lien vers la page de réinscription",
           "example": "https://exemple.be/reinscription"
+        },
+        {
+          "name": "member_names",
+          "label": "Membre(s) concerné(s)",
+          "example": "Camille Dupont, Louis Dupont"
         }
       ]
     },
@@ -803,6 +818,11 @@
           "name": "reenrollment_url",
           "label": "Lien vers la page de réinscription",
           "example": "https://exemple.be/reinscription"
+        },
+        {
+          "name": "member_names",
+          "label": "Membre(s) concerné(s)",
+          "example": "Camille Dupont, Louis Dupont"
         }
       ]
     }

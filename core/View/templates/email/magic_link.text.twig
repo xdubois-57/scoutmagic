@@ -1,7 +1,11 @@
-Connexion à {{ site_name }}
+Votre lien de connexion
 
-Ouvrez le lien ci-dessous pour vous connecter. Ce lien est valable {{ expiry_minutes }} minutes et ne peut être utilisé qu'une seule fois.
+Bonjour,
+
+Vous avez demandé à vous connecter à {{ site_name }}. Ouvrez le lien ci-dessous : il est valable {{ expiry_minutes }} minutes et ne peut servir qu'une seule fois.
 
 {{ magic_link_url }}
 
-Si vous n'avez pas demandé ce lien, ignorez cet email.
+Si vous n'avez pas demandé ce lien, ignorez simplement ce message.
+
+{% include 'email/signature.text.twig' %}

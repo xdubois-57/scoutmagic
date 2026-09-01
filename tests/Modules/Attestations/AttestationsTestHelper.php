@@ -74,8 +74,15 @@ final class AttestationsTestHelper
         return new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
     }
 
-    public static function createScoutYear(\PDO $pdo, string $label = '2025-2026'): int
+    /**
+     * Defaults to the year the application is actually in. It used to
+     * default to '2025-2026', which was the current year when it was
+     * written and last year from 1 September 2026 — see
+     * Tests\DatabaseTestHelper::scoutYear().
+     */
+    public static function createScoutYear(\PDO $pdo, ?string $label = null): int
     {
+        $label ??= \Tests\DatabaseTestHelper::scoutYear()[0];
         $stmt = $pdo->prepare(
             'INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES (?, ?, ?, 1)'
         );

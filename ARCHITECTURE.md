@@ -531,8 +531,14 @@ customisations, and the page that edits them each arrive on their own, one
 sender at a time — an e-mail nobody has declared must keep working, and an
 e-mail declared but not yet migrated must keep working too.
 
-`site_name` is deliberately not a variable anywhere: the header, the footer
-and the unit's name belong to `email/base.html.twig`, which stays code.
+`site_name` is deliberately not a variable anywhere: the header, the footer,
+the closing formula and the unit's name belong to `email/base.html.twig`,
+which stays code. **The sign-off lives in that frame** — « Bien à vous », then
+the unit's name — so every message the site sends is signed the same way, a
+reworded one included, and no template signs itself. Its plain-text twin is
+`email/signature.text.twig`, included by every shipped `.text.twig`; a
+customised e-mail has one body and gets its text half derived from the HTML,
+signature and link addresses included.
 
 **Rendering, and the two paths through it.** `EmailTemplateRenderer` answers
 for a declared e-mail with a subject and both bodies. With no row in
@@ -546,6 +552,16 @@ the long one). A `{{ … }}` naming something undeclared is left exactly as
 written and journaled once per template, because a placeholder that silently
 renders as itself in every e-mail a unit sends is the kind of thing nobody
 notices for a season.
+
+**A substituted value is escaped into the body and used as it is in the
+subject.** Twig escapes what a shipped template prints; the customised path
+is deliberately never given to Twig, so nothing else would escape a renter's
+name, a manager's sentence or a family's answer on its way into a message the
+site signs and sends — the substitution does it, and turns the value's line
+breaks into `<br>` at the same time, so a multi-line value (a list of
+members, the contents of a retrospective) reads the same through both paths.
+A subject line is not markup and is substituted raw: « Vous & moi » in an
+inbox, not « Vous &amp; moi ».
 
 **The stored content is never given to Twig.** Not `createTemplate()`, not a
 sandbox, not `include`. An administration page that could define a Twig
@@ -608,11 +624,29 @@ wrong.
   enforcement has to survive somebody forging the request, since breaking the
   magic link locks out the person who broke it.
 - **The editor is seeded with the shipped template's own `content` block,
-  rendered with the registry's example values and the unit's real name.**
-  Not with the placeholder `{{ site_name }}`: `site_name` is not a declared
-  variable, so the renderer would never substitute it in a stored body, and
-  a unit's families would receive the braces. The block rather than the whole
-  document, because `email/base.html.twig` is the frame and stays code.
+  rendered with each declared variable STANDING FOR ITSELF** — `{{
+  member_names }}`, not « Camille Dupont ». Seeded with the example values,
+  as it first was, the default wording an administrator was handed had one
+  family's name where the placeholder belonged, and the first save froze it
+  into the e-mail every other family then received. The preview and the test
+  send are the ones that use the examples.
+  `site_name` is the single exception, written out as the unit's real name
+  for the opposite reason: it is not a declared variable, so the renderer
+  would never substitute it in a stored body and the braces would be sent as
+  braces. The block rather than the whole document, because
+  `email/base.html.twig` is the frame and stays code.
+- **A shipped template may only render what its declaration declares.** Both
+  halves of every declared e-mail are rendered under `strict_variables` from
+  the declared names alone, and every declared name must appear in the body
+  (`Tests\Core\Mail\Template\ShippedEmailTemplateTest`). The shipped
+  template is not merely what gets sent while nobody has customised the
+  e-mail — it IS the default wording the page offers, so a template walking
+  an object nobody declared produced « Bonjour , du  au  » for six of
+  rental's e-mails and lost the renter's name and both dates the day one was
+  reworded. Content a customised body could never carry anyway — an image,
+  typically `news.confirmation`'s SEPA QR code — is written `{{ x|default('')
+  }}`, which says "shipped only" out loud and keeps the strict render
+  honest.
 
 **« M'envoyer un test » goes through `MailService::send()` and nowhere else**,
 which is the whole point of the button: whatever delivery mode the
@@ -628,7 +662,13 @@ magic-link message is not editing it.
 The body is edited through the shared rich-text modal
 (`partials/rich_text_field.html.twig` + `public/assets/js/rich-text-field.js`)
 pointed at this controller's own save URL — nothing is forked, only aimed
-elsewhere. The subject is a plain text field: it is one line, it must never
+elsewhere. **The variable buttons are rendered inside that modal**, through
+an optional extra-toolbar slot `partials/rich_text_editor.html.twig` exposes
+for any page whose text takes more than bold and italic: they insert at the
+caret, because that is where the caret is. Offered only on the page behind
+it, adding three variables to a message meant saving, copying a placeholder,
+reopening the editor and pasting — three times over. The same buttons on the
+page itself still copy to the clipboard, for a text written somewhere else. The subject is a plain text field: it is one line, it must never
 carry markup, and a rich-text editor for it would invite exactly that. The
 group headings are the modules' own declared names, handed to the registry
 alongside their e-mails at load time — core never knows a module's name

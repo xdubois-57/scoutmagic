@@ -1,9 +1,13 @@
 Vous êtes administrateur du site
 
-{% if granted_by %}{{ granted_by }} vous a accordé{% else %}Le droit administrateur vous a été accordé{% endif %} un accès superadmin sur {{ site_name }}. Vous pouvez désormais ouvrir les pages de configuration du site.
+Bonjour,
 
-Pour vous connecter, rendez-vous sur la page de connexion et demandez un lien magique : vous recevrez un e-mail contenant un lien à usage unique. Il n'y a pas de mot de passe à créer, et rien à accepter — ce message est une information, pas une demande.
+{{ granted_by }} vient de vous donner un accès administrateur sur {{ site_name }}. Vous pouvez désormais ouvrir les pages de configuration du site.
+
+Pour vous connecter, demandez un lien de connexion depuis la page de connexion : vous recevrez un email contenant un lien à usage unique. Il n'y a pas de mot de passe à créer, et rien à accepter — ce message est une information, pas une demande.
 
 {{ login_url }}
 
-Un accès administrateur ouvre toute la configuration du site, y compris les données personnelles des membres. Si vous pensez que cet accès vous a été donné par erreur, signalez-le à l'équipe de votre unité.
+Un accès administrateur ouvre toute la configuration du site, y compris les données personnelles des membres. Si vous pensez qu'il vous a été donné par erreur, signalez-le à l'équipe de votre unité.
+
+{% include 'email/signature.text.twig' %}

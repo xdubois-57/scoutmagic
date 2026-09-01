@@ -1,24 +1,23 @@
-Bonjour {{ booking.renterName }},
+Votre séjour approche
 
-Votre séjour à {{ asset.name }} approche : arrivée le
-{{ booking.arrivalDate|date_fr }}, départ le {{ booking.departureDate|date_fr }}.
-{% if asset.arrivalTime %}
-Arrivée à partir de {{ asset.arrivalTime }}.
+Bonjour {{ renter_name }},
+
+Votre séjour à {{ asset_name }} approche : arrivée le {{ arrival_date }}, départ le {{ departure_date }}. Votre référence reste {{ reference }}.
+{% if timing_note %}
+
+{{ timing_note }}
 {% endif %}
-{% if asset.departureTime %}
-Départ pour {{ asset.departureTime }} au plus tard.
-{% endif %}
-{% if contacts is not empty %}
+{% if contacts %}
 
 Vos contacts sur place :
-{% for contact in contacts %}
-- {{ contact.display_name }}{% if contact.phone %} — {{ contact.phone }}{% endif %}
-{% endfor %}
-{% endif %}
-{% if asset.emergencyPhone %}
 
-En cas d'urgence pendant votre séjour : {{ asset.emergencyPhone }}
+{{ contacts }}
+{% endif %}
+{% if emergency_phone %}
+
+En cas d'urgence pendant votre séjour : {{ emergency_phone }}
 {% endif %}
 
-Bon séjour,
-{{ site_name }}
+Nous nous réjouissons de vous accueillir.
+
+{% include 'email/signature.text.twig' %}

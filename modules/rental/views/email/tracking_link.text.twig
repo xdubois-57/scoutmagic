@@ -1,17 +1,14 @@
-{#- The plain-text half of tracking_link.html.twig. -#}
-Bonjour {{ booking.renterName }},
+Votre nouveau lien de suivi
 
-Le lien de suivi de votre demande a été remplacé. L'ancien ne fonctionne
-plus ; voici le nouveau.
+Bonjour {{ renter_name }},
 
-{{ asset.name }}, du {{ booking.arrivalDate|date_fr }} au {{ booking.departureDate|date_fr }}
-Votre référence : {{ booking.reference }}
+Le lien de suivi de votre demande a été remplacé : l'ancien ne fonctionne plus, voici le nouveau.
 
-Suivez votre demande ici :
-{{ tracking_url }}
+{{ asset_name }}, du {{ arrival_date }} au {{ departure_date }}
+Votre référence : {{ reference }}
 
-Conservez ce lien : il est personnel et c'est votre seul accès au suivi de
-votre demande.
+Suivre ma demande : {{ tracking_url }}
 
-À bientôt,
-{{ site_name }}
+Conservez ce lien : il est personnel, et c'est votre seul accès au suivi de votre demande.
+
+{% include 'email/signature.text.twig' %}

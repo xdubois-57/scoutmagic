@@ -6,12 +6,14 @@
   The insertion buttons for one automatic e-mail's declared variables
   (Core\Mail\Template\EmailTemplate, ARCHITECTURE.md §8.7bis).
 
-  With `target` set, a click inserts `{{ '{{ nom }}' }}` at the cursor of
-  that input — the subject field. With `target` null, a click copies the
-  placeholder to the clipboard instead: the body is edited inside the
-  shared rich-text modal, which is not on screen when these buttons are,
-  and a button that silently did nothing would be worse than one that
-  says what it did.
+  With `target` set, a click inserts `{{ '{{ nom }}' }}` at the cursor —
+  in the subject field, and in the rich-text editor itself, which is a
+  `contenteditable` rather than an `<input>`: `public/assets/js/
+  email-variables.js` handles both, because the caret is the caret.
+
+  With `target` null, a click copies the placeholder to the clipboard
+  instead — what the buttons on the page behind the editor do, for a text
+  written somewhere else.
 
   Each button shows the French label; the placeholder itself and the
   example value are in the tooltip, so the row reads as prose rather than
@@ -20,10 +22,14 @@
   Usage:
   {% include 'partials/email_variable_buttons.html.twig' with {
       variables: template.variables,
-      target: 'email-subject',   -- or null
+      target: 'email-subject',   -- or 'richTextEditorContent', or null
+      hint: 'Cliquez pour insérer…',
   } only %}
 #}
 {% if variables is not empty %}
+    {% if hint is defined and hint %}
+        <p class="form-label mb-2">{{ hint }}</p>
+    {% endif %}
     <div class="d-flex flex-wrap gap-2 email-variable-buttons"
          {% if target %}data-target="{{ target }}"{% endif %}>
         {% for variable in variables %}

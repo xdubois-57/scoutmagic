@@ -175,6 +175,13 @@ DKIM (RSA 2048), SPF aligned, DMARC, Return-Path, multipart, subject prefix, Lis
 ### 4.2 DNS verification
 Per record: type, host, expected value (computed), live status via `dns_get_record()`, copyable value. Adapts to SMTP/local mode.
 
+### 4.3 What a message looks like
+One frame for every automatic e-mail, `email/base.html.twig`, and it is code: a light card on a grey ground, the unit's name as the closing signature (« Bien à vous », then the name) and one footer line. **No template signs itself** — the frame does, so a message a unit reworded is signed exactly like one it did not.
+
+Inside that frame, every e-mail says its things in the same order: a title (`<h2>`), a greeting, what happened in one or two sentences, at most one call to action as a centred blue button, then one small grey note saying why the message arrived. French, vouvoyé, no exclamation marks. The `.text.twig` twin says the same in the same order and ends with `{% include 'email/signature.text.twig' %}`.
+
+Everything dynamic in a template comes from a variable its declaration declares (`docs/module-development.md` § E-mails): the shipped template, rendered with those variables standing for themselves, IS the default wording Configuration > E-mails offers an administrator, so anything else is a hole in the text they are handed.
+
 ## 5. Scheduler design
 
 Poor man's cron: check every page visit (>1 min since last), process after response. Atomic claim via UPDATE. No auto-retry. Failures journaled and visible in config page.

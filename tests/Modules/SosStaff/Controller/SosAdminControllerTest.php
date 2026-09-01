@@ -140,7 +140,8 @@ class SosAdminControllerTest extends TestCase
             null
         );
 
-        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
+        [$label, $yearStart, $yearEnd] = DatabaseTestHelper::scoutYear();
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('{$label}', '{$yearStart}', '{$yearEnd}', 1)");
         $this->scoutYearId = (int) $this->pdo->lastInsertId();
 
         if (session_status() === PHP_SESSION_NONE) {

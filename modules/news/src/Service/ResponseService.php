@@ -462,19 +462,26 @@ class ResponseService
         $context = [
             'site_name' => $this->siteName,
             'article_title' => $article->title,
-            'answers' => $answersForEmail,
-            'payment' => $payment,
+            // Both recaps are DECLARED variables and therefore plain text,
+            // one item per line: the template renders them with |nl2br,
+            // and a unit that reworded this e-mail still gets them
+            // substituted into its own wording. A list handed over as a
+            // list would have vanished from the message on the day it was
+            // customised — which is exactly the moment nobody re-reads the
+            // confirmation a family receives.
+            'answers_summary' => self::summaryLines($answersForEmail),
+            'payment_summary' => self::paymentLines($payment),
+            // Shipped-only: an image is the one thing the editor cannot
+            // store, so the QR code never reaches a customised body. What
+            // pays the bill — amount, IBAN, communication — is in
+            // `payment_summary` and always survives.
+            'payment_qr' => $payment['qr_data_uri'] ?? '',
             'edit_url' => $editUrl,
         ];
 
         // Through the register (ARCHITECTURE.md §8.7bis): the declared
         // subject is « Confirmation — {{ article_title }} », so with
         // nothing customised this is the message it replaces, unchanged.
-        //
-        // `answers` stays in the context for the shipped template's own
-        // loop and is deliberately NOT a declared variable: a customised
-        // body substitutes strings, and a list of a family's answers is
-        // not one.
         $email = $this->emailTemplateRenderer->render('news.confirmation', $context);
 
         $this->mailService->send(
@@ -483,5 +490,42 @@ class ResponseService
             bodyHtml: $email->bodyHtml,
             bodyText: $email->bodyText
         );
+    }
+
+    /**
+     * The answers as one block of text, « Libellé : valeur » per line —
+     * the shape a declared variable can carry into both halves of the
+     * e-mail and into a customised body.
+     *
+     * @param array<int, array{label: string, value: string}> $lines
+     */
+    private static function summaryLines(array $lines): string
+    {
+        $rendered = [];
+        foreach ($lines as $line) {
+            $rendered[] = $line['label'] . ' : ' . $line['value'];
+        }
+
+        return implode("\n", $rendered);
+    }
+
+    /**
+     * The same for the payment details. Empty when there is nothing to
+     * pay, which is what the templates' `{% if payment_summary %}` reads.
+     *
+     * @param array{total: float, iban: string, beneficiary: string, communication: string, qr_data_uri: string}|null $payment
+     */
+    private static function paymentLines(?array $payment): string
+    {
+        if ($payment === null) {
+            return '';
+        }
+
+        return implode("\n", [
+            'Montant à payer : ' . number_format($payment['total'], 2, ',', ' ') . ' €',
+            'Compte : ' . $payment['beneficiary'],
+            'IBAN : ' . $payment['iban'],
+            'Communication structurée : ' . $payment['communication'],
+        ]);
     }
 }

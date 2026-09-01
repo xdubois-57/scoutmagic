@@ -34,12 +34,67 @@ const ACCOUNT_NAME = `Compte reçus E2E ${Date.now()}`;
 const ACCOUNT_IBAN = 'BE71 0961 2345 6769';
 
 /** A BNP Fortis export whose "Numéro de compte" matches the account. */
+/**
+ * A statement date, `dd/mm/yyyy`, guaranteed to fall inside the CURRENT
+ * scout year.
+ *
+ * These two lines used to be written 01/07/2026 and 03/07/2026 outright.
+ * That was inside the scout year on the day it was written and stopped
+ * being so at 00:00 on 1 September 2026, when the year became 2026-2027
+ * and July went from « this year » to « last year » — the import then
+ * read the file, filed neither line where the spec was looking, and the
+ * « 2 ligne(s) lue(s), 2 nouvelle(s) » it waits for never appeared.
+ *
+ * Relative to today is not enough on its own either: on 1 September,
+ * « three days ago » is still August, which is the previous scout year
+ * again. So the offset is clamped to the year's own first day — the same
+ * rule scripts/e2e-support.php applies to the membership fixtures it
+ * seeds, and for exactly the same reason.
+ *
+ * @param {number} daysAgo
+ */
+function statementDate(daysAgo) {
+    // Brussels, not the runner's timezone. Node here is not the process
+    // that decides which scout year a movement lands in — PHP is, and
+    // Core\Config\AppClock pins PHP to Europe/Brussels. On a CI runner
+    // set to UTC those two disagree for the two hours before midnight
+    // UTC, which on 31 August is the difference between « this scout
+    // year » and « last one »: this spec computed August dates while the
+    // application had already turned September, and the import filed
+    // neither line where the assertion was looking.
+    //
+    // Exactly the bug scripts/e2e-support.php's own clock fix addresses
+    // one layer down, and it has to be answered here too because this
+    // date is computed in Node before PHP ever sees it.
+    const inBrussels = (date) => new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Europe/Brussels',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).format(date);
+
+    const today = inBrussels(new Date());
+    const [year, month] = today.split('-').map(Number);
+    // A scout year opens on 1 September (Core\Config\ScoutYearService::
+    // labelForDate()).
+    const yearStart = `${month >= 9 ? year : year - 1}-09-01`;
+
+    const wanted = inBrussels(new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000));
+    // Both are YYYY-MM-DD, so a string comparison is a date comparison.
+    const [y, m, d] = (wanted < yearStart ? yearStart : wanted).split('-');
+
+    return `${d}/${m}/${y}`;
+}
+
 function bnpStatement() {
     const iban = ACCOUNT_IBAN.replace(/ /g, '');
+    const spent = statementDate(3);
+    const received = statementDate(1);
+
     return [
         "﻿Nº de séquence;Date d'exécution;Date valeur;Montant;Devise du compte;Numéro de compte;Type de transaction;Contrepartie;Nom de la contrepartie;Communication;Détails;Statut;Motif du refus",
-        `2026-;01/07/2026;01/07/2026;-45,90;EUR;${iban};Virement en euros;BE00000000000002;Colruyt Namur;Courses camp;VIREMENT EN EUROS COLRUYT NAMUR COMMUNICATION : COURSES CAMP ;Accepté;`,
-        `2026-;03/07/2026;03/07/2026;120,00;EUR;${iban};Virement en euros;BE00000000000003;Parent Dupont;Participation camp;VIREMENT EN EUROS PARENT DUPONT COMMUNICATION : PARTICIPATION CAMP ;Accepté;`,
+        `2026-;${spent};${spent};-45,90;EUR;${iban};Virement en euros;BE00000000000002;Colruyt Namur;Courses camp;VIREMENT EN EUROS COLRUYT NAMUR COMMUNICATION : COURSES CAMP ;Accepté;`,
+        `2026-;${received};${received};120,00;EUR;${iban};Virement en euros;BE00000000000003;Parent Dupont;Participation camp;VIREMENT EN EUROS PARENT DUPONT COMMUNICATION : PARTICIPATION CAMP ;Accepté;`,
     ].join('\n');
 }
 
@@ -84,7 +139,14 @@ test('a statement imports, a receipt uploads through the client-side resize, and
     // first import's mandatory closing balance.
     // ---------------------------------------------------------------
     await page.goto('/finance/import', { waitUntil: 'load' });
-    await page.getByLabel('Compte').selectOption({ label: ACCOUNT_NAME });
+    // `exact`, here and on the receipts page below, because « Compte » is a
+    // substring of half the labels this module ships. The receipts page
+    // grew a « Changer le compte du reçu » dialog with its own « Nouveau
+    // compte » select, and a loose match then resolved to three elements
+    // and failed as a strict-mode violation — on a page this spec was not
+    // even testing the dialog of. Exact costs nothing and does not rot
+    // when a page gains a control.
+    await page.getByLabel('Compte', { exact: true }).selectOption({ label: ACCOUNT_NAME });
     await page.getByLabel('Fichier CSV').setInputFiles({
         name: 'releve-bnp.csv',
         mimeType: 'text/csv',
@@ -113,7 +175,7 @@ test('a statement imports, a receipt uploads through the client-side resize, and
     // stored file is the browser's, not ours.
     // ---------------------------------------------------------------
     await page.goto(`/finance/receipts`, { waitUntil: 'load' });
-    await page.getByLabel('Compte').selectOption({ label: ACCOUNT_NAME });
+    await page.getByLabel('Compte', { exact: true }).selectOption({ label: ACCOUNT_NAME });
     await page.waitForURL(/\/finance\/receipts\?account_id=\d+/, { waitUntil: 'load' });
 
     await page.getByRole('link', { name: 'Ajouter un reçu' }).click();

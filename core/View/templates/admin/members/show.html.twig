@@ -140,6 +140,77 @@
                 </div>
             </section>
 
+            {# What this person does and has earned THIS year — the same
+               subject as the two cards above, so they sit under them
+               rather than opening the other column. The columns split by
+               subject: this one is the person and their current year, the
+               other everything the unit has accumulated about them over
+               time. It also stops the right column from carrying nine of
+               the page's fourteen cards, which is what it did. #}
+            {% if functions is not empty %}
+                <section class="card mb-3">
+                    <div class="card-header d-flex align-items-center gap-2">
+                        <i class="bi bi-briefcase" aria-hidden="true"></i>
+                        <h2 class="h6 mb-0">Fonctions de l'année</h2>
+                    </div>
+                    <div class="card-body">
+                        <ul class="list-unstyled mb-0">
+                            {% for fn in functions %}
+                                <li class="d-flex justify-content-between align-items-center gap-2 py-1">
+                                    <span>
+                                        {{ fn.label }}
+                                        {% if fn.section %}<span class="text-body-secondary">· {{ fn.section }}</span>{% endif %}
+                                    </span>
+                                    {% if fn.is_main %}<span class="badge text-bg-light border flex-shrink-0">Principale</span>{% endif %}
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </section>
+            {% endif %}
+
+            {% if badges is not empty %}
+                <section class="card mb-3">
+                    <div class="card-header d-flex align-items-center gap-2">
+                        <i class="bi bi-award" aria-hidden="true"></i>
+                        <h2 class="h6 mb-0">Badges</h2>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-flex flex-wrap gap-2">
+                            {% for badge in badges %}
+                                <span class="badge text-bg-light border">{{ badge.name }}</span>
+                            {% endfor %}
+                        </div>
+                        <p class="small text-body-secondary mb-0 mt-2">Attribués pour l'année {{ year_label }}.</p>
+                    </div>
+                </section>
+            {% endif %}
+
+            {# D'où vient cette personne — un lien, jamais une copie. La
+               demande garde sa propre page, construite par le module qui la
+               possède ; en recopier trois champs ici créerait un second
+               endroit à tenir à jour. Les deux pages sont role_min: admin,
+               donc quiconque voit ce lien peut l'ouvrir.
+
+               Absent pour un membre importé de Desk avant l'existence du
+               module, ou arrivé autrement : c'est le cas courant. #}
+            {% if registration_origin %}
+                <section class="card mb-3">
+                    <div class="card-header d-flex align-items-center gap-2">
+                        <i class="bi bi-signpost-split" aria-hidden="true"></i>
+                        <h2 class="h6 mb-0">Demande d'inscription d'origine</h2>
+                    </div>
+                    <a href="{{ registration_origin.path }}"
+                       class="card-body d-flex align-items-center gap-3 text-decoration-none text-body">
+                        <span class="flex-grow-1">
+                            <span class="fw-medium d-block">{{ registration_origin.label }}</span>
+                            <span class="text-body-secondary small">{{ registration_origin.statusLabel }}</span>
+                        </span>
+                        <i class="bi bi-chevron-right text-body-secondary flex-shrink-0" aria-hidden="true"></i>
+                    </a>
+                </section>
+            {% endif %}
+
             {# Core\Member\DepartureService — the same fact the registration
                module's « Départs » page marks (ARCHITECTURE.md §8.37),
                reachable here for any member found by search, staff
@@ -213,45 +284,6 @@
                     </div>
                     <div class="card-body text-center">
                         <img src="{{ file_url(photo_file_id, 'md') }}" alt="" class="rounded img-fluid" style="max-height:260px;" decoding="async">
-                    </div>
-                </section>
-            {% endif %}
-
-            {% if functions is not empty %}
-                <section class="card mb-3">
-                    <div class="card-header d-flex align-items-center gap-2">
-                        <i class="bi bi-briefcase" aria-hidden="true"></i>
-                        <h2 class="h6 mb-0">Fonctions de l'année</h2>
-                    </div>
-                    <div class="card-body">
-                        <ul class="list-unstyled mb-0">
-                            {% for fn in functions %}
-                                <li class="d-flex justify-content-between align-items-center gap-2 py-1">
-                                    <span>
-                                        {{ fn.label }}
-                                        {% if fn.section %}<span class="text-body-secondary">· {{ fn.section }}</span>{% endif %}
-                                    </span>
-                                    {% if fn.is_main %}<span class="badge text-bg-light border flex-shrink-0">Principale</span>{% endif %}
-                                </li>
-                            {% endfor %}
-                        </ul>
-                    </div>
-                </section>
-            {% endif %}
-
-            {% if badges is not empty %}
-                <section class="card mb-3">
-                    <div class="card-header d-flex align-items-center gap-2">
-                        <i class="bi bi-award" aria-hidden="true"></i>
-                        <h2 class="h6 mb-0">Badges</h2>
-                    </div>
-                    <div class="card-body">
-                        <div class="d-flex flex-wrap gap-2">
-                            {% for badge in badges %}
-                                <span class="badge text-bg-light border">{{ badge.name }}</span>
-                            {% endfor %}
-                        </div>
-                        <p class="small text-body-secondary mb-0 mt-2">Attribués pour l'année {{ year_label }}.</p>
                     </div>
                 </section>
             {% endif %}
@@ -470,31 +502,6 @@
                             </li>
                         {% endfor %}
                     </ul>
-                </section>
-            {% endif %}
-
-            {# D'où vient cette personne — un lien, jamais une copie. La
-               demande garde sa propre page, construite par le module qui la
-               possède ; en recopier trois champs ici créerait un second
-               endroit à tenir à jour. Les deux pages sont role_min: admin,
-               donc quiconque voit ce lien peut l'ouvrir.
-
-               Absent pour un membre importé de Desk avant l'existence du
-               module, ou arrivé autrement : c'est le cas courant. #}
-            {% if registration_origin %}
-                <section class="card mb-3">
-                    <div class="card-header d-flex align-items-center gap-2">
-                        <i class="bi bi-signpost-split" aria-hidden="true"></i>
-                        <h2 class="h6 mb-0">Demande d'inscription d'origine</h2>
-                    </div>
-                    <a href="{{ registration_origin.path }}"
-                       class="card-body d-flex align-items-center gap-3 text-decoration-none text-body">
-                        <span class="flex-grow-1">
-                            <span class="fw-medium d-block">{{ registration_origin.label }}</span>
-                            <span class="text-body-secondary small">{{ registration_origin.statusLabel }}</span>
-                        </span>
-                        <i class="bi bi-chevron-right text-body-secondary flex-shrink-0" aria-hidden="true"></i>
-                    </a>
                 </section>
             {% endif %}
 

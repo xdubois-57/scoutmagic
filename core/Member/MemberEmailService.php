@@ -454,10 +454,14 @@ class MemberEmailService
      */
     private function sendUnsubscribeNotifications(string $unsubscribedEmail, array $affectedMemberNames): void
     {
+        // Joined here rather than looped in the templates: `member_names`
+        // is a DECLARED variable (Core\Mail\Template\EmailTemplateRegistry)
+        // and a customised body substitutes plain strings, so a list would
+        // simply vanish from the message the day a unit reworded it.
         $context = [
             'site_name' => $this->siteName,
             'unsubscribed_email' => $unsubscribedEmail,
-            'member_names' => $affectedMemberNames,
+            'member_names' => implode(', ', $affectedMemberNames),
         ];
 
         $staffduSection = $this->sectionService->findByDeskCode(UnitStaffSectionService::DESK_CODE);
@@ -479,7 +483,7 @@ class MemberEmailService
 
         $confirmation = $this->emailTemplateRenderer->render(
             'member_email_unsubscribe_confirmation',
-            $context + ['staffdu_email' => $staffduEmail]
+            $context + ['staffdu_email' => $staffduEmail ?? '']
         );
 
         try {

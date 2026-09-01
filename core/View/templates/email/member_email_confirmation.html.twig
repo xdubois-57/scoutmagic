@@ -1,13 +1,24 @@
 {% extends 'email/base.html.twig' %}
 {% block content %}
-    <h2 style="margin:0 0 16px;font-size:20px;">Confirmez votre adresse email</h2>
-    <p>Cette adresse a été ajoutée à votre profil sur {{ site_name }}. Cliquez sur le bouton ci-dessous pour la confirmer. Ce lien est valable {{ expiry_hours }} heures et ne peut être utilisé qu'une seule fois.</p>
-    <p style="text-align:center;margin:24px 0;">
+    <h2 style="margin:0 0 20px;font-size:20px;line-height:1.3;color:#212529;">Confirmez votre adresse email</h2>
+    <p style="margin:0 0 16px;">Bonjour,</p>
+    <p style="margin:0 0 16px;">
+        Cette adresse vient d'être ajoutée à une fiche membre sur {{ site_name }}. Confirmez-la pour
+        qu'elle puisse recevoir nos messages : ce lien est valable {{ expiry_hours }} heures et ne
+        peut servir qu'une seule fois.
+    </p>
+    <p style="margin:24px 0;text-align:center;">
         <a href="{{ confirm_url }}"
-           style="display:inline-block;padding:12px 32px;background-color:#0d6efd;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:bold;">
+           style="display:inline-block;padding:12px 28px;background-color:#0d6efd;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:bold;">
             Confirmer cette adresse
         </a>
     </p>
-    <p style="font-size:13px;color:#666;">Si vous n'êtes pas à l'origine de cette demande, ignorez cet email — l'adresse ne sera jamais utilisée sans confirmation.</p>
-    <p style="font-size:12px;color:#999;word-break:break-all;">{{ confirm_url }}</p>
+    <p style="margin:0 0 16px;font-size:13px;color:#6c757d;">
+        Si le bouton ne fonctionne pas, copiez cette adresse dans votre navigateur :<br>
+        <span style="word-break:break-all;">{{ confirm_url }}</span>
+    </p>
+    <p style="margin:0;font-size:13px;color:#6c757d;">
+        Si vous n'êtes pas à l'origine de cette demande, ignorez ce message : sans confirmation,
+        l'adresse ne sera jamais utilisée.
+    </p>
 {% endblock %}
