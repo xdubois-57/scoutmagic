@@ -434,26 +434,75 @@
         var inviteZone = /** @type {HTMLElement|null} */ (scope.querySelector('[data-help-assistant-invite-zone]'));
         var invite = scope.querySelector('[data-help-assistant-invite]');
         var assistantHost = /** @type {HTMLElement|null} */ (scope.querySelector('[data-help-assistant-host]'));
+        // Said once, before the first exchange. Afterwards the button is
+        // simply how you ask the next question, and the line above it
+        // would be answering a question nobody asked twice.
+        var invitePreamble = /** @type {HTMLElement|null} */ (scope.querySelector('[data-help-assistant-invite-preamble]'));
+
+        var inviteOffline = /** @type {HTMLElement|null} */ (scope.querySelector('[data-help-assistant-invite-offline]'));
 
         if (invite) {
+            // Offline the exchange cannot happen — the answer is written by
+            // a provider on the internet. The button says so instead of
+            // disappearing, and the results above it still stand.
+            var refreshInviteOnlineState = function () {
+                var isOffline = navigator.onLine === false;
+                if (inviteOffline) {
+                    inviteOffline.classList.toggle('d-none', !isOffline);
+                }
+                if (invitePreamble) {
+                    invitePreamble.hidden = invitePreamble.hidden || isOffline;
+                }
+                if (invite instanceof HTMLButtonElement) {
+                    invite.disabled = isOffline;
+                } else if (invite instanceof HTMLAnchorElement) {
+                    invite.classList.toggle('disabled', isOffline);
+                    invite.setAttribute('aria-disabled', isOffline ? 'true' : 'false');
+                }
+            };
+
+            refreshInviteOnlineState();
+            window.addEventListener('online', refreshInviteOnlineState);
+            window.addEventListener('offline', refreshInviteOnlineState);
+
             invite.addEventListener('click', function (e) {
+                // Bootstrap's `.disabled` on a link is a look, not a
+                // behaviour — the click still fires, so it is stopped here.
+                if (navigator.onLine === false) {
+                    e.preventDefault();
+                    return;
+                }
+
                 var question = input.value.trim();
+                if (question === '') {
+                    input.focus();
+                    e.preventDefault();
+                    return;
+                }
 
                 if (!assistantHost) {
                     // /aide: the invite is a link to /aide/assistant, and
-                    // the question travels with it. Navigation proceeds.
+                    // the question travels with it. Navigation proceeds,
+                    // and the question is sent on arrival.
                     stashQuestion(question);
                     return;
                 }
 
                 // The help panel: the assistant is already in this drawer,
                 // one include below. Reveal it rather than leaving the page
-                // — the results the visitor just read stay above it.
+                // — the results the visitor just read stay above it — and
+                // send at once. The click IS the question; there is no
+                // second field to retype it into and no second button to
+                // confirm it with.
                 e.preventDefault();
                 assistantHost.hidden = false;
-                if (inviteZone) {
-                    inviteZone.hidden = true;
+                if (invitePreamble) {
+                    invitePreamble.hidden = true;
                 }
+                if (invite instanceof HTMLButtonElement) {
+                    invite.disabled = true;
+                }
+
                 // Dispatched ON the assistant, not on its wrapper: an
                 // event bubbles up, and help-assistant.js listens from
                 // inside.
@@ -464,11 +513,35 @@
                     }));
                 }
             });
+
+            // The exchange is over: asking another one is allowed again.
+            if (assistantHost) {
+                assistantHost.addEventListener('scoutmagic:help-assistant-idle', function () {
+                    if (invite instanceof HTMLButtonElement) {
+                        invite.disabled = false;
+                    }
+                });
+            }
+        }
+
+        // Emptying a long question by hand is what stops a second one
+        // from being asked — and with a single field on this screen, this
+        // field is what the next question is typed into.
+        var clear = /** @type {HTMLElement|null} */ (scope.querySelector('[data-help-search-clear]'));
+        if (clear) {
+            clear.addEventListener('click', function () {
+                input.value = '';
+                input.focus();
+                render();
+            });
         }
 
         function render() {
             var query = input.value.trim();
             results.replaceChildren();
+            if (clear) {
+                clear.classList.toggle('d-none', input.value === '');
+            }
 
             if (query === '') {
                 // Back to the surface's own content: the panel's topics,
@@ -497,9 +570,10 @@
             fallback.hidden = true;
             // Under the results, and only there: what the search found is
             // the thing the assistant is an alternative to, so the offer
-            // reads after them. Once the panel's assistant is open the
-            // invite has done its job and does not come back.
-            if (inviteZone && !(assistantHost && !assistantHost.hidden)) {
+            // reads after them. It stays available afterwards — with one
+            // field on this screen, this button is also how the second
+            // question gets asked.
+            if (inviteZone) {
                 inviteZone.hidden = false;
             }
         }

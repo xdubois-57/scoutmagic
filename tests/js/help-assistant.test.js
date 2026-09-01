@@ -27,15 +27,28 @@ function stubApi(data, ok = true) {
     return calls;
 }
 
+/** The full page: the assistant's own field, because there is no other. */
 function markup() {
     document.body.innerHTML = `
         <div data-help-assistant>
+            <div class="d-none" data-help-assistant-history>Vos échanges avec l'assistant</div>
             <div data-help-assistant-thread></div>
             <p class="d-none" data-help-assistant-offline>hors connexion</p>
             <form data-help-assistant-form>
                 <input data-help-assistant-input value="">
+                <button type="button" class="d-none" data-help-assistant-clear>×</button>
                 <button type="submit" data-help-assistant-submit></button>
             </form>
+        </div>`;
+}
+
+/** The help panel: no field at all — the search box above is the field. */
+function panelMarkup() {
+    document.body.innerHTML = `
+        <div data-help-assistant>
+            <div class="d-none" data-help-assistant-history>Vos échanges avec l'assistant</div>
+            <div data-help-assistant-thread></div>
+            <p class="d-none" data-help-assistant-offline>hors connexion</p>
         </div>`;
 }
 
@@ -200,27 +213,145 @@ describe('what comes back when there is no answer', () => {
 });
 
 describe('the question handed over by the local search', () => {
-    it('is picked up from sessionStorage on arrival, and consumed', async () => {
+    // Pressing « Demander à l'assistant » IS the request. Prefilling a
+    // field and waiting for a second press was the friction this replaced:
+    // it also meant two boxes on the panel, and no reader could say which
+    // one searched and which one asked.
+    it('is sent on arrival from /aide, and consumed from sessionStorage', async () => {
         window.sessionStorage.setItem('scoutmagic:help-assistant:question', 'changer mon adresse');
         markup();
+        const calls = stubApi({ success: true, found_nothing: false, answer_html: '<p>Voilà.</p>', topics: [] });
         await boot();
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
 
-        // Filled in, not sent: spending a quota unit and reaching a
-        // provider on a click meant to open a form is not the visitor's
-        // decision to have made for them.
-        expect(document.querySelector('[data-help-assistant-input]').value).toBe('changer mon adresse');
+        expect(calls.map((c) => c.body.question)).toEqual(['changer mon adresse']);
         expect(window.sessionStorage.getItem('scoutmagic:help-assistant:question')).toBeNull();
+        expect(thread().textContent).toContain('changer mon adresse');
     });
 
-    it('is picked up from the panel event too, with one behaviour for both surfaces', async () => {
-        markup();
+    it('is sent on the panel event too, with one behaviour for both surfaces', async () => {
+        panelMarkup();
+        const calls = stubApi({ success: true, found_nothing: false, answer_html: '<p>Voilà.</p>', topics: [] });
         await boot();
 
         document.querySelector('[data-help-assistant]').dispatchEvent(
             new CustomEvent('scoutmagic:help-assistant-ask', { detail: { question: 'changer mon adresse' } })
         );
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
 
-        expect(document.querySelector('[data-help-assistant-input]').value).toBe('changer mon adresse');
+        expect(calls.map((c) => c.body.question)).toEqual(['changer mon adresse']);
+        expect(thread().querySelector('strong, .help-content')).not.toBeNull();
+    });
+
+    it('tells whoever asked that the exchange is over', async () => {
+        panelMarkup();
+        stubApi({ success: true, found_nothing: false, answer_html: '<p>Voilà.</p>', topics: [] });
+        await boot();
+
+        let idle = 0;
+        document.querySelector('[data-help-assistant]')
+            .addEventListener('scoutmagic:help-assistant-idle', () => { idle += 1; });
+
+        document.querySelector('[data-help-assistant]').dispatchEvent(
+            new CustomEvent('scoutmagic:help-assistant-ask', { detail: { question: 'une question' } })
+        );
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        // help-search.js re-enables « Demander à l'assistant » on this.
+        expect(idle).toBe(1);
+    });
+});
+
+describe('showing that something is happening', () => {
+    it('turns a spinner while waiting, and drops it with the answer', async () => {
+        markup();
+        let release;
+        window.ScoutMagicApi = { postJson: () => new Promise((resolve) => { release = resolve; }) };
+        await boot();
+
+        document.querySelector('[data-help-assistant-input]').value = 'Comment écrire aux parents ?';
+        document.querySelector('[data-help-assistant-form]')
+            .dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+
+        // Two server-side calls happen and the second is the slow one; a
+        // still line of text for three seconds reads as a stuck page.
+        expect(thread().querySelector('.spinner-border')).not.toBeNull();
+
+        release({ ok: true, status: 200, data: { success: true, found_nothing: false, answer_html: '<p>Voilà.</p>', topics: [] } });
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(thread().querySelector('.spinner-border')).toBeNull();
+    });
+
+    it('drops the spinner on a refusal too', async () => {
+        markup();
+        stubApi({ success: false, error: 'Réessayez dans une heure.' }, false);
+        await boot();
+
+        await ask('Comment écrire aux parents ?');
+
+        expect(thread().querySelector('.spinner-border')).toBeNull();
+        expect(thread().textContent).toContain('Réessayez dans une heure');
+    });
+
+    it('names the conversation once there is one', async () => {
+        markup();
+        stubApi({ success: true, found_nothing: false, answer_html: '<p>Voilà.</p>', topics: [] });
+        await boot();
+
+        // An unlabelled stack of question-and-answer blocks reads as
+        // something the page decided to show; it is a conversation.
+        expect(document.querySelector('[data-help-assistant-history]').classList.contains('d-none')).toBe(true);
+
+        await ask('Comment écrire aux parents ?');
+
+        expect(document.querySelector('[data-help-assistant-history]').classList.contains('d-none')).toBe(false);
+    });
+
+    it('empties a long question in one click', async () => {
+        markup();
+        stubApi({ success: true, found_nothing: false, answer_html: '<p>Voilà.</p>', topics: [] });
+        await boot();
+
+        const input = document.querySelector('[data-help-assistant-input]');
+        const clear = document.querySelector('[data-help-assistant-clear]');
+        expect(clear.classList.contains('d-none')).toBe(true);
+
+        input.value = 'je dois prévenir les parents que la réunion est annulée';
+        input.dispatchEvent(new Event('input'));
+        expect(clear.classList.contains('d-none')).toBe(false);
+
+        clear.dispatchEvent(new Event('click', { bubbles: true }));
+        expect(input.value).toBe('');
+        expect(clear.classList.contains('d-none')).toBe(true);
+    });
+
+    it('refuses a second question while the first is in flight', async () => {
+        markup();
+        let release;
+        const calls = [];
+        window.ScoutMagicApi = {
+            postJson: (url, body) => {
+                calls.push(body);
+                return new Promise((resolve) => { release = resolve; });
+            },
+        };
+        await boot();
+
+        await ask('première question');
+        await ask('deuxième question');
+
+        expect(calls.map((c) => c.question)).toEqual(['première question']);
+
+        release({ ok: true, status: 200, data: { success: true, found_nothing: false, answer_html: '<p>Voilà.</p>', topics: [] } });
     });
 });
 

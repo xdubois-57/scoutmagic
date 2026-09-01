@@ -12,9 +12,13 @@ paths: /aide/assistant
 ---
 
 L'assistant lit les sujets d'aide du site et rédige une réponse à votre
-question, en français. Il apparaît sous les résultats de la recherche,
-avec le bouton « Demander à l'assistant », et il a sa propre page pour
-un échange plus long.
+question, en français. Tapez votre question dans le champ de recherche de
+l'aide : si aucun sujet ne répond, le bouton « Demander à l'assistant »
+apparaît sous les résultats et l'envoie telle quelle. Il a aussi sa
+propre page, pour un échange plus long.
+
+Pour poser une deuxième question, videz le champ avec la croix à sa
+droite et recommencez.
 
 Il n'est proposé que si votre unité a configuré un fournisseur
 d'intelligence artificielle. Sans cela, la recherche reste entière : elle

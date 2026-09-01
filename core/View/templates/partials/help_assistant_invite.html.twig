@@ -16,7 +16,10 @@
    whole feature.
 
    public/assets/js/help-search.js shows and hides it with the results,
-   and carries the typed question over as it is.
+   and sends the typed question STRAIGHT AWAY — the click is the question.
+   There is no second field to retype it into and no second button to
+   confirm it with: two search boxes one under the other on the same
+   screen is the thing a reader cannot make sense of.
 
    Parameter:
    - inline   true when the assistant lives on this very surface (the
@@ -26,9 +29,20 @@
    data-* only, no inline handlers (CSP — design.md §7.5). #}
 {% if help_assistant_available|default(false) %}
     <div class="mt-3 pt-3 border-top" data-help-assistant-invite-zone hidden>
-        <p class="small text-body-secondary mb-2">
+        {# Said once. After the first exchange the button is simply how the
+           next question is asked, and help-search.js hides this line. #}
+        <p class="small text-body-secondary mb-2" data-help-assistant-invite-preamble>
             Aucun de ces sujets ne répond à votre question ?
         </p>
+        {# Offline the answer cannot come: it is written by a provider on
+           the internet. Said here rather than by hiding the button, which
+           would only leave a reader wondering where it went. #}
+        <p class="small text-body-secondary mb-2 d-none" data-help-assistant-invite-offline>
+            <i class="bi bi-wifi-off" aria-hidden="true"></i>
+            Vous êtes hors connexion : l'assistant a besoin d'internet.
+            Les résultats ci-dessus, eux, s'affichent sans.
+        </p>
+
         {% if inline|default(false) %}
             <button type="button" class="btn btn-outline-primary btn-sm" data-help-assistant-invite>
                 <i class="bi bi-stars" aria-hidden="true"></i>

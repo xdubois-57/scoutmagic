@@ -43,6 +43,15 @@
                 <input type="search" class="form-control" id="help-panel-search"
                        placeholder="Rechercher un sujet…" autocomplete="off"
                        data-help-search-input>
+                {# The native `type=search` cross exists only in WebKit and
+                   is suppressed in app.css, so there is exactly one — this
+                   one — everywhere. A long question is what you have to
+                   clear before asking the next, and doing it by hand is
+                   how a second question stops being asked. #}
+                <button type="button" class="btn btn-outline-secondary d-none" data-help-search-clear>
+                    <i class="bi bi-x-lg" aria-hidden="true"></i>
+                    <span class="visually-hidden">Effacer la recherche</span>
+                </button>
             </div>
         </div>
 
