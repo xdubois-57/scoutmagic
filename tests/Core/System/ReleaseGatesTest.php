@@ -38,7 +38,29 @@ class ReleaseGatesTest extends TestCase
      */
     private static function launchedKeys(): array
     {
-        preg_match_all('/^\s*launch_gate\s+([a-z_]+)\s/m', self::script(), $matches);
+        // Two launchers, one meaning. `run_fast_gate` runs the gates that
+        // finish in seconds first and in the foreground, `launch_gate`
+        // forks the long ones; a gate wired to either one runs, and a gate
+        // wired to neither does not. Every assertion below is about that
+        // second thing, so both spellings count here.
+        preg_match_all(
+            '/^\s*(?:launch_gate|run_fast_gate)\s+([a-z_]+)\s/m',
+            self::script(),
+            $matches
+        );
+
+        return array_values(array_unique($matches[1]));
+    }
+
+    /**
+     * The gate keys `run_fast_gate` runs, in the order the script runs
+     * them.
+     *
+     * @return list<string>
+     */
+    private static function fastKeys(): array
+    {
+        preg_match_all('/^\s*run_fast_gate\s+([a-z_]+)\s/m', self::script(), $matches);
 
         return array_values(array_unique($matches[1]));
     }
@@ -68,12 +90,57 @@ class ReleaseGatesTest extends TestCase
         $orphans = [];
 
         foreach (self::gateFunctions() as $name) {
-            if (preg_match('/launch_gate\s+\S+\s+"[^"]*"\s+check_' . preg_quote($name, '/') . '_gate\b/', $script) !== 1) {
+            $wired = '/(?:launch_gate|run_fast_gate)\s+\S+\s+"[^"]*"\s+check_'
+                . preg_quote($name, '/') . '_gate\b/';
+            if (preg_match($wired, $script) !== 1) {
                 $orphans[] = "check_{$name}_gate";
             }
         }
 
-        $this->assertSame([], $orphans, 'these gate functions are never passed to launch_gate — they never run');
+        $this->assertSame(
+            [],
+            $orphans,
+            'these gate functions are passed to neither launch_gate nor run_fast_gate — they never run'
+        );
+    }
+
+    /**
+     * The fast gates exist to fail before anything expensive starts, and
+     * that is a property of ORDER rather than of speed: a `run_fast_gate`
+     * call sitting after the first `launch_gate` would still run, still
+     * pass its own assertions, and still cost the full twenty-five
+     * minutes it was written to save.
+     *
+     * This is how that regression was possible in the first place — the
+     * dependency and SonarQube blocks were declared after the long gates,
+     * so switching them to run_fast_gate was not enough on its own and
+     * the blocks had to be moved.
+     */
+    public function testEveryFastGateRunsBeforeTheFirstLongOne(): void
+    {
+        $script = self::script();
+
+        $this->assertNotSame([], self::fastKeys(), 'no gate runs in the fast lane any more');
+
+        $firstLaunch = null;
+        if (preg_match('/^\s*launch_gate\s/m', $script, $m, PREG_OFFSET_CAPTURE) === 1) {
+            $firstLaunch = $m[0][1];
+        }
+        $this->assertNotNull($firstLaunch, 'nothing is launched in parallel any more');
+
+        preg_match_all('/^\s*run_fast_gate\s+([a-z_]+)\s/m', $script, $fast, PREG_OFFSET_CAPTURE);
+        $late = [];
+        foreach ($fast[0] as $i => $match) {
+            if ($match[1] > $firstLaunch) {
+                $late[] = $fast[1][$i][0];
+            }
+        }
+
+        $this->assertSame(
+            [],
+            $late,
+            'these fast gates are declared after a long gate is launched, so they no longer run first'
+        );
     }
 
     /**
