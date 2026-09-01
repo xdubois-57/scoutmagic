@@ -14,6 +14,7 @@ use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 use Core\Security\EncryptionService;
 use Modules\InboundMail\Repository\InboundMessageRepository;
+use Modules\InboundMail\Service\AnalysisJournal;
 use Modules\InboundMail\Service\AnalysisResultApplier;
 use Modules\InboundMail\Service\MessageConsumerRegistry;
 
@@ -56,8 +57,15 @@ class AnalyzeStoredMessagesHandler implements TaskHandlerInterface
     /** Hourly. The pass is not urgent — nothing waits on it interactively. */
     public const INTERVAL_SECONDS = 3600;
 
-    public function __construct(private ?MessageConsumerRegistry $consumerRegistry = null)
-    {
+    public function __construct(
+        private ?MessageConsumerRegistry $consumerRegistry = null,
+        /**
+         * What this pass leaves in the journal. Null in the tests that
+         * only care about which messages get marked.
+         */
+        private ?AnalysisJournal $analysisJournal = null
+    ) {
+        $this->consumerRegistry?->setAnalysisJournal($analysisJournal);
     }
 
     /**
@@ -83,6 +91,9 @@ class AnalyzeStoredMessagesHandler implements TaskHandlerInterface
     {
         $applier = new AnalysisResultApplier($messages);
         $now = new \DateTimeImmutable();
+        $examined = 0;
+        $linked = 0;
+        $proposed = 0;
 
         foreach ($messages->findMessagesAwaitingStoredAnalysis(self::BATCH_SIZE) as $messageId) {
             // Marked before the work, not after. A message whose analysis
@@ -96,8 +107,20 @@ class AnalyzeStoredMessagesHandler implements TaskHandlerInterface
                 continue;
             }
 
-            $applier->apply($messageId, $this->consumerRegistry?->analyzeAllStored($stored) ?? []);
+            $examined++;
+            $results = $this->consumerRegistry?->analyzeAllStored($stored) ?? [];
+            $applier->apply($messageId, $results);
+
+            foreach ($results as $result) {
+                $linked += count($result->links);
+                $proposed += count($result->candidates);
+            }
         }
+
+        // A summary rather than a line per message: the arrival pass
+        // already wrote one for each of these, and this pass exists to say
+        // whether the *content* reading added anything.
+        $this->analysisJournal?->storedPassDone($examined, $linked, $proposed);
     }
 
     /**

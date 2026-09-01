@@ -93,8 +93,15 @@ class MailboxSyncService
          * configuration screen existed and what a test that does not care
          * about scoping still wants.
          */
-        private ?MailboxScopeService $scopeService = null
+        private ?MailboxScopeService $scopeService = null,
+        /**
+         * What the pipeline leaves in the event journal (`AnalysisJournal`).
+         * Null writes nothing, which is what a test that only cares about
+         * storage wants.
+         */
+        private ?AnalysisJournal $analysisJournal = null
     ) {
+        $this->consumerRegistry->setAnalysisJournal($analysisJournal);
     }
 
     /**
@@ -138,6 +145,14 @@ class MailboxSyncService
         $consumers = $this->scopeService !== null
             ? $this->scopeService->analyzingConsumers($mailbox)
             : $this->consumerRegistry->all();
+
+        if ($consumers === []) {
+            // Said once per box per pass, and only when it is true. A box
+            // no module is opened to still collects — the screen says so —
+            // but « rien ne le classe » is the answer to « pourquoi mon
+            // courrier ne produit rien », and until now it was nowhere.
+            $this->analysisJournal?->noConsumerAllowed($mailbox->id, $mailbox->name);
+        }
 
         $client = $this->clientFactory->forMailbox($mailbox);
         $stored = 0;
@@ -240,7 +255,9 @@ class MailboxSyncService
             $this->notifyLinked($existingId, $this->applier->apply($existingId, $results));
 
             // Nothing was *stored*: the message was already here, and its
-            // attachments with it.
+            // attachments with it. Nothing is journalled either — this is a
+            // re-read of a message whose analysis was already recorded, and
+            // a UIDVALIDITY reset would otherwise re-log a whole folder.
             return false;
         }
 
@@ -278,6 +295,22 @@ class MailboxSyncService
         );
 
         $created = $this->applier->apply($storedId, $results);
+
+        // One line per message, whatever came of it — « personne ne l'a
+        // reconnu » included, which is the answer a unit most often needs
+        // and the one that was hardest to get. Never the subject, never the
+        // sender: an internal id and what each module answered (§7.9).
+        $this->analysisJournal?->analysed(
+            $storedId,
+            $mailbox->id,
+            $mailbox->name,
+            array_map(
+                static fn(MessageConsumerInterface $consumer): string => $consumer->consumerId(),
+                $consumers
+            ),
+            $results,
+            AnalysisJournal::PASS_ARRIVAL
+        );
 
         // Attachments before the callbacks, deliberately: a consumer's
         // `onLinked()` is where it turns them into documents of its own,

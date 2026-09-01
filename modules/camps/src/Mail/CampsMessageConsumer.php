@@ -8,7 +8,6 @@ declare(strict_types=1);
 
 namespace Modules\Camps\Mail;
 
-use Core\Config\SettingService;
 use Core\Security\EncryptionService;
 use Core\Security\Role;
 use Core\Service\DateInput;
@@ -83,7 +82,6 @@ class CampsMessageConsumer implements MessageConsumerInterface
         private CampRepository $camps,
         private \PDO $pdo,
         private EncryptionService $encryption,
-        private SettingService $settings,
         private ?InboundMailInterface $inboundMail = null,
         private ?DocumentService $documents = null,
         private ?MailFieldCompletionService $fieldCompletion = null,
@@ -258,11 +256,30 @@ class CampsMessageConsumer implements MessageConsumerInterface
      */
     public function analyzeStored(InboundMessage $message): AnalysisResult
     {
-        if ($this->stayFromMail === null
-            || !$this->stayFromMail->isAutomatic()
-            || $message->links !== []
-            || !$this->isDedicatedMailbox($message->mailboxId)
-        ) {
+        if ($this->stayFromMail === null) {
+            return AnalysisResult::nothing();
+        }
+
+        // A message something else already claimed is not a message anybody
+        // is wondering about, and it leaves nothing behind: the journal
+        // entry below is for the mail that produced NOTHING, which is the
+        // only case a chief comes looking for.
+        if ($message->links !== []) {
+            return AnalysisResult::nothing();
+        }
+
+        // The remaining guards each say which one it was. They all used to
+        // answer the same silence, so « ma boîte camps ne crée rien » had
+        // five possible causes and no way to tell them apart — see
+        // Mail\StayFromMailService::journalSkip().
+        $refusal = match (true) {
+            !$this->isDedicatedMailbox($message->mailboxId) => StayFromMailService::SKIP_MAILBOX_NOT_DEDICATED,
+            !$this->stayFromMail->isAutomatic() => StayFromMailService::SKIP_NOT_AUTOMATIC,
+            default => null,
+        };
+        if ($refusal !== null) {
+            $this->stayFromMail->journalSkip($message->id, $refusal);
+
             return AnalysisResult::nothing();
         }
 
@@ -465,24 +482,26 @@ class CampsMessageConsumer implements MessageConsumerInterface
         return $sentAt >= $from && $sentAt <= $to;
     }
 
+    /**
+     * Whether that box is the one the operator declared to be the camps
+     * box — asked of `inbound_mail`, which owns the answer.
+     *
+     * **It used to be read from `camps_dedicated_mailbox_ids`, this
+     * module's own list of ids, and that had stopped being true.** The
+     * configuration screen « Portée des modules » took the question over
+     * (`Service\MailboxScopeService`), migrated the old list into the new
+     * model once, and never wrote to it again — so on every installation
+     * that declared its camps box on the new screen, this method answered
+     * « non » and automatic stay creation was silently off. The setting is
+     * kept declared for the one-time reprise of an installation still on
+     * the old model, and is read by nothing else.
+     *
+     * No `inbound_mail`, no answer, and therefore no creation: §7.5's
+     * degradation, and the safe direction — a stay invented on a box
+     * nobody declared is worse than a stay nobody invented.
+     */
     private function isDedicatedMailbox(int $mailboxId): bool
     {
-        return in_array($mailboxId, $this->dedicatedMailboxIds(), true);
-    }
-
-    /**
-     * @return int[]
-     */
-    public function dedicatedMailboxIds(): array
-    {
-        $raw = (string) ($this->settings->get('camps_dedicated_mailbox_ids', 'camps', '') ?? '');
-        if (trim($raw) === '') {
-            return [];
-        }
-
-        return array_values(array_filter(
-            array_map('intval', explode(',', $raw)),
-            static fn(int $id): bool => $id > 0
-        ));
+        return $this->inboundMail?->isDedicatedTo(self::CONSUMER_ID, $mailboxId) ?? false;
     }
 }

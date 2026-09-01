@@ -80,10 +80,89 @@ class StayFromMailServiceTest extends TestCase
             new DuplicatePlaceDetector($this->places, null),
             new MessageReader(),
             $this->settings,
-            $llm
+            $llm,
+            new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo))
         );
     }
 
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function journalEntries(): array
+    {
+        return (new \Core\Journal\JournalRepository($this->pdo))->search();
+    }
+
+    // ── Saying WHY nothing was created ──────────────────────────────────
+
+    /**
+     * The whole complaint, in one test: automatic creation is a chain of
+     * five guards, any of which is an ordinary « non », and from outside
+     * all five looked identical — nothing happened, nowhere.
+     */
+    public function testAMessageWithNoDatesSaysSoInTheJournal(): void
+    {
+        // What a real one looks like: a rental contract as a PDF, with a
+        // one-word body. The dates are in the attachment, which this path
+        // does not read — and until now nothing said that either.
+        $this->service()->createFrom($this->message(subject: 'Contrat de location', body: 'Bonjour,'));
+
+        $entry = $this->journalEntries()[0];
+        $this->assertSame('camps_stay_from_mail_skipped', $entry['event_type']);
+        $this->assertSame('no_dates', json_decode((string) $entry['context'], true)['reason']);
+        $this->assertStringContainsString('période de séjour', $entry['description']);
+    }
+
+    public function testAMessageWhosePlaceCouldNotBeNamedSaysSoInTheJournal(): void
+    {
+        // Dates, but no connector and no known place: the most confusing
+        // of the five, because everything the unit can see about the
+        // message looks right.
+        $this->service()->createFrom(
+            $this->message(fromName: 'Luc', subject: 'Réservation', body: 'Du 12 au 19 juillet 2028.')
+        );
+
+        $this->assertSame(
+            'no_place',
+            json_decode((string) $this->journalEntries()[0]['context'], true)['reason']
+        );
+    }
+
+    public function testTurningAutomaticCreationOffIsWrittenDownToo(): void
+    {
+        $this->setAutomatic('0');
+
+        $this->service()->createFrom($this->message(body: 'Du 12 au 19 juillet 2028.'));
+
+        $this->assertSame(
+            'not_automatic',
+            json_decode((string) $this->journalEntries()[0]['context'], true)['reason']
+        );
+    }
+
+    public function testAStayThatIsCreatedIsWrittenDownAsWell(): void
+    {
+        $campId = $this->service($this->llmAnswering('Domaine de Mozet'))->createFrom(
+            $this->message(body: 'Du 12 au 19 juillet 2028, Domaine de Mozet.')
+        );
+
+        $this->assertNotNull($campId);
+        $entry = $this->journalEntries()[0];
+        $this->assertSame('camps_stay_created_from_mail', $entry['event_type']);
+        $this->assertSame($campId, json_decode((string) $entry['context'], true)['camp_id']);
+    }
+
+    public function testTheJournalNeverNamesTheSenderOrTheSubject(): void
+    {
+        // A journal entry travels in the diagnostic archive (§7.9): an
+        // internal message id and a reason, and nothing else.
+        $this->service()->createFrom($this->message(subject: 'Contrat Fresnaye', body: 'Bonjour,'));
+
+        $entry = $this->journalEntries()[0];
+        $whole = $entry['description'] . '|' . (string) $entry['context'];
+        $this->assertStringNotContainsString('@', $whole);
+        $this->assertStringNotContainsString('Fresnaye', $whole);
+    }
     /** A connector that answers one place name, and remembers what it was asked. */
     private function llmAnswering(string $placeName): LlmConnectorInterface
     {

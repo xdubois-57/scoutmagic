@@ -34,6 +34,20 @@ class MessageConsumerRegistry
     /** @var array<string, \Closure(): MessageConsumerInterface> */
     private array $factories = [];
 
+    /**
+     * Where a swallowed failure goes.
+     *
+     * Null is the read path and the tests: a registry built to answer « may
+     * this person open that attachment » has no business writing to the
+     * journal. Every analysing path is wired with one.
+     */
+    private ?AnalysisJournal $analysisJournal = null;
+
+    public function setAnalysisJournal(?AnalysisJournal $journal): void
+    {
+        $this->analysisJournal = $journal;
+    }
+
     public function register(MessageConsumerInterface $consumer): void
     {
         $this->consumers[] = $consumer;
@@ -111,9 +125,11 @@ class MessageConsumerRegistry
      *
      * **A consumer that throws is skipped, never fatal.** One module's
      * analysis failing must not stop a synchronisation and leave every
-     * other consumer's mail unread behind a stuck cursor. Nothing about the
-     * failure is logged with any part of the message: a log line naming the
-     * sender would be personal data in the journal (§7.9).
+     * other consumer's mail unread behind a stuck cursor. It is no longer
+     * skipped *silently*, though: the failure reaches the journal as an
+     * `error`, naming the module and the box and nothing of the message
+     * itself (§7.9). Swallowing it whole was how a module could decline to
+     * read a unit's mail for weeks with nothing anywhere to say so.
      *
      * `$only` narrows the question to the consumers the mailbox's own
      * configuration allows to look at it (IT-05). Narrowing here rather
@@ -133,7 +149,13 @@ class MessageConsumerRegistry
         foreach ($only ?? $this->all() as $consumer) {
             try {
                 $result = $consumer->analyze($message);
-            } catch (\Throwable) {
+            } catch (\Throwable $e) {
+                $this->analysisJournal?->failed(
+                    $consumer->consumerId(),
+                    $message->mailboxId,
+                    AnalysisJournal::PASS_ARRIVAL,
+                    $e
+                );
                 continue;
             }
 
@@ -159,7 +181,13 @@ class MessageConsumerRegistry
         foreach ($only ?? $this->all() as $consumer) {
             try {
                 $result = $consumer->analyzeStored($message);
-            } catch (\Throwable) {
+            } catch (\Throwable $e) {
+                $this->analysisJournal?->failed(
+                    $consumer->consumerId(),
+                    $message->mailboxId,
+                    AnalysisJournal::PASS_STORED,
+                    $e
+                );
                 continue;
             }
 

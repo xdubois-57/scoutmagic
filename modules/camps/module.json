@@ -2,7 +2,7 @@
   "id": "camps",
   "name": "Camps",
   "description": "Les lieux de camp de l'unité et les séjours qu'elle y a faits — passés et à venir : dates, sections, prix, contacts sur place, avis des staffs précédents. Un staff qui cherche un terrain lit ce que les staffs d'avant en ont pensé, au lieu de repartir de zéro.",
-  "version": "1.7.1",
+  "version": "1.8.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -541,7 +541,7 @@
       "default_value": "",
       "type": "text",
       "label": "Boîtes aux lettres dédiées aux camps",
-      "description": "Identifiants (séparés par des virgules) des boîtes dont TOUT le contenu concerne les camps, par exemple camps@votre-unite.be. Vide par défaut : sans boîte dédiée, seuls les messages sûrement rattachables à un séjour sont repris. ATTENTION : une boîte listée ici doit être exclue des autres modules qui lisent le courrier — le module de location, notamment, lit par défaut toutes les boîtes, et le premier module qui réclame un message le garde."
+      "description": "RÉGLAGE HISTORIQUE, plus lu par le module. Le choix se fait désormais sur Configuration > Courrier entrant, en déclarant la boîte « dédiée » au module Camps : c'est ce choix-là, et lui seul, qui autorise la création automatique d'un séjour. Cette valeur n'est conservée que pour la reprise automatique d'une installation qui n'a pas encore vu le nouvel écran."
     },
     {
       "key": "camps_auto_create_from_mail",
