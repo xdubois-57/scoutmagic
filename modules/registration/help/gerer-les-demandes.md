@@ -4,6 +4,8 @@ title: Gérer les demandes d'inscription
 summary: Décider, écrire aux familles, rapprocher avec la fédération.
 category: Espace chefs d'U
 role_min: admin
+question: Comment accepter ou refuser une demande d'inscription ?
+question: Comment répondre à une famille qui attend une place ?
 paths: /config/inscriptions, /config/inscriptions/demandes/*
 related: inscrire-un-enfant, passage, annee-scoute
 ---

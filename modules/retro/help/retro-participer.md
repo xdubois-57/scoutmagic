@@ -4,6 +4,8 @@ title: Participer à une rétrospective
 summary: Déposer un mot, voter, en tout anonymat.
 category: Premiers pas
 role_min: public
+question: Comment participer à une rétrospective de staff ?
+question: Est-ce que mon message de rétrospective est anonyme ?
 paths: /r/*
 related: retrospectives
 ---

@@ -4,6 +4,8 @@ title: Ce que chaque module fait d'une boîte
 summary: Boîte partagée ou dédiée, qui analyse, qui peut lire, et combien de temps le courrier est conservé.
 category: Configuration
 role_min: superadmin
+question: Comment réserver une boîte e-mail à un seul usage ?
+question: Qui a le droit de lire le courrier entrant ?
 paths: /config/courrier-entrant/boites/*/portee
 related: courrier-entrant, courrier-unite
 ---

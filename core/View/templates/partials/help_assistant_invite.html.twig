@@ -1,0 +1,44 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{# « Demander à l'assistant », offered ONLY under the results of the local
+   search (ARCHITECTURE.md §8.87) — never above them, never instead of
+   them. The order is the locked decision D2: the search answers offline,
+   at every role, with no provider configured; the assistant is what you
+   reach for when it did not. Turning that around would make an AI call
+   the first thing a visitor does to find the page they already know the
+   name of.
+
+   Rendered at all only when `help_assistant_available` is true — the
+   connector is operational AND the viewer is `chief` or above (D4, D7).
+   Below that, this partial produces nothing and the search is simply the
+   whole feature.
+
+   public/assets/js/help-search.js shows and hides it with the results,
+   and carries the typed question over as it is.
+
+   Parameter:
+   - inline   true when the assistant lives on this very surface (the
+              help panel, which reveals it in place); false when the
+              question has to travel to /aide/assistant.
+
+   data-* only, no inline handlers (CSP — design.md §7.5). #}
+{% if help_assistant_available|default(false) %}
+    <div class="mt-3 pt-3 border-top" data-help-assistant-invite-zone hidden>
+        <p class="small text-body-secondary mb-2">
+            Aucun de ces sujets ne répond à votre question ?
+        </p>
+        {% if inline|default(false) %}
+            <button type="button" class="btn btn-outline-primary btn-sm" data-help-assistant-invite>
+                <i class="bi bi-stars" aria-hidden="true"></i>
+                Demander à l'assistant
+            </button>
+        {% else %}
+            <a href="/aide/assistant" class="btn btn-outline-primary btn-sm" data-help-assistant-invite>
+                <i class="bi bi-stars" aria-hidden="true"></i>
+                Demander à l'assistant
+            </a>
+        {% endif %}
+    </div>
+{% endif %}

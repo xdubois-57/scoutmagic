@@ -10,31 +10,25 @@
    back when the breadcrumb bar was hidden in a desktop browser tab —
    that would now put two identical buttons on screen at once.)
 
-   Two shapes, one look:
-   - A topic covers the current page → a <button> opening the offcanvas
-     panel (partials/help_panel.html.twig, rendered by base.html.twig
-     exactly when route_help is non-empty).
-   - No topic → a plain link to /aide, so the help index is reachable
-     from every page. Never hidden: a hidden button was the mockup's
-     behaviour, and it left /aide unreachable from anywhere.
+   ONE shape now, on every page: a <button> opening the offcanvas panel
+   (partials/help_panel.html.twig, which base.html.twig renders
+   unconditionally). It used to be a plain /aide link on a page no topic
+   covered — the panel then had nothing to show. It always has something
+   now: the search field is on top of it, works at every role and needs no
+   network, and a page without its own topic is exactly where searching
+   the corpus is most useful. The panel's own footer still links /aide for
+   the full list.
 
    `route_help` is the Twig global Core\Http\FrontController sets after
-   the RBAC guard — already role-filtered, already rendered. #}
-{% if route_help|default([]) is not empty %}
-    <button type="button"
-            class="btn btn-link p-1 border-0 text-body-secondary d-inline-flex align-items-center"
-            data-bs-toggle="offcanvas"
-            data-bs-target="#help-panel"
-            aria-controls="help-panel"
-            title="Aide sur cette page">
-        <i class="bi bi-question-circle" aria-hidden="true"></i>
-        <span class="visually-hidden">Aide sur cette page</span>
-    </button>
-{% else %}
-    <a href="/aide"
-       class="btn btn-link p-1 border-0 text-body-secondary d-inline-flex align-items-center"
-       title="Aide">
-        <i class="bi bi-question-circle" aria-hidden="true"></i>
-        <span class="visually-hidden">Aide</span>
-    </a>
-{% endif %}
+   the RBAC guard — already role-filtered, already rendered — and decides
+   only what the panel shows BELOW the search field, no longer whether the
+   button opens anything. #}
+<button type="button"
+        class="btn btn-link p-1 border-0 text-body-secondary d-inline-flex align-items-center"
+        data-bs-toggle="offcanvas"
+        data-bs-target="#help-panel"
+        aria-controls="help-panel"
+        title="{% if route_help|default([]) is not empty %}Aide sur cette page{% else %}Aide{% endif %}">
+    <i class="bi bi-question-circle" aria-hidden="true"></i>
+    <span class="visually-hidden">{% if route_help|default([]) is not empty %}Aide sur cette page{% else %}Aide{% endif %}</span>
+</button>

@@ -1131,6 +1131,55 @@ CREATE TABLE human_check_rate_limits (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 
+-- help_assistant_rate_limits: how many questions one account has put to
+-- the help assistant, one row each (ARCHITECTURE.md §8.87). Same shape
+-- and same purpose as human_check_rate_limits above — an LLM call costs
+-- the unit money at its provider, so the number one account can start in
+-- an hour is bounded.
+--
+-- Per account rather than per IP: the assistant is role_min chief, so
+-- there is always a signed-in account to charge, and an IP hash would
+-- bill a whole staff sharing one connection as one person.
+--
+-- The row holds an id and an instant and nothing else. It never holds the
+-- question: that is free text a human typed and can carry a name, an
+-- address or an amount (SECURITY.md §11). The quota counts, it does not
+-- remember. Core\Help\Assistant\Task\PurgeHelpAssistantHandler drops
+-- rows past the window daily.
+CREATE TABLE help_assistant_rate_limits (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    user_account_id INT UNSIGNED NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_help_assistant_rate_limits_lookup (user_account_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- help_assistant_cache: answers already produced, so the same question
+-- asked twice costs one LLM call instead of two.
+--
+-- The key is a FINGERPRINT, never the question: a SHA-256 of the
+-- normalised question + the role + the application version. The row can
+-- answer "have I seen this exact question" and nothing else, which is what
+-- SECURITY.md §11 requires of free text; a stored question would be a
+-- table of what the unit's chiefs worry about.
+--
+-- The role is in the key because two roles asking the same words are two
+-- different questions — the catalogue they were answered from differs, so
+-- the answers are not interchangeable. The application version is in it
+-- because the corpus only changes at a release, which makes invalidation
+-- free: a release changes every key at once, with no version column and
+-- no cache-busting call anywhere (the help index cache is keyed the same
+-- way, ARCHITECTURE.md §8.64).
+CREATE TABLE help_assistant_cache (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    fingerprint CHAR(64) NOT NULL UNIQUE,
+    answer TEXT NOT NULL,
+    topic_ids TEXT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_help_assistant_cache_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
 -- entity_changes: the per-entity change history any module can render on
 -- an entity's own page (ARCHITECTURE.md §8.65). Deliberately NOT the
 -- journal: `event_log` is a global administrative log that forbids

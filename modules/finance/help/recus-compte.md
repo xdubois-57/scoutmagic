@@ -4,6 +4,9 @@ title: Le compte d'un reçu, et « Compte inconnu »
 summary: Déplacer un reçu vers un autre compte, et trier ceux que le courrier n'a pas su rattacher.
 category: Espace animateurs
 role_min: intendant
+question: Comment déplacer un reçu déposé sur le mauvais compte ?
+question: Que faire des reçus arrivés par e-mail sans compte ?
+question: Pourquoi mon reçu a-t-il perdu ses mouvements associés ?
 paths: /finance/receipts
 related: recus, courrier-finances
 ---

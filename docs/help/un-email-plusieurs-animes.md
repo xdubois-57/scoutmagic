@@ -4,6 +4,8 @@ title: Une adresse e-mail pour plusieurs animés
 summary: Ce que voit un parent dont l'adresse est liée à plusieurs enfants.
 category: Premiers pas
 role_min: public
+question: Comment voir mes deux enfants avec une seule adresse ?
+question: Pourquoi je vois plusieurs enfants après ma connexion ?
 related: se-connecter, adresses-email, page-membre
 ---
 

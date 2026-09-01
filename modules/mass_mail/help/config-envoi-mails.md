@@ -4,6 +4,8 @@ title: Configurer l'envoi de mails
 summary: Les listes de diffusion personnalisées et la vitesse d'envoi.
 category: Configuration
 role_min: superadmin
+question: Comment créer une liste de diffusion personnalisée ?
+question: Pourquoi un envoi groupé met-il si longtemps à partir ?
 paths: /config/mass-mail
 related: envoi-de-mails, publipostage
 ---

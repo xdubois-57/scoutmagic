@@ -4,6 +4,9 @@ title: Consulter les membres par section
 summary: Voir la liste des animés et du staff de chaque section, et l'exporter en Excel.
 category: Espace animateurs
 role_min: intendant
+question: Où voir la liste des animés d'une section ?
+question: Comment exporter les membres d'une section en Excel ?
+question: Combien d'animés compte ma section cette année ?
 paths: /chefs/membres
 ---
 

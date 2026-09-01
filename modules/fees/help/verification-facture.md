@@ -4,6 +4,8 @@ title: Lire le rapport de vérification d'une facture
 summary: Ce que la fédération a compté, ce que Desk contenait le jour de l'émission, et nominativement où les deux divergent.
 category: Espace chefs d'U
 role_min: admin
+question: La facture de la fédération est-elle juste ?
+question: Pour qui la fédération nous facture-t-elle à tort ?
 paths: /admin/fees/factures/*
 related: factures-federation, justesse-des-tarifs, cotisations
 ---

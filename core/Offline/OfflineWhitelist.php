@@ -66,6 +66,13 @@ class OfflineWhitelist
         // nothing sensitive. role_min public on both: a topic page a role
         // may not see is already a 404 (HelpService), so there is nothing
         // narrower to declare here.
+        // `/aide/` also covers `/aide/assistant`, which is deliberate:
+        // the page is worth reading offline (it says what the assistant
+        // does and does not do), and public/assets/js/help-assistant.js
+        // shows « vous êtes hors connexion » there instead of letting a
+        // visitor type a question into a field that cannot send it. The
+        // ANSWER never comes from the cache — the POST is intercepted by
+        // offline-nav.js like every other non-GET.
         ['path' => '/aide', 'label' => 'Aide', 'match' => 'exact', 'role_min' => 'public'],
         ['path' => '/aide/', 'label' => 'Aide', 'match' => 'child', 'role_min' => 'public'],
     ];

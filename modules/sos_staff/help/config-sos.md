@@ -4,6 +4,8 @@ title: Raccorder la ligne SOS
 summary: Relier le numéro d'urgence à l'opérateur téléphonique, en trois étapes.
 category: Configuration
 role_min: superadmin
+question: Comment relier le numéro d'urgence à l'opérateur ?
+question: Comment changer le numéro vers lequel SOS renvoie ?
 paths: /config/sos
 related: sos-staff
 ---

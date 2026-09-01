@@ -4,6 +4,9 @@ title: Suivre votre demande de location
 summary: La page que votre lien vous ouvre : l'état de votre dossier, son prix, et comment demander un changement.
 category: Premiers pas
 role_min: public
+question: Où voir l'état de ma réservation de local ?
+question: Comment demander un changement de dates pour ma location ?
+question: J'ai perdu mon lien de suivi de location, que faire ?
 paths: /locations/suivi/*/*
 related: locations
 ---

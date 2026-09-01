@@ -4,6 +4,8 @@ title: Administrer les notifications
 summary: L'état du système de notifications, les clés d'envoi et la notification test.
 category: Configuration
 role_min: superadmin
+question: Pourquoi les notifications push n'arrivent-elles pas ?
+question: Comment tester l'envoi d'une notification ?
 paths: /config/notifications
 related: notifications-preferences, actions-planifiees, reglages
 ---

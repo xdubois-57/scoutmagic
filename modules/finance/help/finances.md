@@ -4,6 +4,8 @@ title: Suivre les finances de l'unité
 summary: Le tableau de bord, les mouvements, et qui voit quels comptes.
 category: Espace animateurs
 role_min: intendant
+question: Où voir combien il reste sur les comptes de l'unité ?
+question: Qui a le droit de voir quel compte bancaire ?
 paths: /finance, /finance/movements
 related: paiements-attendus, rapprochement, importer-extraits, recus, config-finance, badges, outils-finance
 ---

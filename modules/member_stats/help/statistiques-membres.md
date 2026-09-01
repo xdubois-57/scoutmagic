@@ -4,6 +4,8 @@ title: Lire les statistiques des animés
 summary: La répartition des animés par branche, par année et par genre.
 category: Espace animateurs
 role_min: chief
+question: Combien d'animés l'unité compte-t-elle par branche ?
+question: Comment voir l'évolution des effectifs d'une année à l'autre ?
 paths: /chiefs/stats
 related: membres-par-section
 ---

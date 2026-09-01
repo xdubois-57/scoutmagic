@@ -4,6 +4,8 @@ title: Créer les biens à louer
 summary: Déclarer un bien, désigner ses gestionnaires, l'archiver.
 category: Espace chefs d'U
 role_min: admin
+question: Comment mettre un local en location sur le site ?
+question: Comment désigner qui gère les locations d'un bien ?
 paths: /admin/locations
 related: gerer-les-locations, locations
 ---

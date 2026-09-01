@@ -4,6 +4,8 @@ title: Le courrier de l'unité
 summary: Voir tout le courrier reçu, l'orienter vers le bon dossier, et comprendre ce qui disparaît quand.
 category: Espace chefs d'U
 role_min: admin
+question: Où voir tous les e-mails reçus par l'unité ?
+question: Combien de temps le courrier reçu est-il conservé ?
 paths: /courrier, /courrier/*
 related: courrier-orienter, courrier-entrant, camps-courrier
 ---

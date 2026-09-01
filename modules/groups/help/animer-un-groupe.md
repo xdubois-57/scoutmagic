@@ -4,6 +4,9 @@ title: Créer et animer un groupe
 summary: Ouvrir un groupe, inviter, modérer, épingler, clôturer.
 category: Espace animateurs
 role_min: chief
+question: Comment ouvrir un groupe de discussion pour ma section ?
+question: Comment inviter un parent dans un groupe ?
+question: Comment épingler un message important en haut du groupe ?
 paths: /groups, /groups/*, /groups/*/members
 related: groupes, pages-d-un-groupe, signalements-groupe
 ---

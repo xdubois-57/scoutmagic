@@ -322,6 +322,27 @@ class RouterTest extends TestCase
         $this->assertNull($router->roleMinForPath('/news/12'));
     }
 
+    public function testPageAtPathAnswersOnlyForALabelledGetPage(): void
+    {
+        // The narrow accessor Core\Help\HelpPageLinkResolver reads: what
+        // to call the page, and who may open it. Nothing else about the
+        // route table leaves this class.
+        $router = new Router();
+        $router->addRoute('GET', '/news', 'App\\Controller\\NewsController', 'index', 'public', ['label' => 'Actualités', 'parents' => []]);
+        $router->addRoute('GET', '/news/{id}', 'App\\Controller\\NewsController', 'show', 'public', ['label' => 'Actualité', 'parents' => []]);
+        $router->addRoute('GET', '/api/news', 'App\\Controller\\NewsController', 'feed', 'public');
+        $router->addRoute('POST', '/news/save', 'App\\Controller\\NewsController', 'save', 'chief', ['label' => 'Actualités', 'parents' => []]);
+
+        $this->assertSame(['label' => 'Actualités', 'roleMin' => 'public'], $router->pageAtPath('/news'));
+        // A pattern is matched textually — there is no one article to open.
+        $this->assertNull($router->pageAtPath('/news/12'));
+        // No breadcrumb: an API endpoint, not a page.
+        $this->assertNull($router->pageAtPath('/api/news'));
+        // A POST route is not somewhere to send a reader.
+        $this->assertNull($router->pageAtPath('/news/save'));
+        $this->assertNull($router->pageAtPath('/nowhere'));
+    }
+
     private function routerWithNewsRoutes(): Router
     {
         $router = new Router();

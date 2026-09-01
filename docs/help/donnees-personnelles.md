@@ -4,6 +4,8 @@ title: Vos données personnelles
 summary: Ce que la page Protection des données explique, et vos droits.
 category: Premiers pas
 role_min: public
+question: Quelles données le site conserve-t-il sur mon enfant ?
+question: Comment demander la suppression de mes données ?
 paths: /rgpd
 related: cookies, page-membre, adresses-email
 ---

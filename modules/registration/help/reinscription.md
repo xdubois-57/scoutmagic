@@ -4,6 +4,8 @@ title: Répondre à la réinscription
 summary: Dire si votre enfant revient l'année prochaine, et avec qui il aimerait être.
 category: Espace membres
 role_min: identified
+question: Comment dire que mon enfant revient l'année prochaine ?
+question: Comment demander que mon enfant soit avec son ami ?
 paths: /reinscription
 related: suivre-une-demande, page-membre
 ---

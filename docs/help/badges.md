@@ -4,6 +4,8 @@ title: Gérer les badges
 summary: Les rôles transversaux du staff : créer, renommer, désactiver — et ce que le badge Trésorier ouvre.
 category: Configuration
 role_min: superadmin
+question: Comment créer un badge pour le staff ?
+question: Que donne le badge Trésorier à celui qui le porte ?
 paths: /config/badges
 related: staffs, config-desk, finances
 ---

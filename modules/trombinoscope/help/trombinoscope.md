@@ -4,6 +4,8 @@ title: Le trombinoscope
 summary: Les animateurs de chaque section, en photos, avec leur responsable.
 category: Espace membres
 role_min: identified
+question: Qui sont les animateurs de la section de mon enfant ?
+question: Comment savoir qui est responsable d'une section ?
 paths: /trombinoscope
 related: staffs, page-membre
 ---

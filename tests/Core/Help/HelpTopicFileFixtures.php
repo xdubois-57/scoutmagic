@@ -29,7 +29,10 @@ trait HelpTopicFileFixtures
     }
 
     /**
-     * @param array<string, string|null> $frontMatter null removes a default key
+     * @param array<string, string|string[]|null> $frontMatter null removes
+     *        a default key; an array writes the key once per value, which
+     *        is how the repeatable `question` key is declared
+     *        (Core\Help\HelpFrontMatterParser::REPEATABLE_KEYS).
      */
     private function writeTopic(string $dir, string $id, array $frontMatter = [], string $body = "Un corps de sujet.\n", ?string $fileName = null): string
     {
@@ -46,7 +49,9 @@ trait HelpTopicFileFixtures
             if ($value === null) {
                 continue;
             }
-            $lines[] = $key . ': ' . $value;
+            foreach (is_array($value) ? $value : [$value] as $single) {
+                $lines[] = $key . ': ' . $single;
+            }
         }
         $lines[] = '---';
         $lines[] = '';

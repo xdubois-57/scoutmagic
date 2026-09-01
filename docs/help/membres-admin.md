@@ -4,6 +4,9 @@ title: Rechercher un membre
 summary: La recherche, les filtres actif/inactif, les années précédentes et l'export Excel.
 category: Espace chefs d'U
 role_min: admin
+question: Comment retrouver la fiche d'une personne dans le site ?
+question: Comment exporter une liste de membres en Excel ?
+question: Comment retrouver quelqu'un qui a quitté l'unité ?
 paths: /admin/members
 related: fiche-membre-admin, import-desk, membres-par-section
 ---

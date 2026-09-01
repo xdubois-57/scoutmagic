@@ -4,6 +4,8 @@ title: Modifier votre réponse à un formulaire
 summary: Corriger une inscription déjà envoyée, tant que le formulaire est ouvert.
 category: Premiers pas
 role_min: public
+question: Comment corriger une inscription déjà envoyée ?
+question: Puis-je encore changer ma réponse à un formulaire ?
 paths: /news/*/form/responses/*/edit
 related: actualites
 ---

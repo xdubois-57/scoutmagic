@@ -4,12 +4,14 @@ title: Tester l'acheminement des e-mails
 summary: Vérifier que vos messages arrivent vraiment, et dans quel état.
 category: Configuration
 role_min: superadmin
+question: Comment savoir si nos e-mails arrivent en spam ?
+question: Comment tester l'acheminement d'un e-mail vers une adresse ?
 paths: /config/support
 related: support, config-emails
 ---
 
-Le bouton « Envoyer un e-mail de test » de la page Courriel prouve une
-seule chose : votre serveur a **accepté** le message. C'est déjà utile,
+Le bouton « M'envoyer un test », sur la page d'un modèle d'e-mail, prouve
+une seule chose : votre serveur a **accepté** le message. C'est déjà utile,
 et c'est loin d'être toute l'histoire — un message accepté peut être
 rejeté plus loin, mis en quarantaine une heure, ou supprimé sans
 avertissement par le fournisseur du destinataire.
@@ -18,7 +20,7 @@ La sonde répond à la suite. Elle envoie un message vers une boîte de
 l'équipe de support, qui vous dira ce qui est arrivé.
 
 Elle **part avec votre ticket** : il n'y a pas de bouton séparé. En
-cochant « j'accepte que le site envoie un e-mail de test », vous
+cochant « J'accepte que le site envoie un e-mail de test au support », vous
 l'autorisez, et elle est envoyée en même temps que le ticket.
 
 ## Ce que la sonde contient

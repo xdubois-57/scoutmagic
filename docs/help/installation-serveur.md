@@ -4,6 +4,9 @@ title: Installation & serveur
 summary: L'identité du site, la base de données, l'e-mail, les DNS et le cron.
 category: Configuration
 role_min: superadmin
+question: Comment raccorder le site à sa base de données ?
+question: Pourquoi les e-mails du site n'arrivent-ils pas ?
+question: Comment vérifier que le cron du site tourne ?
 paths: /setup
 related: reglages, sauvegardes, config-notifications
 ---

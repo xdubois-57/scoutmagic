@@ -4,6 +4,8 @@ title: L'historique des imports Desk
 summary: Retrouver un import passé, son fichier conservé et sa durée de conservation.
 category: Espace chefs d'U
 role_min: admin
+question: Comment retrouver un import Desk fait il y a six mois ?
+question: Combien de temps le site garde-t-il les fichiers importés ?
 paths: /admin/import/historique, /admin/import/*/rapport
 related: import-desk, donnees-personnelles, reglages
 ---

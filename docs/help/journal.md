@@ -4,6 +4,8 @@ title: Consulter le journal du site
 summary: Retrouver qui a fait quoi, et quand.
 category: Espace chefs d'U
 role_min: admin
+question: Qui a changé cela, et quand ?
+question: Où voir les erreurs techniques qu'a rencontrées le site ?
 paths: /admin/journal
 related: membres-admin, annee-scoute
 ---

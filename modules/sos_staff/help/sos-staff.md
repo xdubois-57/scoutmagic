@@ -4,6 +4,8 @@ title: Organiser les gardes SOS
 summary: La grille de garde mensuelle et le renvoi du numéro d'urgence.
 category: Espace chefs d'U
 role_min: admin
+question: Qui est de garde ce week-end ?
+question: Comment remplir la grille de garde du mois ?
 paths: /admin/sos, /admin/sos/transitions
 related: config-sos
 ---

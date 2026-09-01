@@ -16,9 +16,10 @@ use Core\Security\Role;
  * file.
  *
  * Deliberately narrow, same posture as Core\View\MarkdownRenderer: one
- * `key: value` pair per line, lists as comma-separated values, nothing
- * else — not a general YAML parser, which would be a new dependency (or a
- * hand-written one) for a format this project's own files never use.
+ * `key: value` pair per line, lists as comma-separated values, one
+ * repeatable key (`question`, see REPEATABLE_KEYS), nothing else — not a
+ * general YAML parser, which would be a new dependency (or a hand-written
+ * one) for a format this project's own files never use.
  *
  * Strict on purpose: a missing field, an unknown key, an unknown
  * role_min, an id that doesn't match the file name — every one of these
@@ -38,7 +39,36 @@ use Core\Security\Role;
 class HelpFrontMatterParser
 {
     private const REQUIRED_KEYS = ['id', 'title', 'summary', 'category', 'role_min'];
-    private const OPTIONAL_KEYS = ['paths', 'related'];
+    private const OPTIONAL_KEYS = ['paths', 'related', 'question'];
+
+    /**
+     * Keys that may appear SEVERAL times, one value per line, instead of
+     * once with a comma-separated value.
+     *
+     * `question` is the only one, and the comma form was ruled out for it
+     * rather than overlooked: a real question contains commas
+     * (« Comment prévenir les parents, y compris ceux d'une autre
+     * section ? »), so the separator `paths`/`related` use would cut a
+     * question in half and neither the author nor any test would see it.
+     *
+     * @var string[]
+     */
+    private const REPEATABLE_KEYS = ['question'];
+
+    /**
+     * Ids that no topic file may claim, because a route of the same shape
+     * already answers at that URL.
+     *
+     * Core\Http\Router::resolve() keeps the FIRST route that matches, and
+     * /aide/assistant is registered before /aide/{topic} (ARCHITECTURE.md
+     * §8.64) — so a topic with id 'assistant' would exist in the index, be
+     * findable by search, and 404-free but unreachable: /aide/assistant
+     * would render the assistant page instead of it. Refusing the id at
+     * load is the only place that failure is visible.
+     *
+     * @var string[]
+     */
+    private const RESERVED_IDS = ['assistant'];
 
     /**
      * Ids are URL path segments (/aide/{id}) and file names at once:
@@ -63,6 +93,7 @@ class HelpFrontMatterParser
             }
 
             $values = [];
+            $questions = [];
             $closed = false;
             while (($line = fgets($handle)) !== false) {
                 $trimmed = trim($line);
@@ -85,6 +116,15 @@ class HelpFrontMatterParser
                 if (!in_array($key, self::REQUIRED_KEYS, true) && !in_array($key, self::OPTIONAL_KEYS, true)) {
                     throw new HelpException("Help topic {$filePath} declares an unknown front-matter key '{$key}'");
                 }
+
+                if (in_array($key, self::REPEATABLE_KEYS, true)) {
+                    if ($value === '') {
+                        throw new HelpException("Help topic {$filePath} declares an empty '{$key}'");
+                    }
+                    $questions[] = $value;
+                    continue;
+                }
+
                 if (isset($values[$key])) {
                     throw new HelpException("Help topic {$filePath} declares '{$key}' twice");
                 }
@@ -127,6 +167,9 @@ class HelpFrontMatterParser
         if (basename($filePath) !== $id . '.md') {
             throw new HelpException("Help topic {$filePath} declares id '{$id}' but the file is not named '{$id}.md'");
         }
+        if (in_array($id, self::RESERVED_IDS, true)) {
+            throw new HelpException("Help topic {$filePath} claims the reserved id '{$id}' — a route of that name answers at /aide/{$id}, so the topic would be unreachable");
+        }
 
         $roleMin = Role::tryFrom($values['role_min']);
         if ($roleMin === null) {
@@ -141,6 +184,7 @@ class HelpFrontMatterParser
             roleMin: $roleMin,
             paths: $this->parsePaths($filePath, $values['paths'] ?? ''),
             related: $this->parseRelated($filePath, $values['related'] ?? ''),
+            questions: $questions,
             filePath: $filePath,
             moduleId: $moduleId,
         );

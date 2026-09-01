@@ -4,6 +4,9 @@ title: Découvrir le site de l'unité
 summary: Ce que montrent l'accueil, la page Contact et la page Sections.
 category: Premiers pas
 role_min: public
+question: Que peut-on voir sur le site sans être connecté ?
+question: Où trouver les coordonnées de l'unité ?
+question: Où voir la liste des sections de l'unité ?
 paths: /, /contact, /sections
 related: se-connecter, installer-application
 ---

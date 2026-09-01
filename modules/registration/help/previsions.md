@@ -4,6 +4,8 @@ title: Lire les prévisions d'effectifs
 summary: L'effectif projeté de l'année prochaine, entre certain et prévisionnel.
 category: Espace animateurs
 role_min: chief
+question: Combien serons-nous l'année prochaine dans chaque section ?
+question: Sur quoi la prévision d'effectifs est-elle calculée ?
 paths: /previsions
 related: departs, passage, statistiques-membres
 ---

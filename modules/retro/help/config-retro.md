@@ -4,6 +4,8 @@ title: Configurer les rétrospectives
 summary: Qui peut créer et clôturer, les valeurs par défaut, la modération IA.
 category: Espace chefs d'U
 role_min: admin
+question: Qui a le droit de créer une rétrospective ?
+question: Comment modérer automatiquement les messages d'une rétro ?
 paths: /config/retro
 related: retrospectives, connecteur-ia
 ---

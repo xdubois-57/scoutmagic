@@ -4,6 +4,8 @@ title: Répartir automatiquement les passages
 summary: Placer d'un seul geste tous ceux que personne n'a encore placés, et repartir de zéro.
 category: Espace chefs d'U
 role_min: admin
+question: Comment placer d'un coup tous ceux qui restent à placer ?
+question: Comment recommencer la répartition depuis le début ?
 paths: /passage
 related: passage, previsions, config-reinscription
 ---

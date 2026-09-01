@@ -18,6 +18,17 @@ interface ChartConstructor {
     new (canvas: HTMLCanvasElement, config: any): unknown;
 }
 
+// One record of the help corpus, as Core\Help\HelpSearchIndex serializes
+// it into #help-search-index and public/assets/js/help-search.js ranks it.
+interface HelpSearchEntry {
+    id: string;
+    title: string;
+    summary: string;
+    category: string;
+    questions: string[];
+    link: { path: string; label: string } | null;
+}
+
 interface Window {
     // public/assets/vendor/chartjs/chart.umd.min.js — present only on the
     // pages that load it.
@@ -229,5 +240,26 @@ interface Window {
         newUploadId: () => string;
         CHUNK_SIZE: number;
         CHUNK_THRESHOLD: number;
+    };
+    // public/assets/js/help-search.js — the instant, offline search over
+    // the help corpus; exposed for the unit tests, which exercise the real
+    // ranking rather than a reimplementation of it.
+    ScoutMagicHelpSearch?: {
+        search: (index: HelpSearchEntry[], query: string) => HelpSearchEntry[];
+        tokenize: (value: string) => string[];
+        normalize: (value: string) => string;
+    };
+    // public/assets/js/help-assistant.js — the conversation's rendering,
+    // exposed for the unit tests: the staged exchange and the list of
+    // topics the assistant read are the parts worth checking without a
+    // provider on the other end.
+    ScoutMagicHelpAssistant?: {
+        openExchange: (question: string) => {
+            block: HTMLElement;
+            status: HTMLElement;
+            answer: HTMLElement;
+            topics: HTMLElement;
+        };
+        renderTopics: (target: HTMLElement, topics: Array<{ id: string, title: string }>) => void;
     };
 }

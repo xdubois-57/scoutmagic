@@ -4,6 +4,9 @@ title: Encoder les activités au calendrier
 summary: Créer, modifier et supprimer les évènements des sections.
 category: Espace animateurs
 role_min: chief
+question: Comment ajouter une réunion au calendrier de ma section ?
+question: Comment annoncer un week-end de section aux parents ?
+question: Comment corriger la date d'une activité déjà encodée ?
 paths: /chefs/calendar
 related: staffs
 ---

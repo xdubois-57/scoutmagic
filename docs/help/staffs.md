@@ -4,6 +4,9 @@ title: La page Staffs
 summary: Les animateurs de chaque section, la photo de groupe et les badges.
 category: Espace animateurs
 role_min: intendant
+question: Qui anime quelle section cette année ?
+question: Comment ajouter la photo de groupe d'un staff ?
+question: Comment attribuer un badge à un animateur ?
 paths: /chefs/staffs
 related: documents-de-section, membres-par-section
 ---

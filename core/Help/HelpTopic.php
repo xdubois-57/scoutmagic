@@ -39,6 +39,13 @@ final class HelpTopic
      * @param string[] $related Ids of other topics — an unknown id is
      *        ignored and an out-of-role topic filtered at display time,
      *        both by HelpService, never here.
+     * @param string[] $questions The questions this topic answers, in the
+     *        words the person asking would use — the `question:` lines of
+     *        the front matter, in file order. One source feeding two
+     *        consumers: the local search index and, later, the catalogue
+     *        the help assistant selects from. Empty is valid for the
+     *        parser; the shipped corpus is held to 2-4 per topic by
+     *        tests/Core/Help/HelpInvariantsTest.
      * @param ?string $moduleId The module that ships this topic, null for
      *        a core topic (docs/help/). Display-only (the /aide index
      *        badges module topics) — a topic behaves identically either way.
@@ -51,6 +58,7 @@ final class HelpTopic
         public readonly Role $roleMin,
         public readonly array $paths,
         public readonly array $related,
+        public readonly array $questions,
         public readonly string $filePath,
         public readonly ?string $moduleId = null,
     ) {

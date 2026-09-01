@@ -1666,6 +1666,11 @@ $helpRegistry = new \Core\Help\HelpRegistry(
     \Core\Maintenance\VersionFile::read(dirname(__DIR__))
 );
 $helpService = new \Core\Help\HelpService($helpRegistry);
+// The « aller sur la page » link a topic carries (Core\Help\
+// HelpPageLinkResolver): it reads the router's own table for the label
+// and the role floor of the page a topic documents, so the link never
+// points at a 403 and never has to be written by hand in a topic file.
+$helpPageLinkResolver = new \Core\Help\HelpPageLinkResolver($router);
 
 // Create ModuleManager (modules loaded after core routes are registered)
 $modulesDir = __DIR__ . '/../modules';
@@ -1774,6 +1779,11 @@ $schedulerService->rearm('core', 'check_stable_update', 'daily', new DateTimeImm
 // Same bootstrap for the human-check rate-limit purge (Core\Security\
 // HumanCheck\Task\PurgeHumanCheckRateLimitsHandler).
 $schedulerService->rearm('core', 'purge_human_check_rate_limits', \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler::REFERENCE, new DateTimeImmutable());
+
+// Same bootstrap for the help assistant's own purge (Core\Help\Assistant\
+// Task\PurgeHelpAssistantHandler): rate-limit rows past the quota window
+// and cached answers no running version can still reach.
+$schedulerService->rearm('core', \Core\Help\Assistant\Task\PurgeHelpAssistantHandler::TASK_KEY, \Core\Help\Assistant\Task\PurgeHelpAssistantHandler::REFERENCE, new DateTimeImmutable());
 
 // Same bootstrap for the daily usage-statistics report (Core\Statistics\
 // Task\SendStatisticsHandler). The very first occurrence runs immediately;
@@ -1958,7 +1968,17 @@ $router->addRoute('POST', '/api/rich-text-content', EditableContentController::c
 // empty on purpose: the help belongs to no menu, and a `parents` entry
 // that matches no MenuBuilder label renders as dead text (design.md §7.3).
 $router->addRoute('GET', '/aide', \Core\Http\Controller\HelpController::class, 'index', 'public', ['label' => 'Aide', 'parents' => []]);
+// BEFORE /aide/{topic}, and this order is the whole wiring: Router::
+// resolve() keeps the FIRST route that matches, so the topic route
+// registered after it would otherwise swallow /aide/assistant and answer
+// 404 for a topic nobody wrote. Core\Help\HelpFrontMatterParser reserves
+// the id 'assistant' from the other side, so a topic can never claim it.
+$router->addRoute('GET', '/aide/assistant', \Core\Http\Controller\HelpAssistantController::class, 'page', 'chief', ['label' => 'Assistant', 'parents' => [], 'ancestors' => [['label' => 'Aide', 'path' => '/aide']]]);
 $router->addRoute('GET', '/aide/{topic}', \Core\Http\Controller\HelpController::class, 'show', 'public', ['label' => 'Aide', 'parents' => [], 'ancestors' => [['label' => 'Aide', 'path' => '/aide']]]);
+// The endpoint both surfaces post to. role_min: chief like the page —
+// the local search stays public, the assistant does not (locked
+// decision D4).
+$router->addRoute('POST', '/api/aide/assistant', \Core\Http\Controller\HelpAssistantController::class, 'ask', 'chief');
 
 // Cookie consent
 $router->addRoute('GET', '/cookies', CookieController::class, 'preferences', 'public', ['label' => 'Préférences cookies', 'parents' => []]);
@@ -2226,6 +2246,18 @@ $twig->addGlobal('menus', $menus);
 // cache a page it will only ever get a 403 for).
 $twig->addGlobal('offline_whitelist', $offlineWhitelist->getEntriesForRole(Role::fromString($currentRole)));
 
+// The help corpus the instant search ranks (Core\Help\HelpSearchIndex),
+// serialized into every page by base.html.twig — same timing and the same
+// reason as the offline whitelist just above: built once every enabled
+// module has registered its own topics, and filtered to the viewer's
+// effective role, because a blob in the page source is readable whatever
+// the script does with it. Front matter only, no bodies: ~15 KB, and the
+// registry already holds it in memory.
+$twig->addGlobal(
+    'help_search_index',
+    (new \Core\Help\HelpSearchIndex($helpService, $helpPageLinkResolver))->forRole(Role::fromString($currentRole))
+);
+
 // Determine the active menu section AND which specific page button should
 // be highlighted from the current path. A page's own sub-routes (e.g.
 // finance's /finance/movements, /finance/receipts — registered with an
@@ -2302,7 +2334,7 @@ $householdService = new \Core\Member\Household\HouseholdService(
 
 // Handle the request
 $maintenanceGate = new \Core\Maintenance\MaintenanceGate($updateHistoryRepository);
-$frontController = new FrontController($router, $twig, $config, $offlineWhitelist, $maintenanceGate, $helpService);
+$frontController = new FrontController($router, $twig, $config, $offlineWhitelist, $maintenanceGate, $helpService, $helpPageLinkResolver);
 
 // Entity change history pages (Core\Audit) — registered here rather than
 // next to its route, because $frontController does not exist yet at the
@@ -2317,7 +2349,7 @@ $frontController->registerController(
 // module had its chance to register topics.
 $frontController->registerController(
     \Core\Http\Controller\HelpController::class,
-    new \Core\Http\Controller\HelpController($twig, $helpService)
+    new \Core\Http\Controller\HelpController($twig, $helpService, $helpPageLinkResolver)
 );
 
 // LLM connector — the module's ONE block: its config page, the connector
@@ -2344,6 +2376,45 @@ if ($isEnabled('llm_connector')) {
         )
     );
 }
+
+// The help assistant (Core\Help\Assistant, ARCHITECTURE.md §8.87) —
+// built HERE and not next to $helpService above, because it is the one
+// consumer of the LLM connector that lives in core, and
+// $llmConnectorForOthers only exists once the module's block just above
+// has run. Null there means the assistant answers "unavailable" and the
+// local search carries on exactly as before (§7.5).
+$helpAssistantService = new \Core\Help\Assistant\AssistantService(
+    $helpService,
+    new \Core\Help\Assistant\AssistantCatalog($helpService),
+    new \Core\Help\Assistant\AssistantRateLimitRepository($pdo),
+    new \Core\Help\Assistant\AssistantCacheRepository($pdo),
+    $journalService,
+    \Core\Maintenance\VersionFile::read(dirname(__DIR__)),
+    $llmConnectorForOthers
+);
+
+// The assistant's two surfaces (the panel's third state and
+// /aide/assistant). Registered HERE, after the service exists: the
+// llm_connector block just above is what decides whether the connector
+// is a service or null, and a controller cannot be handed a dependency
+// built three hundred lines later.
+$frontController->registerController(
+    \Core\Http\Controller\HelpAssistantController::class,
+    new \Core\Http\Controller\HelpAssistantController($twig, $helpAssistantService, $helpService)
+);
+
+// Whether the « Demander à l'assistant » control is offered at all —
+// read by the help panel, which base.html.twig ships on every page. Both
+// halves are checked here and re-checked server-side on the endpoint:
+// the role floor (locked decision D4 — the assistant is `chief`, the
+// local search stays `public`), and the connector actually being
+// operational (D7 — no activation setting, availability IS the switch).
+// The role test comes first so that a visitor below the floor costs no
+// query at all.
+$twig->addGlobal(
+    'help_assistant_available',
+    Role::fromString($currentRole)->hasAccess(Role::CHIEF) && $helpAssistantService->isAvailable()
+);
 
 // RGPD content service (may use LLM if module is active). Each module's
 // effective sub-processors reach it through the Core\Module\

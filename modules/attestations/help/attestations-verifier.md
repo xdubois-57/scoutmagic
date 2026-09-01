@@ -4,6 +4,8 @@ title: Vérifier un lot avant de le distribuer
 summary: Relire l'appariement, trancher les homonymes et décider ce qui part.
 category: Espace chefs d'U
 role_min: admin
+question: Comment vérifier un lot d'attestations avant de l'envoyer ?
+question: Deux membres portent le même nom, laquelle est la bonne ?
 paths: /admin/attestations/*
 related: attestations, attestations-distribuer
 ---
@@ -40,8 +42,9 @@ afficher les animateurs, tout décocher — et la commande d'ensemble
 n'agit que sur les lignes affichées, ce que son libellé rappelle en
 donnant leur nombre.
 
-Deux compteurs, deux questions différentes. « Affichées » parle du filtre.
-**« À distribuer » est celui qui décide** de ce que le lot contiendra.
+Deux compteurs, deux questions différentes. Celui qui compte les lignes
+« affichées » parle du filtre. **Celui qui les compte « à distribuer »
+décide** de ce que le lot contiendra.
 
 Un membre qui a déjà reçu une attestation de la même catégorie pour la
 même année est signalé sous sa ligne, avec la date. C'est un

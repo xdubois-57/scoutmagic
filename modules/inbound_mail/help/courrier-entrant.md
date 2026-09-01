@@ -4,6 +4,8 @@ title: Raccorder le courrier entrant
 summary: Connecter les boîtes e-mail de l'unité, en lecture seule.
 category: Configuration
 role_min: superadmin
+question: Comment brancher une boîte e-mail de l'unité sur le site ?
+question: Le site peut-il envoyer ou effacer des mails de la boîte ?
 paths: /config/courrier-entrant, /config/courrier-entrant/boites/nouvelle, /config/courrier-entrant/boites/*/modification
 related: courrier-portee, courrier-unite, gerer-les-locations
 ---

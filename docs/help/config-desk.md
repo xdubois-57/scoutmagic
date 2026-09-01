@@ -4,6 +4,9 @@ title: Config Desk — fonctions, sections et branches
 summary: Donner leurs rôles aux fonctions Desk, et régler nom, e-mail, couleur et visibilité des sections.
 category: Configuration
 role_min: superadmin
+question: Comment dire quel rôle donne une fonction de Desk ?
+question: Comment renommer une section ou changer sa couleur ?
+question: Comment masquer une section aux visiteurs ?
 paths: /config/functions
 related: import-desk, staffs
 ---
