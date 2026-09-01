@@ -857,6 +857,29 @@ $settingService->register('support_last_ticket_sent_at', '', 'text', 'Date du de
 $settingService->register('support_ticket_categories', '', 'text', 'Catégories de tickets de support',
     'Liste des catégories publiée par le serveur de support lors du dernier échange. Renseignée automatiquement.',
     null, null, null, false, 292);
+// The archive's own bookkeeping (roadmap IT-26) and the mail probe's
+// (IT-27). These four were WRITTEN from the first day and never
+// registered, and `SettingService::setInternal()` throws on a key it does
+// not know — a throw both senders deliberately swallow, so that
+// bookkeeping can never turn a transmission that DID happen into a
+// failure an administrator would repeat. The two rules together made a
+// silent, permanent lie: the archive left, the confirmation said so, and
+// the page went on showing « Archive non transmise » for ever because the
+// reference it compares against was never written.
+// Tests\Architecture\SupportSettingsAreRegisteredTest now fails if a
+// sender gains a setting and this list does not.
+$settingService->register('support_last_ticket_archive_sent_at', '', 'text', "Date de transmission de la dernière archive",
+    "Horodatage de la dernière archive de diagnostic transmise au support. Renseigné automatiquement.",
+    null, null, null, false, 293);
+$settingService->register('support_last_ticket_archive_reference', '', 'text', "Ticket de la dernière archive transmise",
+    "Référence du ticket auquel la dernière archive de diagnostic a été jointe. Renseignée automatiquement.",
+    null, null, null, false, 294);
+$settingService->register('support_last_mail_probe_at', '', 'text', "Date de la dernière sonde e-mail",
+    "Horodatage de la dernière sonde de diagnostic envoyée, qui porte aussi la limite d'une sonde par heure. Renseigné automatiquement.",
+    null, null, null, false, 295);
+$settingService->register('support_last_mail_probe_key', '', 'text', "Clé de la dernière sonde e-mail",
+    "Clé de corrélation de la dernière sonde de diagnostic envoyée, pour la citer au support. Renseignée automatiquement.",
+    null, null, null, false, 296);
 // `installed_at` declares itself (Core\Statistics\InstallationDateService::
 // register()) because SetupController writes it before this file has ever
 // run — see that method's own comment. Backfilled here once for every

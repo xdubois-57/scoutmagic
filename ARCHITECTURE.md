@@ -432,6 +432,8 @@ A checker is a pure decision function — it never writes to the journal and nev
 
 Generic key-value with type, label, description (NOT NULL), optional regex validation. Grouped by module. Editable via dialog.
 
+**A setting the code writes must be declared in the composition root, and an unregistered one fails silently.** `SettingService::setInternal()` throws on a key it does not know — that is the right behaviour, since a typo must not create a row nobody declared. But a service that records what it just did (« l'archive est partie », « la sonde portait cette clé ») has no business turning bookkeeping into a failure the administrator would repeat, so it catches that throw — also the right behaviour. The two together are how `support_last_ticket_archive_reference` and its three neighbours were written from the first day, never registered, and never stored: the archive left, the confirmation was truthful, and Configuration > Support went on saying « Archive non transmise » for ever, because the reference it compares against did not exist. **A unit test cannot catch this**, because every one of them registers in `setUp()` the settings it needs — which is exactly the assumption that was false in production. Only a check against `public/index.php` itself can, which is what `Tests\Architecture\SupportSettingsAreRegisteredTest` does: it reflects the `*_SETTING` constants off the services that write them and fails if the composition root does not declare each one. Adding a written setting means adding a `register()` line in the same commit.
+
 ### 8.5 Scheduler
 
 One trigger (a real crontab), atomic task claim. Modules declare handlers in `module.json`.
