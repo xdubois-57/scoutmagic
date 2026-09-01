@@ -526,15 +526,32 @@ fournisseur d'IA configuré.
 recherche, jamais au-dessus et jamais à sa place, et seulement si le
 connecteur est opérationnel et le rôle suffisant (`chief`). L'ordre est
 la décision : on cherche une page dont on connaît un mot, et on demande à
-l'assistant quand la recherche n'a pas répondu. La question déjà tapée
-suit le lecteur, telle quelle, et se retrouve dans le champ — elle n'est
-jamais envoyée à sa place.
+l'assistant quand la recherche n'a pas répondu.
+
+**Un seul champ par écran.** Le clic sur ce bouton **envoie** la question
+déjà tapée, immédiatement. Le panneau n'a donc pas de champ à lui : celui
+de la recherche est celui de la question, et le bouton est l'envoi. Deux
+boîtes de saisie l'une sous l'autre sur le même écran — laquelle cherche,
+laquelle demande ? — est ce qu'un lecteur ne peut pas démêler, et faire
+appuyer sur un second bouton pour confirmer ce qu'on vient de demander
+n'ajoute rien. Ce champ unique porte donc une croix pour le vider d'un
+clic : effacer à la main une question longue est ce qui décourage d'en
+poser une seconde.
+
+**Une attente se voit.** Deux appels ont lieu côté serveur et le second
+est le lent : la ligne « Je cherche dans l'aide… » porte un indicateur qui
+tourne, sans quoi trois secondes de texte immobile se lisent comme un site
+bloqué.
 
 Deux surfaces pour une seule conversation : un état du panneau, et la
 page `/aide/assistant` pour l'échange qui mérite plus de place qu'un
-tiroir. Même partiel, même endpoint, même session. Les sujets que
-l'assistant a lus s'affichent en liens sous sa réponse : elle se vérifie
-contre sa source.
+tiroir — c'est la seule des deux qui porte son propre champ, n'ayant pas
+de recherche au-dessus. Même partiel, même endpoint, même session. Les
+échanges sont annoncés pour ce qu'ils sont — « Vos échanges avec
+l'assistant », et ils disparaissent à la déconnexion — sans quoi une pile
+de questions et de réponses se lit comme quelque chose que la page a
+décidé d'afficher. Les sujets que l'assistant a lus s'affichent en liens
+sous sa réponse : elle se vérifie contre sa source.
 
 **Le lien vers la page documentée.** Un sujet ouvert depuis `/aide` ou
 depuis un résultat de recherche affiche « Aller sur la page « X » »
