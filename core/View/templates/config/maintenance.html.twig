@@ -501,10 +501,15 @@
                         notification lorsqu'elle sera prête.
                     </p>
                     <form id="full-backup-form" {{ not zip_encryption_supported ? 'class="d-none"' : '' }}>
-                        {# A group of radios is labelled by a <legend> inside a
-                           <fieldset>, not by a loose <label> pointing at nothing:
-                           a screen reader announces the legend with each option,
-                           which is the whole point of the grouping. #}
+                        {# A group of radios is labelled by a legend inside a
+                           fieldset, not by a loose label pointing at nothing: a
+                           screen reader announces the legend with each option,
+                           which is the whole point of the grouping.
+
+                           Tag names spelled in words on purpose — Sonar's HTML
+                           parser does not know Twig comments, so writing them in
+                           angle brackets here makes it see a stray element and
+                           report it (Web:S8732 did exactly that on this block). #}
                         <fieldset class="mb-2 border-0 p-0">
                             <legend class="form-label small float-none w-auto">Portée</legend>
                             <div class="form-check">
