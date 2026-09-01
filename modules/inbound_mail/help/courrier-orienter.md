@@ -34,6 +34,16 @@ veut dire « ce message ne concerne pas ce module » — le prendre pour
 une raison de garder le message ferait dire à ce bouton le contraire
 de ce qu'il annonce.
 
+## Un message sans texte
+
+Les images placées **dans le corps** d'un message ne sont jamais
+affichées : les charger préviendrait l'expéditeur que vous avez ouvert
+son message, et depuis quel réseau. Un message dont tout le contenu
+était une image — une photo de reçu envoyée depuis un téléphone, par
+exemple — s'affiche donc sans texte, et le dit. L'image elle-même
+n'est pas perdue pour autant : elle est dans les pièces jointes, où
+elle se télécharge.
+
 ## Une pièce jointe non conservée
 
 Un fichier trop volumineux, d'un type refusé, ou arrivé alors que

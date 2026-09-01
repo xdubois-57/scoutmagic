@@ -1,9 +1,15 @@
-Une nouvelle demande de location est arrivée.
+Nouvelle demande de location
 
-Bien : {{ asset.name }}
-Référence : {{ booking.reference }}
-Dates : du {{ booking.arrivalDate|date_fr }} au {{ booking.departureDate|date_fr }}
+Bonjour,
 
-Traitez-la ici : {{ manage_url }}
+Une nouvelle demande de location vient d'arriver.
 
-{{ site_name }}
+- Bien : {{ asset_name }}
+- Référence : {{ reference }}
+- Dates : du {{ arrival_date }} au {{ departure_date }}
+
+Traiter la demande : {{ manage_url }}
+
+Les coordonnées du demandeur sont sur la page de la demande, jamais dans cet email.
+
+{% include 'email/signature.text.twig' %}

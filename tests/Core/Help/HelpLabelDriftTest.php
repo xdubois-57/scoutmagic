@@ -107,7 +107,6 @@ final class HelpLabelDriftTest extends TestCase
         'publier-une-actualite' => ['membres liés au compte'],
         'reponses-au-formulaire' => ['qui peut consulter les réponses'],
         'retrospectives' => ['lien seul'],
-        'support-sondes-email' => ['jamais reçue'],
         // Two questions the assistant can and cannot answer, and two ways
         // of asking it the same thing — what a reader would type, never a
         // control. This topic is about a field one writes into, so its
@@ -172,7 +171,16 @@ final class HelpLabelDriftTest extends TestCase
             );
             foreach ($walker as $file) {
                 /** @var \SplFileInfo $file */
-                if (!in_array(strtolower($file->getExtension()), ['twig', 'php', 'js'], true)) {
+                // A module's settings are declared in its module.json and
+                // rendered by the generic configuration page, label and
+                // description alike — so that file IS interface text, and
+                // a topic quoting « Intervalle entre deux relèves du
+                // courrier » quotes something a reader really sees. Only
+                // module.json: composer.json and package.json are not.
+                $isModuleManifest = $file->getFilename() === 'module.json';
+                if (!$isModuleManifest
+                    && !in_array(strtolower($file->getExtension()), ['twig', 'php', 'js'], true)
+                ) {
                     continue;
                 }
                 $path = $file->getPathname();

@@ -2,7 +2,7 @@
   "id": "finance",
   "name": "Finances",
   "description": "Gestion financière de l'unité : comptes, exercices, catégorisation, import de relevés bancaires, mouvements, reçus.",
-  "version": "1.16.0",
+  "version": "1.18.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -326,6 +326,15 @@
       "method": "POST",
       "controller": "Modules\\Finance\\Controller\\ReceiptController",
       "action": "replace",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
+      "path": "/finance/receipts/{id}/account",
+      "method": "POST",
+      "controller": "Modules\\Finance\\Controller\\ReceiptController",
+      "action": "changeAccount",
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": ""

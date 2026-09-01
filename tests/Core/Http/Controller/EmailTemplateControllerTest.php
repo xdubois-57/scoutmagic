@@ -410,6 +410,72 @@ class EmailTemplateControllerTest extends TestCase
         $this->assertStringContainsString('Unité Test', $body);
     }
 
+    /**
+     * The bug this page shipped with, and the reason none of the default
+     * wordings worked.
+     *
+     * The editor was seeded with the shipped template rendered with the
+     * registry's EXAMPLE values, so the text an administrator was handed
+     * had « Camille Dupont » where `{{ member_names }}` belonged. Saving
+     * it — or even just saving the subject, which stores the body
+     * alongside — froze one example into the e-mail, and every family
+     * afterwards read somebody else's name.
+     */
+    public function testTheEditorIsSeededWithThePlaceholdersRatherThanTheExamples(): void
+    {
+        $body = $this->controller->edit(
+            new Request('GET', '/config/emails/' . self::OPEN_TEMPLATE, [], [], [], []),
+            ['template' => self::OPEN_TEMPLATE]
+        )->getBody();
+
+        $this->assertStringContainsString(
+            '{{ member_names }}',
+            $body,
+            'The default wording an administrator edits must carry the placeholders: they are '
+                . 'what the renderer substitutes, and a text without them says the same thing to '
+                . 'everybody.'
+        );
+    }
+
+    public function testSavingOnlyTheSubjectStoresABodyThatStillSubstitutes(): void
+    {
+        $this->controller->saveSubject(
+            $this->formRequest(['subject' => 'Vous êtes désinscrit']),
+            ['template' => self::OPEN_TEMPLATE]
+        );
+
+        $stored = $this->overrides->find(self::OPEN_TEMPLATE);
+        $this->assertNotNull($stored);
+        $this->assertStringContainsString('{{ member_names }}', $stored['body_html']);
+        $this->assertStringNotContainsString('Camille Dupont', $stored['body_html']);
+
+        // And the e-mail that then goes out says the real thing.
+        $email = $this->renderer->render(self::OPEN_TEMPLATE, [
+            'site_name' => 'Unité Test',
+            'member_names' => 'Lou Martin',
+            'staffdu_email' => 'staff@test.be',
+        ]);
+        $this->assertStringContainsString('Lou Martin', $email->bodyHtml);
+        $this->assertStringNotContainsString('{{', $email->bodyHtml);
+    }
+
+    /**
+     * The insertion buttons have to be inside the rich-text modal, not
+     * only on the page behind it: that is where the caret is. Without
+     * them there, adding three variables meant saving, copying, reopening
+     * and pasting — three times over.
+     */
+    public function testTheVariableButtonsAreAlsoInsideTheEditor(): void
+    {
+        $body = $this->controller->edit(
+            new Request('GET', '/config/emails/' . self::OPEN_TEMPLATE, [], [], [], []),
+            ['template' => self::OPEN_TEMPLATE]
+        )->getBody();
+
+        $this->assertStringContainsString('data-target="richTextEditorContent"', $body);
+        $this->assertStringContainsString('data-variable="member_names"', $body);
+    }
+
     public function testAPreviewedSubjectHasItsVariablesFilledInToo(): void
     {
         // « Rétrospective clôturée : {{ board_title }} » — and rental's

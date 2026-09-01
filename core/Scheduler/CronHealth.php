@@ -15,8 +15,8 @@ use Core\Config\SettingService;
  * the three traces that exist, and from nowhere else.
  *
  * A real crontab firing every minute is the engine the scheduler is built
- * around; the poor man's cron in `public/index.php` is the ignition, not a
- * substitute. The reference installation nonetheless ran for days with a
+ * around, and since the in-request triggers were removed it is the only
+ * one there is. The reference installation nonetheless ran for days with a
  * crontab entry that executed nothing at all — the hosting panel had been
  * given a bare script path where it needed `php /htdocs/public/cron.php` —
  * and no page anywhere said so. This class exists so that both the setup

@@ -97,6 +97,7 @@ function e2e_support_main(array $argv): void
                 exit(1);
             }
             require_once $repoRoot . '/vendor/autoload.php';
+            e2e_apply_application_clock();
             e2e_provision($repoRoot, $instanceDir, $port);
             exit(0);
 
@@ -110,6 +111,7 @@ function e2e_support_main(array $argv): void
 
         case 'teardown-db':
             require_once $repoRoot . '/vendor/autoload.php';
+            e2e_apply_application_clock();
             e2e_teardown_database();
             exit(0);
 
@@ -658,34 +660,53 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
         281
     );
 
-    // Self-continuation off for this instance, and not as a convenience:
-    // `php -S` serves one request per worker at a time and defaults to a
-    // single worker, so a scheduler hop does not run alongside the request
-    // that emitted it — it queues behind it and then holds the only worker
-    // for a whole slice (75 s by default). Every browser interaction in
-    // that window stalls, which is how two unrelated specs came to time out
-    // at 40 s under the dynamic-security scan while the same commit passed
-    // the plain browser suite. The mechanism is built for FPM with a pool
-    // of workers, where one busy worker out of twenty is the whole point;
-    // it has no business chaining against a single-worker test server.
+    e2e_warn_if_near_scout_year_boundary();
+
+    // Pin the public scout year, so a run cannot be moved by the calendar
+    // underneath it.
     //
-    // Every recurring task is armed with `new DateTimeImmutable()` in
-    // public/index.php, so a freshly provisioned instance has about a
-    // dozen tasks due on its very first request — this is not a rare path.
+    // Core\Config\ScoutYearService::labelForDate() starts a new scout year
+    // the moment the month reaches September, and Core\Config\AppClock puts
+    // the application on Europe/Brussels — so the year every fixture below
+    // is seeded into changes at 00:00 Brussels time on 1 September. With
+    // neither year setting configured, Core\ScoutYear\ScoutYearResolver
+    // falls through to that date computation on every request, which means
+    // a suite that starts on 31 August and finishes on 1 September seeds
+    // its members, sections, on-call assignments, registrations and
+    // bookings into 2025-2026 and then asks for them in 2026-2027 —
+    // ensureYear() obligingly creates the new year, empty, and every
+    // scout-year-scoped fixture simply is not there any more.
     //
-    // Same register()-carries-the-value trick as above.
+    // Observed rather than imagined, 2026-08-31: CI was green at 20:43 and
+    // 20:54 UTC, the 21:32 run lost the three specs that ran past 22:00
+    // UTC (= midnight in Brussels), and a 20-sample probe started at 21:50
+    // lost twelve specs each, all of them after the boundary — « element(s)
+    // not found » on rows that had been seeded an hour earlier. Passing and
+    // failing specs interleaved, so nothing was wedged and nothing was
+    // slow: the ground had moved.
+    //
+    // Registered rather than set, for the same reason as
+    // statistics_destination above: public/index.php registers this key at
+    // boot, later than this, so the insert here carries the value and
+    // index.php's own register() then only refreshes default_value.
+    //
+    // specs/scout-year-transition.spec.js still moves this year forward on
+    // purpose, through the real admin page (Core\ScoutYear\
+    // ScoutYearAdminService writes the same setting) — pinning it here is
+    // the STARTING state that scenario expects, not a lock on it.
     $settingService->register(
-        Core\Scheduler\SchedulerContinuation::MAX_HOPS_SETTING,
-        '0',
+        Core\ScoutYear\ScoutYearResolver::SETTING_PUBLIC_YEAR,
+        (string) (new Core\Config\ScoutYearService($connection->getPdo()))->getCurrentYear()['id'],
         'number',
-        'Nombre maximum de tranches enchaînées',
-        "Plafond dur du nombre de fois qu'une même chaîne de tâches de fond peut se relancer elle-même. "
-        . "Mis à zéro sur cette instance de test : le serveur intégré de PHP ne sert qu'une requête à la fois.",
+        'Année scoute publique (ID)',
+        'Identifiant de l\'année scoute vue par tout le monde. Épinglée par le harnais E2E sur '
+        . "l'année dans laquelle les fixtures sont semées, pour qu'un passage de minuit le 1er "
+        . 'septembre ne la déplace pas en cours de route.',
         null,
+        '^[0-9]+$',
         null,
-        null,
-        true,
-        901
+        false,
+        210
     );
 
     $activated = e2e_activate_all_modules(
@@ -916,6 +937,127 @@ function e2e_create_super_admin(
 }
 
 /**
+ * Put this script on the same clock as the application it provisions.
+ *
+ * public/index.php calls Core\Config\AppClock::apply() as its first act
+ * after the autoloader, which pins the process to Europe/Brussels. This
+ * script never did, so it ran on PHP's default timezone — UTC on a CI
+ * runner and on a stock macOS PHP alike. For twenty-two hours a day that
+ * difference is invisible, because both clocks agree on the DATE.
+ *
+ * Between 22:00 and 24:00 UTC they do not, and once a year that
+ * disagreement lands on the only date boundary this application treats as
+ * a hard edge: a scout year starts on 1 September
+ * (Core\Config\ScoutYearService::labelForDate()). Measured on this very
+ * boundary, 2026-08-31 22:48 UTC:
+ *
+ *     provisioning saw : 2025-2026   (UTC, 2026-08-31)
+ *     the served app saw: 2026-2027   (Europe/Brussels, 2026-09-01)
+ *
+ * So the harness seeded every member, function, section period and
+ * booking into one scout year and the application then looked for them in
+ * another. Seven specs failed at once, all of them member lookups coming
+ * back empty — grantManagerBySearch() finding nobody to grant an asset
+ * to, the mass-mail audience unable to see kaa@example.invalid,
+ * /config/banner answering 403 to a super-admin whose own membership had
+ * become invisible. Fast, hard failures on a suite that had been green
+ * two hours earlier, and not one of them pointing at a clock.
+ *
+ * Applying the same clock is the fix, not a workaround: a harness that
+ * seeds data for an application has no business disagreeing with it about
+ * what day it is. The scout-year pin in e2e_provision() is the belt to
+ * this one's braces — this makes the two agree at the start, that keeps
+ * them agreeing if the run crosses midnight.
+ */
+function e2e_apply_application_clock(): void
+{
+    Core\Config\AppClock::apply();
+}
+
+/**
+ * A fixture start date that lies inside the scout year the row belongs to.
+ *
+ * Every membership fixture below used to start « a month ago » outright.
+ * For eleven months of the year that is inside the current scout year and
+ * nobody notices. In September it is not: a scout year begins on the 1st
+ * (Core\Config\ScoutYearService::labelForDate()), so on 1 September « a
+ * month ago » is 1 August — the PREVIOUS year — while the row's own
+ * scout_year_id points at the new one. The fixture then asserts something
+ * incoherent: a membership that started before the year it belongs to.
+ *
+ * This is a coherence fix, and it is worth being precise about what it is
+ * NOT: it was written while chasing the 2026-09-01 outage and it did not
+ * fix it — re-running the seven failing specs with only this change left
+ * all seven red. The cause was the clock (see
+ * e2e_apply_application_clock() above). Keeping it anyway, because a
+ * membership dated before the year it belongs to is wrong whatever else
+ * is true, and a fixture that states something impossible is a bad
+ * foundation for a test that asserts on it.
+ *
+ * Clamping to the year's own start_date keeps « a month ago » for the
+ * other eleven months and says « the day the year opened » in September.
+ *
+ * @param array{id: int, label: string, start_date: string, end_date: string} $scoutYear
+ */
+function e2e_fixture_start_date(array $scoutYear): string
+{
+    // Both are Y-m-d, so a string comparison is a date comparison.
+    return max(date('Y-m-d', strtotime('-1 month')), $scoutYear['start_date']);
+}
+
+/**
+ * Warn when this run is about to cross the scout-year boundary.
+ *
+ * A scout year turns over the instant the month reaches September
+ * (Core\Config\ScoutYearService::labelForDate()), on Belgian wall-clock
+ * time (Core\Config\AppClock). Fixtures are seeded once, at provisioning,
+ * into whatever year is current then — so a run that starts on 31 August
+ * and finishes on 1 September asks for them in a year that did not exist
+ * when they were written, and ensureYear() hands out a new empty one.
+ *
+ * The pinned `current_scout_year_id` above holds the line for everything
+ * that resolves through Core\ScoutYear\ScoutYearResolver — login and role
+ * resolution above all, which is what makes a member visible at all. It
+ * cannot hold it for the call sites that ask
+ * Core\Config\ScoutYearService::getCurrentYear() directly, and there are
+ * around twenty of them across core and the modules.
+ *
+ * Hence a warning rather than a promise. What it buys is the hour this
+ * cost the first time: without it the symptom is a dozen specs failing on
+ * « element(s) not found » for rows seeded minutes earlier, with passing
+ * specs interleaved so nothing looks wedged, on a commit that was green
+ * an hour before — every signal pointing at a flake, and none at the
+ * calendar.
+ */
+function e2e_warn_if_near_scout_year_boundary(?DateTimeImmutable $now = null): bool
+{
+    $now ??= new DateTimeImmutable('now', new DateTimeZone(Core\Config\AppClock::TIMEZONE));
+    $now = $now->setTimezone(new DateTimeZone(Core\Config\AppClock::TIMEZONE));
+    $year = (int) $now->format('n') >= 9 ? (int) $now->format('Y') + 1 : (int) $now->format('Y');
+    $boundary = new DateTimeImmutable(sprintf('%d-09-01 00:00:00', $year), $now->getTimezone());
+
+    $minutesAway = (int) round(($boundary->getTimestamp() - $now->getTimestamp()) / 60);
+    if ($minutesAway > 60) {
+        return false;
+    }
+
+    fwrite(STDERR, sprintf(
+        "E2E WARNING: the scout year turns over in %d minute(s) (%s, %s).\n"
+        . "            Fixtures are seeded into %s and a run crossing that instant will ask for\n"
+        . "            them in the next year. Expect « element(s) not found » on scout-year-scoped\n"
+        . "            rows, on specs that were green an hour ago. This is the calendar, not a flake.\n"
+        . "            Re-run after %s for a result worth reading.\n",
+        max($minutesAway, 0),
+        $boundary->format('Y-m-d H:i'),
+        Core\Config\AppClock::TIMEZONE,
+        Core\Config\ScoutYearService::labelForDate($now),
+        $boundary->format('H:i')
+    ));
+
+    return true;
+}
+
+/**
  * Give the throwaway super-admin a scout identity: a members row, a
  * member_years row for the current scout year carrying the SAME email
  * address as the account, and a first/last name on the account itself.
@@ -958,7 +1100,8 @@ function e2e_seed_member_for_admin(
     $normalizedEmail = strtolower(trim($email));
     $blindIndex = $encryptionService->blindIndex($normalizedEmail, 'email');
 
-    $scoutYearId = (new Core\Config\ScoutYearService($pdo))->getCurrentYear()['id'];
+    $scoutYear = (new Core\Config\ScoutYearService($pdo))->getCurrentYear();
+    $scoutYearId = $scoutYear['id'];
 
     $pdo->prepare('INSERT INTO members (desk_id) VALUES (?)')->execute(['E2E-ADMIN']);
     $memberId = (int) $pdo->lastInsertId();
@@ -1016,7 +1159,8 @@ function e2e_seed_ordinary_member(
     $encryptionService = Core\Security\EncryptionService::fromEncodedKeys($encodedEncryptionKey, $encodedBlindIndexKey);
     $email = e2e_member_email();
     $blindIndex = $encryptionService->blindIndex($email, 'email');
-    $scoutYearId = (new Core\Config\ScoutYearService($pdo))->getCurrentYear()['id'];
+    $scoutYear = (new Core\Config\ScoutYearService($pdo))->getCurrentYear();
+    $scoutYearId = $scoutYear['id'];
 
     $pdo->prepare('INSERT INTO members (desk_id) VALUES (?)')->execute(['E2E-MEMBER']);
     $memberId = (int) $pdo->lastInsertId();
@@ -1084,7 +1228,8 @@ function e2e_seed_ordinary_member(
 function e2e_seed_section_with_both_members(Core\Database\Connection $connection): void
 {
     $pdo = $connection->getPdo();
-    $scoutYearId = (new Core\Config\ScoutYearService($pdo))->getCurrentYear()['id'];
+    $scoutYear = (new Core\Config\ScoutYearService($pdo))->getCurrentYear();
+    $scoutYearId = $scoutYear['id'];
 
     $pdo->prepare('INSERT INTO age_branches (desk_code, label, sort_order) VALUES (?, ?, 10)')
         ->execute(['E2E-BR', 'Branche E2E']);
@@ -1099,7 +1244,7 @@ function e2e_seed_section_with_both_members(Core\Database\Connection $connection
         . ' SELECT id, ?, ?, ?, NULL FROM members WHERE desk_id = ?'
     );
     foreach (['E2E-ADMIN', 'E2E-MEMBER'] as $deskId) {
-        $statement->execute([$sectionId, $scoutYearId, date('Y-m-d', strtotime('-1 month')), $deskId]);
+        $statement->execute([$sectionId, $scoutYearId, e2e_fixture_start_date($scoutYear), $deskId]);
     }
 
     // role 'identified' — see this function's docblock: the function exists
@@ -1120,7 +1265,7 @@ function e2e_seed_section_with_both_members(Core\Database\Connection $connection
             $functionId,
             $sectionId,
             $ageBranchId,
-            date('Y-m-d', strtotime('-1 month')),
+            e2e_fixture_start_date($scoutYear),
             $deskId,
             $scoutYearId,
         ]);
@@ -1292,7 +1437,8 @@ function e2e_seed_role_members(
 ): void {
     $pdo = $connection->getPdo();
     $encryptionService = Core\Security\EncryptionService::fromEncodedKeys($encodedEncryptionKey, $encodedBlindIndexKey);
-    $scoutYearId = (new Core\Config\ScoutYearService($pdo))->getCurrentYear()['id'];
+    $scoutYear = (new Core\Config\ScoutYearService($pdo))->getCurrentYear();
+    $scoutYearId = $scoutYear['id'];
 
     // sort_order 90 puts this branch last everywhere branches are
     // ordered, so nothing that reads "the first section" on a page picks
@@ -1308,7 +1454,7 @@ function e2e_seed_role_members(
     $sectionId = (int) $pdo->lastInsertId();
 
     $userAccountRepository = new Core\Security\UserAccountRepository($pdo, $encryptionService);
-    $startDate = date('Y-m-d', strtotime('-1 month'));
+    $startDate = e2e_fixture_start_date($scoutYear);
 
     foreach (e2e_role_accounts() as $account) {
         $email = e2e_role_account_email($account);
@@ -1385,7 +1531,8 @@ function e2e_assert_resolved_roles(
 ): void {
     $pdo = $connection->getPdo();
     $encryptionService = Core\Security\EncryptionService::fromEncodedKeys($encodedEncryptionKey, $encodedBlindIndexKey);
-    $scoutYearId = (new Core\Config\ScoutYearService($pdo))->getCurrentYear()['id'];
+    $scoutYear = (new Core\Config\ScoutYearService($pdo))->getCurrentYear();
+    $scoutYearId = $scoutYear['id'];
 
     $roleResolver = new Core\Security\RoleResolver(
         new Core\Import\MemberYearRepository($pdo),
@@ -1439,7 +1586,8 @@ function e2e_assert_resolved_roles(
 function e2e_seed_unit_chief_function_for_admin(Core\Database\Connection $connection): void
 {
     $pdo = $connection->getPdo();
-    $scoutYearId = (new Core\Config\ScoutYearService($pdo))->getCurrentYear()['id'];
+    $scoutYear = (new Core\Config\ScoutYearService($pdo))->getCurrentYear();
+    $scoutYearId = $scoutYear['id'];
 
     $staffSectionId = (new Core\Member\UnitStaffSectionService($pdo))->ensureSection();
     $statement = $pdo->prepare('SELECT age_branch_id FROM sections WHERE id = ?');
@@ -1467,7 +1615,7 @@ function e2e_seed_unit_chief_function_for_admin(Core\Database\Connection $connec
         $functionId,
         $staffSectionId,
         $staffBranchId,
-        date('Y-m-d', strtotime('-1 month')),
+        e2e_fixture_start_date($scoutYear),
         'E2E-ADMIN',
         $scoutYearId,
     ]);
@@ -1487,7 +1635,8 @@ function e2e_seed_mobile_for_admin(
 ): void {
     $pdo = $connection->getPdo();
     $encryptionService = Core\Security\EncryptionService::fromEncodedKeys($encodedEncryptionKey, $encodedBlindIndexKey);
-    $scoutYearId = (new Core\Config\ScoutYearService($pdo))->getCurrentYear()['id'];
+    $scoutYear = (new Core\Config\ScoutYearService($pdo))->getCurrentYear();
+    $scoutYearId = $scoutYear['id'];
 
     $pdo->prepare(
         'UPDATE member_years my JOIN members m ON m.id = my.member_id'
@@ -1662,10 +1811,11 @@ function e2e_merge_coverage(string $repoRoot, string $coverageDir, string $outpu
  * background task rather than in the request: a gallery upload is stored
  * immediately but has no renditions until `gallery`/`process_photo` runs,
  * so "download this photo" cannot be tested at all without something
- * turning the queue. The application does turn it by itself — the
- * poor-man's cron at the foot of public/index.php — but no more than once
- * a minute, which is a minute a test cannot spend and a race it should
- * not depend on.
+ * turning the queue. Nothing else turns it: `public/cron.php` is the one
+ * engine an installation has, and this harness has no crontab, so a
+ * scenario that needs the queue to have advanced calls this and gets
+ * exactly one deterministic pass — which is better than a race against a
+ * background mechanism either way.
  *
  * A subprocess rather than an include: cron.php is a top-level script that
  * builds its own container from the instance's config, and running it

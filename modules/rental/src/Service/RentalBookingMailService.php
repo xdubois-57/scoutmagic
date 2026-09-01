@@ -13,6 +13,7 @@ use Core\Journal\JournalService;
 use Core\Mail\MailService;
 use Core\Mail\Template\EmailTemplateRenderer;
 use Core\Mail\Template\RenderedEmail;
+use Core\Service\DateInput;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Booking\RenterDecision;
 use Modules\Rental\Repository\RentalAsset;
@@ -64,6 +65,14 @@ class RentalBookingMailService
 
         $email = $this->renderFor($booking, $asset, 'rental.acknowledgement', [
             'tracking_url' => $trackingUrl,
+            // A whole sentence rather than a date: `hold_note` is a
+            // DECLARED variable, so a booking with no hold has to leave
+            // nothing behind in a customised body — an empty date would
+            // have left « Nous bloquons ces dates jusqu'au . »
+            'hold_note' => $booking->holdUntil !== null
+                ? 'Nous bloquons ces dates jusqu\'au ' . $booking->holdUntil->format('d/m/Y')
+                    . ', le temps de vous répondre.'
+                : '',
         ]);
 
         $this->mailService->send(
@@ -136,11 +145,11 @@ class RentalBookingMailService
         $email = $this->renderFor($booking, $asset, 'rental.decision', [
             'decision_subject' => $decision->subject(),
             'announcement' => $decision->announcement(),
-            'call_to_action' => $decision->callToAction(),
-            'manager_word' => $word !== '' ? $word : null,
+            'call_to_action' => $decision->callToAction() ?? '',
+            'manager_word' => $word,
             'tracking_url' => $decision->carriesTheTrackingLink() && $trackingToken !== null && $trackingToken !== ''
                 ? $this->trackingUrl($booking, $trackingToken)
-                : null,
+                : '',
         ]);
 
         try {
@@ -202,8 +211,6 @@ class RentalBookingMailService
     ): string {
         $messageId = $this->newMessageId();
         $context = [
-            'booking' => $booking,
-            'asset' => $asset,
             // The booking itself, not the module's front door. A manager
             // opening this mail on a phone was landing on a list and
             // having to find the request again — and the link is safe to
@@ -279,7 +286,6 @@ class RentalBookingMailService
         $email = $this->renderFor($booking, $asset, 'rental.document', [
             'document_subject' => ($isResend ? 'À nouveau : ' : '') . $documentLabel,
             'document_label' => $documentLabel,
-            'is_resend' => $isResend,
         ]);
 
         $this->mailService->send(
@@ -333,7 +339,9 @@ class RentalBookingMailService
     public function sendPracticalInfo(RentalBooking $booking, RentalAsset $asset, array $contacts = []): bool
     {
         $email = $this->renderFor($booking, $asset, 'rental.practical_info', [
-            'contacts' => $contacts,
+            'contacts' => self::contactLines($contacts),
+            'timing_note' => self::timingNote($asset),
+            'emergency_phone' => $asset->emergencyPhone ?? '',
         ]);
 
         try {
@@ -430,6 +438,55 @@ class RentalBookingMailService
         return true;
     }
 
+    /**
+     * A stored `Y-m-d` as the site writes dates everywhere else — the
+     * PHP twin of Twig's `date_fr` filter, needed here because a declared
+     * variable is a finished string by the time it reaches a template.
+     */
+    private static function dateFr(string $date): string
+    {
+        // Through DateInput, the one parsing seam in the project
+        // (Tests\Security\DateParsingConvergenceTest).
+        return DateInput::iso($date)?->format('d/m/Y') ?? $date;
+    }
+
+    /**
+     * The on-site contacts as one block of plain text, one per line — the
+     * shape `contacts` has to have to be a declared variable that survives
+     * into a reworded e-mail.
+     *
+     * @param array<int, array{display_name: string, phone: ?string}> $contacts
+     */
+    private static function contactLines(array $contacts): string
+    {
+        $lines = [];
+        foreach ($contacts as $contact) {
+            $phone = $contact['phone'] ?? null;
+            $lines[] = $contact['display_name'] . ($phone !== null && $phone !== '' ? ' — ' . $phone : '');
+        }
+
+        return implode("\n", $lines);
+    }
+
+    /**
+     * Arrival and departure times as one sentence, empty when the asset
+     * declares neither. One variable rather than two, for the same reason
+     * `hold_note` is a sentence: half of a sentence substituted into a
+     * customised body is worse than none of it.
+     */
+    private static function timingNote(RentalAsset $asset): string
+    {
+        $parts = [];
+        if ($asset->arrivalTime !== null && $asset->arrivalTime !== '') {
+            $parts[] = 'Arrivée à partir de ' . $asset->arrivalTime . '.';
+        }
+        if ($asset->departureTime !== null && $asset->departureTime !== '') {
+            $parts[] = 'Départ pour ' . $asset->departureTime . ' au plus tard.';
+        }
+
+        return implode(' ', $parts);
+    }
+
     public function subjectFor(RentalBooking $booking, string $subject): string
     {
         return '[' . $booking->reference . '] ' . $subject;
@@ -439,11 +496,13 @@ class RentalBookingMailService
      * One of this module's declared e-mails, rendered through the register
      * (ARCHITECTURE.md §8.7bis) rather than by rendering Twig here.
      *
-     * The context handed over carries BOTH halves, and it has to:
-     * the shipped templates walk `booking` and `asset` as objects, while a
-     * customised body substitutes plain strings and can only be given the
-     * declared scalars. Passing one without the other would work until the
-     * day somebody customised the e-mail — the worst moment to find out.
+     * **Declared scalars, and nothing else.** The shipped templates used
+     * to walk `booking` and `asset` as objects while the manifest declared
+     * a handful of flat strings, so the two paths said different things:
+     * a customised e-mail lost the renter's name and both dates, and the
+     * default wording Configuration > E-mails offered an administrator was
+     * that same template rendered with no booking at all — « Bonjour , du
+     *  au  ». One context, one substitutable surface, one message.
      *
      * **The reference prefix stays outside.** `subjectFor()` is applied to
      * whatever subject comes back, shipped or customised, because
@@ -459,9 +518,10 @@ class RentalBookingMailService
         $email = $this->emailTemplateRenderer->render($templateId, $context + [
             'reference' => $booking->reference,
             'asset_name' => $asset->name,
+            'renter_name' => $booking->renterName,
+            'arrival_date' => self::dateFr($booking->arrivalDate),
+            'departure_date' => self::dateFr($booking->departureDate),
             'site_name' => $this->settingService->get('site_name') ?: 'Notre unité',
-            'booking' => $booking,
-            'asset' => $asset,
         ]);
 
         return new RenderedEmail(

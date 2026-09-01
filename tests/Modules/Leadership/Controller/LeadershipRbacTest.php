@@ -67,7 +67,7 @@ class LeadershipRbacTest extends TestCase
         $stmt = $this->pdo->prepare(
             'INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES (?, ?, ?, 1)'
         );
-        $stmt->execute(['2025-2026', '2025-09-01', '2026-08-31']);
+        $stmt->execute(DatabaseTestHelper::scoutYear());
         $this->scoutYearId = (int) $this->pdo->lastInsertId();
 
         $this->twig = $this->buildTwig();

@@ -1,5 +1,13 @@
 Nouvelles réponses — {{ article_title }}
 
-{{ count }} nouvelle{{ count > 1 ? 's' : '' }} réponse{{ count > 1 ? 's' : '' }} {{ count > 1 ? 'ont' : 'a' }} été soumise{{ count > 1 ? 's' : '' }} depuis le dernier résumé.
+Bonjour,
+
+Le formulaire de {{ article_title }} a reçu de nouvelles réponses depuis le dernier résumé.
+
+Nombre de nouvelles réponses : {{ count }}.
 
 Voir les réponses : {{ responses_url }}
+
+Vous recevez ce résumé parce que vous êtes l'auteur de cette annonce.
+
+{% include 'email/signature.text.twig' %}

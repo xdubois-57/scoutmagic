@@ -1,6 +1,20 @@
 {#
  ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
  Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+
+ The frame every automatic e-mail is sent in — the shipped ones through
+ their own `content` block, a customised one through email/custom.html.twig
+ (Core\Mail\Template\EmailTemplateRenderer).
+
+ It is CODE and is never customisable, which is why the unit's name is
+ never offered as an insertable variable: the greeting an administrator
+ writes changes, the closing formula and the signature do not, and an
+ e-mail that lost its signature because somebody deleted a line would go
+ out unsigned to every family of the unit.
+
+ That is also why the sign-off lives here rather than in each template: it
+ is the one thing every message the site sends has in common, shipped or
+ reworded (docs/module-development.md § E-mails).
 #}
 <!DOCTYPE html>
 <html lang="fr">
@@ -8,12 +22,36 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}{{ site_name }}{% endblock %}</title>
+    {#
+      Typography for a body the site did not write: a CUSTOMISED e-mail is
+      sanitised rich text (Core\Security\HtmlSanitizer keeps p, h2, h3,
+      ul, a, blockquote and drops every style attribute), so its paragraphs
+      and headings would otherwise arrive with whatever defaults the mail
+      client felt like. These rules give it the same rhythm as the shipped
+      templates, which carry the same values inline — an inline style wins,
+      so nothing here changes a shipped e-mail.
+    #}
+    <style>
+        .sm-content p { margin: 0 0 16px; }
+        .sm-content h2 { margin: 0 0 20px; font-size: 20px; line-height: 1.3; color: #212529; }
+        .sm-content h3, .sm-content h4 { margin: 20px 0 8px; font-size: 16px; color: #212529; }
+        .sm-content ul, .sm-content ol { margin: 0 0 16px; padding-left: 20px; }
+        .sm-content li { margin-bottom: 4px; }
+        .sm-content a { color: #0d6efd; }
+        .sm-content blockquote { margin: 16px 0; padding: 4px 0 4px 12px; border-left: 3px solid #dee2e6; color: #4b5563; }
+    </style>
 </head>
-<body style="margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#333;">
-    <div style="max-width:560px;margin:0 auto;padding:24px 16px;">
-        {% block content %}{% endblock %}
-        <div style="margin-top:32px;padding-top:16px;border-top:1px solid #e0e0e0;font-size:12px;color:#999;">
-            {{ site_name }}
+<body style="margin:0;padding:0;background-color:#f4f5f7;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.6;color:#333333;">
+    <div style="max-width:600px;margin:0 auto;padding:24px 12px;">
+        <div class="sm-content" style="background-color:#ffffff;border:1px solid #e6e8eb;border-radius:8px;padding:24px;">
+            {% block content %}{% endblock %}
+            <p style="margin:28px 0 0;">
+                Bien à vous,<br>
+                <strong>{{ site_name }}</strong>
+            </p>
+        </div>
+        <div style="margin-top:16px;font-size:12px;line-height:1.5;color:#8a8f98;text-align:center;">
+            Message envoyé automatiquement par {{ site_name }}.
         </div>
     </div>
 </body>

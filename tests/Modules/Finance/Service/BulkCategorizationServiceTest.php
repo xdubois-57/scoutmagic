@@ -195,7 +195,7 @@ class BulkCategorizationServiceTest extends TestCase
     /**
      * Regression: the marker was a bare '1' cleared only by
      * runInBackground()'s finally block. If the scheduled task was never
-     * picked up (the poor man's cron needs a page load), the process died
+     * picked up (a crontab that stopped firing), the process died
      * first, or — the most likely case — the batch was killed by PHP's
      * max_execution_time (a fatal error, which skips finally entirely), it
      * stayed set for ever and the config page's "Exécuter les règles" button

@@ -13,14 +13,13 @@ related: reglages, config-notifications, adresses-email
 Le site envoie des emails tout seul : un accusé de réception à une
 famille qui demande une location, un rappel avant un séjour, un avis
 au Staff d'U quand une adresse se désinscrit. Cette page les liste
-tous et permet d'en réécrire le texte, pour que ce que votre unité
-écrit ressemble à votre unité.
+tous et permet d'en réécrire le texte.
 
 ## La liste
 
-Les emails sont regroupés par origine : d'abord ceux du site, puis
-ceux de chaque module activé. Chaque ligne dit ce que l'email est,
-quand il part, et son état :
+Les emails sont regroupés par origine : ceux du site, puis ceux de
+chaque module activé. Chaque ligne dit ce que l'email est, quand il
+part, et son état :
 
 - **Par défaut** : il utilise le texte livré avec le site. Il suivra
   automatiquement les améliorations des prochaines versions.
@@ -29,49 +28,52 @@ quand il part, et son état :
 
 ## Les emails qu'on ne peut pas réécrire
 
-Trois emails servent à se connecter au site ou à confirmer une
-adresse : le lien de connexion, la réinitialisation du mot de passe et
-la confirmation d'une adresse secondaire. Ils sont affichés pour que
-la liste soit complète, mais sans bouton pour les modifier.
-
-Ce n'est pas un oubli : une erreur dans le lien de connexion mettrait
-tout le monde dehors, y compris la personne qui vient de la faire.
+Quelques emails servent à se connecter au site ou à confirmer une
+adresse. Ils sont affichés pour que la liste soit complète, mais sans
+bouton pour les modifier : une erreur dans le lien de connexion
+mettrait tout le monde dehors, y compris la personne qui vient de la
+faire.
 
 ## Réécrire un email
 
 Touchez son nom pour ouvrir sa page. Elle a trois parties.
 
-**Le sujet** est une simple ligne de texte. Le nom de votre unité est
-ajouté automatiquement devant lui à l'envoi : inutile de le réécrire.
+**Le sujet** est une simple ligne de texte. Le nom de votre unité y
+est ajouté automatiquement à l'envoi : inutile de le réécrire.
 
 **Le corps du message** s'ouvre avec le crayon, dans le même éditeur
 que partout ailleurs sur le site. Il part du texte livré : vous
-corrigez plutôt que d'écrire depuis une page blanche.
+corrigez plutôt que d'écrire depuis une page blanche. Inutile de
+signer — la formule finale (« Bien à vous ») et le nom de votre unité
+sont ajoutés automatiquement, à cet email comme à tous les autres.
 
-**L'aperçu** montre le résultat avec des valeurs d'exemple. L'en-tête et
-le pied de page du site sont ajoutés à l'envoi et ne se modifient pas
-ici. Le bouton « M'envoyer un test », en dessous, vous envoie l'email
-pour de vrai — par le même chemin que les autres, un test toutes les 30
-secondes au plus.
+**L'aperçu** montre le résultat avec des valeurs d'exemple. Le bouton
+« M'envoyer un test », en dessous, vous envoie l'email pour de vrai —
+par le même chemin que les autres, un test toutes les 30 secondes au
+plus.
 
 ## Les variables
 
 Un email parle de choses que le site ne connaît qu'au moment de
 l'envoi : le nom du demandeur, la date d'une activité, un lien de
-suivi. Ces trous s'écrivent `{{ nom_de_la_variable }}`, et les boutons
-sous le champ donnent ceux que cet email accepte.
+suivi. Ces trous s'écrivent `{{ nom_de_la_variable }}`.
 
-Sur le sujet, un bouton insère la variable là où se trouve le curseur.
-Pour le corps, l'éditeur s'ouvre par-dessus la page : le bouton copie
-alors la variable, et vous la collez dans le message.
+Le texte livré les contient déjà, à leur place. **Gardez-les** : ce
+sont eux qui écrivent le nom, la date ou le lien de chaque
+destinataire. Un texte où vous les auriez remplacés par un vrai nom
+enverrait ce nom-là à tout le monde.
+
+Ces boutons sont à deux endroits où ils insèrent la variable là où se
+trouve votre curseur : sous le champ du sujet, et dans l'éditeur du
+corps du message. Sur la page elle-même, sous l'aperçu du corps, un
+clic la copie — pratique si vous écrivez votre texte ailleurs.
 
 Une variable mal orthographiée part telle quelle, accolades comprises,
-dans l'email que reçoivent vos familles : utilisez les boutons plutôt
-que de la taper.
+dans l'email : utilisez les boutons plutôt que de la taper.
 
 ## Revenir en arrière
 
 Tant qu'un email est personnalisé, il ne suit plus les améliorations
-apportées au texte livré. Le bouton « Revenir au gabarit par défaut »,
-en bas de sa page, supprime votre texte et le remet sur celui du site.
-C'est définitif : votre version n'est conservée nulle part.
+apportées au texte livré. Le bouton « Revenir au gabarit par défaut »
+supprime votre texte et le remet sur celui du site. C'est définitif :
+votre version n'est conservée nulle part.

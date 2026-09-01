@@ -295,6 +295,16 @@
           "example": "14 mars 2027"
         },
         {
+          "name": "board_content",
+          "label": "Contenu du tableau",
+          "example": "Ce qui a bien marché\n- L'accueil des nouveaux\n\nÀ améliorer\n- Le timing du samedi soir\n\nAutres suggestions\nAucun mot dans cette colonne."
+        },
+        {
+          "name": "ai_summary",
+          "label": "Synthèse générée par IA",
+          "example": "Le week-end a été bien accueilli ; le principal point d'attention est le timing du samedi soir."
+        },
+        {
           "name": "board_url",
           "label": "Lien vers le tableau",
           "example": "https://exemple.be/retro/12"

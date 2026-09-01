@@ -4,10 +4,11 @@
  * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
  *
  * The scheduler's SHARED composition root, required — and called
- * identically — by both entry points: public/index.php (the poor man's
- * cron at the tail of every web request) and public/cron.php (a real
- * crontab). Everything the scheduler needs beyond the base services is
- * assembled here and nowhere else:
+ * identically — by both entry points: public/cron.php, which is the only
+ * thing that ever RUNS a pass, and public/index.php, which no longer runs
+ * one at all but still needs the same wiring to arm the recurring tasks
+ * and to schedule work a request creates. Everything the scheduler needs
+ * beyond the base services is assembled here and nowhere else:
  *
  *   - the TaskContext handlers run with, including the optional
  *     cross-module CAPABILITIES (Core\Scheduler\TaskCapabilities) a
@@ -254,27 +255,94 @@ function scoutmagic_bootstrap_scheduler(
                     ));
                 }
 
-                // Finance only ever PROPOSES, so it needs no place in any
-                // ordering: a proposition costs nobody else anything. On
-                // this path it also has no actor and no file reader, which
-                // is deliberate — a synchronisation has nobody making a
-                // request, and finance's account check is built from the
-                // actor. Nothing is ever filed as a receipt from here.
+                // Finance needs no place in any ordering: it proposes, or
+                // it files a receipt of its own, and neither costs another
+                // consumer anything.
+                //
+                // **It has no actor here, and it still files.** A
+                // synchronisation has nobody making a request, so the
+                // resolveActor closure stays null — inventing a session
+                // would be this module granting itself an account. What
+                // files instead is the unattended route
+                // (Api\ExpenseReceiptInterface::storeUnattendedReceipt()),
+                // whose authorization is the superadmin having opened this
+                // mailbox to this module on the scope screen.
+                //
+                // This is THE path that matters: the mailbox sync runs from
+                // the scheduler, so a consumer built here without a receipt
+                // provider and a file reader would decide correctly and
+                // file nothing at all.
                 if ($inboundMail !== null && in_array('finance', $enabledModuleIds, true)) {
-                    $registry->register(new \Modules\Finance\Mail\FinanceMessageConsumer(
-                        new \Modules\Finance\Repository\AccountRepository($pdo, $encryptionService),
-                        new \Modules\Finance\Service\TreasurerScopeService(
-                            \Core\Database\Connection::withPdo($pdo),
-                            new \Core\Badge\BadgeRepository($pdo),
-                            new \Core\Badge\MemberBadgeRepository($pdo)
+                    $financeScoutYearId = (new \Core\Config\ScoutYearService($pdo))->getCurrentYear()['id'];
+                    $financeAccountRepository = new \Modules\Finance\Repository\AccountRepository($pdo, $encryptionService);
+                    $financeTreasurerScope = new \Modules\Finance\Service\TreasurerScopeService(
+                        \Core\Database\Connection::withPdo($pdo),
+                        new \Core\Badge\BadgeRepository($pdo),
+                        new \Core\Badge\MemberBadgeRepository($pdo)
+                    );
+                    $financeFileStorage = new \Core\File\EncryptedFileStorageService(
+                        $fileRepository,
+                        $encryptionService,
+                        $storagePath
+                    );
+                    $financeReceipts = new \Modules\Finance\Service\ExpenseReceiptService(
+                        $financeAccountRepository,
+                        $financeTreasurerScope,
+                        new \Modules\Finance\Service\ReceiptService(
+                            new \Modules\Finance\Repository\AttachmentRepository($pdo, $encryptionService),
+                            $financeAccountRepository,
+                            new \Modules\Finance\Repository\TransactionAttachmentRepository($pdo),
+                            $financeFileStorage,
+                            new \Modules\Finance\Repository\TransactionRepository($pdo, $encryptionService),
+                            $settingService
                         ),
+                        $financeScoutYearId
+                    );
+
+                    $registry->register(new \Modules\Finance\Mail\FinanceMessageConsumer(
+                        $financeAccountRepository,
+                        $financeTreasurerScope,
                         $pdo,
                         $encryptionService,
                         // The current year, resolved here rather than
                         // carried on the context: the scheduled path has no
                         // session and no "effective" year, and the treasurer
                         // rule is about who holds the badge THIS year.
-                        (new \Core\Config\ScoutYearService($pdo))->getCurrentYear()['id']
+                        $financeScoutYearId,
+                        $financeReceipts,
+                        // No actor: see above.
+                        null,
+                        static function (int $fileId) use ($financeFileStorage): ?string {
+                            try {
+                                return $financeFileStorage->retrieve($fileId);
+                            } catch (\Throwable) {
+                                // The bytes are gone or unreadable. The
+                                // association still stands; a treasurer can
+                                // attach the file by hand.
+                                return null;
+                            }
+                        },
+                        // « Cette adresse anime-t-elle un seul staff ? ».
+                        // $memberEmailRepository is NOT optional here: built
+                        // without it, an animateur writing from a confirmed
+                        // secondary address staffs no section at all and
+                        // their receipt lands in the sorting pile for
+                        // nothing.
+                        new \Modules\Finance\Mail\SenderStaffAccountResolver(
+                            new \Core\Member\SectionStaffAuthorizationService(
+                                \Core\Database\Connection::withPdo($pdo),
+                                $encryptionService,
+                                new \Core\Member\SectionService(
+                                    \Core\Database\Connection::withPdo($pdo),
+                                    $encryptionService,
+                                    new \Core\Badge\MemberBadgeRepository($pdo)
+                                ),
+                                new \Core\Member\MemberEmailRepository($pdo, $encryptionService)
+                            ),
+                            $financeAccountRepository,
+                            $financeScoutYearId
+                        ),
+                        new \Modules\Finance\Mail\ForwardedSenderExtractor()
                     ));
                 }
 
@@ -386,7 +454,12 @@ function scoutmagic_bootstrap_scheduler(
                 );
             }
         );
-        \Modules\InboundMail\Task\SyncMailboxesHandler::bootstrap($schedulerService);
+        // The interval is a setting (« Intervalle entre deux relèves »), so
+        // bootstrap() is handed the settings rather than a constant: it is
+        // also what pulls a run queued at an older, longer interval
+        // forward, so a shortened delay applies on the next page view
+        // instead of after the old one finally elapses.
+        \Modules\InboundMail\Task\SyncMailboxesHandler::bootstrap($schedulerService, $settingService);
 
         // The deferred, content-level pass (§8.58): everything that needs
         // an attachment's BYTES rather than its metadata. Never inside the

@@ -222,6 +222,16 @@
           "example": "Week-end de Pâques"
         },
         {
+          "name": "answers_summary",
+          "label": "Récapitulatif des réponses",
+          "example": "Nom de l'enfant : Camille Dupont\nTaille du t-shirt : 140"
+        },
+        {
+          "name": "payment_summary",
+          "label": "Détails du paiement",
+          "example": "Montant à payer : 45,00 €\nCompte : Unité Saint-Georges\nIBAN : BE68 5390 0754 7034\nCommunication structurée : +++123/4567/89012+++"
+        },
+        {
           "name": "edit_url",
           "label": "Lien pour modifier la réponse",
           "example": "https://exemple.be/news/12/reponse/abc"

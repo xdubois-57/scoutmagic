@@ -36,6 +36,19 @@ class ReceiptController extends AbstractController
     private const MAX_FILES_PER_UPLOAD = 10;
     private const PER_PAGE = 30;
 
+    /**
+     * How the sorting pile is addressed in a query string and in the
+     * account picker.
+     *
+     * A word and not `0`: an id of zero is what a mis-cast or an empty
+     * parameter produces, and « les reçus que personne ne réclame » is not
+     * somewhere anybody should arrive by accident.
+     */
+    public const UNASSIGNED_KEY = 'unassigned';
+
+    /** resolveSelection()'s "nothing this session may look at". */
+    private const SELECTION_NONE = false;
+
     public function __construct(
         protected \Twig\Environment $twig,
         private AttachmentRepository $attachmentRepository,
@@ -56,32 +69,69 @@ class ReceiptController extends AbstractController
     {
         $role = Role::fromString(AuthSession::getRole());
         $accounts = $this->financeService->getAccountsForUser($role);
-        $account = $this->financeService->resolveSelectedAccount($role, $request->getQuery('account_id'));
+        $maySortThePile = $this->financeService->isUnassignedReceiptVisibleTo($role);
+        $unassignedCount = $maySortThePile ? $this->attachmentRepository->countActiveUnassigned() : 0;
 
-        if ($account === null) {
+        $selection = $this->resolveSelection($request->getQuery('account_id'), $role, $maySortThePile);
+
+        // Only truly nothing to show. A session that may sort the pile has
+        // a page even with no account of its own — which is the whole point
+        // of the pile being a place rather than an account.
+        if ($selection === self::SELECTION_NONE) {
             return $this->render('@finance/receipts/list.html.twig', ['accounts' => [], 'no_accounts' => true]);
         }
+
+        $account = $selection instanceof \Modules\Finance\Repository\Account ? $selection : null;
+        $accountId = $account?->id;
 
         $pendingOnly = $request->getQuery('pending') === '1';
         $search = trim((string) $request->getQuery('q', ''));
         $page = max(1, (int) $request->getQuery('page', 1));
 
         $totalPages = max(1, (int) ceil(
-            $this->attachmentRepository->countFilteredForAccount($account->id, $pendingOnly, $search !== '' ? $search : null) / self::PER_PAGE
+            $this->attachmentRepository->countFilteredForAccount($accountId, $pendingOnly, $search !== '' ? $search : null) / self::PER_PAGE
         ));
         $page = min($page, $totalPages);
-
-        $rows = $this->buildRows($account->id, $pendingOnly, $search, $page);
 
         return $this->render('@finance/receipts/list.html.twig', [
             'accounts' => $accounts,
             'selected_account' => $account,
-            'rows' => $rows,
+            'selected_key' => $account === null ? self::UNASSIGNED_KEY : $account->id,
+            'may_sort_the_pile' => $maySortThePile,
+            'unassigned_count' => $unassignedCount,
+            'rows' => $this->buildRows($accountId, $pendingOnly, $search, $page),
             'pending_only' => $pendingOnly,
             'search' => $search,
             'page' => $page,
             'total_pages' => $totalPages,
         ]);
+    }
+
+    /**
+     * What `account_id` names: an account, the sorting pile (null), or
+     * nothing this session may look at.
+     *
+     * The pile is addressed by a word rather than by an id, because it has
+     * none — and by a word rather than by `0`, so that a stray `?account_id=`
+     * or a mis-cast integer can never land on it by accident.
+     *
+     * @return \Modules\Finance\Repository\Account|null|self::SELECTION_NONE
+     */
+    private function resolveSelection(?string $requested, Role $role, bool $maySortThePile): mixed
+    {
+        if ($requested === self::UNASSIGNED_KEY) {
+            return $maySortThePile ? null : self::SELECTION_NONE;
+        }
+
+        $account = $this->financeService->resolveSelectedAccount($role, $requested);
+        if ($account !== null) {
+            return $account;
+        }
+
+        // No account at all. The pile is the page's remaining content when
+        // this session may see it, rather than an empty state that hides
+        // receipts somebody is meant to sort.
+        return $maySortThePile ? null : self::SELECTION_NONE;
     }
 
     /**
@@ -97,20 +147,32 @@ class ReceiptController extends AbstractController
     public function search(Request $request, array $params): Response
     {
         $role = Role::fromString(AuthSession::getRole());
-        $account = $this->financeService->resolveSelectedAccount($role, $request->getQuery('account_id'));
-        if ($account === null) {
+        $requested = $request->getQuery('account_id');
+
+        $selection = $this->resolveSelection(
+            $requested,
+            $role,
+            $this->financeService->isUnassignedReceiptVisibleTo($role)
+        );
+
+        // The pile is only ever reached by asking for it by name: a page
+        // whose account picker no longer offers an account must not silently
+        // start listing receipts that belong to nobody.
+        if ($selection === self::SELECTION_NONE || ($selection === null && $requested !== self::UNASSIGNED_KEY)) {
             return $this->json(['success' => false, 'error' => 'Compte introuvable.'], 404);
         }
+
+        $accountId = $selection instanceof \Modules\Finance\Repository\Account ? $selection->id : null;
 
         $pendingOnly = $request->getQuery('pending') === '1';
         $search = trim((string) $request->getQuery('q', ''));
         $page = max(1, (int) $request->getQuery('page', 1));
 
-        $total = $this->attachmentRepository->countFilteredForAccount($account->id, $pendingOnly, $search !== '' ? $search : null);
+        $total = $this->attachmentRepository->countFilteredForAccount($accountId, $pendingOnly, $search !== '' ? $search : null);
         $totalPages = max(1, (int) ceil($total / self::PER_PAGE));
         $page = min($page, $totalPages);
 
-        $rows = $this->buildRows($account->id, $pendingOnly, $search, $page);
+        $rows = $this->buildRows($accountId, $pendingOnly, $search, $page);
 
         return $this->json([
             'success' => true,
@@ -178,7 +240,7 @@ class ReceiptController extends AbstractController
     /**
      * @return array<int, array{attachment: Attachment, movement_count: int, is_pending: bool}>
      */
-    private function buildRows(int $accountId, bool $pendingOnly, string $search, int $page): array
+    private function buildRows(?int $accountId, bool $pendingOnly, string $search, int $page): array
     {
         $results = $this->attachmentRepository->findFilteredForAccount(
             $accountId, $pendingOnly, $search !== '' ? $search : null, self::PER_PAGE, ($page - 1) * self::PER_PAGE
@@ -487,6 +549,76 @@ class ReceiptController extends AbstractController
     }
 
     /**
+     * POST /finance/receipts/{id}/account — move a receipt onto another
+     * account, or onto the sorting pile (`account_id: null`).
+     *
+     * **Both ends are authorized, and they are two different questions.**
+     * requireVisibleAttachment() says the caller may touch the receipt
+     * where it is now; isAccountVisibleTo() says they may put it where
+     * they are asking. Checking only the first would let a section
+     * treasurer file their own receipt onto another section's account —
+     * and then read that account's movements back through movements(),
+     * which authorizes against the receipt alone.
+     *
+     * The movement associations that go are counted and journaled: a
+     * receipt losing its filing has to be explainable afterwards, and the
+     * dialog that warned about it is not evidence.
+     *
+     * @param array<string, string> $params
+     */
+    public function changeAccount(Request $request, array $params): Response
+    {
+        $data = $this->decodeAndAuthorize($request);
+        if ($data instanceof Response) {
+            return $data;
+        }
+
+        $id = (int) ($params['id'] ?? 0);
+        $attachment = $this->requireVisibleAttachment($id);
+        if ($attachment instanceof Response) {
+            return $attachment;
+        }
+
+        $requested = $data['account_id'] ?? null;
+        $newAccountId = $requested === null || $requested === '' || $requested === 'unassigned'
+            ? null
+            : (int) $requested;
+
+        $role = Role::fromString(AuthSession::getRole());
+        $targetAllowed = $newAccountId === null
+            ? $this->financeService->isUnassignedReceiptVisibleTo($role)
+            : $this->financeService->isAccountVisibleTo($this->financeService->getAccount($newAccountId), $role);
+
+        if (!$targetAllowed) {
+            // "No such account" and "not yours" answer the same thing, so a
+            // caller never learns which accounts exist (SECURITY.md §3).
+            return $this->json(['success' => false, 'error' => 'Compte introuvable.'], 404);
+        }
+
+        try {
+            $dropped = $this->receiptService->reassign($id, $newAccountId);
+        } catch (FinanceException $e) {
+            return $this->json(['success' => false, 'error' => $e->getMessage()], 400);
+        }
+
+        $this->journalService->log(
+            'finance',
+            'receipt_account_changed',
+            'info',
+            'Reçu déplacé vers un autre compte',
+            [
+                'attachment_id' => $id,
+                'from_account_id' => $attachment->accountId,
+                'to_account_id' => $newAccountId,
+                'associations_dropped' => $dropped,
+            ],
+            AuthSession::getUserAccountId()
+        );
+
+        return $this->json(['success' => true, 'associations_dropped' => $dropped]);
+    }
+
+    /**
      * @param array<string, string> $params
      */
     public function dissociate(Request $request, array $params): Response
@@ -510,8 +642,9 @@ class ReceiptController extends AbstractController
     }
 
     /**
-     * Loads the attachment and verifies its account is visible to the
-     * current role — every mutation endpoint goes through this so a
+     * Loads the attachment and verifies it is visible to the current role
+     * — its account's rule when it has one, the sorting pile's when it
+     * does not. Every mutation endpoint goes through this so a
      * receipt tied to an account above the caller's role_min_view can
      * never be edited/deleted/associated, matching the download-side
      * enforcement already applied via the file's role_min.
@@ -525,19 +658,22 @@ class ReceiptController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Reçu introuvable.'], 404);
         }
 
-        // No account means no account to check the caller against, so there
-        // is nothing that could authorize the mutation — deny rather than
-        // fall through. ReceiptService::upload() always sets an accountId,
-        // so this only bites on legacy/imported rows, but "unknown owner"
-        // must never read as "anyone may edit it" (same fail-safe posture as
-        // Core\File\FileAccessGuard's unregistered owner_type).
-        if ($attachment->accountId === null) {
-            return $this->json(['success' => false, 'error' => 'Accès refusé.'], 403);
-        }
-
         $role = Role::fromString(AuthSession::getRole());
-        $account = $this->financeService->getAccount($attachment->accountId);
-        if (!$this->financeService->isAccountVisibleTo($account, $role)) {
+
+        // No account is not "no owner, therefore nobody": it is the unit's
+        // sorting pile, and it has a rule of its own — narrower than this
+        // page's floor, because an unsorted receipt may belong to any
+        // section. This used to deny outright, which was right while
+        // nothing could produce such a row on purpose and wrong now that
+        // Service\ReceiptService::uploadUnattributed() does.
+        $allowed = $attachment->accountId === null
+            ? $this->financeService->isUnassignedReceiptVisibleTo($role)
+            : $this->financeService->isAccountVisibleTo(
+                $this->financeService->getAccount($attachment->accountId),
+                $role
+            );
+
+        if (!$allowed) {
             return $this->json(['success' => false, 'error' => 'Accès refusé.'], 403);
         }
 

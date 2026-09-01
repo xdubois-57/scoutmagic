@@ -30,6 +30,7 @@ use Core\Statistics\StatisticsStateSettings;
 use Core\Support\SupportPackageService;
 use Core\Support\SupportPackageState;
 use Core\Support\Task\GenerateSupportPackageHandler;
+use Core\Support\Task\SendTicketArchiveHandler;
 use Twig\Environment;
 
 /**
@@ -184,10 +185,10 @@ class SupportController extends AbstractController
             // the button will work again rather than simply refusing:
             // a disabled control with no reason is the same silence the
             // probe exists to remove.
-            'probe_available' => $this->probeSender !== null,
+            // Only the last run's key, so the confirmation can name what
+            // the support will be looking for. There is no probe button
+            // any more: a probe goes with a ticket and only with one.
             'probe_last_run' => $this->probeSender?->lastRun(),
-            'probe_rate_limited_until' => $this->probeSender
-                ?->rateLimitedUntil(new \DateTimeImmutable())?->format('H:i'),
         ]);
     }
 
@@ -345,79 +346,6 @@ class SupportController extends AbstractController
     }
 
     /**
-     * POST /config/support/mail-probe — sends one diagnostic message per
-     * mailbox the receiver synchronises (roadmap IT-27).
-     *
-     * **Not the Mail configuration page's test send.** That one proves a
-     * relay accepted the message; this one proves it arrived somewhere
-     * that can say what SPF, DKIM and DMARC made of it and how long the
-     * chain took. Both are useful and neither replaces the other.
-     *
-     * @param array<string, string> $params
-     */
-    public function sendMailProbe(Request $request, array $params): Response
-    {
-        if (($guard = $this->guardCsrf($request, '/config/support')) !== null) {
-            return $guard;
-        }
-
-        if ($this->probeSender === null) {
-            FlashMessage::set('error', "Les sondes de diagnostic ne sont pas disponibles sur cette installation.");
-
-            return $this->redirect('/config/support');
-        }
-
-        $result = $this->probeSender->send(new \DateTimeImmutable());
-
-        if ($result->sent) {
-            FlashMessage::set('success', sprintf(
-                $result->deliveredCount === $result->addressCount
-                    ? 'Sonde %s envoyée vers %d boîte(s). Le résultat apparaîtra chez le support dès réception.'
-                    : 'Sonde %1$s partie vers %3$d boîte(s) sur %2$d : les autres ont été refusées par votre serveur de messagerie.',
-                $result->correlationKey,
-                $result->addressCount,
-                $result->deliveredCount
-            ));
-        } else {
-            FlashMessage::set('error', $this->probeFailureMessage((string) $result->failureReason));
-        }
-
-        return $this->redirect('/config/support');
-    }
-
-    /**
-     * The French reading of a probe that did not leave.
-     *
-     * Each one names what to do next: a message that only says « échec »
-     * about the mail path is exactly the silence this feature exists to
-     * remove.
-     */
-    private function probeFailureMessage(string $reason): string
-    {
-        $until = $this->probeSender?->rateLimitedUntil(new \DateTimeImmutable());
-
-        return match ($reason) {
-            MailProbeSender::FAILURE_RATE_LIMITED => sprintf(
-                "Une sonde a déjà été envoyée il y a moins d'une heure%s.",
-                $until !== null ? ' — réessayez à partir de ' . $until->format('H:i') : ''
-            ),
-            MailProbeSender::FAILURE_NO_MAILBOX =>
-                "Le serveur de support ne relève aucune boîte : il n'a rien vers quoi envoyer une sonde.",
-            MailProbeSender::FAILURE_MAIL_REFUSED =>
-                "Votre serveur de messagerie a refusé tous les envois : la configuration Courriel est à vérifier avant tout diagnostic d'acheminement.",
-            MailProbeSender::FAILURE_NO_IDENTITY =>
-                "L'identité de cette installation n'a pas pu être créée : le coffre de secrets est indisponible.",
-            TicketIdentityService::GUARD_NO_DESTINATION =>
-                "Aucun serveur de support n'est configuré pour cette installation.",
-            TicketIdentityService::GUARD_INSECURE_DESTINATION,
-            TicketIdentityService::GUARD_NON_PUBLIC_DESTINATION =>
-                "Le serveur de support configuré n'est pas une destination publique en HTTPS : rien n'a été envoyé.",
-            default =>
-                "Le serveur de support n'a pas pu être joint : aucune sonde n'a été envoyée.",
-        };
-    }
-
-    /**
      * POST /config/support/statistics — the reporting switch, and nothing
      * else.
      *
@@ -549,6 +477,23 @@ class SupportController extends AbstractController
             return $this->renderIndex($submitted);
         }
 
+        // **Both boxes, verified here and not only in the browser.** They
+        // are the whole consent for the two things that leave beside the
+        // message — the diagnostic archive and a test e-mail — and a
+        // `required` attribute is a decoration a hand-made POST walks
+        // past.
+        $archiveAccepted = (string) $request->getBody('archive_acknowledged', '') === '1';
+        $probeAccepted = (string) $request->getBody('probe_acknowledged', '') === '1';
+
+        if (!$archiveAccepted || !$probeAccepted) {
+            FlashMessage::set(
+                'error',
+                'Cochez les deux cases : elles couvrent tout ce qui part avec votre message.'
+            );
+
+            return $this->renderIndex($submitted);
+        }
+
         $result = $this->ticketSender->send($category, $description, $contactEmail);
 
         if (!$result->sent) {
@@ -559,13 +504,97 @@ class SupportController extends AbstractController
             return $this->renderIndex($submitted);
         }
 
-        FlashMessage::set('success', sprintf(
-            'Ticket envoyé. Référence : %s. Le mainteneur répondra par e-mail à %s.',
-            (string) $result->reference,
-            $contactEmail
-        ));
+        $reference = (string) $result->reference;
+
+        // Everything below is **after** an accepted ticket, and nothing
+        // below may undo it. A failed archive upload or an unreachable
+        // relay is worth saying, never worth losing the report over —
+        // which is exactly why they are separate calls (§8.48).
+        $followUp = array_filter([
+            $this->attachArchiveTo($reference),
+            $this->probeAfterTicket(),
+        ]);
+
+        FlashMessage::set('success', trim(sprintf(
+            'Ticket envoyé. Référence : %s. Le mainteneur répondra par e-mail à %s. %s',
+            $reference,
+            $contactEmail,
+            implode(' ', $followUp)
+        )));
 
         return $this->redirect('/config/support');
+    }
+
+    /**
+     * Joins the diagnostic archive to a ticket that has just been created.
+     *
+     * One of two paths, and the second is the reason this is not a line in
+     * the caller: an installation that has never generated a package would
+     * otherwise send a ticket with nothing attached. It gets the
+     * generation queued and `Task\SendTicketArchiveHandler` joins the
+     * archive when it exists.
+     *
+     * @return string the sentence to add to the confirmation, or '' when
+     *         there is nothing worth saying
+     */
+    private function attachArchiveTo(string $reference): string
+    {
+        if ($this->archiveSender === null) {
+            return '';
+        }
+
+        if ($this->currentPackageFileId() !== null) {
+            $sent = $this->archiveSender->send($reference, true);
+
+            return $sent->sent
+                ? "L'archive de diagnostic est partie avec lui."
+                : "L'archive de diagnostic n'a pas pu être transmise : vous pouvez la renvoyer ci-dessous.";
+        }
+
+        $this->schedulerService->scheduleAfter(
+            'core',
+            GenerateSupportPackageHandler::TASK_KEY,
+            0,
+            [],
+            null,
+            AuthSession::getUserAccountId()
+        );
+        $this->schedulerService->scheduleAfter(
+            'core',
+            SendTicketArchiveHandler::TASK_KEY,
+            SendTicketArchiveHandler::RETRY_SECONDS,
+            ['reference' => $reference, 'attempt' => 1]
+        );
+
+        return "Aucune archive n'existait : elle est en cours de génération et sera jointe automatiquement.";
+    }
+
+    /**
+     * Sends the diagnostic mail probe that goes with a ticket.
+     *
+     * Silent on the two ordinary non-events — no probe sender wired, and a
+     * receiver that synchronises no mailbox — because neither is something
+     * the person who just reported a bug has to act on.
+     */
+    private function probeAfterTicket(): string
+    {
+        if ($this->probeSender === null) {
+            return '';
+        }
+
+        $probe = $this->probeSender->send(new \DateTimeImmutable());
+        if ($probe->sent) {
+            return "Un e-mail de test est parti vers le support ({$probe->correlationKey}).";
+        }
+
+        return match ($probe->failureReason) {
+            MailProbeSender::FAILURE_NO_MAILBOX => '',
+            MailProbeSender::FAILURE_RATE_LIMITED =>
+                "Aucun e-mail de test : il y en a déjà eu un il y a moins d'une heure.",
+            MailProbeSender::FAILURE_MAIL_REFUSED =>
+                "L'e-mail de test n'est pas parti : votre serveur de messagerie l'a refusé — c'est déjà un diagnostic.",
+            default => "L'e-mail de test n'a pas pu partir.",
+        };
     }
 
     /**

@@ -58,7 +58,8 @@ class DeskImportBarrierTest extends TestCase
         $this->storagePath = sys_get_temp_dir() . '/scoutmagic_test_' . bin2hex(random_bytes(8));
         mkdir($this->storagePath, 0777, true);
 
-        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
+        [$label, $yearStart, $yearEnd] = DatabaseTestHelper::scoutYear();
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('{$label}', '{$yearStart}', '{$yearEnd}', 1)");
         $this->scoutYearId = (int) $this->pdo->lastInsertId();
 
         // Deliberately NOT a super-admin: the whole point of the hard

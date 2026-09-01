@@ -75,6 +75,109 @@ class ReceivablesOverviewServiceTest extends TestCase
         $this->assertSame(5500, $instance1['amount_due']);
     }
 
+    public function testTheTwoModulesThatRegisterReceivablesAreNamedInFrench(): void
+    {
+        // The fallback is ucfirst(module id) — « Rental » in front of a
+        // French chef d'unité. Both modules that actually register
+        // receivables today carry the name their own manifest declares.
+        $this->receivableService->createReceivable('rental', 45, $this->accountId, 30000, '+++400/0000/00004+++', 'LOC-2027-0012 — Jean Dupont');
+        $this->receivableService->createReceivable('rental', 45, $this->accountId, 15000, '+++500/0000/00005+++', 'Caution LOC-2027-0012 — Jean Dupont');
+
+        $overview = $this->service->buildOverview(Role::INTENDANT);
+
+        $this->assertSame('Locations', $overview[0]['source_label']);
+        // A booking and its security deposit share a source_reference_id,
+        // so the middle level does group here — and has to say something.
+        $this->assertTrue($overview[0]['groups_instances']);
+        $this->assertSame('Location #45', $overview[0]['instances'][0]['instance_label']);
+    }
+
+    // ── Le niveau intermédiaire ne s'affiche que s'il groupe ────────────
+
+    /**
+     * The middle level of the page is a collapsible group per
+     * `source_reference_id`. It is worth a heading and a click when it
+     * gathers several receivables — one form answered by three families.
+     */
+    public function testAnInstanceHoldingSeveralReceivablesIsWorthGrouping(): void
+    {
+        $this->receivableService->createReceivable('news', 1, $this->accountId, 2500, '+++100/0000/00034+++', 'Alice');
+        $this->receivableService->createReceivable('news', 1, $this->accountId, 3000, '+++200/0000/00068+++', 'Bob');
+
+        $overview = $this->service->buildOverview(Role::INTENDANT);
+
+        $this->assertTrue($overview[0]['groups_instances']);
+    }
+
+    /**
+     * And it is worth nothing when every instance holds exactly one: the
+     * reader gets N collapsed headers, each named after a database id
+     * nobody recognises, each hiding a single line whose subtotal is that
+     * line. A module registering one receivable per payer produces exactly
+     * that, and it turned the page into sixteen accordions to read sixteen
+     * rows.
+     */
+    public function testInstancesOfOneReceivableEachAreNotWorthGrouping(): void
+    {
+        $this->receivableService->createReceivable('news', 1, $this->accountId, 2500, '+++100/0000/00034+++', 'Alice');
+        $this->receivableService->createReceivable('news', 2, $this->accountId, 3000, '+++200/0000/00068+++', 'Bob');
+        $this->receivableService->createReceivable('news', 3, $this->accountId, 1000, '+++300/0000/00002+++', 'Carla');
+
+        $overview = $this->service->buildOverview(Role::INTENDANT);
+
+        $this->assertFalse($overview[0]['groups_instances']);
+        $this->assertCount(3, $overview[0]['instances'], 'the instances are still built — only the page hides them');
+    }
+
+    public function testTheFlatListCarriesEveryReceivableOfTheSourceInOrder(): void
+    {
+        $this->receivableService->createReceivable('news', 1, $this->accountId, 2500, '+++100/0000/00034+++', 'Alice');
+        $this->receivableService->createReceivable('news', 2, $this->accountId, 3000, '+++200/0000/00068+++', 'Bob');
+
+        $overview = $this->service->buildOverview(Role::INTENDANT);
+
+        $this->assertSame(
+            ['Alice', 'Bob'],
+            array_column($overview[0]['receivables'], 'label')
+        );
+    }
+
+    public function testEveryFlattenedRowKnowsWhichInstanceItCameFrom(): void
+    {
+        // Without it a « voir cette créance » link has nothing to point at
+        // once the instance headings are gone.
+        $this->receivableService->createReceivable('news', 7, $this->accountId, 2500, '+++100/0000/00034+++', 'Alice');
+
+        $overview = $this->service->buildOverview(Role::INTENDANT);
+
+        $this->assertSame(7, $overview[0]['receivables'][0]['source_reference_id']);
+        $this->assertSame(7, $overview[0]['instances'][0]['receivables'][0]['source_reference_id']);
+    }
+
+    public function testTheFlatListAndTheGroupedOneHoldTheSameRows(): void
+    {
+        // The page renders one or the other; they must not be able to show
+        // different money.
+        $this->receivableService->createReceivable('news', 1, $this->accountId, 2500, '+++100/0000/00034+++', 'Alice');
+        $this->receivableService->createReceivable('news', 1, $this->accountId, 3000, '+++200/0000/00068+++', 'Bob');
+        $this->receivableService->createReceivable('news', 2, $this->accountId, 1000, '+++300/0000/00002+++', 'Carla');
+
+        $overview = $this->service->buildOverview(Role::INTENDANT);
+
+        $grouped = [];
+        foreach ($overview[0]['instances'] as $instance) {
+            foreach ($instance['receivables'] as $row) {
+                $grouped[] = $row;
+            }
+        }
+
+        $this->assertEquals($grouped, $overview[0]['receivables']);
+        $this->assertSame(
+            $overview[0]['amount_due'],
+            array_sum(array_column($overview[0]['receivables'], 'amount_due'))
+        );
+    }
+
     /**
      * The page is role_min: intendant, but WHICH accounts' receivables it
      * shows is a per-account decision (role_min_view) — the same boundary

@@ -69,8 +69,9 @@ class MagicLinkWindowIdentityTest extends TestCase
         $this->pdo = \Tests\DatabaseTestHelper::createTestDatabase();
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
 
+        [$label, $yearStart, $yearEnd] = \Tests\DatabaseTestHelper::scoutYear();
         $this->pdo->exec(
-            "INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)"
+            "INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('{$label}', '{$yearStart}', '{$yearEnd}', 1)"
         );
         $this->scoutYearId = (int) $this->pdo->lastInsertId();
 

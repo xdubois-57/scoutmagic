@@ -121,7 +121,11 @@ class SendReenrollmentEmailsHandler implements TaskHandlerInterface
                     'target_year_label' => $targetLabel,
                     'close_date' => $closeDate !== null ? $closeDate->format('d/m/Y') : $campaignKey,
                     'reenrollment_url' => $baseUrl . '/reinscription',
-                    'member_names' => $family['member_names'],
+                    // Joined here rather than looped in the template:
+                    // `member_names` is a DECLARED variable, and a unit
+                    // that reworded this e-mail substitutes plain strings
+                    // — a list would simply vanish from the message.
+                    'member_names' => implode(', ', $family['member_names']),
                 ]);
 
                 $context->mailService->send(

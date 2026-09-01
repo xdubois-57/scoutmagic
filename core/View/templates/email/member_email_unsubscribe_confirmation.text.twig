@@ -1,10 +1,13 @@
-Confirmation de désinscription
+Vous êtes désinscrit de nos envois groupés
 
-Cette adresse a bien été désinscrite des emails groupés de {{ site_name }}. Elle ne recevra plus d'emails groupés et ne peut plus non plus être utilisée pour se connecter au site par lien magique.
-{% if member_names|length > 0 %}
-Cette adresse était associée au(x) membre(s) suivant(s) :
-{% for name in member_names %}- {{ name }}
-{% endfor %}
+Bonjour,
+
+Cette adresse a bien été désinscrite de nos emails groupés. Elle ne recevra plus nos envois et ne peut plus non plus servir à se connecter au site par lien de connexion.
+{% if member_names %}
+
+Cela concerne : {{ member_names }}.
 {% endif %}
-Si c'est une erreur, vous pouvez réactiver cette adresse depuis l'espace personnel d'un des membres ci-dessus, en vous connectant avec une autre adresse email déjà configurée pour ce membre.
-{% if staffdu_email %}Vous pouvez aussi contacter le Staff d'U à {{ staffdu_email }}.{% else %}Vous pouvez aussi contacter le Staff d'U de l'unité.{% endif %}
+
+Si c'est une erreur, vous pouvez réactiver cette adresse depuis l'espace personnel du membre concerné, en vous connectant avec une autre de ses adresses email. {% if staffdu_email %}Vous pouvez aussi écrire au Staff d'U à {{ staffdu_email }}.{% else %}Vous pouvez aussi en parler au Staff d'U de l'unité.{% endif %}
+
+{% include 'email/signature.text.twig' %}

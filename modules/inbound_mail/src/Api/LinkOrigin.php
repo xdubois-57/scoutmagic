@@ -33,6 +33,19 @@ enum LinkOrigin: string
     case AI = 'ai';
 
     /**
+     * The message carried a document of a type this consumer files, and
+     * nothing else said where it belongs.
+     *
+     * The weakest origin there is, and deliberately expressible: a
+     * consumer reading a box the unit declared to be **its own** knows the
+     * document is its business without knowing whose. Refusing to record
+     * that would mean either dropping the document or filing it somewhere
+     * it does not belong, and both are worse than keeping it where
+     * somebody can sort it.
+     */
+    case ATTACHMENT = 'attachment';
+
+    /**
      * Somebody decided. The strongest origin of all — and the only one that
      * names an author, since a screen saying "manual association" without
      * being able to say by whom helps nobody settle a disputed filing.
@@ -46,14 +59,15 @@ enum LinkOrigin: string
             self::THREAD => 'Réponse dans la conversation',
             self::SENDER => 'Adresse de l\'expéditeur',
             self::AI => 'Suggestion automatique',
+            self::ATTACHMENT => 'Pièce jointe, destinataire inconnu',
             self::MANUAL => 'Association manuelle',
         };
     }
 
     /**
      * Whether this origin is certain enough to be presented without a
-     * caveat. Sender matching and AI are not: both can attach a message to
-     * the wrong file, and the interface says so.
+     * caveat. Sender matching, AI and a bare attachment are not: each can
+     * attach a message to the wrong file, and the interface says so.
      */
     public function isCertain(): bool
     {

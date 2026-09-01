@@ -160,6 +160,18 @@ CREATE TABLE support_tickets (
     -- route: a ticket body is two kilobytes and an archive is megabytes.
     archive_file_id INT UNSIGNED NULL,
     archive_received_at DATETIME NULL,
+    -- The usage report exactly as it stood when the ticket was written.
+    --
+    -- **The whole point is that this one cannot drift.** The installation
+    -- row beside it keeps only the LATEST report, so by the time a
+    -- maintainer reads a three-week-old ticket the version, the member
+    -- count and the hosting may all have moved — and « quelle version
+    -- avaient-ils quand ça a cassé » is the question a bug report exists
+    -- to answer. The two are shown side by side on the detail page.
+    --
+    -- Encrypted like the description: it is a document about somebody
+    -- else's installation, carrying its URL among other things.
+    statistics_snapshot_encrypted BLOB NULL,
     INDEX idx_support_tickets_installation (installation_id, created_at),
     INDEX idx_support_tickets_status (status, created_at),
     INDEX idx_support_tickets_contact (contact_email_blind_index),

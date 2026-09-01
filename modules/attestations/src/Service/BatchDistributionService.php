@@ -37,9 +37,10 @@ class BatchDistributionService
 {
     /**
      * How many messages one scheduler slice sends. Small enough that a
-     * slice fits comfortably inside the scheduler's own time budget
-     * (`scheduler_slice_seconds`, 75 by default) on a shared host where an
-     * SMTP round trip is not fast, and large enough that a unit of two
+     * slice stays well short of a minute on a shared host where an SMTP
+     * round trip is not fast — the crontab starts a pass every minute, and
+     * a pass that overruns simply makes the next one stand down on
+     * `Scheduler\CronPassLock` — and large enough that a unit of two
      * hundred drains in a handful of ticks.
      */
     public const SLICE_SIZE = 20;

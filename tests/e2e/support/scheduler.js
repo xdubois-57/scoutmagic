@@ -3,14 +3,17 @@
 // Some features finish AFTER the response. A gallery upload stores the
 // file and queues `gallery`/`process_photo`; until that task runs there
 // are no renditions, so the album shows a spinner and there is nothing to
-// download. The application does turn its own queue — the poor-man's cron
-// at the foot of public/index.php — but no more than once a minute, which
-// is a minute a scenario cannot spend and a race it must not depend on.
+// download. Nothing turns that queue on its own here: public/cron.php is
+// the one engine an installation has, and this throwaway instance has no
+// crontab pointed at it.
 //
 // So the scenario turns it deliberately, through the instance's real
 // public/cron.php (scripts/e2e-support.php run-scheduler): the same entry
 // point a host's crontab calls, the same handlers, the same instance
-// config. Nothing here fakes a task or writes a rendition by hand.
+// config. Nothing here fakes a task or writes a rendition by hand. A
+// scenario that needs the queue to have advanced MUST call this — that
+// used to be optional, back when the application drove its own queue on
+// the tail of every web request.
 import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

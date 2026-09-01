@@ -38,6 +38,13 @@ class ModuleManifestTest extends TestCase
      * without a bump is silently a no-op on every already-enabled install
      * (AGENTS.md). Editing schema.sql should break this test — the fix is to
      * bump module.json, which is the whole point.
+     *
+     * 1.5.1 to 1.6.0 are bumps with no schema change behind them: RFC 2047
+     * subjects arriving undecoded, an image-only body rendering as a blank
+     * card, the relève interval becoming a setting, and a candidate now
+     * carrying its mailbox's purpose are all things a unit sees, and
+     * AGENTS.md asks for a bump whenever the module changes in a way its
+     * users should see.
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {

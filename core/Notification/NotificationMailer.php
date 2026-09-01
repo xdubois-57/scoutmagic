@@ -40,6 +40,21 @@ class NotificationMailer
      */
     private const DISCRETION_SUBJECT = 'Nouvelle notification';
 
+    /**
+     * What the body says when there is nothing to say — a notification
+     * whose recipient asked for discretion, and one that carries a title
+     * and no text at all.
+     *
+     * A sentence rather than an empty string, because `body` and `url` are
+     * DECLARED variables (Core\Mail\Template\EmailTemplateRegistry): a
+     * customised body substitutes them as plain strings and has no `{% if
+     * %}` to hide an empty one behind, so an empty value would arrive as a
+     * blank paragraph in the middle of somebody's message.
+     */
+    private const DISCRETION_BODY = "Vous avez une nouvelle notification sur %s. Son contenu n'est pas repris ici : vous avez activé la discrétion dans vos préférences de notification.";
+
+    private const EMPTY_BODY = 'Ouvrez le site pour en savoir plus.';
+
     public function __construct(
         private MailService $mailService,
         private EmailTemplateRenderer $emailTemplateRenderer,
@@ -61,12 +76,17 @@ class NotificationMailer
      */
     public function send(NotificationRecord $record, string $to, bool $discretion): bool
     {
+        $body = $discretion ? sprintf(self::DISCRETION_BODY, $this->siteName) : trim($record->body);
+
         $context = [
             'site_name' => $this->siteName,
             'title' => $discretion ? self::DISCRETION_SUBJECT : $record->title,
-            'body' => $discretion ? '' : $record->body,
-            'discretion' => $discretion,
-            'url' => $this->absoluteUrl($record->url),
+            'body' => $body !== '' ? $body : self::EMPTY_BODY,
+            // Never null: a notification that points nowhere in particular
+            // still has somewhere to send its reader, and the alternative
+            // — a declared variable that is sometimes empty — is an
+            // `href=""` in every customised body.
+            'url' => $this->absoluteUrl($record->url) ?? rtrim($this->baseUrl, '/') . '/notifications',
             'preferences_url' => $this->absoluteUrl('/notifications/preferences'),
         ];
 

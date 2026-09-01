@@ -20,6 +20,7 @@ use Modules\Finance\Service\TreasurerScopeService;
 use Modules\InboundMail\Api\AnalysisResult;
 use Modules\InboundMail\Api\CandidateMessage;
 use Modules\InboundMail\Api\InboundMessage;
+use Modules\InboundMail\Api\LinkOrigin;
 use Modules\InboundMail\Api\MessageCandidate;
 use Modules\InboundMail\Api\MessageConsumerInterface;
 use Modules\InboundMail\Api\MessageLink;
@@ -28,27 +29,42 @@ use Modules\InboundMail\Api\MessageLink;
  * An invoice arriving by email, offered as a receipt on the account it
  * names (§8.58's consumer contract, §8.70's receipts).
  *
- * **This module never associates anything on its own.** Every answer here
- * is a *proposition*: a treasurer confirms it, and only then does anything
- * become a receipt. That is not caution for its own sake — a receipt is an
- * accounting document, and a wrong one is worse than a missing one because
- * it silently balances against the wrong account.
+ * **An attachment of a receipt type is the price of admission**, and
+ * nothing here happens without one: a PDF, a photo. However much a message
+ * talks about money, there is nothing to file without a document.
  *
- * **Two signals, and both are required.**
+ * Given one, three rules run in order, and the order is the design:
  *
- * 1. An **attachment** of a type a receipt can be — a PDF, an image, an
- *    office document. Without one there is nothing to file, however much
- *    the message talks about money.
- * 2. **Exactly one of the unit's own IBANs**, found in the message's text.
- *    That is what says *which* account, and this module refuses to guess:
- *    zero matches means silence, two matches means silence. An IBAN is
- *    matched through its blind index, so nothing is ever decrypted to
- *    answer the question.
+ * 1. **Exactly one of the unit's own IBANs in the text** → a proposition
+ *    on that account, confirmed by a treasurer before anything is filed.
+ *    An IBAN is matched through its blind index, so nothing is decrypted
+ *    to answer the question; zero matches and two matches both mean
+ *    silence, because an email quoting two of the unit's accounts is
+ *    almost always a transfer between them.
+ * 2. **The sender animates exactly one staff, and that staff has exactly
+ *    one active account** → the receipt is filed there, unattended. An
+ *    animateur photographing a receipt and sending it in is the ordinary
+ *    case, and asking somebody to confirm what the unit's own membership
+ *    data already says would be asking for the sake of asking.
+ * 3. **Nothing places it, on a box dedicated to this module** → the
+ *    receipt is kept with no account at all, in a sorting pile its
+ *    treasurers work through. On the unit's public address this stops at
+ *    silence instead: a photo in a parent's message is not a receipt.
  *
- * A weak signal, and the configuration screen says so out loud
- * (`describeEvidence()`). The superadmin reads that sentence before
- * opening a shared mailbox to this module, which is the whole point of
- * making each consumer publish what it proposes on.
+ * The IBAN wins over the sender deliberately. It is a statement about the
+ * MONEY, made in the document's own covering text; the sender is a
+ * statement about a person, and a person can be wrong about which account
+ * an expense belongs to in a way an IBAN cannot.
+ *
+ * **Rule 2 files without anybody confirming, and the address behind it is
+ * not authenticated.** A `From:` header is forgeable. What bounds that is
+ * the shape of what can be won: a **document** filed on an account —
+ * never an amount, never a movement, never a euro — by an address that
+ * still has to resolve to a real member of this unit animating exactly one
+ * staff. Every rule this module runs is published on the configuration
+ * screen (`describeEvidence()`), which the superadmin reads before opening
+ * a mailbox to it — that publication is the whole point of making each
+ * consumer say what it does.
  *
  * **Strictly additive.** Nothing in the finance module changed for this:
  * the consumer reaches finance through `Api\ExpenseReceiptInterface`,
@@ -63,6 +79,20 @@ class FinanceMessageConsumer implements MessageConsumerInterface
 
     /** `account-{id}` — never a bare id, which would collide with another module's. */
     public const REFERENCE_PREFIX = 'account-';
+
+    /**
+     * The sorting pile: a receipt this module is sure is its business and
+     * cannot place.
+     *
+     * A business reference rather than "no link at all", because the link
+     * is what makes the deposit happen exactly once. `AnalysisResultApplier`
+     * calls `onLinked()` only for an association that was actually new, so
+     * a folder re-read after a UIDVALIDITY reset recognises the message it
+     * already has and does not file the same receipt a second time. Without
+     * a reference there would be no association, therefore no callback, and
+     * therefore no receipt at all.
+     */
+    public const REFERENCE_UNKNOWN = self::REFERENCE_PREFIX . 'unknown';
 
     /**
      * What a receipt can be. Deliberately narrower than what
@@ -107,7 +137,20 @@ class FinanceMessageConsumer implements MessageConsumerInterface
          *
          * @var (\Closure(int): ?string)|null
          */
-        private ?\Closure $readFile = null
+        private ?\Closure $readFile = null,
+        /**
+         * « Cette adresse anime-t-elle un seul staff ? ». Null leaves the
+         * IBAN as the only signal — which is what this consumer was before
+         * the resolver existed, and a complete behaviour rather than a
+         * broken one.
+         */
+        private ?SenderStaffAccountResolver $senderStaff = null,
+        /**
+         * Reads the original sender out of a forwarded body. Null simply
+         * means a forwarded message is judged on its real `From:`, which
+         * is the trustworthy half of the signal anyway.
+         */
+        private ?ForwardedSenderExtractor $forwardedSender = null
     ) {
     }
 
@@ -128,7 +171,7 @@ class FinanceMessageConsumer implements MessageConsumerInterface
 
     public static function accountIdFromReference(string $reference): ?int
     {
-        if (!str_starts_with($reference, self::REFERENCE_PREFIX)) {
+        if (!str_starts_with($reference, self::REFERENCE_PREFIX) || $reference === self::REFERENCE_UNKNOWN) {
             return null;
         }
 
@@ -153,18 +196,67 @@ class FinanceMessageConsumer implements MessageConsumerInterface
             return AnalysisResult::nothing();
         }
 
+        // The IBAN first, and it wins outright. It is a statement about the
+        // MONEY, made inside the document's own covering text; the sender
+        // is a statement about a person, and a person can be wrong about
+        // which account an expense belongs to in a way an IBAN cannot.
         $account = $this->theOneAccountNamed($message->subject . "\n" . $message->bodyText);
-        if ($account === null) {
-            return AnalysisResult::nothing();
+        if ($account !== null) {
+            return AnalysisResult::proposing(new MessageCandidate(
+                businessReference: self::referenceFor($account->id),
+                label: $account->name,
+                evidenceType: 'iban_in_body',
+                explanation: 'Le message porte une pièce jointe et cite l\'IBAN de ce compte. '
+                    . 'C\'est un signal faible : rien n\'est enregistré tant qu\'un trésorier ne l\'a pas confirmé.'
+            ));
         }
 
-        return AnalysisResult::proposing(new MessageCandidate(
-            businessReference: self::referenceFor($account->id),
-            label: $account->name,
-            evidenceType: 'iban_in_body',
-            explanation: 'Le message porte une pièce jointe et cite l\'IBAN de ce compte. '
-                . 'C\'est un signal faible : rien n\'est enregistré tant qu\'un trésorier ne l\'a pas confirmé.'
-        ));
+        $staffAccount = $this->accountOfTheSendersStaff($message);
+        if ($staffAccount !== null) {
+            return AnalysisResult::linkedTo(self::CONSUMER_ID, self::referenceFor($staffAccount->id), LinkOrigin::SENDER);
+        }
+
+        // Nothing places it. On the unit's PUBLIC address that is where
+        // this stops: a photo attached to a parent's message is not a
+        // receipt, and turning every one of them into something a treasurer
+        // must sort would bury the real ones within a week. On a box the
+        // unit declared to be its treasury's, the operator has already said
+        // that everything arriving here is this module's business — so the
+        // document is kept, unplaced, rather than lost.
+        if ($message->mailboxIsDedicatedTo(self::CONSUMER_ID)) {
+            return AnalysisResult::linkedTo(self::CONSUMER_ID, self::REFERENCE_UNKNOWN, LinkOrigin::ATTACHMENT);
+        }
+
+        return AnalysisResult::nothing();
+    }
+
+    /**
+     * The account of the staff this message's sender animates — the real
+     * `From:` first, and only then the address a forwarded body names.
+     *
+     * That order is the whole safety of it. An animateur forwarding a
+     * supplier's receipt to the treasury address **is** the `From:`, so the
+     * common case never reaches the body at all; the body is consulted only
+     * when the real sender resolved to nobody, which is when it can add
+     * something. It stays untrusted text either way, and what it can win is
+     * bounded by what follows it: the address must resolve to a member who
+     * animates exactly one staff holding exactly one active account
+     * (`SenderStaffAccountResolver`), so an invented address wins nothing.
+     */
+    private function accountOfTheSendersStaff(CandidateMessage $message): ?Account
+    {
+        if ($this->senderStaff === null) {
+            return null;
+        }
+
+        $account = $this->senderStaff->resolve($message->fromEmail);
+        if ($account !== null) {
+            return $account;
+        }
+
+        $forwarded = $this->forwardedSender?->extract($message->bodyText, $message->bodyHtml);
+
+        return $forwarded === null ? null : $this->senderStaff->resolve($forwarded);
     }
 
     /**
@@ -192,21 +284,27 @@ class FinanceMessageConsumer implements MessageConsumerInterface
      */
     public function onLinked(InboundMessage $message, MessageLink $link): void
     {
-        $accountId = self::accountIdFromReference($link->businessReference);
-        if ($accountId === null
-            || $this->receipts === null
-            || $this->resolveActor === null
-            || $this->readFile === null
-        ) {
+        $unattributed = $link->businessReference === self::REFERENCE_UNKNOWN;
+        $accountId = $unattributed ? null : self::accountIdFromReference($link->businessReference);
+
+        if ((!$unattributed && $accountId === null) || $this->receipts === null || $this->readFile === null) {
             return;
         }
 
-        if ($link->createdByUserAccountId === null) {
-            return;
-        }
+        // Who is filing this, if anybody. A person confirming a proposition
+        // has finance's authorization built from THEM; an association this
+        // module made on its own has nobody, and takes the unattended route
+        // instead (Api\ExpenseReceiptInterface::storeUnattendedReceipt()).
+        $actor = $link->createdByUserAccountId !== null && $this->resolveActor !== null
+            ? ($this->resolveActor)($link->createdByUserAccountId)
+            : null;
 
-        $actor = ($this->resolveActor)($link->createdByUserAccountId);
-        if ($actor === null) {
+        // A person made the association but could not be resolved into a
+        // role and members: nothing is filed. Inventing an actor would be
+        // this module granting itself an account it may not touch — and
+        // falling through to the unattended route would be worse still,
+        // since that one exists for associations NOBODY made.
+        if ($link->createdByUserAccountId !== null && $actor === null) {
             return;
         }
 
@@ -228,11 +326,21 @@ class FinanceMessageConsumer implements MessageConsumerInterface
             }
 
             try {
+                if ($actor === null) {
+                    $this->receipts->storeUnattendedReceipt(
+                        $content,
+                        $attachment->mimeType,
+                        $attachment->filename,
+                        $accountId
+                    );
+                    continue;
+                }
+
                 $this->receipts->storeReceipt(
                     $content,
                     $attachment->mimeType,
                     $attachment->filename,
-                    $accountId,
+                    (int) $accountId,
                     null,
                     null,
                     $actor['role'],
@@ -267,17 +375,24 @@ class FinanceMessageConsumer implements MessageConsumerInterface
      */
     public function canRead(string $businessReference, array $linkedMemberIds, string $role): bool
     {
+        // The same questions the finance screens ask — deliberately,
+        // because a message filed against an account and the account's own
+        // movements must not have two different rules, and neither must a
+        // message in the sorting pile and the receipt it produced.
+        $visibility = new AccountVisibility(
+            TreasurerScope::forSession($this->treasurerScopeService, $linkedMemberIds, $this->scoutYearId)
+        );
+
+        if ($businessReference === self::REFERENCE_UNKNOWN) {
+            return $visibility->isUnassignedReceiptVisibleTo(Role::fromString($role));
+        }
+
         $accountId = self::accountIdFromReference($businessReference);
         if ($accountId === null) {
             return false;
         }
 
-        // The same question the finance screens ask about that account —
-        // deliberately, because a message filed against an account and the
-        // account's own movements must not have two different rules.
-        return (new AccountVisibility(
-            TreasurerScope::forSession($this->treasurerScopeService, $linkedMemberIds, $this->scoutYearId)
-        ))->isVisibleTo($this->accounts->findById($accountId), Role::fromString($role));
+        return $visibility->isVisibleTo($this->accounts->findById($accountId), Role::fromString($role));
     }
 
     /**
@@ -288,6 +403,11 @@ class FinanceMessageConsumer implements MessageConsumerInterface
         return [
             'pièce jointe de type reçu (PDF, image) ET IBAN d\'un compte de l\'unité cité dans le message '
                 . '— signal faible, toujours une proposition',
+            'pièce jointe de type reçu ET adresse d\'un animateur d\'un seul staff (expéditeur, ou expéditeur '
+                . 'd\'origine d\'un message transféré) — le reçu est classé directement sur le compte de ce '
+                . 'staff, sans confirmation ; une adresse d\'expéditeur n\'est jamais authentifiée',
+            'sur une boîte dédiée aux finances uniquement : pièce jointe de type reçu que rien ne permet '
+                . 'de rattacher — le reçu est conservé sans compte, à trier par la trésorerie',
         ];
     }
 

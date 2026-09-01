@@ -43,6 +43,13 @@ use Core\Mail\Template\EmailTemplateRenderer;
  */
 class SuperAdminMailer
 {
+    /**
+     * What `granted_by` says when the change had no identified author
+     * behind it — a first super-admin created by the installer, a console
+     * command, a fixture.
+     */
+    private const UNNAMED_GRANTOR = 'Un administrateur du site';
+
     public function __construct(
         private MailService $mailService,
         private EmailTemplateRenderer $renderer,
@@ -59,7 +66,16 @@ class SuperAdminMailer
      */
     public function sendGranted(string $to, ?string $grantedByLabel): void
     {
-        $this->send('super_admin_granted', $to, ['granted_by' => $grantedByLabel]);
+        // Never null and never empty: `granted_by` is a DECLARED variable
+        // (Core\Mail\Template\EmailTemplateRegistry), so a unit that
+        // reworded this e-mail substitutes it as a plain string with no
+        // `{% if %}` to fall back on — an unnamed author has to arrive as
+        // a phrase, not as a hole in the middle of the sentence.
+        $label = $grantedByLabel !== null ? trim($grantedByLabel) : '';
+
+        $this->send('super_admin_granted', $to, [
+            'granted_by' => $label !== '' ? $label : self::UNNAMED_GRANTOR,
+        ]);
     }
 
     public function sendRevoked(string $to): void

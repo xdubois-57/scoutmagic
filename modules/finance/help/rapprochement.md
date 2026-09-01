@@ -11,9 +11,14 @@ paths: /finance/reconciliation, /finance/receivables/*/qr
 related: campagnes, finances, importer-extraits
 ---
 
-La plupart des virements se rattachent tout seuls à leur créance, grâce à
-la communication structurée. La page « Rapprochement » réunit les
-quatre situations où ça ne suffit pas.
+**Rapprocher**, c'est dire à quoi correspond chaque somme arrivée sur le
+compte : quelle cotisation, quelle location, quelle facture ce virement
+règle. Le site le fait tout seul dès que la communication structurée
+désigne une créance qu'il connaît, ce qui est le cas de la plupart des
+virements.
+
+La page « Rapprochement » réunit les quatre situations où ça ne suffit
+pas, et où il préfère vous laisser trancher.
 
 ## À répartir
 

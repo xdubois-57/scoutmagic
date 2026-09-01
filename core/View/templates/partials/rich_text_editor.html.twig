@@ -22,6 +22,25 @@
                     <button type="button" data-command="removeFormat" class="btn btn-sm btn-outline-secondary" title="Supprimer le formatage" aria-label="Supprimer le formatage"><i class="bi bi-eraser" aria-hidden="true"></i></button>
                 </div>
                 <div id="richTextEditorContent" contenteditable="true" class="form-control" style="min-height:200px;"></div>
+                {#
+                  An optional second row of controls, under the editor, for a
+                  page whose text takes more than bold and italic — today,
+                  Configuration > E-mails and its variable insertion buttons
+                  (partials/email_variable_buttons.html.twig).
+
+                  A slot rather than a fork of this modal: the buttons have to
+                  be INSIDE it, because that is where the caret is. Offering
+                  them only on the page behind meant saving the text, copying a
+                  placeholder, reopening the editor and pasting — once per
+                  variable.
+
+                  The including page passes the template name and whatever that
+                  template needs; every other page includes this file as before
+                  and gets nothing extra.
+                #}
+                {% if extra_toolbar_template is defined and extra_toolbar_template %}
+                    <div class="mt-2">{% include extra_toolbar_template %}</div>
+                {% endif %}
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>

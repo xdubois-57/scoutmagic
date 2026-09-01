@@ -41,7 +41,7 @@ volontaire, sans garantie de délai.
 - Emails transactionnels signés DKIM
 - Gestion du consentement aux cookies (bannière et préférences alignées sur les exigences ePrivacy)
 - Migration de schéma automatisée
-- Planificateur de tâches (cron + pseudo-cron)
+- Planificateur de tâches, entraîné par le crontab du serveur — obligatoire, vérifié à l'installation et surveillé ensuite
 - Journal d'audit
 - Centre de notifications avec Web Push, préférences par type et par canal (sur le site, push, e-mail), plages horaires de silence, et un mode discret
 - Sauvegardes chiffrées à la demande et automatiques, mise à jour en un clic depuis les releases GitHub, réinitialisation/restauration
@@ -58,6 +58,7 @@ volontaire, sans garantie de délai.
 
 - PHP >= 8.4
 - MySQL >= 8.0
+- **Une tâche planifiée (cron) exécutant `php <racine>/public/cron.php` chaque minute** — voir « La tâche cron » ci-dessous. Ce n'est pas une option de confort : c'est le seul mécanisme qui fait travailler le site.
 - Composer (pour le développement/build uniquement — non nécessaire sur le serveur)
 - Node.js >= 22 et npm (pour l'outillage de développement uniquement — analyse statique JavaScript, tests unitaires JavaScript et tests de bout en bout ; non nécessaire sur le serveur, ni pour exécuter ScoutMagic)
 - Accès FTP au serveur d'hébergement
@@ -67,7 +68,40 @@ volontaire, sans garantie de délai.
 1. Cloner le dépôt.
 2. Exécuter `composer install`.
 3. Pointer la racine de votre serveur web vers `public/`.
-4. Accéder au site — l'assistant de configuration vous guidera.
+4. Installer la tâche cron (voir ci-dessous) — l'assistant refusera de terminer sans elle.
+5. Accéder au site — l'assistant de configuration vous guidera.
+
+### La tâche cron
+
+```
+* * * * * php /chemin/vers/le/site/public/cron.php
+```
+
+`public/cron.php` est **le seul mécanisme** qui fait avancer la file de
+tâches : sauvegardes, mises à jour automatiques, notifications, rappels,
+migrations de schéma, purges. Rien ne se déclenche à la visite d'un
+membre — le site ne travaille que quand le cron le réveille. Sans cette
+ligne, un site installé ne fait strictement rien en arrière-plan.
+
+Trois choses à savoir avant de la copier :
+
+- **Le mot `php` au début n'est pas facultatif.** Plusieurs panneaux
+  d'hébergement proposent un champ « Adresse du script » et acceptent un
+  simple chemin de fichier. Un chemin nu n'exécute rien, et ne le signale
+  à personne : c'est ce qui a fait tourner l'installation de référence
+  pendant des jours sans qu'aucune tâche ne parte.
+- **Une fois par minute, pas moins.** La cadence attendue est la minute ;
+  c'est elle qui borne le retard maximal d'une tâche et la durée pendant
+  laquelle une mise à jour reste en cours.
+- **Rien à craindre d'une tâche longue.** Un passage qui déborde sur la
+  minute suivante garde un verrou : le passage suivant s'arrête aussitôt,
+  sans rien afficher, et reprend au tour d'après.
+
+La ligne exacte, avec le chemin réel de votre installation, est affichée
+sur la page « Installation & serveur » et sur Configuration > Maintenance,
+qui indiquent aussi en direct si le cron tourne et à quelle cadence. Lors
+d'une **première installation**, le bouton « Installer » reste bloqué tant
+qu'un passage réel n'a pas été détecté.
 
 ## Développement
 
@@ -287,7 +321,8 @@ Aucun SSH, Git ou Composer nécessaire sur le serveur — seulement le FTP, et u
 4. Cliquez sur **Installer**. Il rapporte la progression étape par étape, puis un tableau succès/échec pour chaque vérification de sécurité effectuée (y compris des vérifications que votre propre navigateur a effectuées en récupérant des URLs directement). Tout échec annule proprement l'installation et explique quoi corriger — rien n'est laissé à moitié installé.
 5. Une fois toutes les vérifications passées, il écrit un fichier `token.php` à côté de lui-même (ou vous indique de le créer manuellement par FTP s'il n'a pas pu), se supprime lui-même, et vous redirige vers l'assistant de configuration.
 6. L'assistant de configuration demande la valeur du fichier `token.php` avant de montrer quoi que ce soit d'autre — copiez-la depuis le fichier par FTP si vous ne l'avez pas notée. Il est supprimé automatiquement une fois l'assistant terminé.
-7. Complétez l'assistant : identifiants de base de données, paramètres de l'unité, configuration email, et votre compte administrateur.
+7. **Configurez la tâche cron** dans le panneau de votre hébergeur : `* * * * * php <chemin absolu>/public/cron.php` (voir § La tâche cron plus haut — le mot `php` est indispensable). L'assistant affiche la ligne exacte et une pastille d'état qui passe au vert toute seule ; tant qu'elle est rouge, le bouton « Installer » reste bloqué, parce qu'une installation sans cron ne ferait jamais rien en arrière-plan.
+8. Complétez l'assistant : identifiants de base de données, paramètres de l'unité, configuration email, et votre compte administrateur.
 
 **Activer les mises à jour automatiques** : une fois installé, allez dans *Configuration > Maintenance* et générez un secret de webhook GitHub. Dans les *Settings > Webhooks* de votre dépôt GitHub, ajoutez un webhook avec :
 - **Payload URL** : `https://votre-domaine.be/api/webhook/github`

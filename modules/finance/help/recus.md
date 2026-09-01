@@ -7,7 +7,7 @@ role_min: intendant
 question: Où déposer les tickets de caisse des achats de l'unité ?
 question: Comment relier un reçu au mouvement bancaire correspondant ?
 paths: /finance/receipts, /finance/receipts/new
-related: finances, importer-extraits, badges
+related: finances, recus-compte, importer-extraits, badges
 ---
 
 Chaque dépense mérite son justificatif : un ticket photographié, une

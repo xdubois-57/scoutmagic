@@ -50,17 +50,16 @@ final class PlainTextEmailEscapingTest extends TestCase
     private function bothHalves(string $name, string $word): array
     {
         $context = [
-            'booking' => (object) [
-                'renterName' => $name,
-                'reference' => 'LOC-2027-0042',
-                'arrivalDate' => '2027-08-14',
-                'departureDate' => '2027-08-17',
-            ],
-            'asset' => (object) ['name' => 'Le Chalet'],
+            'decision_subject' => 'Votre réservation est confirmée',
+            'renter_name' => $name,
+            'reference' => 'LOC-2027-0042',
+            'arrival_date' => '14/08/2027',
+            'departure_date' => '17/08/2027',
+            'asset_name' => 'Le Chalet',
             'announcement' => 'Votre réservation est confirmée.',
-            'call_to_action' => null,
+            'call_to_action' => '',
             'manager_word' => $word,
-            'tracking_url' => null,
+            'tracking_url' => '',
             'site_name' => 'Unité Test',
         ];
         $twig = $this->twig();
@@ -107,17 +106,16 @@ final class PlainTextEmailEscapingTest extends TestCase
     {
         // The acknowledgement itself, with the name that made this visible.
         $rendered = $this->twig()->render('@rental/email/decision.text.twig', [
-            'booking' => (object) [
-                'renterName' => "O'Brien",
-                'reference' => 'LOC-2027-0042',
-                'arrivalDate' => '2027-08-14',
-                'departureDate' => '2027-08-17',
-            ],
-            'asset' => (object) ['name' => 'Le Chalet'],
+            'decision_subject' => 'Une précision avant de vous répondre',
+            'renter_name' => "O'Brien",
+            'reference' => 'LOC-2027-0042',
+            'arrival_date' => '14/08/2027',
+            'departure_date' => '17/08/2027',
+            'asset_name' => 'Le Chalet',
             'announcement' => "Nous avons besoin d'une précision avant de vous répondre.",
-            'call_to_action' => null,
+            'call_to_action' => '',
             'manager_word' => "Combien serez-vous, à peu près ?",
-            'tracking_url' => null,
+            'tracking_url' => '',
             'site_name' => 'Unité Test',
         ]);
 

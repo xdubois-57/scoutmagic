@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\SupportDashboard\Repository;
 
 use Core\Security\EncryptionService;
+use Modules\SupportDashboard\Service\ReportedFacts;
 use Modules\SupportDashboard\TicketCategory;
 
 /**
@@ -72,15 +73,17 @@ class SupportTicketRepository
         string $description,
         string $contactEmail,
         ?string $siteVersion,
-        ?string $phpVersion
+        ?string $phpVersion,
+        ?string $statisticsSnapshot = null
     ): string {
         $reference = $this->uniqueReference();
 
         $stmt = $this->pdo->prepare(
             'INSERT INTO support_tickets
                 (reference, installation_id, category, description_encrypted, contact_email_encrypted,
-                 contact_email_blind_index, site_version, php_version, status, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                 contact_email_blind_index, site_version, php_version, status, created_at,
+                 statistics_snapshot_encrypted)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $reference,
@@ -93,6 +96,12 @@ class SupportTicketRepository
             $phpVersion,
             self::STATUS_OPEN,
             (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
+            // Frozen on purpose: the installation row beside it keeps only
+            // the latest report, and a ticket read three weeks later must
+            // still say what was running when it was written.
+            $statisticsSnapshot !== null && trim($statisticsSnapshot) !== ''
+                ? $this->encryption->encrypt($statisticsSnapshot, 'support_tickets.statistics_snapshot')
+                : null,
         ]);
 
         return $reference;
@@ -360,6 +369,27 @@ class SupportTicketRepository
     }
 
     /**
+     * The snapshot as an array, or null when there is none or it is not
+     * readable as one.
+     *
+     * A ticket predating this column, or one from an instance too old to
+     * send a snapshot, is an ordinary case rather than a broken row: the
+     * detail page simply says the snapshot is absent.
+     *
+     * @return array<string, mixed>|null
+     */
+    private static function decodeSnapshot(?string $json): ?array
+    {
+        if ($json === null || trim($json) === '') {
+            return null;
+        }
+
+        $decoded = json_decode($json, true);
+
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    /**
      * A ticket plus the last thing its installation reported.
      *
      * The payload is the raw JSON the statistics intake stored; only the
@@ -376,40 +406,22 @@ class SupportTicketRepository
         $payload = json_decode((string) ($row['payload'] ?? ''), true);
         $payload = is_array($payload) ? $payload : [];
 
-        $ticket['installation'] = [
-            'public_id' => ($row['installation_public_id'] ?? null) !== null
-                ? (string) $row['installation_public_id']
-                : null,
-            'instance_url' => ($row['instance_url'] ?? null) !== null ? (string) $row['instance_url'] : null,
-            'scoutmagic_version' => self::scalarIn($payload, 'scoutmagic_version'),
-            'active_members' => self::scalarIn($payload, 'active_members'),
-            'active_sections' => self::scalarIn($payload, 'active_sections'),
-            'installation_method' => self::scalarIn($payload, 'installation_method'),
-            'php_version' => self::scalarIn($payload, 'php_version'),
-            'database_version' => self::scalarIn($payload, 'database_version'),
-        ];
+        // Read through Service\ReportedFacts, the ONE reader of a usage
+        // payload — the fields are nested (`scoutmagic.version`,
+        // `runtime.php_version`, …) and picking them off the top level,
+        // as this did until it was noticed on a real ticket, renders
+        // « Non renseigné » for values the document plainly carries.
+        $ticket['installation'] = array_merge(
+            [
+                'public_id' => ($row['installation_public_id'] ?? null) !== null
+                    ? (string) $row['installation_public_id']
+                    : null,
+                'instance_url' => ($row['instance_url'] ?? null) !== null ? (string) $row['instance_url'] : null,
+            ],
+            ReportedFacts::fromPayload($payload)
+        );
 
         return $ticket;
-    }
-
-    /**
-     * One reported value, only when it is a scalar this page can print.
-     *
-     * The payload comes verbatim from another installation, so a nested
-     * array where a string was expected is a thing that can happen; it
-     * becomes null rather than something Twig has to render.
-     *
-     * @param array<string, mixed> $payload
-     */
-    private static function scalarIn(array $payload, string $key): string|int|null
-    {
-        $value = $payload[$key] ?? null;
-
-        if (is_int($value)) {
-            return $value;
-        }
-
-        return is_string($value) && $value !== '' ? $value : null;
     }
 
     /**
@@ -435,6 +447,14 @@ class SupportTicketRepository
                 : null,
             'archive_file_id' => ($row['archive_file_id'] ?? null) !== null ? (int) $row['archive_file_id'] : null,
             'archive_received_at' => ($row['archive_received_at'] ?? null) !== null ? (string) $row['archive_received_at'] : null,
+            'statistics_snapshot' => self::decodeSnapshot(
+                ($row['statistics_snapshot_encrypted'] ?? null) !== null
+                    ? $this->encryption->decrypt(
+                        (string) $row['statistics_snapshot_encrypted'],
+                        'support_tickets.statistics_snapshot'
+                    )
+                    : null
+            ),
         ];
     }
 }

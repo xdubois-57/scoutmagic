@@ -1,14 +1,13 @@
 ---
 id: finances
 title: Suivre les finances de l'unité
-summary: Le tableau de bord, les mouvements, les paiements attendus et qui voit quels comptes.
+summary: Le tableau de bord, les mouvements, et qui voit quels comptes.
 category: Espace animateurs
 role_min: intendant
 question: Où voir combien il reste sur les comptes de l'unité ?
 question: Qui a le droit de voir quel compte bancaire ?
-question: Où voir ce que les familles doivent encore ?
-paths: /finance, /finance/movements, /finance/receivables
-related: rapprochement, importer-extraits, recus, config-finance, badges, outils-finance
+paths: /finance, /finance/movements
+related: paiements-attendus, rapprochement, importer-extraits, recus, config-finance, badges, outils-finance
 ---
 
 Le module Finances suit les comptes de l'unité à partir des extraits
@@ -59,15 +58,6 @@ filtrée.
 Le gros du travail peut se faire tout seul : des règles de
 catégorisation (mots-clés, contrepartie, montant) s'appliquent à
 chaque import — elles se règlent dans la configuration du module.
-
-## Les paiements attendus
-
-La page « Paiements attendus » suit ce que les familles doivent :
-chaque ligne compare le montant attendu au montant reçu et affiche
-Payé, Partiel ou Non payé. **Rien ne s'y coche à la main** : le statut
-se calcule depuis les extraits importés, grâce à la communication
-structurée du virement. Un paiement en plusieurs fois est additionné
-automatiquement.
 
 ## Le rythme de travail
 

@@ -43,7 +43,16 @@ use Modules\SupportDashboard\TicketCategory;
 class TicketIntakeService
 {
     /** A ticket is a description and an address; 32 KB is generous. */
-    public const MAX_BODY_BYTES = 32768;
+    /**
+     * Sixty-four kilobytes. It was half that until a ticket started
+     * carrying its own usage report: a 5 000-character description of
+     * accented French can reach ~15 KB once JSON-escaped, and the report
+     * adds a few more. Refusing a legitimate ticket because it brought
+     * the very context that makes it answerable would be the wrong
+     * failure, and this is still two orders of magnitude below the
+     * archive's own ceiling.
+     */
+    public const MAX_BODY_BYTES = 65536;
 
     /** Enough for a bad afternoon, few enough that nobody scripts it. */
     public const RATE_LIMIT_MAX_TICKETS = 5;
@@ -164,14 +173,39 @@ class TicketIntakeService
             return $this->refuse(TicketIntakeResult::REJECT_MALFORMED, $clientIp, $installationId);
         }
 
+        // The usage report the instance sent along with its ticket.
+        //
+        // **One transmission, two purposes, and that is the point.** A
+        // report that travelled separately could not be tied to the
+        // ticket it explains — which is exactly what went wrong before:
+        // a report arrived, a ticket arrived, and nothing said they were
+        // the same event. Arriving inside the ticket, it is frozen onto
+        // the ticket AND fed through the ordinary denormalisation so the
+        // installation row is up to date, with no second call and no
+        // window in which the two disagree.
+        $statistics = is_array($payload['statistics'] ?? null) ? $payload['statistics'] : null;
+
         $reference = $this->tickets->create(
             $installationRowId,
             $category,
             $description,
             $contactEmail,
             self::trimmedString($payload['site_version'] ?? null, 50),
-            self::trimmedString($payload['php_version'] ?? null, 20)
+            self::trimmedString($payload['php_version'] ?? null, 20),
+            $statistics !== null ? (string) json_encode($statistics) : null
         );
+
+        if ($statistics !== null) {
+            // Same path an ordinary report takes, so the range checks and
+            // the URL-scheme rule of §8.49 apply to it too — a payload
+            // arriving through this route is no more trusted than one
+            // arriving through the statistics route.
+            $this->installations->recordReport(
+                $installationRowId,
+                (string) json_encode($statistics),
+                StatisticsIntakeService::denormalize($statistics)
+            );
+        }
 
         // The category and the installation, and nothing a person wrote:
         // the description and the address are exactly what this entry must

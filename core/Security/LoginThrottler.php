@@ -112,9 +112,11 @@ class LoginThrottler
     public const RETENTION_DAYS = 7;
 
     /**
-     * Delete attempts older than RETENTION_DAYS — called from the two
-     * scheduler tails (public/cron.php and index.php's poor-man's cron),
-     * next to the journal's own cleanup. Backed by idx_attempted_at.
+     * Delete attempts older than RETENTION_DAYS — called from
+     * public/cron.php, next to the journal's own cleanup. It used to be
+     * called from public/index.php's poor man's cron as well; that tail is
+     * gone with the crontab requirement, and the cron pass was already
+     * doing all of it. Backed by idx_attempted_at.
      */
     public function purgeStale(): int
     {

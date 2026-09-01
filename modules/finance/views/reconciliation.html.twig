@@ -22,9 +22,16 @@
 {% block title %}Rapprochement — Finances — {{ site_name }}{% endblock %}
 
 {% block content %}
+    {# The subtitle used to read « Ce que le rapprochement automatique n'a
+       pas su traiter seul », which explains the page with the word the
+       reader came here not knowing. « Rapprochement » is accounting
+       vocabulary; the chef d'unité reading it is a volunteer, and the menu
+       entry is the first place they meet the term. So the subtitle says
+       what the word MEANS, and the paragraph below says who does it and
+       what is left. #}
     {% include 'partials/page_header.html.twig' with {
         title: 'Rapprochement',
-        subtitle: "Ce que le rapprochement automatique n'a pas su traiter seul.",
+        subtitle: 'Dire à quoi correspond chaque somme arrivée sur le compte.',
     } only %}
 
     {% include '@finance/_nav.html.twig' with {
@@ -32,6 +39,13 @@
         'selected_account': selected_account,
         'hide_account_picker': false,
     } %}
+
+    <p class="text-body-secondary small mb-3">
+        Quand un virement arrive sur le compte, le site cherche la créance qu'il règle — une cotisation, une
+        location, une facture — en lisant sa communication structurée. La plupart se rattachent tout seuls.
+        Cette page ne montre que le reste : les quatre situations où le site n'a pas voulu trancher à votre
+        place, chacune avec le geste qui convient.
+    </p>
 
     {% if view is null %}
         {% include 'partials/empty_state.html.twig' with {

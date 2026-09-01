@@ -94,7 +94,8 @@ class SupportDashboardTestHelper
             closed_at TEXT NULL,
             resolution_note_encrypted BLOB NULL,
             archive_file_id INTEGER NULL,
-            archive_received_at TEXT NULL
+            archive_received_at TEXT NULL,
+            statistics_snapshot_encrypted BLOB NULL
         )');
 
         $pdo->exec('CREATE TABLE support_mail_probes (

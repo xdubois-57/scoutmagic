@@ -1668,7 +1668,12 @@ class MaintenanceControllerTest extends TestCase
         // sit in a collapsed tbody.
         $this->assertStringContainsString('id="update-history-more"', $body);
         $this->assertStringContainsString('class="collapse"', $body);
+        // One label in the markup, the other in a data attribute for
+        // collapse-label.js: a stale stylesheet must never be able to
+        // render both at once (that is exactly what production showed).
         $this->assertStringContainsString('Afficher les 3 précédentes', $body);
+        $this->assertStringContainsString('data-collapse-label-expanded="Afficher moins"', $body);
+        $this->assertSame(0, substr_count($body, '>Afficher moins<'), 'the expanded label lives in the attribute, never as a second visible span');
         // Nine: the eight entries plus the table's own header row.
         $this->assertSame(9, substr_count($body, '<tr>'), 'every entry is rendered, five of them visible');
     }

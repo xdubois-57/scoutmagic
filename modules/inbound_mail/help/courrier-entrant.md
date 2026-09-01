@@ -54,7 +54,13 @@ la même boîte.
 ## Ce qui se passe ensuite
 
 La relève tourne régulièrement en arrière-plan (un vrai cron chez
-l'hébergeur la rend ponctuelle). Chaque message relevé est proposé aux
+l'hébergeur la rend ponctuelle). Son rythme se règle dans
+*Configuration > Réglages*, sous « Intervalle entre deux relèves du
+courrier » : quinze minutes par défaut, entre 5 minutes et 24 heures.
+Inutile de descendre au plus bas — plusieurs hébergeurs de messagerie
+bloquent temporairement un client qui se reconnecte sans arrêt, et
+l'unité perd alors toutes ses relèves le temps du blocage. Chaque
+message relevé est proposé aux
 fonctions du site qui savent le reconnaître — une réponse de locataire
 rejoint sa réservation d'après la référence du sujet, la conversation
 ou l'expéditeur ; dans le doute, rien n'est rattaché plutôt que mal
