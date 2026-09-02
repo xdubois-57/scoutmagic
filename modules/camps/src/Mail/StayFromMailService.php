@@ -22,6 +22,7 @@ use Modules\InboundMail\Api\InboundMessage;
 use Modules\LlmConnector\Api\LlmConnectorInterface;
 use Modules\LlmConnector\Api\LlmException;
 use Modules\LlmConnector\Api\LlmRequest;
+use Modules\LlmConnector\Api\LlmResponse;
 use Modules\LlmConnector\Api\LlmTier;
 
 /**
@@ -101,7 +102,7 @@ class StayFromMailService
      * been failing quietly on every message. See
      * Service\PlaceSummaryService::MAX_TOKENS for the same lesson.
      */
-    private const MAX_TOKENS = 1500;
+    public const MAX_TOKENS = 1500;
 
     public function __construct(
         private CampRepository $camps,
@@ -493,26 +494,29 @@ class StayFromMailService
     private function placeNameFromBody(InboundMessage $message): string
     {
         if (!$this->canNamePlaces() || $this->llm === null) {
+            // No connector, or no model on the CHEAP tier. Nothing is
+            // called and nothing is sent anywhere — and until this line
+            // existed, that was indistinguishable from a model that
+            // answered nothing.
+            $this->journalRead($message->id, self::READ_NO_CONNECTOR, null, null);
+
             return '';
         }
 
         $text = $this->textOf($message);
         if ($text === '') {
+            $this->journalRead($message->id, self::READ_NO_TEXT, null, null);
+
             return '';
         }
+
+        $prompt = mb_substr($text, 0, self::MAX_PROMPT_CHARS);
 
         try {
             $response = $this->llm->complete(new LlmRequest(
                 tier: LlmTier::CHEAP,
-                prompt: mb_substr($text, 0, self::MAX_PROMPT_CHARS),
-                systemPrompt: 'Tu lis un e-mail reçu par une unité scoute au sujet d\'un terrain de camp. '
-                    . 'Donne UNIQUEMENT le nom du lieu dont ce message parle : le terrain, la ferme, '
-                    . 'le domaine, le gîte ou le bâtiment où le séjour aurait lieu. '
-                    . 'Ne donne JAMAIS un nom de personne, ni le nom de l\'expéditeur ou de sa signature, '
-                    . 'ni une adresse postale, ni une adresse e-mail, ni une commune seule. '
-                    . 'N\'invente rien et ne complète rien : recopie le nom tel qu\'il est écrit dans le message. '
-                    . 'Si le message ne nomme pas clairement un lieu, ou si tu hésites, '
-                    . 'réponds une chaîne vide.',
+                prompt: $prompt,
+                systemPrompt: self::PLACE_NAME_SYSTEM_PROMPT,
                 responseSchema: [
                     'type' => 'object',
                     'properties' => ['place_name' => ['type' => 'string']],
@@ -520,24 +524,136 @@ class StayFromMailService
                 ],
                 maxTokens: self::MAX_TOKENS,
             ));
-        } catch (LlmException) {
+        } catch (LlmException $e) {
+            $this->journalRead($message->id, self::READ_PROVIDER_FAILED, null, null, mb_strlen($prompt), $e);
+
             return '';
         }
 
         $answer = $response->parsed['place_name'] ?? null;
+        $name = is_string($answer) ? trim($answer) : '';
 
-        return is_string($answer) && $this->isUsablePlaceName(trim($answer)) ? trim($answer) : '';
+        $outcome = match (true) {
+            !is_string($answer) => self::READ_NO_ANSWER,
+            $name === '' => self::READ_MODEL_DECLINED,
+            str_contains($name, '@') => self::READ_LOOKS_LIKE_AN_ADDRESS,
+            mb_strlen($name) < self::MIN_PLACE_NAME_LENGTH => self::READ_TOO_SHORT,
+            default => self::READ_ACCEPTED,
+        };
+
+        $this->journalRead($message->id, $outcome, $name, $response, mb_strlen($prompt));
+
+        return $outcome === self::READ_ACCEPTED ? $name : '';
     }
 
     /**
-     * The guards on whatever the model hands back, unchanged from the day
-     * the name came out of the `From:` header: long enough to be a place,
-     * and not an e-mail address. A camp site called « Luc » or
-     * « info@mozet.be » would be worse than no camp site at all.
+     * The instruction the model is given. A constant so the journal entry,
+     * the tests and this class all quote the same words — a prompt written
+     * inline is a prompt nobody can check against what was actually sent.
      */
-    private function isUsablePlaceName(string $name): bool
-    {
-        return mb_strlen($name) >= self::MIN_PLACE_NAME_LENGTH && !str_contains($name, '@');
+    public const PLACE_NAME_SYSTEM_PROMPT = 'Tu lis un e-mail reçu par une unité scoute au sujet d\'un terrain de camp. '
+        . 'Donne UNIQUEMENT le nom du lieu dont ce message parle : le terrain, la ferme, '
+        . 'le domaine, le gîte ou le bâtiment où le séjour aurait lieu. '
+        . 'Ne donne JAMAIS un nom de personne, ni le nom de l\'expéditeur ou de sa signature, '
+        . 'ni une adresse postale, ni une adresse e-mail, ni une commune seule. '
+        . 'N\'invente rien et ne complète rien : recopie le nom tel qu\'il est écrit dans le message. '
+        . 'Si le message ne nomme pas clairement un lieu, ou si tu hésites, '
+        . 'réponds une chaîne vide.';
+
+    public const READ_ACCEPTED = 'accepted';
+    public const READ_NO_CONNECTOR = 'no_connector';
+    public const READ_NO_TEXT = 'no_text';
+    public const READ_PROVIDER_FAILED = 'provider_failed';
+    public const READ_NO_ANSWER = 'no_answer';
+    public const READ_MODEL_DECLINED = 'model_declined';
+    public const READ_TOO_SHORT = 'too_short';
+    public const READ_LOOKS_LIKE_AN_ADDRESS = 'looks_like_an_address';
+
+    /** What each outcome means, in the words a chief would use. */
+    public const READ_OUTCOMES = [
+        self::READ_ACCEPTED => 'le modèle a nommé un lieu',
+        self::READ_NO_CONNECTOR => 'aucun connecteur IA disponible pour ce travail — rien n\'a été envoyé',
+        self::READ_NO_TEXT => 'le message n\'a aucun texte lisible, pièces jointes comprises',
+        self::READ_PROVIDER_FAILED => 'le fournisseur d\'IA a refusé ou n\'a pas répondu',
+        self::READ_NO_ANSWER => 'le modèle n\'a pas répondu dans la forme demandée',
+        self::READ_MODEL_DECLINED => 'le modèle a répondu qu\'il ne voyait pas de lieu nommé',
+        self::READ_TOO_SHORT => 'le nom proposé est trop court pour être un lieu',
+        self::READ_LOOKS_LIKE_AN_ADDRESS => 'le nom proposé ressemble à une adresse e-mail',
+    ];
+
+    /**
+     * How much of the model's answer is kept. A place name is a handful of
+     * words; anything longer is a model that misunderstood, and the first
+     * eighty characters are enough to see that.
+     */
+    public const MAX_JOURNALLED_ANSWER = 80;
+
+    /**
+     * What the model answered, and what became of it.
+     *
+     * **This is a deliberate exception to the connector's own rule.**
+     * `Modules\LlmConnector` journals token counts and never a word of
+     * prompt or response, and it is right to: it serves every module and
+     * cannot know what any of them is sending. Here the module knows
+     * exactly what it asked for — the name of a camp site — and it is a
+     * name this same reading would write into `camp_places.name`, a
+     * clear-text column whose justification is that a place is not a
+     * natural person (ARCHITECTURE.md §8.67). Writing it down when it is
+     * REFUSED costs nothing more than accepting it would, and it is the
+     * only way to tell « le modèle a répondu "Camp" » from « le modèle n'a
+     * rien répondu » from « aucun modèle n'a été appelé » — three causes of
+     * one symptom: a form that comes back without a place.
+     *
+     * The answer is bounded, and no other part of the message is here: not
+     * the subject, not the sender, not the body it was read from.
+     */
+    private function journalRead(
+        int $messageId,
+        string $outcome,
+        ?string $answer,
+        ?LlmResponse $response,
+        ?int $promptChars = null,
+        ?LlmException $error = null
+    ): void {
+        $context = [
+            'message_id' => $messageId,
+            'outcome' => $outcome,
+        ];
+        if ($answer !== null) {
+            $context['answer'] = mb_substr($answer, 0, self::MAX_JOURNALLED_ANSWER);
+        }
+        if ($promptChars !== null) {
+            $context['prompt_chars'] = $promptChars;
+        }
+        if ($response !== null) {
+            // The budget, spelled out: a hybrid reasoning model can spend
+            // the whole cap thinking and return an empty answer, and two
+            // integers are what tells that apart from a model that read the
+            // message and found no place in it.
+            $context['input_tokens'] = $response->inputTokens;
+            $context['output_tokens'] = $response->outputTokens;
+            $context['max_tokens'] = self::MAX_TOKENS;
+            $context['truncated'] = $response->truncated;
+            $context['raw_answer_length'] = mb_strlen($response->content);
+        }
+        if ($error !== null) {
+            $context['error'] = mb_substr($error->getMessage(), 0, 200);
+        }
+
+        $this->journal?->log(
+            'camps',
+            'camps_place_name_read',
+            'info',
+            sprintf(
+                'Message #%d : lecture du lieu par le modèle — %s%s',
+                $messageId,
+                self::READ_OUTCOMES[$outcome] ?? $outcome,
+                $answer !== null && $answer !== ''
+                    ? ' (réponse : « ' . mb_substr($answer, 0, self::MAX_JOURNALLED_ANSWER) . ' »)'
+                    : ''
+            ),
+            $context
+        );
     }
 
     /**

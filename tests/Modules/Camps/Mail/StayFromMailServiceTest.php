@@ -159,7 +159,7 @@ class StayFromMailServiceTest extends TestCase
         $this->assertNull($this->service()->createFrom($this->messageWithAttachment(1, 100)));
         $this->assertSame(
             'no_dates',
-            json_decode((string) $this->journalEntries()[0]['context'], true)['reason']
+            json_decode((string) $this->journalEntry('camps_stay_from_mail_skipped')['context'], true)['reason']
         );
     }
 
@@ -202,6 +202,27 @@ class StayFromMailServiceTest extends TestCase
         return (new \Core\Journal\JournalRepository($this->pdo))->search();
     }
 
+    /**
+     * One entry by its type.
+     *
+     * By type rather than by position, deliberately: this path now writes
+     * two lines for one message — what the model answered, and what became
+     * of the message — and a test pinned to `[0]` would break every time a
+     * new one is added, which is the wrong thing to make expensive.
+     *
+     * @return array<string, mixed>
+     */
+    private function journalEntry(string $type): array
+    {
+        foreach ($this->journalEntries() as $entry) {
+            if ($entry['event_type'] === $type) {
+                return $entry;
+            }
+        }
+
+        $this->fail('no journal entry of type ' . $type);
+    }
+
     // ── Saying WHY nothing was created ──────────────────────────────────
 
     /**
@@ -216,8 +237,7 @@ class StayFromMailServiceTest extends TestCase
         // does not read — and until now nothing said that either.
         $this->service()->createFrom($this->message(subject: 'Contrat de location', body: 'Bonjour,'));
 
-        $entry = $this->journalEntries()[0];
-        $this->assertSame('camps_stay_from_mail_skipped', $entry['event_type']);
+        $entry = $this->journalEntry('camps_stay_from_mail_skipped');
         $this->assertSame('no_dates', json_decode((string) $entry['context'], true)['reason']);
         $this->assertStringContainsString('période de séjour', $entry['description']);
     }
@@ -233,7 +253,7 @@ class StayFromMailServiceTest extends TestCase
 
         $this->assertSame(
             'no_place',
-            json_decode((string) $this->journalEntries()[0]['context'], true)['reason']
+            json_decode((string) $this->journalEntry('camps_stay_from_mail_skipped')['context'], true)['reason']
         );
     }
 
@@ -245,7 +265,7 @@ class StayFromMailServiceTest extends TestCase
 
         $this->assertSame(
             'not_automatic',
-            json_decode((string) $this->journalEntries()[0]['context'], true)['reason']
+            json_decode((string) $this->journalEntry('camps_stay_from_mail_skipped')['context'], true)['reason']
         );
     }
 
@@ -256,8 +276,7 @@ class StayFromMailServiceTest extends TestCase
         );
 
         $this->assertNotNull($campId);
-        $entry = $this->journalEntries()[0];
-        $this->assertSame('camps_stay_created_from_mail', $entry['event_type']);
+        $entry = $this->journalEntry('camps_stay_created_from_mail');
         $this->assertSame($campId, json_decode((string) $entry['context'], true)['camp_id']);
     }
 
@@ -267,7 +286,7 @@ class StayFromMailServiceTest extends TestCase
         // internal message id and a reason, and nothing else.
         $this->service()->createFrom($this->message(subject: 'Contrat Fresnaye', body: 'Bonjour,'));
 
-        $entry = $this->journalEntries()[0];
+        $entry = $this->journalEntry('camps_stay_from_mail_skipped');
         $whole = $entry['description'] . '|' . (string) $entry['context'];
         $this->assertStringNotContainsString('@', $whole);
         $this->assertStringNotContainsString('Fresnaye', $whole);
@@ -567,6 +586,113 @@ class StayFromMailServiceTest extends TestCase
             $this->service($this->llmAnswering('Domaine de Mozet'))
                 ->readValues($this->message(fromName: 'Jean-Pierre Lambert'))
         );
+    }
+
+    // ── What the model answered, and what became of it ──────────────────
+
+    /**
+     * Three causes of one symptom — a form that comes back without a place
+     * — and until this entry existed they were indistinguishable: no model
+     * was called, the model answered nothing, the model answered something
+     * the guards refused.
+     */
+    public function testTheModelsAnswerIsWrittenDownWhenItIsAccepted(): void
+    {
+        $this->service($this->llmAnswering('Domaine de Mozet'))->readValues($this->message());
+
+        $entry = $this->journalEntry('camps_place_name_read');
+        $context = json_decode((string) $entry['context'], true);
+        $this->assertSame(StayFromMailService::READ_ACCEPTED, $context['outcome']);
+        $this->assertSame('Domaine de Mozet', $context['answer']);
+        $this->assertStringContainsString('Domaine de Mozet', $entry['description']);
+    }
+
+    public function testAnAnswerTheGuardsRefuseIsWrittenDownWithTheReason(): void
+    {
+        // « Luc » is a first name, not a camp site. The refusal is right;
+        // being unable to see it was not.
+        $this->service($this->llmAnswering('Luc'))->readValues($this->message());
+
+        $context = json_decode((string) $this->journalEntry('camps_place_name_read')['context'], true);
+        $this->assertSame(StayFromMailService::READ_TOO_SHORT, $context['outcome']);
+        $this->assertSame('Luc', $context['answer']);
+    }
+
+    public function testAnAnswerThatIsAnAddressIsWrittenDownWithTheReason(): void
+    {
+        $this->service($this->llmAnswering('info@mozet.be'))->readValues($this->message());
+
+        $this->assertSame(
+            StayFromMailService::READ_LOOKS_LIKE_AN_ADDRESS,
+            json_decode((string) $this->journalEntry('camps_place_name_read')['context'], true)['outcome']
+        );
+    }
+
+    public function testAModelThatSawNoPlaceSaysSoRatherThanNothing(): void
+    {
+        $this->service($this->llmAnswering(''))->readValues($this->message());
+
+        $this->assertSame(
+            StayFromMailService::READ_MODEL_DECLINED,
+            json_decode((string) $this->journalEntry('camps_place_name_read')['context'], true)['outcome']
+        );
+    }
+
+    public function testTheBudgetSpentIsInTheEntry(): void
+    {
+        // A hybrid reasoning model can spend the whole cap thinking and
+        // return an empty answer. Two integers are what tells that apart
+        // from a model that read the message and found no place in it.
+        $this->service($this->llmAnswering('Domaine de Mozet'))->readValues($this->message());
+
+        $context = json_decode((string) $this->journalEntry('camps_place_name_read')['context'], true);
+        $this->assertSame(StayFromMailService::MAX_TOKENS, $context['max_tokens']);
+        $this->assertArrayHasKey('output_tokens', $context);
+        $this->assertGreaterThan(0, $context['prompt_chars']);
+    }
+
+    public function testNoConnectorIsItsOwnAnswerAndNotSilence(): void
+    {
+        // Nothing is called and nothing is sent anywhere — which used to
+        // look exactly like a model that answered nothing.
+        $this->service()->readValues($this->message());
+
+        $this->assertSame(
+            StayFromMailService::READ_NO_CONNECTOR,
+            json_decode((string) $this->journalEntry('camps_place_name_read')['context'], true)['outcome']
+        );
+    }
+
+    public function testAProviderThatRefusedIsNamedAsSuch(): void
+    {
+        $this->service($this->llmFailing())->readValues($this->message());
+
+        $context = json_decode((string) $this->journalEntry('camps_place_name_read')['context'], true);
+        $this->assertSame(StayFromMailService::READ_PROVIDER_FAILED, $context['outcome']);
+        $this->assertStringContainsString('provider down', $context['error']);
+    }
+
+    public function testTheEntryCarriesNothingOfTheMessageButItsId(): void
+    {
+        // The answer is a place name, which this same reading would write
+        // into a clear-text column anyway. Nothing else of the message is
+        // here: not the subject, not the sender, not the body.
+        $this->service($this->llmAnswering('Domaine de Mozet'))
+            ->readValues($this->message(fromName: 'Jean-Pierre Lambert', subject: 'Contrat Fresnaye'));
+
+        $entry = $this->journalEntry('camps_place_name_read');
+        $whole = $entry['description'] . '|' . (string) $entry['context'];
+        $this->assertStringNotContainsString('Lambert', $whole);
+        $this->assertStringNotContainsString('Fresnaye', $whole);
+        $this->assertStringNotContainsString('@', $whole);
+    }
+
+    public function testALongAnswerIsBounded(): void
+    {
+        $this->service($this->llmAnswering(str_repeat('a', 400)))->readValues($this->message());
+
+        $context = json_decode((string) $this->journalEntry('camps_place_name_read')['context'], true);
+        $this->assertSame(StayFromMailService::MAX_JOURNALLED_ANSWER, mb_strlen($context['answer']));
     }
 
     // ── The kind of stay the dates describe ─────────────────────────────
