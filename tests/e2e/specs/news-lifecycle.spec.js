@@ -85,8 +85,8 @@ test('an article is re-edited without losing its form, a member edits their resp
     await placesPanel.getByLabel('Capacité maximale').fill('5');
 
     await page.getByRole('button', { name: 'Enregistrer' }).click();
-    await page.waitForURL(/\/news\/\d+\/edit$/, { waitUntil: 'domcontentloaded' });
-    const articleUrl = new URL(page.url()).pathname.replace(/\/edit$/, '');
+    await page.waitForURL(/\/news\/\d+\/gerer$/, { waitUntil: 'domcontentloaded' });
+    const articleUrl = new URL(page.url()).pathname.replace(/\/gerer$/, '');
 
     // ---------------------------------------------------------------
     // A signed-in member responds — an IDENTIFIED response is the only
@@ -127,7 +127,7 @@ test('an article is re-edited without losing its form, a member edits their resp
     // STORED field — label, capacity, checkbox state — and a change
     // re-serialises through fields_json without dropping anything.
     // ---------------------------------------------------------------
-    await page.goto(`${articleUrl}/edit`, { waitUntil: 'load' });
+    await page.goto(`${articleUrl}/gerer`, { waitUntil: 'load' });
     await expect(page.getByLabel("Titre de l'article")).toHaveValue(ARTICLE_TITLE);
 
     // A re-opened editor lists its fields folded; the row opens its edit
@@ -141,7 +141,7 @@ test('an article is re-edited without losing its form, a member edits their resp
     await reopenedPanel.getByLabel('Libellé du champ').fill(PLACES_LABEL_EDITED);
     await reopenedPanel.getByLabel('Capacité maximale').fill('6');
     await page.getByRole('button', { name: 'Enregistrer' }).click();
-    await page.waitForURL(/\/news\/\d+\/edit$/, { waitUntil: 'load' });
+    await page.waitForURL(/\/news\/\d+\/gerer$/, { waitUntil: 'load' });
 
     // Round trip complete: the re-opened editor shows the edit, and the
     // public page re-derives the remaining places (6 − 3) — the recorded
@@ -177,7 +177,7 @@ test('an article is re-edited without losing its form, a member edits their resp
     // Deletion: a fetch DELETE behind a Bootstrap confirm modal — the
     // only way this verb exists.
     // ---------------------------------------------------------------
-    await page.goto(`${articleUrl}/edit`, { waitUntil: 'load' });
+    await page.goto(`${articleUrl}/gerer`, { waitUntil: 'load' });
     await page.getByRole('button', { name: 'Supprimer', exact: true }).first().click();
     const deleteModal = page.locator('#news-delete-modal');
     await expect(deleteModal).toBeVisible();

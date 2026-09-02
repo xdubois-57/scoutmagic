@@ -210,13 +210,15 @@ test('a chief publishes an article with a paying form, and a family signs up and
 
     await page.getByRole('button', { name: 'Enregistrer' }).click();
 
-    // Saving lands back on the article's own editor (NewsController::
-    // store()), now with an id — which is also where the short link and
-    // the A4 poster appear, so it is the page a chief really ends on.
-    await page.waitForURL(/\/news\/\d+\/edit$/, { waitUntil: 'domcontentloaded' });
-    await expect(page.getByRole('heading', { level: 1, name: "Éditer l'article" })).toBeVisible();
+    // Saving lands back on the article's own management page
+    // (NewsController::store()), now with an id — which is also where the
+    // short link and the A4 poster appear, so it is the page a chief
+    // really ends on. Its <h1> is the article's own title: the page does
+    // more than edit it, which is why its route reads /gerer.
+    await page.waitForURL(/\/news\/\d+\/gerer$/, { waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('heading', { level: 1, name: ARTICLE_TITLE })).toBeVisible();
 
-    const articleUrl = new URL(page.url()).pathname.replace(/\/edit$/, '');
+    const articleUrl = new URL(page.url()).pathname.replace(/\/gerer$/, '');
 
     // The article really is in the unit's list, under the title typed
     // above — the save was a save, not a redirect.
