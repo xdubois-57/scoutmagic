@@ -1,0 +1,134 @@
+{% extends "base.html.twig" %}
+
+{#
+  The door. One evening, named by the URL.
+
+  Reading order of the verdict is deliberate and is decided server-side
+  in Service\ScanService: who the holder is, what they booked, THE STATE
+  OF THE PAYMENT, then the state of the ticket. Payment before ticket
+  because it is the only piece of information that can change the
+  decision — letting somebody in who has not paid is a choice, not an
+  accident.
+
+  Everything below the counters is drawn by news-scan.js from the JSON
+  the lookup route answers, because the whole screen is one field being
+  typed into over and over for two hours. The counters and the empty
+  frames are server-rendered so the page is legible before any script
+  runs, and so a reader with no JavaScript still sees what this page is.
+#}
+
+{% block title %}Scanner un billet — {{ article ? article.title : 'Actualités' }} — {{ site_name }}{% endblock %}
+
+{% block content %}
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Scanner un billet',
+        subtitle: article ? article.title : null,
+    } only %}
+
+    {#
+      The same rail as the article's other views, so the way back to
+      « Édition », « Aperçu » and « Réponses » is where it is everywhere
+      else. The « Finance » tab is deliberately absent here: this screen
+      is `chief`, that page is `intendant` with its own per-account
+      partitioning, and the controller does not resolve it.
+    #}
+    {% include '@news/partials/_form_tabs.html.twig' with {
+        article_id: form.newsArticleId,
+        form_id: form.id,
+        active: 'scan',
+        can_view_responses: true,
+        issues_ticket: true,
+    } only %}
+
+    <div class="page-narrow">
+        {% if form.eventDate or form.eventLocation %}
+            <p class="text-body-secondary">
+                {% if form.eventDate %}{{ form.eventDate|french_date }}{% endif %}
+                {%- if form.eventDate and form.eventLocation %} — {% endif %}
+                {%- if form.eventLocation %}{{ form.eventLocation }}{% endif %}
+            </p>
+        {% endif %}
+
+        {#
+          The counters. It is the kitchen that needs these more than the
+          door: knowing that 80 of 120 meals have gone out is what decides
+          whether to start another pan.
+        #}
+        <div class="row g-2 mb-3" id="news-scan-counters"
+             data-sold="{{ counters.sold }}" data-entered="{{ counters.entered }}" data-expected="{{ counters.expected }}">
+            <div class="col-4">
+                <div class="card h-100 text-center"><div class="card-body p-2">
+                    <p class="h4 mb-0 fw-semibold" data-counter="sold">{{ counters.sold }}</p>
+                    <p class="small text-body-secondary mb-0">places vendues</p>
+                </div></div>
+            </div>
+            <div class="col-4">
+                <div class="card h-100 text-center"><div class="card-body p-2">
+                    <p class="h4 mb-0 fw-semibold text-primary" data-counter="entered">{{ counters.entered }}</p>
+                    <p class="small text-body-secondary mb-0">entrées</p>
+                </div></div>
+            </div>
+            <div class="col-4">
+                <div class="card h-100 text-center"><div class="card-body p-2">
+                    <p class="h4 mb-0 fw-semibold" data-counter="expected">{{ counters.expected }}</p>
+                    <p class="small text-body-secondary mb-0">pas encore venus</p>
+                </div></div>
+            </div>
+        </div>
+
+        {#
+          Said on screen rather than discovered in front of a queue.
+          Validating asks the server to write that a seat is consumed, and
+          this site reads offline but never writes offline.
+        #}
+        <div class="alert alert-warning d-flex gap-2" role="status">
+            <i class="bi bi-wifi-off flex-shrink-0" aria-hidden="true"></i>
+            <span>
+                <strong>Une connexion est nécessaire</strong> pour valider une entrée. Sans réseau,
+                cet écran ne peut ni vérifier un billet ni enregistrer un passage — imprimez la
+                liste des attendus la veille.
+            </span>
+        </div>
+
+        {# The manual entry: one field, and never folded behind an « autres
+           options ». The QR fails more often than one expects — a mailbox
+           nobody can find, a flat phone, somebody who came in the place of
+           whoever booked — and the previous site only searched by
+           reference, useless in exactly those cases. #}
+        <div class="mb-3">
+            <label class="form-label" for="news-scan-query">
+                <i class="bi bi-keyboard me-1" aria-hidden="true"></i>
+                Référence, nom ou adresse e-mail
+            </label>
+            <div class="input-group">
+                <span class="input-group-text"><i class="bi bi-search" aria-hidden="true"></i></span>
+                <input type="search" class="form-control form-control-lg font-monospace" id="news-scan-query"
+                       placeholder="X7K2-9QMF-A3" autocomplete="off" autocapitalize="characters" spellcheck="false">
+            </div>
+            <p class="form-text">Plusieurs résultats s'affichent en liste : choisissez la bonne réservation.</p>
+        </div>
+
+        <div id="news-scan-matches" class="list-group mb-3" aria-live="polite"></div>
+        <div id="news-scan-verdict" class="mb-3" aria-live="polite"></div>
+
+        <a href="/news/scan/{{ form.id }}/liste" class="btn btn-outline-secondary w-100" target="_blank" rel="noopener">
+            <i class="bi bi-printer" aria-hidden="true"></i> Imprimer la liste des attendus
+        </a>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+{# Server data as a JSON island, not an inline assignment (design.md §7.5):
+   data to the parser, so nothing in it can end the block mid-statement,
+   and the template needs no nonce. #}
+<script type="application/json" id="news-scan-data">
+{{ {
+    formId: form.id,
+    lookupUrl: '/news/scan/' ~ form.id ~ '/lookup',
+    validateUrl: '/news/scan/' ~ form.id ~ '/validate',
+    csrfToken: csrf_token,
+    expectsPayment: expects_payment,
+}|json_encode(constant('JSON_HEX_TAG') b-or constant('JSON_HEX_AMP') b-or constant('JSON_UNESCAPED_UNICODE'))|raw }}
+</script>
+<script src="{{ asset('/assets/js/news-scan.js') }}" defer></script>
+{% endblock %}

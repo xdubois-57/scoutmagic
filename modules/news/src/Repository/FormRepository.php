@@ -102,6 +102,18 @@ class FormRepository
     }
 
     /**
+     * @return NewsForm[] every form delivering a ticket — the door
+     *                    screen's candidate set, narrowed afterwards to
+     *                    those that actually have a booking.
+     */
+    public function findAllIssuingTickets(): array
+    {
+        $stmt = $this->pdo->query('SELECT * FROM news_forms WHERE issues_ticket = 1 ORDER BY id DESC');
+
+        return $stmt !== false ? array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC)) : [];
+    }
+
+    /**
      * Whether any form at all delivers a ticket — the one question the
      * conditional « Scanner un billet » menu entry asks
      * (Menu\NewsMenuEntryProvider). A unit that never runs a ticketed

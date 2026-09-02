@@ -260,6 +260,12 @@ final class UxConventionsTest extends TestCase
         '/mass-mail/{id}/recipient-count',
         '/news/{id}/form/responses/export',
         '/news/{id}/poster',
+        // The door screen's three endpoints: JSON for the event search
+        // and for what a scan resolves to, and the A4 list of expected
+        // attendees as a PDF download. None of them renders a page.
+        '/news/scan/events',
+        '/news/scan/{form_id}/lookup',
+        '/news/scan/{form_id}/liste',
         '/r/{token}/poll',
         '/r/{token}/qr',
         '/support-dashboard/export',

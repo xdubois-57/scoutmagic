@@ -15,6 +15,7 @@ use Modules\News\Repository\Article;
 use Modules\News\Repository\FormField;
 use Modules\News\Repository\FormFieldRepository;
 use Modules\News\Repository\FormRepository;
+use Modules\News\Repository\FormResponse;
 use Modules\News\Repository\FormResponseRepository;
 use Modules\News\Repository\NewsForm;
 
@@ -146,6 +147,16 @@ class FormService
     public function hasResponses(int $formId): bool
     {
         return $this->responseRepository->countByFormId($formId) > 0;
+    }
+
+    public function findById(int $formId): ?NewsForm
+    {
+        return $this->formRepository->findById($formId);
+    }
+
+    public function findResponseById(int $responseId): ?FormResponse
+    {
+        return $this->responseRepository->findById($responseId);
     }
 
     /**

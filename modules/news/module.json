@@ -76,6 +76,62 @@
       "breadcrumb": { "label": "Nouvel article", "parents": ["Espace animateurs"] }
     },
     {
+      "path": "/news/scan",
+      "method": "GET",
+      "controller": "Modules\\News\\Controller\\ScanController",
+      "action": "index",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "",
+      "breadcrumb": { "label": "Scanner un billet", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Actualités", "path": "/news/manage" }] }
+    },
+    {
+      "path": "/news/scan/events",
+      "method": "GET",
+      "controller": "Modules\\News\\Controller\\ScanController",
+      "action": "searchEvents",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/news/scan/{form_id}",
+      "method": "GET",
+      "controller": "Modules\\News\\Controller\\ScanController",
+      "action": "event",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "",
+      "breadcrumb": { "label": "Scanner un billet", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Actualités", "path": "/news/manage" }] }
+    },
+    {
+      "path": "/news/scan/{form_id}/lookup",
+      "method": "GET",
+      "controller": "Modules\\News\\Controller\\ScanController",
+      "action": "lookup",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/news/scan/{form_id}/validate",
+      "method": "POST",
+      "controller": "Modules\\News\\Controller\\ScanController",
+      "action": "validate",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/news/scan/{form_id}/liste",
+      "method": "GET",
+      "controller": "Modules\\News\\Controller\\ScanController",
+      "action": "printableList",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
       "path": "/news/{id}",
       "method": "GET",
       "controller": "Modules\\News\\Controller\\NewsController",

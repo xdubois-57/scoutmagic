@@ -3904,9 +3904,59 @@ if ($isEnabled('news')) {
         )
     );
 
+    // « Scanner un billet » — the door (§8.89). role_min: chief on every
+    // route, because it is the animateurs who hold the door, and no public
+    // route anywhere: the ticket lives in the buyer's e-mail, the control
+    // behind a session.
+    $newsScanService = new \Modules\News\Service\ScanService(
+        $newsFormRepo,
+        $newsFieldRepo,
+        $newsResponseRepo,
+        $newsArticleRepo,
+        $newsTicketService,
+        $financeExpectedReceivableForOthers
+    );
+    $frontController->registerController(
+        \Modules\News\Controller\ScanController::class,
+        new \Modules\News\Controller\ScanController(
+            $twig, $newsArticleService, $newsFormService, $newsScanService, $newsTicketService,
+            new \Core\Pdf\DocumentPdfService(), $journalService,
+            (string) ($settingService->get('site_name') ?: '')
+        )
+    );
+
     // The home page's news hook (§7.4) — resolved per request through
     // $moduleHooks, no PageController re-registration.
     $moduleHooks->register(\Core\Module\HomeNewsProvider::class, $newsArticleService);
+
+    // Menu hook (Core\Module\MenuEntryProvider, §7.4): the « Scanner un
+    // billet » shortcut, and only when this unit has ever run a ticketed
+    // event. `visible_when` could not express that — it gates on the KIND
+    // of installation, never on what is in the database. Same
+    // rebuild-and-re-derive dance as the rental and registration blocks;
+    // see Core\View\DynamicMenuRegistrar for why it cannot happen earlier.
+    $newsMenuEntries = $dynamicMenuRegistrar->register(
+        $menuBuilder,
+        [new \Modules\News\Menu\NewsMenuHookService($newsFormRepo)],
+        AuthSession::isAuthenticated() ? AuthSession::getEmail() : null
+    );
+    if ($newsMenuEntries !== []) {
+        $menus = $menuBuilder->build();
+        $twig->addGlobal('menus', $menus);
+
+        $newsMenuActive = $dynamicMenuRegistrar->resolveActive(
+            $newsMenuEntries,
+            $currentPath,
+            $activeMenuId,
+            $activePageUrl,
+            $bestMatchLength
+        );
+        $activeMenuId = $newsMenuActive['menuId'];
+        $activePageUrl = $newsMenuActive['pageUrl'];
+        $bestMatchLength = $newsMenuActive['matchLength'];
+        $twig->addGlobal('active_menu_id', $activeMenuId);
+        $twig->addGlobal('active_page_url', $activePageUrl);
+    }
 }
 
 if ($isEnabled('gallery')) {

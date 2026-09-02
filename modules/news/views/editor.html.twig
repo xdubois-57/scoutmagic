@@ -16,6 +16,7 @@
         form_id: form_id|default(null),
         active: preview is defined and preview ? 'preview' : 'edit',
         can_view_responses: form is not null,
+        issues_ticket: issues_ticket|default(false),
         finance_link: finance_link|default(null),
     } only %}
 

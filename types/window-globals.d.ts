@@ -157,6 +157,13 @@ interface Window {
             variant?: 'danger' | 'primary';
         }) => Promise<string | null>;
     };
+    // public/assets/js/news-scan.js — the door screen of « Scanner un
+    // billet ». Exposed so the QR reader hands its scanned payload to the
+    // one round trip that already exists, rather than writing a second.
+    ScoutMagicNewsScan?: {
+        lookup: (query: string) => Promise<void>;
+        setQuery: (value: string) => Promise<void>;
+    };
     // public/assets/js/news-event-details.js — the article editor's ICS
     // warning. Only the decision is exposed, and only for its unit test.
     ScoutMagicNewsEventDetails?: {

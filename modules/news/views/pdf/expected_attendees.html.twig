@@ -1,0 +1,55 @@
+{#
+  The body of the printable list of expected attendees — rendered into
+  Core\Pdf\DocumentPdfService, which prints whatever HTML it is handed.
+  Every value here is auto-escaped by Twig, and it has to be: these rows
+  carry text a visitor typed into a public form.
+
+  This is the fallback for a decision rather than a feature of its own.
+  Validating writes to the server, so the door needs a connection; the
+  honest answer to "and when it is not there" is a sheet printed the
+  evening before that the staff ticks with a pen.
+
+  Inline styles because dompdf takes a document, not a stylesheet from
+  this site — nothing here is served to a browser.
+#}
+{% if rows is empty %}
+    <p>Aucune réservation pour le moment.</p>
+{% else %}
+    <table style="width:100%;border-collapse:collapse;font-size:10pt;">
+        <thead>
+            <tr style="border-bottom:1.5pt solid #212529;">
+                <th style="width:16pt;"></th>
+                <th style="text-align:left;padding:4pt 2pt;">Nom</th>
+                <th style="text-align:left;padding:4pt 2pt;">Référence</th>
+                <th style="text-align:left;padding:4pt 2pt;">Réservé</th>
+                {% if expects_payment %}<th style="text-align:left;padding:4pt 2pt;">Paiement</th>{% endif %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in rows %}
+                <tr style="border-bottom:0.5pt solid #dee2e6;">
+                    {# The box the staff ticks with a pen. #}
+                    <td style="padding:5pt 2pt;"><span style="display:inline-block;width:10pt;height:10pt;border:0.8pt solid #212529;"></span></td>
+                    <td style="padding:5pt 2pt;">{{ row.label }}</td>
+                    <td style="padding:5pt 2pt;font-family:'DejaVu Sans Mono',monospace;">{{ row.reference }}</td>
+                    <td style="padding:5pt 2pt;">
+                        {%- if row.seats is empty -%}
+                            {{ row.seat_total }} place{{ row.seat_total > 1 ? 's' : '' }}
+                        {%- else -%}
+                            {% for seat in row.seats %}{{ seat.label }} × {{ seat.quantity }}{{ not loop.last ? ', ' : '' }}{% endfor %}
+                        {%- endif -%}
+                    </td>
+                    {% if expects_payment %}
+                        <td style="padding:5pt 2pt;">
+                            {%- if row.payment is null -%}—
+                            {%- elseif row.payment.status == 'paid' -%}Payé
+                            {%- elseif row.payment.status == 'partial' -%}Partiel
+                            {%- else -%}Non payé
+                            {%- endif -%}
+                        </td>
+                    {% endif %}
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+{% endif %}

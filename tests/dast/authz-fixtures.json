@@ -213,6 +213,9 @@
       "slug": "salle-des-fetes",
       "type": "contrat"
     },
+    "/news/scan/{form_id}": {
+      "form_id": "1"
+    },
     "/news/{id}": {
       "id": "1",
       "response_id": "1"

@@ -1,0 +1,57 @@
+{% extends "base.html.twig" %}
+
+{#
+  « Scanner un billet », the generic page: the event search, and nothing
+  else. It is where the menu shortcut lands, since a menu cannot know
+  which evening is being held.
+
+  Choosing an event NAVIGATES — the event lives in the URL, not in a page
+  state. The screen stays open for two hours and a reload must not send
+  the animateur back here; the address gets shared between two people
+  taking turns; and the breadcrumb of the next page is built from that
+  route rather than from a choice made inside a panel.
+
+  The controller redirects straight through when there is exactly one
+  event, so this page only ever renders on a real choice.
+#}
+
+{% block title %}Scanner un billet — {{ site_name }}{% endblock %}
+
+{% block content %}
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Scanner un billet',
+        subtitle: 'Choisissez la soirée dont vous tenez la porte.',
+    } only %}
+
+    <div class="page-narrow">
+        {% if events is empty %}
+            {% include 'partials/empty_state.html.twig' with {
+                message: "Aucun évènement à contrôler. Un évènement apparaît ici quand son formulaire délivre un billet et qu'au moins une personne a réservé.",
+                icon: 'bi-qr-code-scan',
+            } only %}
+        {% else %}
+            <div class="mb-3">
+                <label class="form-label" for="news-scan-event-search">Chercher un évènement</label>
+                <div class="input-group">
+                    <span class="input-group-text"><i class="bi bi-search" aria-hidden="true"></i></span>
+                    <input type="search" class="form-control" id="news-scan-event-search"
+                           placeholder="Souper spaghetti, marché de Noël…" autocomplete="off">
+                </div>
+            </div>
+
+            <div id="news-scan-event-results" class="list-group" aria-live="polite">
+                {% include '@news/scan/_event_rows.html.twig' with { events: events } only %}
+            </div>
+
+            <p class="form-text mt-2">
+                Seuls les évènements qui délivrent un billet et comptent au moins une réservation
+                apparaissent. Choisir un évènement ouvre sa page : l'adresse est partageable et
+                survit à un rechargement.
+            </p>
+        {% endif %}
+    </div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ asset('/assets/js/news-scan-events.js') }}" defer></script>
+{% endblock %}

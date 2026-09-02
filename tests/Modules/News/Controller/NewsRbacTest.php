@@ -36,6 +36,7 @@ use Core\View\EditableContentService;
 use Core\View\TwigFactory;
 use Modules\News\Controller\FormController;
 use Modules\News\Controller\NewsController;
+use Modules\News\Controller\ScanController;
 use Modules\News\Repository\Article;
 use Modules\News\Repository\ArticleRepository;
 use Modules\News\Repository\FormRepository;
@@ -64,8 +65,10 @@ class NewsRbacTest extends TestCase
     private Environment $twig;
     private NewsController $newsController;
     private FormController $formController;
+    private ScanController $scanController;
     private int $chiefAccountId;
     private int $articleId;
+    private int $formId;
 
     protected function setUp(): void
     {
@@ -85,7 +88,11 @@ class NewsRbacTest extends TestCase
         // role_min guard from FormController's own extra in-controller
         // check against the form's response_role_min (covered instead by
         // NewsIntegrationTest::testResponsesPageRejectsRoleBelowResponseRoleMin).
-        $formRepository->create($this->articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'intendant', false, null);
+        // issues_ticket on, so the scan routes below have a real event to
+        // resolve — a form that delivers no ticket has no door to hold and
+        // ScanController answers 404 rather than 403, which would make the
+        // guard test say nothing.
+        $this->formId = $formRepository->create($this->articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'intendant', false, null, true);
 
         $editableContentService = new EditableContentService(new EditableContentRepository($this->pdo));
         $shortUrlService = new ShortUrlService(new ShortUrlRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))));
@@ -132,6 +139,25 @@ class NewsRbacTest extends TestCase
         );
         $this->formController = new FormController($twig, $articleService, $formService, $responseService, $scoutYearService, $journalService);
 
+        $scanResponseRepository = new \Modules\News\Repository\FormResponseRepository($this->pdo, $encryption);
+        $scanTicketService = new \Modules\News\Service\TicketService($scanResponseRepository);
+        $this->scanController = new ScanController(
+            $twig,
+            $articleService,
+            $formService,
+            new \Modules\News\Service\ScanService(
+                $formRepository,
+                new \Modules\News\Repository\FormFieldRepository($this->pdo),
+                $scanResponseRepository,
+                $articleRepository,
+                $scanTicketService
+            ),
+            $scanTicketService,
+            new \Core\Pdf\DocumentPdfService(),
+            $journalService,
+            'Test'
+        );
+
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
         }
@@ -162,6 +188,15 @@ class NewsRbacTest extends TestCase
             // `chief`: this route carries the HIGHER of the two, and the
             // denied role here is the one that may read the same page.
             'mail draft (chief)' => ['/news/{id}/form/responses/mail-draft', 'FormController', 'createMailDraft', 'chief', 'intendant'],
+            // The door is held by the ANIMATEURS, not only by the unit
+            // staff — hence `chief` rather than `admin` — and no route of
+            // this feature is public anywhere: the ticket lives in the
+            // buyer's e-mail, the control behind a session.
+            'scan index (chief)' => ['/news/scan', 'ScanController', 'index', 'chief', 'intendant'],
+            'scan event (chief)' => ['/news/scan/{form_id}', 'ScanController', 'event', 'chief', 'intendant'],
+            'scan events json (chief)' => ['/news/scan/events', 'ScanController', 'searchEvents', 'chief', 'intendant'],
+            'scan lookup (chief)' => ['/news/scan/{form_id}/lookup', 'ScanController', 'lookup', 'chief', 'intendant'],
+            'scan list (chief)' => ['/news/scan/{form_id}/liste', 'ScanController', 'printableList', 'chief', 'intendant'],
         ];
     }
 
@@ -174,7 +209,7 @@ class NewsRbacTest extends TestCase
         AuthSession::login($this->chiefAccountId, 'allowed@test.com', $allowedRole);
 
         $response = $this->buildFrontController($path, $controllerName, $action, $allowedRole)
-            ->handle(new Request('GET', $this->resolvedPath($path, ['id' => (string) $this->articleId]), [], [], [], []));
+            ->handle(new Request('GET', $this->resolvedPath($path, ['id' => (string) $this->articleId, 'form_id' => (string) $this->formId]), [], [], [], []));
 
         $this->assertNotSame(403, $response->getStatusCode(), "Expected non-403 for role {$allowedRole} on {$path}, got {$response->getStatusCode()}: " . $response->getBody());
     }
@@ -188,7 +223,7 @@ class NewsRbacTest extends TestCase
         AuthSession::login($this->chiefAccountId, 'denied@test.com', $deniedRole);
 
         $response = $this->buildFrontController($path, $controllerName, $action, $allowedRole)
-            ->handle(new Request('GET', $this->resolvedPath($path, ['id' => (string) $this->articleId]), [], [], [], []));
+            ->handle(new Request('GET', $this->resolvedPath($path, ['id' => (string) $this->articleId, 'form_id' => (string) $this->formId]), [], [], [], []));
 
         $this->assertSame(403, $response->getStatusCode());
     }
@@ -235,6 +270,7 @@ class NewsRbacTest extends TestCase
         return match ($name) {
             'NewsController' => $this->newsController,
             'FormController' => $this->formController,
+            'ScanController' => $this->scanController,
             default => throw new \RuntimeException("Unknown controller {$name}"),
         };
     }
