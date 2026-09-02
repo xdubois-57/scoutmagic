@@ -68,6 +68,14 @@ trait InertInboundMail
     }
 
     /**
+     * @return array{examined: int, linked: int, proposed: int}
+     */
+    public function reanalyzeUnlinked(string $consumerId, int $limit = 100): array
+    {
+        return ['examined' => 0, 'linked' => 0, 'proposed' => 0];
+    }
+
+    /**
      * @param string[] $messageIds
      */
     public function findReferenceByThread(string $consumerId, int $mailboxId, array $messageIds): ?string

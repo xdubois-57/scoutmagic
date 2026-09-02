@@ -41,21 +41,27 @@
                 </button>
             </div>
 
-            {# Expanded by default: « où est-on déjà allés ? » is the question
-               this screen exists to answer, and a map nobody unfolds answers
-               it for nobody. The cost is stated rather than avoided — the map
-               is built on load, so the tile provider receives the IP of every
-               chief who opens this list, and core/View/rgpd_default.html says
-               exactly that under « Fond de carte et géocodage ».
+            {# Expanded on a wide screen, folded on a narrow one — the split
+               is applied by public/assets/js/camps-map.js, which is the only
+               place that can see the viewport. « Où est-on déjà allés ? » is
+               the question this screen exists to answer, and a map nobody
+               unfolds answers it for nobody; but on a phone a full-width map
+               that captures touch sits between the reader and the list they
+               came for, and every attempt to scroll past it pans the map.
 
-               The fold is the reader's, and public/assets/js/camps-map.js
-               remembers it from one visit to the next: in localStorage, and
-               only with functional cookie consent (see that file's header,
-               and this module's own `cookies` section in module.json).
-               Without consent nothing is remembered and the map is expanded
-               again on every visit — so `show` is the one state the server can
-               always render, the fold being applied by the script afterwards
-               or not at all. #}
+               `show` is the one state the SERVER can render, and it has to
+               be this one: it cannot see the screen, and a page whose script
+               never ran must show the map rather than hide it behind a button
+               nothing can press. Where the map really is shown it is built on
+               load, so the tile provider receives that reader's IP —
+               core/View/rgpd_default.html says exactly that under « Fond de
+               carte et géocodage ».
+
+               The fold is the reader's, and the script remembers it from one
+               visit to the next: in localStorage, and only with functional
+               cookie consent (see that file's header, and this module's own
+               `cookies` section in module.json). Without consent nothing is
+               remembered and the screen decides again on the next visit. #}
             <div class="collapse show mb-4" id="camps-map-panel">
                 <div class="card">
                     <div id="camps-map" style="height: 20rem;"

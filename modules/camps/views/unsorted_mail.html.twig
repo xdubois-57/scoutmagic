@@ -7,6 +7,32 @@
             subtitle: 'Les messages que le site rattache à un séjour, ceux qu\'il propose d\'y rattacher, et — sur une boîte dédiée aux camps — tout le reste de cette boîte.',
         } only %}
 
+        {% if has_inbound_mail %}
+            {# « Relancer l'analyse » — the site's knowledge moves and the
+               mail already collected does not follow it. Attaching one
+               e-mail of a thread to a stay makes the rest of that thread
+               attributable, creating a place makes a farmer's address start
+               matching; a message analysed the day it arrived was analysed
+               against what the site knew that day.
+
+               Shown even with nothing to triage: « rien ne remonte » is a
+               question a chief asks on an empty screen too, and a button
+               that appears only when it has work looks broken exactly then.
+               Its answer says so plainly. #}
+            <form method="post" action="/chefs/camps/courrier/relancer" class="mb-3">
+                {{ csrf_field()|raw }}
+                <button type="submit" class="btn btn-outline-secondary">
+                    <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
+                    Relancer l'analyse
+                </button>
+                <span class="form-text d-block mt-1">
+                    Réexamine les messages qui ne sont rattachés à rien, avec ce que le site sait
+                    aujourd'hui. Utile après avoir rattaché un message d'une conversation, ou créé
+                    un lieu. Rien n'est jamais détaché, et une proposition écartée le reste.
+                </span>
+            </form>
+        {% endif %}
+
         {% if not has_inbound_mail %}
             {% include 'partials/empty_state.html.twig' with {
                 message: 'Aucune boîte n\'est relevée par le site : rien n\'arrive ici. Un administrateur peut en raccorder une dans la configuration du module Courrier entrant.',

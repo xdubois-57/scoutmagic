@@ -10,6 +10,9 @@ namespace Modules\InboundMail\Service;
 
 use Core\File\FileRepository;
 use Modules\InboundMail\Api\InboundMailInterface;
+use Modules\InboundMail\Api\CandidateAttachment;
+use Modules\InboundMail\Api\CandidateMessage;
+use Modules\InboundMail\Api\InboundAttachment;
 use Modules\InboundMail\Api\InboundMessage;
 use Modules\InboundMail\Api\LinkOrigin;
 use Modules\InboundMail\Api\MessageLink;
@@ -51,8 +54,14 @@ class InboundMailService implements InboundMailInterface
          * above and for the same reason: only `probeAddressesFor()` needs
          * it, and a caller that only reads a thread never builds one.
          */
-        private ?MailboxScopeService $scopeService = null
+        private ?MailboxScopeService $scopeService = null,
+        /**
+         * Where a consumer that throws during a re-run goes. Null writes
+         * nothing, which is what a caller that only reads wants.
+         */
+        private ?AnalysisJournal $analysisJournal = null
     ) {
+        $this->consumerRegistry?->setAnalysisJournal($analysisJournal);
     }
 
     /**
@@ -595,5 +604,126 @@ class InboundMailService implements InboundMailInterface
         $mailbox = $this->mailboxRepository->findById($mailboxId);
 
         return $mailbox !== null && $mailbox->isDedicated() && $mailbox->dedicatedTo === $consumerId;
+    }
+
+    /**
+     * @return array{examined: int, linked: int, proposed: int}
+     */
+    public function reanalyzeUnlinked(string $consumerId, int $limit = 100): array
+    {
+        $none = ['examined' => 0, 'linked' => 0, 'proposed' => 0];
+        $consumer = $this->consumerRegistry?->find($consumerId);
+        if ($consumer === null) {
+            return $none;
+        }
+
+        $mailboxes = $this->mailboxesAnalysedBy($consumerId);
+        if ($mailboxes === []) {
+            return $none;
+        }
+
+        $applier = new AnalysisResultApplier($this->messageRepository);
+        $notifier = new LinkedMessageNotifier(
+            $this->messageRepository,
+            $this->consumerRegistry ?? new MessageConsumerRegistry(),
+            $this->analysisJournal
+        );
+
+        $examined = 0;
+        $linked = 0;
+        $proposed = 0;
+        $ids = [];
+
+        foreach ($this->messageRepository->findUnlinkedForReanalysis(array_keys($mailboxes), $limit) as $message) {
+            $examined++;
+            $ids[] = $message->id;
+
+            // ONE consumer, and the registry's own `$only` narrowing is
+            // what says so: this is the caller's module re-reading its own
+            // mail, not a request that every module have another look.
+            $results = $this->consumerRegistry->analyzeAll(
+                self::candidateFrom($message, $mailboxes[$message->mailboxId]),
+                [$consumer]
+            );
+
+            $notifier->notify($message->id, $applier->apply($message->id, $results));
+
+            foreach ($results as $result) {
+                $linked += count($result->links);
+                $proposed += count($result->candidates);
+            }
+        }
+
+        // And the slow half, for the hourly task: an attachment's text and
+        // a model call are readings a request cannot afford to wait for.
+        $this->messageRepository->queueForStoredAnalysis($ids);
+
+        return ['examined' => $examined, 'linked' => $linked, 'proposed' => $proposed];
+    }
+
+    /**
+     * The enabled boxes this consumer may analyse, keyed by id, each with
+     * the consumer its operator declared it dedicated to.
+     *
+     * Without a scope service — a caller that never built one — every
+     * enabled box qualifies, which is what the contract was before the
+     * configuration screen existed.
+     *
+     * @return array<int, string|null>
+     */
+    private function mailboxesAnalysedBy(string $consumerId): array
+    {
+        $mailboxes = [];
+        foreach ($this->mailboxRepository->findEnabled() as $mailbox) {
+            if ($this->scopeService !== null
+                && !$this->scopeService->scopeFor($mailbox, $consumerId)->analyzes
+            ) {
+                continue;
+            }
+
+            $mailboxes[$mailbox->id] = $mailbox->isDedicated() ? $mailbox->dedicatedTo : null;
+        }
+
+        return $mailboxes;
+    }
+
+    /**
+     * A stored message, in the shape the arrival pass reads.
+     *
+     * **`references` is empty and cannot be otherwise**: the header is not
+     * stored, only `In-Reply-To` is. A re-run therefore threads a DIRECT
+     * reply onto the message it answers, and a deeper one only once its own
+     * parent has been attached — which a second press settles. Storing the
+     * whole chain to close that gap would mean a schema change and a column
+     * of somebody else's Message-IDs, for a case one more click already
+     * covers.
+     */
+    private static function candidateFrom(InboundMessage $message, ?string $dedicatedTo): CandidateMessage
+    {
+        return new CandidateMessage(
+            mailboxId: $message->mailboxId,
+            subject: $message->subject,
+            fromEmail: $message->fromEmail,
+            fromName: $message->fromName,
+            messageId: $message->messageId,
+            inReplyTo: $message->inReplyTo,
+            references: [],
+            toEmails: $message->toEmails,
+            sentAt: $message->sentAt,
+            // Already sanitised on the way in (§7.9) — what is stored is
+            // what a consumer was always given.
+            bodyText: $message->bodyText,
+            bodyHtml: $message->bodyHtml,
+            attachments: array_map(
+                static fn(InboundAttachment $attachment): CandidateAttachment => new CandidateAttachment(
+                    $attachment->filename,
+                    $attachment->mimeType,
+                    $attachment->sizeBytes
+                ),
+                $message->attachments
+            ),
+            rawHeaders: $message->rawHeaders,
+            mailboxDedicatedTo: $dedicatedTo
+        );
     }
 }

@@ -121,20 +121,37 @@ final class MapTilesTest extends TestCase
         $this->assertNotEmpty($declared[$key]['duration']);
     }
 
-    public function testTheRgpdPageDescribesAMapThatIsOpenBeforeAnybodyAsks(): void
+    public function testTheRgpdPageDescribesAMapThatIsOpenBeforeAnybodyAsksOnAWideScreen(): void
     {
-        // The map used to be collapsed by default and the policy said so,
-        // in those words. Now that the tiles are fetched on load, that
-        // sentence is not merely stale: it tells a reader their IP does
-        // not leave unless they ask for a map, which is false.
+        // The map used to be collapsed by default everywhere and the policy
+        // said so, in those words. On a wide screen the tiles are now
+        // fetched on load, and a sentence still promising the opposite is
+        // not merely stale: it tells a reader their IP does not leave
+        // unless they ask for a map, which on that screen is false.
         $rgpd = (string) file_get_contents(self::root() . '/core/View/rgpd_default.html');
 
-        $this->assertStringNotContainsString(
-            'repliée par défaut',
+        $this->assertStringContainsString(
+            'dépliée par défaut sur un grand écran',
             $rgpd,
-            'The map is expanded by default; a policy still promising the opposite understates what leaves the browser.'
+            'On a wide screen the map is open before anybody asks, and the policy has to say so.'
         );
-        $this->assertStringContainsString('dépliée par défaut', $rgpd);
+        $this->assertStringNotContainsString(
+            'repliée par défaut sur un grand écran',
+            $rgpd,
+            'A policy promising a folded map on the screen where it is open understates what leaves the browser.'
+        );
+    }
+
+    public function testTheRgpdPageAlsoDescribesTheNarrowScreenWhereNothingIsFetched(): void
+    {
+        // The other half, and it must not be left out either: a phone
+        // requests no tile at all until its reader opens the map. Saying
+        // only « dépliée par défaut » would now overstate what leaves a
+        // phone, which is the same failure in the other direction.
+        $rgpd = (string) file_get_contents(self::root() . '/core/View/rgpd_default.html');
+
+        $this->assertStringContainsString('repliée par défaut', $rgpd);
+        $this->assertStringContainsString('aucune tuile', $rgpd);
     }
 
     private static function root(): string

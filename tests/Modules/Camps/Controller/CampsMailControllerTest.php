@@ -182,6 +182,70 @@ class CampsMailControllerTest extends TestCase
         );
     }
 
+    // ── « Relancer l'analyse » ──────────────────────────────────────────
+
+    /**
+     * The site's knowledge moves and the mail already collected does not
+     * follow it: attaching one e-mail of a thread to a stay makes the rest
+     * of that thread attributable, creating a place makes a farmer's
+     * address start matching.
+     */
+    public function testTheButtonAsksThisModuleToReadItsUnattachedMailAgain(): void
+    {
+        $response = $this->post('reanalyze', [], []);
+
+        $this->assertSame('/chefs/camps/courrier', $response->getHeaders()['Location'] ?? null);
+        $this->assertSame([[CampsMessageConsumer::CONSUMER_ID, 100]], $this->inbound->reanalyses);
+    }
+
+    public function testARunThatFoundSomethingSaysWhat(): void
+    {
+        $this->inbound->reanalysisReport = ['examined' => 4, 'linked' => 1, 'proposed' => 2];
+
+        $this->post('reanalyze', [], []);
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertStringContainsString('4 messages réexaminés', (string) $flash['message']);
+        $this->assertStringContainsString('1 rattachement', (string) $flash['message']);
+        $this->assertStringContainsString('2 propositions', (string) $flash['message']);
+    }
+
+    public function testARunThatFoundNothingSaysThatPlainly(): void
+    {
+        // The ordinary outcome, and it has to read like one: a button whose
+        // success message always sounds like something happened teaches
+        // people to stop reading it.
+        $this->inbound->reanalysisReport = ['examined' => 3, 'linked' => 0, 'proposed' => 0];
+
+        $this->post('reanalyze', [], []);
+
+        $this->assertStringContainsString(
+            'rien de neuf',
+            (string) \Core\Http\FlashMessage::get()['message']
+        );
+    }
+
+    public function testNothingLeftToExamineIsItsOwnSentence(): void
+    {
+        $this->post('reanalyze', [], []);
+
+        $this->assertStringContainsString(
+            'déjà rattaché',
+            (string) \Core\Http\FlashMessage::get()['message']
+        );
+    }
+
+    public function testReanalysisWithoutACsrfTokenDoesNothing(): void
+    {
+        $response = $this->controller->reanalyze(
+            new Request('POST', '/chefs/camps/courrier/relancer', [], [], [], []),
+            []
+        );
+
+        $this->assertSame([], $this->inbound->reanalyses);
+        $this->assertSame(302, $response->getStatusCode());
+    }
+
     /**
      * A stay id nobody has must not move the message anywhere: the id
      * comes from a form field and is as forgeable as any other.
@@ -351,6 +415,22 @@ class RecordingInboundMail implements InboundMailInterface
 
     /** @var array<int, array{0: string, 1: string, 2: int}> */
     public array $attaches = [];
+
+    /** @var array<int, array{0: string, 1: int}> */
+    public array $reanalyses = [];
+
+    /** @var array{examined: int, linked: int, proposed: int} */
+    public array $reanalysisReport = ['examined' => 0, 'linked' => 0, 'proposed' => 0];
+
+    /**
+     * @return array{examined: int, linked: int, proposed: int}
+     */
+    public function reanalyzeUnlinked(string $consumerId, int $limit = 100): array
+    {
+        $this->reanalyses[] = [$consumerId, $limit];
+
+        return $this->reanalysisReport;
+    }
 
     /** @return InboundMessage[] */
     public function findForReference(string $consumerId, string $businessReference): array

@@ -37,6 +37,18 @@ function page(placesJson) {
         </div>`;
 }
 
+/**
+ * jsdom implements no matchMedia, and the map's default now depends on
+ * one. Absent, the script treats the screen as wide — showing a map to
+ * somebody who did not need it being a smaller mistake than hiding it
+ * from somebody who did — so a test about a phone has to say so.
+ */
+function stubViewport(desktop) {
+    window.matchMedia = /** @type {typeof window.matchMedia} */ (
+        /** @type {unknown} */ ((query) => ({ matches: desktop, media: query }))
+    );
+}
+
 function clearConsentCookie() {
     document.cookie = 'cookie_consent=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
 }
@@ -162,6 +174,8 @@ describe('camps-map.js', () => {
         delete window.L;
         localStorage.clear();
         clearConsentCookie();
+        // @ts-expect-error — removing the stub a previous test installed.
+        delete window.matchMedia;
     });
 
     it('builds the map on load, with no click anywhere', async () => {
@@ -285,14 +299,19 @@ describe('camps-map.js', () => {
             expect(localStorage.getItem(KEY)).toBe('1');
         });
 
-        it('stores unfolded as an absence, the way the default is written nowhere', async () => {
+        it('stores unfolded too, because absence now means « ask the screen »', async () => {
+            // It used to be stored as an absence, absence meaning « the
+            // default, which is expanded ». With a default that depends on
+            // the screen, a reader who unfolds the map on their phone would
+            // find it folded again on every visit — their choice silently
+            // unstorable.
             giveConsent(true);
             localStorage.setItem(KEY, '1');
             await load();
 
             openPanel();
 
-            expect(localStorage.getItem(KEY)).toBeNull();
+            expect(localStorage.getItem(KEY)).toBe('0');
         });
 
         it('never writes anything without a consent cookie', async () => {
@@ -336,6 +355,81 @@ describe('camps-map.js', () => {
             expect(toggle().classList.contains('collapsed')).toBe(true);
         });
 
+        it('honours a stored unfold on a phone, over the narrow-screen default', async () => {
+            stubViewport(false);
+            giveConsent(true);
+            localStorage.setItem(KEY, '0');
+            const calls = await load();
+
+            expect(panel().classList.contains('show')).toBe(true);
+            expect(calls.tileLayers).toHaveLength(1);
+        });
+    });
+
+    describe('the default depends on the screen', () => {
+        it('opens on a wide screen, where a map answers the question the page asks', async () => {
+            stubViewport(true);
+            const calls = await load();
+
+            expect(panel().classList.contains('show')).toBe(true);
+            expect(calls.tileLayers).toHaveLength(1);
+        });
+
+        it('stays folded on a phone, and requests no tile at all', async () => {
+            // A full-width map that captures touch sits between the reader
+            // and the list they came for, and every attempt to scroll past
+            // it pans the map instead.
+            stubViewport(false);
+            const calls = await load();
+
+            expect(panel().classList.contains('show')).toBe(false);
+            expect(calls.tileLayers).toHaveLength(0);
+            expect(calls.markers).toHaveLength(0);
+        });
+
+        it('tells the toggle it is folded on a phone', async () => {
+            stubViewport(false);
+            await load();
+
+            expect(toggle().getAttribute('aria-expanded')).toBe('false');
+            expect(toggle().classList.contains('collapsed')).toBe(true);
+        });
+
+        it('folds on a phone even with no consent, since nothing needs storing to do it', async () => {
+            // The narrow-screen default is not a preference and is not
+            // remembered: it is what the screen is.
+            stubViewport(false);
+            giveConsent(false);
+            await load();
+
+            expect(panel().classList.contains('show')).toBe(false);
+            expect(localStorage.getItem(KEY)).toBeNull();
+        });
+
+        it('treats a browser with no matchMedia as a wide screen', async () => {
+            // Showing a map to somebody who did not need it is a smaller
+            // mistake than hiding it from somebody who did.
+            const calls = await load();
+
+            expect(panel().classList.contains('show')).toBe(true);
+            expect(calls.tileLayers).toHaveLength(1);
+        });
+
+        it('treats a matchMedia that throws as a wide screen too', async () => {
+            window.matchMedia = /** @type {typeof window.matchMedia} */ (
+                /** @type {unknown} */ (() => {
+                    throw new Error('nope');
+                })
+            );
+
+            const calls = await load();
+
+            expect(panel().classList.contains('show')).toBe(true);
+            expect(calls.tileLayers).toHaveLength(1);
+        });
+    });
+
+    describe('remembering the fold, continued', () => {
         it('folds the panel as the file runs, before its DOMContentLoaded handler', async () => {
             // The <script> sits at the end of <body>, so applying the
             // fold here rather than at DOMContentLoaded is what keeps a

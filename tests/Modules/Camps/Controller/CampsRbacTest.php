@@ -280,6 +280,7 @@ class CampsRbacTest extends TestCase
             'restore a place' => ['/chefs/camps/lieux/{place}/restaurer', 'merge', 'restorePlace', 'admin', 'chief'],
             'merge stays' => ['/chefs/camps/sejours/{camp}/fusionner', 'merge', 'mergeCamp', 'chief', 'intendant'],
             'attach a message' => ['/chefs/camps/courrier/{message}/rattacher', 'mail', 'attach', 'chief', 'intendant'],
+            're-run the analysis' => ['/chefs/camps/courrier/relancer', 'mail', 'reanalyze', 'chief', 'intendant'],
             'discard a message' => ['/chefs/camps/courrier/{message}/supprimer', 'mail', 'discard', 'chief', 'intendant'],
             'apply a proposal' => ['/chefs/camps/propositions/{proposal}/appliquer', 'mail', 'applyProposal', 'chief', 'intendant'],
             'dismiss a proposal' => ['/chefs/camps/propositions/{proposal}/ignorer', 'mail', 'dismissProposal', 'chief', 'intendant'],

@@ -85,6 +85,76 @@ class CampsMailController extends AbstractController
     }
 
     /**
+     * « Relancer l'analyse » — offer every unattributed message to this
+     * module again.
+     *
+     * The button exists because the site's knowledge moves and the mail
+     * already collected does not follow it: a chief attaches one e-mail of
+     * a thread to a stay and the rest of that thread becomes attributable,
+     * a place is created and a farmer's address starts matching, a contact
+     * is added to a camp. A message analysed the day it arrived was
+     * analysed against what the site knew that day, and nothing ever went
+     * back to ask again.
+     *
+     * The answer comes in two parts, and the flash says both: what this
+     * request settled, and what the hourly task will — reading an
+     * attachment's text or calling a model is not something a chief should
+     * watch a page spin through.
+     *
+     * @param array<string, string> $params
+     */
+    public function reanalyze(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, '/chefs/camps/courrier')) !== null) {
+            return $guard;
+        }
+
+        if ($this->inboundMail === null) {
+            return $this->notFound();
+        }
+
+        $report = $this->inboundMail->reanalyzeUnlinked(CampsMessageConsumer::CONSUMER_ID, self::MAX_MESSAGES);
+
+        FlashMessage::set('success', self::reanalysisMessage($report));
+
+        return $this->redirect('/chefs/camps/courrier');
+    }
+
+    /**
+     * What happened, in the words a chief would use — and « rien de neuf »
+     * said plainly rather than dressed up.
+     *
+     * A run that changes nothing is the ordinary outcome and has to read
+     * like one: the alternative is a button whose success message always
+     * sounds like something happened, which teaches people to stop reading
+     * it.
+     *
+     * @param array{examined: int, linked: int, proposed: int} $report
+     */
+    private static function reanalysisMessage(array $report): string
+    {
+        if ($report['examined'] === 0) {
+            return 'Aucun message en attente : tout ce qui est conservé est déjà rattaché.';
+        }
+
+        $found = [];
+        if ($report['linked'] > 0) {
+            $found[] = $report['linked'] . ' rattachement' . ($report['linked'] > 1 ? 's' : '');
+        }
+        if ($report['proposed'] > 0) {
+            $found[] = $report['proposed'] . ' proposition' . ($report['proposed'] > 1 ? 's' : '');
+        }
+
+        return sprintf(
+            '%d message%s réexaminé%s : %s. La lecture des pièces jointes se poursuit en arrière-plan.',
+            $report['examined'],
+            $report['examined'] > 1 ? 's' : '',
+            $report['examined'] > 1 ? 's' : '',
+            $found === [] ? 'rien de neuf pour l\'instant' : implode(' et ', $found)
+        );
+    }
+
+    /**
      * Confirm one of this module's propositions.
      *
      * Through `InboundMailInterface`, which re-checks that the proposition

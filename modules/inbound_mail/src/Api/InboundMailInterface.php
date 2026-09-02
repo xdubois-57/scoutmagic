@@ -231,6 +231,38 @@ interface InboundMailInterface
     public function isDedicatedTo(string $consumerId, int $mailboxId): bool;
 
     /**
+     * Offer this consumer, again, every stored message that belongs to
+     * nothing — « relancer l'analyse ».
+     *
+     * **Why a re-run finds what the first run could not.** A message is
+     * analysed once, on arrival, against what the site knew that day. The
+     * knowledge moves: a chief attaches one e-mail of a thread to a stay
+     * and the rest of that thread becomes attributable; a place is created
+     * and a farmer's address starts matching; a contact is added to a
+     * camp. None of that reaches back to the mail already collected, and
+     * before this there was no way to make it.
+     *
+     * **Unlinked only, and that is the whole filter.** A message already
+     * attached to something is a message somebody's reading already
+     * settled; offering it around again could only produce a second claim
+     * on what is not in doubt.
+     *
+     * **Scoped twice.** Only the boxes this consumer is allowed to analyse
+     * are read, and only THIS consumer is asked — a chief pressing a
+     * button on their own module's screen must not quietly make another
+     * module claim mail, nor reach a box the operator never opened to it.
+     *
+     * It also puts the messages back in front of the deferred,
+     * content-level pass, whose readings (an attachment's text, a model
+     * call) are too slow to run inside a request. So the answer is in two
+     * parts: what this call settles immediately, and what the hourly task
+     * settles afterwards.
+     *
+     * @return array{examined: int, linked: int, proposed: int}
+     */
+    public function reanalyzeUnlinked(string $consumerId, int $limit = 100): array;
+
+    /**
      * The business object a message belongs to, found from the Message-IDs
      * a reply names — §7.6's second level, and the reason a reply carrying
      * no reference still lands on the right file.

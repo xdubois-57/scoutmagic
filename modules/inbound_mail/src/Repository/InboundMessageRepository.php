@@ -511,6 +511,63 @@ class InboundMessageRepository
         );
     }
 
+    /**
+     * The stored messages that belong to NOTHING, in the boxes given,
+     * newest first.
+     *
+     * What « relancer l'analyse » works on. Unlinked is the whole filter,
+     * and deliberately: a message already attached to a stay, a booking or
+     * an invoice is a message somebody's reading already settled, and
+     * offering it around again could only produce a second claim on
+     * something that is not in doubt. What IS in doubt is the mail nobody
+     * could attribute — which is exactly the list this screen shows.
+     *
+     * @param int[] $mailboxIds
+     * @return InboundMessage[]
+     */
+    public function findUnlinkedForReanalysis(array $mailboxIds, int $limit): array
+    {
+        if ($mailboxIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($mailboxIds), '?'));
+        $stmt = $this->pdo->prepare(
+            'SELECT m.* FROM inbound_messages m
+              WHERE m.mailbox_id IN (' . $placeholders . ')
+                AND NOT EXISTS (SELECT 1 FROM inbound_message_links l WHERE l.message_id = m.id)
+           ORDER BY m.sent_at DESC, m.id DESC
+              LIMIT ' . max(1, $limit)
+        );
+        $stmt->execute(array_map('intval', array_values($mailboxIds)));
+
+        return $this->hydrateAll($stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Put messages back in front of the deferred, content-level pass.
+     *
+     * The narrow counterpart of `queueAllForStoredAnalysis()`: that one
+     * offers the WHOLE box again and belongs to a superadmin, this one
+     * takes the ids a caller already scoped and is what a chief's
+     * « relancer l'analyse » reaches. Propositions somebody set aside stay
+     * set aside either way — `addCandidate()` refuses to re-create them.
+     *
+     * @param int[] $messageIds
+     */
+    public function queueForStoredAnalysis(array $messageIds): void
+    {
+        if ($messageIds === []) {
+            return;
+        }
+
+        $placeholders = implode(',', array_fill(0, count($messageIds), '?'));
+        $stmt = $this->pdo->prepare(
+            'UPDATE inbound_messages SET stored_analysis_at = NULL WHERE id IN (' . $placeholders . ')'
+        );
+        $stmt->execute(array_map('intval', array_values($messageIds)));
+    }
+
     public function markStoredAnalysisDone(int $messageId, \DateTimeImmutable $now): void
     {
         $stmt = $this->pdo->prepare('UPDATE inbound_messages SET stored_analysis_at = ? WHERE id = ?');
