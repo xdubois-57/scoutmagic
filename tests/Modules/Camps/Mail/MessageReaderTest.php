@@ -111,15 +111,107 @@ class MessageReaderTest extends TestCase
 
     public function testTwoPricesMeanNoReadingAtAll(): void
     {
-        // A quote naming a deposit and a total is precisely the message
-        // where guessing wrong is most expensive — and the chief reading
-        // it has the document in front of them anyway.
+        // A quote naming a deposit and a BALANCE states neither total: two
+        // figures that both survive are two figures a human has to look at.
         $this->assertNull($this->reader->readPriceCents('Acompte de 500 € puis solde de 1 950 €.'));
+        // And two real prices remain two real prices.
+        $this->assertNull($this->reader->readPriceCents('Le terrain coûte 2450 € ou 2600 € selon la période.'));
     }
 
     public function testANumberWithoutACurrencyIsNotAPrice(): void
     {
         $this->assertNull($this->reader->readPriceCents('Nous pouvons accueillir 65 personnes.'));
         $this->assertNull($this->reader->readPriceCents('Téléphone : 081 58 00 00'));
+    }
+
+    // ── A contract always states more than one figure ───────────────────
+
+    /**
+     * The rule was « exactly ONE amount in the whole text », written for a
+     * message body — and right there. But the reading now sees the
+     * CONTRACT, and a contract always states at least a total and a
+     * deposit, so the rule refused every single one of them, including the
+     * documents that state their price most plainly.
+     *
+     * @return array<string, array{string, ?int}>
+     */
+    public static function pricesInDocuments(): array
+    {
+        return [
+            'a deposit named after the total' => ['Total 2450 €, acompte 500 €.', 245000],
+            'a deposit named before its figure' => ['Le prix est de 2450 €. Acompte : 500 €.', 245000],
+            'the label after the figure' => ['1.468,80 €/Forfait + charges', 146880],
+            'a security deposit and VAT' => ['2450 € tout compris, caution 300 €, TVA 210 €.', 245000],
+            'the same deposit said twice' => [
+                'Réception de l\'acompte : 490,00 €. Le montant de l\'acompte est de 490 euros.',
+                null,
+            ],
+            'a discount is not a price' => ['Prix 2450 €, remise 100 €.', 245000],
+            'a trailing label' => ['Forfait 2450 € TTC', 245000],
+            'a trailing label that disqualifies' => ['2450 € de caution', null],
+            // The line below must not reach back up: normalise() has
+            // already turned the break into a space, and a window of
+            // twenty-five threw the forfait away because of it.
+            'a deposit on the next line' => [
+                "Forfait : 1.468,80 EUR\nReception de l acompte : 490,00 EUR",
+                146880,
+            ],
+            // Nothing survives: a balance and a deposit describe a total
+            // stated somewhere this text does not reach.
+            'only a deposit and a balance' => ['Acompte 500 €, solde 1950 €.', null],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('pricesInDocuments')]
+    public function testAnAmountThatIsNotTheStaysPriceIsEliminated(string $text, ?int $expected): void
+    {
+        $this->assertSame($expected, $this->reader->readPriceCents($text));
+    }
+
+    public function testEachAmountIsJudgedOnItsOwnLabel(): void
+    {
+        // The trap this rule fell into first: a window wide enough to see
+        // the neighbour's word threw away the very figure it exists to
+        // find. « acompte » belongs to 500, not to 2450.
+        $this->assertSame(245000, $this->reader->readPriceCents('Total 2450 €, acompte 500 €.'));
+        $this->assertSame(50000, $this->reader->readPriceCents('Solde 2450 €, à payer 500 €.'));
+    }
+
+    // ── How many people the stay is for ─────────────────────────────────
+
+    /**
+     * @return array<string, array{string, ?int}>
+     */
+    public static function participantCounts(): array
+    {
+        return [
+            'labelled before, as a contract writes it' => ['Nombre prévu:250', 250],
+            'labelled after' => ['250 participants', 250],
+            'in a sentence' => ['Nous serons 45 personnes.', 45],
+            'nombre de participants' => ['Nombre de participants : 32', 32],
+            // A contract is full of integers, and only the word next to one
+            // separates a count from a postcode.
+            'a postcode' => ['1653 Dworp', null],
+            'a street number' => ['Rue de Dublin 21 - 1050 Bruxelles', null],
+            'a year' => ['Bruxelles, le 30 août 2024', null],
+            'two different counts' => ['40 participants, puis 60 personnes', null],
+            'a count nobody camps with' => ['9000 personnes', null],
+            'one person is a typo' => ['1 personne', null],
+            'nothing at all' => ['Merci de votre message.', null],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('participantCounts')]
+    public function testTheParticipantCountNeedsItsLabel(string $text, ?int $expected): void
+    {
+        $this->assertSame($expected, $this->reader->readParticipantCount($text));
+    }
+
+    public function testTheSameCountSaidTwiceIsStillOneCount(): void
+    {
+        $this->assertSame(
+            250,
+            $this->reader->readParticipantCount('Nombre prévu:250. Merci de confirmer les 250 participants.')
+        );
     }
 }

@@ -922,6 +922,10 @@ class CampsChiefControllerTest extends TestCase
                 '/value="weekend" selected/',
                 (string) preg_replace('/\s+/', ' ', $html)
             );
+            // The forfait, not the deposit — and the head count the
+            // contract states in as many words.
+            $this->assertStringContainsString('1 468,80', $html);
+            $this->assertStringContainsString('value="120"', $html);
         } finally {
             foreach (glob($storagePath . '/inbound/*') ?: [] as $file) {
                 @unlink($file);

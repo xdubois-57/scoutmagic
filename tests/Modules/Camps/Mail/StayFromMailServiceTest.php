@@ -140,6 +140,10 @@ class StayFromMailServiceTest extends TestCase
             $this->assertSame('2026-09-18', $camp?->startDate);
             $this->assertSame('2026-09-20', $camp?->endDate);
             $this->assertSame('Centre de camp Le Grand Pré', $this->places->findById((int) $camp?->placeId)?->name);
+            // The forfait, not the deposit — and the head count the
+            // contract states in as many words.
+            $this->assertSame(146880, $camp?->priceCents);
+            $this->assertSame(120, $camp?->participantCount);
 
             // And the model was shown the contract, not just « Bonjour, ».
             $this->assertStringContainsString('Arrivee: 18-09-26', $this->asked[0]->prompt);
@@ -582,6 +586,9 @@ class StayFromMailServiceTest extends TestCase
                 // Eight days: a grand camp, and the form arrives with it
                 // already chosen.
                 'stay_type' => Camp::STAY_GRAND_CAMP,
+                // Nothing in this message says how many people, and a
+                // reading that guessed would be worse than an empty field.
+                'participant_count' => '',
             ],
             $this->service($this->llmAnswering('Domaine de Mozet'))
                 ->readValues($this->message(fromName: 'Jean-Pierre Lambert'))

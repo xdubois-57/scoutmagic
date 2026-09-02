@@ -138,34 +138,168 @@ class MessageReader
     }
 
     /**
-     * A price in cents, when the message states exactly ONE amount.
+     * A price in cents, when exactly one amount in the text can be the
+     * stay's own.
      *
-     * Two amounts means no reading at all: a quote naming a deposit and a
-     * total is precisely the message where guessing wrong is most
-     * expensive, and the chief reading it has the document in front of
-     * them anyway.
+     * **The rule used to be « exactly ONE amount in the whole text », and
+     * it was written for a message body.** It is right there: a two-line
+     * e-mail naming a deposit and a total is precisely where guessing
+     * wrong is most expensive. But the reading now sees the CONTRACT, and
+     * a contract always states at least two figures — a total and a
+     * deposit — so the rule refused every one of them, systematically,
+     * including the documents that state their price most plainly.
+     *
+     * So amounts are ELIMINATED rather than chosen. An amount whose own
+     * words say it is not the stay's price — an acompte, une caution, des
+     * arrhes, la TVA — is dropped; whatever is left has to be ALONE, or
+     * the answer is still null. Nothing here ranks two candidates against
+     * each other: « the bigger one is probably the total » is exactly the
+     * guess this class exists not to make.
      */
     public function readPriceCents(string $text): ?int
     {
         $text = $this->normalise($text);
+        $candidates = [];
 
         preg_match_all(
             '/(\d{1,3}(?:[  \.]\d{3})*|\d+)(?:[.,](\d{1,2}))?\s*(?:€|eur\b|euros?\b)/u',
             $text,
             $matches,
+            PREG_SET_ORDER | PREG_OFFSET_CAPTURE
+        );
+
+        // Each amount is judged on ITS OWN label, so the neighbours' words
+        // cannot disqualify it: « Total 2450 €, acompte 500 € » names one
+        // price and one deposit, and a window wide enough to see both
+        // would throw away the very figure it exists to find.
+        $previousEnd = 0;
+        foreach ($matches as $index => $match) {
+            $offset = (int) $match[0][1];
+            $end = $offset + strlen($match[0][0]);
+            $nextStart = isset($matches[$index + 1]) ? (int) $matches[$index + 1][0][1] : strlen($text);
+
+            if (self::isNotTheStaysPrice($text, $offset, $end, $previousEnd, $nextStart)) {
+                $previousEnd = $end;
+                continue;
+            }
+            $previousEnd = $end;
+
+            $whole = (string) preg_replace('/[  \.]/u', '', $match[1][0]);
+            if (!ctype_digit($whole)) {
+                continue;
+            }
+
+            $candidates[] = (int) $whole * 100 + (int) str_pad($match[2][0] ?? '', 2, '0');
+        }
+
+        // Still exactly one, and still null otherwise. Eliminating is not
+        // choosing: two figures that both survive are two figures a human
+        // has to look at, exactly as before.
+        return count(array_unique($candidates)) === 1 ? $candidates[0] : null;
+    }
+
+    /**
+     * The words that say an amount is something other than what the stay
+     * costs.
+     *
+     * A deposit, a security deposit, VAT and a discount are all figures a
+     * contract states next to its price and none of them IS the price.
+     * « solde » is here too: a balance is what remains after a deposit, so
+     * a document naming one is a document whose total is elsewhere.
+     */
+    private const NOT_A_PRICE = [
+        'acompte', 'arrhes', 'caution', 'garantie', 'solde', 'tva', 'remise',
+        'reduction', 'réduction', 'frais de dossier', 'penalite', 'pénalité',
+    ];
+
+    /**
+     * How far BEFORE an amount its label is looked for, and how far after.
+     *
+     * French writes the label before the figure — « acompte : 490 € » — so
+     * that is the wide side, bounded by the previous amount so one figure's
+     * words are never read as another's.
+     *
+     * **The trailing side is deliberately tiny**, and that is not timidity:
+     * `normalise()` has already collapsed every line break into a space, so
+     * there is no longer anything to say where one line ended and the next
+     * began. A window of twenty-five reached from « Forfait : 1.468,80 EUR »
+     * into « Réception de l'acompte » on the line below and threw the
+     * forfait away — the exact figure it exists to find. Fourteen covers
+     * every trailing label a contract actually uses (« €/Forfait », « € TTC »,
+     * « € de caution ») and reaches no further than the end of its own
+     * clause. The cut at punctuation is the other half of the same rule.
+     */
+    private const LABEL_BEFORE = 40;
+    private const LABEL_AFTER = 14;
+
+    /**
+     * Offsets are in BYTES (PREG_OFFSET_CAPTURE) while the text is UTF-8,
+     * so `substr` is the right tool: cutting with `mb_substr` on a byte
+     * offset would slice a multi-byte character in half. The window is only
+     * ever searched for a word, never measured.
+     */
+    private static function isNotTheStaysPrice(
+        string $text,
+        int $offset,
+        int $end,
+        int $previousEnd,
+        int $nextStart
+    ): bool {
+        $from = max($previousEnd, $offset - self::LABEL_BEFORE);
+        $before = substr($text, $from, max(0, $offset - $from));
+
+        $after = substr($text, $end, min(self::LABEL_AFTER, max(0, $nextStart - $end)));
+        // Past a comma or a full stop the sentence has moved on, and what
+        // it moved on to belongs to the next figure.
+        $after = (string) preg_split('/[.,;:\n]/u', $after, 2)[0];
+
+        foreach (self::NOT_A_PRICE as $word) {
+            if (str_contains($before . ' ' . $after, $word)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * How many people the stay is for, when the text says so in as many
+     * words.
+     *
+     * A number needs a LABEL here, and a narrow one: a contract is full of
+     * integers — a postcode, a house number, a booking reference, a year —
+     * and the only thing separating « 250 participants » from « 250 » is
+     * the word next to it. Exactly one labelled count, or nothing.
+     *
+     * Bounded at both ends. A unit of one is a typo and a unit of six
+     * thousand is a phone number that happened to sit after the word
+     * « personnes ».
+     */
+    public const MIN_PARTICIPANTS = 2;
+    public const MAX_PARTICIPANTS = 2000;
+
+    public function readParticipantCount(string $text): ?int
+    {
+        $text = $this->normalise($text);
+
+        preg_match_all(
+            '/(?:nombre\s+(?:pr[ée]vu|de\s+participants|de\s+personnes)|participants?|personnes)'
+            . '\s*(?:pr[ée]vus?|attendus?)?\s*[:=]?\s*(\d{1,4})'
+            . '|(\d{1,4})\s*(?:participants?|personnes)\b/u',
+            $text,
+            $matches,
             PREG_SET_ORDER
         );
-        if (count($matches) !== 1) {
-            return null;
+
+        $counts = [];
+        foreach ($matches as $match) {
+            $value = (int) (($match[1] ?? '') !== '' ? $match[1] : ($match[2] ?? '0'));
+            if ($value >= self::MIN_PARTICIPANTS && $value <= self::MAX_PARTICIPANTS) {
+                $counts[] = $value;
+            }
         }
 
-        $whole = (string) preg_replace('/[  \.]/u', '', $matches[0][1]);
-        $decimals = $matches[0][2] ?? '';
-        if (!ctype_digit($whole)) {
-            return null;
-        }
-
-        return (int) $whole * 100 + (int) str_pad($decimals, 2, '0');
+        return count(array_unique($counts)) === 1 ? $counts[0] : null;
     }
 
     /**
