@@ -164,6 +164,30 @@ interface Window {
         lookup: (query: string) => Promise<void>;
         setQuery: (value: string) => Promise<void>;
     };
+    // public/assets/js/news-scan-reader.js — the camera half of the door
+    // screen, and the wake lock that keeps the phone awake while it is
+    // open. Exposed for its unit test.
+    ScoutMagicNewsScanReader?: {
+        openCamera: () => Promise<void>;
+        closeCamera: () => Promise<void>;
+        handleDecoded: (decoded: string) => void;
+        requestWakeLock: () => Promise<void>;
+        releaseWakeLock: () => Promise<void>;
+    };
+    // public/assets/vendor/html5-qrcode/html5-qrcode.min.js — the vendored
+    // reader's own global, loaded only on the door screen. Typed to what
+    // news-scan-reader.js actually calls, and no further: this is a
+    // declaration of the seam, not a re-description of the library.
+    Html5Qrcode?: new (elementId: string, config?: { verbose?: boolean }) => {
+        start: (
+            cameraIdOrConfig: { facingMode: string } | string,
+            config: { fps: number, qrbox: { width: number, height: number } },
+            onDecoded: (decodedText: string) => void,
+            onFailure: (error: string) => void
+        ) => Promise<void>;
+        stop: () => Promise<void>;
+        clear: () => void;
+    };
     // public/assets/js/news-event-details.js — the article editor's ICS
     // warning. Only the decision is exposed, and only for its unit test.
     ScoutMagicNewsEventDetails?: {

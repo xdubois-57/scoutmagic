@@ -93,4 +93,45 @@ class EpcPayloadTest extends TestCase
         $this->assertSame(70, strlen($lines[5]), 'beneficiary name is 70');
         $this->assertSame(140, strlen($lines[10]), 'unstructured remittance is 140');
     }
+
+    // --- Reading one back: the door scanner's tolerant half ---
+
+    public function testAPayloadRoundTripsItsCommunication(): void
+    {
+        // The one field a reader ever wants back, read off the same line
+        // the builder writes it to — which is the whole reason both
+        // directions live in this file.
+        $payload = EpcPayload::build('Unité SV025', 'BE71096123456769', null, 4600, '+++123/4567/89412+++');
+
+        $this->assertSame('+++123/4567/89412+++', EpcPayload::communicationFrom($payload));
+    }
+
+    public function testCarriageReturnsAndTrailingBlanksAreTolerated(): void
+    {
+        // A QR decoder may hand back either line ending, and the payload
+        // arrives as whatever the camera read.
+        $payload = "BCD\r\n002\r\n1\r\nSCT\r\n\r\nUnité\r\nBE71096123456769\r\nEUR46.00\r\n\r\n\r\n+++123/4567/89412+++\r\n\r\n";
+
+        $this->assertSame('+++123/4567/89412+++', EpcPayload::communicationFrom($payload));
+    }
+
+    public function testWhatIsNotATransferPayloadReadsAsNull(): void
+    {
+        // Null is the ORDINARY answer — most of what a door scanner reads
+        // is a bare ticket reference — so it means « not one of these »
+        // rather than « something went wrong ».
+        $this->assertNull(EpcPayload::communicationFrom('X7K2-9QMF-A3'));
+        $this->assertNull(EpcPayload::communicationFrom(''));
+        // The right shape, the wrong service tag.
+        $this->assertNull(EpcPayload::communicationFrom("ABC\n002\n1\nSCT\n\nU\nBE1\nEUR1.00\n\n\n+++1+++"));
+        // Truncated: the communication is line 11 and there is no line 11.
+        $this->assertNull(EpcPayload::communicationFrom("BCD\n002\n1\nSCT"));
+    }
+
+    public function testAnEmptyCommunicationReadsAsNullRatherThanAnEmptyString(): void
+    {
+        // A caller looks the answer up; an empty string would be a lookup
+        // for nothing that could match the wrong row on a lax comparison.
+        $this->assertNull(EpcPayload::communicationFrom("BCD\n002\n1\nSCT\n\nU\nBE1\nEUR1.00\n\n\n   "));
+    }
 }

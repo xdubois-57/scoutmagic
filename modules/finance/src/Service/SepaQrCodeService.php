@@ -11,6 +11,7 @@ namespace Modules\Finance\Service;
 use Endroid\QrCode\Builder\Builder;
 use Endroid\QrCode\ErrorCorrectionLevel;
 use Endroid\QrCode\Writer\PngWriter;
+use Modules\Finance\Api\EpcPayloadReaderInterface;
 use Modules\Finance\Api\SepaQrCodeInterface;
 
 /**
@@ -25,7 +26,7 @@ use Modules\Finance\Api\SepaQrCodeInterface;
  * mail body at whatever size the client picks. `generatePrintPng()` is
  * the paper one, and paper is a harsher medium — see its docblock.
  */
-class SepaQrCodeService implements SepaQrCodeInterface
+class SepaQrCodeService implements SepaQrCodeInterface, EpcPayloadReaderInterface
 {
     /** Screen and e-mail: 400 px is already more than any client renders. */
     private const SCREEN_SIZE_PX = 400;
@@ -109,6 +110,20 @@ class SepaQrCodeService implements SepaQrCodeInterface
             self::PRINT_MARGIN_PX,
             ErrorCorrectionLevel::Medium
         );
+    }
+
+    /**
+     * The reading half of the same contract — what a scanner hands back
+     * when somebody holds out the transfer code instead of the ticket.
+     *
+     * Delegates to Service\EpcPayload, which is also where the payload is
+     * built: one file decides which remittance field a Belgian structured
+     * communication travels in, and both directions read that decision
+     * from it.
+     */
+    public function communicationFrom(string $scannedPayload): ?string
+    {
+        return EpcPayload::communicationFrom($scannedPayload);
     }
 
     private function render(string $payload, int $size, int $margin, ErrorCorrectionLevel $level): string

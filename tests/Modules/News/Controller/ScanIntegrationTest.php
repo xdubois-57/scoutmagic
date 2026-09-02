@@ -105,7 +105,13 @@ class ScanIntegrationTest extends TestCase
             $this->twig,
             $this->articleService,
             $this->formService,
-            new ScanService($this->forms, $this->fields, $this->responses, $this->articles, $this->tickets, $receivables),
+            new ScanService(
+                $this->forms, $this->fields, $this->responses, $this->articles, $this->tickets,
+                $receivables,
+                // The same concrete service that writes the transfer
+                // payload for the e-mail reads one back for the door.
+                new \Modules\Finance\Service\SepaQrCodeService()
+            ),
             $this->tickets,
             new DocumentPdfService(),
             $this->journalService,
@@ -454,5 +460,46 @@ class ScanIntegrationTest extends TestCase
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringStartsWith('%PDF-', $response->getBody());
         $this->assertSame('application/pdf', $response->getHeaders()['Content-Type'] ?? null);
+    }
+
+    // --- IT-04: the scanner accepts two forms ---
+
+    public function testScanningTheTransferCodeAnswersTheTicketAllTheSame(): void
+    {
+        // Two codes travel in one e-mail. Somebody holds out the wrong
+        // one, and the door answers the right ticket rather than an
+        // error — which is what allows the payment instructions to be in
+        // that e-mail at all.
+        [, $formId] = $this->event('Souper spaghetti');
+        $this->booking($formId, 'Roskam', 'a@test.com');
+        $responseId = $this->responses->create($formId, null, null, 'c@test.com', [], '+++123/4567/89412+++', 55);
+        $this->tickets->issueFor($this->responses->findById($responseId));
+
+        $payload = \Modules\Finance\Service\EpcPayload::build(
+            'Unité SV025', 'BE71096123456769', null, 4600, '+++123/4567/89412+++'
+        );
+        $data = $this->lookup($formId, ['q' => $payload]);
+
+        $this->assertSame('valid', $data['verdict']['status']);
+        $this->assertSame($responseId, $data['verdict']['response_id']);
+    }
+
+    public function testTheDoorScreenLoadsTheVendoredReaderAndNothingElseDoes(): void
+    {
+        [, $formId] = $this->event('Souper spaghetti');
+        $this->booking($formId, 'Roskam', 'a@test.com');
+
+        $body = $this->controller()->event(
+            new Request('GET', '/news/scan/' . $formId, [], [], [], []),
+            ['form_id' => (string) $formId]
+        )->getBody();
+
+        // 375 kB, on this page and nowhere else: every other page of the
+        // site has no camera.
+        $this->assertStringContainsString('/assets/vendor/html5-qrcode/html5-qrcode.min.js', $body);
+        $this->assertStringContainsString('/assets/js/news-scan-reader.js', $body);
+        // And the manual field stays visible, never folded behind the
+        // camera: the scan is the comfort, the validation is the feature.
+        $this->assertStringContainsString('id="news-scan-query"', $body);
     }
 }

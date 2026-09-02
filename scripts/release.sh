@@ -682,7 +682,8 @@ check_vendored_asset_freshness() {
 # Dependency freshness gate — checks direct Composer dependencies
 # (require + require-dev) against their latest available version, and
 # every vendored front-end library (public/assets/vendor/ — Bootstrap,
-# Bootstrap Icons, Chart.js as of this writing; add a new
+# Bootstrap Icons, Chart.js, Leaflet, html5-qrcode as of this writing;
+# add a new
 # check_vendored_asset_freshness call here whenever another one is
 # vendored) against its latest upstream GitHub release. This is about
 # staying current with upstream COTS releases, distinct from
@@ -719,6 +720,14 @@ check_dependency_freshness_gate() {
     # AGENTS.md § CSS / frontend requires in the same change. Its banner reads
     # "Leaflet 1.9.4" with no `v`, unlike the three above.
     check_vendored_asset_freshness "Leaflet" "public/assets/vendor/leaflet/leaflet.js" 'Leaflet [0-9]+\.[0-9]+\.[0-9]+' "Leaflet/Leaflet" \
+        || found_outdated=1
+    # The QR reader of the news module's door screen. Its upstream bundle
+    # carries NO version banner of its own, so the vendored copy has one
+    # prepended — that and the file's own header comment are the only
+    # bytes that differ from the npm tarball. Whoever updates the library
+    # updates that banner in the same move, or this gate goes on reporting
+    # the old version as current.
+    check_vendored_asset_freshness "html5-qrcode" "public/assets/vendor/html5-qrcode/html5-qrcode.min.js" 'html5-qrcode v[0-9]+\.[0-9]+\.[0-9]+' "mebjas/html5-qrcode" \
         || found_outdated=1
 
     if [[ "${found_outdated}" -eq 1 ]]; then

@@ -75,4 +75,33 @@ final class EpcPayload
 
         return implode("\n", $lines);
     }
+
+    /**
+     * The reverse of build(), for the ONE field a reader ever wants back:
+     * the communication.
+     *
+     * Lives here rather than in a second file for exactly the reason the
+     * class docblock gives for build() — the decision that a Belgian
+     * structured communication travels in the unstructured remittance
+     * field (line 11) is written once, and reading it back reads the same
+     * line. A parser elsewhere would drift from the builder the day
+     * somebody moved it.
+     *
+     * Deliberately tolerant about the envelope and strict about the head:
+     * CRLF is accepted (a QR decoder may hand either back), trailing
+     * blank lines are ignored, but the first line must be the service tag
+     * `BCD`. Null means « this is not a transfer payload », which is the
+     * ordinary answer for a bare ticket reference and not an error.
+     */
+    public static function communicationFrom(string $payload): ?string
+    {
+        $lines = preg_split('/\r\n|\r|\n/', trim($payload));
+        if ($lines === false || count($lines) < 11 || trim($lines[0]) !== 'BCD') {
+            return null;
+        }
+
+        $communication = trim($lines[10]);
+
+        return $communication !== '' ? $communication : null;
+    }
 }

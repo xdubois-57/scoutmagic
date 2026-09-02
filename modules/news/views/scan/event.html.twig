@@ -90,6 +90,32 @@
             </span>
         </div>
 
+        {#
+          The camera. The scan is the gesture of the queue, so it comes
+          first — but it is a comfort: everything below works without it,
+          and the manual field is never folded away behind it.
+
+          The frame starts hidden and the reader is only asked for on a
+          click: nobody wants a camera turning itself on because they
+          opened a tab.
+        #}
+        <div class="mb-3">
+            <button type="button" class="btn btn-primary btn-lg w-100" id="news-scan-open-camera">
+                <i class="bi bi-camera" aria-hidden="true"></i> Scanner un billet
+            </button>
+            <div id="news-scan-camera" class="position-relative rounded overflow-hidden bg-dark" hidden>
+                <div id="news-scan-reader"></div>
+                <button type="button" class="btn btn-dark position-absolute top-0 end-0 m-2 tap-target"
+                        id="news-scan-close-camera" aria-label="Fermer la caméra">
+                    <i class="bi bi-x-lg" aria-hidden="true"></i>
+                </button>
+                <p class="position-absolute bottom-0 start-0 end-0 text-center text-white small mb-2">
+                    Cadrez le QR du billet
+                </p>
+            </div>
+            <p class="alert alert-warning mt-2 mb-0" id="news-scan-camera-error" role="status" hidden></p>
+        </div>
+
         {# The manual entry: one field, and never folded behind an « autres
            options ». The QR fails more often than one expects — a mailbox
            nobody can find, a flat phone, somebody who came in the place of
@@ -131,4 +157,10 @@
 }|json_encode(constant('JSON_HEX_TAG') b-or constant('JSON_HEX_AMP') b-or constant('JSON_UNESCAPED_UNICODE'))|raw }}
 </script>
 <script src="{{ asset('/assets/js/news-scan.js') }}" defer></script>
+{# Vendored html5-qrcode, loaded on THIS page and nowhere else — it is
+   375 kB, and every other page of the site has no camera. The native
+   BarcodeDetector would have been free but is absent or partial on
+   iPhone, where a good half of the animateurs hold the door. #}
+<script src="{{ asset('/assets/vendor/html5-qrcode/html5-qrcode.min.js') }}" defer></script>
+<script src="{{ asset('/assets/js/news-scan-reader.js') }}" defer></script>
 {% endblock %}

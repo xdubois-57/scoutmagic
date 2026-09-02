@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\News\Service;
 
 use Core\Service\DateInput;
+use Modules\Finance\Api\EpcPayloadReaderInterface;
 use Modules\Finance\Api\ExpectedReceivableInterface;
 use Modules\News\Repository\ArticleRepository;
 use Modules\News\Repository\FormField;
@@ -57,8 +58,47 @@ class ScanService
         // Optional module dependency (ARCHITECTURE.md §7.5): with finance
         // off, every payment surface of this screen disappears — which is
         // exactly what a ticketed free event looks like too.
-        private ?ExpectedReceivableInterface $expectedReceivable = null
+        private ?ExpectedReceivableInterface $expectedReceivable = null,
+        // Also finance's, also optional. Without it the scanner simply
+        // does not recognise a transfer payload — which is exactly the
+        // state of a site whose events are all free, since a free event
+        // has no transfer QR to confuse anybody with.
+        private ?EpcPayloadReaderInterface $epcReader = null
     ) {
+    }
+
+    /**
+     * The response a SCANNED payload names, whichever of the two codes in
+     * the buyer's e-mail was held out.
+     *
+     * A confirmation for a paid event carries two: the ticket, and the
+     * transfer. Under the pressure of a queue somebody holds out the
+     * wrong one. **The answer is not to remove a code but to make the
+     * confusion harmless** — a transfer payload is read back through
+     * finance's own contract, its communication looked up, and the right
+     * ticket comes out.
+     *
+     * That tolerance is what allows the payment instructions to travel in
+     * the e-mail at all, which is what gets the transfer made in advance
+     * rather than at the door.
+     *
+     * **The two codes are NOT merged**, and this method is what makes not
+     * merging them free. An EPC payload is a hundred characters of byte
+     * mode — version 7 or 8, forty-five modules against the reference's
+     * twenty-one; a free event has no transfer code to carry a ticket in;
+     * and a transfer QR is an instruction, not an identity, so a family
+     * re-scanning their own « ticket » at home would pay a second time.
+     */
+    public function findByScannedPayload(string $scanned): ?FormResponse
+    {
+        $byReference = $this->tickets->findByReference($scanned);
+        if ($byReference !== null) {
+            return $byReference;
+        }
+
+        $communication = $this->epcReader?->communicationFrom($scanned);
+
+        return $communication !== null ? $this->responses->findByStructuredCommunication($communication) : null;
     }
 
     /**
@@ -182,7 +222,7 @@ class ScanService
      */
     public function verdictFor(NewsForm $form, string $scanned): array
     {
-        $response = $this->tickets->findByReference($scanned);
+        $response = $this->findByScannedPayload($scanned);
         if ($response === null) {
             return self::emptyVerdict(self::STATUS_NOT_FOUND);
         }

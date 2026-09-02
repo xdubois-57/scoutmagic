@@ -3914,7 +3914,12 @@ if ($isEnabled('news')) {
         $newsResponseRepo,
         $newsArticleRepo,
         $newsTicketService,
-        $financeExpectedReceivableForOthers
+        $financeExpectedReceivableForOthers,
+        // The same concrete SepaQrCodeService, consumed through its other
+        // Api contract: it writes the transfer payload for the e-mail and
+        // reads one back for the door (§8.90). One file decides which
+        // remittance field a Belgian structured communication travels in.
+        $financeSepaQrCodeForOthers
     );
     $frontController->registerController(
         \Modules\News\Controller\ScanController::class,

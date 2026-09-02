@@ -53,9 +53,14 @@ class ScanServiceTest extends TestCase
         $this->accountId = (int) $this->pdo->lastInsertId();
     }
 
-    private function service(?ExpectedReceivableInterface $receivables = null): ScanService
-    {
-        return new ScanService($this->forms, $this->fields, $this->responses, $this->articles, $this->tickets, $receivables);
+    private function service(
+        ?ExpectedReceivableInterface $receivables = null,
+        ?\Modules\Finance\Api\EpcPayloadReaderInterface $epcReader = null
+    ): ScanService {
+        return new ScanService(
+            $this->forms, $this->fields, $this->responses, $this->articles, $this->tickets,
+            $receivables, $epcReader
+        );
     }
 
     /**
@@ -369,5 +374,54 @@ class ScanServiceTest extends TestCase
 
         $this->assertSame('Herremans', $rows[0]['label']);
         $this->assertSame('—', $rows[0]['reference']);
+    }
+
+    // --- IT-04: the scanner accepts two forms ---
+
+    public function testATransferPayloadResolvesToTheTicketItBelongsTo(): void
+    {
+        // The confirmation of a paid event carries two codes, and under
+        // the pressure of a queue somebody holds out the wrong one. The
+        // answer is not to remove a code but to make the confusion
+        // harmless — which is what lets the payment instructions travel
+        // in the e-mail at all, and so get the transfer made in advance.
+        [, $formId] = $this->event('Souper spaghetti');
+        $responseId = $this->responses->create($formId, null, null, 'a@test.com', [], '+++123/4567/89412+++', 55);
+        $this->tickets->issueFor($this->responses->findById($responseId));
+
+        $payload = \Modules\Finance\Service\EpcPayload::build(
+            'Unité SV025', 'BE71096123456769', null, 4600, '+++123/4567/89412+++'
+        );
+        $reader = new \Modules\Finance\Service\SepaQrCodeService();
+
+        $verdict = $this->service(null, $reader)->verdictFor($this->forms->findById($formId), $payload);
+
+        $this->assertSame(ScanService::STATUS_VALID, $verdict['status']);
+        $this->assertSame($responseId, $verdict['response']->id);
+    }
+
+    public function testABareReferenceStillWinsOverAnythingElse(): void
+    {
+        [, $formId] = $this->event('Souper spaghetti');
+        $responseId = $this->booking($formId, [], 'a@test.com');
+        $reference = (string) $this->responses->findById($responseId)?->ticketReference;
+        $reader = new \Modules\Finance\Service\SepaQrCodeService();
+
+        $this->assertSame(
+            $responseId,
+            $this->service(null, $reader)->findByScannedPayload($reference)?->id
+        );
+    }
+
+    public function testWithoutTheFinanceModuleATransferPayloadSimplyResolvesToNothing(): void
+    {
+        // A site whose events are all free has no transfer QR to be
+        // confused by in the first place.
+        [, $formId] = $this->event('Porte ouverte');
+        $this->responses->create($formId, null, null, 'a@test.com', [], '+++123/4567/89412+++', 55);
+
+        $payload = "BCD\n002\n1\nSCT\n\nU\nBE71096123456769\nEUR46.00\n\n\n+++123/4567/89412+++";
+
+        $this->assertNull($this->service()->findByScannedPayload($payload));
     }
 }

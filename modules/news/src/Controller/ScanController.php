@@ -171,13 +171,15 @@ class ScanController extends AbstractController
             return $this->json(['success' => true, 'verdict' => null, 'matches' => []]);
         }
 
-        // A reference resolves on its own, whatever event it belongs to.
-        if (TicketService::canonicalize($query) !== null) {
-            $verdict = $this->scanService->verdictFor($form, $query);
-
+        // Anything the SCANNER can resolve on its own, whatever event it
+        // belongs to: a bare reference, or the transfer payload of the
+        // other QR in the same e-mail. Somebody under the pressure of a
+        // queue holds out the wrong code, and the answer is not to remove
+        // one but to make the confusion harmless.
+        if (TicketService::canonicalize($query) !== null || $this->scanService->findByScannedPayload($query) !== null) {
             return $this->json([
                 'success' => true,
-                'verdict' => $this->presentVerdict($verdict),
+                'verdict' => $this->presentVerdict($this->scanService->verdictFor($form, $query)),
                 'matches' => [],
             ]);
         }
