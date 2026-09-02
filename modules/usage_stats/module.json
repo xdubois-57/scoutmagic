@@ -2,9 +2,50 @@
   "id": "usage_stats",
   "name": "Fréquentation du site",
   "description": "Compte les pages ouvertes, par motif de route et par mois. Aucun suivi nominatif, aucun cookie, aucune adresse IP.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "enabled_by_default": false,
-  "routes": [],
+  "routes": [
+    {
+      "path": "/config/usage",
+      "method": "GET",
+      "controller": "Modules\\UsageStats\\Controller\\UsageStatsController",
+      "action": "overview",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": "Fréquentation",
+      "menu_icon": "bi-graph-up",
+      "menu_group": "exploitation",
+      "breadcrumb": { "label": "Fréquentation", "parents": ["Configuration"] }
+    },
+    {
+      "path": "/config/usage/modules",
+      "method": "GET",
+      "controller": "Modules\\UsageStats\\Controller\\UsageStatsController",
+      "action": "modules",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": "",
+      "breadcrumb": {
+        "label": "Modules",
+        "parents": ["Configuration"],
+        "ancestors": [{ "label": "Fréquentation", "path": "/config/usage" }]
+      }
+    },
+    {
+      "path": "/config/usage/pages",
+      "method": "GET",
+      "controller": "Modules\\UsageStats\\Controller\\UsageStatsController",
+      "action": "pages",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": "",
+      "breadcrumb": {
+        "label": "Pages",
+        "parents": ["Configuration"],
+        "ancestors": [{ "label": "Fréquentation", "path": "/config/usage" }]
+      }
+    }
+  ],
   "settings": [],
   "cookies": [],
   "scheduled_tasks": [

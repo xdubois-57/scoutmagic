@@ -4565,8 +4565,24 @@ if ($isEnabled('support_dashboard')) {
 // at a point where every other per-module wiring is long done.
 $usageStatsRecorder = null;
 if ($isEnabled('usage_stats')) {
-    $usageStatsRecorder = new \Modules\UsageStats\Service\PageViewRecorder(
-        new \Modules\UsageStats\Repository\PageViewRepository($pdo)
+    $usageStatsPageViews = new \Modules\UsageStats\Repository\PageViewRepository($pdo);
+    $usageStatsRecorder = new \Modules\UsageStats\Service\PageViewRecorder($usageStatsPageViews);
+
+    $frontController->registerController(
+        \Modules\UsageStats\Controller\UsageStatsController::class,
+        new \Modules\UsageStats\Controller\UsageStatsController(
+            $twig,
+            new \Modules\UsageStats\Service\UsageStatsService(
+                $usageStatsPageViews,
+                new \Modules\UsageStats\Repository\AccountActivityRepository($pdo),
+                // Read-only, both of them: the module manager answers
+                // which modules exist and what they are called, the
+                // router answers what a page is called. Neither is asked
+                // to load, migrate or route anything here.
+                $moduleManager,
+                $router
+            )
+        )
     );
 
     // The retention task's FIRST occurrence has to be seeded here:

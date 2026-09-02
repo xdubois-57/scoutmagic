@@ -1,0 +1,86 @@
+{% extends 'base.html.twig' %}
+{% block title %}Fréquentation — Modules — {{ site_name }}{% endblock %}
+
+{% block content %}
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Fréquentation',
+        badge: report.month_label,
+        subtitle: "Ce qui sert, et ce qui ne sert jamais.",
+    } only %}
+
+    {% include '@usage_stats/partials/_nav.html.twig' %}
+    {% include '@usage_stats/partials/_month_picker.html.twig' %}
+
+    {% if report.used|length > 0 %}
+        <div class="d-flex flex-column gap-2">
+            {% for module in report.used %}
+                <div class="card">
+                    <div class="card-body py-3">
+                        <div class="d-flex flex-wrap align-items-baseline gap-2">
+                            <span class="flex-grow-1 text-truncate fw-medium">{{ module.name }}</span>
+
+                            {# Sans ce badge, « Cotisations : 61 pages vues »
+                               se lit comme un échec d'adoption alors que
+                               trois personnes qui ouvrent la page est
+                               exactement le nombre attendu. #}
+                            {% if module.staff_only %}
+                                <span class="badge text-bg-light border flex-shrink-0">Staff</span>
+                            {% endif %}
+
+                            <span class="fw-semibold flex-shrink-0">{{ module.views }}</span>
+
+                            {% if module.trend_percent is not null and module.trend_percent != 0 %}
+                                <span class="small flex-shrink-0 {{ module.trend_percent > 0 ? 'text-success' : 'text-body-secondary' }}">
+                                    <i class="bi {{ module.trend_percent > 0 ? 'bi-arrow-up-right' : 'bi-arrow-down-right' }}" aria-hidden="true"></i>
+                                    {{ module.trend_percent|abs }} %
+                                </span>
+                            {% endif %}
+                        </div>
+                        <div class="progress mt-2" style="height: 0.4rem;"
+                             role="progressbar" aria-label="{{ module.name }}"
+                             aria-valuenow="{{ module.width_percent }}" aria-valuemin="0" aria-valuemax="100">
+                            <div class="progress-bar" style="width: {{ module.width_percent }}%;"></div>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucune page ouverte ce mois-ci.',
+            icon: 'bi-bar-chart',
+        } only %}
+    {% endif %}
+
+    {# Le seul constat vraiment actionnable de tout l'écran : sa
+       conséquence (ils encombrent les menus de tout le monde) et sa
+       réassurance (les désactiver ne perd aucune donnée) valent autant
+       que la liste elle-même. #}
+    {% if report.unused|length > 0 %}
+        <section class="card border-warning mt-4">
+            <div class="card-header bg-warning-subtle">
+                <h2 class="h6 mb-0">
+                    {{ report.unused|length }}
+                    module{{ report.unused|length > 1 ? 's' : '' }}
+                    activé{{ report.unused|length > 1 ? 's' : '' }}
+                    que personne n'a ouvert{{ report.unused|length > 1 ? 's' : '' }}
+                </h2>
+            </div>
+            <ul class="list-group list-group-flush">
+                {% for module in report.unused %}
+                    <li class="list-group-item d-flex flex-wrap justify-content-between gap-2">
+                        <span class="fw-medium">{{ module.name }}</span>
+                        <span class="small text-body-secondary">
+                            aucune ouverture depuis {{ report.unused_window_months }} mois
+                        </span>
+                    </li>
+                {% endfor %}
+            </ul>
+            <div class="card-footer small text-body-secondary">
+                Un module inutilisé encombre les menus de tout le monde. Vous pouvez le désactiver
+                depuis <a href="/config/modules">Configuration &gt; Modules</a> : ses données restent
+                intactes et il se réactive à tout moment.
+            </div>
+        </section>
+    {% endif %}
+{% endblock %}

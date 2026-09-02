@@ -1,0 +1,31 @@
+{#
+  Le choix du mois, en haut de chacun des trois écrans.
+
+  Un formulaire GET, comme la couverture des attestations et le journal :
+  une lecture doit survivre au marque-page et à l'envoi par mail. Rien
+  n'est mémorisé d'une visite à l'autre — le mois vit dans l'URL et nulle
+  part ailleurs, ce qui évite qu'un écran s'ouvre sur le filtre d'un
+  autre lecteur, et n'exige aucun cookie.
+
+  `audience` est réémis en champ caché sur l'écran Pages : changer de
+  mois ne doit pas effacer le filtre par public qu'on venait de poser.
+#}
+<form method="get" action="{{ current_path }}" class="row g-2 align-items-end mb-3">
+    <div class="col-8 col-sm-4 col-lg-3">
+        {% include 'partials/form_field.html.twig' with {
+            field_id: 'usage-month',
+            field_name: 'month',
+            label: 'Mois',
+            type: 'select',
+            size: 'sm',
+            wrapper_class: 'mb-0',
+            options: months|map(m => { value: m.value, label: m.label, selected: m.value == selected_month }),
+        } only %}
+    </div>
+    {% if audience|default('') %}
+        <input type="hidden" name="audience" value="{{ audience }}">
+    {% endif %}
+    <div class="col-4 col-sm-3 col-lg-2">
+        <button type="submit" class="btn btn-sm btn-outline-secondary w-100">Afficher</button>
+    </div>
+</form>

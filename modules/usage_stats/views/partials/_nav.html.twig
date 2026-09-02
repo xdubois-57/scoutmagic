@@ -1,0 +1,35 @@
+{#
+  Sous-navigation de « Fréquentation » — trois écrans, une seule entrée de
+  menu : le menu nomme la fonction, ces onglets nomment les questions
+  auxquelles elle répond.
+
+  Le composant est le `partials/page_picker.html.twig` partagé, comme
+  finance, fees, rental, groups et la supervision : la couche pages[] →
+  nav rail écrite une fois (design.md §7.6). Surtout pas de chips — un
+  chip se lit comme un filtre qu'on bascule, ce qui est faux pour une
+  sous-navigation.
+
+  Le mois voyage dans les URL des trois onglets plutôt que dans
+  `extra_query`, qui l'ajouterait AUSSI au lien sortant ci-dessous.
+  `current_path` est donc synthétique, exactement comme les onglets du
+  formulaire d'actualité : le composant compare la chaîne entière.
+
+  La dernière entrée QUITTE le module — elle ouvre Configuration >
+  Support, où se règle le partage de ces chiffres avec l'équipe du
+  logiciel — d'où `align_end`, le paramètre prévu pour ça : une entrée
+  collée à ses voisines se lirait comme un quatrième écran de la même
+  page. Rien n'est recopié ici de cette page-là : le réglage y vit, et
+  il n'en existe qu'un.
+#}
+{% set _q = '?month=' ~ selected_month %}
+{% include 'partials/page_picker.html.twig' with {
+    picker_id: 'usage-stats-page-picker',
+    pages: [
+        { url: '/config/usage' ~ _q, label: "Vue d'ensemble" },
+        { url: '/config/usage/modules' ~ _q, label: 'Modules' },
+        { url: '/config/usage/pages' ~ _q, label: 'Pages' },
+        { url: '/config/support', label: 'Support', icon: 'bi-life-preserver', align_end: true },
+    ],
+    current_path: current_path ~ _q,
+    aria_label: 'Pages Fréquentation',
+} only %}

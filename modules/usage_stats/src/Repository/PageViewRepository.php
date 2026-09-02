@@ -62,6 +62,148 @@ class PageViewRepository
     }
 
     /**
+     * Every month the table holds at least one counter for, newest first —
+     * the picker's options, and nothing invented: a month with no row at
+     * all is a month there is nothing to show for.
+     *
+     * @return list<string>
+     */
+    public function months(): array
+    {
+        $stmt = $this->pdo->query('SELECT DISTINCT month FROM usage_page_views ORDER BY month DESC');
+
+        return $stmt === false ? [] : array_map('strval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
+    public function totalViews(string $month): int
+    {
+        $stmt = $this->pdo->prepare('SELECT COALESCE(SUM(view_count), 0) FROM usage_page_views WHERE month = ?');
+        $stmt->execute([$month]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * Total views per month over a window, as month => count. Months with
+     * no row are absent; the caller fills them with zero, because a month
+     * that happened and had no traffic is a real zero while a month before
+     * counting started is not.
+     *
+     * @return array<string, int>
+     */
+    public function viewsPerMonth(string $fromMonth, string $toMonth): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT month, SUM(view_count) AS views
+             FROM usage_page_views
+             WHERE month >= ? AND month <= ?
+             GROUP BY month
+             ORDER BY month'
+        );
+        $stmt->execute([$fromMonth, $toMonth]);
+
+        $perMonth = [];
+        foreach ($stmt->fetchAll() as $row) {
+            $perMonth[(string) $row['month']] = (int) $row['views'];
+        }
+
+        return $perMonth;
+    }
+
+    /**
+     * Views per audience for one month, as audience value => count.
+     *
+     * @return array<string, int>
+     */
+    public function viewsPerAudience(string $month): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT audience, SUM(view_count) AS views
+             FROM usage_page_views
+             WHERE month = ?
+             GROUP BY audience'
+        );
+        $stmt->execute([$month]);
+
+        $perAudience = [];
+        foreach ($stmt->fetchAll() as $row) {
+            $perAudience[(string) $row['audience']] = (int) $row['views'];
+        }
+
+        return $perAudience;
+    }
+
+    /**
+     * Views per module over a window, as module id => count. `core` is a
+     * module id here like any other (Service\PageViewRecorder::CORE_MODULE_ID).
+     *
+     * @return array<string, int>
+     */
+    public function viewsPerModule(string $fromMonth, string $toMonth): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT module_id, SUM(view_count) AS views
+             FROM usage_page_views
+             WHERE month >= ? AND month <= ?
+             GROUP BY module_id'
+        );
+        $stmt->execute([$fromMonth, $toMonth]);
+
+        $perModule = [];
+        foreach ($stmt->fetchAll() as $row) {
+            $perModule[(string) $row['module_id']] = (int) $row['views'];
+        }
+
+        return $perModule;
+    }
+
+    /**
+     * One row per page for a month, most opened first — optionally
+     * narrowed to one audience.
+     *
+     * The audiences of one page are summed rather than listed: the screen
+     * shows how much a page is opened, and the « qui consulte » question
+     * is answered by the filter rather than by a column per public.
+     *
+     * @return list<array{route_pattern: string, module_id: string, views: int}>
+     */
+    public function pages(string $month, ?string $audience = null, ?int $limit = null): array
+    {
+        $sql = 'SELECT route_pattern, MIN(module_id) AS module_id, SUM(view_count) AS views
+                FROM usage_page_views
+                WHERE month = ?';
+        $parameters = [$month];
+
+        if ($audience !== null) {
+            $sql .= ' AND audience = ?';
+            $parameters[] = $audience;
+        }
+
+        $sql .= ' GROUP BY route_pattern ORDER BY views DESC, route_pattern';
+
+        if ($limit !== null) {
+            // Interpolated after an integer cast, never bound: LIMIT is
+            // not a bindable position on every driver, and the cast is
+            // what makes the interpolation safe.
+            $sql .= ' LIMIT ' . (int) $limit;
+        }
+
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($parameters);
+
+        $pages = [];
+        foreach ($stmt->fetchAll() as $row) {
+            $pages[] = [
+                'route_pattern' => (string) $row['route_pattern'],
+                'module_id' => (string) $row['module_id'],
+                'views' => (int) $row['views'],
+            ];
+        }
+
+        return $pages;
+    }
+
+    /**
      * Retention (Modules\UsageStats\Retention): every month strictly older
      * than the cutoff, gone. Returns how many rows went, for the journal.
      */

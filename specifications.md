@@ -2207,3 +2207,52 @@ savent dessiner, plus une année de marge, et la durée est écrite plutôt que 
 « indéfiniment » par omission. La coupure est au 1er septembre, pas au 1er janvier : couper au
 milieu d'une saison supprimerait l'automne d'une année dont le printemps est encore à l'écran. Une
 tâche planifiée quotidienne s'en charge.
+
+### 42.5 Les trois écrans
+
+`Configuration > Fréquentation`, `role_min: superadmin` sur les trois routes — le même niveau que
+toutes les autres pages de ce menu. La sous-navigation est le nav rail partagé (jamais des chips :
+un chip se lit comme un filtre qu'on bascule, ce qui est faux pour une sous-navigation), et sa
+dernière entrée **quitte le module** vers `Configuration > Support`, où se règle la transmission —
+elle n'en est pas une copie.
+
+**Rien n'est mémorisé d'une visite à l'autre.** Le mois et le filtre par public vivent dans la
+chaîne de requête et nulle part ailleurs : la page ne s'ouvre jamais sur le filtre d'un autre
+lecteur, un lien vers « août 2026 » est un lien, et aucun cookie n'est posé — ce qui est aussi le
+sujet du module.
+
+**Vue d'ensemble.** Quatre tuiles — comptes actifs ce mois, comptes existants, la part que cela
+représente, pages vues — puis la courbe des douze derniers mois, la répartition par public, et les
+cinq pages les plus ouvertes.
+
+Une limite est dite à l'écran plutôt que tue : **l'adoption n'est connue que pour le mois en cours**.
+`user_accounts.last_login_at` ne garde que la dernière connexion, donc pour un mois passé la même
+requête compterait les comptes dont la dernière visite remonte à ce mois-là — c'est-à-dire les gens
+qui ont *cessé* de venir, l'inverse de ce qu'un lecteur y lirait. Répondre pour tous les mois
+supposerait d'enregistrer le compte de chaque visite, exactement le suivi nominatif que §42.1
+refuse. La courbe, elle, porte les **pages vues**, que la table connaît honnêtement sur trois ans.
+
+**Le creux de juillet et d'août est commenté** : c'est celui des camps, et sans cette phrase on lit
+une chute de fréquentation là où il n'y a qu'un camp.
+
+**Ce qui n'est pas collecté est dit à l'écran**, pas seulement dans une politique : ni adresse IP,
+ni navigateur, ni parcours nominatif, et aucun cookie posé. Cette dernière phrase est la plus utile
+des trois — un chef d'unité qui ne trouve aucune catégorie *analytics* dans ses préférences de
+cookies se demanderait sinon ce qu'on lui cache.
+
+**Modules.** Le classement par usage, la tendance par rapport au mois précédent, et surtout le bloc
+des **modules activés que personne n'a ouverts depuis douze mois** — le seul constat vraiment
+actionnable de tout l'écran, avec sa conséquence (ils encombrent les menus de tout le monde) et sa
+réassurance (les désactiver ne perd aucune donnée).
+
+Deux précisions décident si ce bloc est juste. **Les modules réservés au staff portent un badge**,
+déduit du `role_min` de leurs propres routes : sans lui, « Cotisations : trois personnes » se lit
+comme un échec d'adoption alors que trois est le nombre attendu. Et **un module sans page à lui** —
+qui ne publie que des points d'entrée d'API, ou qui travaille à travers les écrans d'un autre — est
+laissé hors de la liste plutôt qu'affiché comme inutilisé : il n'y a rien à y ouvrir, donc la mesure
+ne dit rien de lui.
+
+**Pages.** Le détail par motif de route, filtrable par public. **Le motif est affiché en clair** —
+`/members/{id}` — plutôt que documenté ailleurs : c'est la meilleure façon de montrer qu'aucun
+identifiant n'est conservé. Le nom lisible d'une page vient du libellé de fil d'Ariane que sa route
+déclare déjà ; une seconde table de noms français dériverait de la première.

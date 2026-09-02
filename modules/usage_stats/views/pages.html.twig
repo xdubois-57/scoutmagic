@@ -1,0 +1,73 @@
+{% extends 'base.html.twig' %}
+{% block title %}Fréquentation — Pages — {{ site_name }}{% endblock %}
+
+{% block content %}
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Fréquentation',
+        badge: report.month_label,
+        subtitle: 'Le détail, page par page.',
+    } only %}
+
+    {% include '@usage_stats/partials/_nav.html.twig' %}
+    {% include '@usage_stats/partials/_month_picker.html.twig' with {
+        months: months,
+        selected_month: selected_month,
+        current_path: current_path,
+        audience: report.audience,
+    } only %}
+
+    {# Le filtre par public. Ce sont bien des filtres qu'on bascule, donc
+       des boutons — la sous-navigation, elle, est le rail au-dessus, et
+       les deux ne doivent pas se ressembler. #}
+    <div class="d-flex flex-nowrap overflow-auto gap-2 pb-2 mb-3" role="group" aria-label="Filtrer par public">
+        {% for filter in report.filters %}
+            <a href="/config/usage/pages?month={{ report.month }}{{ filter.value ? '&audience=' ~ filter.value : '' }}"
+               class="btn btn-sm flex-shrink-0 text-nowrap tap-target {{ filter.selected ? 'btn-primary' : 'btn-outline-secondary' }}"
+               {{ filter.selected ? 'aria-current="true"' : '' }}>
+                {{ filter.label }}
+            </a>
+        {% endfor %}
+    </div>
+
+    {% if report.pages|length > 0 %}
+        <div class="d-flex flex-column gap-2">
+            {% for page in report.pages %}
+                <div class="card">
+                    <div class="card-body py-3">
+                        <div class="d-flex align-items-baseline gap-3">
+                            <span class="flex-grow-1 text-truncate fw-medium">{{ page.label }}</span>
+                            <span class="fw-semibold flex-shrink-0">{{ page.views }}</span>
+                        </div>
+                        {# Le motif est affiché EN CLAIR, et c'est la
+                           meilleure façon de montrer qu'aucun identifiant
+                           n'est conservé : le lecteur voit `{id}` là où
+                           il s'attendrait à un numéro. #}
+                        <p class="small text-body-secondary font-monospace text-truncate mb-0">
+                            {{ page.route }} · {{ page.module_name }}
+                        </p>
+                        <div class="progress mt-2" style="height: 0.4rem;"
+                             role="progressbar" aria-label="{{ page.label }}"
+                             aria-valuenow="{{ page.width_percent }}" aria-valuemin="0" aria-valuemax="100">
+                            <div class="progress-bar" style="width: {{ page.width_percent }}%;"></div>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucune page ouverte pour ce mois et ce public.',
+            icon: 'bi-file-earmark',
+        } only %}
+    {% endif %}
+
+    <div class="alert alert-secondary small d-flex gap-2 mt-3 mb-0">
+        <i class="bi bi-info-circle flex-shrink-0" aria-hidden="true"></i>
+        <div>
+            Le comptage porte sur le <strong>motif de route</strong> —
+            <span class="font-monospace">/members/{id}</span>, jamais
+            <span class="font-monospace">/members/42</span>. C'est ce qui agrège naturellement, et ce
+            qui garantit qu'aucun identifiant n'est conservé.
+        </div>
+    </div>
+{% endblock %}
