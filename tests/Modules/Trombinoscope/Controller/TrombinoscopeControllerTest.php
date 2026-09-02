@@ -17,6 +17,9 @@ use Core\Security\AuthSession;
 use Core\Security\Role;
 use Core\View\TextNormalizerExtension;
 use Modules\Trombinoscope\Controller\TrombinoscopeController;
+use Modules\Trombinoscope\Pdf\StaffPhotoEmbedder;
+use Modules\Trombinoscope\Pdf\TrombinoscopeHtmlBuilder;
+use Modules\Trombinoscope\Service\TrombinoscopePdfService;
 use Modules\Trombinoscope\Service\TrombinoscopeService;
 use PHPUnit\Framework\TestCase;
 use Twig\Environment;
@@ -96,6 +99,9 @@ class TrombinoscopeControllerTest extends TestCase
             'label' => 'Trombinoscope',
             'parents' => ['Espace membres'],
         ]);
+        // Same role as the page it is downloaded from, deliberately: a
+        // visitor here already sees exactly what the document holds.
+        $router->addRoute('GET', '/trombinoscope/pdf', TrombinoscopeController::class, 'pdf', 'identified');
 
         $sections = $this->sections;
         $sectionService = new class($sections) extends SectionService {
@@ -133,6 +139,22 @@ class TrombinoscopeControllerTest extends TestCase
             }
         };
 
+        $pdfService = new TrombinoscopePdfService(
+            $trombinoscopeService,
+            $sectionService,
+            new class extends StaffPhotoEmbedder {
+                public function __construct()
+                {
+                }
+
+                public function dataUriFor(int $memberId, int $scoutYearId): ?string
+                {
+                    return null;
+                }
+            },
+            new TrombinoscopeHtmlBuilder()
+        );
+
         $resolver = new class extends ScoutYearResolver {
             public function __construct()
             {
@@ -147,7 +169,7 @@ class TrombinoscopeControllerTest extends TestCase
         $fc = new FrontController($router, $this->twig, $this->config);
         $fc->registerController(
             TrombinoscopeController::class,
-            new TrombinoscopeController($this->twig, $sectionService, $trombinoscopeService, $resolver, $settingService)
+            new TrombinoscopeController($this->twig, $sectionService, $trombinoscopeService, $resolver, $settingService, $pdfService)
         );
 
         return $fc;
@@ -259,6 +281,29 @@ class TrombinoscopeControllerTest extends TestCase
         AuthSession::login(0, '', 'public');
 
         $response = $this->buildFrontController()->handle(new Request('GET', '/trombinoscope', [], [], [], []));
+
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    public function testIdentifiedDownloadsThePdf(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(1, 'member@test.be', 'identified');
+
+        $response = $this->buildFrontController()->handle(new Request('GET', '/trombinoscope/pdf', [], [], [], []));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('application/pdf', $response->getHeaders()['Content-Type']);
+        $this->assertStringContainsString('trombinoscope-2025-2026.pdf', $response->getHeaders()['Content-Disposition']);
+        $this->assertStringStartsWith('%PDF-', $response->getBody());
+    }
+
+    public function testPublicIsDeniedThePdfToo(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(0, '', 'public');
+
+        $response = $this->buildFrontController()->handle(new Request('GET', '/trombinoscope/pdf', [], [], [], []));
 
         $this->assertSame(403, $response->getStatusCode());
     }

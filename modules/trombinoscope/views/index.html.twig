@@ -5,7 +5,24 @@
 {% endblock %}
 
 {% block content %}
-    {% include 'partials/page_header.html.twig' with { title: 'Trombinoscope' } only %}
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Trombinoscope',
+        badge: scout_year_label,
+        action_label: 'Télécharger le PDF',
+        action_url: '/trombinoscope/pdf',
+        action_icon: 'bi-download',
+    } only %}
+
+    {# Nobody prints the whole document: the first page and your own
+       section are enough, which is why each page carries its section's
+       name where the print dialog shows it. #}
+    <p class="text-body-secondary small">
+        <i class="bi bi-printer" aria-hidden="true"></i>
+        Un document de {{ pdf_page_count }} page{{ pdf_page_count > 1 ? 's' }} — l'annuaire des responsables,
+        puis une page par section. Inutile de tout imprimer : la première page et celle de votre
+        section suffisent.
+        {%- if not show_contacts %} Les coordonnées personnelles y sont masquées par le réglage.{% endif %}
+    </p>
 
     {% if picker_sections|length > 1 %}
         {% include 'partials/section_picker.html.twig' with {

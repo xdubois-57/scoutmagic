@@ -17,6 +17,7 @@ use Core\ScoutYear\ScoutYearResolver;
 use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
 use Core\Security\Role;
+use Modules\Trombinoscope\Service\TrombinoscopePdfService;
 use Modules\Trombinoscope\Service\TrombinoscopeService;
 use Twig\Environment;
 
@@ -39,7 +40,8 @@ class TrombinoscopeController extends AbstractController
         private SectionService $sectionService,
         private TrombinoscopeService $trombinoscopeService,
         private ScoutYearResolver $scoutYearResolver,
-        private SettingService $settingService
+        private SettingService $settingService,
+        private TrombinoscopePdfService $pdfService
     ) {
     }
 
@@ -112,11 +114,47 @@ class TrombinoscopeController extends AbstractController
             'selected_id' => $selectedId,
             'section_blocks' => $sectionBlocks,
             'show_contacts' => $this->showsContacts(),
+            // The printable document always covers the whole unit and the
+            // effective year, whatever this page is currently filtered to
+            // — so the count is every section plus the directory page.
+            'pdf_page_count' => count($allSections) + 1,
+            'scout_year_label' => $effectiveYear->label,
         ];
         if ($selectedLabel !== null) {
             $context['breadcrumb_current'] = 'Trombinoscope · ' . $selectedLabel;
         }
 
         return $this->render('@trombinoscope/index.html.twig', $context);
+    }
+
+    /**
+     * GET /trombinoscope/pdf — the printable trombinoscope, streamed as a
+     * PDF attachment.
+     *
+     * Same role as the page it is downloaded from (`identified`), and
+     * deliberately: a visitor here already sees exactly these names,
+     * photos and — when the setting allows it — contact details on screen.
+     * The point of the document is that they can produce it themselves and
+     * put it on a wall, not that it discloses anything new.
+     *
+     * @param array<string, string> $params
+     */
+    public function pdf(Request $request, array $params): Response
+    {
+        $role = Role::fromString(AuthSession::getRole());
+        $effectiveYear = $this->scoutYearResolver->getEffectiveYear(ScoutYearSession::getPreviewId(), $role);
+
+        $pdf = $this->pdfService->generate(
+            $effectiveYear->id,
+            $effectiveYear->label,
+            (string) ($this->settingService->get('site_name') ?: ''),
+            rtrim((string) ($this->settingService->get('base_url') ?: ''), '/'),
+            $this->showsContacts()
+        );
+
+        return (new Response($pdf))
+            ->setHeader('Content-Type', 'application/pdf')
+            ->setHeader('Content-Disposition', 'attachment; filename="' . $this->pdfService->fileName($effectiveYear->label) . '"')
+            ->setHeader('Content-Length', (string) strlen($pdf));
     }
 }

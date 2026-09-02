@@ -7,6 +7,7 @@ role_min: identified
 question: Qui sont les animateurs de la section de mon enfant ?
 question: Comment savoir qui est responsable d'une section ?
 question: Comment joindre l'animateur de mon enfant par téléphone ?
+question: Comment imprimer la liste des animateurs pour l'afficher chez moi ?
 paths: /trombinoscope
 related: staffs, page-membre
 ---
@@ -44,6 +45,24 @@ e-mail personnelle. Le Staff d'Unité peut les masquer pour toute
 l'unité, dans Configuration puis Réglages, avec le réglage
 « Afficher les coordonnées des animateurs ». Masquées, les adresses
 de section restent visibles : on sait toujours à qui écrire.
+
+## Imprimer ou envoyer le trombinoscope
+
+Le bouton « Télécharger le PDF », en haut de la page, produit un
+document prêt à imprimer : d'abord un annuaire d'une page — un
+responsable par section, avec ses coordonnées et l'adresse de sa
+section — puis une page par section avec tous ses animateurs.
+
+Inutile de tout imprimer. La première page suffit à savoir qui
+contacter, et chaque page porte le nom de sa section en tête : dans la
+boîte d'impression, vous retrouvez celle de votre enfant d'un coup
+d'œil et n'imprimez que celle-là. Le document couvre toujours l'unité
+entière et l'année scoute en cours, quelle que soit la section
+affichée à l'écran.
+
+C'est un fichier : vous pouvez aussi le joindre à un e-mail. Il ne
+contient rien de plus que ce que vous voyez à l'écran — coordonnées
+masquées à l'écran, coordonnées absentes du document.
 
 ## D'où viennent ces informations
 

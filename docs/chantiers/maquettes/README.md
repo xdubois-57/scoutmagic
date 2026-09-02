@@ -1,7 +1,7 @@
-# Maquettes — chantier « Courrier entrant transversal »
+# Maquettes des chantiers
 
-Ce que ces deux fichiers font foi pour : **la hiérarchie de l'écran, les
-libellés français et les états d'interaction**. Rien d'autre.
+Ce que ces fichiers font foi pour : **la hiérarchie de l'écran ou de la
+page, les libellés français et les états d'interaction**. Rien d'autre.
 
 Ils ne font **pas** foi pour les classes CSS ni pour l'iconographie : le
 produit est en Bootstrap 5 et suit `design.md` §7. Tailwind n'apparaît ici
@@ -12,12 +12,23 @@ Rien ici n'est du code de production, et rien n'est exécuté :
 que `tests/js/**/*.test.js`. Ces fichiers sont de la documentation qui se
 trouve être exécutable ailleurs.
 
-| Fichier | Écran | Itération |
-|---|---|---|
-| `maquette-config-courrier-v2.jsx` | `/config/courrier-entrant` — superadmin | IT-05 |
-| `maquette-courrier-entrant.jsx` | `/courrier` — Chef d'Unité, et le composant de tri métier | IT-06, IT-07 |
+| Fichier | Chantier | Écran | Itération |
+|---|---|---|---|
+| `maquette-config-courrier-v2.jsx` | Courrier entrant transversal | `/config/courrier-entrant` — superadmin | IT-05 |
+| `maquette-courrier-entrant.jsx` | Courrier entrant transversal | `/courrier` — Chef d'Unité, et le composant de tri métier | IT-06, IT-07 |
+| `maquette-trombinoscope-pdf.jsx` | Trombinoscope imprimable | Le PDF A4 — page d'annuaire et page de section | IT-02, IT-03 |
 
-## Deux points de lecture
+## Le cas du trombinoscope imprimable
+
+Sa maquette ne dessine pas un écran mais **un document** : une feuille A4
+à l'échelle, marges comprises. Elle fait foi pour la structure des pages,
+les libellés et le comportement de densité — et pour rien d'autre, la
+règle ci-dessus valant ici doublement : le rendu réel passe par dompdf,
+qui ne connaît ni flexbox ni grid, et la composition livrée est en
+tableaux (`ARCHITECTURE.md` §8.92). Ses classes Tailwind montrent le
+résultat, jamais la technique.
+
+## Deux points de lecture sur le courrier entrant
 
 **La v2 de la configuration remplace la v1.** `maquette-courrier-entrant.jsx`
 contient encore un écran `MailboxConfig` de première génération (une case à

@@ -280,6 +280,10 @@ final class UxConventionsTest extends TestCase
         // is Core\Http\ErrorHandler's fixed 500 page, which carries no
         // breadcrumb because it carries no application chrome at all.
         '/test-tools/uncaught-error',
+        // The printable trombinoscope as a PDF download — the directory
+        // page and one page per section, produced from the page it hangs
+        // off. A file, never a page (ARCHITECTURE.md §8.92).
+        '/trombinoscope/pdf',
     ];
 
     /**
