@@ -49,6 +49,15 @@ class AnalysisJournal
     public const PASS_STORED = 'differe';
 
     /**
+     * The callback after an association is created — where a consumer
+     * turns a message's attachments into documents of its own (§7.8). Its
+     * own pass, because a failure there is a different fact from a failure
+     * to recognise the message: the association exists and the filing did
+     * not, which is how a stay ends up without the contract that made it.
+     */
+    public const PASS_FILING = 'classement';
+
+    /**
      * How much of a failure's own message is kept. Long enough to name a
      * missing column or a refused connection, short enough that a stack
      * trace's first quoted line cannot drag a subject in with it.

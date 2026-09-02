@@ -81,6 +81,92 @@ class AnalyzeStoredMessagesHandlerTest extends TestCase
         $this->assertSame('LOC-2027-0042', $links[0]->businessReference);
     }
 
+    /**
+     * The half this pass was missing.
+     *
+     * `apply()` writes the rows and reports which associations are new;
+     * somebody then has to tell the consumer, and only the ARRIVAL pass
+     * did. So a stay created automatically from a booking e-mail got the
+     * association and NOT the contract that arrived with it: `onLinked()`
+     * — the one place a consumer turns a message's attachments into
+     * documents of its own — was never reached on the only path that
+     * creates such a stay.
+     */
+    public function testAConsumerIsToldAboutTheAssociationTheDeferredPassCreated(): void
+    {
+        $messageId = $this->storeMessage('filed@mail');
+        $consumer = new FakeMessageConsumer(
+            'camps',
+            null,
+            fn(): AnalysisResult => new AnalysisResult(
+                [new MessageLink('camps', 'camp-51', LinkOrigin::SENDER)]
+            )
+        );
+
+        $this->runPass($consumer);
+
+        $this->assertCount(1, $consumer->linked);
+        $this->assertSame($messageId, $consumer->linked[0][0]->id);
+        $this->assertSame('camp-51', $consumer->linked[0][1]->businessReference);
+    }
+
+    public function testTheConsumerIsToldOnlyAboutAssociationsThatAreActuallyNew(): void
+    {
+        // `onLinked()` fires once per association, ever: a re-analysis must
+        // not make a module file the same attachment a second time.
+        $this->storeMessage('twice@mail');
+        $consumer = new FakeMessageConsumer(
+            'camps',
+            null,
+            fn(): AnalysisResult => new AnalysisResult(
+                [new MessageLink('camps', 'camp-51', LinkOrigin::SENDER)]
+            )
+        );
+
+        $this->runPass($consumer);
+        $this->messages->queueAllForStoredAnalysis();
+        $this->runPass($consumer);
+
+        $this->assertCount(1, $consumer->linked);
+    }
+
+    public function testAConsumerThatThrowsWhileFilingIsSaidSoRatherThanSwallowed(): void
+    {
+        // The stay exists and its contract was not filed. Nothing else in
+        // the application will ever complain about that, which is exactly
+        // why it belongs in the journal.
+        $this->storeMessage('boom@mail');
+        $consumer = new FakeMessageConsumer(
+            'camps',
+            null,
+            fn(): AnalysisResult => new AnalysisResult(
+                [new MessageLink('camps', 'camp-51', LinkOrigin::SENDER)]
+            ),
+            throwsOnLinked: true
+        );
+
+        $this->runPass($consumer);
+
+        $entry = $this->journalEntry('inbound_analysis_failed');
+        $context = json_decode((string) $entry['context'], true);
+        $this->assertSame('camps', $context['consumer']);
+        $this->assertSame('classement', $context['pass']);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function journalEntry(string $type): array
+    {
+        foreach ((new JournalRepository($this->pdo))->search() as $entry) {
+            if ($entry['event_type'] === $type) {
+                return $entry;
+            }
+        }
+
+        $this->fail('no journal entry of type ' . $type);
+    }
+
     public function testAMessageIsPutThroughTheDeferredPassOnlyOnce(): void
     {
         // `stored_analysis_at` is the marker, and nothing re-analyses on its
@@ -147,7 +233,12 @@ class AnalyzeStoredMessagesHandlerTest extends TestCase
             $registry->register($consumer);
         }
 
-        (new AnalyzeStoredMessagesHandler($registry))->handle([], new TaskContext(
+        (new AnalyzeStoredMessagesHandler(
+            $registry,
+            new \Modules\InboundMail\Service\AnalysisJournal(
+                new JournalService(new JournalRepository($this->pdo))
+            )
+        ))->handle([], new TaskContext(
             Connection::withPdo($this->pdo),
             $this->encryption,
             $this->createMock(MailService::class),

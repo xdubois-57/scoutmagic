@@ -691,6 +691,40 @@ class CampsMessageConsumerTest extends TestCase
         $consumer->analyzeStored($this->bookingMessage('camp-' . $this->campId));
     }
 
+    /**
+     * The whole point of the deferred pass creating a stay: the contract
+     * that made it becomes one of the stay's documents.
+     *
+     * `onLinked()` is what does that, and it is reached through the
+     * notifier the deferred pass gained — see
+     * `InboundMail\Service\LinkedMessageNotifier`. Before, the stay was
+     * created and the contract stayed behind in the mailbox.
+     */
+    public function testTheContractThatCreatedTheStayIsFiledAsItsDocument(): void
+    {
+        $documents = $this->documentService();
+        $stayFromMail = $this->createMock(\Modules\Camps\Mail\StayFromMailService::class);
+        $stayFromMail->method('isAutomatic')->willReturn(true);
+        $stayFromMail->method('createFrom')->willReturn($this->campId);
+
+        $consumer = new CampsMessageConsumer(
+            $this->camps, $this->pdo, $this->encryption,
+            $this->dedicatedTo(self::DEDICATED_MAILBOX), $documents, null, $stayFromMail
+        );
+
+        $result = $consumer->analyzeStored($this->unattachedMessage(self::DEDICATED_MAILBOX));
+
+        // What the pass does next, with the association the applier wrote
+        // — re-reading the message, attachments and all, exactly as
+        // `LinkedMessageNotifier` does.
+        $consumer->onLinked(
+            $this->storedMessage(CampsMessageConsumer::referenceFor($this->campId)),
+            $result->links[0]
+        );
+
+        $this->assertSame(1, $this->documentCount());
+    }
+
     /** A stored message with no association at all — the deferred pass's subject. */
     private function unattachedMessage(int $mailboxId): \Modules\InboundMail\Api\InboundMessage
     {

@@ -359,46 +359,14 @@ class MailboxSyncService
      */
     private function notifyLinked(int $messageId, array $created): void
     {
-        foreach ($created as $entry) {
-            $consumer = $this->consumerRegistry->find($entry['consumerId']);
-            if ($consumer === null) {
-                continue;
-            }
-
-            $this->notifyConsumer($consumer, $messageId, $entry['link']);
-        }
-    }
-
-    /**
-     * Hand the stored message back to the consumer whose association was
-     * just created, so it can do its own bookkeeping — turning attachments into documents, for
-     * instance (§7.8).
-     *
-     * Deliberately after the write, and deliberately unable to fail the
-     * run: the message is already stored, and one module's bookkeeping
-     * throwing must not cost the unit the rest of its mail. Nothing about
-     * the failure is logged either, since anything identifying enough to be
-     * useful would be personal data in the journal (§7.9).
-     */
-    private function notifyConsumer(
-        MessageConsumerInterface $consumer,
-        int $messageId,
-        MessageLink $link
-    ): void {
-        $stored = $this->messageRepository->findOneForReference(
-            $link->consumerId,
-            $link->businessReference,
-            $messageId
-        );
-        if ($stored === null) {
-            return;
-        }
-
-        try {
-            $consumer->onLinked($stored, $link);
-        } catch (\Throwable) {
-            // See the docblock: swallowed on purpose, and silently.
-        }
+        // One owner for the callback, shared with the deferred pass — see
+        // Service\LinkedMessageNotifier, which exists because only this
+        // pass was doing it.
+        (new LinkedMessageNotifier(
+            $this->messageRepository,
+            $this->consumerRegistry,
+            $this->analysisJournal
+        ))->notify($messageId, $created);
     }
 
     private function storeAttachments(
