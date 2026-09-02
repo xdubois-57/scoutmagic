@@ -28,6 +28,8 @@ use Modules\News\Repository\NewsForm;
 use Modules\News\Service\ArticleService;
 use Modules\News\Service\FormService;
 use Modules\News\Service\NewsException;
+use Modules\News\Service\ResponseColumn;
+use Modules\News\Service\ResponseColumns;
 use Modules\News\Service\ResponseService;
 use Modules\News\Service\TicketQrTokenService;
 use Modules\News\Service\TicketService;
@@ -47,15 +49,15 @@ class FormController extends AbstractController
      */
     private const HUMAN_CHECK_FORM_KEY = 'news_form_response';
 
-    /** The first audience column, and the export's first header. */
-    private const MERGE_CONTACT_COLUMN = 'Contact';
-
     /**
-     * The ticket's two merge columns. Offered only by a form that
-     * delivers a ticket, so a plain sign-up's composer is unchanged.
+     * The one definition of this form's response columns, consumed by
+     * the export and by the mail-merge variables alike (Service\
+     * ResponseColumns). Derived from three dependencies this controller
+     * already holds rather than injected: it is a stateless reader over
+     * them, and a thirteenth constructor argument in every composition
+     * root would say nothing a reader does not already see here.
      */
-    private const MERGE_TICKET_COLUMN = 'Référence du billet';
-    private const MERGE_TICKET_QR_COLUMN = 'QR du billet';
+    private ResponseColumns $responseColumns;
 
     public function __construct(
         protected Environment $twig,
@@ -83,6 +85,7 @@ class FormController extends AbstractController
         // not build it.
         private ?TicketQrTokenService $ticketQrTokens = null
     ) {
+        $this->responseColumns = new ResponseColumns($expectedReceivable, $ticketQrTokens, $baseUrl);
     }
 
     /**
@@ -379,7 +382,7 @@ class FormController extends AbstractController
             $url = $this->massMailDraft->createMergeDraft(
                 'Réponses — ' . $article->title,
                 'Réponses — ' . $article->title,
-                $this->responseColumns($fields, $form),
+                $this->mergeColumnLabels($fields, $form),
                 $this->responseMergeRows($fields, $responses, $form),
                 AuthSession::getRole(),
                 AuthSession::getEmail() ?? '',
@@ -404,37 +407,23 @@ class FormController extends AbstractController
     }
 
     /**
-     * The audience's column headers, in the SAME order the XLSX export
-     * uses — `Contact` then every input field's label. Read from the same
-     * `isNonInput()` rule rather than restated, so the spreadsheet a chief
-     * downloads and the merge variables they get in the composer cannot
-     * describe the same form differently.
+     * The audience's column headers — the SAME list, in the same order,
+     * that the XLSX export writes (Service\ResponseColumns).
      *
-     * The export's four payment columns are deliberately absent: they are
-     * accounting figures for a treasurer's spreadsheet, not something to
-     * offer as a merge variable in a mail to the respondent.
+     * The two surfaces used to build their own, and the docblock here
+     * claimed they could not disagree while they already did: the export
+     * carried the four payment columns and the variables did not. One
+     * list, one place to add the next column.
      *
      * @param FormField[] $fields
      * @return string[]
      */
-    private function responseColumns(array $fields, NewsForm $form): array
+    private function mergeColumnLabels(array $fields, NewsForm $form): array
     {
-        $columns = [self::MERGE_CONTACT_COLUMN];
-        foreach ($fields as $field) {
-            if (!$field->isNonInput()) {
-                $columns[] = (string) $field->label;
-            }
-        }
-
-        // The one thing the reminder before an event needs and the
-        // spreadsheet export deliberately does not offer: the ticket, so
-        // the message can give it back to whoever lost it.
-        if ($form->issuesTicket) {
-            $columns[] = self::MERGE_TICKET_COLUMN;
-            $columns[] = self::MERGE_TICKET_QR_COLUMN;
-        }
-
-        return $columns;
+        return array_map(
+            static fn(ResponseColumn $column): string => $column->label,
+            $this->responseColumns->forForm($fields, $form)
+        );
     }
 
     /**
@@ -458,21 +447,22 @@ class FormController extends AbstractController
             return null;
         }
 
-        $reference = '{{' . self::MERGE_TICKET_COLUMN . '}}';
-        $qr = '{{' . self::MERGE_TICKET_QR_COLUMN . '}}';
+        $reference = '{{' . ResponseColumns::TICKET_REFERENCE . '}}';
+        $qr = '{{' . ResponseColumns::TICKET_QR . '}}';
 
-        return '{{#' . self::MERGE_TICKET_COLUMN . '}}'
+        return '{{#' . ResponseColumns::TICKET_REFERENCE . '}}'
             . '<p>Voici votre billet, à présenter à l\'entrée :</p>'
             . '<p><strong>' . $reference . '</strong></p>'
             . '<p><img src="' . $qr . '" alt="QR du billet" width="200" height="200"></p>'
             . '<p>Si l\'image ne s\'affiche pas, la référence ci-dessus suffit : nous pouvons la saisir à la main.</p>'
-            . '{{/' . self::MERGE_TICKET_COLUMN . '}}';
+            . '{{/' . ResponseColumns::TICKET_REFERENCE . '}}';
     }
 
     /**
-     * One row per response, keyed by the headers above. A switch answer
-     * reads "Oui"/"Non" exactly as it does in the export — a merge
-     * variable rendering "1" in a mail to a family would be nonsense.
+     * One row per response, keyed by the headers above and valued by the
+     * same reader the export uses — so « Statut paiement » says « Payé »
+     * on both, and a switch says « Oui », and neither surface can grow a
+     * value the other does not have.
      *
      * @param FormField[] $fields
      * @param FormResponse[] $responses
@@ -480,32 +470,14 @@ class FormController extends AbstractController
      */
     private function responseMergeRows(array $fields, array $responses, NewsForm $form): array
     {
+        $columns = $this->responseColumns->forForm($fields, $form);
+
         $rows = [];
         foreach ($responses as $response) {
             $answers = $this->responseService->getAnswers($response->id);
-            $values = [self::MERGE_CONTACT_COLUMN => (string) $response->contactEmail];
-
-            if ($form->issuesTicket) {
-                $reference = $response->hasTicket() ? (string) $response->ticketReference : null;
-                $values[self::MERGE_TICKET_COLUMN] = $reference !== null ? TicketService::format($reference) : '';
-                // An absolute URL rather than an inline image: a
-                // mail-merge body is sanitized, and the sanitizer refuses
-                // `data:`. Same mechanism as finance's payment reminder
-                // (Service\TicketQrTokenService).
-                $values[self::MERGE_TICKET_QR_COLUMN] = $reference !== null
-                    ? (string) ($this->ticketQrTokens?->urlFor($reference, $this->baseUrl) ?? '')
-                    : '';
-            }
-
-            foreach ($fields as $field) {
-                if ($field->isNonInput()) {
-                    continue;
-                }
-                $value = (string) ($answers[$field->id] ?? '');
-                if ($field->fieldType === FormField::TYPE_SWITCH) {
-                    $value = $value === '1' ? 'Oui' : 'Non';
-                }
-                $values[(string) $field->label] = $value;
+            $values = [];
+            foreach ($columns as $column) {
+                $values[$column->label] = $this->responseColumns->valueFor($column, $response, $answers);
             }
 
             $rows[] = ['email' => (string) $response->contactEmail, 'values' => $values];
@@ -800,13 +772,27 @@ class FormController extends AbstractController
      */
     private function buildReceivableStatus(FormResponse $response): ?array
     {
-        if ($response->receivableId === null || $this->expectedReceivable === null) {
-            return null;
-        }
-        return $this->expectedReceivable->getReceivableStatus($response->receivableId);
+        return $this->responseColumns->paymentOf($response);
     }
 
     /**
+     * The responses as a spreadsheet, from the same column definition
+     * the merge variables read (Service\ResponseColumns).
+     *
+     * Two cells are not text, and that is the whole of what this method
+     * knows beyond the definition: « Montant attendu » is a live formula
+     * so a treasurer sees how it is built and can adjust it, and
+     * « Montant reçu » a real number so a column of them can be summed.
+     *
+     * Everything else is explicitly string-typed. Without that,
+     * PhpSpreadsheet's DefaultValueBinder promotes a value beginning with
+     * '=' (or +, -, @) to a live formula — and form answers are submitted
+     * by anyone (POST /news/{id}/form/submit is public), so a crafted
+     * answer like =HYPERLINK(...) would execute in the staff member's
+     * spreadsheet when they open the export: the CSV/XLSX
+     * formula-injection class. Same treatment Core\Member\Export\
+     * MemberExportService already applies throughout.
+     *
      * @param FormField[] $fields
      * @param FormResponse[] $responses
      */
@@ -815,100 +801,36 @@ class FormController extends AbstractController
         $spreadsheet = new Spreadsheet();
         $sheet = $spreadsheet->getActiveSheet();
 
+        $columns = $this->responseColumns->forForm($fields, $form);
         $pricedFields = array_values(array_filter($fields, fn(FormField $f) => $f->isPriced()));
-        $hasPayment = $pricedFields !== [] && $this->expectedReceivable !== null;
 
-        $columns = ['Contact'];
+        /** @var array<int, string> $fieldColumnLetters field id => spreadsheet column letter */
         $fieldColumnLetters = [];
-        $col = 2;
-        foreach ($fields as $field) {
-            if ($field->isNonInput()) {
-                continue;
+        foreach ($columns as $index => $column) {
+            $sheet->setCellValueExplicit([$index + 1, 1], $column->label, DataType::TYPE_STRING);
+            if ($column->fieldId !== null) {
+                $fieldColumnLetters[$column->fieldId] = Coordinate::stringFromColumnIndex($index + 1);
             }
-            $columns[] = (string) $field->label;
-            $fieldColumnLetters[$field->id] = Coordinate::stringFromColumnIndex($col);
-            $col++;
-        }
-
-        if ($hasPayment) {
-            $columns[] = 'Montant attendu';
-            $columns[] = 'Montant reçu';
-            $columns[] = 'Communication structurée';
-            $columns[] = 'Statut paiement';
-        }
-
-        // The ticket, after the money and in the order the screen shows
-        // them. An export saying only « payé / impayé » would send a
-        // treasurer back to the site to learn an amount — and a
-        // spreadsheet is precisely where an evening's accounts get done.
-        if ($form->issuesTicket) {
-            $columns[] = 'Référence du billet';
-            $columns[] = 'État du billet';
-            $columns[] = 'Heure d\'entrée';
-        }
-
-        // Explicit string typing on every cell that carries free text —
-        // header labels, the contact address, and each answer. Without it
-        // PhpSpreadsheet's DefaultValueBinder promotes a value beginning
-        // with '=' (or +, -, @) to a live formula, and form answers are
-        // submitted by anyone (POST /news/{id}/form/submit is public), so a
-        // crafted answer like =HYPERLINK(...) would execute in the staff
-        // member's spreadsheet when they open the export — the CSV/XLSX
-        // formula-injection class. Same treatment Core\Member\Export\
-        // MemberExportService already applies throughout.
-        foreach ($columns as $index => $header) {
-            $sheet->setCellValueExplicit([$index + 1, 1], (string) $header, DataType::TYPE_STRING);
         }
 
         $rowNum = 2;
         foreach ($responses as $response) {
             $answers = $this->responseService->getAnswers($response->id);
-            $sheet->setCellValueExplicit([1, $rowNum], (string) $response->contactEmail, DataType::TYPE_STRING);
+            $payment = $this->responseColumns->paymentOf($response);
 
-            $colIndex = 2;
-            foreach ($fields as $field) {
-                if ($field->isNonInput()) {
+            foreach ($columns as $index => $column) {
+                $cell = [$index + 1, $rowNum];
+                if ($column->kind === ResponseColumn::KIND_AMOUNT_DUE) {
+                    $sheet->setCellValue($cell, self::amountDueFormula($pricedFields, $fieldColumnLetters, $rowNum));
                     continue;
                 }
-                $value = $answers[$field->id] ?? '';
-                if ($field->fieldType === FormField::TYPE_SWITCH) {
-                    $value = $value === '1' ? 'Oui' : 'Non';
+                if ($column->kind === ResponseColumn::KIND_AMOUNT_RECEIVED) {
+                    $sheet->setCellValue($cell, $payment !== null ? $payment['amount_received'] / 100 : 0);
+                    continue;
                 }
-                $sheet->setCellValueExplicit([$colIndex, $rowNum], (string) $value, DataType::TYPE_STRING);
-                $colIndex++;
-            }
-
-            if ($hasPayment) {
-                $formulaParts = [];
-                foreach ($pricedFields as $priced) {
-                    $letter = $fieldColumnLetters[$priced->id] ?? null;
-                    if ($letter !== null) {
-                        $formulaParts[] = $letter . $rowNum . '*' . $priced->pricePerUnit;
-                    }
-                }
-                $sheet->setCellValue([$colIndex, $rowNum], '=' . implode('+', $formulaParts));
-
-                $status = $response->receivableId !== null ? $this->buildReceivableStatus($response) : null;
-                $sheet->setCellValue([$colIndex + 1, $rowNum], $status !== null ? $status['amount_received'] / 100 : 0);
-                $sheet->setCellValueExplicit([$colIndex + 2, $rowNum], (string) ($response->structuredCommunication ?? ''), DataType::TYPE_STRING);
-                $sheet->setCellValueExplicit([$colIndex + 3, $rowNum], $status !== null ? $this->statusLabel($status['status']) : 'Non payé', DataType::TYPE_STRING);
-                $colIndex += 4;
-            }
-
-            if ($form->issuesTicket) {
                 $sheet->setCellValueExplicit(
-                    [$colIndex, $rowNum],
-                    $response->hasTicket() ? TicketService::format((string) $response->ticketReference) : '',
-                    DataType::TYPE_STRING
-                );
-                $sheet->setCellValueExplicit(
-                    [$colIndex + 1, $rowNum],
-                    $response->isTicketUsed() ? 'Entré' : 'Non venu',
-                    DataType::TYPE_STRING
-                );
-                $sheet->setCellValueExplicit(
-                    [$colIndex + 2, $rowNum],
-                    (string) ($response->ticketUsedAt ?? ''),
+                    $cell,
+                    $this->responseColumns->valueFor($column, $response, $answers),
                     DataType::TYPE_STRING
                 );
             }
@@ -919,12 +841,24 @@ class FormController extends AbstractController
         return $spreadsheet;
     }
 
-    private function statusLabel(string $status): string
+    /**
+     * « quantité × prix unitaire », summed over every priced field, as a
+     * formula pointing at this row's own cells.
+     *
+     * @param FormField[] $pricedFields
+     * @param array<int, string> $fieldColumnLetters
+     */
+    private static function amountDueFormula(array $pricedFields, array $fieldColumnLetters, int $rowNum): string
     {
-        return match ($status) {
-            'paid' => 'Payé',
-            'partial' => 'Partiel',
-            default => 'Non payé',
-        };
+        $parts = [];
+        foreach ($pricedFields as $priced) {
+            $letter = $fieldColumnLetters[$priced->id] ?? null;
+            if ($letter !== null) {
+                $parts[] = $letter . $rowNum . '*' . $priced->pricePerUnit;
+            }
+        }
+
+        return $parts === [] ? '0' : '=' . implode('+', $parts);
     }
+
 }

@@ -49,8 +49,8 @@ enregistré, pas ce qui s'est passé.
 « Exporter » télécharge exactement ce que le filtre affiche, dans le
 même ordre : les places réservées, le montant attendu, le montant reçu,
 l'état du paiement et l'état du billet. C'est dans un tableur qu'on fait
-les comptes d'une soirée, et un fichier qui ne dirait que « payé /
-impayé » obligerait à rouvrir le site pour connaître un montant.
+les comptes d'une soirée, et un fichier qui dirait seulement payé ou
+impayé obligerait à rouvrir le site pour connaître un montant.
 
 « Écrire » prépare un brouillon de publipostage adressé aux seules
 personnes que le filtre affiche. Rien ne part avant que vous ne

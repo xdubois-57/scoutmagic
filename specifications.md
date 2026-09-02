@@ -1235,7 +1235,11 @@ A treasurer who is not an animator of the section, a per-account list of named p
 
 Depuis la page des réponses, « Écrire aux répondants » prépare un **brouillon** de publipostage adressé à tous ceux qui ont répondu, et ouvre la page de ce brouillon (§24.5). Rien n'est envoyé : le message reste à écrire, et il part comme n'importe quel autre publipostage.
 
-Chaque champ du formulaire devient une variable de personnalisation, dans le même ordre et avec les mêmes intitulés que l'export Excel — les deux surfaces lisent la même définition, elles ne peuvent pas décrire le même formulaire différemment. Les colonnes de paiement de l'export ne sont pas reprises : ce sont des chiffres de comptabilité, pas quelque chose à insérer dans un mail au répondant.
+**Toutes les colonnes de l'export sont des variables de personnalisation**, dans le même ordre et avec les mêmes intitulés : les deux surfaces lisent une seule et même définition, elles ne peuvent pas décrire le même formulaire différemment. Chaque champ du formulaire, mais aussi **Montant attendu**, **Montant reçu**, **Communication structurée**, **Statut paiement**, et pour un formulaire à billet la référence, l'état du billet, l'heure d'entrée et le QR.
+
+*La phrase qui excluait les colonnes de paiement — « ce sont des chiffres de comptabilité, pas quelque chose à insérer dans un mail au répondant » — est révoquée.* Elle vaut pour un chef qui écrit « rendez-vous samedi à 18h ». Elle ne vaut pas pour un rappel de paiement, où le montant restant dû **est** le message.
+
+Ce qui arrive dans le message est écrit pour être lu par une famille : « Oui »/« Non » pour une case à cocher, « Payé »/« Partiel »/« Non payé » pour un statut, « 30,00 € » pour un montant. Jamais un code interne, jamais un mot anglais. Le filtre d'audience (§29.7) ne restreint rien : il décide **qui** reçoit, jamais **ce qui est disponible**.
 
 ### 29.3 L'adresse utilisée
 

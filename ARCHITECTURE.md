@@ -2652,7 +2652,7 @@ Where the unit has camped, and every stay it made there. The product answers one
 
 **Rows are deduplicated by address**, compared lowercased and trimmed, first row winning. Two answers from one family address are one mail, not two.
 
-**The columns come from the export's own rule, not from a second list.** `FormController::responseColumns()` walks the same `isNonInput()` filter in the same field order that `buildXlsx()` uses, and a switch answer reads "Oui"/"Non" in both — the spreadsheet a chief downloads and the merge variables offered in the composer cannot describe the same form differently. The export's four payment columns are deliberately left out: they are accounting figures for a treasurer's spreadsheet, not something to offer as a merge variable in a mail to the respondent.
+**The columns come from one definition** — `Modules\News\Service\ResponseColumns`, read by the export and by the merge alike (§8.71quater). This paragraph used to say the two «cannot describe the same form differently» while they already did, and to justify the four payment columns being merge-only.
 
 **The role gap is real and is checked three times.** The responses page is `role_min: intendant`; the mail merge is `chief`. The new route declares `chief`, so the guard refuses an intendant outright; the button is hidden below `chief`, which is presentation only; and mass_mail then applies its own sending rules. A hidden button is not a boundary, and neither is a route's floor on its own (SECURITY.md §3).
 
@@ -2681,6 +2681,20 @@ Where the unit has camped, and every stay it made there. The product answers one
 **Nothing changed behaviour on the way.** Same draft → test → sending machine, same all-or-nothing .xlsx import with its line-by-line report, same per-recipient preview and same test send carrying the previewed row. The two things that did converge are the ones that were already components of this site and had been re-drawn by hand: the rich-text editor (§8.71bis) and the file drop, which is now `partials/drop_zone.html.twig` + `window.ScoutMagicDropZone` like the gallery's and « Nouveau reçu »'s. The import fires as soon as a file arrives rather than behind a second « Importer » click — there is exactly one thing to do with an .xlsx here.
 
 **The JSON endpoints the dialog owned are deleted, not orphaned**: `GET /mass-mail/{id}/data`, `PATCH /mass-mail/{id}` and `DELETE /mass-mail/attachments/{id}`. `POST /mass-mail/recipients/{id}/resend` is the one JSON write left in the controller, and its caller is the tracking table's own fetch.
+
+### 8.71quater One definition of a form's response columns (`Modules\News\Service\ResponseColumns`)
+
+`FormController::responseColumns()` built the merge variables and claimed in its own docblock that the export and the variables *« cannot describe the same form differently »*. That had already stopped being true: the export carried **Montant attendu**, **Montant reçu**, **Communication structurée** and **Statut paiement**, and the variables did not.
+
+**The argument for the gap was too broad.** *Accounting figures for a treasurer's spreadsheet, not something to offer as a merge variable in a mail to the respondent* holds for a chief writing « rendez-vous samedi à 18h ». It does not hold for a payment reminder, where the amount still owed **is** the message. `specifications.md` §29.2's sentence excluding them is revoked, not worked around.
+
+**One ordered list, two consumers.** `ResponseColumns::forForm()` returns the contact address, every input field in the form's own order, the payment block when the form prices something *and* the finance module is there, then the ticket block when the form delivers one. `ResponseColumns::valueFor()` is the one reader of a value. The export writes those values; the merge substitutes them. Adding a column is one edit, and the ticketing columns went through this path with no second decision — which is what the shape is for.
+
+**Two cells are not text, and that is all the export knows on its own.** « Montant attendu » is written as a live formula so a treasurer sees how it is built and can adjust it; « Montant reçu » as a real number so a column of them can be summed. `ResponseColumn::$kind` names exactly those two. Everything else is explicitly string-typed against the CSV/XLSX formula-injection class, form answers being public input.
+
+**What a family reads is now part of the contract.** These values travel in a mail: a switch answers « Oui »/« Non », a payment status « Payé »/« Partiel »/« Non payé » (never finance's stored `partial`/`unpaid`), an amount « 30,00 € ». `ResponseColumnsTest` asserts the strings themselves rather than their shape.
+
+**The QR is in both.** It exists for the message — a chief cannot insert it by hand — but §24.4's standing rule is that every export of people this site produces can be re-imported as a mail-merge audience without editing, and a variable missing from the export would break exactly that.
 
 ### 8.72 Three finance primitives, and the three ways to get them wrong
 

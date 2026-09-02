@@ -1194,6 +1194,120 @@ class NewsIntegrationTest extends TestCase
         );
     }
 
+    /**
+     * The claim `FormController` had been making in its own docblock,
+     * finally true: the export and the merge variables read ONE column
+     * definition (Service\ResponseColumns), so they cannot describe the
+     * same form differently.
+     *
+     * It was false. The export carried « Montant attendu », « Montant
+     * reçu », « Communication structurée » and « Statut paiement », and
+     * the variables did not — on the argument that those are accounting
+     * figures rather than something to put in a mail. Too broad: it holds
+     * for « rendez-vous samedi à 18h », not for a payment reminder, where
+     * the amount is the message.
+     */
+    public function testTheExportAndTheMergeVariablesDescribeTheSameColumns(): void
+    {
+        $event = $this->crossedEvent();
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+
+        $captured = [];
+        $this->formControllerWithMassMail($this->recordingDraftProvider($captured), $this->receivablesStub())
+            ->createMailDraft(
+                new Request('POST', '/news/' . $event['article'] . '/form/responses/mail-draft', [], [
+                    '_csrf_token' => CsrfGuard::generateToken(),
+                ], [], []),
+                ['id' => (string) $event['article']]
+            );
+
+        $header = $this->exportHeader($event['article']);
+
+        $this->assertSame($header, $captured['columns'], 'one definition, same order, on both surfaces');
+        $this->assertContains('Montant attendu', $captured['columns']);
+        $this->assertContains('Montant reçu', $captured['columns']);
+        $this->assertContains('Communication structurée', $captured['columns']);
+        $this->assertContains('Statut paiement', $captured['columns']);
+    }
+
+    /**
+     * « Statut paiement » is now read by a family, so what it contains
+     * matters: French words, never an internal code and never the
+     * English « unpaid » the finance module stores.
+     */
+    public function testThePaymentColumnsReachTheComposerAsSomethingAFamilyCanRead(): void
+    {
+        $event = $this->crossedEvent();
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+
+        $captured = [];
+        $this->formControllerWithMassMail($this->recordingDraftProvider($captured), $this->receivablesStub())
+            ->createMailDraft(
+                new Request('POST', '/news/' . $event['article'] . '/form/responses/mail-draft', [], [
+                    '_csrf_token' => CsrfGuard::generateToken(),
+                ], [], []),
+                ['id' => (string) $event['article']]
+            );
+
+        $byAddress = [];
+        foreach ($captured['rows'] as $row) {
+            $byAddress[$row['email']] = $row['values'];
+        }
+
+        $this->assertSame('Payé', $byAddress['roskam@test.com']['Statut paiement']);
+        $this->assertSame('Non payé', $byAddress['delvaux@test.com']['Statut paiement']);
+        $this->assertSame('30,00 €', $byAddress['roskam@test.com']['Montant attendu']);
+        $this->assertSame('0,00 €', $byAddress['delvaux@test.com']['Montant reçu']);
+        $this->assertSame('+++100/0000/00012+++', $byAddress['delvaux@test.com']['Communication structurée']);
+    }
+
+    /**
+     * The export's two numeric cells survive the convergence: a formula
+     * a treasurer can read and adjust, and a real number a column of
+     * which can be summed. Sharing the column list must not turn a
+     * spreadsheet into a wall of strings.
+     */
+    public function testTheExportStillWritesTheAmountsAsAFormulaAndANumber(): void
+    {
+        $event = $this->crossedEvent();
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+
+        $sheet = $this->exportSheet($event['article']);
+        $header = $sheet->toArray()[0];
+        $dueColumn = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(
+            (int) array_search('Montant attendu', $header, true) + 1
+        );
+        $receivedColumn = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(
+            (int) array_search('Montant reçu', $header, true) + 1
+        );
+
+        $this->assertStringStartsWith('=', (string) $sheet->getCell($dueColumn . '2')->getValue());
+        $this->assertIsFloat($sheet->getCell($receivedColumn . '2')->getValue() + 0.0);
+    }
+
+    /**
+     * @return string[]
+     */
+    private function exportHeader(int $articleId): array
+    {
+        return array_map(static fn ($value): string => (string) $value, $this->exportSheet($articleId)->toArray()[0]);
+    }
+
+    private function exportSheet(int $articleId): \PhpOffice\PhpSpreadsheet\Worksheet\Worksheet
+    {
+        $response = $this->formControllerWithFinance($this->receivablesStub())->exportResponses(
+            new Request('GET', '/news/' . $articleId . '/form/responses/export', [], [], [], []),
+            ['id' => (string) $articleId]
+        );
+
+        $path = tempnam(sys_get_temp_dir(), 'news-export-') . '.xlsx';
+        file_put_contents($path, (string) $response->getBody());
+        $sheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($path)->getActiveSheet();
+        @unlink($path);
+
+        return $sheet;
+    }
+
     public function testTheMailDraftBodyPutsTheQrWhereAChiefCouldNot(): void
     {
         // A chief cannot insert this by hand: the composer's image button
