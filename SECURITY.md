@@ -77,6 +77,18 @@ appliquées, mots de passe et clés gérés par l'unité déployante.
 
 The statistics receiver (ARCHITECTURE.md §8.49) keeps each reporting installation's **instance URL** and **installation id** as plain columns. Stored in clear is not the same as trusted: both are rendered through Twig, the URL is linked only when its scheme is `http`/`https`, and no page assembles markup from either of them client-side (§8.50). Neither identifies a natural person: a scout unit is an association, the URL is already public, and the installation id is opaque random bytes derived from nothing about anyone. Both are needed in clear for the dashboard to filter, sort and search across installations — encrypting them would force either a blind index per searchable field or full-table decryption on every page load, buying nothing. The reports themselves carry no member data at all (§8.47), so there is nothing else in that table to protect.
 
+### A measurement with no subject (`modules/usage_stats`, ARCHITECTURE.md §8.93)
+
+The site counts how often each of its pages is opened, and there is no column in that table for a person. What is stored is the **route pattern** — `/members/{id}`, never `/members/42` — plus a month and one of three audience buckets. That is not a privacy mitigation applied over a design that could identify somebody; it is the design. The site this replaces kept `(PAGE, EMAIL, MONTH)` and could say that a given parent had opened their child's page fourteen times; nothing here can answer that question, because nothing here has the columns to.
+
+Three consequences worth stating as security properties rather than as features:
+
+- **The `User-Agent` header is read and never stored.** It is compared against a substring list to drop crawlers before the write happens, and then discarded. The old site's `STATS_USER_AGENT` table is exactly what this is not.
+- **No IP address, no session id, no account id, no member id reaches the recorder at all** — the composition root hands it a method, a route pattern, a status, a content type and a role, and a test asserts that call site carries nothing else.
+- **No cookie is set**, which is why this measurement appears in no category of the cookie preferences page: the analytics consent regime is triggered by writing on the visitor's device, and a non-nominative server-side count writes nothing there. The module declares an empty `cookies` section and a test pins it, so adding one later is a decision rather than a detail.
+
+The three screens are `superadmin`, the same floor as every other page of the Configuration menu. What leaves the installation is the per-module total only, and only when the unit has enabled the daily report (§8.47); the page-level detail never travels.
+
 ### A subject line in clear, and the condition that makes it admissible
 
 `modules/test_tools`' mail sandbox (ARCHITECTURE.md §8.63) stores each captured message's **subject** as a plain `VARCHAR`. A subject can name a member — "Confirmation d'inscription de …" — so this is a deliberate exception to the rule above, and it is admissible **only because of a condition, which is what has to be written down**: the module cannot load at all unless the installation profile carries `reference_installation` or `local_installation` (§8.49). No deploying unit's installation can hold such a row, whatever is in its database. The exception is to the *rule*, not to the *reason for the rule*.
