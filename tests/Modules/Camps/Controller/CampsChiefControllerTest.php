@@ -926,6 +926,11 @@ class CampsChiefControllerTest extends TestCase
             // contract states in as many words.
             $this->assertStringContainsString('1 468,80', $html);
             $this->assertStringContainsString('value="120"', $html);
+            // And where the place is: without it, a place created from a
+            // message can never be geocoded and never reaches the map.
+            $this->assertStringContainsString('value="Prins Boudewijnlaan"', $html);
+            $this->assertStringContainsString('value="1653"', $html);
+            $this->assertStringContainsString('value="Dworp"', $html);
         } finally {
             foreach (glob($storagePath . '/inbound/*') ?: [] as $file) {
                 @unlink($file);
@@ -944,9 +949,16 @@ class CampsChiefControllerTest extends TestCase
         // not isAvailable(), and a stub that answered only the wider
         // question was silently naming nothing.
         $llm->method('isTierAvailable')->willReturn(true);
+        // The whole venue, which is what one call really asks for.
+        $venue = [
+            'place_name' => $placeName,
+            'address' => 'Prins Boudewijnlaan',
+            'postal_code' => '1653',
+            'city' => 'Dworp',
+        ];
         $llm->method('complete')->willReturn(new \Modules\LlmConnector\Api\LlmResponse(
-            (string) json_encode(['place_name' => $placeName]),
-            ['place_name' => $placeName],
+            (string) json_encode($venue),
+            $venue,
             100,
             10
         ));

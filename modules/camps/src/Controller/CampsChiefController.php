@@ -187,6 +187,13 @@ class CampsChiefController extends AbstractController
             // described again — the whole point of the detector.
             'place_id' => $placeId !== null ? (string) $placeId : '',
             'place_name' => $placeId === null ? $values['place_name'] : '',
+            // Only when a NEW place is being described. A place the module
+            // already knows keeps the address a human curated — offering to
+            // overwrite it with a model's reading of one message is not
+            // what « créer un camp depuis ce message » is for.
+            'address' => $placeId === null ? $values['address'] : '',
+            'postal_code' => $placeId === null ? $values['postal_code'] : '',
+            'city' => $placeId === null ? $values['city'] : '',
             'start_date' => $values['start_date'],
             'end_date' => $values['end_date'],
             'price' => $values['price'],
