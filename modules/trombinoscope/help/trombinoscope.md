@@ -6,6 +6,8 @@ category: Espace membres
 role_min: identified
 question: Qui sont les animateurs de la section de mon enfant ?
 question: Comment savoir qui est responsable d'une section ?
+question: Comment joindre l'animateur de mon enfant par téléphone ?
+question: Comment imprimer la liste des animateurs pour l'afficher chez moi ?
 paths: /trombinoscope
 related: staffs, page-membre
 ---
@@ -27,12 +29,40 @@ section déjà sélectionnée.
 
 Uniquement l'encadrement : les animateurs et les chefs d'unité actifs
 cette année dans chaque section. Ni les animés, ni les parents n'y
-apparaissent, et la page ne montre aucune coordonnée — pour écrire à
-une section, utilisez son adresse e-mail, indiquée sur la page
-Sections et sur la page de votre animé.
+apparaissent.
 
 La page est réservée aux personnes connectées : les visages de
 l'encadrement ne sont pas exposés aux visiteurs anonymes.
+
+## Écrire ou téléphoner
+
+Chaque section porte son adresse e-mail, sous son nom. C'est une
+adresse de service : elle reste la même quand la section change de
+responsable, et elle est toujours affichée.
+
+Sous chaque animateur figurent en plus son téléphone et son adresse
+e-mail personnelle. Le Staff d'Unité peut les masquer pour toute
+l'unité, dans Configuration puis Réglages, avec le réglage
+« Afficher les coordonnées des animateurs ». Masquées, les adresses
+de section restent visibles : on sait toujours à qui écrire.
+
+## Imprimer ou envoyer le trombinoscope
+
+Le bouton « Télécharger le PDF », en haut de la page, produit un
+document prêt à imprimer : d'abord un annuaire d'une page — un
+responsable par section, avec ses coordonnées et l'adresse de sa
+section — puis une page par section avec tous ses animateurs.
+
+Inutile de tout imprimer. La première page suffit à savoir qui
+contacter, et chaque page porte le nom de sa section en tête : dans la
+boîte d'impression, vous retrouvez celle de votre enfant d'un coup
+d'œil et n'imprimez que celle-là. Le document couvre toujours l'unité
+entière et l'année scoute en cours, quelle que soit la section
+affichée à l'écran.
+
+C'est un fichier : vous pouvez aussi le joindre à un e-mail. Il ne
+contient rien de plus que ce que vous voyez à l'écran — coordonnées
+masquées à l'écran, coordonnées absentes du document.
 
 ## D'où viennent ces informations
 

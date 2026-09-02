@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Modules\Trombinoscope\Controller;
 
 use Core\Config\AppConfig;
+use Core\Config\SettingService;
 use Core\Http\FrontController;
 use Core\Http\Request;
 use Core\Http\Router;
@@ -16,6 +17,9 @@ use Core\Security\AuthSession;
 use Core\Security\Role;
 use Core\View\TextNormalizerExtension;
 use Modules\Trombinoscope\Controller\TrombinoscopeController;
+use Modules\Trombinoscope\Pdf\StaffPhotoEmbedder;
+use Modules\Trombinoscope\Pdf\TrombinoscopeHtmlBuilder;
+use Modules\Trombinoscope\Service\TrombinoscopePdfService;
 use Modules\Trombinoscope\Service\TrombinoscopeService;
 use PHPUnit\Framework\TestCase;
 use Twig\Environment;
@@ -31,6 +35,7 @@ class TrombinoscopeControllerTest extends TestCase
 {
     private Environment $twig;
     private AppConfig $config;
+    private bool $showContacts = true;
 
     /** @var array<int, array{id: int, desk_code: string, name: ?string, email: ?string, age_branch_id: int, branch_name: string, branch_sort_order: int}> */
     private array $sections = [];
@@ -76,8 +81,9 @@ class TrombinoscopeControllerTest extends TestCase
         file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
         $this->config = new AppConfig($configFile);
 
+        $this->showContacts = true;
         $this->sections = [
-            ['id' => 1, 'desk_code' => 'ECL01', 'name' => 'Éclaireurs 1', 'email' => null, 'age_branch_id' => 1, 'branch_name' => 'Éclaireurs', 'branch_sort_order' => 30],
+            ['id' => 1, 'desk_code' => 'ECL01', 'name' => 'Éclaireurs 1', 'email' => 'eclaireurs1@test.be', 'age_branch_id' => 1, 'branch_name' => 'Éclaireurs', 'branch_sort_order' => 30],
         ];
     }
 
@@ -93,6 +99,9 @@ class TrombinoscopeControllerTest extends TestCase
             'label' => 'Trombinoscope',
             'parents' => ['Espace membres'],
         ]);
+        // Same role as the page it is downloaded from, deliberately: a
+        // visitor here already sees exactly what the document holds.
+        $router->addRoute('GET', '/trombinoscope/pdf', TrombinoscopeController::class, 'pdf', 'identified');
 
         $sections = $this->sections;
         $sectionService = new class($sections) extends SectionService {
@@ -106,16 +115,45 @@ class TrombinoscopeControllerTest extends TestCase
             }
         };
 
-        $trombinoscopeService = new class extends TrombinoscopeService {
-            public function __construct()
+        $trombinoscopeService = new class($this->staffProfile()) extends TrombinoscopeService {
+            public function __construct(private MemberProfile $lead)
             {
             }
 
             public function getSectionStaff(int $sectionId, int $scoutYearId): array
             {
-                return ['lead' => null, 'staff' => []];
+                return ['lead' => $this->lead, 'staff' => []];
             }
         };
+
+        $settingService = new class($this->showContacts) extends SettingService {
+            public function __construct(private bool $showContacts)
+            {
+            }
+
+            public function get(string $key, ?string $moduleId = null, mixed $default = null): mixed
+            {
+                return $key === TrombinoscopeController::SETTING_SHOW_CONTACTS
+                    ? ($this->showContacts ? '1' : '0')
+                    : $default;
+            }
+        };
+
+        $pdfService = new TrombinoscopePdfService(
+            $trombinoscopeService,
+            $sectionService,
+            new class extends StaffPhotoEmbedder {
+                public function __construct()
+                {
+                }
+
+                public function dataUriFor(int $memberId, int $scoutYearId): ?string
+                {
+                    return null;
+                }
+            },
+            new TrombinoscopeHtmlBuilder()
+        );
 
         $resolver = new class extends ScoutYearResolver {
             public function __construct()
@@ -131,10 +169,39 @@ class TrombinoscopeControllerTest extends TestCase
         $fc = new FrontController($router, $this->twig, $this->config);
         $fc->registerController(
             TrombinoscopeController::class,
-            new TrombinoscopeController($this->twig, $sectionService, $trombinoscopeService, $resolver)
+            new TrombinoscopeController($this->twig, $sectionService, $trombinoscopeService, $resolver, $settingService, $pdfService)
         );
 
         return $fc;
+    }
+
+    /**
+     * One animateur carrying both a mobile number and a personal e-mail
+     * address — the two fields the module's single setting governs.
+     */
+    private function staffProfile(): MemberProfile
+    {
+        return new MemberProfile(
+            memberYearId: 10,
+            memberId: 100,
+            deskId: 'D100',
+            firstName: 'Antonin',
+            lastName: 'Grandjean',
+            totem: 'Chacal',
+            quali: null,
+            gender: null,
+            birthDate: null,
+            phone: null,
+            mobile: '0496 88 41 20',
+            email: 'antonin@test.be',
+            patrol: null,
+            formationLevel: null,
+            federationMailConsent: false,
+            unitMailConsent: false,
+            addresses: [],
+            functions: [],
+            scoutYearLabel: '2025-2026'
+        );
     }
 
     private function startTestSession(): void
@@ -177,12 +244,66 @@ class TrombinoscopeControllerTest extends TestCase
         );
     }
 
+    public function testContactsAreShownWhenTheSettingIsOn(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(1, 'member@test.be', 'identified');
+
+        $body = $this->buildFrontController()
+            ->handle(new Request('GET', '/trombinoscope', [], [], [], []))
+            ->getBody();
+
+        $this->assertStringContainsString('0496 88 41 20', $body);
+        $this->assertStringContainsString('antonin@test.be', $body);
+    }
+
+    public function testContactsAreHiddenWhenTheSettingIsOffButTheSectionAddressStays(): void
+    {
+        // The setting governs PERSONAL data only. A section's own address is
+        // organizational (design.md §2.6), survives a change of responsable,
+        // and is what makes the page useful with the setting off.
+        $this->showContacts = false;
+        $this->startTestSession();
+        AuthSession::login(1, 'member@test.be', 'identified');
+
+        $body = $this->buildFrontController()
+            ->handle(new Request('GET', '/trombinoscope', [], [], [], []))
+            ->getBody();
+
+        $this->assertStringNotContainsString('0496 88 41 20', $body);
+        $this->assertStringNotContainsString('antonin@test.be', $body);
+        $this->assertStringContainsString('eclaireurs1@test.be', $body);
+    }
+
     public function testPublicIsDenied(): void
     {
         $this->startTestSession();
         AuthSession::login(0, '', 'public');
 
         $response = $this->buildFrontController()->handle(new Request('GET', '/trombinoscope', [], [], [], []));
+
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    public function testIdentifiedDownloadsThePdf(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(1, 'member@test.be', 'identified');
+
+        $response = $this->buildFrontController()->handle(new Request('GET', '/trombinoscope/pdf', [], [], [], []));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('application/pdf', $response->getHeaders()['Content-Type']);
+        $this->assertStringContainsString('trombinoscope-2025-2026.pdf', $response->getHeaders()['Content-Disposition']);
+        $this->assertStringStartsWith('%PDF-', $response->getBody());
+    }
+
+    public function testPublicIsDeniedThePdfToo(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(0, '', 'public');
+
+        $response = $this->buildFrontController()->handle(new Request('GET', '/trombinoscope/pdf', [], [], [], []));
 
         $this->assertSame(403, $response->getStatusCode());
     }

@@ -2738,9 +2738,25 @@ if ($isEnabled('trombinoscope')) {
         new \Modules\Trombinoscope\Repository\TrombinoscopeRepository($connection),
         $sectionService
     );
+    // The printable trombinoscope (GET /trombinoscope/pdf). The photo
+    // embedder reads Core\Photo\ImageVariantService's square `thumb`
+    // derivative and re-encodes it as JPEG — dompdf runs with
+    // isRemoteEnabled = false and cannot decode WebP, so every portrait
+    // travels inside the HTML, reduced.
+    $trombinoscopePdfService = new \Modules\Trombinoscope\Service\TrombinoscopePdfService(
+        $trombinoscopeService,
+        $sectionService,
+        new \Modules\Trombinoscope\Pdf\StaffPhotoEmbedder(
+            $memberPhotoService,
+            $fileRepository,
+            $imageVariantService,
+            $storagePath
+        ),
+        new \Modules\Trombinoscope\Pdf\TrombinoscopeHtmlBuilder()
+    );
     $frontController->registerController(
         \Modules\Trombinoscope\Controller\TrombinoscopeController::class,
-        new \Modules\Trombinoscope\Controller\TrombinoscopeController($twig, $sectionService, $trombinoscopeService, $scoutYearResolver)
+        new \Modules\Trombinoscope\Controller\TrombinoscopeController($twig, $sectionService, $trombinoscopeService, $scoutYearResolver, $settingService, $trombinoscopePdfService)
     );
 
     // The module's three core-hook implementations (§7.4), registered
