@@ -184,6 +184,21 @@ class ScanServiceTest extends TestCase
         $this->assertSame(2, $counters['expected']);
     }
 
+    public function testTheSoldCounterReadsAWholeColumnRatherThanOneQueryPerBooking(): void
+    {
+        // The event picker runs this over every ticketed form on every
+        // keystroke of its search. Per response it would be one query per
+        // family per event per keystroke; per quantity field it is one.
+        [, $formId] = $this->event('Souper spaghetti');
+        $f = $this->dinnerFields($formId);
+        for ($i = 0; $i < 5; $i++) {
+            $this->booking($formId, [$f['name'] => 'F' . $i, $f['adults'] => '2', $f['children'] => '1'], 'f' . $i . '@test.com');
+        }
+
+        $this->assertSame(15, $this->service()->counters($this->forms->findById($formId))['sold']);
+        $this->assertSame(15, $this->service()->listControllableEvents()[0]['seats']);
+    }
+
     public function testAPlainNumberFieldWithNoPriceAndNoCapacityIsNotASeat(): void
     {
         // « Âge de l'enfant » is a number, and counting it would report

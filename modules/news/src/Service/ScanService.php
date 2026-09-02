@@ -147,7 +147,7 @@ class ScanService
                 'title' => $article->title,
                 'event_date' => $form->eventDate,
                 'event_location' => $form->eventLocation,
-                'seats' => $this->countSeats($this->fields->findByFormId($form->id), $responses),
+                'seats' => $this->soldSeats($form->id, count($responses)),
                 // Through Core\Service\DateInput, never the raw
                 // constructor: an empty or malformed stored value answers
                 // « today » there, believed and sorted on (SECURITY.md
@@ -197,7 +197,7 @@ class ScanService
         $responses = $this->responses->findByFormId($form->id);
         $used = array_values(array_filter($responses, static fn (FormResponse $r) => $r->isTicketUsed()));
 
-        $sold = $this->countSeats($fields, $responses);
+        $sold = $this->soldSeats($form->id, count($responses));
         $entered = $this->countSeats($fields, $used);
 
         return [
@@ -414,6 +414,43 @@ class ScanService
     }
 
     /**
+     * Every seat a form has sold — the whole of it, which is a different
+     * query from a subset of it.
+     *
+     * One SELECT per quantity field rather than one per response: the
+     * answers are encrypted, so a sum has to happen in PHP either way,
+     * but `sumFieldValues()` reads a whole column at once — and this runs
+     * on the event picker, over every ticketed form, on every keystroke
+     * of the search. Per response it would be one query per family per
+     * event per keystroke.
+     *
+     * `countSeats()` below stays for the subsets a filter names (the
+     * people who came in), where there is no column-wide sum to take.
+     */
+    private function soldSeats(int $formId, int $responseCount): int
+    {
+        $seatFields = array_values(array_filter(
+            $this->fields->findByFormId($formId),
+            static fn (FormField $f) => self::isSeatField($f)
+        ));
+        // No quantity field at all: one seat per booking, the honest
+        // reading of a plain sign-up.
+        if ($seatFields === []) {
+            return $responseCount;
+        }
+
+        $total = 0;
+        foreach ($seatFields as $field) {
+            $total += (int) $this->responses->sumFieldValues($field->id);
+        }
+
+        return $total;
+    }
+
+    /**
+     * The seats a SUBSET of the responses holds — what the « entered »
+     * counter needs, and what no column-wide sum can answer.
+     *
      * @param FormField[] $fields
      * @param FormResponse[] $responses
      */
