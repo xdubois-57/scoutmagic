@@ -15,6 +15,7 @@ use Core\File\FileRepository;
 use Core\File\UploadException;
 use Core\File\UploadHandler;
 use Core\Http\Controller\AbstractController;
+use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Import\ImportJournalRepository;
@@ -122,12 +123,151 @@ class MassMailController extends AbstractController
     }
 
     /**
-     * GET /mass-mail/{id} — email + attachments as JSON, for the
-     * create/edit dialog.
+     * GET /mass-mail/{id} — the composition page of ONE email
+     * (ARCHITECTURE.md §8.71bis).
+     *
+     * This is what `Service\MergeDraftService::createMergeDraft()` has
+     * always promised and never had: a page. Until it existed the route
+     * answered JSON, so « Écrire aux répondants » sent a chief to a raw
+     * payload — the composer was a dialog opened from the list, and a
+     * dialog has no address to send anybody to.
+     *
+     * A draft LASTS: it is written over several sittings, bookmarked, and
+     * its link handed to a colleague for a re-read. That is a page
+     * everywhere else on this site — an article, a campaign, an invoice —
+     * and the dialog was the exception.
      *
      * @param array<string, string> $params
      */
     public function show(Request $request, array $params): Response
+    {
+        $email = $this->massMailService->findById((int) $params['id']);
+        if ($email === null) {
+            return $this->notFound();
+        }
+
+        return $this->render('@mass_mail/compose.html.twig', $this->buildComposeContext($email, $this->formFromEmail($email), null));
+    }
+
+    /**
+     * POST /mass-mail/{id} — save the draft from the composition page.
+     *
+     * An ordinary form POST, redirecting back to the page it came from —
+     * not the dialog's JSON PATCH beside it. A refused save re-renders
+     * the page carrying what was typed rather than flashing an error onto
+     * an empty form: a mail-merge body is long, and losing it to a
+     * mistyped subject would be unforgivable.
+     *
+     * @param array<string, string> $params
+     */
+    public function save(Request $request, array $params): Response
+    {
+        $id = (int) $params['id'];
+        if (($guard = $this->guardCsrf($request, '/mass-mail/' . $id)) !== null) {
+            return $guard;
+        }
+
+        $email = $this->massMailService->findById($id);
+        if ($email === null) {
+            return $this->notFound();
+        }
+
+        $form = $this->formFromRequest($request);
+        [$listType, $listId, $listSectionId] = self::parseListSelection((string) $form['list']);
+
+        try {
+            $this->massMailService->updateDraft(
+                $id,
+                (string) $form['subject'],
+                (string) $form['body_html'],
+                (int) $form['section_id'],
+                $listType,
+                $listId,
+                $listSectionId,
+                $listType === Email::LIST_TYPE_MAIL_MERGE ? [] : $this->toIntArray($form['scout_year_ids']),
+                $this->buildAuthorization(),
+                $form['audience_id'] !== null ? (int) $form['audience_id'] : null,
+                AuthSession::getUserAccountId()
+            );
+        } catch (MassMailException $e) {
+            return $this->render(
+                '@mass_mail/compose.html.twig',
+                $this->buildComposeContext($email, $form, $e->getMessage())
+            )->setStatusCode(422);
+        }
+
+        FlashMessage::set('success', 'Brouillon enregistré.');
+
+        return $this->redirect('/mass-mail/' . $id);
+    }
+
+    /**
+     * GET /mass-mail/{id}/recipients — the « Destinataires » view of the
+     * nav rail: who this email is going to, before it is sent.
+     *
+     * The question the composition screen cannot answer while you are
+     * writing in it, and the one asked last: a wrong list looks exactly
+     * like a right one until the mail is out. For a mail merge it is the
+     * imported file, row by row; for every other list it is the count the
+     * list resolves to RIGHT NOW, re-asked on each visit because the list
+     * behind it is live.
+     *
+     * @param array<string, string> $params
+     */
+    public function recipients(Request $request, array $params): Response
+    {
+        $id = (int) $params['id'];
+        $email = $this->massMailService->findById($id);
+        if ($email === null) {
+            return $this->notFound();
+        }
+
+        $audience = null;
+        $rows = [];
+        $estimate = null;
+        if ($email->listType === Email::LIST_TYPE_MAIL_MERGE && $email->audienceId !== null) {
+            try {
+                $audience = $this->massMailService->getAudienceSummary(
+                    $email->audienceId,
+                    AuthSession::getUserAccountId(),
+                    $this->buildAuthorization()
+                )['audience'];
+                $rows = $this->massMailService->getAudienceRows($email->audienceId);
+            } catch (MassMailException $e) {
+                FlashMessage::set('error', $e->getMessage());
+            }
+        }
+
+        try {
+            $estimate = $this->massMailService->estimateRecipientCount($id);
+        } catch (MassMailException) {
+            $estimate = null;
+        }
+
+        return $this->render('@mass_mail/recipients.html.twig', [
+            'email' => $email,
+            'breadcrumb_current' => 'Destinataires',
+            'breadcrumb_trail' => [['label' => $email->subject, 'url' => '/mass-mail/' . $email->id]],
+            'audience' => $audience,
+            'audience_rows' => $rows,
+            'estimate' => $estimate,
+            'list_label' => $this->describeList($email),
+            'scout_year_labels' => $this->scoutYearLabels($email),
+            'frozen_counts' => $this->massMailService->getStatusCounts($email->id),
+        ]);
+    }
+
+    /**
+     * GET /mass-mail/{id}/data — email + attachments as JSON, for the
+     * create/edit dialog.
+     *
+     * It used to live at `/mass-mail/{id}`, where it stood in the way of
+     * the page above. Moved rather than deleted: the list page's dialog
+     * still reads it until the creation screen becomes a page of its own.
+     *
+     * @param array<string, string> $params
+     */
+    public function data(Request $request, array $params): Response
     {
         $email = $this->massMailService->findById((int) $params['id']);
         if ($email === null) {
@@ -335,14 +475,21 @@ class MassMailController extends AbstractController
      */
     public function changeStatus(Request $request, array $params): Response
     {
-        $data = $this->decodeJsonBody($request);
-        if ($data === null || !$this->checkCsrf($data)) {
-            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
-        }
-
         $id = (int) $params['id'];
         $actorId = AuthSession::getUserAccountId();
-        $action = (string) ($data['action'] ?? '');
+
+        if ($this->isPageForm($request)) {
+            if (($guard = $this->guardCsrf($request, '/mass-mail/' . $id)) !== null) {
+                return $guard;
+            }
+            $action = (string) $request->getBody('action', '');
+        } else {
+            $data = $this->decodeJsonBody($request);
+            if ($data === null || !$this->checkCsrf($data)) {
+                return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+            }
+            $action = (string) ($data['action'] ?? '');
+        }
 
         try {
             $email = match ($action) {
@@ -352,7 +499,21 @@ class MassMailController extends AbstractController
                 default => throw new MassMailException('Action inconnue.'),
             };
         } catch (MassMailException $e) {
+            if ($this->isPageForm($request)) {
+                FlashMessage::set('error', $e->getMessage());
+                return $this->redirect('/mass-mail/' . $id);
+            }
             return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
+        }
+
+        if ($this->isPageForm($request)) {
+            FlashMessage::set('success', match ($action) {
+                'to_test' => 'Email passé en mode test.',
+                'to_draft' => 'Email repassé en brouillon.',
+                default => "L'envoi est lancé : les emails partent par lots en arrière-plan.",
+            });
+
+            return $this->redirect('/mass-mail/' . $id);
         }
 
         return $this->json(['success' => true, 'email' => $this->serializeEmail($email)]);
@@ -365,18 +526,32 @@ class MassMailController extends AbstractController
      */
     public function testSend(Request $request, array $params): Response
     {
-        $data = $this->decodeJsonBody($request);
-        if ($data === null || !$this->checkCsrf($data)) {
-            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        $id = (int) $params['id'];
+        $isPageForm = $this->isPageForm($request);
+
+        if ($isPageForm) {
+            if (($guard = $this->guardCsrf($request, '/mass-mail/' . $id)) !== null) {
+                return $guard;
+            }
+            $data = ['to' => $request->getBody('to', ''), 'merge_offset' => $request->getBody('merge_offset', 0)];
+        } else {
+            $data = $this->decodeJsonBody($request);
+            if ($data === null || !$this->checkCsrf($data)) {
+                return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+            }
         }
 
         try {
             $this->massMailService->sendTestEmail(
-                (int) $params['id'],
+                $id,
                 (string) ($data['to'] ?? ''),
                 max(0, (int) ($data['merge_offset'] ?? 0))
             );
         } catch (MassMailException $e) {
+            if ($isPageForm) {
+                FlashMessage::set('error', $e->getMessage());
+                return $this->redirect('/mass-mail/' . $id);
+            }
             return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
         } catch (MailException $e) {
             // Core\Mail\MailException is built from PHPMailer's ErrorInfo
@@ -384,13 +559,22 @@ class MassMailController extends AbstractController
             // time, which is why it is not a Core\Exception\UserFacingException
             // and why this goes through the helper rather than being
             // concatenated.
-            return $this->json([
-                'success' => false,
-                'error' => UserFacingMessage::from(
-                    $e,
-                    "L'email de test n'a pas pu être envoyé — vérifiez la configuration d'envoi du site (Configuration > Email), puis réessayez."
-                ),
-            ], 500);
+            $message = UserFacingMessage::from(
+                $e,
+                "L'email de test n'a pas pu être envoyé — vérifiez la configuration d'envoi du site (Configuration > Email), puis réessayez."
+            );
+            if ($isPageForm) {
+                FlashMessage::set('error', $message);
+                return $this->redirect('/mass-mail/' . $id);
+            }
+
+            return $this->json(['success' => false, 'error' => $message], 500);
+        }
+
+        if ($isPageForm) {
+            FlashMessage::set('success', 'Email de test envoyé.');
+
+            return $this->redirect('/mass-mail/' . $id);
         }
 
         return $this->json(['success' => true]);
@@ -409,8 +593,13 @@ class MassMailController extends AbstractController
         }
 
         $emailId = (int) $params['id'];
+        $isPageForm = $this->isPageForm($request);
         $uploadedFile = $request->getFile('file');
         if ($uploadedFile === null) {
+            if ($isPageForm) {
+                FlashMessage::set('error', 'Aucun fichier envoyé.');
+                return $this->redirect('/mass-mail/' . $emailId);
+            }
             return $this->json(['success' => false, 'error' => 'Aucun fichier envoyé.'], 400);
         }
 
@@ -426,7 +615,17 @@ class MassMailController extends AbstractController
             );
             $this->massMailService->addAttachment($emailId, $fileId);
         } catch (UploadException|MassMailException $e) {
+            if ($isPageForm) {
+                FlashMessage::set('error', $e->getMessage());
+                return $this->redirect('/mass-mail/' . $emailId);
+            }
             return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
+        }
+
+        if ($isPageForm) {
+            FlashMessage::set('success', 'Pièce jointe ajoutée.');
+
+            return $this->redirect('/mass-mail/' . $emailId);
         }
 
         return $this->json(['success' => true, 'file_id' => $fileId]);
@@ -439,15 +638,34 @@ class MassMailController extends AbstractController
      */
     public function deleteAttachment(Request $request, array $params): Response
     {
-        $data = $this->decodeJsonBody($request);
-        if ($data === null || !$this->checkCsrf($data)) {
-            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        $isPageForm = $this->isPageForm($request);
+        $emailId = (int) $request->getBody('email_id', 0);
+
+        if ($isPageForm) {
+            if (($guard = $this->guardCsrf($request, '/mass-mail/' . $emailId)) !== null) {
+                return $guard;
+            }
+        } else {
+            $data = $this->decodeJsonBody($request);
+            if ($data === null || !$this->checkCsrf($data)) {
+                return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+            }
         }
 
         try {
             $this->massMailService->removeAttachment((int) $params['id']);
         } catch (MassMailException $e) {
+            if ($isPageForm) {
+                FlashMessage::set('error', $e->getMessage());
+                return $this->redirect('/mass-mail/' . $emailId);
+            }
             return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
+        }
+
+        if ($isPageForm) {
+            FlashMessage::set('success', 'Pièce jointe supprimée.');
+
+            return $this->redirect('/mass-mail/' . $emailId);
         }
 
         return $this->json(['success' => true]);
@@ -472,6 +690,11 @@ class MassMailController extends AbstractController
             'email' => $data['email'],
             'counts' => $data['counts'],
             'recipients' => $data['recipients'],
+            // The email itself is a page now, so it is a real ancestor —
+            // dynamic, hence a controller trail rather than the route's
+            // static `breadcrumb.ancestors` (which cannot carry an id).
+            'breadcrumb_current' => "Suivi de l'envoi",
+            'breadcrumb_trail' => [['label' => $data['email']->subject, 'url' => '/mass-mail/' . $data['email']->id]],
             'csrf_token' => CsrfGuard::generateToken(),
         ]);
     }
@@ -495,6 +718,227 @@ class MassMailController extends AbstractController
         }
 
         return $this->json(['success' => true]);
+    }
+
+    /**
+     * Everything the composition page renders, for one email and one set
+     * of field values.
+     *
+     * The values are passed in rather than read off the email so a
+     * refused save can re-render exactly what the chief typed. The rest —
+     * which sections they may send from, which lists they may target,
+     * which scout years exist — is authorization and reference data, and
+     * is always rebuilt from the server.
+     *
+     * @param array<string, mixed> $form
+     * @return array<string, mixed>
+     */
+    private function buildComposeContext(?Email $email, array $form, ?string $error): array
+    {
+        $authorization = $this->buildAuthorization();
+        $sections = $this->sectionService->getAllWithBranches();
+        $attachments = [];
+        if ($email !== null) {
+            foreach ($this->massMailService->getAttachments($email->id) as $attachment) {
+                $file = $this->fileRepository->findById($attachment->fileId);
+                $attachments[] = ['id' => $attachment->id, 'file_id' => $attachment->fileId, 'name' => $file->originalName ?? '?'];
+            }
+        }
+
+        $audience = null;
+        $audienceSample = [];
+        $audienceId = $form['audience_id'] !== null ? (int) $form['audience_id'] : null;
+        if ($audienceId !== null) {
+            try {
+                $summary = $this->massMailService->getAudienceSummary($audienceId, AuthSession::getUserAccountId(), $authorization);
+                $audience = $summary['audience'];
+                $audienceSample = $summary['sample'];
+            } catch (MassMailException) {
+                // A purged or someone else's audience is not an error page:
+                // the composer simply offers the import zone again, and the
+                // save below refuses it on its own terms if it is reattached.
+                $audience = null;
+            }
+        }
+
+        return [
+            'email' => $email,
+            'form' => $form,
+            'submit_error' => $error,
+            'breadcrumb_current' => $email !== null ? $email->subject : 'Nouvel email',
+            'editable' => $email === null || $email->isEditable(),
+            'sections' => $sections,
+            'unrestricted' => $authorization->isChefDUniteOrAbove,
+            'forced_section_id' => $authorization->forcedSenderSectionId,
+            'list_options' => $this->buildListOptions($authorization, (string) $form['list']),
+            'scout_years' => $this->buildScoutYearOptions(),
+            'previous_year_cutoff' => (string) ($this->settingService->get(self::SETTING_PREVIOUS_YEAR_CUTOFF, 'mass_mail') ?: self::DEFAULT_PREVIOUS_YEAR_CUTOFF),
+            'audience' => $audience,
+            'audience_sample' => $audienceSample,
+            'attachments' => $attachments,
+            'counts' => $email !== null ? $this->massMailService->getStatusCounts($email->id) : ['total' => 0, 'sent' => 0, 'pending' => 0, 'error' => 0],
+            'current_user_email' => AuthSession::getEmail() ?? '',
+            'csrf_token' => CsrfGuard::generateToken(),
+        ];
+    }
+
+    /**
+     * The « Liste de diffusion » picker, server-side.
+     *
+     * A list the account may not target is rendered DISABLED rather than
+     * dropped: a draft created by a chef d'unité and reopened by a section
+     * chief must still say which list it targets, and a select that
+     * silently omits the stored value would save a different email than
+     * the one on screen. The server re-checks every selection anyway
+     * (Service\MassMailService), so this is presentation, never a
+     * boundary (SECURITY.md §3).
+     *
+     * @return array<int, array{value: string, label: string, selected: bool, disabled: bool, description: string, type: string}>
+     */
+    private function buildListOptions(SenderAuthorization $authorization, string $selected): array
+    {
+        $options = [];
+        foreach ($this->mailingListService->getDefaultLists() as $list) {
+            $value = $list['list_type'] . ':' . ($list['list_section_id'] ?? '');
+            $options[] = [
+                'value' => $value,
+                'label' => $list['label'],
+                'selected' => $value === $selected,
+                'disabled' => !self::isListAllowed($authorization, $list['list_type'], $list['list_section_id']),
+                'description' => $list['description'],
+                'type' => $list['list_type'],
+            ];
+        }
+        foreach ($this->mailingListService->getActiveCustomLists() as $list) {
+            $value = Email::LIST_TYPE_CUSTOM . ':' . $list->id;
+            $options[] = [
+                'value' => $value,
+                'label' => $list->name,
+                'selected' => $value === $selected,
+                'disabled' => !self::isListAllowed($authorization, Email::LIST_TYPE_CUSTOM, null),
+                'description' => $list->description,
+                'type' => Email::LIST_TYPE_CUSTOM,
+            ];
+        }
+        $options[] = [
+            'value' => Email::LIST_TYPE_MAIL_MERGE . ':',
+            'label' => 'Publipostage — fichier Excel',
+            'selected' => str_starts_with($selected, Email::LIST_TYPE_MAIL_MERGE . ':'),
+            'disabled' => false,
+            'description' => 'Un fichier Excel importé définit les destinataires : un email par ligne, avec des variables par colonne.',
+            'type' => Email::LIST_TYPE_MAIL_MERGE,
+        ];
+
+        return $options;
+    }
+
+    /**
+     * The same rule Service\MassMailService enforces on save, restated
+     * for the picker: mail merge is open to every chief (the file names
+     * the recipients, not a section list), the animateurs list too, a
+     * section list only for one's own section, everything else to a chef
+     * d'unité or above.
+     */
+    private static function isListAllowed(SenderAuthorization $authorization, string $listType, ?int $listSectionId): bool
+    {
+        if ($authorization->isChefDUniteOrAbove) {
+            return true;
+        }
+
+        return match ($listType) {
+            Email::LIST_TYPE_DEFAULT_CHIEFS, Email::LIST_TYPE_MAIL_MERGE => true,
+            Email::LIST_TYPE_DEFAULT_SECTION => in_array($listSectionId, $authorization->allowedListSectionIds, true),
+            default => false,
+        };
+    }
+
+    /**
+     * `type:id` → the three columns the service takes. One select rather
+     * than three fields, because the three are never independent: a
+     * custom list has no section, a section list has no list id.
+     *
+     * @return array{0: string, 1: ?int, 2: ?int}
+     */
+    private static function parseListSelection(string $value): array
+    {
+        $parts = explode(':', $value, 2);
+        $type = $parts[0];
+        $key = ($parts[1] ?? '') !== '' ? (int) $parts[1] : null;
+
+        if ($type === Email::LIST_TYPE_CUSTOM) {
+            return [$type, $key, null];
+        }
+        if ($type === Email::LIST_TYPE_DEFAULT_SECTION) {
+            return [$type, null, $key];
+        }
+
+        return [$type, null, null];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function formFromEmail(Email $email): array
+    {
+        return [
+            'section_id' => $email->sectionId,
+            'list' => $email->listType . ':' . ($email->listType === Email::LIST_TYPE_CUSTOM ? $email->listId : ($email->listSectionId ?? '')),
+            'scout_year_ids' => $email->scoutYearIds,
+            'subject' => $email->subject,
+            'body_html' => $email->bodyHtml,
+            'audience_id' => $email->audienceId,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function formFromRequest(Request $request): array
+    {
+        $audienceId = (string) $request->getBody('audience_id', '');
+
+        return [
+            'section_id' => (int) $request->getBody('section_id', 0),
+            'list' => (string) $request->getBody('list', ''),
+            'scout_year_ids' => $this->toIntArray($request->getBody('scout_year_ids', [])),
+            'subject' => (string) $request->getBody('subject', ''),
+            'body_html' => (string) $request->getBody('body_html', ''),
+            'audience_id' => $audienceId !== '' ? (int) $audienceId : null,
+        ];
+    }
+
+    /**
+     * The list an email targets, in the words the list picker uses —
+     * for a screen that only reads it.
+     */
+    private function describeList(Email $email): string
+    {
+        if ($email->listType === Email::LIST_TYPE_MAIL_MERGE) {
+            return 'Publipostage — fichier Excel';
+        }
+
+        foreach ($this->mailingListService->getDefaultLists() as $list) {
+            if ($list['list_type'] === $email->listType && $list['list_section_id'] === $email->listSectionId) {
+                return $list['label'];
+            }
+        }
+        foreach ($this->mailingListService->getActiveCustomLists() as $list) {
+            if ($email->listType === Email::LIST_TYPE_CUSTOM && $list->id === $email->listId) {
+                return $list->name;
+            }
+        }
+
+        return 'Liste personnalisée';
+    }
+
+    /**
+     * @return string[]
+     */
+    private function scoutYearLabels(Email $email): array
+    {
+        $byId = array_column($this->scoutYearService->getAll(), 'label', 'id');
+
+        return array_values(array_map(static fn(int $id): string => (string) ($byId[$id] ?? '?'), $email->scoutYearIds));
     }
 
     /**
@@ -591,6 +1035,22 @@ class MassMailController extends AbstractController
             'row_count' => $audience->rowCount,
             'created_at' => $audience->createdAt,
         ];
+    }
+
+    /**
+     * Whether this request came from one of the composition page's own
+     * <form> elements rather than from the list page's dialog.
+     *
+     * Four endpoints answer both today: the page posts a form and expects
+     * a redirect, the dialog posts JSON (or FormData) and expects JSON.
+     * The discriminator is an explicit hidden field the page writes,
+     * never a header or a guess — and never the redirect TARGET, which a
+     * request may not choose (an open redirect is exactly what that would
+     * be). The whole branch disappears with the dialog.
+     */
+    private function isPageForm(Request $request): bool
+    {
+        return (string) $request->getBody('_form', '') === '1';
     }
 
     /**

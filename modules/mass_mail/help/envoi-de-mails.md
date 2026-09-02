@@ -8,7 +8,7 @@ question: Comment écrire à tous les parents de ma section ?
 question: Comment prévenir tous les parents d'une section ?
 question: Comment vérifier qu'un e-mail groupé est bien parti ?
 question: Comment se tester soi-même avant un envoi groupé ?
-paths: /mass-mail, /mass-mail/*, /mass-mail/*/tracking
+paths: /mass-mail, /mass-mail/*, /mass-mail/*/tracking, /mass-mail/*/recipients
 related: publipostage, config-envoi-mails, membres-par-section
 ---
 
@@ -43,7 +43,12 @@ modification.
 
 ## Suivre l'envoi
 
-La page de suivi montre la progression et, pour chaque destinataire,
+L'onglet « Destinataires » d'un e-mail dit à qui il partira : le
+fichier ligne par ligne pour un publipostage, le nombre de personnes que
+la liste désigne à cet instant pour toutes les autres. À vérifier avant
+de lancer l'envoi.
+
+L'onglet « Suivi » montre la progression et, pour chaque destinataire,
 son état : envoyé, en attente, ou en erreur avec le motif. Le bouton
 « Renvoyer » relance un destinataire précis. Chaque membre retrouve
 par ailleurs les e-mails reçus au bas de sa page personnelle.

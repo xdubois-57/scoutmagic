@@ -26,7 +26,8 @@
       label: 'Texte du gabarit',
       help: 'Ce texte est le point de départ de chaque contrat.',
       placeholders: keywords,          -- optional, see below
-      rows_height: '22rem'             -- optional
+      rows_height: '22rem',            -- optional
+      extra_toolbar_template: '@x/_t.html.twig'  -- optional, see below
   } %}
 
   The notes after `--` above are prose, not Twig. Twig comments do not nest,
@@ -93,6 +94,27 @@
             </div>
         {% endif %}
     </div>
+
+    {#
+      An optional second row of controls, under the toolbar, for a page
+      whose insertable values are not the closed `placeholders` list above.
+
+      The mail-merge composer is the case: its variables are an imported
+      spreadsheet's column headers — « Prénom 1 », « Référence du billet »
+      — free text with spaces and accents, chosen by whoever built the
+      file. They cannot be chips (`data-keyword` carries a normalised
+      identifier, and a chip whose round-trip is not exact substitutes
+      nothing, silently), so that module inserts plain `{{ '{{Colonne}}' }}`
+      tokens through its own control and lets the surface's own `input`
+      event sync the hidden field.
+
+      Same slot mechanism, and the same reason, as
+      partials/rich_text_editor.html.twig's: the control has to be next to
+      the toolbar, because that is where the caret is.
+    #}
+    {% if extra_toolbar_template is defined and extra_toolbar_template %}
+        {% include extra_toolbar_template %}
+    {% endif %}
 
     <div class="rich-text-form-surface form-control"
          id="{{ field_id }}"

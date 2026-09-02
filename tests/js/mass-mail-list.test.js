@@ -61,7 +61,7 @@ function recipientCountFetch(estimate) {
         // A successful status change re-opens the email; answer that the
         // way the server would, or the reload lands on a payload with no
         // email in it.
-        if (path === '/mass-mail/7') {
+        if (path === '/mass-mail/7/data') {
             return jsonResponse(email({ status: 'sending' }));
         }
 
@@ -194,7 +194,7 @@ function listData(overrides = {}) {
     }, overrides);
 }
 
-/** One email as GET /mass-mail/{id} returns it. */
+/** One email as GET /mass-mail/{id}/data returns it. */
 function email(overrides = {}) {
     return {
         success: true,

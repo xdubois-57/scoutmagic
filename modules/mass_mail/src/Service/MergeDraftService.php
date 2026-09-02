@@ -114,6 +114,11 @@ class MergeDraftService implements MassMailDraftInterface
             $audienceId
         );
 
+        // The draft's edit URL, and it really is one now: `/mass-mail/{id}`
+        // is the composition PAGE (Controller\MassMailController::show()).
+        // It used to be a JSON endpoint, so this contract — « the draft's
+        // edit URL » — sent a chief straight to a raw payload. The feature
+        // had been written against a page that did not exist.
         return '/mass-mail/' . $email->id;
     }
 

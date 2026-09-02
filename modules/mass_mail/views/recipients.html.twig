@@ -1,0 +1,121 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Destinataires — {{ email.subject }} — {{ site_name }}{% endblock %}
+
+{% block content %}
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Destinataires',
+        subtitle: email.subject,
+    } only %}
+
+    {% include '@mass_mail/partials/_email_tabs.html.twig' with {
+        email_id: email.id,
+        active: 'recipients',
+        show_tracking: email.status in ['sending', 'sent'],
+    } only %}
+
+    {#
+      The question this page answers is the last one asked before an
+      irreversible send, and the composition screen cannot answer it while
+      you are writing in it: a wrong list looks exactly like a right one.
+      Counted afresh on every visit rather than stored with the email —
+      the list behind it is live, and somebody else may have edited it
+      since (Service\MassMailService::estimateRecipientCount()).
+    #}
+    <dl class="row mb-4">
+        <dt class="col-5 col-sm-3">Liste de diffusion</dt>
+        <dd class="col-7 col-sm-9">{{ list_label }}</dd>
+        {% if email.listType not in ['mail_merge', 'external'] %}
+            <dt class="col-5 col-sm-3">Année(s) scoute(s)</dt>
+            <dd class="col-7 col-sm-9">{{ scout_year_labels|join(', ')|default('—') }}</dd>
+        {% endif %}
+    </dl>
+
+    {% if email.status in ['sending', 'sent'] %}
+        {#
+          Once the send has started the list is frozen: what matters is no
+          longer who it WOULD reach but who it did, address by address —
+          and that is the Suivi tab, which this page must not duplicate.
+        #}
+        <div class="alert alert-info d-flex gap-2" role="status">
+            <i class="bi bi-lock flex-shrink-0" aria-hidden="true"></i>
+            <span>
+                La liste des destinataires a été figée au lancement de l'envoi :
+                {{ frozen_counts.total }} destinataire{{ frozen_counts.total > 1 ? 's' : '' }}.
+                Le détail, adresse par adresse, est dans l'onglet « Suivi ».
+            </span>
+        </div>
+    {% elseif email.listType == 'mail_merge' %}
+        {% if audience %}
+            <p class="mb-3">
+                <strong>{{ audience.sourceFilename }}</strong> —
+                {{ audience.rowCount }} ligne{{ audience.rowCount > 1 ? 's' : '' }},
+                feuille « {{ audience.sheetName }} ». Un email par ligne.
+            </p>
+            <div class="table-responsive d-none d-md-block">
+                <table class="table table-sm align-middle">
+                    <thead>
+                        <tr>
+                            <th>Ligne</th>
+                            <th>Destinataire</th>
+                            {% for column in audience.columns %}<th>{{ column }}</th>{% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in audience_rows %}
+                            <tr>
+                                <td>{{ row.rowIndex }}</td>
+                                <td>
+                                    {% if row.memberId %}
+                                        <span class="text-body-secondary">Membre — toutes ses adresses connues</span>
+                                    {% else %}
+                                        {{ row.email }}
+                                    {% endif %}
+                                </td>
+                                {% for column in audience.columns %}
+                                    <td>{{ row.data[column]|default('') }}</td>
+                                {% endfor %}
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="d-flex flex-column gap-2 d-md-none">
+                {% for row in audience_rows %}
+                    <div class="card">
+                        <div class="card-body">
+                            <div class="fw-bold">
+                                {% if row.memberId %}
+                                    Membre — toutes ses adresses connues
+                                {% else %}
+                                    {{ row.email }}
+                                {% endif %}
+                            </div>
+                            {% for column in audience.columns %}
+                                <div class="small"><strong>{{ column }}</strong> : {{ row.data[column]|default('') }}</div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            {% include 'partials/empty_state.html.twig' with {
+                message: "Aucun fichier de publipostage n'est attaché — importez-en un depuis l'onglet « Composition ».",
+                icon: 'bi-file-earmark-spreadsheet',
+            } only %}
+        {% endif %}
+    {% elseif estimate %}
+        <p class="fs-5 mb-1">
+            {% if estimate.count == 0 %}
+                Cette liste ne désigne actuellement personne.
+            {% else %}
+                {{ estimate.count }} personne{{ estimate.count > 1 ? 's' : '' }}.
+            {% endif %}
+        </p>
+        <p class="text-body-secondary small">
+            Compté à l'instant : la liste est vivante, et ce nombre peut changer d'ici l'envoi.
+            Une personne ayant plusieurs adresses connues reçoit un exemplaire à chacune —
+            elle compte pour une ici.
+        </p>
+    {% endif %}
+{% endblock %}

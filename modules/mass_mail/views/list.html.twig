@@ -69,7 +69,10 @@
             <tbody>
                 {% for email in emails %}
                     <tr>
-                        <td>{{ email.subject }}</td>
+                        {# The subject is a link to the email's own page —
+                           where it is composed, where its recipients are
+                           listed and where its send is followed. #}
+                        <td><a href="/mass-mail/{{ email.id }}">{{ email.subject }}</a></td>
                         <td>{{ sections_by_id[email.sectionId] ?? '—' }}</td>
                         <td>
                             {% if email.listType == 'default_active_members' %}Membres actifs

@@ -560,7 +560,10 @@
 
     /** @param {number|string} id */
     async function openEmail(id) {
-        const res = await api.getJson('/mass-mail/' + id);
+        // `/mass-mail/{id}` is the email's own PAGE now; the dialog's
+        // payload moved one segment down when that page took the address
+        // it had been squatting.
+        const res = await api.getJson('/mass-mail/' + id + '/data');
         const data = res.data;
         if (!data || !data.success) {
             window.ScoutMagicToast.show((data && data.error) || 'Email introuvable.', { variant: 'error' });

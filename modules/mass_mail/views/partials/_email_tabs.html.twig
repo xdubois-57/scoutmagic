@@ -1,0 +1,35 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  The three views of ONE email: what it says, who it goes to, what
+  happened to it.
+
+  `/mass-mail/{id}/tracking` used to hang in the void — a route with no
+  parent page, reachable only from a chart button in a table row and
+  from a link inside a dialog. It hangs off the email's own page now,
+  like the « Destinataires » view beside it.
+
+  Usage:
+  {% include '@mass_mail/partials/_email_tabs.html.twig' with {
+      email_id: email.id,
+      active: 'compose',          -- compose | recipients | tracking
+      show_tracking: true,        -- the send has actually started
+  } only %}
+#}
+{% set _pages = [
+    { url: '/mass-mail/' ~ email_id, label: 'Composition' },
+    { url: '/mass-mail/' ~ email_id ~ '/recipients', label: 'Destinataires' },
+] %}
+{% if show_tracking|default(false) %}
+    {% set _pages = _pages|merge([{ url: '/mass-mail/' ~ email_id ~ '/tracking', label: 'Suivi' }]) %}
+{% endif %}
+{% include 'partials/page_picker.html.twig' with {
+    picker_id: 'mass-mail-email-pages',
+    pages: _pages,
+    current_path: active == 'tracking'
+        ? '/mass-mail/' ~ email_id ~ '/tracking'
+        : (active == 'recipients' ? '/mass-mail/' ~ email_id ~ '/recipients' : '/mass-mail/' ~ email_id),
+    aria_label: "Vues de cet envoi",
+} only %}

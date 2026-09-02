@@ -805,6 +805,23 @@ class MassMailService
     }
 
     /**
+     * The imported audience's rows, in file order — what the
+     * « Destinataires » page lists for a mail merge.
+     *
+     * Deliberately the stored rows and not a re-render of the message:
+     * the question this screen answers is "who is in the file, and with
+     * which values", which is the one a chief checks BEFORE writing.
+     * `Controller\MassMailController::mergePreview()` is the other half,
+     * and answers "what will THIS person actually receive".
+     *
+     * @return AudienceRow[]
+     */
+    public function getAudienceRows(int $audienceId): array
+    {
+        return $this->audienceRepository->findRowsByAudience($audienceId);
+    }
+
+    /**
      * The compose dialog's audience summary (columns for the variable
      * dropdown, row count, first row as sample values) — same access rule
      * as attaching the audience to an email.

@@ -237,9 +237,10 @@ final class UxConventionsTest extends TestCase
         '/gallery/media/{media_id}/download',
         '/gallery/media/{media_id}/{size}',
         '/gallery/{id}/download',
-        // JSON payload for the create/edit dialog (MassMailController::
-        // show()), not the tracking page — never renders a page.
-        '/mass-mail/{id}',
+        // JSON payload for the list page's create/edit dialog
+        // (MassMailController::data()) — `/mass-mail/{id}` itself is the
+        // email's own composition page now, and declares a breadcrumb.
+        '/mass-mail/{id}/data',
         '/groups/{id}/feed',
         '/groups/{id}/media-status',
         '/groups/{id}/member-search',

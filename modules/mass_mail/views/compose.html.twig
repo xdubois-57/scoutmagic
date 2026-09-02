@@ -1,0 +1,329 @@
+{% extends "base.html.twig" %}
+
+{% block title %}{{ email.subject }} — Envoi de mails — {{ site_name }}{% endblock %}
+
+{% block content %}
+    {# The way back to the list is the breadcrumb (design.md §7.3) — no
+       « Retour » button here. #}
+    {% include 'partials/page_header.html.twig' with { title: email.subject } only %}
+
+    {% include '@mass_mail/partials/_email_tabs.html.twig' with {
+        email_id: email.id,
+        active: 'compose',
+        show_tracking: email.status in ['sending', 'sent'],
+    } only %}
+
+    <p class="mb-3">
+        {% include 'partials/status_badge.html.twig' with {
+            status: email.status == 'draft' ? 'draft' : (email.status == 'test' ? 'pending' : (email.status == 'sending' ? 'in_progress' : 'done')),
+            label: email.status == 'draft' ? 'Brouillon' : (email.status == 'test' ? 'Test' : (email.status == 'sending' ? 'Envoi en cours' : 'Envoyé')),
+        } only %}
+    </p>
+
+    {% if submit_error %}
+        <div class="alert alert-danger" role="alert">{{ submit_error }}</div>
+    {% endif %}
+
+    <form method="post" action="/mass-mail/{{ email.id }}" id="mm-compose-form">
+        {{ csrf_field()|raw }}
+        {# A fieldset rather than a per-control `disabled`: once an email
+           has left the brouillon state its content is frozen, and the
+           browser then refuses to submit any of it — which is exactly the
+           guarantee wanted, on top of the server's own. #}
+        <fieldset {% if not editable %}disabled{% endif %}>
+            <div class="row g-3">
+                <div class="col-12 col-md-6">
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'mm-section',
+                        field_name: unrestricted ? 'section_id' : '',
+                        label: 'Section expéditrice',
+                        type: 'select',
+                        disabled: not unrestricted,
+                        help: unrestricted ? '' : "Un animateur écrit depuis sa propre section ; seul un chef d'unité peut en choisir une autre.",
+                        options: sections|map(section => {
+                            value: section.id, label: section.name,
+                            selected: form.section_id == section.id,
+                        }),
+                    } only %}
+                    {# A disabled control is not submitted, and the section
+                       still has to travel: the lock is what the chief sees,
+                       the hidden field is what the form sends, and the
+                       server re-checks it either way (SECURITY.md §3). #}
+                    {% if not unrestricted %}
+                        <input type="hidden" name="section_id" value="{{ form.section_id }}">
+                    {% endif %}
+                </div>
+
+                <div class="col-12 col-md-6">
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'mm-list',
+                        field_name: 'list',
+                        label: 'Liste de diffusion',
+                        type: 'select',
+                        options: list_options|map(option => {
+                            value: option.value, label: option.label,
+                            selected: option.selected, disabled: option.disabled,
+                            data: { 'list-type': option.type },
+                        }),
+                    } only %}
+                    <p class="form-text small mb-0 {{ form.list starts with 'mail_merge' ? '' : 'd-none' }}" id="mm-merge-list-note">
+                        Un email par ligne du fichier, contrairement aux listes classiques (un email par adresse).
+                    </p>
+                    <p class="form-text small mb-0 {{ form.list starts with 'external' ? '' : 'd-none' }}" id="mm-external-list-note">
+                        Cette liste vise toujours l'année d'inscription.
+                    </p>
+                </div>
+            </div>
+
+            {# Mail-merge audience — shown only for the « Publipostage » list type. #}
+            <div class="mb-3 mt-3 {{ form.list starts with 'mail_merge' ? '' : 'd-none' }}" id="mm-merge-zone">
+                <div class="form-label small d-block">Fichier de publipostage</div>
+                <input type="hidden" name="audience_id" id="mm-audience-id" value="{{ form.audience_id }}">
+
+                <div class="border rounded bg-body-tertiary p-2 {{ audience ? 'd-none' : '' }}" id="mm-merge-upload-state">
+                    <div class="d-flex gap-2 align-items-center">
+                        <input type="file" class="form-control form-control-sm" id="mm-merge-file" accept=".xlsx"
+                               aria-label="Choisir le fichier Excel du publipostage">
+                        <button type="button" class="btn btn-sm btn-outline-primary text-nowrap" id="mm-merge-import-btn">Importer</button>
+                    </div>
+                    <p class="form-text small mb-0 mt-1">
+                        Fichier Excel (.xlsx), première feuille uniquement, première ligne = en-têtes de colonnes.
+                        Colonne « Tiers » (identifiant Desk : l'email part vers toutes les adresses connues du membre)
+                        et/ou colonne « Email » (adresse libre, plusieurs possibles séparées par « ; »).
+                        Chaque colonne devient une variable utilisable dans le sujet et le message.
+                        Les exports Excel du site (membres, réponses de formulaire) sont réutilisables tels quels.
+                    </p>
+                </div>
+
+                <div class="border rounded bg-body-tertiary p-2 {{ audience ? '' : 'd-none' }}" id="mm-merge-info-state">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="bi bi-file-earmark-spreadsheet fs-4 text-success" aria-hidden="true"></i>
+                        <div class="flex-grow-1">
+                            <div class="small fw-semibold" id="mm-merge-filename">{{ audience ? audience.sourceFilename : '' }}</div>
+                            <div class="form-text small mt-0" id="mm-merge-meta">
+                                {% if audience %}
+                                    {{ audience.rowCount }} ligne{{ audience.rowCount > 1 ? 's' : '' }} · feuille « {{ audience.sheetName }} »
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% if editable %}
+                            <button type="button" class="btn btn-sm btn-outline-secondary text-nowrap" id="mm-merge-replace-btn">Remplacer…</button>
+                        {% endif %}
+                    </div>
+                    <div class="d-flex flex-wrap align-items-center gap-1 mt-2" id="mm-merge-columns">
+                        {% if audience %}
+                            <span class="form-text small mt-0 me-1">Colonnes :</span>
+                            {% for column in audience.columns %}
+                                <span class="badge text-bg-light border">{{ column }}</span>
+                            {% endfor %}
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="alert alert-warning small py-2 mt-2 mb-0 d-none" id="mm-merge-warnings"></div>
+                <div class="alert alert-danger small py-2 mt-2 mb-0 d-none" id="mm-merge-error"></div>
+            </div>
+
+            <div class="mb-3 mt-3 {{ form.list starts with 'mail_merge' or form.list starts with 'external' ? 'd-none' : '' }}" id="mm-scout-year-zone">
+                <div class="form-label small d-block">Année(s) scoute(s)</div>
+                <div class="d-flex flex-wrap gap-3" id="mm-scout-year-group">
+                    {% for key, year in { previous: scout_years.previous, current: scout_years.current, next: scout_years.next } %}
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input mm-year-checkbox" type="checkbox" name="scout_year_ids[]"
+                                   value="{{ year.id }}" id="mm-year-{{ key }}"
+                                   data-warning="{{ year.warning|default('') }}"
+                                   {% if year.id in form.scout_year_ids %}checked{% endif %}
+                                   {% if not year.available %}disabled title="Desk n'a pas encore été importé pour cette année scoute."{% endif %}>
+                            <label class="form-check-label" for="mm-year-{{ key }}">{{ year.label }}</label>
+                        </div>
+                    {% endfor %}
+                </div>
+                <p class="form-text small mb-1">
+                    Plusieurs années peuvent être sélectionnées à la fois : les listes correspondantes sont
+                    fusionnées et dédupliquées par adresse, pour n'envoyer qu'un seul email par personne — utile
+                    par exemple pour inviter d'anciens et de nouveaux membres à un même événement (montage dias
+                    de fin d'année, retrouvailles...).
+                </p>
+                <p class="form-text small mb-0">
+                    Année précédente ({{ scout_years.previous.label }}) : les personnes actives lors du dernier
+                    import Desk de cette année scoute (généralement autour du
+                    {{ previous_year_cutoff|split('-')|reverse|join('/') }}, ajustable dans Configuration &gt; Réglages).
+                </p>
+                {# The future-year warning (Service\MailingListService::
+                   futureAudienceWarning()). Server-written, because which of
+                   the two wordings applies depends on whether the
+                   registration module is enabled — never a browser's guess.
+                   Shown only while such a year is actually ticked. #}
+                <div class="alert alert-warning small py-2 mt-2 mb-0 d-none" id="mm-future-year-warning"></div>
+            </div>
+
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'mm-subject',
+                field_name: 'subject',
+                label: 'Sujet',
+                value: form.subject,
+                required: true,
+                maxlength: 255,
+            } only %}
+
+            {% if editable %}
+                {% include 'partials/rich_text_form_field.html.twig' with {
+                    field_id: 'mm-body-content',
+                    field_name: 'body_html',
+                    value: form.body_html,
+                    label: 'Message',
+                    rows_height: '18rem',
+                    extra_toolbar_template: '@mass_mail/partials/_variable_toolbar.html.twig',
+                } %}
+            {% else %}
+                <div class="mb-3">
+                    <span class="form-label d-block">Message</span>
+                    {# Sanitized at save time (Core\Security\HtmlSanitizer),
+                       exactly like the copy the recipients receive. #}
+                    <div class="border rounded p-2 bg-body-tertiary">{{ email.bodyHtml|raw }}</div>
+                </div>
+            {% endif %}
+        </fieldset>
+
+        {% if editable %}
+            <div class="d-flex flex-column flex-sm-row gap-2">
+                <button type="submit" class="btn btn-primary">Enregistrer</button>
+            </div>
+        {% endif %}
+    </form>
+
+    <hr class="my-4">
+
+    <div class="mb-4">
+        <div class="form-label d-block">Pièces jointes</div>
+        <div class="d-flex flex-column gap-1 mb-2" id="mm-attachments-list">
+            {% for attachment in attachments %}
+                <div class="d-flex justify-content-between align-items-center border rounded px-2 py-1">
+                    <a href="/files/{{ attachment.file_id }}" target="_blank" rel="noopener">{{ attachment.name }}</a>
+                    {% if editable %}
+                        <form method="post" action="/mass-mail/attachments/{{ attachment.id }}" class="d-inline"
+                              data-confirm="Supprimer la pièce jointe « {{ attachment.name }} » ?"
+                              data-confirm-label="Supprimer">
+                            {{ csrf_field()|raw }}
+                            <input type="hidden" name="_form" value="1">
+                            <input type="hidden" name="email_id" value="{{ email.id }}">
+                            <button type="submit" class="btn btn-sm btn-outline-danger" aria-label="Supprimer la pièce jointe">
+                                <i class="bi bi-trash" aria-hidden="true"></i>
+                            </button>
+                        </form>
+                    {% endif %}
+                </div>
+            {% else %}
+                <p class="text-body-secondary fst-italic small mb-0">Aucune pièce jointe.</p>
+            {% endfor %}
+        </div>
+        {% if editable %}
+            <form method="post" action="/mass-mail/{{ email.id }}/attachments" enctype="multipart/form-data"
+                  class="d-flex gap-2">
+                {{ csrf_field()|raw }}
+                <input type="hidden" name="_form" value="1">
+                <input type="file" class="form-control form-control-sm" name="file" aria-label="Choisir un fichier à joindre" required>
+                <button type="submit" class="btn btn-sm btn-outline-primary text-nowrap">Ajouter</button>
+            </form>
+            <div class="form-text small">PDF ou image, 10 Mo maximum.</div>
+        {% endif %}
+    </div>
+
+    {% if email.status == 'test' %}
+        <div class="border-top pt-3 mb-4">
+            <div class="form-label d-block">Envoyer un email de test</div>
+            {% if email.listType == 'mail_merge' %}
+                <div id="mm-merge-preview-zone" class="mb-3">
+                    <div class="d-flex align-items-center gap-2 mb-2">
+                        <div class="form-label small mb-0">Aperçu par destinataire</div>
+                        <div class="d-flex align-items-center gap-1 ms-auto">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="mm-merge-prev-btn" title="Ligne précédente" aria-label="Ligne précédente"><i class="bi bi-chevron-left" aria-hidden="true"></i></button>
+                            <span class="small text-body-secondary text-nowrap" id="mm-merge-preview-position"></span>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="mm-merge-next-btn" title="Ligne suivante" aria-label="Ligne suivante"><i class="bi bi-chevron-right" aria-hidden="true"></i></button>
+                        </div>
+                    </div>
+                    <p class="small text-body-secondary mb-2" id="mm-merge-preview-recipient"></p>
+                    <div class="alert alert-warning small py-2 d-none" id="mm-merge-preview-warnings"></div>
+                    <div class="border rounded mb-2">
+                        <div class="px-2 py-1 border-bottom bg-body-tertiary small"><span class="text-body-secondary">Sujet :</span> <strong id="mm-merge-preview-subject"></strong></div>
+                        <div class="p-2 small" id="mm-merge-preview-body"></div>
+                    </div>
+                </div>
+            {% endif %}
+            <form method="post" action="/mass-mail/{{ email.id }}/test-send" class="d-flex flex-column flex-sm-row gap-2" id="mm-test-send-form">
+                {{ csrf_field()|raw }}
+                <input type="hidden" name="_form" value="1">
+                <input type="hidden" name="merge_offset" value="0" id="mm-merge-offset">
+                <input type="email" class="form-control form-control-sm" name="to" id="mm-test-send-email"
+                       value="{{ current_user_email }}" aria-label="Adresse de test" required>
+                <button type="submit" class="btn btn-sm btn-outline-primary text-nowrap">Envoyer le test</button>
+            </form>
+            {% if email.listType == 'mail_merge' %}
+                <p class="form-text small mb-0">Le test est envoyé avec les valeurs de la ligne affichée dans l'aperçu ci-dessus.</p>
+            {% endif %}
+        </div>
+    {% endif %}
+
+    {% if email.status in ['sending', 'sent'] %}
+        <div class="border-top pt-3 mb-4" role="status">
+            <div class="form-label d-block">Progression de l'envoi</div>
+            {% set total = counts.total > 0 ? counts.total : 1 %}
+            <div class="progress mb-2" style="height: 1.25rem;">
+                <div class="progress-bar bg-success" style="width:{{ (counts.sent / total * 100)|round(1) }}%"></div>
+                <div class="progress-bar bg-danger" style="width:{{ (counts.error / total * 100)|round(1) }}%"></div>
+                <div class="progress-bar bg-secondary" style="width:{{ (counts.pending / total * 100)|round(1) }}%"></div>
+            </div>
+            <p class="small text-body-secondary mb-0">
+                {{ counts.sent }} envoyés · {{ counts.error }} erreurs · {{ counts.pending }} en attente — {{ counts.total }} au total
+            </p>
+        </div>
+    {% endif %}
+
+    <div class="d-flex flex-column flex-sm-row flex-wrap gap-2">
+        {% if email.status == 'draft' %}
+            <form method="post" action="/mass-mail/{{ email.id }}/status">
+                {{ csrf_field()|raw }}
+                <input type="hidden" name="_form" value="1">
+                <input type="hidden" name="action" value="to_test">
+                <button type="submit" class="btn btn-warning w-100 w-sm-auto">Passer en mode test</button>
+            </form>
+        {% elseif email.status == 'test' %}
+            <form method="post" action="/mass-mail/{{ email.id }}/status">
+                {{ csrf_field()|raw }}
+                <input type="hidden" name="_form" value="1">
+                <input type="hidden" name="action" value="to_draft">
+                {# « Repasser en brouillon » and not « Retour … » — this is
+                   a status transition, not page navigation, and on a page
+                   (unlike in the dialog it came from) a « Retour » control
+                   reads as the way back to the list, which is the
+                   breadcrumb's job (design.md §7.3). #}
+                <button type="submit" class="btn btn-outline-secondary w-100 w-sm-auto">Repasser en brouillon</button>
+            </form>
+            {# The confirmation is asked by mass-mail-compose.js rather than
+               by the delegated data-confirm handler: the sentence names how
+               many people this reaches, and that number is fetched at the
+               moment of the click, not at the moment the page was opened. #}
+            <form method="post" action="/mass-mail/{{ email.id }}/status" id="mm-start-sending-form">
+                {{ csrf_field()|raw }}
+                <input type="hidden" name="_form" value="1">
+                <input type="hidden" name="action" value="start_sending">
+                <button type="submit" class="btn btn-danger w-100 w-sm-auto">Lancer l'envoi</button>
+            </form>
+        {% endif %}
+    </div>
+{% endblock %}
+
+{% block scripts %}
+{# Server data as a JSON island — data to the parser, so a column header
+   or a list name carrying a tag-closing sequence cannot end the block in
+   the middle of an object literal. Read through ScoutMagicApi.pageData().
+   JSON_HEX_TAG/JSON_HEX_AMP escape those characters anyway. #}
+{% set json_flags = constant('JSON_HEX_TAG') b-or constant('JSON_HEX_AMP') b-or constant('JSON_UNESCAPED_UNICODE') %}
+<script type="application/json" id="mass-mail-compose-data">
+{{ { emailId: email.id, status: email.status }|json_encode(json_flags)|raw }}
+</script>
+{# The rich text field's own requirement: a module script tag, because
+   assets/js/rich-text-form-field.js uses `export`. #}
+<script type="module" src="{{ asset('/assets/js/rich-text-form-field.js') }}"></script>
+<script src="{{ asset('/assets/js/mass-mail-compose.js') }}" defer></script>
+{% endblock %}

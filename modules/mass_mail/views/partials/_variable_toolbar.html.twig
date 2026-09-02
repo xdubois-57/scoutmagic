@@ -1,0 +1,38 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  The mail-merge « Variable » control, slotted into
+  partials/rich_text_form_field.html.twig's extra toolbar row.
+
+  One entry per column of the imported file, with the first row's value
+  as a sample hint — « Prénom » next to « Kaa » tells a chief which
+  column is which far better than its header alone. Inserting from here
+  rather than typing is the whole point: a mistyped column name is a
+  variable that never substitutes, and the recipient reads the braces.
+
+  Hidden until an audience is attached (there is nothing to offer
+  otherwise) and while the email is no longer a draft.
+#}
+{% if audience and editable %}
+    <div class="dropdown mb-2" id="mm-variable-dropdown">
+        <button type="button" class="btn btn-sm btn-outline-primary dropdown-toggle" data-bs-toggle="dropdown"
+                title="Insérer une variable du fichier de publipostage">
+            <i class="bi bi-braces" aria-hidden="true"></i> Variable
+        </button>
+        <ul class="dropdown-menu" id="mm-variable-menu" style="max-height: 20rem; overflow-y: auto;">
+            {% for column in audience.columns %}
+                <li>
+                    <button type="button" class="dropdown-item d-flex justify-content-between gap-3 mm-variable-item"
+                            data-column="{{ column }}">
+                        <span>{{ column }}</span>
+                        <span class="text-body-secondary small text-truncate" style="max-width: 10rem;">
+                            « {{ audience_sample[column]|default('—') ?: '—' }} »
+                        </span>
+                    </button>
+                </li>
+            {% endfor %}
+        </ul>
+    </div>
+{% endif %}

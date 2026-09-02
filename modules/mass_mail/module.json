@@ -2,7 +2,7 @@
   "id": "mass_mail",
   "name": "Envoi de mails",
   "description": "Envoi de mails groupés aux membres de l'unité : listes de diffusion par défaut ou personnalisées, publipostage depuis un fichier Excel avec variables personnalisées, mode test, envoi en arrière-plan par lots, suivi détaillé des envois. Accueille aussi, lorsque le module inscriptions est actif, une liste prédéfinie non modifiable pour l'année scoute cible.",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -89,7 +89,36 @@
       "action": "show",
       "menu": "espace_chefs",
       "role_min": "chief",
+      "label": "",
+      "breadcrumb": { "label": "Composition", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Envoi de mails", "path": "/mass-mail" }] }
+    },
+    {
+      "path": "/mass-mail/{id}",
+      "method": "POST",
+      "controller": "Modules\\MassMail\\Controller\\MassMailController",
+      "action": "save",
+      "menu": "espace_chefs",
+      "role_min": "chief",
       "label": ""
+    },
+    {
+      "path": "/mass-mail/{id}/data",
+      "method": "GET",
+      "controller": "Modules\\MassMail\\Controller\\MassMailController",
+      "action": "data",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/mass-mail/{id}/recipients",
+      "method": "GET",
+      "controller": "Modules\\MassMail\\Controller\\MassMailController",
+      "action": "recipients",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "",
+      "breadcrumb": { "label": "Destinataires", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Envoi de mails", "path": "/mass-mail" }] }
     },
     {
       "path": "/mass-mail/{id}/recipient-count",
@@ -139,6 +168,15 @@
     {
       "path": "/mass-mail/attachments/{id}",
       "method": "DELETE",
+      "controller": "Modules\\MassMail\\Controller\\MassMailController",
+      "action": "deleteAttachment",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/mass-mail/attachments/{id}",
+      "method": "POST",
       "controller": "Modules\\MassMail\\Controller\\MassMailController",
       "action": "deleteAttachment",
       "menu": "espace_chefs",

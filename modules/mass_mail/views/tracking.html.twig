@@ -7,6 +7,12 @@
        trail (design.md §7.3) — no « Retour » button here. #}
     {% include 'partials/page_header.html.twig' with { title: email.subject } only %}
 
+    {% include '@mass_mail/partials/_email_tabs.html.twig' with {
+        email_id: email.id,
+        active: 'tracking',
+        show_tracking: true,
+    } only %}
+
     <p class="mb-3">
         {% include 'partials/status_badge.html.twig' with {
             status: email.status == 'draft' ? 'draft' : (email.status == 'test' ? 'pending' : (email.status == 'sending' ? 'in_progress' : 'done')),

@@ -1038,6 +1038,14 @@ Imported audience data is purged automatically **18 months** after the email was
 
 Every Excel export of people the site produces — member exports ("Membres par section", the admin member search's results/selection export) and, for their contact column, module exports such as form responses — uses headers the mail-merge importer recognizes ("Identifiant Desk" ≡ "Tiers", "Email(s)"/"Contact" ≡ "Email"), so any of them can be re-imported as a mail-merge audience without editing. This is a standing rule for future exports too, not a per-screen coincidence.
 
+### 24.5 Un envoi est une page
+
+Chaque envoi — publipostage ou liste classique — a **sa propre page**, `/mass-mail/{id}`, avec son fil d'Ariane (*Espace animateurs / Envoi de mails / {sujet}*) et trois vues : **Composition**, **Destinataires**, **Suivi**.
+
+C'est là qu'un brouillon s'écrit. Un brouillon dure : on le compose en plusieurs fois, on y revient le lendemain, on met le lien en favori, on l'envoie à un collègue pour relecture — rien de tout cela n'est possible dans une fenêtre. Partout ailleurs sur le site un détail est une page (un article, une campagne, une facture, une fiche de membre, un séjour) ; l'envoi de mails ne fait plus exception.
+
+**Destinataires** répond, avant l'envoi, à la question qu'on se pose en dernier : à qui cela va-t-il partir ? Le fichier ligne par ligne pour un publipostage, le nombre de personnes que la liste désigne à cet instant sinon — recompté à chaque visite, parce qu'une liste est vivante. Une fois l'envoi lancé la liste est figée, et la page renvoie vers **Suivi**, qui dit ce qu'il est advenu de chaque adresse.
+
 ## 25. Leadership module — three lists of people to contact (module leadership)
 
 A reading tool for the unit team. It turns the Desk import into three lists and stores almost nothing, which is what stops it ever disagreeing with Desk. Four pages, all reserved to the chefs d'unité, plus one card each member sees on their own page. See ARCHITECTURE.md §8.65 for implementation detail.
@@ -1223,7 +1231,7 @@ A treasurer who is not an animator of the section, a per-account list of named p
 
 ### 29.2 Ce que fait le bouton
 
-Depuis la page des réponses, « Écrire aux répondants » prépare un **brouillon** de publipostage adressé à tous ceux qui ont répondu, et ouvre l'écran de composition habituel. Rien n'est envoyé : le message reste à écrire, et il part comme n'importe quel autre publipostage.
+Depuis la page des réponses, « Écrire aux répondants » prépare un **brouillon** de publipostage adressé à tous ceux qui ont répondu, et ouvre la page de ce brouillon (§24.5). Rien n'est envoyé : le message reste à écrire, et il part comme n'importe quel autre publipostage.
 
 Chaque champ du formulaire devient une variable de personnalisation, dans le même ordre et avec les mêmes intitulés que l'export Excel — les deux surfaces lisent la même définition, elles ne peuvent pas décrire le même formulaire différemment. Les colonnes de paiement de l'export ne sont pas reprises : ce sont des chiffres de comptabilité, pas quelque chose à insérer dans un mail au répondant.
 
