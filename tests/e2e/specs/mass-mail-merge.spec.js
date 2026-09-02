@@ -2,17 +2,17 @@
 //
 // WHY THIS SCENARIO EXISTS
 // ----------------------------------------------------------------------------
-// The mail-merge mode (ARCHITECTURE.md §8.61) is the compose dialog's most
-// client-built path yet: selecting "Publipostage" swaps the scout-year
-// checkboxes for an upload zone, the audience is a real multipart POST of
-// an .xlsx the browser picks, the columns come back as chips feeding a
-// "Variable" toolbar dropdown that inserts {{tokens}} into a
-// contenteditable via execCommand, and test mode swaps in a per-recipient
-// preview that pages through the file's rows over fetch. None of that
-// exists for PHPUnit (which posts arrays it wrote itself) and none of it
-// has a Vitest file (the dialog script is inline Twig). The blast radius
-// of a regression is worse than the classic list's: every recipient gets
-// a WRONG email — somebody else's first name, somebody else's amount.
+// The mail-merge mode (ARCHITECTURE.md §8.61) is the composition page's
+// most client-built path: selecting "Publipostage" swaps the scout-year
+// checkboxes for a drop zone, the audience is a real multipart POST of an
+// .xlsx the browser picks, the columns come back as chips feeding a
+// "Variable" dropdown that inserts {{tokens}} into a contenteditable via
+// execCommand, and test mode adds a per-recipient preview that pages
+// through the file's rows over fetch. PHPUnit posts arrays it wrote
+// itself and never renders a browser; Vitest drives the script against a
+// fixture of its own with no server behind it. The blast radius of a
+// regression is worse than the classic list's: every recipient gets a
+// WRONG email — somebody else's first name, somebody else's amount.
 //
 // So the scenario runs the whole machine on real files: a bad .xlsx is
 // refused with its line-by-line report (all-or-nothing, module spec), a
@@ -80,36 +80,33 @@ test('a mail merge refuses a bad file line by line, previews each row, and deliv
             serverErrors.push(`HTTP ${response.status()} on ${response.url()}`);
         }
     });
-    // "Lancer l'envoi" asks first — through the site's own modal now
-    // (public/assets/js/mass-mail-list.js → window.ScoutMagicConfirm),
+    // "Lancer l'envoi" asks first — through the site's own modal
+    // (public/assets/js/mass-mail-compose.js → window.ScoutMagicConfirm),
     // which no Playwright dialog handler can see. Installed before the
     // first navigation because the observer is an init script.
     await autoConfirm(page);
 
     await loginAsAdmin(page);
     await answerCookieBanner(page);
-    await page.goto('/mass-mail', { waitUntil: 'load' });
+    await page.goto('/mass-mail/new', { waitUntil: 'load' });
 
     // ---------------------------------------------------------------
-    // Picking "Publipostage" reshapes the dialog: upload zone in, scout
+    // Picking "Publipostage" reshapes the page: drop zone in, scout
     // years out (the file, not a year, defines the audience).
     // ---------------------------------------------------------------
-    await page.locator('#mm-new-btn').click();
-    const dialog = page.locator('#mm-modal');
-    await expect(dialog).toBeVisible();
-
-    await dialog.locator('#mm-list').selectOption({ label: 'Publipostage — fichier Excel' });
-    await expect(dialog.locator('#mm-merge-zone')).toBeVisible();
-    await expect(dialog.locator('#mm-scout-year-zone')).toBeHidden();
+    await page.locator('#mm-list').selectOption({ label: 'Publipostage — fichier Excel' });
+    await expect(page.locator('#mm-merge-zone')).toBeVisible();
+    await expect(page.locator('#mm-scout-year-zone')).toBeHidden();
 
     // ---------------------------------------------------------------
     // The bad file: refused whole, every offending line named at once
-    // (module spec: all-or-nothing, never a partial import).
+    // (module spec: all-or-nothing, never a partial import). The import
+    // starts as soon as a file reaches the shared drop zone — there is
+    // exactly one thing to do with an .xlsx here.
     // ---------------------------------------------------------------
-    await dialog.locator('#mm-merge-file').setInputFiles(path.join(FIXTURES, 'publipostage-invalide.xlsx'));
-    await dialog.locator('#mm-merge-import-btn').click();
+    await page.locator('#mm-merge-file').setInputFiles(path.join(FIXTURES, 'publipostage-invalide.xlsx'));
 
-    const errorBox = dialog.locator('#mm-error');
+    const errorBox = page.locator('#mm-merge-error');
     await expect(errorBox).toBeVisible();
     await expect(errorBox).toContainText('n\'a pas été accepté');
     await expect(errorBox).toContainText('Ligne 2');
@@ -122,10 +119,9 @@ test('a mail merge refuses a bad file line by line, previews each row, and deliv
     // The good file: imported, columns surfaced as chips, and the
     // "Variable" dropdown appears on the toolbar.
     // ---------------------------------------------------------------
-    await dialog.locator('#mm-merge-file').setInputFiles(path.join(FIXTURES, 'publipostage-audience.xlsx'));
-    await dialog.locator('#mm-merge-import-btn').click();
+    await page.locator('#mm-merge-file').setInputFiles(path.join(FIXTURES, 'publipostage-audience.xlsx'));
 
-    const mergeInfo = dialog.locator('#mm-merge-info-state');
+    const mergeInfo = page.locator('#mm-merge-info-state');
     await expect(mergeInfo).toBeVisible();
     await expect(mergeInfo).toContainText('publipostage-audience.xlsx');
     await expect(mergeInfo).toContainText('2 lignes');
@@ -137,16 +133,16 @@ test('a mail merge refuses a bad file line by line, previews each row, and deliv
     // dropdown (execCommand into the contenteditable, first row's value
     // as the sample hint) and a token simply typed by hand.
     // ---------------------------------------------------------------
-    await dialog.locator('#mm-subject').fill(SUBJECT_TEMPLATE);
+    await page.locator('#mm-subject').fill(SUBJECT_TEMPLATE);
 
-    const body = dialog.locator('#mm-body-content');
+    const body = page.locator('#mm-body-content');
     await body.click();
     await page.keyboard.type('Cher ');
 
-    const variableDropdown = dialog.locator('#mm-variable-dropdown');
+    const variableDropdown = page.locator('#mm-variable-dropdown');
     await expect(variableDropdown).toBeVisible();
     await variableDropdown.locator('button.dropdown-toggle').click();
-    const prenomItem = dialog.locator('#mm-variable-menu .mm-variable-item', { hasText: 'Prenom' });
+    const prenomItem = page.locator('#mm-variable-menu .mm-variable-item', { hasText: 'Prenom' });
     // The dropdown offers the first row's value as a sample hint.
     await expect(prenomItem).toContainText('Kaa');
     await prenomItem.click();
@@ -156,40 +152,26 @@ test('a mail merge refuses a bad file line by line, previews each row, and deliv
     await page.keyboard.press('End');
     await page.keyboard.type(', tu devras payer {{Montant}} € pour le camp.');
 
-    await dialog.locator('#mm-save-btn').click();
-
-    // Saving reloads the page; the list row shows the raw template subject.
-    // The row can be visible before the reload's own copy of the page's
-    // bottom <script> (which wires every .mm-open-btn's click listener)
-    // has actually run — parsing reaches the row well before it reaches
-    // that script — so the assertions above alone are not enough to
-    // prove the new page has finished loading.
-    const row = page.getByRole('row', { name: new RegExp(RUN_TAG) });
-    await expect(row).toBeVisible();
-    await expect(row.getByText('Publipostage')).toBeVisible();
-    await expect(row.getByText('Brouillon')).toBeVisible();
-    await page.waitForLoadState('domcontentloaded');
+    await page.getByRole('button', { name: 'Créer le brouillon' }).click();
 
     // ---------------------------------------------------------------
-    // Reopening rebuilds the dialog from the server: the stored audience
-    // must come back (GET /mass-mail/audiences/{id}), not just the draft.
+    // Creation lands on the draft's own page, rebuilt from the server:
+    // the stored audience must come back with it, not just the draft.
     // ---------------------------------------------------------------
-    // Saving reloaded the page, and mass-mail-list.js is deferred: the row
-    // is server-rendered and therefore visible BEFORE the script that
-    // makes its buttons do anything has run.
-    await page.waitForLoadState('load');
-    await row.locator('.mm-open-btn').click();
-    await expect(dialog).toBeVisible();
-    await expect(dialog.locator('#mm-merge-info-state')).toContainText('publipostage-audience.xlsx');
+    await page.waitForURL(/\/mass-mail\/\d+$/, { waitUntil: 'load' });
+    await expect(page.locator('#mm-status')).toHaveText('Brouillon');
+    await expect(page.locator('#mm-merge-info-state')).toContainText('publipostage-audience.xlsx');
+    await expect(page.getByRole('heading', { level: 1, name: new RegExp(RUN_TAG) })).toBeVisible();
 
     // ---------------------------------------------------------------
     // Test mode: the per-recipient preview pages through the file's rows
     // with each row's OWN values — the feature's whole point.
     // ---------------------------------------------------------------
-    await dialog.locator('#mm-to-test-btn').click();
-    await expect(dialog.locator('#mm-status-badge')).toHaveText('Test');
+    await page.getByRole('button', { name: 'Passer en mode test' }).click();
+    await page.waitForURL(/\/mass-mail\/\d+$/, { waitUntil: 'load' });
+    await expect(page.locator('#mm-status')).toHaveText('Test');
 
-    const preview = dialog.locator('#mm-merge-preview-zone');
+    const preview = page.locator('#mm-merge-preview-zone');
     await expect(preview).toBeVisible();
     await expect(preview.locator('#mm-merge-preview-position')).toHaveText('Ligne 1 / 2');
     // Row 1 resolves the Tiers to the seeded member — every known address.
@@ -203,8 +185,8 @@ test('a mail merge refuses a bad file line by line, previews each row, and deliv
     await expect(preview.locator('#mm-merge-preview-body')).toContainText('Cher Emma, tu devras payer 80 € pour le camp.');
 
     // The test send carries the PREVIEWED row's values (row 2, Emma).
-    await dialog.locator('#mm-test-send-email').fill(TEST_RECIPIENT);
-    await dialog.locator('#mm-test-send-btn').click();
+    await page.locator('#mm-test-send-email').fill(TEST_RECIPIENT);
+    await page.getByRole('button', { name: 'Envoyer le test' }).click();
 
     const testMail = await waitForMail(
         (message) => message.to.includes(TEST_RECIPIENT) && message.subject.includes(`Camp Emma — infos ${RUN_TAG}`),
@@ -216,8 +198,9 @@ test('a mail merge refuses a bad file line by line, previews each row, and deliv
     // The real send: freeze, then the batch task through the instance's
     // own scheduler entry point — two rows, two DIFFERENT messages.
     // ---------------------------------------------------------------
-    await dialog.locator('#mm-start-sending-btn').click();
-    await expect(dialog.locator('#mm-status-badge')).toHaveText(/Envoi en cours|Envoyé/);
+    await page.getByRole('button', { name: "Lancer l'envoi" }).click();
+    await page.waitForURL(/\/mass-mail\/\d+$/, { waitUntil: 'load' });
+    await expect(page.locator('#mm-status')).toHaveText(/Envoi en cours|Envoyé/);
 
     await runScheduler();
 
@@ -242,7 +225,7 @@ test('a mail merge refuses a bad file line by line, previews each row, and deliv
     // ---------------------------------------------------------------
     // Tracking: the member by name, the external by their address.
     // ---------------------------------------------------------------
-    await dialog.locator('#mm-tracking-link').click();
+    await page.getByRole('link', { name: 'Suivi' }).click();
     await page.waitForURL(/\/mass-mail\/\d+\/tracking/, { waitUntil: 'domcontentloaded' });
     await expect(page.getByText(EXTERNAL_RECIPIENT).first()).toBeVisible();
     await expect(page.getByText('Envoyé', { exact: false }).first()).toBeVisible();

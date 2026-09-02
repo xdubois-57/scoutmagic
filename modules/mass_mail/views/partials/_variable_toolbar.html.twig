@@ -12,17 +12,20 @@
   rather than typing is the whole point: a mistyped column name is a
   variable that never substitutes, and the recipient reads the braces.
 
-  Hidden until an audience is attached (there is nothing to offer
-  otherwise) and while the email is no longer a draft.
+  Rendered — hidden — even with no audience yet, because an import done
+  from this page (mass-mail-compose.js) has to fill it in place: a
+  control that only exists when the server drew it would never appear
+  for the file a chief just dropped, and the whole editor would have to
+  be reloaded to offer it.
 #}
-{% if audience and editable %}
-    <div class="dropdown mb-2" id="mm-variable-dropdown">
+{% if editable %}
+    <div class="dropdown mb-2 {{ audience ? '' : 'd-none' }}" id="mm-variable-dropdown">
         <button type="button" class="btn btn-sm btn-outline-primary dropdown-toggle" data-bs-toggle="dropdown"
                 title="Insérer une variable du fichier de publipostage">
             <i class="bi bi-braces" aria-hidden="true"></i> Variable
         </button>
         <ul class="dropdown-menu" id="mm-variable-menu" style="max-height: 20rem; overflow-y: auto;">
-            {% for column in audience.columns %}
+            {% for column in audience ? audience.columns : [] %}
                 <li>
                     <button type="button" class="dropdown-item d-flex justify-content-between gap-3 mm-variable-item"
                             data-column="{{ column }}">

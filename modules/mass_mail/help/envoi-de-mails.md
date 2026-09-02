@@ -8,7 +8,7 @@ question: Comment écrire à tous les parents de ma section ?
 question: Comment prévenir tous les parents d'une section ?
 question: Comment vérifier qu'un e-mail groupé est bien parti ?
 question: Comment se tester soi-même avant un envoi groupé ?
-paths: /mass-mail, /mass-mail/*, /mass-mail/*/tracking, /mass-mail/*/recipients
+paths: /mass-mail, /mass-mail/new, /mass-mail/*, /mass-mail/*/tracking, /mass-mail/*/recipients
 related: publipostage, config-envoi-mails, membres-par-section
 ---
 
@@ -18,7 +18,7 @@ toujours le même chemin : brouillon, test, envoi.
 
 ## Composer
 
-« Nouvel email » ouvre le dialogue : choisissez la section
+« Nouvel email » ouvre la page de composition : choisissez la section
 expéditrice, la liste de destinataires, l'année scoute, puis rédigez
 le sujet et le message. Les listes proposées : une par section, les
 membres actifs, les animateurs, les listes créées par l'unité — et,
@@ -28,14 +28,18 @@ sa section ou aux animateurs ; le Staff d'Unité n'a pas cette limite.
 
 Cocher plusieurs années fusionne les listes en supprimant les
 doublons : chaque adresse ne reçoit qu'un exemplaire. Les pièces
-jointes s'ajoutent une fois le brouillon enregistré.
+jointes s'ajoutent une fois le brouillon créé.
+
+Chaque envoi a sa propre page : elle se met en favori, son lien
+s'envoie à un collègue pour relecture, et on y revient le lendemain
+pour finir le message.
 
 ## Tester avant d'envoyer
 
 « Passer en mode test » fige le contenu et propose « Envoyer le test »
 vers l'adresse de votre choix : vérifiez le rendu dans une vraie boîte
-avant d'appuyer sur le grand bouton. « Retour au brouillon » rouvre la
-modification.
+avant d'appuyer sur le grand bouton. « Repasser en brouillon » rouvre
+la modification.
 
 > « Lancer l'envoi » est définitif : l'e-mail part par lots, en
 > arrière-plan, vers toute la liste. Relisez le test — il n'y a pas de

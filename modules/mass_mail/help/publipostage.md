@@ -12,8 +12,8 @@ related: envoi-de-mails, membres-admin, publier-une-actualite
 
 Le publipostage envoie un e-mail personnalisé par ligne d'un fichier
 Excel : rappels de paiement avec le montant de chacun, convocations
-nominatives... Choisissez la liste « Publipostage » dans le dialogue
-de composition, puis importez votre fichier.
+nominatives... Choisissez la liste « Publipostage » sur la page de
+composition, puis déposez votre fichier dans la zone prévue.
 
 ## Le fichier attendu
 
@@ -50,7 +50,8 @@ test la signale.
 En mode test, un aperçu fait défiler les lignes du fichier avec les
 vraies valeurs substituées ; l'e-mail de test part avec la ligne
 affichée. C'est le moment de repérer une colonne mal nommée ou une
-cellule vide.
+cellule vide. L'onglet « Destinataires » montre par ailleurs le
+fichier importé, ligne par ligne, avec toutes ses colonnes.
 
 À la différence des autres listes, le publipostage envoie **un e-mail
 par ligne** : une personne présente deux fois recevra deux messages.

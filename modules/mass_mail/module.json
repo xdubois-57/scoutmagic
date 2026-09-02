@@ -2,7 +2,7 @@
   "id": "mass_mail",
   "name": "Envoi de mails",
   "description": "Envoi de mails groupés aux membres de l'unité : listes de diffusion par défaut ou personnalisées, publipostage depuis un fichier Excel avec variables personnalisées, mode test, envoi en arrière-plan par lots, suivi détaillé des envois. Accueille aussi, lorsque le module inscriptions est actif, une liste prédéfinie non modifiable pour l'année scoute cible.",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -45,6 +45,16 @@
       "menu_icon": "bi-send",
       "menu_group": "communication",
       "breadcrumb": { "label": "Envoi de mails", "parents": ["Espace animateurs"] }
+    },
+    {
+      "path": "/mass-mail/new",
+      "method": "GET",
+      "controller": "Modules\\MassMail\\Controller\\MassMailController",
+      "action": "createForm",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "",
+      "breadcrumb": { "label": "Nouvel email", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Envoi de mails", "path": "/mass-mail" }] }
     },
     {
       "path": "/mass-mail",
@@ -102,15 +112,6 @@
       "label": ""
     },
     {
-      "path": "/mass-mail/{id}/data",
-      "method": "GET",
-      "controller": "Modules\\MassMail\\Controller\\MassMailController",
-      "action": "data",
-      "menu": "espace_chefs",
-      "role_min": "chief",
-      "label": ""
-    },
-    {
       "path": "/mass-mail/{id}/recipients",
       "method": "GET",
       "controller": "Modules\\MassMail\\Controller\\MassMailController",
@@ -125,15 +126,6 @@
       "method": "GET",
       "controller": "Modules\\MassMail\\Controller\\MassMailController",
       "action": "recipientCount",
-      "menu": "espace_chefs",
-      "role_min": "chief",
-      "label": ""
-    },
-    {
-      "path": "/mass-mail/{id}",
-      "method": "PATCH",
-      "controller": "Modules\\MassMail\\Controller\\MassMailController",
-      "action": "update",
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": ""
@@ -161,15 +153,6 @@
       "method": "POST",
       "controller": "Modules\\MassMail\\Controller\\MassMailController",
       "action": "uploadAttachment",
-      "menu": "espace_chefs",
-      "role_min": "chief",
-      "label": ""
-    },
-    {
-      "path": "/mass-mail/attachments/{id}",
-      "method": "DELETE",
-      "controller": "Modules\\MassMail\\Controller\\MassMailController",
-      "action": "deleteAttachment",
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": ""

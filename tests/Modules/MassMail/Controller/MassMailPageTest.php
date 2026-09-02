@@ -212,11 +212,67 @@ class MassMailPageTest extends TestCase
         $email = $this->createDraft('Rappel');
 
         $page = $this->controller->show($this->get('/mass-mail/' . $email->id), ['id' => (string) $email->id]);
-        $json = $this->controller->data($this->get('/mass-mail/' . $email->id . '/data'), ['id' => (string) $email->id]);
 
         $this->assertStringContainsString('<!DOCTYPE html>', (string) $page->getBody());
-        $this->assertSame('application/json', $json->getHeaders()['Content-Type'] ?? null);
-        $this->assertSame('Rappel', json_decode((string) $json->getBody(), true)['email']['subject']);
+        $this->assertStringNotContainsString('"success"', (string) $page->getBody());
+    }
+
+    // -----------------------------------------------------------------
+    // Creation, as a page
+    // -----------------------------------------------------------------
+
+    public function testTheCreationPageOffersAnEmptyComposer(): void
+    {
+        $response = $this->controller->createForm($this->get('/mass-mail/new'), []);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $body = (string) $response->getBody();
+        $this->assertStringContainsString('Nouvel email', $body);
+        $this->assertStringContainsString('action="/mass-mail"', $body);
+        $this->assertStringContainsString('Créer le brouillon', $body);
+        // Nothing to attach to and nothing to move yet — both wait for the
+        // draft to exist.
+        $this->assertStringNotContainsString('Passer en mode test', $body);
+    }
+
+    public function testCreatingADraftLandsOnItsOwnPage(): void
+    {
+        $response = $this->controller->create(
+            $this->post([
+                '_csrf_token' => CsrfGuard::generateToken(),
+                'section_id' => (string) $this->sectionId,
+                'list' => 'default_section:' . $this->sectionId,
+                'scout_year_ids' => [(string) $this->scoutYearId],
+                'subject' => 'Première réunion',
+                'body_html' => '<p>Bienvenue.</p>',
+            ]),
+            []
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $location = (string) ($response->getHeaders()['Location'] ?? '');
+        $this->assertMatchesRegularExpression('~^/mass-mail/\d+$~', $location);
+        $created = $this->massMailService->findById((int) substr($location, strrpos($location, '/') + 1));
+        $this->assertSame('Première réunion', $created?->subject);
+    }
+
+    public function testARefusedCreationKeepsWhatWasTyped(): void
+    {
+        $response = $this->controller->create(
+            $this->post([
+                '_csrf_token' => CsrfGuard::generateToken(),
+                'section_id' => (string) $this->sectionId,
+                'list' => 'default_section:' . $this->sectionId,
+                'scout_year_ids' => [(string) $this->scoutYearId],
+                'subject' => '',
+                'body_html' => '<p>Un texte à ne pas perdre.</p>',
+            ]),
+            []
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertStringContainsString('Un texte à ne pas perdre.', (string) $response->getBody());
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM mass_mail_emails')->fetchColumn());
     }
 
     public function testAnUnknownEmailAnswersTheSiteFourOhFourPage(): void
@@ -333,35 +389,17 @@ class MassMailPageTest extends TestCase
         $email = $this->createDraft('Bascule');
 
         $toTest = $this->controller->changeStatus(
-            $this->post(['_csrf_token' => CsrfGuard::generateToken(), '_form' => '1', 'action' => 'to_test']),
+            $this->post(['_csrf_token' => CsrfGuard::generateToken(), 'action' => 'to_test']),
             ['id' => (string) $email->id]
         );
         $this->assertSame(302, $toTest->getStatusCode());
         $this->assertSame(Email::STATUS_TEST, $this->massMailService->findById($email->id)?->status);
 
         $this->controller->changeStatus(
-            $this->post(['_csrf_token' => CsrfGuard::generateToken(), '_form' => '1', 'action' => 'to_draft']),
+            $this->post(['_csrf_token' => CsrfGuard::generateToken(), 'action' => 'to_draft']),
             ['id' => (string) $email->id]
         );
         $this->assertSame(Email::STATUS_DRAFT, $this->massMailService->findById($email->id)?->status);
-    }
-
-    /**
-     * The dialog on the list page posts JSON to the SAME endpoint and
-     * still gets JSON back. Both shapes have to keep working while the
-     * two screens coexist.
-     */
-    public function testTheSameStatusEndpointStillAnswersJsonForTheDialog(): void
-    {
-        $email = $this->createDraft('Deux formes');
-
-        $response = $this->controller->changeStatus(
-            $this->jsonPost(['_csrf_token' => CsrfGuard::generateToken(), 'action' => 'to_test']),
-            ['id' => (string) $email->id]
-        );
-
-        $this->assertSame(200, $response->getStatusCode());
-        $this->assertTrue(json_decode((string) $response->getBody(), true)['success']);
     }
 
     // -----------------------------------------------------------------
@@ -421,7 +459,7 @@ class MassMailPageTest extends TestCase
         return [
             'composition' => ['/mass-mail/{id}', 'show'],
             'destinataires' => ['/mass-mail/{id}/recipients', 'recipients'],
-            'payload du dialogue' => ['/mass-mail/{id}/data', 'data'],
+            'création' => ['/mass-mail/new', 'createForm'],
         ];
     }
 
@@ -518,17 +556,4 @@ class MassMailPageTest extends TestCase
         return new Request('POST', '/mass-mail', [], $body, [], []);
     }
 
-    /**
-     * @param array<string, mixed> $payload
-     */
-    private function jsonPost(array $payload): Request
-    {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/mass-mail', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn((string) json_encode($payload));
-
-        return $request;
-    }
 }

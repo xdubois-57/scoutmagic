@@ -2,27 +2,28 @@
 //
 // WHY THIS SCENARIO EXISTS
 // ----------------------------------------------------------------------------
-// The compose dialog is entirely client-built: MM_DATA (a Twig→JS blob)
-// drives which sections and lists are even offered, the body is a
-// contenteditable the script serialises itself, and the draft → test →
-// sending status machine exists as fetches from four different buttons.
-// The blast radius of a regression here is "the whole unit gets an
-// email" — or nobody does, silently. Vitest has no file for any of it;
-// PHPUnit posts arrays it wrote itself.
+// The composition screen is a page of ordinary forms now, but the machine
+// behind it is unchanged and its blast radius is the same: "the whole unit
+// gets an email" — or nobody does, silently. The body is a contenteditable
+// whose value only reaches the server through a hidden field the shared
+// rich-text component keeps in step, the attachment is a real multipart
+// POST, and the draft → test → sending states are three separate form
+// submissions that each redirect. PHPUnit posts arrays it wrote itself and
+// never renders a browser; Vitest never touches the server.
 //
-// The scenario runs the machine end to end: draft saved, attachment
-// added (multipart FormData from the dialog), test send received by an
-// arbitrary address, real send launched — and the REAL DELIVERY asserted
-// in the maildrop: the member's mailbox gets the message, subject,
-// attachment name and all, through the same batch task a production
-// install runs. The tracking page then names each recipient with a
-// state.
+// The scenario runs the machine end to end: draft created on the creation
+// page, attachment added, test send received by an arbitrary address, real
+// send launched — and the REAL DELIVERY asserted in the maildrop: the
+// member's mailbox gets the message, subject, attachment name and all,
+// through the same batch task a production install runs. The tracking page
+// then names each recipient with a state.
 //
 // WHAT IT DELIBERATELY LEAVES ALONE
 // ----------------------------------------------------------------------------
 // The role-based narrowing of lists for a chief who is NOT chef d'unité
-// (isListAllowed()): the harness has no such account — its visible half
-// stays with the module's own unit tests until the fixture exists.
+// (MassMailController::isListAllowed()): the harness has no such account —
+// its visible half stays with the module's own unit tests until the
+// fixture exists.
 import { expect, test } from '@playwright/test';
 
 import { answerCookieBanner } from '../support/cookie-banner.js';
@@ -61,7 +62,7 @@ test('a mass mail walks draft → test → sending, and really lands in the memb
     });
 
     // "Lancer l'envoi" asks before it freezes the recipients — through the
-    // site's own modal now (public/assets/js/mass-mail-list.js →
+    // site's own modal (public/assets/js/mass-mail-compose.js →
     // window.ScoutMagicConfirm), which no Playwright dialog handler can
     // see. Answered here the way the chief answers it, and installed
     // before the first navigation because the observer is an init script.
@@ -72,71 +73,51 @@ test('a mass mail walks draft → test → sending, and really lands in the memb
     await page.goto('/mass-mail', { waitUntil: 'load' });
 
     // ---------------------------------------------------------------
-    // Draft. Everything in the dialog is script-rendered from MM_DATA —
-    // the section list options existing at all is already an assertion.
+    // Draft, on the creation page. The list options are server-rendered
+    // now; that a section list is offered at all is already an assertion.
     // ---------------------------------------------------------------
-    await page.locator('#mm-new-btn').click();
-    const dialog = page.locator('#mm-modal');
-    await expect(dialog).toBeVisible();
+    await page.getByRole('link', { name: 'Nouvel email' }).click();
+    await page.waitForURL(/\/mass-mail\/new$/, { waitUntil: 'load' });
 
-    const listSelect = dialog.locator('#mm-list');
-    await listSelect.selectOption({ label: 'Section - Meute E2E' });
+    await page.locator('#mm-list').selectOption({ label: 'Section - Meute E2E' });
+    await page.locator('#mm-subject').fill(SUBJECT);
+    await page.locator('#mm-body-content').fill(BODY_LINE);
 
-    await dialog.locator('#mm-subject').fill(SUBJECT);
-    await dialog.locator('#mm-body-content').fill(BODY_LINE);
+    // Nothing to attach to yet — the page says so rather than offering a
+    // control that could not work.
+    await expect(page.getByText("Enregistrez d'abord le brouillon")).toBeVisible();
 
-    // No draft yet — the dialog itself says attachments must wait.
-    await expect(dialog.locator('#mm-attachment-hint')).toBeVisible();
+    await page.getByRole('button', { name: 'Créer le brouillon' }).click();
 
-    await dialog.locator('#mm-save-btn').click();
-
-    // Saving re-renders the list row with its status badge — via a real
-    // window.location.reload() (list.html.twig's mm-save-btn handler),
-    // not a dynamic DOM update, so the freshly rendered row's own
-    // .mm-open-btn only gets a click listener once THIS reload's copy of
-    // the page's own inline <script> (querySelectorAll('.mm-open-btn')
-    // at the bottom of the page) has run. The row itself can already be
-    // visible before that — rendering reaches it well before parsing
-    // reaches the script further down — so an explicit wait here is
-    // required; the assertions above only prove the row exists, not that
-    // the page has finished loading.
-    const row = page.getByRole('row', { name: new RegExp(SUBJECT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) });
-    await expect(row).toBeVisible();
-    await expect(row.getByText('Brouillon')).toBeVisible();
-    await page.waitForLoadState('domcontentloaded');
+    // Creation lands on the draft's own page.
+    await page.waitForURL(/\/mass-mail\/\d+$/, { waitUntil: 'load' });
+    await expect(page.locator('#mm-status')).toHaveText('Brouillon');
+    await expect(page.getByRole('heading', { level: 1, name: SUBJECT })).toBeVisible();
 
     // ---------------------------------------------------------------
     // Attachment, now that the draft exists: a real multipart POST.
     // ---------------------------------------------------------------
-    // Saving reloaded the page, and mass-mail-list.js is deferred: the row
-    // is server-rendered and therefore visible BEFORE the script that
-    // makes its buttons do anything has run. Without this wait the click
-    // below lands on a button with no listener yet and the dialog simply
-    // never opens.
-    await page.waitForLoadState('load');
-    await row.locator('.mm-open-btn').click();
-    await expect(dialog).toBeVisible();
-    await expect(dialog.locator('#mm-subject')).toHaveValue(SUBJECT);
-
     // Attachments are restricted to PDF and images
     // (MassMailController::ATTACHMENT_ALLOWED_MIMES).
-    await dialog.locator('#mm-attachment-file').setInputFiles({
+    await page.locator('input[name="file"]').setInputFiles({
         name: ATTACHMENT_NAME,
         mimeType: 'image/png',
         buffer: pngBuffer(4, 4),
     });
-    await dialog.locator('#mm-attachment-upload-btn').click();
-    await expect(dialog.locator('#mm-attachments-list').getByText(ATTACHMENT_NAME)).toBeVisible();
+    await page.getByRole('button', { name: 'Ajouter' }).click();
+    await page.waitForURL(/\/mass-mail\/\d+$/, { waitUntil: 'load' });
+    await expect(page.locator('#mm-attachments-list').getByText(ATTACHMENT_NAME)).toBeVisible();
 
     // ---------------------------------------------------------------
     // Test mode: the machine's middle state, and a real test message to
     // an arbitrary address.
     // ---------------------------------------------------------------
-    await dialog.locator('#mm-to-test-btn').click();
-    await expect(dialog.locator('#mm-status-badge')).toHaveText('Test');
+    await page.getByRole('button', { name: 'Passer en mode test' }).click();
+    await page.waitForURL(/\/mass-mail\/\d+$/, { waitUntil: 'load' });
+    await expect(page.locator('#mm-status')).toHaveText('Test');
 
-    await dialog.locator('#mm-test-send-email').fill(TEST_RECIPIENT);
-    await dialog.locator('#mm-test-send-btn').click();
+    await page.locator('#mm-test-send-email').fill(TEST_RECIPIENT);
+    await page.getByRole('button', { name: 'Envoyer le test' }).click();
 
     const testMail = await waitForMail(
         (message) => message.to.includes(TEST_RECIPIENT) && message.subject.includes(SUBJECT),
@@ -148,8 +129,9 @@ test('a mass mail walks draft → test → sending, and really lands in the memb
     // The real send. The batch task delivers to the section's members;
     // the member's mailbox is the proof, headers to attachment.
     // ---------------------------------------------------------------
-    await dialog.locator('#mm-start-sending-btn').click();
-    await expect(dialog.locator('#mm-status-badge')).toHaveText(/Envoi en cours|Envoyé/);
+    await page.getByRole('button', { name: "Lancer l'envoi" }).click();
+    await page.waitForURL(/\/mass-mail\/\d+$/, { waitUntil: 'load' });
+    await expect(page.locator('#mm-status')).toHaveText(/Envoi en cours|Envoyé/);
 
     // The batch task is driven by the scheduler, and public/cron.php is the
     // only thing that runs one — the application does not turn its own
@@ -157,7 +139,7 @@ test('a mass mail walks draft → test → sending, and really lands in the memb
     // once per polling attempt: a batch that re-arms itself for the next
     // chunk needs several passes, and the tracking page is reloaded in the
     // same loop because it is also the page under test.
-    await dialog.locator('#mm-tracking-link').click();
+    await page.getByRole('link', { name: 'Suivi' }).click();
     await page.waitForURL(/\/mass-mail\/\d+\/tracking/, { waitUntil: 'domcontentloaded' });
     await expect(page.getByText(memberEmail).first()).toBeVisible();
 
@@ -188,8 +170,8 @@ test('a mass mail walks draft → test → sending, and really lands in the memb
     expect(pageErrors, 'uncaught JavaScript error in the browser').toEqual([]);
 });
 
-// The compose dialog's scout-year block, for a list whose year is not the
-// chief's to choose.
+// The composition page's scout-year block, for a list whose year is not
+// the chief's to choose.
 //
 // WHY THIS SCENARIO EXISTS
 // ----------------------------------------------------------------------------
@@ -207,12 +189,12 @@ test('a mass mail walks draft → test → sending, and really lands in the memb
 // the picker because the registration module is enabled and its provider
 // reached mass_mail through the composition root (public/index.php
 // re-registers the list service with it), and the block only disappears
-// because mass-mail-list.js's updateListTypeUi() ran against the real
+// because mass-mail-compose.js's updateListTypeUi() ran against the real
 // options the server rendered. Vitest sees the script with a fixture it
 // wrote itself; PHPUnit sees the list service with no browser. Neither can
 // see the two meet.
 //
-// Locators are the dialog's own ids where the module's JavaScript binds to
+// Locators are the page's own ids where the module's JavaScript binds to
 // them (a contract, per ARCHITECTURE.md § 15) and visible French text
 // everywhere else — including the list option itself, which is named after
 // a scout year and so cannot be written down here.
@@ -223,27 +205,23 @@ test('the registration list hides the scout-year choice it never had, and says w
 
     await loginAsAdmin(page);
     await answerCookieBanner(page);
-    await page.goto('/mass-mail', { waitUntil: 'load' });
+    await page.goto('/mass-mail/new', { waitUntil: 'load' });
 
-    await page.locator('#mm-new-btn').click();
-    const dialog = page.locator('#mm-modal');
-    await expect(dialog).toBeVisible();
-
-    const yearZone = dialog.locator('#mm-scout-year-zone');
-    const note = dialog.getByText("Cette liste vise toujours l'année d'inscription.");
+    const yearZone = page.locator('#mm-scout-year-zone');
+    const note = page.getByText("Cette liste vise toujours l'année d'inscription.");
 
     // An ordinary list first: the years are a real question there, and the
     // note has nothing to say.
-    await dialog.locator('#mm-list').selectOption({ label: 'Section - Meute E2E' });
+    await page.locator('#mm-list').selectOption({ label: 'Section - Meute E2E' });
     await expect(yearZone).toBeVisible();
-    await expect(dialog.getByText('Année(s) scoute(s)')).toBeVisible();
+    await expect(page.getByText('Année(s) scoute(s)')).toBeVisible();
     await expect(note).toBeHidden();
 
     // The registration list is labelled after its target year
     // (ExternalMailingListService::describeMailingList()), so the label is
     // read off the page rather than written down — the same reason
     // scout-year-transition.spec.js reads its steps.
-    const optionLabels = (await dialog.locator('#mm-list option').allTextContents())
+    const optionLabels = (await page.locator('#mm-list option').allTextContents())
         .map((label) => label.trim());
     const registrationLabels = optionLabels.filter((label) => /^Inscriptions \d{4}-\d{4}$/.test(label));
     expect(
@@ -251,14 +229,14 @@ test('the registration list hides the scout-year choice it never had, and says w
         `exactly one registration list must be offered — the picker holds ${optionLabels.join(' | ')}`,
     ).toHaveLength(1);
 
-    await dialog.locator('#mm-list').selectOption({ label: registrationLabels[0] });
+    await page.locator('#mm-list').selectOption({ label: registrationLabels[0] });
 
     await expect(yearZone).toBeHidden();
     await expect(note).toBeVisible();
 
     // And back: the block returns, the note goes away. A rule, not a
     // one-way glitch.
-    await dialog.locator('#mm-list').selectOption({ label: 'Section - Meute E2E' });
+    await page.locator('#mm-list').selectOption({ label: 'Section - Meute E2E' });
     await expect(yearZone).toBeVisible();
     await expect(note).toBeHidden();
 

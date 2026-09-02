@@ -12,6 +12,7 @@ use Core\Database\Connection;
 use Core\Exception\UserFacingMessage;
 use Core\File\FileRepository;
 use Core\File\UploadHandler;
+use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Import\FunctionRepository;
 use Core\Import\ImportJournalRepository;
@@ -64,6 +65,17 @@ class ErrorMessageLeakTest extends TestCase
     /**
      * @param array<string, mixed> $data
      */
+    /**
+     * An ordinary form POST — what the composition page sends now that
+     * the dialog and its JSON payloads are gone.
+     *
+     * @param array<string, mixed> $body
+     */
+    private function formRequest(array $body): Request
+    {
+        return new Request('POST', '/', [], $body, [], []);
+    }
+
     private function jsonRequest(array $data): Request
     {
         $request = $this->getMockBuilder(Request::class)
@@ -108,7 +120,7 @@ class ErrorMessageLeakTest extends TestCase
         );
     }
 
-    public function testTestSendNeverReturnsThePhpMailerTextInItsJsonBody(): void
+    public function testTestSendNeverFlashesThePhpMailerTextToTheChief(): void
     {
         $massMailService = $this->createMock(MassMailService::class);
         $massMailService->method('sendTestEmail')->willThrowException(new MailException(
@@ -116,15 +128,12 @@ class ErrorMessageLeakTest extends TestCase
         ));
 
         $response = $this->massMailController($massMailService)->testSend(
-            $this->jsonRequest(['_csrf_token' => $this->csrfToken(), 'to' => 'chef@test.be']),
+            $this->formRequest(['_csrf_token' => $this->csrfToken(), 'to' => 'chef@test.be']),
             ['id' => '1']
         );
 
-        $this->assertSame(500, $response->getStatusCode());
-        $payload = json_decode($response->getBody(), true);
-        $this->assertIsArray($payload);
-        $this->assertFalse($payload['success']);
-        $error = (string) $payload['error'];
+        $this->assertSame(302, $response->getStatusCode());
+        $error = (string) (FlashMessage::get()['message'] ?? '');
         $this->assertStringNotContainsString('SMTP', $error);
         $this->assertStringNotContainsString('PHPMailer', $error);
         $this->assertStringNotContainsString('github.com', $error);
@@ -144,12 +153,12 @@ class ErrorMessageLeakTest extends TestCase
         );
 
         $response = $this->massMailController($massMailService)->testSend(
-            $this->jsonRequest(['_csrf_token' => $this->csrfToken(), 'to' => 'pas-une-adresse']),
+            $this->formRequest(['_csrf_token' => $this->csrfToken(), 'to' => 'pas-une-adresse']),
             ['id' => '1']
         );
 
-        $this->assertSame(422, $response->getStatusCode());
-        $this->assertSame('Adresse email invalide.', json_decode($response->getBody(), true)['error']);
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('Adresse email invalide.', FlashMessage::get()['message'] ?? null);
     }
 
     public function testSaveSettingsShowsAFailureOnlyThroughTheUserFacingHelper(): void

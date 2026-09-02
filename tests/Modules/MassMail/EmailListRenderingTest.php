@@ -22,8 +22,8 @@ use PHPUnit\Framework\TestCase;
  * print the stored scout years for an external email anyway, naming a
  * year that had never been used to resolve a single recipient.
  *
- * It also pins the compose dialog's explanatory note, which is what the
- * dialog shows in place of the year checkboxes for that same list type.
+ * It also pins the composition page's explanatory note, which is what
+ * that page shows in place of the year checkboxes for the same list type.
  */
 class EmailListRenderingTest extends TestCase
 {
@@ -90,20 +90,7 @@ class EmailListRenderingTest extends TestCase
             'statuses' => Email::STATUSES,
             'sections' => [['id' => 1, 'name' => 'Louveteaux']],
             'sections_by_id' => [1 => 'Louveteaux'],
-            'custom_lists' => [],
             'custom_lists_by_id' => [],
-            'default_lists' => [],
-            'scout_years' => [
-                'previous' => ['id' => 1, 'label' => '2024-2025', 'available' => true],
-                'current' => ['id' => 2, 'label' => '2025-2026', 'available' => true],
-                'next' => ['id' => 3, 'label' => '2026-2027', 'available' => false],
-            ],
-            'current_user_email' => 'chef@example.org',
-            'unrestricted' => true,
-            'user_section_ids' => [1],
-            'forced_section_id' => null,
-            'previous_year_cutoff' => '10-15',
-            'csrf_token' => 'tok',
         ]);
     }
 
@@ -152,12 +139,14 @@ class EmailListRenderingTest extends TestCase
         $this->assertStringNotContainsString('2025-2026', $row);
     }
 
-    public function testComposeDialogCarriesTheExternalListNote(): void
+    public function testTheComposePageCarriesTheExternalListNote(): void
     {
-        $html = $this->render();
+        // The note lives on the composition page now, not in the dialog
+        // this list used to carry. Hidden until mass-mail-compose.js's
+        // updateListTypeUi() selects the list type, exactly like the
+        // mail-merge note it is modelled on.
+        $html = ComposePageRenderer::render(ComposePageRenderer::draft());
 
-        // Hidden until mass-mail-list.js's updateListTypeUi() selects the
-        // list type, exactly like the mail-merge note it is modelled on.
         $this->assertMatchesRegularExpression(
             '~<p class="form-text small mb-0 d-none" id="mm-external-list-note">\s*Cette liste vise toujours l\'année d\'inscription\.~u',
             $html

@@ -87,10 +87,16 @@ class CsrfTest extends TestCase
 
         // CSRF is checked before buildAuthorization() is ever evaluated, so
         // the mocked collaborators above are never actually invoked here.
-        $response = $controller->create($this->jsonRequest(['subject' => 'x', '_csrf_token' => 'invalid']), []);
+        // The creation screen is a page, so a stale token sends the chief
+        // back to it with the one site-wide explanation rather than
+        // answering JSON.
+        $response = $controller->create(
+            new Request('POST', '/mass-mail', [], ['subject' => 'x', '_csrf_token' => 'invalid'], [], []),
+            []
+        );
 
-        $this->assertSame(400, $response->getStatusCode());
-        $this->assertStringContainsString('invalide', (string) $response->getBody());
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/mass-mail/new', $response->getHeaders()['Location'] ?? null);
 
         // No draft was created.
         $count = (int) $this->pdo->query('SELECT COUNT(*) FROM mass_mail_emails')->fetchColumn();

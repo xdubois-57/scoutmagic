@@ -13,9 +13,9 @@
 //
 //   1. showing/hiding the mail-merge zone and the scout-year block as the
 //      list type changes;
-//   2. importing the .xlsx (a multipart POST answering JSON, the same
-//      endpoint the list page's dialog uses) without leaving the page and
-//      dropping the half-written body;
+//   2. importing the .xlsx (a multipart POST answering JSON) without
+//      leaving the page and dropping the half-written body — the drop
+//      zone itself is the site's shared one (drop-zone.js);
 //   3. inserting a {{Colonne}} token where the caret is — in the subject
 //      or in the rich-text surface;
 //   4. the per-recipient preview in test mode, and the recipient count in
@@ -114,31 +114,39 @@
     // ---------------------------------------------------------------
     // 2. The .xlsx import — in place, so a half-written body survives it.
     // ---------------------------------------------------------------
-    const importBtn = el('mm-merge-import-btn');
-    if (importBtn) {
-        importBtn.addEventListener('click', async () => {
-            const input = /** @type {HTMLInputElement} */ (el('mm-merge-file'));
-            if (!input || !input.files || !input.files.length) {
-                showMergeError(["Choisissez d'abord un fichier Excel (.xlsx)."]);
-                return;
-            }
+    const dropZone = el('mm-merge-drop-zone');
+    const fileInput = /** @type {HTMLInputElement|null} */ (el('mm-merge-file'));
+    if (dropZone && fileInput && window.ScoutMagicDropZone) {
+        // The site's shared drop behaviour, not a fourth hand-written copy
+        // of the same four drag listeners (public/assets/js/drop-zone.js).
+        // The import fires as soon as a file arrives — dropped or picked —
+        // rather than behind a second « Importer » click: there is exactly
+        // one thing to do with an .xlsx here.
+        window.ScoutMagicDropZone.bind(dropZone, (files) => {
+            if (files.length) importAudience(files[0]);
+        }, { input: fileInput });
+    }
 
-            const formData = new FormData();
-            formData.append('file', input.files[0]);
-            formData.append('_csrf_token', api.csrfToken());
+    /** @param {File} file */
+    async function importAudience(file) {
+        setText('mm-merge-chosen', 'Import de « ' + file.name + ' » en cours…');
 
-            const res = await fetch('/mass-mail/audiences', { method: 'POST', body: formData });
-            const data = await res.json().catch(() => null);
-            if (!data || !data.success) {
-                showMergeError((data && data.errors) || [(data && data.error) || 'Erreur.']);
-                return;
-            }
-            showMergeError([]);
-            input.value = '';
-            renderAudience(data.audience);
-            showMergeWarnings(data.warnings || []);
-            await loadAudienceSample(data.audience.id);
-        });
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('_csrf_token', api.csrfToken());
+
+        const res = await fetch('/mass-mail/audiences', { method: 'POST', body: formData });
+        const data = await res.json().catch(() => null);
+        setText('mm-merge-chosen', '');
+        if (!data || !data.success) {
+            showMergeError((data && data.errors) || [(data && data.error) || 'Erreur.']);
+            return;
+        }
+        showMergeError([]);
+        if (fileInput) fileInput.value = '';
+        renderAudience(data.audience);
+        showMergeWarnings(data.warnings || []);
+        await loadAudienceSample(data.audience.id);
     }
 
     const replaceBtn = el('mm-merge-replace-btn');

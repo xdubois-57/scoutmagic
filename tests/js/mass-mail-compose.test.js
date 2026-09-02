@@ -65,8 +65,10 @@ function buildDom({ status = 'draft', listType = 'default_section', merge = fals
             <div id="mm-merge-zone" class="d-none">
                 <input type="hidden" id="mm-audience-id" name="audience_id" value="">
                 <div id="mm-merge-upload-state">
-                    <input type="file" id="mm-merge-file">
-                    <button type="button" id="mm-merge-import-btn">Importer</button>
+                    <div id="mm-merge-drop-zone">
+                        <input type="file" id="mm-merge-file">
+                        <p id="mm-merge-chosen"></p>
+                    </div>
                 </div>
                 <div id="mm-merge-info-state" class="d-none">
                     <div id="mm-merge-filename"></div>
@@ -129,8 +131,24 @@ async function boot(options = {}) {
     global.fetch = vi.fn(options.fetch || (() => jsonResponse({ success: true })));
     vi.resetModules();
     await import('../../public/assets/js/api.js');
+    // The shared drop behaviour the audience zone binds to, loaded exactly
+    // as compose.html.twig loads it — the import path is only reachable
+    // through it.
+    await import('../../public/assets/js/drop-zone.js');
     await import('../../public/assets/js/mass-mail-compose.js');
     await settle();
+}
+
+/**
+ * Hands the drop zone a file the way a chief does — the picker's own
+ * `change`, which is what ScoutMagicDropZone listens to.
+ *
+ * @param {string} name
+ */
+function chooseFile(name) {
+    const input = /** @type {HTMLInputElement} */ (document.getElementById('mm-merge-file'));
+    Object.defineProperty(input, 'files', { configurable: true, value: [new File(['x'], name)] });
+    input.dispatchEvent(new Event('change'));
 }
 
 /** One merge-preview payload as the server returns it. */
@@ -351,18 +369,13 @@ describe('mass-mail-compose.js: inserting a merge variable', () => {
 describe('mass-mail-compose.js: importing the audience file', () => {
     it('attaches the imported audience to the form without leaving the page', async () => {
         await boot({ listType: 'mail_merge' });
-        const file = document.getElementById('mm-merge-file');
-        Object.defineProperty(file, 'files', {
-            configurable: true,
-            value: [new File(['x'], 'camp.xlsx')],
-        });
         global.fetch = vi.fn((url) => jsonResponse(
             String(url).startsWith('/mass-mail/audiences/')
                 ? { success: true, audience: { id: 12, columns: ['Prénom'], filename: 'camp.xlsx', sheet_name: 'F1', row_count: 2 }, sample: { 'Prénom': 'Kaa' } }
                 : { success: true, audience: { id: 12, filename: 'camp.xlsx', sheet_name: 'F1', columns: ['Prénom'], row_count: 2 }, warnings: [] }
         ));
 
-        document.getElementById('mm-merge-import-btn').click();
+        chooseFile('camp.xlsx');
         await settle();
 
         expect(document.getElementById('mm-audience-id').value).toBe('12');
@@ -377,11 +390,9 @@ describe('mass-mail-compose.js: importing the audience file', () => {
      */
     it('reports every refused line and attaches nothing', async () => {
         await boot({ listType: 'mail_merge' });
-        const file = document.getElementById('mm-merge-file');
-        Object.defineProperty(file, 'files', { configurable: true, value: [new File(['x'], 'bad.xlsx')] });
         global.fetch = vi.fn(() => jsonResponse({ success: false, errors: ['Ligne 2 : adresse invalide.', 'Ligne 3 : Tiers inconnu.'] }));
 
-        document.getElementById('mm-merge-import-btn').click();
+        chooseFile('bad.xlsx');
         await settle();
 
         const box = document.getElementById('mm-merge-error');
@@ -393,15 +404,13 @@ describe('mass-mail-compose.js: importing the audience file', () => {
 
     it('escapes a column name that would otherwise open markup of its own', async () => {
         await boot({ listType: 'mail_merge' });
-        const file = document.getElementById('mm-merge-file');
-        Object.defineProperty(file, 'files', { configurable: true, value: [new File(['x'], 'camp.xlsx')] });
         global.fetch = vi.fn(() => jsonResponse({
             success: true,
             audience: { id: 12, filename: 'camp.xlsx', sheet_name: 'F1', columns: ['<img src=x onerror=alert(1)>'], row_count: 1 },
             warnings: [],
         }));
 
-        document.getElementById('mm-merge-import-btn').click();
+        chooseFile('camp.xlsx');
         await settle();
 
         expect(document.querySelector('#mm-merge-columns img')).toBeNull();

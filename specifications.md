@@ -1044,6 +1044,8 @@ Chaque envoi — publipostage ou liste classique — a **sa propre page**, `/mas
 
 C'est là qu'un brouillon s'écrit. Un brouillon dure : on le compose en plusieurs fois, on y revient le lendemain, on met le lien en favori, on l'envoie à un collègue pour relecture — rien de tout cela n'est possible dans une fenêtre. Partout ailleurs sur le site un détail est une page (un article, une campagne, une facture, une fiche de membre, un séjour) ; l'envoi de mails ne fait plus exception.
 
+La création aussi : « Nouvel email » ouvre `/mass-mail/new`, la même page vide, qui redirige vers le brouillon créé. Le comportement ne change pas — mêmes listes, mêmes années scoutes, même import Excel refusé en entier avec ses lignes fautives, même aperçu par destinataire — mais le dépôt du fichier passe par la zone de dépôt du site, et l'éditeur de texte riche est celui des autres pages.
+
 **Destinataires** répond, avant l'envoi, à la question qu'on se pose en dernier : à qui cela va-t-il partir ? Le fichier ligne par ligne pour un publipostage, le nombre de personnes que la liste désigne à cet instant sinon — recompté à chaque visite, parce qu'une liste est vivante. Une fois l'envoi lancé la liste est figée, et la page renvoie vers **Suivi**, qui dit ce qu'il est advenu de chaque adresse.
 
 ## 25. Leadership module — three lists of people to contact (module leadership)

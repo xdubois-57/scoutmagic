@@ -115,12 +115,6 @@ parameters:
 			path: modules/gallery/src/Repository/StorageLocationRepository.php
 
 		-
-			message: '#^Using nullsafe property access "\?\-\>originalName" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 1
-			path: modules/mass_mail/src/Controller/MassMailController.php
-
-		-
 			message: '#^Strict comparison using \!\=\= between mixed and null will always evaluate to true\.$#'
 			identifier: notIdentical.alwaysTrue
 			count: 3

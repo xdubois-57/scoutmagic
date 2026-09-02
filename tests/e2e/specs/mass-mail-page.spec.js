@@ -46,25 +46,23 @@ test("un brouillon a sa propre page, et c'est là qu'on l'écrit", async ({ page
     await page.goto('/mass-mail', { waitUntil: 'load' });
 
     // ---------------------------------------------------------------
-    // A draft to open. Created through the list's dialog, which is what
-    // still creates one at this point.
+    // A draft to open.
     // ---------------------------------------------------------------
-    await page.locator('#mm-new-btn').click();
-    const dialog = page.locator('#mm-modal');
-    await expect(dialog).toBeVisible();
-    await dialog.locator('#mm-list').selectOption({ label: 'Section - Meute E2E' });
-    await dialog.locator('#mm-subject').fill(SUBJECT);
-    await dialog.locator('#mm-body-content').fill('Message à relire.');
-    await dialog.locator('#mm-save-btn').click();
-
-    const row = page.getByRole('row', { name: new RegExp(SUBJECT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) });
-    await expect(row).toBeVisible();
-    await page.waitForLoadState('load');
+    await page.getByRole('link', { name: 'Nouvel email' }).click();
+    await page.waitForURL(/\/mass-mail\/new$/, { waitUntil: 'load' });
+    await page.locator('#mm-list').selectOption({ label: 'Section - Meute E2E' });
+    await page.locator('#mm-subject').fill(SUBJECT);
+    await page.locator('#mm-body-content').fill('Message à relire.');
+    await page.getByRole('button', { name: 'Créer le brouillon' }).click();
+    await page.waitForURL(/\/mass-mail\/\d+$/, { waitUntil: 'load' });
 
     // ---------------------------------------------------------------
-    // The subject is a link to the email's own page — a detail is a page
+    // The list's subject is a link back to that page — a detail is a page
     // everywhere else on this site, and this one now is too.
     // ---------------------------------------------------------------
+    await page.goto('/mass-mail', { waitUntil: 'load' });
+    const row = page.getByRole('row', { name: new RegExp(SUBJECT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) });
+    await expect(row).toBeVisible();
     await row.getByRole('link', { name: SUBJECT }).click();
     await page.waitForURL(/\/mass-mail\/\d+$/, { waitUntil: 'load' });
 
@@ -78,12 +76,6 @@ test("un brouillon a sa propre page, et c'est là qu'on l'écrit", async ({ page
     await expect(
         page.locator('.breadcrumb-bar').getByRole('link', { name: 'Envoi de mails' }),
     ).toBeVisible();
-
-    // The payload moved rather than disappearing: the list's dialog still
-    // reads it, one segment down.
-    const payload = await page.request.get(page.url() + '/data');
-    expect(payload.status()).toBe(200);
-    expect((await payload.json()).email.subject).toBe(SUBJECT);
 
     // ---------------------------------------------------------------
     // Writing, on the page, through its own form — no dialog, no fetch.

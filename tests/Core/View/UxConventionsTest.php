@@ -124,8 +124,6 @@ final class UxConventionsTest extends TestCase
      *   database refused produces — SECURITY.md § 35.)
      * - pwa/offline: the offline interstitial's Retour is history.back(),
      *   there is no server-side trail to stand in for it.
-     * - mass_mail/_compose_dialog: « Retour au brouillon » is a wizard
-     *   step control inside a dialog, not page navigation.
      *
      * @var list<string> template paths allowed to keep a Retour control
      */
@@ -134,7 +132,6 @@ final class UxConventionsTest extends TestCase
         'core/View/templates/errors/404.html.twig',
         'core/View/templates/errors/constraint.html.twig',
         'core/View/templates/pwa/offline.html.twig',
-        'modules/mass_mail/views/_compose_dialog.html.twig',
     ];
 
     /**
@@ -237,10 +234,6 @@ final class UxConventionsTest extends TestCase
         '/gallery/media/{media_id}/download',
         '/gallery/media/{media_id}/{size}',
         '/gallery/{id}/download',
-        // JSON payload for the list page's create/edit dialog
-        // (MassMailController::data()) — `/mass-mail/{id}` itself is the
-        // email's own composition page now, and declares a breadcrumb.
-        '/mass-mail/{id}/data',
         '/groups/{id}/feed',
         '/groups/{id}/media-status',
         '/groups/{id}/member-search',

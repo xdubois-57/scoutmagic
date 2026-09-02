@@ -13,6 +13,7 @@ use Core\Member\MemberProfile;
 use Core\View\TwigFactory;
 use PHPUnit\Framework\TestCase;
 use Twig\Environment;
+use Tests\Modules\MassMail\ComposePageRenderer;
 use Twig\TwigFunction;
 
 /**
@@ -95,15 +96,14 @@ class DecorativeLabelMisuseTest extends TestCase
         $this->assertTextIsNotInsideALabel($html, 'Voir le site à sa place');
     }
 
-    public function testMassMailComposeDialogGroupHeadingsAreNotLabelElements(): void
+    public function testMassMailComposePageGroupHeadingsAreNotLabelElements(): void
     {
-        $twig = $this->createTwig(['mass_mail' => dirname(__DIR__, 3) . '/modules/mass_mail/views']);
-        $html = $twig->render('@mass_mail/_compose_dialog.html.twig');
+        $html = ComposePageRenderer::render(ComposePageRenderer::draft());
 
         $this->assertTextIsNotInsideALabel($html, 'Année(s) scoute(s)');
         $this->assertTextIsNotInsideALabel($html, 'Message');
         $this->assertTextIsNotInsideALabel($html, 'Pièces jointes');
-        $this->assertTextIsNotInsideALabel($html, "Progression de l'envoi");
+        $this->assertTextIsNotInsideALabel($html, 'Fichier de publipostage');
     }
 
     public function testMassMailConfigGroupHeadingsAreNotLabelElements(): void

@@ -3,13 +3,14 @@
 {% block title %}Envoi de mails — {{ site_name }}{% endblock %}
 
 {% block content %}
-    {% include 'partials/page_header.html.twig' with { title: 'Envoi de mails' } only %}
-
-    {# The creation action opens the compose dialog (JS), so it cannot ride
-       the page_header's link action — it keeps its own right-aligned row. #}
-    <div class="d-flex justify-content-end mb-3">
-        <button type="button" class="btn btn-primary w-100 w-sm-auto" id="mm-new-btn"><i class="bi bi-plus-lg" aria-hidden="true"></i> Nouvel email</button>
-    </div>
+    {# Creation is a page now, so the action rides the page header's own
+       link slot like every other « Nouveau … » on this site (design.md
+       §7.4) instead of a JavaScript button in a row of its own. #}
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Envoi de mails',
+        action_label: 'Nouvel email',
+        action_url: '/mass-mail/new',
+    } only %}
 
     <form method="get" action="/mass-mail" class="row g-2 align-items-end mb-3">
         <div class="col-12 col-md-4">
@@ -96,8 +97,11 @@
                         </td>
                         <td class="text-end">{{ recipient_counts[email.id] ?? 0 }}</td>
                         <td>{{ email.createdAt|date_fr }}</td>
+                        {# No « Ouvrir » button beside the subject: the
+                           subject IS the link to the email's page, and a
+                           second control to the same place is a second
+                           thing to explain. #}
                         <td class="text-end text-nowrap">
-                            <button type="button" class="btn btn-sm btn-outline-secondary mm-open-btn" data-id="{{ email.id }}" title="Ouvrir"><i class="bi bi-eye"></i></button>
                             {% if email.status in ['sending', 'sent'] %}
                                 <a href="/mass-mail/{{ email.id }}/tracking" class="btn btn-sm btn-outline-secondary" title="Suivi"><i class="bi bi-bar-chart-line"></i></a>
                             {% endif %}
@@ -125,29 +129,4 @@
         label: 'Pagination des emails',
     } only %}
 
-    {% include '@mass_mail/_compose_dialog.html.twig' %}
-{% endblock %}
-
-{% block scripts %}
-{# Server data as a JSON ISLAND, not an inline assignment: an island is
-   data to the parser, so a list name that manages to contain a
-   tag-closing sequence cannot end the block in the middle of an object
-   literal, and the template needs no nonce for it.
-   JSON_HEX_TAG/JSON_HEX_AMP escape those characters anyway.
-   mass-mail-list.js reads it through ScoutMagicApi.pageData(). #}
-{% set json_flags = constant('JSON_HEX_TAG') b-or constant('JSON_HEX_AMP') b-or constant('JSON_UNESCAPED_UNICODE') %}
-<script type="application/json" id="mass-mail-list-data">
-{{ {
-    sections: sections,
-    defaultLists: default_lists,
-    customLists: custom_lists|map(l => {id: l.id, name: l.name, description: l.description}),
-    scoutYears: scout_years,
-    currentUserEmail: current_user_email,
-    unrestricted: unrestricted,
-    userSectionIds: user_section_ids,
-    forcedSectionId: forced_section_id,
-    previousYearCutoff: previous_year_cutoff
-}|json_encode(json_flags)|raw }}
-</script>
-<script src="{{ asset('/assets/js/mass-mail-list.js') }}" defer></script>
 {% endblock %}

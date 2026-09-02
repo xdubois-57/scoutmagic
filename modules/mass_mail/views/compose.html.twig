@@ -1,30 +1,34 @@
 {% extends "base.html.twig" %}
 
-{% block title %}{{ email.subject }} — Envoi de mails — {{ site_name }}{% endblock %}
+{% block title %}{{ email ? email.subject : 'Nouvel email' }} — Envoi de mails — {{ site_name }}{% endblock %}
 
 {% block content %}
     {# The way back to the list is the breadcrumb (design.md §7.3) — no
        « Retour » button here. #}
-    {% include 'partials/page_header.html.twig' with { title: email.subject } only %}
+    {% include 'partials/page_header.html.twig' with { title: email ? email.subject : 'Nouvel email' } only %}
 
-    {% include '@mass_mail/partials/_email_tabs.html.twig' with {
-        email_id: email.id,
-        active: 'compose',
-        show_tracking: email.status in ['sending', 'sent'],
-    } only %}
-
-    <p class="mb-3">
-        {% include 'partials/status_badge.html.twig' with {
-            status: email.status == 'draft' ? 'draft' : (email.status == 'test' ? 'pending' : (email.status == 'sending' ? 'in_progress' : 'done')),
-            label: email.status == 'draft' ? 'Brouillon' : (email.status == 'test' ? 'Test' : (email.status == 'sending' ? 'Envoi en cours' : 'Envoyé')),
+    {% if email %}
+        {% include '@mass_mail/partials/_email_tabs.html.twig' with {
+            email_id: email.id,
+            active: 'compose',
+            show_tracking: email.status in ['sending', 'sent'],
         } only %}
-    </p>
+
+        {# The id is a contract with tests/e2e (ARCHITECTURE.md § 15): the
+           badge itself is a shared partial with no hook of its own. #}
+        <p class="mb-3" id="mm-status">
+            {% include 'partials/status_badge.html.twig' with {
+                status: email.status == 'draft' ? 'draft' : (email.status == 'test' ? 'pending' : (email.status == 'sending' ? 'in_progress' : 'done')),
+                label: email.status == 'draft' ? 'Brouillon' : (email.status == 'test' ? 'Test' : (email.status == 'sending' ? 'Envoi en cours' : 'Envoyé')),
+            } only %}
+        </p>
+    {% endif %}
 
     {% if submit_error %}
         <div class="alert alert-danger" role="alert">{{ submit_error }}</div>
     {% endif %}
 
-    <form method="post" action="/mass-mail/{{ email.id }}" id="mm-compose-form">
+    <form method="post" action="{{ email ? '/mass-mail/' ~ email.id : '/mass-mail' }}" id="mm-compose-form">
         {{ csrf_field()|raw }}
         {# A fieldset rather than a per-control `disabled`: once an email
            has left the brouillon state its content is frozen, and the
@@ -80,12 +84,25 @@
                 <div class="form-label small d-block">Fichier de publipostage</div>
                 <input type="hidden" name="audience_id" id="mm-audience-id" value="{{ form.audience_id }}">
 
-                <div class="border rounded bg-body-tertiary p-2 {{ audience ? 'd-none' : '' }}" id="mm-merge-upload-state">
-                    <div class="d-flex gap-2 align-items-center">
-                        <input type="file" class="form-control form-control-sm" id="mm-merge-file" accept=".xlsx"
-                               aria-label="Choisir le fichier Excel du publipostage">
-                        <button type="button" class="btn btn-sm btn-outline-primary text-nowrap" id="mm-merge-import-btn">Importer</button>
-                    </div>
+                {# The site's one « déposez un fichier ici » (design.md
+                   §7.10). The dialog this page replaces had its own bare
+                   file input beside a button; the zone is the same
+                   component the gallery, the generic uploader and
+                   « Nouveau reçu » already use, wired by
+                   window.ScoutMagicDropZone. #}
+                <div class="{{ audience ? 'd-none' : '' }}" id="mm-merge-upload-state">
+                    {% embed 'partials/drop_zone.html.twig' with {
+                        id: 'mm-merge-drop-zone',
+                        input_id: 'mm-merge-file',
+                        accept: '.xlsx',
+                        message: 'Glissez-déposez le fichier Excel ici, ou cliquez pour parcourir',
+                        icon: 'bi-file-earmark-spreadsheet',
+                        input_label: 'Choisir le fichier Excel du publipostage',
+                    } only %}
+                        {% block extra %}
+                            <p class="form-text small mb-0 mt-2 text-start" id="mm-merge-chosen"></p>
+                        {% endblock %}
+                    {% endembed %}
                     <p class="form-text small mb-0 mt-1">
                         Fichier Excel (.xlsx), première feuille uniquement, première ligne = en-têtes de colonnes.
                         Colonne « Tiers » (identifiant Desk : l'email part vers toutes les adresses connues du membre)
@@ -175,7 +192,7 @@
                     rows_height: '18rem',
                     extra_toolbar_template: '@mass_mail/partials/_variable_toolbar.html.twig',
                 } %}
-            {% else %}
+            {% elseif email %}
                 <div class="mb-3">
                     <span class="form-label d-block">Message</span>
                     {# Sanitized at save time (Core\Security\HtmlSanitizer),
@@ -187,11 +204,21 @@
 
         {% if editable %}
             <div class="d-flex flex-column flex-sm-row gap-2">
-                <button type="submit" class="btn btn-primary">Enregistrer</button>
+                <button type="submit" class="btn btn-primary">{{ email ? 'Enregistrer' : 'Créer le brouillon' }}</button>
             </div>
         {% endif %}
     </form>
 
+    {% if not email %}
+        {# Attachments need a row to hang on, and the status machine needs
+           something to move. Both appear on the page this form redirects
+           to, the moment the draft exists. #}
+        <div class="form-text small mt-2">
+            Enregistrez d'abord le brouillon pour ajouter des pièces jointes et passer en mode test.
+        </div>
+    {% endif %}
+
+    {% if email %}
     <hr class="my-4">
 
     <div class="mb-4">
@@ -205,7 +232,6 @@
                               data-confirm="Supprimer la pièce jointe « {{ attachment.name }} » ?"
                               data-confirm-label="Supprimer">
                             {{ csrf_field()|raw }}
-                            <input type="hidden" name="_form" value="1">
                             <input type="hidden" name="email_id" value="{{ email.id }}">
                             <button type="submit" class="btn btn-sm btn-outline-danger" aria-label="Supprimer la pièce jointe">
                                 <i class="bi bi-trash" aria-hidden="true"></i>
@@ -221,7 +247,6 @@
             <form method="post" action="/mass-mail/{{ email.id }}/attachments" enctype="multipart/form-data"
                   class="d-flex gap-2">
                 {{ csrf_field()|raw }}
-                <input type="hidden" name="_form" value="1">
                 <input type="file" class="form-control form-control-sm" name="file" aria-label="Choisir un fichier à joindre" required>
                 <button type="submit" class="btn btn-sm btn-outline-primary text-nowrap">Ajouter</button>
             </form>
@@ -252,7 +277,6 @@
             {% endif %}
             <form method="post" action="/mass-mail/{{ email.id }}/test-send" class="d-flex flex-column flex-sm-row gap-2" id="mm-test-send-form">
                 {{ csrf_field()|raw }}
-                <input type="hidden" name="_form" value="1">
                 <input type="hidden" name="merge_offset" value="0" id="mm-merge-offset">
                 <input type="email" class="form-control form-control-sm" name="to" id="mm-test-send-email"
                        value="{{ current_user_email }}" aria-label="Adresse de test" required>
@@ -283,14 +307,12 @@
         {% if email.status == 'draft' %}
             <form method="post" action="/mass-mail/{{ email.id }}/status">
                 {{ csrf_field()|raw }}
-                <input type="hidden" name="_form" value="1">
                 <input type="hidden" name="action" value="to_test">
                 <button type="submit" class="btn btn-warning w-100 w-sm-auto">Passer en mode test</button>
             </form>
         {% elseif email.status == 'test' %}
             <form method="post" action="/mass-mail/{{ email.id }}/status">
                 {{ csrf_field()|raw }}
-                <input type="hidden" name="_form" value="1">
                 <input type="hidden" name="action" value="to_draft">
                 {# « Repasser en brouillon » and not « Retour … » — this is
                    a status transition, not page navigation, and on a page
@@ -305,12 +327,12 @@
                moment of the click, not at the moment the page was opened. #}
             <form method="post" action="/mass-mail/{{ email.id }}/status" id="mm-start-sending-form">
                 {{ csrf_field()|raw }}
-                <input type="hidden" name="_form" value="1">
                 <input type="hidden" name="action" value="start_sending">
                 <button type="submit" class="btn btn-danger w-100 w-sm-auto">Lancer l'envoi</button>
             </form>
         {% endif %}
     </div>
+    {% endif %}
 {% endblock %}
 
 {% block scripts %}
@@ -320,10 +342,13 @@
    JSON_HEX_TAG/JSON_HEX_AMP escape those characters anyway. #}
 {% set json_flags = constant('JSON_HEX_TAG') b-or constant('JSON_HEX_AMP') b-or constant('JSON_UNESCAPED_UNICODE') %}
 <script type="application/json" id="mass-mail-compose-data">
-{{ { emailId: email.id, status: email.status }|json_encode(json_flags)|raw }}
+{{ { emailId: email ? email.id : null, status: email ? email.status : null }|json_encode(json_flags)|raw }}
 </script>
 {# The rich text field's own requirement: a module script tag, because
    assets/js/rich-text-form-field.js uses `export`. #}
 <script type="module" src="{{ asset('/assets/js/rich-text-form-field.js') }}"></script>
+{# The shared « déposez un fichier ici » behaviour the audience zone binds
+   to — the same file the gallery and « Nouveau reçu » load. #}
+<script src="{{ asset('/assets/js/drop-zone.js') }}" defer></script>
 <script src="{{ asset('/assets/js/mass-mail-compose.js') }}" defer></script>
 {% endblock %}
