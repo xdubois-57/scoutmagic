@@ -2,7 +2,7 @@
   "id": "trombinoscope",
   "name": "Trombinoscope",
   "description": "Annuaire photo des animés, classé par section, avec leurs coordonnées et leur fonction.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "enabled_by_default": true,
   "routes": [
     {
@@ -19,7 +19,15 @@
       "breadcrumb": { "label": "Trombinoscope", "parents": ["Espace membres"] }
     }
   ],
-  "settings": [],
+  "settings": [
+    {
+      "key": "trombinoscope_show_contacts",
+      "default_value": "1",
+      "type": "boolean",
+      "label": "Afficher les coordonnées des animateurs",
+      "description": "Affiche le téléphone et l'adresse e-mail personnels de chaque animateur, sur le trombinoscope et dans le document imprimable. Décochez pour ne montrer que les visages et les fonctions ; les adresses e-mail des sections, qui sont des adresses de service, restent visibles dans tous les cas."
+    }
+  ],
   "cookies": [],
   "scheduled_tasks": [],
   "storage": {},

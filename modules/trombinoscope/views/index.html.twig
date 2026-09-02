@@ -33,6 +33,16 @@
                 <span class="text-body-secondary small">{{ block.section.branch_name }}</span>
             </div>
 
+            {# A section's address is organizational (design.md §2.6): it belongs
+               to the section rather than to whoever currently runs it, so it is
+               shown whatever the contacts setting says. #}
+            {% if block.section.email %}
+                <p class="text-body-secondary small mb-3">
+                    <i class="bi bi-envelope" aria-hidden="true"></i>
+                    <a href="mailto:{{ block.section.email }}" class="link-body-emphasis text-break">{{ block.section.email }}</a>
+                </p>
+            {% endif %}
+
             {% if block.lead or block.staff|length > 0 %}
                 <div class="row g-2 row-cols-1 row-cols-sm-2 row-cols-lg-3">
                     {% if block.lead %}
@@ -52,6 +62,9 @@
                                             </span>
                                         {% endfor %}
                                     </div>
+                                    {% if show_contacts %}
+                                        {% include '@trombinoscope/partials/contacts.html.twig' with { member: block.lead } only %}
+                                    {% endif %}
                                 </div>
                             </div>
                         </div>
@@ -73,6 +86,9 @@
                                                 </span>
                                             {% endfor %}
                                         </div>
+                                    {% endif %}
+                                    {% if show_contacts %}
+                                        {% include '@trombinoscope/partials/contacts.html.twig' with { member: member } only %}
                                     {% endif %}
                                 </div>
                             </div>

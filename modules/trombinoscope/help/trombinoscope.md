@@ -6,6 +6,7 @@ category: Espace membres
 role_min: identified
 question: Qui sont les animateurs de la section de mon enfant ?
 question: Comment savoir qui est responsable d'une section ?
+question: Comment joindre l'animateur de mon enfant par téléphone ?
 paths: /trombinoscope
 related: staffs, page-membre
 ---
@@ -27,12 +28,22 @@ section déjà sélectionnée.
 
 Uniquement l'encadrement : les animateurs et les chefs d'unité actifs
 cette année dans chaque section. Ni les animés, ni les parents n'y
-apparaissent, et la page ne montre aucune coordonnée — pour écrire à
-une section, utilisez son adresse e-mail, indiquée sur la page
-Sections et sur la page de votre animé.
+apparaissent.
 
 La page est réservée aux personnes connectées : les visages de
 l'encadrement ne sont pas exposés aux visiteurs anonymes.
+
+## Écrire ou téléphoner
+
+Chaque section porte son adresse e-mail, sous son nom. C'est une
+adresse de service : elle reste la même quand la section change de
+responsable, et elle est toujours affichée.
+
+Sous chaque animateur figurent en plus son téléphone et son adresse
+e-mail personnelle. Le Staff d'Unité peut les masquer pour toute
+l'unité, dans Configuration puis Réglages, avec le réglage
+« Afficher les coordonnées des animateurs ». Masquées, les adresses
+de section restent visibles : on sait toujours à qui écrire.
 
 ## D'où viennent ces informations
 

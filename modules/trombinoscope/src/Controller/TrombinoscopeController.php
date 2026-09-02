@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Trombinoscope\Controller;
 
+use Core\Config\SettingService;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
@@ -24,12 +25,32 @@ class TrombinoscopeController extends AbstractController
     /** Sentinel section id for the "Toutes" (all sections) picker entry. */
     public const ALL_SECTIONS_ID = 0;
 
+    /**
+     * The module's single setting: whether an animateur's own phone number
+     * and e-mail address are shown at all. It governs personal data only —
+     * a section's own e-mail address is organizational (design.md §2.6,
+     * "Section email (organizational) -> Clear VARCHAR"), survives a change
+     * of responsable, and stays on screen either way.
+     */
+    public const SETTING_SHOW_CONTACTS = 'trombinoscope_show_contacts';
+
     public function __construct(
         protected Environment $twig,
         private SectionService $sectionService,
         private TrombinoscopeService $trombinoscopeService,
-        private ScoutYearResolver $scoutYearResolver
+        private ScoutYearResolver $scoutYearResolver,
+        private SettingService $settingService
     ) {
+    }
+
+    /**
+     * Whether personal contact details may be rendered at all. One switch
+     * for the whole module — the wall, the printable directory page and
+     * the printable section pages — never two.
+     */
+    private function showsContacts(): bool
+    {
+        return $this->settingService->get(self::SETTING_SHOW_CONTACTS, 'trombinoscope', '1') === '1';
     }
 
     /**
@@ -90,6 +111,7 @@ class TrombinoscopeController extends AbstractController
             'picker_sections' => $pickerSections,
             'selected_id' => $selectedId,
             'section_blocks' => $sectionBlocks,
+            'show_contacts' => $this->showsContacts(),
         ];
         if ($selectedLabel !== null) {
             $context['breadcrumb_current'] = 'Trombinoscope · ' . $selectedLabel;

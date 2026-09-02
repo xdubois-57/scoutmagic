@@ -1,0 +1,34 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  An animateur's own contact details, under their name.
+
+  Personal data, and therefore governed end to end by the module's single
+  setting (`trombinoscope_show_contacts`): the caller decides, this partial
+  only draws. A section's own e-mail address is NOT drawn here — it is
+  organizational (design.md §2.6), belongs to the section rather than to
+  whoever currently runs it, and is rendered by the section header instead.
+
+  Usage:
+  {% include '@trombinoscope/partials/contacts.html.twig' with { member: member } only %}
+#}
+{% set contact_phone = member.mobile ?: member.phone %}
+{% if contact_phone or member.email %}
+    <div class="text-body-secondary mt-1" style="font-size:var(--fs-micro);">
+        {% if contact_phone %}
+            <div class="text-truncate">
+                <i class="bi bi-telephone" aria-hidden="true"></i>
+                <a href="tel:{{ contact_phone|replace({' ': '', '.': '', '/': '', '-': ''}) }}" class="link-body-emphasis">{{ contact_phone }}</a>
+            </div>
+        {% endif %}
+        {% if member.email %}
+            {# Never truncated: a clipped address is an address nobody can write to. #}
+            <div class="text-break">
+                <i class="bi bi-envelope" aria-hidden="true"></i>
+                <a href="mailto:{{ member.email }}" class="link-body-emphasis">{{ member.email }}</a>
+            </div>
+        {% endif %}
+    </div>
+{% endif %}
