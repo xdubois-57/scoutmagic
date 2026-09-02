@@ -80,6 +80,29 @@ class GeneralMailboxService
      * tampered cursor can do is start the listing at a different date, on a
      * page its reader may already see in full.
      */
+    /**
+     * How many messages each association choice would show, under the SAME
+     * mailbox and bulk filters the reader has set.
+     *
+     * Under the same filters, deliberately: a count that ignored the
+     * mailbox choice would announce two hundred messages on a box holding
+     * three, which is a different lie from the one it exists to end.
+     *
+     * @param array{mailbox_id?: ?int, association?: string, include_bulk?: bool} $filters
+     * @return array{none: int, some: int, all: int}
+     */
+    public function counts(array $filters): array
+    {
+        $counts = [];
+        foreach (['none', 'some', 'all'] as $association) {
+            $counts[$association] = $this->messages->countPage(
+                ['association' => $association] + $filters
+            );
+        }
+
+        return $counts;
+    }
+
     public static function encodeCursor(InboundMessage $message): string
     {
         return $message->sentAt->format('Y-m-d H:i:s') . '|' . $message->id;

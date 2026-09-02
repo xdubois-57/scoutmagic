@@ -6,8 +6,22 @@
 {% include 'partials/page_header.html.twig' with { title: 'Courrier entrant' } only %}
 
 <p class="text-body-secondary">
-    Tout le courrier reçu dans les boîtes synchronisées. Associer un message ne le retire pas de la
-    boîte d'origine.
+    Le courrier reçu dans les boîtes synchronisées. Associer un message ne le retire pas de la boîte
+    d'origine.
+    {#
+      « Tout le courrier » is what this said, and the page opens on
+      « Sans association » — so it promised everything and showed a
+      subset. A reader concluded, reasonably, that every message they had
+      was unattached; the counts on the filter below are what makes the
+      subset visible AS a subset.
+    #}
+    {% if filter_association == 'none' and association_counts.some > 0 %}
+        <strong>Cette page s'ouvre sur les messages sans association</strong> :
+        {{ association_counts.some }} message{{ association_counts.some > 1 ? 's' : '' }}
+        déjà rattaché{{ association_counts.some > 1 ? 's' : '' }}
+        {{ association_counts.some > 1 ? 'sont' : 'est' }} masqué{{ association_counts.some > 1 ? 's' : '' }}
+        par le filtre ci-dessous.
+    {% endif %}
 </p>
 
 {# ── Filters. Metadata only — there is deliberately no search on the
@@ -16,9 +30,9 @@
     <div class="col-sm-auto">
         <label for="filter-association" class="form-label">Associations</label>
         <select name="association" id="filter-association" class="form-select form-select-sm">
-            <option value="none" {{ filter_association == 'none' ? 'selected' : '' }}>Sans association</option>
-            <option value="some" {{ filter_association == 'some' ? 'selected' : '' }}>Avec association</option>
-            <option value="all" {{ filter_association == 'all' ? 'selected' : '' }}>Toutes les associations</option>
+            <option value="none" {{ filter_association == 'none' ? 'selected' : '' }}>Sans association ({{ association_counts.none }})</option>
+            <option value="some" {{ filter_association == 'some' ? 'selected' : '' }}>Avec association ({{ association_counts.some }})</option>
+            <option value="all" {{ filter_association == 'all' ? 'selected' : '' }}>Toutes les associations ({{ association_counts.all }})</option>
         </select>
     </div>
     <div class="col-sm-auto">
@@ -38,7 +52,9 @@
 
 {% if messages is empty %}
     {% include 'partials/empty_state.html.twig' with {
-        message: "Aucun message ne correspond à ce filtre.",
+        message: association_counts.all > 0
+            ? "Aucun message ne correspond à ce filtre. Les autres sont sous « Toutes les associations »."
+            : "Aucun message reçu pour le moment.",
         compact: true
     } only %}
 {% else %}
@@ -69,7 +85,13 @@
                     </div>
                     <div class="mt-1 d-flex flex-wrap gap-1">
                         {% set own_candidates = candidates[message.id]|default([]) %}
-                        {% if message.links is empty and own_candidates is empty %}
+                        {#
+                          Not under « Sans association » : there, every row
+                          is unattached by construction, and a badge on all
+                          of them says nothing about the message while
+                          reading like a claim about the whole mailbox.
+                        #}
+                        {% if filter_association != 'none' and message.links is empty and own_candidates is empty %}
                             <span class="badge text-bg-light">Aucune association</span>
                         {% endif %}
                         {% for link in message.links %}

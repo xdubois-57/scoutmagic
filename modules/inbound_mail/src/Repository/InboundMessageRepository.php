@@ -1130,6 +1130,51 @@ class InboundMessageRepository
      */
     public function findPage(array $filters, ?array $after, int $limit): array
     {
+        [$where, $params] = $this->pageConditions($filters, $after);
+
+        $stmt = $this->pdo->prepare(
+            'SELECT m.* FROM inbound_messages m
+              WHERE ' . implode(' AND ', $where) . '
+           ORDER BY m.sent_at DESC, m.id DESC
+              LIMIT ' . max(1, $limit)
+        );
+        $stmt->execute($params);
+
+        return $this->hydrateAll($stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * How many messages that same filter matches, ignoring the cursor.
+     *
+     * What tells « voilà tout mon courrier » from « le filtre en cache deux
+     * cents ». The page opens on « Sans association », and without a number
+     * beside each choice there is nothing on screen to say so — a reader
+     * concludes, reasonably, that every message they have is unattached.
+     *
+     * @param array{mailbox_id?: ?int, association?: string, include_bulk?: bool} $filters
+     */
+    public function countPage(array $filters): int
+    {
+        [$where, $params] = $this->pageConditions($filters, null);
+
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM inbound_messages m WHERE ' . implode(' AND ', $where)
+        );
+        $stmt->execute($params);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * The one place the listing's WHERE is built, so the count and the page
+     * can never disagree about what the filter means.
+     *
+     * @param array{mailbox_id?: ?int, association?: string, include_bulk?: bool} $filters
+     * @param array{sent_at: string, id: int}|null $after
+     * @return array{0: string[], 1: array<int, mixed>}
+     */
+    private function pageConditions(array $filters, ?array $after): array
+    {
         $where = ['1 = 1'];
         $params = [];
 
@@ -1163,15 +1208,7 @@ class InboundMessageRepository
             $params[] = $after['id'];
         }
 
-        $stmt = $this->pdo->prepare(
-            'SELECT m.* FROM inbound_messages m
-              WHERE ' . implode(' AND ', $where) . '
-           ORDER BY m.sent_at DESC, m.id DESC
-              LIMIT ' . max(1, $limit)
-        );
-        $stmt->execute($params);
-
-        return $this->hydrateAll($stmt->fetchAll(\PDO::FETCH_ASSOC));
+        return [$where, $params];
     }
 
     /**

@@ -61,12 +61,14 @@ class InboundMailboxController extends AbstractController
         $mailboxId = (int) $request->getQuery('boite', 0);
         $includeBulk = (string) $request->getQuery('automatique', '') === '1';
 
+        $filters = [
+            'mailbox_id' => $mailboxId > 0 ? $mailboxId : null,
+            'association' => $association,
+            'include_bulk' => $includeBulk,
+        ];
+
         $page = $this->mailbox->page(
-            [
-                'mailbox_id' => $mailboxId > 0 ? $mailboxId : null,
-                'association' => $association,
-                'include_bulk' => $includeBulk,
-            ],
+            $filters,
             GeneralMailboxService::decodeCursor((string) $request->getQuery('apres', ''))
         );
 
@@ -80,6 +82,9 @@ class InboundMailboxController extends AbstractController
             'candidates' => $candidates,
             'reference_labels' => $this->referenceLabels($page['messages'], $candidates),
             'filter_association' => $association,
+            // What tells « voilà tout mon courrier » from « le filtre en
+            // cache deux cents » — see the template.
+            'association_counts' => $this->mailbox->counts($filters),
             'filter_mailbox' => $mailboxId,
             'include_bulk' => $includeBulk,
             'bulk_count' => $this->mailbox->bulkCount(),

@@ -47,6 +47,7 @@ class InboundMailboxControllerTest extends TestCase
     private InboundMessageRepository $messages;
     private GeneralMailboxService $mailbox;
     private InboundMailboxController $controller;
+    private InboundMailboxRepository $mailboxes;
     private int $mailboxId;
 
     protected function setUp(): void
@@ -56,7 +57,7 @@ class InboundMailboxControllerTest extends TestCase
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
 
         $this->messages = new InboundMessageRepository($this->pdo, $encryption);
-        $mailboxes = new InboundMailboxRepository($this->pdo, $encryption);
+        $mailboxes = $this->mailboxes = new InboundMailboxRepository($this->pdo, $encryption);
         $registry = new MessageConsumerRegistry();
         $registry->register(new FakeMessageConsumer('rental'));
 
@@ -105,6 +106,102 @@ class InboundMailboxControllerTest extends TestCase
 
         $this->assertStringContainsString('/courrier/' . $bare, $body);
         $this->assertStringNotContainsString('/courrier/' . $linked, $body);
+    }
+
+    /**
+     * The complaint this comes from: « tous les e-mails sont marqués comme
+     * non rattachés alors que certains le sont déjà ».
+     *
+     * They were not mislabelled — the page OPENS on « Sans association »,
+     * so everything it showed was genuinely unattached. What made that
+     * unreadable was the page itself: an intro promising « tout le
+     * courrier », no count anywhere, and a badge on every single row
+     * saying « Aucune association ». Three things that, together, say
+     * « voilà tout ton courrier, et rien n'est rattaché ».
+     */
+    public function testThePageSaysHowManyItsOwnFilterIsHiding(): void
+    {
+        $this->store('bare@x');
+        $linked = $this->store('linked@x');
+        $this->messages->addLink($linked, 'rental', 'LOC-1', LinkOrigin::REFERENCE);
+
+        $body = $this->controller->index($this->get('/courrier'), [])->getBody();
+
+        $this->assertStringContainsString('sans association', mb_strtolower(html_entity_decode($body)));
+        $this->assertStringContainsString('masqué', html_entity_decode($body));
+    }
+
+    public function testEveryFilterChoiceCarriesItsOwnCount(): void
+    {
+        $this->store('bare@x');
+        $linked = $this->store('linked@x');
+        $this->messages->addLink($linked, 'rental', 'LOC-1', LinkOrigin::REFERENCE);
+
+        $body = html_entity_decode($this->controller->index($this->get('/courrier'), [])->getBody());
+
+        $this->assertStringContainsString('Sans association (1)', $body);
+        $this->assertStringContainsString('Avec association (1)', $body);
+        $this->assertStringContainsString('Toutes les associations (2)', $body);
+    }
+
+    public function testTheCountsFollowTheMailboxTheReaderChose(): void
+    {
+        // A count that ignored the mailbox choice would announce two
+        // hundred messages on a box holding three — a different lie from
+        // the one it exists to end.
+        $this->store('bare@x');
+        $other = $this->mailboxes->create(
+            'Autre',
+            ProviderType::IMAP,
+            'imap.test',
+            993,
+            'ssl',
+            'autre@unite.be',
+            'secret',
+            ['INBOX'],
+            true
+        );
+
+        $body = html_entity_decode(
+            $this->controller->index($this->get('/courrier?boite=' . $other), [])->getBody()
+        );
+
+        $this->assertStringContainsString('Toutes les associations (0)', $body);
+    }
+
+    public function testNoRowIsLabelledUnattachedOnAScreenThatShowsOnlyThose(): void
+    {
+        // A badge on every row says nothing about the message while
+        // reading like a claim about the whole mailbox.
+        $this->store('bare@x');
+
+        $body = $this->controller->index($this->get('/courrier'), [])->getBody();
+
+        $this->assertStringNotContainsString('Aucune association', $body);
+    }
+
+    public function testTheBadgeComesBackWhereItMeansSomething(): void
+    {
+        $this->store('bare@x');
+        $linked = $this->store('linked@x');
+        $this->messages->addLink($linked, 'rental', 'LOC-1', LinkOrigin::REFERENCE);
+
+        $body = $this->controller->index($this->get('/courrier?association=all'), [])->getBody();
+
+        $this->assertStringContainsString('Aucune association', $body);
+        $this->assertStringContainsString('LOC-1', $body);
+    }
+
+    public function testAnEmptyMailboxAndAnEmptyFilterDoNotReadTheSame(): void
+    {
+        $empty = $this->controller->index($this->get('/courrier'), [])->getBody();
+        $this->assertStringContainsString('Aucun message reçu', html_entity_decode($empty));
+
+        $linked = $this->store('linked@x');
+        $this->messages->addLink($linked, 'rental', 'LOC-1', LinkOrigin::REFERENCE);
+
+        $filtered = html_entity_decode($this->controller->index($this->get('/courrier'), [])->getBody());
+        $this->assertStringContainsString('Aucun message ne correspond à ce filtre', $filtered);
     }
 
     public function testAnAssociationFilterNobodyRecognisesFallsBackToTheNarrowestOne(): void
@@ -158,7 +255,7 @@ class InboundMailboxControllerTest extends TestCase
     private function showWithConsumerNaming(int $messageId, \Closure $naming): string
     {
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
-        $mailboxes = new InboundMailboxRepository($this->pdo, $encryption);
+        $mailboxes = $this->mailboxes = new InboundMailboxRepository($this->pdo, $encryption);
         $registry = new MessageConsumerRegistry();
         $registry->register(new FakeMessageConsumer('rental', null, null, true, false, false, $naming));
 
