@@ -687,7 +687,7 @@ The closing e-mail goes out whenever the campaign closes, scheduled or forced by
 
 ### 18.4 Sending to a scout year that has not happened yet
 
-A mailing list has no scout year of its own — it is a set of criteria, and the year is chosen in the compose dialog. Ticking a year **after the public one** raises a warning there, and only there: shown for the current year it would be permanent noise, and permanent noise is not read when it finally matters. The configuration page says the same thing once, where lists are defined, since it has no year to name.
+A mailing list has no scout year of its own — it is a set of criteria, and the year is chosen on the composition page. Ticking a year **after the public one** raises a warning there, and only there: shown for the current year it would be permanent noise, and permanent noise is not read when it finally matters. The configuration page says the same thing once, where lists are defined, since it has no year to name.
 
 Two wordings, because there are two situations. With the registration module enabled the audience is the **projection** (§19.1) — decided passages, accepted registrations, announced departures — and the warning says it is incomplete until Desk is encoded. Without that module there is nothing but Desk, and the warning says the list will only be right once next year is fully imported.
 
@@ -1013,7 +1013,7 @@ Messages for one of its own business objects, and nothing else. There is no "all
 
 ## 24. Mail merge — publipostage from an Excel file (module mass_mail)
 
-An extra list type in the compose dialog: the recipients of one email come from a chief-uploaded Excel file instead of a mailing list, and **each row of the file is one email** — unlike every other list, where one email is sent per address.
+An extra list type on the composition page: the recipients of one email come from a chief-uploaded Excel file instead of a mailing list, and **each row of the file is one email** — unlike every other list, where one email is sent per address.
 
 ### 24.1 The file
 

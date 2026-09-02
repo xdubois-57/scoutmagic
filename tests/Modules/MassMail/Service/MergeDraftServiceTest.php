@@ -27,6 +27,10 @@ use Core\Security\EncryptionService;
 use Core\Security\HtmlSanitizer;
 use Core\File\FileRepository;
 use Modules\MassMail\Repository\AudienceRepository;
+use Core\Http\Request;
+use Core\Http\Router;
+use Core\Module\ModuleManifest;
+use Modules\MassMail\Controller\MassMailController;
 use Modules\MassMail\Repository\Email;
 use Modules\MassMail\Repository\EmailAttachmentRepository;
 use Modules\MassMail\Repository\EmailRepository;
@@ -146,6 +150,40 @@ class MergeDraftServiceTest extends TestCase
         // A draft is a draft: nothing is sent, and the body is left empty
         // for the person to write.
         $this->assertSame('', $email->bodyHtml);
+    }
+
+    /**
+     * The contract says « the draft's edit URL », and for a long time it
+     * lied: `/mass-mail/{id}` was a JSON entry point, so every caller —
+     * news's « Écrire aux répondants » and finance's campaign reminder
+     * alike — redirected a chief to a raw payload.
+     *
+     * Asserted against mass_mail's REAL manifest rather than against a
+     * written-down path: what makes the URL a page is that the module
+     * declares a GET route for it that renders one (a breadcrumb is what
+     * `Tests\Core\View\UxConventionsTest` uses as the marker, for the
+     * same reason). Checked here, once, on the single implementation both
+     * callers go through — neither of them can be repaired without the
+     * other.
+     */
+    public function testTheUrlItReturnsIsAPageAndNotAJsonEndpoint(): void
+    {
+        $url = $this->createDraft([
+            ['email' => 'a@test.be', 'values' => ['Contact' => 'a@test.be', 'Taille' => 'M']],
+        ]);
+
+        $manifest = ModuleManifest::fromFile(dirname(__DIR__, 4) . '/modules/mass_mail/module.json');
+        $router = new Router();
+        foreach ($manifest->routes as $route) {
+            $router->addRoute($route['method'], $route['path'], $route['controller'], $route['action'], $route['role_min'], $route['breadcrumb'] ?? null);
+        }
+
+        $resolved = $router->resolve(new Request('GET', $url, [], [], [], []));
+
+        $this->assertNotNull($resolved, "the URL handed to both callers resolves to no route at all: {$url}");
+        $this->assertSame('show', $resolved->action);
+        $this->assertSame(MassMailController::class, $resolved->controllerClass);
+        $this->assertNotNull($resolved->breadcrumb, 'a JSON endpoint declares no breadcrumb; a page does');
     }
 
     public function testTheAudienceCarriesTheColumnsAndTheAnswers(): void

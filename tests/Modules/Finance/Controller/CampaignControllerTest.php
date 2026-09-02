@@ -8,6 +8,7 @@ use Core\Config\ScoutYearService;
 use Core\Database\Connection;
 use Core\File\EncryptedFileStorageService;
 use Core\File\FileRepository;
+use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Import\MemberYearRepository;
 use Core\Journal\JournalRepository;
@@ -16,6 +17,7 @@ use Core\Member\MemberService;
 use Core\Badge\MemberBadgeRepository;
 use Core\Member\SectionService;
 use Core\Security\AuthSession;
+use Core\Security\CsrfGuard;
 use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
 use Modules\Finance\Controller\CampaignController;
@@ -58,6 +60,14 @@ class CampaignControllerTest extends TestCase
     private CampaignController $controller;
     private CampaignService $campaignService;
     private CampaignRepository $campaigns;
+    /**
+     * The collaborators the controller is assembled from, kept so a test
+     * can rebuild it with the mail-merge module present — the reminder is
+     * the one path whose behaviour depends on that.
+     *
+     * @var array<string, mixed>
+     */
+    private array $controllerParts = [];
     private CampaignRowRepository $rows;
     private ExpectedReceivableRepository $receivables;
     private int $accountId;
@@ -111,6 +121,26 @@ class CampaignControllerTest extends TestCase
             new EncryptedFileStorageService(new FileRepository($this->pdo), $this->encryption, sys_get_temp_dir()),
             new JournalService(new JournalRepository($this->pdo))
         );
+
+        $this->controllerParts = [
+            'overview' => new CampaignOverviewService(
+                $this->campaigns,
+                $this->rows,
+                $this->receivables,
+                $allocations,
+                $accountRepository,
+                $accountVisibility,
+                new MemberService(new MemberYearRepository($this->pdo), $this->encryption, Connection::withPdo($this->pdo)),
+                new UserAccountRepository($this->pdo, $this->encryption)
+            ),
+            'rows' => $this->rows,
+            'receivables' => $this->receivables,
+            'allocations' => $allocations,
+            'accounts' => $accountRepository,
+            'members' => new MemberService(new MemberYearRepository($this->pdo), $this->encryption, Connection::withPdo($this->pdo)),
+            'finance' => $financeService,
+            'scoutYears' => $scoutYearService,
+        ];
 
         $this->controller = new CampaignController(
             $this->twig(),
@@ -366,6 +396,84 @@ class CampaignControllerTest extends TestCase
         );
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString('Clôturée', $response->getBody());
+    }
+
+    /**
+     * The other caller of `Modules\MassMail\Api\MassMailDraftInterface`
+     * — news's « Écrire aux répondants » is the first — and the reason
+     * both had to be checked: the interface promised « the draft's edit
+     * URL » and returned a JSON entry point, so repairing one caller
+     * would have left the other pointing at a raw payload.
+     *
+     * What this pins is that finance hands the URL straight back to the
+     * browser without rewriting it. That the URL is a page is asserted
+     * once, on the single implementation both callers share
+     * (Tests\Modules\MassMail\Service\MergeDraftServiceTest).
+     */
+    public function testTheCampaignReminderRedirectsToTheComposerUrlItWasGiven(): void
+    {
+        $campaignId = $this->createCampaign();
+
+        $response = $this->controllerWithReminderUrl('/mass-mail/42')->reminder(
+            new Request('POST', '/finance/campaigns/' . $campaignId . '/reminder', [], [
+                '_csrf_token' => CsrfGuard::generateToken(),
+            ], [], []),
+            ['id' => (string) $campaignId]
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/mass-mail/42', $response->getHeaders()['Location'] ?? null);
+        $this->assertStringContainsString("il n'a pas été envoyé", (string) (FlashMessage::get()['message'] ?? ''));
+    }
+
+    /**
+     * The same controller, with a reminder service that answers one URL.
+     *
+     * The service itself is exercised against real campaign rows in
+     * Service\CampaignReminderServiceTest; what is under test here is the
+     * one line after it — that whatever the mail-merge module names as
+     * the draft's screen is where the treasurer is actually sent.
+     */
+    private function controllerWithReminderUrl(string $composerUrl): CampaignController
+    {
+        $reminders = $this->createMock(\Modules\Finance\Service\CampaignReminderService::class);
+        $reminders->method('isAvailable')->willReturn(true);
+        $reminders->method('createDraft')->willReturn($composerUrl);
+
+        return new CampaignController(
+            $this->twig(),
+            $this->campaignService,
+            $this->controllerParts['overview'],
+            new CampaignExportService(),
+            $reminders,
+            new \Modules\Finance\Service\CampaignNotificationService(
+                $this->controllerParts['rows'],
+                $this->controllerParts['receivables'],
+                $this->controllerParts['allocations'],
+                new \Core\Member\MemberAccountResolver(
+                    new MemberYearRepository($this->pdo),
+                    new \Core\Member\MemberEmailRepository($this->pdo, $this->encryption),
+                    new UserAccountRepository($this->pdo, $this->encryption),
+                    $this->encryption
+                ),
+                $this->controllerParts['members'],
+                new MemberYearRepository($this->pdo),
+                null
+            ),
+            $this->controllerParts['finance'],
+            $this->controllerParts['allocations'],
+            new \Modules\Finance\Service\PaymentLabelService(
+                $this->controllerParts['rows'],
+                $this->controllerParts['receivables'],
+                $this->controllerParts['allocations'],
+                $this->controllerParts['accounts'],
+                $this->controllerParts['members'],
+                new \Modules\Finance\Service\SepaQrCodeService(),
+                new \Core\Pdf\DocumentPdfService(),
+                $this->twig()
+            ),
+            $this->controllerParts['scoutYears']
+        );
     }
 
     /**

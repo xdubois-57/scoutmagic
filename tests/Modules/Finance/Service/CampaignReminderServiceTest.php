@@ -80,6 +80,22 @@ class CampaignReminderServiceTest extends TestCase
      * separate blocks invite three transfers — which is what makes each
      * payment identifiable when it lands.
      */
+
+    /**
+     * The composer's URL travels back untouched. `MassMailDraftInterface`
+     * names the screen a draft is written on; finance is one of its two
+     * callers and rewriting that address here — appending a filter, say —
+     * is exactly how one caller ends up repaired and the other not.
+     */
+    public function testItHandsBackTheComposerUrlTheMailMergeModuleNamed(): void
+    {
+        $campaign = $this->campaignWith([['Lucie', 4500]]);
+
+        $url = $this->service()->createDraft($campaign, 'intendant', 'tresorier@test.be', 7);
+
+        $this->assertSame('/mass-mail/1', $url);
+    }
+
     public function testAHouseholdGetsOneMailWithOneBlockPerChild(): void
     {
         $campaign = $this->campaignWith([

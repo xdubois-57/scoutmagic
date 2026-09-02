@@ -564,9 +564,12 @@ class MassMailController extends AbstractController
     }
 
     /**
-     * GET /mass-mail/{id}/tracking — detailed per-recipient tracking page.
-     * Not in any menu (module.json label: "") — reached only via the list
-     * page's chart button or the dialog's "Voir le suivi détaillé" link.
+     * GET /mass-mail/{id}/tracking — detailed per-recipient tracking page,
+     * the « Suivi » tab of the email's own nav rail (§8.71bis).
+     *
+     * Not in any menu (module.json label: ""): it belongs to one email,
+     * and it used to hang off nothing at all — reachable only from a
+     * chart button in a table row, and from a link inside a dialog.
      *
      * @param array<string, string> $params
      */
@@ -574,8 +577,8 @@ class MassMailController extends AbstractController
     {
         try {
             $data = $this->massMailService->getTrackingData((int) $params['id']);
-        } catch (MassMailException $e) {
-            return new Response('Not Found', 404);
+        } catch (MassMailException) {
+            return $this->notFound();
         }
 
         return $this->render('@mass_mail/tracking.html.twig', [

@@ -448,6 +448,86 @@ class MassMailPageTest extends TestCase
     }
 
     // -----------------------------------------------------------------
+    // What a section chief may aim at
+    // -----------------------------------------------------------------
+
+    /**
+     * A chief who is not a chef d'unité sends from their own section and
+     * nowhere else. The select is locked, and a hidden field carries the
+     * value — a disabled control is not submitted, so the lock alone
+     * would post nothing at all.
+     */
+    public function testASectionChiefGetsTheSenderSectionLockedAndStillPostsIt(): void
+    {
+        $email = $this->createDraft('Verrou');
+        AuthSession::login($this->accountId, 'chief@test.com', 'chief');
+
+        $body = (string) $this->controller->show($this->get('/mass-mail/' . $email->id), ['id' => (string) $email->id])->getBody();
+
+        $this->assertMatchesRegularExpression('~<select[^>]*id="mm-section"[^>]*disabled~', $body);
+        $this->assertStringContainsString('<input type="hidden" name="section_id"', $body);
+        $this->assertStringContainsString("seul un chef d&#039;unité peut en choisir une autre", $body);
+    }
+
+    /**
+     * A list they may not target is rendered DISABLED, never dropped: a
+     * draft created by a chef d'unité and reopened here must still say
+     * which list it targets, and a select silently omitting the stored
+     * value would save a different email than the one on screen. The
+     * server re-checks every selection anyway (SECURITY.md §3).
+     */
+    public function testAListASectionChiefMayNotTargetIsShownDisabledRatherThanHidden(): void
+    {
+        $email = $this->createDraft('Listes');
+        AuthSession::login($this->accountId, 'chief@test.com', 'chief');
+
+        $body = (string) $this->controller->show($this->get('/mass-mail/' . $email->id), ['id' => (string) $email->id])->getBody();
+
+        // « Tous les membres actifs » is a chef d'unité's list.
+        $this->assertMatchesRegularExpression(
+            '~<option[^>]*value="default_active_members:"[^>]*disabled~',
+            $body
+        );
+        // The mail merge is open to every chief — the file, not a section
+        // list, names the recipients.
+        $this->assertMatchesRegularExpression('~<option[^>]*value="mail_merge:"(?![^>]*disabled)~', $body);
+    }
+
+    public function testAnAdminSeesEveryListEnabled(): void
+    {
+        $email = $this->createDraft('Listes');
+
+        $body = (string) $this->controller->show($this->get('/mass-mail/' . $email->id), ['id' => (string) $email->id])->getBody();
+
+        $this->assertMatchesRegularExpression(
+            '~<option[^>]*value="default_active_members:"(?![^>]*disabled)~',
+            $body
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // Attachments
+    // -----------------------------------------------------------------
+
+    public function testDeletingAnAttachmentFromThePageRedirectsBackToIt(): void
+    {
+        $email = $this->createDraft('Pièces jointes');
+        $this->pdo->exec("INSERT INTO files (relative_path, original_name, mime_type, size_bytes, module_id, role_min) VALUES ('mass_mail/attachments/plan.pdf', 'plan.pdf', 'application/pdf', 10, 'mass_mail', 'chief')");
+        $fileId = (int) $this->pdo->lastInsertId();
+        $this->massMailService->addAttachment($email->id, $fileId);
+        $attachmentId = $this->massMailService->getAttachments($email->id)[0]->id;
+
+        $response = $this->controller->deleteAttachment(
+            $this->post(['_csrf_token' => CsrfGuard::generateToken(), 'email_id' => (string) $email->id]),
+            ['id' => (string) $attachmentId]
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/mass-mail/' . $email->id, $response->getHeaders()['Location'] ?? null);
+        $this->assertSame([], $this->massMailService->getAttachments($email->id));
+    }
+
+    // -----------------------------------------------------------------
     // RBAC, through the real Router + guard
     // -----------------------------------------------------------------
 
