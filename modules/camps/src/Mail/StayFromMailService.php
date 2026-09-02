@@ -223,13 +223,15 @@ class StayFromMailService
      * `place_name` is empty whenever nothing may be written down: no
      * connector, a model that failed, or a model that was not sure.
      *
-     * @return array{place_name: string, start_date: string, end_date: string, price: string, stay_type: string}
+     * @return array{place_name: string, start_date: string, end_date: string, price: string,
+     *   stay_type: string, participant_count: string}
      */
     public function readValues(InboundMessage $message): array
     {
         $text = $this->textOf($message);
         $range = $this->reader->readDateRange($text);
         $priceCents = $this->reader->readPriceCents($text);
+        $participants = $this->reader->readParticipantCount($text);
 
         return [
             'place_name' => $this->placeNameFromBody($message),
@@ -237,6 +239,7 @@ class StayFromMailService
             'end_date' => $range['end'] ?? '',
             'price' => $priceCents !== null ? number_format($priceCents / 100, 2, ',', ' ') : '',
             'stay_type' => $this->stayTypeFor($range['start'] ?? '', $range['end'] ?? ''),
+            'participant_count' => $participants !== null ? (string) $participants : '',
         ];
     }
 
@@ -344,6 +347,7 @@ class StayFromMailService
                         'end_date' => $values['end_date'],
                         'status' => Camp::STATUS_TO_CONFIRM,
                         'price' => $values['price'],
+                        'participant_count' => $values['participant_count'],
                         'section_ids' => [],
                     ],
                     // No actor: nobody pressed anything. The source says

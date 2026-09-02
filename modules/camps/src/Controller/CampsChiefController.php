@@ -195,6 +195,7 @@ class CampsChiefController extends AbstractController
             // disagree about the same message. A chief changes it in the
             // form like any other field.
             'stay_type' => $values['stay_type'],
+            'participant_count' => $values['participant_count'],
             'message_id' => (string) $messageId,
         ]);
     }
