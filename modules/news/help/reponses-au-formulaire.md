@@ -44,20 +44,23 @@ un virement fait en une fois pour plusieurs enfants.
 
 « Exporter » télécharge ce que le filtre affiche, dans le même ordre :
 réponses, montant attendu, montant reçu, état du paiement et état du
-billet. C'est dans un tableur qu'on fait les comptes d'une soirée, et un
-export qui dirait seulement payé ou impayé obligerait à rouvrir le site
-pour connaître un montant. Le fichier est aussi réutilisable tel quel
-comme audience de publipostage.
+billet. C'est dans un tableur qu'on fait les comptes d'une soirée. Le
+fichier est réutilisable tel quel comme audience de publipostage.
 
-« Écrire » va plus vite : le bouton prépare un brouillon de
-publipostage adressé aux personnes que le filtre affiche, et vous
-dépose dans l'écran de composition. **Toutes les colonnes de l'export
-y sont des variables** — les réponses au formulaire, mais aussi le
-montant attendu, le montant reçu, la communication structurée et
-l'état du paiement : de quoi écrire un rappel qui dit à chacun ce
-qu'il doit. Rien ne part avant que vous ne l'envoyiez. Il demande le
-rôle animateur et n'apparaît pas si le module Envoi de mails est
-désactivé.
+« Écrire » prépare un brouillon de publipostage adressé aux personnes
+que le filtre affiche, et vous dépose dans l'écran de composition. Sur
+un formulaire qui attend un paiement, il demande d'abord à qui écrire :
+tous les répondants, ou seulement ceux qui n'ont pas fini de payer. Le
+dialogue rappelle alors la date du dernier extrait bancaire importé —
+un virement fait après cette date n'est pas encore connu ici, et la
+seconde liste contient donc peut-être des personnes en règle.
+
+**Toutes les colonnes de l'export sont des variables** : les réponses,
+mais aussi le montant attendu, le montant reçu, la communication
+structurée et l'état du paiement — de quoi écrire un rappel qui dit à
+chacun ce qu'il doit. Rien ne part avant que vous ne l'envoyiez. Le
+bouton demande le rôle animateur et n'apparaît pas si le module Envoi
+de mails est désactivé.
 
 Sur un évènement billetté, le brouillon s'ouvre sur un bloc portant la
 référence et le code QR de chaque destinataire : c'est ce qui permet de

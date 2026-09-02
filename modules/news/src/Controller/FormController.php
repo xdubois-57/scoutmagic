@@ -101,6 +101,22 @@ class FormController extends AbstractController
     private const FILTER_PAID_ABSENT = 'paid_absent';
 
     /**
+     * Who « Écrire aux répondants » is for — asked at the click, in the
+     * short dialog the button opens (specifications.md §29.7).
+     *
+     * Two usages, both frequent and genuinely different: the practical
+     * information before the event, and the payment reminder. Guessing
+     * between them from the screen's own filter would be guessing.
+     *
+     * « Pas fini de payer » is deliberately NOT « rien payé »: a partial
+     * payment is somebody who still owes, and folding them in with the
+     * paid would quietly drop them from the list they belong on — the
+     * same rule the screen's cross filter already applies.
+     */
+    private const AUDIENCE_ALL = 'all';
+    private const AUDIENCE_UNPAID = 'unpaid';
+
+    /**
      * POST /news/{id}/form/submit — in-controller: article visibility +
      * form access intersection (module spec §10). Renders the
      * confirmation page directly (module spec §11.10: a distinct page,
@@ -264,6 +280,12 @@ class FormController extends AbstractController
             // the route's own `chief` floor and mass_mail's own rules are
             // what actually refuse the request (SECURITY.md §3).
             'mail_draft_available' => $this->massMailDraft !== null && $role->hasAccess(Role::CHIEF),
+            // The audience dialog only has something to ask when the form
+            // expects money. Without that, « tous les répondants » is the
+            // only answer there is, and a dialog offering one option is a
+            // click that decides nothing.
+            'mail_draft_asks_audience' => $this->responseColumns->hasPayment($fields),
+            'mail_draft_unpaid_count' => count(self::applyAudience($rows, self::AUDIENCE_UNPAID)),
             'csrf_token' => CsrfGuard::generateToken(),
         ]);
     }
@@ -324,6 +346,32 @@ class FormController extends AbstractController
     }
 
     /**
+     * The audience « Écrire aux répondants » was asked for, applied to
+     * the rows the screen's own filter already selected.
+     *
+     * Built HERE, on the news side, and never named in
+     * `MassMailDraftInterface`: the mail-merge contract says nothing
+     * about a form, an article or a payment, which is exactly what keeps
+     * it reusable by the next module. mass_mail receives a list of
+     * people and their values, as it always did.
+     *
+     * @template TRow of array{response: FormResponse, payment: ?array{amount_due: int, amount_received: int, status: string}}
+     * @param array<int, TRow> $rows
+     * @return array<int, TRow>
+     */
+    private static function applyAudience(array $rows, string $audience): array
+    {
+        if ($audience !== self::AUDIENCE_UNPAID) {
+            return $rows;
+        }
+
+        return array_values(array_filter(
+            $rows,
+            static fn (array $row): bool => ($row['payment']['status'] ?? null) !== 'paid'
+        ));
+    }
+
+    /**
      * POST /news/{id}/form/responses/mail-draft — hands the respondents to
      * the mail-merge composer as a ready-made draft, and redirects there.
      *
@@ -370,12 +418,20 @@ class FormController extends AbstractController
         }
 
         $fields = $this->formService->getFields($form->id);
-        // The same filter the screen is showing: a chief who filtered to
-        // « payé, jamais venu » and pressed « Écrire » means those people
-        // and not everybody.
+        // Two selections, and they are not the same question. The screen's
+        // filter is what the chief is looking at; the audience is what the
+        // dialog asked at the click. A chief who filtered to « payé,
+        // jamais venu » and pressed « Écrire » means those people, and may
+        // then narrow them to the ones who still owe.
+        $audience = (string) $request->getBody('audience', self::AUDIENCE_ALL) === self::AUDIENCE_UNPAID
+            ? self::AUDIENCE_UNPAID
+            : self::AUDIENCE_ALL;
         $responses = array_map(
             static fn (array $row) => $row['response'],
-            self::applyFilter($this->filterableRows($form), self::normalizeFilter((string) $request->getBody('filter', self::FILTER_ALL)))
+            self::applyAudience(
+                self::applyFilter($this->filterableRows($form), self::normalizeFilter((string) $request->getBody('filter', self::FILTER_ALL))),
+                $audience
+            )
         );
 
         try {
@@ -399,7 +455,7 @@ class FormController extends AbstractController
             'form_responses_mail_draft',
             'info',
             "Brouillon d'e-mail créé vers les répondants de l'article « {$article->title} »",
-            ['article_id' => $article->id, 'form_id' => $form->id, 'response_count' => count($responses)],
+            ['article_id' => $article->id, 'form_id' => $form->id, 'response_count' => count($responses), 'audience' => $audience],
             (int) AuthSession::getUserAccountId()
         );
 

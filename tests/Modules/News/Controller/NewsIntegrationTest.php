@@ -1194,6 +1194,143 @@ class NewsIntegrationTest extends TestCase
         );
     }
 
+    // -----------------------------------------------------------------
+    // Choosing the audience at the click (specifications.md §29.7)
+    // -----------------------------------------------------------------
+
+    public function testTheWriteButtonAsksWhichAudienceWhenTheFormExpectsMoney(): void
+    {
+        $event = $this->crossedEvent();
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+
+        $body = (string) $this->formControllerWithMassMail($this->stubDraftProvider(), $this->receivablesStub())
+            ->responses(new Request('GET', '/news/' . $event['article'] . '/form/responses', [], [], [], []), ['id' => (string) $event['article']])
+            ->getBody();
+
+        $this->assertStringContainsString('data-bs-target="#mail-draft-audience"', $body);
+        $this->assertStringContainsString('Tous les répondants (4)', $body);
+        $this->assertStringContainsString("Seulement ceux qui n'ont pas fini de payer (2)", $body);
+    }
+
+    /**
+     * The lag is the whole reason this dialog can do harm: « ceux qui
+     * n'ont pas fini de payer » contains, alongside the real ones,
+     * everybody who paid after the last statement was imported.
+     */
+    public function testTheAudienceDialogAnnouncesTheBankLag(): void
+    {
+        $event = $this->crossedEvent();
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $status = $this->createMock(\Modules\Finance\Api\StatementImportStatusInterface::class);
+        $status->method('lastStatementImportedAt')->willReturn('2026-02-21 08:00:00');
+
+        $controller = new FormController(
+            $this->twig, $this->articleService, $this->formService, $this->responseService,
+            $this->scoutYearService, $this->journalService, $this->receivablesStub(), null,
+            $this->stubDraftProvider(), 'https://example.be', $status,
+            new \Modules\News\Service\TicketQrTokenService($this->encryption)
+        );
+
+        $body = (string) $controller
+            ->responses(new Request('GET', '/news/' . $event['article'] . '/form/responses', [], [], [], []), ['id' => (string) $event['article']])
+            ->getBody();
+
+        $this->assertStringContainsString('Dernier extrait bancaire importé le', $body);
+        $this->assertStringContainsString('peut-être des personnes parfaitement en règle', $body);
+    }
+
+    /**
+     * A form that expects no payment has only one possible answer, and a
+     * dialog offering one option is a click that decides nothing.
+     */
+    public function testAFormWithNoPaymentWritesStraightAwayWithNoDialog(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $articleId = $this->articleWithOneResponse();
+
+        $body = (string) $this->formControllerWithMassMail()
+            ->responses(new Request('GET', '/news/' . $articleId . '/form/responses', [], [], [], []), ['id' => (string) $articleId])
+            ->getBody();
+
+        $this->assertStringNotContainsString('mail-draft-audience', $body);
+        $this->assertStringContainsString('/form/responses/mail-draft', $body);
+    }
+
+    public function testWritingToThoseWhoStillOweLeavesThePaidOnesOut(): void
+    {
+        $event = $this->crossedEvent();
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+
+        $captured = [];
+        $response = $this->formControllerWithMassMail($this->recordingDraftProvider($captured), $this->receivablesStub())
+            ->createMailDraft(
+                new Request('POST', '/news/' . $event['article'] . '/form/responses/mail-draft', [], [
+                    '_csrf_token' => CsrfGuard::generateToken(),
+                    'audience' => 'unpaid',
+                ], [], []),
+                ['id' => (string) $event['article']]
+            );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $addresses = array_column($captured['rows'], 'email');
+        sort($addresses);
+        // Roskam and Herremans are paid; the other two still owe.
+        $this->assertSame(['delacroix@test.com', 'delvaux@test.com'], $addresses);
+    }
+
+    /**
+     * The two selections are not the same question, and both are honoured:
+     * the screen's filter says what the chief is looking at, the dialog
+     * says who among them is meant.
+     */
+    public function testTheAudienceNarrowsWhatTheScreenFilterAlreadySelected(): void
+    {
+        $event = $this->crossedEvent();
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+
+        $captured = [];
+        $this->formControllerWithMassMail($this->recordingDraftProvider($captured), $this->receivablesStub())
+            ->createMailDraft(
+                new Request('POST', '/news/' . $event['article'] . '/form/responses/mail-draft', [], [
+                    '_csrf_token' => CsrfGuard::generateToken(),
+                    'filter' => 'in_unpaid',
+                    'audience' => 'unpaid',
+                ], [], []),
+                ['id' => (string) $event['article']]
+            );
+
+        // « Entré et impayé » already holds Delvaux alone; asking for the
+        // unpaid among them changes nothing, and must not widen it back.
+        $this->assertSame(['delvaux@test.com'], array_column($captured['rows'], 'email'));
+    }
+
+    /**
+     * The choice decides WHO receives, never WHAT is available: every
+     * column is a variable on both audiences (§29.2, IT-03).
+     */
+    public function testTheAudienceChoiceDoesNotRestrictTheMergeVariables(): void
+    {
+        $event = $this->crossedEvent();
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+
+        $all = [];
+        $unpaid = [];
+        foreach ([['all', &$all], ['unpaid', &$unpaid]] as [$audience, &$captured]) {
+            $this->formControllerWithMassMail($this->recordingDraftProvider($captured), $this->receivablesStub())
+                ->createMailDraft(
+                    new Request('POST', '/news/' . $event['article'] . '/form/responses/mail-draft', [], [
+                        '_csrf_token' => CsrfGuard::generateToken(),
+                        'audience' => $audience,
+                    ], [], []),
+                    ['id' => (string) $event['article']]
+                );
+        }
+        unset($captured);
+
+        $this->assertSame($all['columns'], $unpaid['columns']);
+        $this->assertContains('Montant attendu', $unpaid['columns']);
+    }
+
     /**
      * The claim `FormController` had been making in its own docblock,
      * finally true: the export and the merge variables read ONE column

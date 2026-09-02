@@ -1,5 +1,6 @@
 // End-to-end: an actualité with a paying form on it, from the chief who
-// builds it to the family who signs up and is asked for money.
+// builds it to the family who signs up and is asked for money — and back
+// to the chief writing to whoever has not paid.
 //
 // WHY THIS SCENARIO EXISTS
 // ----------------------------------------------------------------------------
@@ -100,7 +101,7 @@ function fieldRow(page, index) {
     return page.locator('#news-fields-list > [data-key]').nth(index);
 }
 
-test('a chief publishes an article with a paying form, and a family signs up and is asked to pay', async ({ page }) => {
+test('a chief publishes an article with a paying form, a family signs up and is asked to pay, and the chief writes to whoever still owes', async ({ page }) => {
     /** @type {string[]} */
     const pageErrors = [];
     page.on('pageerror', (error) => pageErrors.push(error.message));
@@ -359,6 +360,52 @@ test('a chief publishes an article with a paying form, and a family signs up and
     await expect(firstResponse.getByText('25,00 €')).toBeVisible();
     await expect(firstResponse.getByText(REMARKS_ANSWER)).toBeVisible();
     await expect(firstResponse.getByText('Non payé')).toBeVisible();
+
+    // ---------------------------------------------------------------
+    // « Écrire aux répondants » — the button that used to display raw
+    // JSON, and the dialog that now asks WHO before preparing anything.
+    //
+    // Three rules meet here and only meet at runtime: the audience
+    // question exists because this form expects money (news), the draft
+    // is built by mass_mail through its Api\MassMailDraftInterface (a
+    // cross-module handshake the composition root alone assembles), and
+    // what it redirects to is a real page rather than a payload.
+    // ---------------------------------------------------------------
+    await page.getByRole('button', { name: 'Écrire (2)' }).click();
+
+    const audienceDialog = page.locator('#mail-draft-audience');
+    await expect(audienceDialog).toBeVisible();
+    await expect(audienceDialog.getByText('Tous les répondants (2)')).toBeVisible();
+    await expect(audienceDialog.getByText("Seulement ceux qui n'ont pas fini de payer (2)")).toBeVisible();
+    // Without this caption somebody sends reminders to people who are
+    // perfectly in order: a transfer made yesterday is not known here
+    // until the next statement is imported.
+    await expect(audienceDialog.getByText('Aucun extrait bancaire')).toBeVisible();
+
+    await audienceDialog.getByLabel("Seulement ceux qui n'ont pas fini de payer (2)").check();
+    await audienceDialog.getByRole('button', { name: 'Préparer le brouillon' }).click();
+
+    // A page, with a heading and a nav rail — not the JSON payload this
+    // address answered before the composition screen existed.
+    await page.waitForURL(/\/mass-mail\/\d+$/, { waitUntil: 'load' });
+    await expect(page.getByRole('heading', { level: 1, name: new RegExp(ARTICLE_TITLE) })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Destinataires' })).toBeVisible();
+
+    // The payment columns are merge variables like any other now: a
+    // reminder that cannot name the amount is not a reminder.
+    await page.locator('#mm-variable-dropdown').getByRole('button', { name: 'Variable' }).click();
+    const variables = page.locator('#mm-variable-menu');
+    await expect(variables.getByText('Montant attendu')).toBeVisible();
+    await expect(variables.getByText('Communication structurée')).toBeVisible();
+    await expect(variables.getByText('Statut paiement')).toBeVisible();
+
+    // And the audience really is the two who still owe, each with their
+    // own figures — read on the « Destinataires » view.
+    await page.getByRole('link', { name: 'Destinataires' }).click();
+    await page.waitForURL(/\/mass-mail\/\d+\/recipients$/, { waitUntil: 'load' });
+    await expect(page.getByText(FAMILY_EMAIL).first()).toBeVisible();
+    await expect(page.getByText(SECOND_FAMILY_EMAIL).first()).toBeVisible();
+    await expect(page.getByText('25,00 €').first()).toBeVisible();
 
     expect(alerts, 'the application reported an error through window.alert()').toEqual([]);
     expect(serverErrors, 'the application returned a server error').toEqual([]);

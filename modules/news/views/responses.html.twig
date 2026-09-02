@@ -80,16 +80,93 @@
                 <i class="bi bi-file-earmark-spreadsheet" aria-hidden="true"></i> Exporter ({{ rows|length }})
             </a>
             {% if mail_draft_available %}
-                <form method="post" action="/news/{{ article.id }}/form/responses/mail-draft" class="d-grid d-sm-inline">
-                    {{ csrf_field()|raw }}
-                    <input type="hidden" name="filter" value="{{ filter }}">
-                    <button type="submit" class="btn btn-sm btn-outline-primary">
+                {% if mail_draft_asks_audience %}
+                    {# Two usages, both frequent and genuinely different:
+                       the practical information before the event, and the
+                       payment reminder. Nothing on this screen says which
+                       one is meant, so the button asks. #}
+                    <button type="button" class="btn btn-sm btn-outline-primary"
+                            data-bs-toggle="modal" data-bs-target="#mail-draft-audience">
                         <i class="bi bi-envelope-paper" aria-hidden="true"></i> Écrire ({{ rows|length }})
                     </button>
-                </form>
+                {% else %}
+                    {# The form expects no payment, so « tous les
+                       répondants » is the only answer there is: a dialog
+                       offering one option is a click that decides
+                       nothing. #}
+                    <form method="post" action="/news/{{ article.id }}/form/responses/mail-draft" class="d-grid d-sm-inline">
+                        {{ csrf_field()|raw }}
+                        <input type="hidden" name="filter" value="{{ filter }}">
+                        <button type="submit" class="btn btn-sm btn-outline-primary">
+                            <i class="bi bi-envelope-paper" aria-hidden="true"></i> Écrire ({{ rows|length }})
+                        </button>
+                    </form>
+                {% endif %}
             {% endif %}
         </div>
     </div>
+
+    {% if mail_draft_available and mail_draft_asks_audience %}
+        {# `only` cuts the outer context off, so everything the dialog
+           reads travels explicitly. #}
+        {% embed 'partials/modal.html.twig' with {
+            id: 'mail-draft-audience',
+            title: 'Écrire aux répondants',
+            article_id: article.id,
+            filter: filter,
+            total_count: rows|length,
+            unpaid_count: mail_draft_unpaid_count,
+            last_statement_imported_at: last_statement_imported_at,
+        } only %}
+            {% block body %}
+                <form method="post" action="/news/{{ article_id }}/form/responses/mail-draft" id="mail-draft-audience-form">
+                    {{ csrf_field()|raw }}
+                    <input type="hidden" name="filter" value="{{ filter }}">
+
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="radio" name="audience" value="all"
+                               id="mail-draft-audience-all" checked>
+                        <label class="form-check-label" for="mail-draft-audience-all">
+                            Tous les répondants ({{ total_count }})
+                        </label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="audience" value="unpaid"
+                               id="mail-draft-audience-unpaid">
+                        <label class="form-check-label" for="mail-draft-audience-unpaid">
+                            Seulement ceux qui n'ont pas fini de payer ({{ unpaid_count }})
+                        </label>
+                    </div>
+
+                    {#
+                      Without this, somebody sends unjustified reminders: a
+                      transfer made yesterday is not known here until the
+                      next statement is imported, and nothing on this site
+                      can shorten that lag. The same caption the screen's
+                      « entrés sans paiement » filter carries, said again
+                      at the moment the decision is actually taken.
+                    #}
+                    <div class="alert alert-warning d-flex gap-2 small mt-3 mb-0" role="status">
+                        <i class="bi bi-clock-history flex-shrink-0" aria-hidden="true"></i>
+                        <span>
+                            {% if last_statement_imported_at %}
+                                Dernier extrait bancaire importé le <strong>{{ last_statement_imported_at|french_date }}</strong>.
+                                Un virement fait après cette date n'apparaît pas encore
+                            {% else %}
+                                Aucun extrait bancaire n'a encore été importé pour ce compte : aucun paiement
+                                ne peut être constaté ici
+                            {% endif %}
+                            — la seconde liste contient donc peut-être des personnes parfaitement en règle.
+                        </span>
+                    </div>
+                </form>
+            {% endblock %}
+            {% block footer %}
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+                <button type="submit" form="mail-draft-audience-form" class="btn btn-primary">Préparer le brouillon</button>
+            {% endblock %}
+        {% endembed %}
+    {% endif %}
 
     {% if rows is empty %}
         {% include 'partials/empty_state.html.twig' with {

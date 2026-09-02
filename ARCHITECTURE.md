@@ -2696,6 +2696,20 @@ Where the unit has camped, and every stay it made there. The product answers one
 
 **The QR is in both.** It exists for the message — a chief cannot insert it by hand — but §24.4's standing rule is that every export of people this site produces can be re-imported as a mail-merge audience without editing, and a variable missing from the export would break exactly that.
 
+### 8.71quinquies Choosing the audience at the click
+
+« Écrire aux répondants » opens a short dialog: **tous les répondants**, or **seulement ceux qui n'ont pas fini de payer**. Two usages, both frequent and genuinely different — the practical information before the event, and the payment reminder — and nothing on the responses screen says which one is meant.
+
+**The filter is built on the news side.** `FormController::applyAudience()` narrows the rows the screen's own filter already selected, and `Modules\MassMail\Api\MassMailDraftInterface` learns nothing: it names no form, no article and no payment, which is exactly what keeps it reusable by the next module (§7.5). mass_mail receives a list of people and their values, as it always did.
+
+**Two selections, two questions.** The screen's cross filter says what the chief is looking at; the dialog says who among them is meant. They compose rather than override: « entrés sans paiement » narrowed to those who still owe is still a subset of what is on screen, never a set that grew back.
+
+**The dialog announces the bank lag**, in the same words the « entrés sans paiement » filter already carries: a transfer made yesterday is not known here until the next statement is imported, so the second option contains, alongside the real ones, people who are perfectly in order. Without that sentence somebody sends unjustified reminders.
+
+**No dialog when the form expects no payment** — `ResponseColumns::hasPayment()` decides, the same predicate that decides whether the payment columns exist at all. One option is not a choice, and the button posts straight away as it always did.
+
+**The choice restricts nobody's variables.** Every column is offered on both audiences (§8.71quater); the filter decides *who* receives, never *what is available*, and that is what makes the invariant tenable.
+
 ### 8.72 Three finance primitives, and the three ways to get them wrong
 
 No user-visible change of its own — these exist so §8.73's tools page has something correct to stand on. Each carries a trap that fails *silently*, which is why all three are written down rather than left as obvious one-liners.

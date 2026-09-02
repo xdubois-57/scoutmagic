@@ -1257,8 +1257,22 @@ Le bouton n'existe pas et la page des réponses fonctionne exactement comme avan
 
 ### 29.6 Hors périmètre
 
-Choisir un sous-ensemble de répondants, un modèle de message prérempli, un envoi direct sans passer par l'écran de composition, et toute nouvelle règle de conservation — ces audiences sont purgées par le mécanisme existant du publipostage.
+Un modèle de message prérempli, un envoi direct sans passer par l'écran de composition, et toute nouvelle règle de conservation — ces audiences sont purgées par le mécanisme existant du publipostage. Choisir un sous-ensemble de répondants faisait partie de cette liste ; ce n'est plus le cas (§29.7).
 
+
+### 29.7 Choisir l'audience au clic
+
+« Écrire aux répondants » ouvre un **court dialogue** : *tous les répondants*, ou *seulement ceux qui n'ont pas fini de payer*. Ce sont deux usages distincts et tous deux fréquents — l'information pratique avant l'évènement, le rappel de paiement — et rien sur l'écran ne dit lequel est visé.
+
+« Pas fini de payer » veut dire **pas entièrement payé** : un paiement partiel est quelqu'un qui doit encore, et le ranger avec les payés le ferait disparaître de la liste à laquelle il appartient.
+
+Le choix s'applique à ce que le filtre de l'écran affiche déjà : le filtre dit ce qu'on regarde, le dialogue dit qui, parmi eux, est visé.
+
+**Le dialogue annonce le décalage bancaire.** Un virement fait la veille n'apparaît qu'après l'import du relevé suivant, et « ceux qui n'ont pas fini de payer » contiendra donc des gens parfaitement en règle. Sans cet avertissement, quelqu'un enverra des rappels injustifiés — c'est la même phrase que porte déjà le filtre « entrés sans paiement », redite au moment où la décision se prend.
+
+**Quand le formulaire n'attend aucun paiement, le dialogue ne s'affiche pas** : il n'aurait qu'une option, et un clic qui ne décide de rien n'est pas un choix. Le brouillon se prépare directement, comme avant.
+
+Le choix ne restreint pas les variables (§29.2) : il décide **qui** reçoit, jamais **ce qui est disponible**.
 
 ## 30. Finances — la page « Outils » (module finance)
 
