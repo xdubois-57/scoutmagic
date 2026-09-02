@@ -3150,6 +3150,21 @@ Two features that look like one, built in an order that is itself the design: an
 
 **The route sits at `identified`, the same role as the page it is downloaded from.** A visitor there already sees these names, photos and — when the module's setting allows it — the same contact details on screen; the point of the document is that they can produce it themselves, not that it discloses anything new. The setting is applied when the view models are BUILT rather than when they are drawn, so a hidden phone number is absent from the HTML, from the PDF and from its text layer, with nothing to recover. The route is not in `Core\Offline\OfflineWhitelist`: a generated file is not a page to cache.
 
+### 8.93 Fréquentation du site (`modules/usage_stats`)
+
+**One counter per (month, route PATTERN, audience), and no other shape was ever an option.** The site this replaces kept a `STATS_PAGES` table keyed `(PAGE, EMAIL, MONTH)`, from which one could read that a given parent had opened their child's page fourteen times. `usage_page_views` cannot answer that question because it has no column an identifier could be written into: what is counted is `/members/{id}`, never `/members/42`. That is also what makes the table aggregate naturally — a unit of 260 members produces one row for the member page rather than 260 — so the design decision that protects the visitor is the same one that keeps the table small.
+
+**The pattern comes from the router, not from the URL.** `Core\Http\ResolvedRoute` carries the declared `path` and `Core\Http\FrontController::getLastResolvedRoute()` exposes it after the response; nothing else on a request remembers the difference between « the page of a member » and « member 42 ». `Core\Http\Router::getModuleForPath()` is keyed on that same pattern, which is why « which module does this page belong to » costs nothing extra — every screen's per-module grouping is the same counter read differently.
+
+**The write happens after `$response->send()`**, in the tail of `public/index.php` — the exact spot the poor man's cron was removed from so that « a visitor no longer pays for background work » (§8.5). `Tests\Modules\UsageStats\ModuleWiringTest` fails if the call ever moves above it, because the mistake would be invisible: the feature would keep working and every page would get slower.
+
+**Three precautions, and no buffer table.** `Service\PageViewPolicy` refuses everything that is not a page — non-GET, non-200, non-HTML, a streamed file, an `/api/` route, an unmatched path — and then refuses crawlers on a substring match against `User-Agent`. That header is READ to decide and **never stored**; the old site's `STATS_USER_AGENT` is the thing this is deliberately not. What survives costs one `INSERT … ON DUPLICATE KEY UPDATE` against the unique key. The append-then-fold parade is real and is deliberately absent: contention on one row is theoretical at the scale of a unit, and that parade costs a second table, a second task and a window during which the figures are wrong. Build it against a measurement, never against an intuition.
+
+**No cookie, which is why there is no consent to respect.** The analytics consent regime is triggered by writing on the visitor's device; a non-nominative server-side count does not write anything there. The module declares an empty `cookies` section and a test pins it, so the day somebody adds one it is a decision rather than a detail — and the screens say so on-screen, since a chief who found no analytics entry in the cookie preferences would otherwise reasonably wonder what was hidden.
+
+**Retention is three scout years**, cut on 1 September (`Modules\UsageStats\Retention`, a daily self-rescheduling purge). Writing the duration down is the point: a table nobody purges is a table kept for ever, which is a retention decision made by omission.
+
+
 ## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php

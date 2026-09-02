@@ -219,7 +219,8 @@ class Router
                     action: $route['action'],
                     roleMin: $route['roleMin'],
                     params: $params,
-                    breadcrumb: $route['breadcrumb']
+                    breadcrumb: $route['breadcrumb'],
+                    path: $route['path']
                 );
             }
         }

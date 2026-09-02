@@ -31,6 +31,7 @@ Everything beyond the core site is a module (`modules/<id>/`, ARCHITECTURE.md §
 | `support_dashboard` | Tableau de bord support | §21.3 |
 | `test_tools` | Outils de test | §40 |
 | `trombinoscope` | Trombinoscope | §34 |
+| `usage_stats` | Fréquentation du site | §42 |
 
 Two of them never exist on a unit's installation: `test_tools` (reference and development installations only) and `support_dashboard` (the statistics receiver only). Both declare that in their manifest — see §21.3 and §40.
 
@@ -2123,3 +2124,86 @@ débarrasser des attestations découpées d'un fichier qui n'aurait jamais dû �
 La **génération** d'attestations par l'unité elle-même. Le site ne produit aucun document : il découpe
 un PDF qu'on lui fournit. Une attestation de présence après camp entre donc dans le périmètre si elle
 arrive sous forme de PDF groupé, pas si elle doit être composée par le site.
+
+
+## 42. Fréquentation du site (module usage_stats)
+
+Le module répond à deux questions, et à rien d'autre.
+
+**« Le site sert-il ? »** Combien de comptes se sont connectés ce mois-ci, rapporté au nombre de
+comptes existants. C'est la question d'un chef d'unité qui se demande s'il continue d'y investir du
+temps.
+
+**« Qu'est-ce qui sert ? »** Quelles pages et quels modules sont ouverts, et surtout lesquels ne le
+sont jamais. C'est ce qui permet de décider qu'on désactive un module que personne n'ouvre.
+
+### 42.1 Ce qu'il ne fait pas, et pourquoi
+
+**Aucun suivi nominatif.** L'ancien site tenait une table `STATS_PAGES` dont la clé primaire était
+`(PAGE, EMAIL, MONTH)` : on pouvait y lire que telle maman avait ouvert quatorze fois la page de son
+fils. Personne n'a besoin de cette réponse, et la détenir vaudrait une déclaration RGPD lourde pour
+une valeur nulle. Il conservait aussi les navigateurs dans `STATS_USER_AGENT` — même verdict.
+
+**Aucun cookie n'est posé**, et c'est le point qui allège tout le reste : le régime de consentement
+*analytics* se déclenche quand on écrit sur l'appareil du visiteur, ce qu'un comptage serveur non
+nominatif ne fait pas. Il n'y a donc pas de bandeau à modifier, pas de catégorie à activer, pas de
+refus à respecter — et le module ne déclare aucun cookie, ce qu'un test vérifie.
+
+**Ni adresses IP, ni navigateurs, ni parcours individuels, ni entonnoirs, ni temps réel.**
+
+### 42.2 Le modèle : un compteur par motif de route
+
+Une seule table, `usage_page_views`, et sa forme est toute la décision de conception : un compteur
+par **(mois, motif de route, public)**. Pas une ligne par visite, pas une ligne par visiteur, pas
+une ligne par URL.
+
+**Le motif de route, jamais l'URL.** `/members/{id}`, jamais `/members/42`. C'est ce qui agrège
+naturellement — une unité de 260 membres produit une ligne pour la page d'un animé, pas 260 — et
+c'est surtout ce qui garantit qu'aucun identifiant n'est conservé : il n'existe aucune colonne où un
+identifiant pourrait être écrit.
+
+La dimension « quel module » est gratuite : chaque route est déclarée par un module ou par le cœur,
+donc le même compteur s'agrège autrement sans seconde table. Le public est ramené à trois valeurs —
+anonyme, identifié, staff (intendant et au-dessus) — parce que ce sont les trois dont un lecteur
+fait quelque chose ; distinguer un intendant d'un chef ajouterait une colonne sur laquelle personne
+n'agirait.
+
+**L'adoption ne demande aucune donnée nouvelle.** `user_accounts.last_login_at` existe déjà :
+« 62 comptes connectés ce mois-ci » se calcule sans rien enregistrer de plus.
+
+### 42.3 Le coût, et comment il est tenu
+
+**Le comptage se fait après la réponse**, dans la queue de `public/index.php`, à l'endroit même d'où
+le *poor man's cron* a été retiré pour que « a visitor no longer pays for background work ». Un test
+vérifie que l'appel reste après `$response->send()` : au-dessus, la fonctionnalité réintroduirait
+exactement le coût que ce retrait avait supprimé.
+
+Trois précautions suffisent, et aucune table tampon n'est construite.
+
+**Ne compter que ce qui le mérite** : les réponses HTML en 200 sur des routes de page. Pas les
+appels JSON, pas les téléchargements de fichiers, pas les 404, pas les 403, pas les redirections,
+pas les POST. Cela élimine l'essentiel du volume sans rien perdre d'utile.
+
+**Écarter les robots avant d'écrire.** Une comparaison de chaîne sur l'en-tête `User-Agent` coûte
+quelques microsecondes et évite l'écriture entièrement. On **lit** cet en-tête pour décider, on ne le
+**stocke jamais** — c'est la différence avec l'ancien site. La liste est courte et assumée comme
+telle : un robot qui passe au travers gonfle le compteur d'une page, il ne fait jamais paraître le
+site inutilisé et il n'identifie personne.
+
+**Une seule écriture**, en `INSERT ... ON DUPLICATE KEY UPDATE` sur la clé unique. Quelques dizaines
+de lignes qu'on incrémente, pas une ligne par visite. La contention sur la ligne d'une page
+fréquentée est théorique à l'échelle d'une unité — deux requêtes sur la même page à la même seconde
+n'arrivent pratiquement jamais — et la parade (écrire en ajout puis replier par tâche planifiée)
+n'est délibérément pas construite : elle coûte une seconde table, une seconde tâche et une fenêtre
+pendant laquelle les chiffres sont faux, et ne se construit qu'au vu d'une mesure.
+
+Un échec d'écriture est silencieux : la réponse est déjà partie, il n'y a plus de page où afficher
+une erreur, et un compteur ne vaut pas une entrée de journal.
+
+### 42.4 Rétention
+
+**Trois années scoutes** : celle qui court et les deux précédentes. C'est la portée que les écrans
+savent dessiner, plus une année de marge, et la durée est écrite plutôt que laissée à
+« indéfiniment » par omission. La coupure est au 1er septembre, pas au 1er janvier : couper au
+milieu d'une saison supprimerait l'automne d'une année dont le printemps est encore à l'écran. Une
+tâche planifiée quotidienne s'en charge.

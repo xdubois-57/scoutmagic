@@ -4559,6 +4559,29 @@ if ($isEnabled('support_dashboard')) {
     }
 }
 
+// Fréquentation du site (ARCHITECTURE.md §8.93). Seeded null above the
+// block so the tail of this file — which runs whatever modules are
+// enabled — has a variable to test rather than a second enablement check
+// at a point where every other per-module wiring is long done.
+$usageStatsRecorder = null;
+if ($isEnabled('usage_stats')) {
+    $usageStatsRecorder = new \Modules\UsageStats\Service\PageViewRecorder(
+        new \Modules\UsageStats\Repository\PageViewRepository($pdo)
+    );
+
+    // The retention task's FIRST occurrence has to be seeded here:
+    // declaring a handler in module.json only teaches SchedulerRunner how
+    // to run it, and a self-rescheduling task nobody ever queued
+    // reschedules itself never (the mistake §8.49 records for
+    // support_dashboard). Tests\Modules\UsageStats\ModuleSchedulingTest
+    // fails if this list drifts from module.json's `scheduled_tasks`.
+    foreach ([
+        \Modules\UsageStats\Task\PurgePageViewsHandler::TASK_KEY => \Modules\UsageStats\Task\PurgePageViewsHandler::REFERENCE,
+    ] as $usageTaskKey => $usageTaskReference) {
+        $schedulerService->rearm('usage_stats', $usageTaskKey, $usageTaskReference, new DateTimeImmutable());
+    }
+}
+
 if ($isEnabled('test_tools')) {
     // The mail sandbox (ARCHITECTURE.md §8.63). Its transport was already
     // decided far above, next to MailService — this half only wires the
@@ -6229,6 +6252,33 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 // cleanup, LoginThrottler::purgeStale(), PdfThumbnailCache::purgeStale()).
 // Nothing was lost, and a visitor no longer pays for background work that a
 // per-minute crontab does on time. See ARCHITECTURE.md § 8.5.
+
+// Fréquentation (§8.93): one counter incremented for one page view, and
+// only for a page view — Modules\UsageStats\Service\PageViewPolicy drops
+// everything else before a connection is even used. Placed HERE, past
+// send() and session_write_close(), for the exact reason the poor man's
+// cron was removed from this spot: a visitor must not pay for it. The
+// route PATTERN is what is counted (`/members/{id}`, never `/members/42`),
+// which is why it comes from the resolved route rather than from the URL.
+//
+// `User-Agent` is READ to drop crawlers and never stored anywhere, and no
+// account id, member id, session or address reaches this call at all —
+// only a role, flattened to one of three audiences.
+if ($usageStatsRecorder !== null) {
+    $usageStatsRoute = $frontController->getLastResolvedRoute();
+    $usageStatsHeaders = array_change_key_case($response->getHeaders(), CASE_LOWER);
+
+    $usageStatsRecorder->record(
+        $request->getMethod(),
+        $usageStatsRoute?->path,
+        $usageStatsRoute === null ? null : $router->getModuleForPath($usageStatsRoute->path),
+        $response->getStatusCode(),
+        isset($usageStatsHeaders['content-type']) ? (string) $usageStatsHeaders['content-type'] : null,
+        $response->getBodyFilePath() !== null,
+        (string) $request->getServer('HTTP_USER_AGENT', ''),
+        \Core\Security\Role::fromString(\Core\Security\AuthSession::getRole())
+    );
+}
 
 // Debug timeline flush (?debug=1) — gated on an already-authenticated
 // admin session rather than a shared secret: the operator triggering this

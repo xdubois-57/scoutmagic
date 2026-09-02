@@ -11,6 +11,14 @@ namespace Core\Http;
 class ResolvedRoute
 {
     /**
+     * @param string $path the DECLARED route path — the pattern, with its
+     *                     placeholders intact (`/members/{id}`), never the
+     *                     URL the visitor asked for (`/members/42`). It is
+     *                     what identifies a page independently of the row
+     *                     it is showing, which is what
+     *                     Core\Http\Router::getModuleForPath() is keyed on
+     *                     and what Modules\UsageStats counts under
+     *                     (ARCHITECTURE.md §8.93).
      * @param array<string, string> $params
      * @param ?array{label: string, parents: array<string>} $breadcrumb
      */
@@ -19,7 +27,8 @@ class ResolvedRoute
         public readonly string $action,
         public readonly string $roleMin,
         public readonly array $params,
-        public readonly ?array $breadcrumb = null
+        public readonly ?array $breadcrumb = null,
+        public readonly string $path = ''
     ) {
     }
 }
