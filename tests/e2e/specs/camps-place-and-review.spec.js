@@ -165,8 +165,10 @@ test.describe('Camps', () => {
     });
 
     test('the map opens by itself, and remembers being folded only with functional consent', async ({ page }) => {
-        // The map is EXPANDED by default and built as the page loads
+        // The map is EXPANDED by default ON A WIDE SCREEN — which this
+        // project's viewport is — and built as the page loads
         // (modules/camps/views/list.html.twig, public/assets/js/camps-map.js).
+        // A phone gets the opposite default and its own test below.
         // What only a real browser can show is the pair of facts that
         // rests on: Leaflet really takes the container over with no click
         // anywhere, and the reader's fold really survives a visit —
@@ -257,11 +259,39 @@ test.describe('Camps', () => {
         await toggleAndSettle(true);
         await expect(built, 'opening a folded map builds it then, not never').toHaveCount(1);
 
-        // Expanded is the default, so it is stored as an absence rather
-        // than as a second value: coming back finds the map open again
-        // with nothing left behind.
-        await expect.poll(stored, { message: 'unfolding must REMOVE the key' }).toBeNull();
+        // Unfolding is WRITTEN, where it used to be stored as an absence.
+        // The default now depends on the screen, so absence has to mean
+        // « no answer yet, ask the screen » — otherwise a reader who
+        // unfolds the map on their phone finds it folded again on every
+        // visit, their choice silently unstorable.
+        await expect.poll(stored, { message: 'unfolding must be written down too' }).toBe('0');
         await page.goto('/chefs/camps', { waitUntil: 'domcontentloaded' });
         await expect(panel).toBeVisible();
+    });
+
+    test('on a phone the map stays folded, and asks the tile provider for nothing', async ({ page }) => {
+        // The other default, and the reason it exists: on a phone a
+        // full-width map that captures touch sits between the reader and
+        // the list they came for, and every attempt to scroll past it pans
+        // the map instead. Only a real browser can show this — the fold is
+        // decided by matchMedia, which jsdom does not implement and which
+        // PHPUnit cannot see at all.
+        await loginAsAdmin(page);
+        await page.setViewportSize({ width: 390, height: 844 });
+
+        const panel = page.locator('#camps-map-panel');
+        const built = page.locator('#camps-map.leaflet-container');
+        const toggle = page.getByRole('button', { name: 'Carte', exact: true });
+
+        await page.goto('/chefs/camps', { waitUntil: 'domcontentloaded' });
+
+        await expect(panel, 'a phone must not open the map unasked').toBeHidden();
+        await expect(built, 'a folded map must request no tiles at all').toHaveCount(0);
+        await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+
+        // And it is a fold, not a removal: the reader can still ask.
+        await toggle.click();
+        await expect(panel).toBeVisible();
+        await expect(built, 'opening it builds it then, not never').toHaveCount(1);
     });
 });
