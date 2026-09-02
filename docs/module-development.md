@@ -388,12 +388,21 @@ one item, because "assigned or not" is still a real choice.
 
 Bootstrap's own `nav nav-underline` + `flex-nowrap` + `overflow-auto`, so
 nothing here duplicates a Bootstrap component. `id` and `label` are
-required, `selected` and `color` optional. The link is
+required, `selected`, `color`, `icon` and `align_end` optional. The link is
 `{{ base_url }}{{ item.id }}{{ extra_query }}`, so an `id` may equally be
 a numeric id or a full path. `aria-current="page"` marks the selected tab.
 `public/assets/js/nav-rail.js` scrolls that tab into view (honouring
 `prefers-reduced-motion`) and does nothing else — the rail is complete and
 operable without it.
+
+`align_end` pushes an item, and everything after it, to the far end of the
+row (a plain `ms-auto`). Use it for the one tab that **leaves** the page
+the rail navigates — the news module's article tabs end on « Finance »,
+which opens `/finance/receivables` — so it does not read as one more view
+of the same page. It is about layout, never about a use case: it names no
+module, which is the line the "no `is_section`, no `for_finance`" rule
+draws. An overflowing rail is unaffected, since an auto margin resolves to
+zero and the row scrolls as before.
 
 Underlined tabs here are a deliberate, approved **partial reversal of
 UX-convergence decision #4** ("nav-pills → chips"); see `design.md` §7.6.
@@ -428,6 +437,13 @@ the component:
 - `core/View/templates/partials/page_picker.html.twig` — a `pages[]` list
   → nav rail, with the longest-match selection rule (`/finance/movements/12`
   selects « Mouvements », never also « Tableau de bord »).
+
+A page's `url` is both the link and the match key, so a call site whose
+views share one route selects by passing a **synthetic `current_path`**
+rather than the global — `groups/list.html.twig` and the news module's
+`_form_tabs.html.twig` both do it, the latter because « Édition » and
+« Aperçu » are one route told apart by `?tab=preview`. That is the
+supported way to use the layer, not a workaround.
 
 Their include signatures are the point: a layer's callers never change
 when the component underneath does. All eight call sites of

@@ -16,6 +16,7 @@ use Modules\News\Repository\FormRepository;
 use Modules\News\Repository\NewsForm;
 use Modules\News\Service\ArticleService;
 use Modules\News\Service\FormService;
+use Core\Security\Role;
 use Modules\News\Service\NewsException;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -165,5 +166,55 @@ class FormServiceTest extends TestCase
         ]);
 
         $this->assertTrue($this->service->getFields($form->id)[0]->isNonInput());
+    }
+
+    // --- IT-01: the « Finance » tab's link ---
+
+    public function testTheReceivablesLinkCarriesTheFormId(): void
+    {
+        $settings = $this->baseSettings();
+        $settings['finance_account_id'] = 3;
+        $form = $this->service->save($this->articleId, $settings, []);
+
+        // ResponseService registers its receivables as ('news', $form->id),
+        // so `source_reference_id` — what receivables.html.twig compares
+        // its focus_id against — is a form id.
+        $this->assertSame(
+            '/finance/receivables?source=news&id=' . $form->id,
+            $this->service->receivablesLinkFor($form, true, Role::CHIEF)
+        );
+    }
+
+    public function testThereIsNoReceivablesLinkWithoutTheFinanceModule(): void
+    {
+        $settings = $this->baseSettings();
+        $settings['finance_account_id'] = 3;
+        $form = $this->service->save($this->articleId, $settings, []);
+
+        $this->assertNull($this->service->receivablesLinkFor($form, false, Role::CHIEF));
+    }
+
+    public function testThereIsNoReceivablesLinkWithoutAFinanceAccount(): void
+    {
+        $form = $this->service->save($this->articleId, $this->baseSettings(), []);
+
+        $this->assertNull($this->service->receivablesLinkFor($form, true, Role::CHIEF));
+    }
+
+    public function testThereIsNoReceivablesLinkBelowIntendant(): void
+    {
+        $settings = $this->baseSettings();
+        $settings['finance_account_id'] = 3;
+        $form = $this->service->save($this->articleId, $settings, []);
+
+        // The page it opens is role_min: intendant. A tab pointing at a 403
+        // is worse than no tab — the floor itself is the boundary.
+        $this->assertNull($this->service->receivablesLinkFor($form, true, Role::IDENTIFIED));
+        $this->assertNotNull($this->service->receivablesLinkFor($form, true, Role::INTENDANT));
+    }
+
+    public function testThereIsNoReceivablesLinkWithoutAForm(): void
+    {
+        $this->assertNull($this->service->receivablesLinkFor(null, true, Role::ADMIN));
     }
 }

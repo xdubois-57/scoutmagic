@@ -34,13 +34,23 @@
           { url: '/finance', label: 'Tableau de bord' },
           { url: '/finance/movements', label: 'Mouvements' },
       ],
-      current_path: current_path,     -- the global; selection by equality
-                                      -- or by prefix (see match_prefix)
+      current_path: current_path,     -- the global, OR a synthetic path
+                                      -- the caller computes when two
+                                      -- views share one route and differ
+                                      -- by a query (see groups/list and
+                                      -- the news form tabs); selection by
+                                      -- equality or by prefix (see
+                                      -- match_prefix)
       extra_query: '?account_id=3',   -- optional, appended to every link
       aria_label: 'Pages Finances',   -- optional, names the <nav>
       match_prefix: true,             -- optional: a sub-route keeps its
                                       -- parent page selected
   } only %}
+
+  A page may also carry `icon` (a Bootstrap Icons class) and `align_end`
+  (push this page, and every page after it, to the far end of the rail —
+  for the one entry that leaves the module the rail navigates). Both are
+  passed straight through to the nav rail; see its own docblock.
 #}
 {# Longest match wins — /finance/movements/12 selects « Mouvements »,
    never also « Tableau de bord » because it happens to sit at /finance. #}
@@ -54,7 +64,13 @@
 {% endfor %}
 {% set _items = [] %}
 {% for page in pages %}
-    {% set _items = _items|merge([{ id: page.url, label: page.label, selected: page.url == _best }]) %}
+    {% set _items = _items|merge([{
+        id: page.url,
+        label: page.label,
+        selected: page.url == _best,
+        icon: page.icon|default(null),
+        align_end: page.align_end|default(false),
+    }]) %}
 {% endfor %}
 <div class="page-picker mb-3">
     {% include 'partials/nav_rail.html.twig' with {

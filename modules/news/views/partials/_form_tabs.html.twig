@@ -1,23 +1,62 @@
-{# Tab-like navigation row between the form builder's three views (module
-   spec §11.5/§11.6 header). `active` is one of 'edit'|'preview'|'responses'.
-   Preview/Responses only make sense once the article has been saved. #}
-<ul class="nav nav-pills mb-3">
-    <li class="nav-item">
-        {% if article_id %}
-            <a class="nav-link {{ active == 'edit' ? 'active' : '' }}" href="/news/{{ article_id }}/edit">Édition</a>
-        {% else %}
-            {# Not saved yet — nowhere else to navigate to, so this isn't a link (avoids a 404 on "/news//edit"). #}
-            <span class="nav-link active">Édition</span>
-        {% endif %}
-    </li>
-    {% if article_id %}
-        <li class="nav-item">
-            <a class="nav-link {{ active == 'preview' ? 'active' : '' }}" href="/news/{{ article_id }}/edit?tab=preview">Aperçu</a>
-        </li>
-        {% if can_view_responses %}
-            <li class="nav-item">
-                <a class="nav-link {{ active == 'responses' ? 'active' : '' }}" href="/news/{{ article_id }}/form/responses">Réponses</a>
-            </li>
-        {% endif %}
+{#
+  Sub-navigation of one article's management pages — Édition, Aperçu,
+  Réponses, and (once the form delivers a ticket) Scanner un billet, with
+  Finance pushed to the far end.
+
+  It used to draw its own `nav nav-pills` row, one of the last two places
+  in the application still doing so. The site's component is
+  partials/page_picker.html.twig, whose docblock carries the history: six
+  places copied the same boilerplate, a seventh drew primary pills, two
+  modules used nav-pills. Chips remain wrong for a sub-navigation — a
+  chip reads as a filter you toggle — so the shape is the nav rail,
+  Bootstrap `nav nav-underline` (design.md §7.6).
+
+  `current_path` is SYNTHETIC here, computed from `active` rather than
+  read off the request: Édition and Aperçu are the same route, told apart
+  only by `?tab=preview`, and the picker matches on the whole `url`
+  string. Same trick as groups/list.html.twig.
+
+  Nothing at all is rendered before the article's first save: there is no
+  second view to navigate to yet, and a one-tab rail linking to
+  "/news//gerer" would 404.
+
+  Parameters:
+  - `article_id`         — null until the article is first saved.
+  - `active`             — 'edit' | 'preview' | 'responses' | 'scan'.
+  - `can_view_responses` — presentation only; the route keeps its own
+                           floor (SECURITY.md §3).
+  - `form_id`            — optional, required by the scan tab.
+  - `issues_ticket`      — optional: the form delivers a ticket, so the
+                           scan page exists for it.
+  - `finance_link`       — optional: the « Paiements attendus » URL, set
+                           by the controller only when the finance module
+                           is on AND the viewer may open that page
+                           (role_min: intendant). A tab pointing at a 403
+                           is worse than no tab.
+#}
+{% if article_id %}
+    {% set _base = '/news/' ~ article_id ~ '/gerer' %}
+    {% set _responses = '/news/' ~ article_id ~ '/form/responses' %}
+    {% set _scan = '/news/scan/' ~ (form_id|default(0)) %}
+    {% set _pages = [
+        { url: _base, label: 'Édition' },
+        { url: _base ~ '?tab=preview', label: 'Aperçu' },
+    ] %}
+    {% if can_view_responses %}
+        {% set _pages = _pages|merge([{ url: _responses, label: 'Réponses' }]) %}
     {% endif %}
-</ul>
+    {% if issues_ticket|default(false) and form_id|default(0) %}
+        {% set _pages = _pages|merge([{ url: _scan, label: 'Scanner un billet', icon: 'bi-qr-code-scan' }]) %}
+    {% endif %}
+    {% if finance_link|default(null) %}
+        {% set _pages = _pages|merge([{ url: finance_link, label: 'Finance', icon: 'bi-cash-coin', align_end: true }]) %}
+    {% endif %}
+    {% include 'partials/page_picker.html.twig' with {
+        picker_id: 'news-form-tabs',
+        pages: _pages,
+        current_path: active == 'preview' ? _base ~ '?tab=preview'
+            : (active == 'responses' ? _responses
+            : (active == 'scan' ? _scan : _base)),
+        aria_label: "Pages de l'article",
+    } only %}
+{% endif %}

@@ -45,10 +45,19 @@
 
   Parameters:
   - `picker_id`  — unique per instance on a page; it is the DOM id.
-  - `items`      — `id` and `label` required, `selected` and `color`
-                   optional. The link is
+  - `items`      — `id` and `label` required, `selected`, `color`,
+                   `icon` and `align_end` optional. The link is
                    `{{ base_url }}{{ item.id }}{{ extra_query }}`, so an
                    `id` may equally be a numeric id or a full path.
+                   `align_end` pushes an item — and everything after it —
+                   to the far end of the rail. It exists for the one item
+                   that LEAVES the page the rail navigates: the news
+                   form's « Finance » tab opens another module, and a tab
+                   sitting flush against its siblings reads as a fifth
+                   view of the same page. Layout only, and deliberately
+                   generic — it names no module and no use case. When the
+                   rail overflows, the auto margin collapses to nothing
+                   and the row simply scrolls, as before.
   - `base_url` / `extra_query` — both optional, both default to ''.
   - `aria_label` — names the <nav> landmark; defaults to 'Navigation'.
 
@@ -60,7 +69,7 @@
         <ul class="nav nav-underline flex-nowrap overflow-auto">
             {% for item in items %}
                 {% set selected = item.selected is defined and item.selected %}
-                <li class="nav-item">
+                <li class="nav-item{{ item.align_end is defined and item.align_end ? ' ms-auto' : '' }}">
                     <a href="{{ base_url|default('') }}{{ item.id }}{{ extra_query|default('') }}"
                        class="nav-link tap-target text-nowrap d-inline-flex align-items-center gap-1{{ selected ? ' active' : '' }}"
                        data-id="{{ item.id }}"
@@ -68,6 +77,9 @@
                        {{ selected ? 'aria-current="page"' : '' }}>
                         {% if item.color is defined and item.color %}
                             <span class="d-inline-block rounded-circle flex-shrink-0" style="width:0.55rem;height:0.55rem;background-color:{{ item.color }};"></span>
+                        {% endif %}
+                        {% if item.icon is defined and item.icon %}
+                            <i class="bi {{ item.icon }}" aria-hidden="true"></i>
                         {% endif %}
                         <span>{{ item.label }}</span>
                     </a>

@@ -2,7 +2,7 @@
   "id": "news",
   "name": "Actualités",
   "description": "Articles d'actualité avec formulaires intégrés (inscriptions, paiements optionnels), référencement SEO et affiche A4 avec QR code.",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "enabled_by_default": true,
   "routes": [
     {
@@ -86,14 +86,14 @@
       "breadcrumb": { "label": "Actualité", "parents": ["Notre unité"], "ancestors": [{ "label": "Actualités", "path": "/news" }] }
     },
     {
-      "path": "/news/{id}/edit",
+      "path": "/news/{id}/gerer",
       "method": "GET",
       "controller": "Modules\\News\\Controller\\NewsController",
       "action": "edit",
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "",
-      "breadcrumb": { "label": "Modifier l'article", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Actualités", "path": "/news/manage" }] }
+      "breadcrumb": { "label": "Gérer l'article", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Actualités", "path": "/news/manage" }] }
     },
     {
       "path": "/news/{id}",
@@ -103,7 +103,7 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "",
-      "breadcrumb": { "label": "Modifier l'article", "parents": ["Espace animateurs"] }
+      "breadcrumb": { "label": "Gérer l'article", "parents": ["Espace animateurs"] }
     },
     {
       "path": "/news/{id}",

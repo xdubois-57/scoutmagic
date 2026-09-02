@@ -1,11 +1,23 @@
 {% extends "base.html.twig" %}
 
-{% block title %}{{ article ? 'Éditer' : 'Nouvel article' }} — Actualités — {{ site_name }}{% endblock %}
+{% block title %}{{ article ? article.title : 'Nouvel article' }} — Actualités — {{ site_name }}{% endblock %}
 
 {% block content %}
-    {% include 'partials/page_header.html.twig' with { title: article ? 'Éditer l\'article' : 'Nouvel article' } only %}
+    {#
+      The <h1> is the article's own title, matching the page's <title>
+      (design.md §7.6). This page no longer only EDITS the article — it is
+      where its views, its responses and its door screen are reached from,
+      which is also why its route reads /gerer rather than /edit.
+    #}
+    {% include 'partials/page_header.html.twig' with { title: article ? article.title : 'Nouvel article' } only %}
 
-    {% include '@news/partials/_form_tabs.html.twig' with {article_id: article ? article.id : null, active: preview is defined and preview ? 'preview' : 'edit', can_view_responses: form is not null} %}
+    {% include '@news/partials/_form_tabs.html.twig' with {
+        article_id: article ? article.id : null,
+        form_id: form_id|default(null),
+        active: preview is defined and preview ? 'preview' : 'edit',
+        can_view_responses: form is not null,
+        finance_link: finance_link|default(null),
+    } only %}
 
     {% if preview is defined and preview %}
         {% include '@news/partials/_editor_preview.html.twig' %}

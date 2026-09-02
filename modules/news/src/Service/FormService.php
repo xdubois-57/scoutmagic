@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\News\Service;
 
 use Core\Security\HtmlSanitizer;
+use Core\Security\Role;
 use Modules\News\Repository\Article;
 use Modules\News\Repository\FormField;
 use Modules\News\Repository\FormFieldRepository;
@@ -46,6 +47,37 @@ class FormService
     public function getFields(int $formId): array
     {
         return $this->fieldRepository->findByFormId($formId);
+    }
+
+    /**
+     * The « Paiements attendus » deep link for a form's tab, or null when
+     * there is nothing there to open.
+     *
+     * Three conditions, and all three are about not offering a tab that
+     * would disappoint. The finance module may be disabled entirely. The
+     * page it opens is `role_min: intendant`, so a viewer below that
+     * would follow the tab into a 403 — a hidden control is a courtesy,
+     * never the boundary (SECURITY.md §3), and the boundary is that
+     * route's own floor plus the per-account partitioning
+     * ReceivablesOverviewService applies on top of it. And a form with no
+     * finance account never raised a receivable, so the page would open
+     * on an accordion that does not contain it.
+     *
+     * `id` carries the FORM's id on purpose: Service\ResponseService
+     * calls createReceivable('news', $form->id, …), so `source_reference_id`
+     * — what receivables.html.twig compares `focus_id` against — is a
+     * form id, and this is the value that expands the right section.
+     */
+    public function receivablesLinkFor(?NewsForm $form, bool $financeAvailable, Role $viewerRole): ?string
+    {
+        if ($form === null || !$financeAvailable || $form->financeAccountId === null) {
+            return null;
+        }
+        if (!$viewerRole->hasAccess(Role::INTENDANT)) {
+            return null;
+        }
+
+        return '/finance/receivables?source=news&id=' . $form->id;
     }
 
     /**

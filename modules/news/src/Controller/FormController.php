@@ -193,6 +193,16 @@ class FormController extends AbstractController
             'fields' => $fields,
             'rows' => $rows,
             'finance_available' => $this->expectedReceivable !== null,
+            // The nav rail's last tab, pushed to the far end because it
+            // leaves the module — null hides it (FormService::
+            // receivablesLinkFor()). It used to be a button in this
+            // page's own action row, which is where it made the row
+            // overflow on a 375-pixel screen.
+            'finance_link' => $this->formService->receivablesLinkFor(
+                $form,
+                $this->expectedReceivable !== null,
+                $role
+            ),
             // Presentation only, and both halves matter: the mail merge
             // does not exist below `chief`, and it does not exist at all
             // when mass_mail is disabled. Hiding the button is a courtesy —

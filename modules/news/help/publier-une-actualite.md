@@ -6,7 +6,7 @@ category: Espace animateurs
 role_min: chief
 question: Comment publier une annonce sur le site de l'unité ?
 question: Comment créer un formulaire d'inscription à une activité ?
-paths: /news/manage, /news/create, /news/*/edit
+paths: /news/manage, /news/create, /news/*/gerer
 related: actualites, reponses-au-formulaire, publipostage, finances
 ---
 
@@ -53,10 +53,10 @@ Le bloc « Affiche & QR code » télécharge une affiche A4 prête à
 imprimer, dont le code QR mène à l'article. L'onglet « Réponses »
 liste chaque réponse avec, si l'évènement est payant, l'état du
 paiement (Payé, Partiel, Non payé) calculé depuis les extraits
-bancaires ; « Exporter en Excel » télécharge le tout — le fichier est
+bancaires ; « Exporter » télécharge le tout — le fichier est
 réutilisable tel quel comme liste de publipostage.
 
-« Écrire aux répondants » va plus vite encore : le bouton prépare
+« Écrire » va plus vite encore : le bouton prépare
 directement un brouillon de publipostage adressé à tous ceux qui ont
 répondu et vous dépose dans l'écran de composition, chaque champ du
 formulaire disponible comme variable. Rien n'est envoyé — le message

@@ -147,6 +147,39 @@ class NavRailRenderingTest extends TestCase
         $this->assertStringNotContainsString('background-color:', $without);
     }
 
+    /**
+     * `align_end` is the one item flag about layout rather than state: it
+     * pushes an item, and everything after it, to the far end of the row.
+     * It exists for a tab that LEAVES the page the rail navigates — the
+     * news form's « Finance » tab opens another module — and a plain
+     * `ms-auto` is the whole mechanism, so an overflowing rail simply
+     * scrolls as before.
+     */
+    public function testAnEndAlignedItemCarriesTheAutoMargin(): void
+    {
+        $html = $this->render([
+            ['id' => '/news/1/gerer', 'label' => 'Édition'],
+            ['id' => '/finance/receivables', 'label' => 'Finance', 'align_end' => true],
+        ]);
+
+        $this->assertStringContainsString('<li class="nav-item ms-auto">', $html);
+        $this->assertSame(1, substr_count($html, 'ms-auto'));
+    }
+
+    public function testItemsAreNotEndAlignedByDefault(): void
+    {
+        $html = $this->render([['id' => '/a', 'label' => 'A']]);
+
+        $this->assertStringNotContainsString('ms-auto', $html);
+    }
+
+    public function testAnItemMayCarryAnIcon(): void
+    {
+        $html = $this->render([['id' => '/a', 'label' => 'A', 'icon' => 'bi-qr-code-scan']]);
+
+        $this->assertStringContainsString('<i class="bi bi-qr-code-scan" aria-hidden="true"></i>', $html);
+    }
+
     public function testNavLandmarkIsNamed(): void
     {
         $html = $this->render([['id' => '/a', 'label' => 'A']], ['aria_label' => 'Pages Finances']);

@@ -295,11 +295,11 @@ class NewsController extends AbstractController
             ['article_id' => $article->id], $accountId
         );
 
-        return $this->redirect('/news/' . $article->id . '/edit');
+        return $this->redirect('/news/' . $article->id . '/gerer');
     }
 
     /**
-     * GET /news/{id}/edit — in-controller: author or admin only.
+     * GET /news/{id}/gerer — in-controller: author or admin only.
      *
      * @param array<string, string> $params
      */
@@ -329,7 +329,7 @@ class NewsController extends AbstractController
      */
     public function update(Request $request, array $params): Response
     {
-        if (($guard = $this->guardCsrf($request, '/news/' . (int) ($params['id'] ?? 0) . '/edit')) !== null) {
+        if (($guard = $this->guardCsrf($request, '/news/' . (int) ($params['id'] ?? 0) . '/gerer')) !== null) {
             return $guard;
         }
 
@@ -370,7 +370,7 @@ class NewsController extends AbstractController
             ['article_id' => $article->id], $accountId
         );
 
-        return $this->redirect('/news/' . $article->id . '/edit');
+        return $this->redirect('/news/' . $article->id . '/gerer');
     }
 
     /**
@@ -597,6 +597,15 @@ class NewsController extends AbstractController
             'seo_ai_available' => $this->seoKeywordService->isAvailable(),
             'finance_available' => $this->financeAccount !== null,
             'finance_accounts' => $financeAccounts,
+            'form_id' => $form?->id,
+            // The nav rail's last tab, pushed to the far end because it
+            // leaves the module. Null hides it — see
+            // FormService::receivablesLinkFor().
+            'finance_link' => $this->formService->receivablesLinkFor(
+                $form,
+                $this->financeAccount !== null,
+                Role::fromString(AuthSession::getRole())
+            ),
             // Only used when the form doesn't already have its own saved
             // finance_account_id (new form) — the section of the current
             // user's highest-role linked member, same resolution as the

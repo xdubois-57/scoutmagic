@@ -5,26 +5,37 @@
 {% block content %}
     {% include 'partials/page_header.html.twig' with { title: 'Réponses — ' ~ article.title } only %}
 
-    {% include '@news/partials/_form_tabs.html.twig' with {article_id: article.id, active: 'responses', can_view_responses: true} %}
+    {% include '@news/partials/_form_tabs.html.twig' with {
+        article_id: article.id,
+        form_id: form.id,
+        active: 'responses',
+        can_view_responses: true,
+        finance_link: finance_link|default(null),
+    } only %}
 
+    {#
+      The action group used to be a bare `d-flex gap-2 text-nowrap`: no
+      wrapping allowed and no label allowed to break, so three buttons
+      ran off the side of a 375-pixel screen. Both halves of the fix are
+      needed — the buttons stack full width below `sm` like everywhere
+      else on the site, AND the labels are short (« Exporter », « Écrire »),
+      because a `text-nowrap` row overflows again as soon as a fourth
+      button appears. « Finance » left this row entirely: it is the nav
+      rail's end tab above, since it leaves the module.
+    #}
     <div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2 mb-3">
         <p class="text-body-secondary small mb-0">
             Chef d'Unité : peut toujours modifier. Répondant identifié : peut modifier tant que le formulaire est ouvert.
         </p>
-        <div class="d-flex gap-2 text-nowrap">
-            {% if finance_available %}
-                <a href="/finance/receivables?source=news&id={{ form.id }}" class="btn btn-sm btn-outline-secondary">
-                    <i class="bi bi-cash-coin" aria-hidden="true"></i> Voir dans Finances
-                </a>
-            {% endif %}
+        <div class="d-flex flex-column flex-sm-row flex-sm-wrap gap-2 text-nowrap">
             <a href="/news/{{ article.id }}/form/responses/export" class="btn btn-sm btn-outline-primary">
-                <i class="bi bi-file-earmark-spreadsheet" aria-hidden="true"></i> Exporter en Excel
+                <i class="bi bi-file-earmark-spreadsheet" aria-hidden="true"></i> Exporter
             </a>
             {% if mail_draft_available %}
-                <form method="post" action="/news/{{ article.id }}/form/responses/mail-draft" class="d-inline">
+                <form method="post" action="/news/{{ article.id }}/form/responses/mail-draft" class="d-grid d-sm-inline">
                     {{ csrf_field()|raw }}
                     <button type="submit" class="btn btn-sm btn-outline-primary">
-                        <i class="bi bi-envelope-paper" aria-hidden="true"></i> Écrire aux répondants
+                        <i class="bi bi-envelope-paper" aria-hidden="true"></i> Écrire
                     </button>
                 </form>
             {% endif %}

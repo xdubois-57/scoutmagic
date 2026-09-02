@@ -48,12 +48,12 @@ relancer la famille.
 
 ## Exporter et écrire
 
-« Exporter en Excel » télécharge l'ensemble, réponses et états de
+« Exporter » télécharge l'ensemble, réponses et états de
 paiement compris. Le fichier obtenu est directement réutilisable comme
 audience de publipostage — les colonnes deviennent les variables du
 message.
 
-« Écrire aux répondants » va plus vite : le bouton prépare un brouillon
+« Écrire » va plus vite : le bouton prépare un brouillon
 de publipostage adressé à tous ceux qui ont répondu, chaque champ du
 formulaire disponible comme variable, et vous dépose dans l'écran de
 composition. Rien ne part avant que vous ne l'envoyiez. Il demande le

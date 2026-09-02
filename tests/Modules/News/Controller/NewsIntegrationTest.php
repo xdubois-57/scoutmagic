@@ -227,6 +227,128 @@ class NewsIntegrationTest extends TestCase
         $this->assertStringContainsString('Article', $response->getBody());
     }
 
+    // --- IT-01: one target per row, one component for the sub-navigation ---
+
+    public function testAManagedArticleRowLeadsToItsManagementPage(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_CHIEF, false, null, null, $this->chiefAccountId);
+
+        $body = $this->newsController->manage(new Request('GET', '/news/manage', [], [], [], []), [])->getBody();
+
+        // One row, one target. The card used to carry a stretched-link to
+        // the public view PLUS an « Éditer » button escaping it with a
+        // z-index — and the button was the way in that everybody used.
+        $this->assertStringContainsString('href="/news/' . $articleId . '/gerer"', $body);
+        $this->assertStringNotContainsString('position-absolute top-0 end-0', $body);
+    }
+
+    public function testAPublicArticleRowStillLeadsToThePublicArticle(): void
+    {
+        $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+
+        $body = $this->newsController->index(new Request('GET', '/news', [], [], [], []), [])->getBody();
+
+        $this->assertStringNotContainsString('/gerer', $body);
+    }
+
+    public function testTheFormTabsAreTheSharedNavRailAndNoLongerPills(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId);
+        $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+
+        $body = $this->newsController->edit(
+            new Request('GET', '/news/' . $articleId . '/gerer', [], [], [], []),
+            ['id' => (string) $articleId]
+        )->getBody();
+
+        $this->assertStringContainsString('nav nav-underline', $body);
+        $this->assertStringNotContainsString('nav nav-pills', $body);
+        $this->assertStringContainsString('href="/news/' . $articleId . '/gerer"', $body);
+        $this->assertStringContainsString('href="/news/' . $articleId . '/gerer?tab=preview"', $body);
+    }
+
+    public function testTheEditorTabIsTheSelectedOneAndThePreviewTabIsNot(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId);
+        $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+
+        // Two views of ONE route, told apart by a query string the picker
+        // never sees — so the call site computes a synthetic current_path.
+        $preview = $this->newsController->edit(
+            new Request('GET', '/news/' . $articleId . '/gerer', ['tab' => 'preview'], [], [], []),
+            ['id' => (string) $articleId]
+        )->getBody();
+
+        $this->assertMatchesRegularExpression(
+            '#href="/news/' . $articleId . '/gerer\?tab=preview"[^>]*class="[^"]*\bactive\b#',
+            $preview
+        );
+    }
+
+    public function testNoTabRailAtAllBeforeTheArticleIsSaved(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+
+        $body = $this->newsController->create(new Request('GET', '/news/create', [], [], [], []), [])->getBody();
+
+        // Nowhere to navigate yet, and "/news//gerer" would 404.
+        $this->assertStringNotContainsString('news-form-tabs', $body);
+    }
+
+    public function testTheFinanceTabIsAbsentWithoutTheFinanceModule(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId);
+        $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, 3);
+
+        // $this->newsController is built with no FinanceAccountInterface.
+        $body = $this->newsController->edit(
+            new Request('GET', '/news/' . $articleId . '/gerer', [], [], [], []),
+            ['id' => (string) $articleId]
+        )->getBody();
+
+        $this->assertStringNotContainsString('/finance/receivables', $body);
+    }
+
+    public function testTheFinanceTabIsTheRailsEndTabWhenTheModuleIsOnAndTheFormIsPaid(): void
+    {
+        [$controller] = $this->controllerWithFinanceAccounts();
+        $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, 42);
+
+        $body = $controller->edit(
+            new Request('GET', '/news/' . $articleId . '/gerer', [], [], [], []),
+            ['id' => (string) $articleId]
+        )->getBody();
+
+        // `id` is the FORM's id: ResponseService registers its receivables
+        // as ('news', $form->id), so that is what receivables.html.twig
+        // compares its focus_id against.
+        $this->assertStringContainsString('/finance/receivables?source=news&amp;id=' . $formId, $body);
+        // It leaves the module, so it sits apart from the four tabs that
+        // do not.
+        $this->assertStringContainsString('<li class="nav-item ms-auto">', $body);
+    }
+
+    public function testTheFinanceTabIsAbsentOnAFormWithNoAccount(): void
+    {
+        [$controller] = $this->controllerWithFinanceAccounts();
+        $articleId = $this->articleRepository->create('Réunion', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId);
+        $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+
+        $body = $controller->edit(
+            new Request('GET', '/news/' . $articleId . '/gerer', [], [], [], []),
+            ['id' => (string) $articleId]
+        )->getBody();
+
+        // Nothing was ever billed here, so the page would open on an
+        // accordion that does not contain this form.
+        $this->assertStringNotContainsString('/finance/receivables', $body);
+    }
+
     public function testCreateEditorPageRendersForChief(): void
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
@@ -248,7 +370,7 @@ class NewsIntegrationTest extends TestCase
         $this->fieldRepository->create($formId, 2, FormField::TYPE_DROPDOWN, 'Jour', false, 'manual', "Lundi\nMardi", null, null, null);
         $this->fieldRepository->create($formId, 3, FormField::TYPE_CONFIRMATION, null, false, null, null, null, null, 'Je confirme.');
 
-        $response = $this->newsController->edit(new Request('GET', '/news/' . $articleId . '/edit', [], [], [], []), ['id' => (string) $articleId]);
+        $response = $this->newsController->edit(new Request('GET', '/news/' . $articleId . '/gerer', [], [], [], []), ['id' => (string) $articleId]);
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString('Article avec formulaire', $response->getBody());
@@ -267,7 +389,7 @@ class NewsIntegrationTest extends TestCase
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
         $articleId = $this->articleRepository->create('Fête des familles', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
 
-        $response = $this->newsController->edit(new Request('GET', '/news/' . $articleId . '/edit', [], [], [], []), ['id' => (string) $articleId]);
+        $response = $this->newsController->edit(new Request('GET', '/news/' . $articleId . '/gerer', [], [], [], []), ['id' => (string) $articleId]);
 
         $this->assertMatchesRegularExpression(
             '/aria-current="page">\s*Fête des familles\s*</',
@@ -302,7 +424,7 @@ class NewsIntegrationTest extends TestCase
         $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_IDENTIFIED, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
         $this->fieldRepository->create($formId, 0, FormField::TYPE_NUMBER, 'Repas', false, null, null, 10, null, null);
 
-        $response = $this->newsController->edit(new Request('GET', '/news/' . $articleId . '/edit', ['tab' => 'preview'], [], [], []), ['id' => (string) $articleId]);
+        $response = $this->newsController->edit(new Request('GET', '/news/' . $articleId . '/gerer', ['tab' => 'preview'], [], [], []), ['id' => (string) $articleId]);
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString('Aperçu', $response->getBody());
@@ -409,7 +531,7 @@ class NewsIntegrationTest extends TestCase
         $id = $this->articleRepository->create('Ancien article', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
         $this->editableContentService->set(ArticleService::bodyContentKey($id), '<p>Contenu historique.</p>', 'rich_text', $this->chiefAccountId);
 
-        $response = $this->newsController->edit(new Request('GET', '/news/' . $id . '/edit', [], [], [], []), ['id' => (string) $id]);
+        $response = $this->newsController->edit(new Request('GET', '/news/' . $id . '/gerer', [], [], [], []), ['id' => (string) $id]);
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString('Contenu historique.', $response->getBody());
@@ -730,8 +852,12 @@ class NewsIntegrationTest extends TestCase
 
         // $this->formController is built with no draft provider, which is
         // exactly what the composition root passes when mass_mail is off.
-        $this->assertStringNotContainsString('Écrire aux répondants', $body);
-        $this->assertStringContainsString('Exporter en Excel', $body, 'the rest of the page is untouched');
+        // Matched on the action URL rather than the label: the labels are
+        // deliberately short (« Exporter », « Écrire ») so the row stops
+        // overflowing a 375-pixel screen, and « Écrire » alone is a
+        // substring of too much prose to assert on.
+        $this->assertStringNotContainsString('/form/responses/mail-draft', $body);
+        $this->assertStringContainsString('/form/responses/export', $body, 'the rest of the page is untouched');
     }
 
     public function testCreatingAMailDraftIsNotFoundWithoutTheMassMailModule(): void
@@ -760,7 +886,7 @@ class NewsIntegrationTest extends TestCase
             ['id' => (string) $articleId]
         )->getBody();
 
-        $this->assertStringContainsString('Écrire aux répondants', $body);
+        $this->assertStringContainsString('/form/responses/mail-draft', $body);
     }
 
     public function testTheMailDraftButtonIsHiddenFromAnIntendant(): void
@@ -776,7 +902,7 @@ class NewsIntegrationTest extends TestCase
             ['id' => (string) $articleId]
         )->getBody();
 
-        $this->assertStringNotContainsString('Écrire aux répondants', $body);
+        $this->assertStringNotContainsString('/form/responses/mail-draft', $body);
     }
 
     public function testCreatingAMailDraftHandsOverTheExportsColumnsAndRedirects(): void
