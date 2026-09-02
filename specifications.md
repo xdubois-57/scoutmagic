@@ -2256,3 +2256,42 @@ ne dit rien de lui.
 `/members/{id}` — plutôt que documenté ailleurs : c'est la meilleure façon de montrer qu'aucun
 identifiant n'est conservé. Le nom lisible d'une page vient du libellé de fil d'Ariane que sa route
 déclare déjà ; une seconde table de noms français dériverait de la première.
+
+### 42.6 La transmission au projet
+
+**Presque tout existait déjà, et rien n'a été reconstruit.** `Configuration > Support` (§21.1) porte
+l'explication, l'avertissement, la bascule `statistics_enabled` et l'envoi de test ; le paquet de
+support verse déjà `statistics.json`. Cette itération n'ajoute qu'un champ au document que ces deux
+chemins partagent.
+
+**Un seul constructeur, deux chemins.** `Core\Statistics\StatisticsPayloadBuilder` prend l'agrégat
+par module comme dépendance facultative, et l'envoi quotidien comme le paquet de support en héritent
+d'un coup — ce qui préserve l'invariant que le collecteur documente : `statistics.json` est
+*exactement le même document que le rapport quotidien enverrait*. Un second collecteur aurait
+divergé à la première évolution.
+
+**Seul l'agrégat par module part.** La question utile au projet est « quels modules servent dans les
+unités », pas « combien de fois telle unité a ouvert son calendrier » : le champ porte un total par
+module sur douze mois, et l'interface publiée n'expose rien d'autre — une interface capable de
+répondre au détail finirait par en être priée.
+
+**Absent n'est pas zéro.** Module désactivé (ou pas installé) : le champ vaut `null`. Module activé
+que personne n'ouvre : il manque simplement de la liste, laquelle est présente. C'est la règle 1 du
+constructeur — *indisponible vaut `null`, jamais `0`* — et elle porte tout le §42.7 : confondre les
+deux ferait abandonner un module dont on se sert.
+
+**La version de schéma ne bouge pas.** Le receveur n'accepte qu'une liste fermée de versions ; en
+faire passer une nouvelle ferait rejeter en bloc le rapport de toute installation qui parle à un
+receveur pas encore mis à jour. Un champ ajouté est précisément le cas que le protocole prévoit :
+un champ inconnu est conservé tel quel et ignoré (§21.3).
+
+**L'opt-out empêche l'envoi automatique, et lui seul.** Il ne vide pas le paquet de support :
+quelqu'un qui demande de l'aide veut précisément qu'on voie ce qui tourne chez lui, et il déclenche
+la transmission lui-même en joignant l'archive. C'était déjà le comportement — le collecteur appelle
+le constructeur sans consulter le réglage — et c'est désormais écrit et tenu par un test, plutôt que
+de subsister par accident.
+
+**Le vocabulaire de la page Support est repris tel quel** : « Ce rapport n'est pas anonyme. Il
+contient l'adresse de ce site […] Il ne contient en revanche aucune donnée de membre. » C'est plus
+juste que « anonyme », qui serait faux, et aucun vocabulaire parallèle n'a été inventé. L'énumération
+de ce qui part y a été complétée, et la politique de confidentialité par défaut avec elle.

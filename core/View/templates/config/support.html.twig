@@ -14,6 +14,21 @@
             réellement utilisées, et décider des développements à venir en connaissance de cause.
         </p>
 
+        {# L'énumération de ce qui part doit rester exacte : elle est ce
+           sur quoi une unité décide. Le module « Fréquentation du site »
+           ajoute UNE ligne au rapport — le total par module — et rien de
+           plus ; le détail page par page reste ici, et le dire est ce qui
+           empêche de lire « fréquentation » comme « journal de
+           navigation ». #}
+        <p class="small text-body-secondary">
+            Il contient le nombre de membres et de sections actifs, la version installée, la liste des
+            modules et des informations techniques sur l'hébergement. Si le module
+            <strong>Fréquentation du site</strong> est activé, s'y ajoute le <strong>nombre de pages
+            ouvertes par module</strong> sur les douze derniers mois — l'agrégat seul :
+            <strong>le détail page par page ne quitte jamais ce site</strong>, et le comptage
+            lui-même ne conserve ni adresse IP, ni navigateur, ni parcours nominatif.
+        </p>
+
         <div class="alert alert-info small">
             <strong>Ce rapport n'est pas anonyme.</strong> Il contient l'adresse de ce site, ce qui permet de
             rattacher un rapport à l'unité qui demande de l'aide. Il ne contient en revanche aucune donnée de
@@ -79,7 +94,8 @@
         <div class="alert alert-info small">
             <strong>Partent avec votre message :</strong> l'identifiant de cette installation,
             la version du site, la version de PHP, et le <strong>rapport d'utilisation</strong>
-            (compteurs agrégés et informations techniques — aucune donnée de membre).
+            (compteurs agrégés, usage par module et informations techniques — aucune donnée de membre,
+            et jamais le détail page par page).
             {% if not statistics_enabled %}
                 L'envoi <em>quotidien</em> de statistiques reste désactivé : seul ce ticket en emporte un,
                 et seulement parce que vous cliquez.

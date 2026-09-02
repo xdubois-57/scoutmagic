@@ -17,10 +17,19 @@ use Core\Support\SupportCollectorInterface;
  * transmit (Core\Statistics\StatisticsPayloadBuilder), with the values it
  * has at the moment of generation.
  *
- * Produced **even when reporting is disabled**: the unit chose not to send
- * this automatically, which says nothing about whether they want it in an
- * archive they are attaching to their own support request by hand. It
- * carries no secret, by construction — the secret is never a payload field.
+ * Produced **even when reporting is disabled**, and that is a rule rather
+ * than an accident of how this class happens to be written: it calls the
+ * builder without ever consulting `statistics_enabled`, on purpose.
+ * `statistics_enabled` withdraws consent to the AUTOMATIC daily send, and
+ * to nothing else. Somebody generating a support package is asking for
+ * help and triggering the transmission themselves — emptying the archive
+ * because a scheduled task is off would answer a question nobody asked,
+ * and would leave a maintainer diagnosing an installation they cannot see.
+ * `Tests\Core\Support\Collector\StatisticsCollectorTest` pins both
+ * halves.
+ *
+ * It carries no secret, by construction — the secret is never a payload
+ * field.
  */
 class StatisticsCollector implements SupportCollectorInterface
 {

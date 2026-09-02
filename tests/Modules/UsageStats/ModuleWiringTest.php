@@ -146,6 +146,51 @@ class ModuleWiringTest extends TestCase
         }
     }
 
+    /**
+     * The report's per-module aggregate reaches BOTH paths, or it reaches
+     * neither honestly: the daily send builds its payload from a
+     * TaskContext (`Core\Statistics\StatisticsServiceFactory`) and the web
+     * path from the composition root. Two wirings is two places for them
+     * to drift, and the drift would be silent — a report that simply
+     * stopped carrying the field on one of the two triggers.
+     */
+    public function testTheModuleUsageCapabilityIsWiredOnBothPaths(): void
+    {
+        $root = dirname(__DIR__, 3);
+
+        $this->assertStringContainsString(
+            '$usageStatsModuleUsageForOthers',
+            $this->index,
+            'public/index.php never hands the per-module aggregate to the payload builder.'
+        );
+
+        $bootstrap = (string) file_get_contents($root . '/public/scheduler-bootstrap.php');
+        $this->assertStringContainsString(
+            'Modules\\UsageStats\\Api\\ModuleUsageInterface::class',
+            $bootstrap,
+            'The scheduled path cannot resolve the aggregate, so the daily report would drop it.'
+        );
+
+        $factory = (string) file_get_contents($root . '/core/Statistics/StatisticsServiceFactory.php');
+        $this->assertStringContainsString('ModuleUsageInterface::class', $factory);
+    }
+
+    /**
+     * The block sits among the trunk's wiring rather than with the other
+     * modules, and the reason is load-bearing: a CORE consumer built a few
+     * lines below takes its published capability. Moved back down with its
+     * siblings, the report silently stops carrying the aggregate.
+     */
+    public function testTheBlockStillRunsBeforeTheStatisticsPayloadBuilderIsBuilt(): void
+    {
+        $block = strpos($this->index, "\$isEnabled('" . self::MODULE_ID . "')");
+        $builder = strpos($this->index, 'new \\Core\\Statistics\\StatisticsPayloadBuilder(');
+
+        $this->assertIsInt($block);
+        $this->assertIsInt($builder);
+        $this->assertLessThan($builder, $block);
+    }
+
     private function recordCall(): string
     {
         $start = strpos($this->index, '$usageStatsRecorder->record(');
@@ -162,8 +207,12 @@ class ModuleWiringTest extends TestCase
         $start = strpos($this->index, "\$isEnabled('" . self::MODULE_ID . "')");
         $this->assertIsInt($start, 'public/index.php no longer wires ' . self::MODULE_ID . ' at all.');
 
-        $end = strpos($this->index, "\$isEnabled('test_tools')", $start);
-        $this->assertIsInt($end, 'The ' . self::MODULE_ID . ' block is no longer followed by the test_tools block.');
+        // The block ends where the statistics payload builder begins —
+        // the CORE consumer it exists this early for. Isolating it keeps a
+        // TASK_KEY mentioned elsewhere in a 6000-line composition root from
+        // satisfying the assertions above.
+        $end = strpos($this->index, 'new \\Core\\Statistics\\StatisticsPayloadBuilder(', $start);
+        $this->assertIsInt($end, 'The ' . self::MODULE_ID . ' block no longer precedes the statistics payload builder.');
 
         return substr($this->index, $start, $end - $start);
     }

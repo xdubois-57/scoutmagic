@@ -16,6 +16,7 @@ use Core\Member\UnitStaffSectionService;
 use Core\Module\ModuleManager;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\Service\DateInput;
+use Modules\UsageStats\Api\ModuleUsageInterface;
 
 /**
  * Builds the exact document an installation reports to the statistics
@@ -54,7 +55,14 @@ class StatisticsPayloadBuilder
         private InstallationIdentityService $identityService,
         private string $projectRoot,
         private ?ModuleManager $moduleManager = null,
-        private ?MailService $mailService = null
+        private ?MailService $mailService = null,
+        // The usage_stats module's published capability (ARCHITECTURE.md
+        // §7.5), consumed nullable like every other cross-boundary
+        // capability: the module disabled means `module_usage` is null in
+        // the report, which rule 1 above makes a different fact from an
+        // empty list. Trailing and defaulted so no existing call site of
+        // this constructor changes.
+        private ?ModuleUsageInterface $moduleUsage = null
     ) {
     }
 
@@ -82,6 +90,7 @@ class StatisticsPayloadBuilder
                 'active_sections' => $this->collect(fn(): ?int => $this->activeSections($publicScoutYearId)),
             ],
             'modules' => $this->collect(fn(): ?array => $this->modules()),
+            'module_usage' => $this->collect(fn(): ?array => $this->moduleUsagePayload()),
             'installation' => [
                 'method' => $this->collect(fn(): ?string => $this->installationMethod()),
             ],
@@ -285,6 +294,43 @@ class StatisticsPayloadBuilder
         usort($modules, static fn(array $a, array $b): int => strcmp($a['id'], $b['id']));
 
         return $modules;
+    }
+
+    /**
+     * How much each module was actually OPENED, over the window the
+     * capability declares — the one thing `modules` above cannot say.
+     *
+     * `modules` lists what is installed and switched on; this lists what
+     * anybody used. A module enabled everywhere and opened nowhere is a
+     * candidate for retirement, and it is the single observation no unit
+     * can make on its own (ARCHITECTURE.md §8.51bis).
+     *
+     * **Null when the module is absent or disabled**, per rule 1: « cette
+     * installation ne mesure pas » and « personne n'a ouvert ce module »
+     * are different facts, and a receiver that confounded them would drop
+     * a module people use.
+     *
+     * The aggregate only. The detail per page stays on the unit's own
+     * screens: the project's question is which modules serve, not how
+     * often one unit opened its calendar.
+     *
+     * @return ?array{window_months: int, modules: array<int, array{id: string, views: int}>}
+     */
+    private function moduleUsagePayload(): ?array
+    {
+        if ($this->moduleUsage === null) {
+            return null;
+        }
+
+        $modules = [];
+        foreach ($this->moduleUsage->aggregatedByModule() as $usage) {
+            $modules[] = ['id' => $usage->moduleId, 'views' => $usage->views];
+        }
+
+        return [
+            'window_months' => ModuleUsageInterface::WINDOW_MONTHS,
+            'modules' => $modules,
+        ];
     }
 
     /**

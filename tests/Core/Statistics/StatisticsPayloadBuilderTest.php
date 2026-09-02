@@ -88,16 +88,83 @@ class StatisticsPayloadBuilderTest extends TestCase
         $this->settings->clearCache();
     }
 
-    private function builder(?ModuleManager $moduleManager = null, ?MailService $mailService = null): StatisticsPayloadBuilder
-    {
+    private function builder(
+        ?ModuleManager $moduleManager = null,
+        ?MailService $mailService = null,
+        ?\Modules\UsageStats\Api\ModuleUsageInterface $moduleUsage = null
+    ): StatisticsPayloadBuilder {
         return new StatisticsPayloadBuilder(
             $this->settings,
             $this->pdo,
             $this->identityService,
             $this->projectRoot,
             $moduleManager,
-            $mailService
+            $mailService,
+            $moduleUsage
         );
+    }
+
+    /**
+     * The distinction the whole `module_usage` field exists to preserve:
+     * « cette installation ne mesure pas » is null, « personne n'a ouvert
+     * ce module » is an entry missing from a list that is itself present.
+     * A receiver that confounded the two would retire a module people use.
+     */
+    public function testModuleUsageIsNullWhenTheUsageStatsModuleIsNotWired(): void
+    {
+        $payload = $this->builder()->build();
+
+        $this->assertArrayHasKey('module_usage', $payload);
+        $this->assertNull($payload['module_usage']);
+    }
+
+    public function testModuleUsageCarriesTheAggregatePerModuleAndItsWindow(): void
+    {
+        $usage = new class () implements \Modules\UsageStats\Api\ModuleUsageInterface {
+            /** @return list<\Modules\UsageStats\Api\ModuleUsage> */
+            public function aggregatedByModule(): array
+            {
+                return [
+                    new \Modules\UsageStats\Api\ModuleUsage('calendar', 412),
+                    new \Modules\UsageStats\Api\ModuleUsage('news', 244),
+                ];
+            }
+        };
+
+        $payload = $this->builder(null, null, $usage)->build();
+
+        $this->assertSame(
+            [
+                'window_months' => \Modules\UsageStats\Api\ModuleUsageInterface::WINDOW_MONTHS,
+                'modules' => [
+                    ['id' => 'calendar', 'views' => 412],
+                    ['id' => 'news', 'views' => 244],
+                ],
+            ],
+            $payload['module_usage']
+        );
+    }
+
+    /**
+     * The aggregate, never the detail. The payload has no page, no route
+     * and no audience anywhere — the project's question is which modules
+     * serve, not how often one unit opened its calendar.
+     */
+    public function testTheReportCarriesNoPageLevelDetail(): void
+    {
+        $usage = new class () implements \Modules\UsageStats\Api\ModuleUsageInterface {
+            /** @return list<\Modules\UsageStats\Api\ModuleUsage> */
+            public function aggregatedByModule(): array
+            {
+                return [new \Modules\UsageStats\Api\ModuleUsage('calendar', 412)];
+            }
+        };
+
+        $json = $this->builder(null, null, $usage)->buildJson();
+
+        foreach (['route', 'page', 'audience', '{id}'] as $forbidden) {
+            $this->assertStringNotContainsString($forbidden, $json);
+        }
     }
 
     private function moduleManager(): ModuleManager
@@ -186,7 +253,7 @@ class StatisticsPayloadBuilderTest extends TestCase
         $this->assertSame(
             [
                 'statistics_schema_version', 'installation_id', 'instance_url', 'generated_at',
-                'scoutmagic', 'scout_year', 'usage', 'modules', 'installation', 'runtime',
+                'scoutmagic', 'scout_year', 'usage', 'modules', 'module_usage', 'installation', 'runtime',
                 'database', 'host', 'security', 'email', 'scheduler', 'updates', 'lifecycle', 'storage',
             ],
             array_keys($payload)
