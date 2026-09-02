@@ -88,6 +88,7 @@ class StatisticsPayloadBuilder
             'usage' => [
                 'active_members' => $this->collect(fn(): ?int => $this->activeMembers($publicScoutYearId)),
                 'active_sections' => $this->collect(fn(): ?int => $this->activeSections($publicScoutYearId)),
+                'active_accounts_30d' => $this->collect(fn(): int => $this->activeAccounts()),
             ],
             'modules' => $this->collect(fn(): ?array => $this->modules()),
             'module_usage' => $this->collect(fn(): ?array => $this->moduleUsagePayload()),
@@ -264,6 +265,36 @@ class StatisticsPayloadBuilder
              WHERE my.scout_year_id = ? AND my.is_active = 1 AND s.desk_code <> ?'
         );
         $stmt->execute([$scoutYearId, UnitStaffSectionService::DESK_CODE]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * Accounts that logged in over the last THIRTY DAYS — not « this
+     * month », and the difference is the whole reason the field is named
+     * for its window.
+     *
+     * The receiver keeps only the LATEST report of each installation, so a
+     * calendar-month count would say something different depending on which
+     * day of the month the report happened to be built: a unit last heard
+     * from on the 2nd would look deserted beside one last heard from on the
+     * 28th, and the column comparing them would be measuring the calendar.
+     * A sliding window is comparable across installations by construction.
+     *
+     * The unit's own screen answers « ce mois » instead, on purpose: a
+     * chief reads their own site against the month they are living in, and
+     * that figure never travels (ARCHITECTURE.md §8.93).
+     *
+     * `last_login_at` holds the LAST login only, so this counts accounts
+     * whose most recent visit falls in the window — for a window ending
+     * now, that is exactly « who came recently », which is the question.
+     */
+    private function activeAccounts(): int
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM user_accounts WHERE is_active = 1 AND last_login_at >= ?'
+        );
+        $stmt->execute([(new \DateTimeImmutable('-30 days'))->format('Y-m-d H:i:s')]);
 
         return (int) $stmt->fetchColumn();
     }

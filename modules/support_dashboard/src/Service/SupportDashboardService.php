@@ -97,9 +97,108 @@ class SupportDashboardService
             'page_count' => $pageCount,
             'indicators' => $this->indicators($filtered),
             'charts' => $this->charts($filtered),
+            'module_adoption' => self::moduleAdoption($filtered),
             'available' => $this->availableFilterValues($all),
             'active_threshold_days' => $this->activeThresholdDays(),
             'retention_months' => $this->retentionMonths(),
+        ];
+    }
+
+    /**
+     * **Activé dans N unités, réellement ouvert dans N** — the one reading
+     * no single unit can produce, and the reason the per-module aggregate
+     * travels at all (ARCHITECTURE.md §8.51bis).
+     *
+     * The dashboard has always known which modules are ENABLED; a module
+     * switched on everywhere and opened nowhere is a candidate for
+     * retirement, and until now nothing here could say so.
+     *
+     * Computed on the FILTERED set, like the indicator cards and both
+     * charts and for the same reason: a block that ignored the filter
+     * would contradict the table above it on the same screen.
+     *
+     * Three counts per module, and the third is what keeps the second
+     * honest:
+     *
+     * - `enabled` — installations where the module is switched on;
+     * - `used` — of those, how many report at least one opening;
+     * - `silent` — of those, how many **cannot answer**, because they do
+     *   not measure usage at all. Folding those into `used = 0` would turn
+     *   « nous ne mesurons pas » into « personne ne s'en sert », which is
+     *   the one mistake that would make a maintainer retire a module people
+     *   use every week.
+     *
+     * A module nobody has enabled is not listed: it is already off
+     * everywhere, so there is nothing to decide about it here.
+     *
+     * @param array<int, array<string, mixed>> $rows
+     * @return array{
+     *     modules: list<array{id: string, enabled: int, used: int, silent: int, measured: int}>,
+     *     measuring_installations: int,
+     *     unused_ids: list<string>
+     * }
+     */
+    private static function moduleAdoption(array $rows): array
+    {
+        /** @var array<string, array{enabled: int, used: int, silent: int}> $counts */
+        $counts = [];
+        $measuring = 0;
+
+        foreach ($rows as $row) {
+            /** @var ?array<string, int> $usage */
+            $usage = $row['module_usage'] ?? null;
+            if ($usage !== null) {
+                $measuring++;
+            }
+
+            /** @var array<string, array{enabled: bool, version: ?string}> $modules */
+            $modules = $row['modules'] ?? [];
+            foreach ($modules as $moduleId => $module) {
+                if ($module['enabled'] !== true) {
+                    continue;
+                }
+
+                $counts[$moduleId] ??= ['enabled' => 0, 'used' => 0, 'silent' => 0];
+                $counts[$moduleId]['enabled']++;
+
+                if ($usage === null) {
+                    $counts[$moduleId]['silent']++;
+                    continue;
+                }
+                if (($usage[$moduleId] ?? 0) > 0) {
+                    $counts[$moduleId]['used']++;
+                }
+            }
+        }
+
+        $modules = [];
+        foreach ($counts as $moduleId => $count) {
+            $modules[] = [
+                'id' => $moduleId,
+                'enabled' => $count['enabled'],
+                'used' => $count['used'],
+                'silent' => $count['silent'],
+                'measured' => $count['enabled'] - $count['silent'],
+            ];
+        }
+
+        usort($modules, static fn(array $a, array $b): int =>
+            $b['enabled'] <=> $a['enabled'] ?: ($b['used'] <=> $a['used'] ?: strcmp($a['id'], $b['id'])));
+
+        // The actionable finding, isolated: enabled somewhere, measured
+        // somewhere, opened nowhere. A module nobody measures is NOT in
+        // this list — that is the distinction above, applied.
+        $unused = [];
+        foreach ($modules as $module) {
+            if ($module['used'] === 0 && $module['measured'] > 0) {
+                $unused[] = $module['id'];
+            }
+        }
+
+        return [
+            'modules' => $modules,
+            'measuring_installations' => $measuring,
+            'unused_ids' => $unused,
         ];
     }
 
@@ -289,6 +388,15 @@ class SupportDashboardService
                 'auto_update_level' => self::stringOrNull($row['auto_update_level'] ?? null),
             ]),
             'modules' => self::modulesOf($payload),
+            // Accounts that logged in over the last thirty days, as the
+            // sender measured them. Read straight from the payload rather
+            // than denormalised into a column: nothing filters or sorts on
+            // it, and hydrate() already has the decoded document in hand —
+            // the same reason `modules` above is not a column either.
+            'active_accounts_30d' => self::intOrNull(self::pathOf($payload, ['usage', 'active_accounts_30d'])),
+            // null — never an empty array — when the sender does not
+            // measure usage at all. See moduleUsageOf().
+            'module_usage' => self::moduleUsageOf($payload),
             'payload' => $payload,
             // The version label used for grouping and display: a dev build
             // is its own bucket, since "1.0.33" and "dev-abc1234" are not
@@ -537,6 +645,62 @@ class SupportDashboardService
         }
 
         return $series;
+    }
+
+    /**
+     * How much each module was OPENED at that installation, `module id =>
+     * views`, or **null when the sender does not measure at all**.
+     *
+     * That null is the distinction the whole adoption block rests on: an
+     * installation whose `usage_stats` module is off cannot say whether
+     * anybody opened its calendar, and reading its silence as zero would
+     * eventually retire a module people use. « personne ne l'a ouvert » is
+     * an id missing from a list that IS present; « cette installation ne
+     * mesure pas » is the absent list.
+     *
+     * @param array<string, mixed> $payload
+     * @return ?array<string, int>
+     */
+    private static function moduleUsageOf(array $payload): ?array
+    {
+        $usage = $payload['module_usage'] ?? null;
+        if (!is_array($usage) || !is_array($usage['modules'] ?? null)) {
+            return null;
+        }
+
+        $views = [];
+        foreach ($usage['modules'] as $module) {
+            if (!is_array($module) || !isset($module['id']) || !is_string($module['id'])) {
+                continue;
+            }
+            $count = self::intOrNull($module['views'] ?? null);
+            if ($count === null) {
+                continue;
+            }
+            $views[$module['id']] = $count;
+        }
+
+        return $views;
+    }
+
+    /**
+     * A nested payload value, or null — the reading half of
+     * StatisticsIntakeService::path(), which lives on the write side.
+     *
+     * @param array<string, mixed> $payload
+     * @param array<int, string> $path
+     */
+    private static function pathOf(array $payload, array $path): mixed
+    {
+        $value = $payload;
+        foreach ($path as $key) {
+            if (!is_array($value) || !array_key_exists($key, $value)) {
+                return null;
+            }
+            $value = $value[$key];
+        }
+
+        return $value;
     }
 
     /**

@@ -2295,3 +2295,41 @@ de subsister par accident.
 contient l'adresse de ce site […] Il ne contient en revanche aucune donnée de membre. » C'est plus
 juste que « anonyme », qui serait faux, et aucun vocabulaire parallèle n'a été inventé. L'énumération
 de ce qui part y a été complétée, et la politique de confidentialité par défaut avec elle.
+
+### 42.7 Le tableau de bord de supervision (module support_dashboard)
+
+Côté instance réceptrice, et **cette page existait déjà** : quatorze routes, un nav rail, une
+dizaine de filtres, la répartition des versions et des builds, les tickets et leurs sondes, une page
+de détail par installation et un export. Cette itération y ajoute deux choses et ne touche à rien
+d'autre.
+
+**Un bloc « Adoption des modules »** : activé dans N installations, réellement ouvert dans N. C'est
+la seule chose que le tableau ne savait pas dire — il connaissait les modules *activés*, jamais ceux
+qui servent — et c'est le constat qu'aucune unité ne peut produire seule.
+
+**Trois compteurs par module, et le troisième tient le deuxième.** `activé` : combien
+d'installations l'ont allumé. `utilisé` : combien de celles-là rapportent au moins une ouverture.
+`ne mesure pas` : combien **ne peuvent pas répondre**, leur propre module « Fréquentation du site »
+étant éteint. Confondre le troisième avec « zéro ouverture » ferait lire « nous ne mesurons pas »
+comme « personne ne s'en sert » — la seule erreur, ici, qui ferait abandonner un module utilisé
+toutes les semaines. Quand aucune installation affichée ne mesure, le bloc le dit au lieu de
+dessiner une colonne de zéros orange : une page pleine de « 0 utilisés » est une affirmation, et
+elle serait fausse.
+
+**Calculé sur le jeu filtré**, comme les tuiles et les deux graphes : un bloc qui ignorerait le
+filtre contredirait le tableau juste en dessous, sur le même écran.
+
+**Les modules sont nommés par leur identifiant**, jamais par ce que les manifestes de *ce* receveur
+leur donnent comme nom — même règle que les catégories de ticket : l'identifiant est ce dont les
+deux côtés sont convenus, et un nom cherché localement serait faux précisément quand ça compte.
+
+**Une colonne « Comptes actifs (30 j) »** sur le bloc des installations existant. Le libellé porte sa
+fenêtre : le receveur ne conserve que le dernier rapport de chaque installation, donc un décompte
+par mois calendrier dirait autre chose selon le jour où il a été construit, et la colonne
+comparerait des calendriers. L'écran de l'unité répond « ce mois », lui, et ce chiffre-là ne voyage
+pas.
+
+**L'export gagne les deux colonnes correspondantes**, avec la même distinction : « Non renseigné »
+pour une installation qui ne mesure pas, une cellule **vide** pour une qui mesure et n'a rien
+ouvert. Les écrire pareil laisserait un lecteur trier la colonne et conclure que la moitié du parc
+ne se sert de rien.

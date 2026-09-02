@@ -264,6 +264,25 @@ class StatisticsIntakeServiceTest extends TestCase
         $this->assertSame(['x' => 1], $stored['a_field_from_the_future']);
     }
 
+    /**
+     * `module_usage` is a field this receiver understands (roadmap IT-04):
+     * a sender carrying it must not have every report warned about as
+     * « somebody is ahead of us », which is what the unknown-field list is
+     * for.
+     */
+    public function testTheModuleUsageFieldIsUnderstoodRatherThanWarnedAbout(): void
+    {
+        $result = $this->receive($this->payload([
+            'module_usage' => [
+                'window_months' => 12,
+                'modules' => [['id' => 'calendar', 'views' => 412]],
+            ],
+        ]));
+
+        $this->assertTrue($result->accepted);
+        $this->assertSame([], $result->unknownFields);
+    }
+
     public function testAMissingOptionalFieldBecomesNullNotZeroOrFalse(): void
     {
         $this->receive($this->payload([

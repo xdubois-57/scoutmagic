@@ -54,6 +54,7 @@ final class SupportInstallationExporter
             'Version / build ScoutMagic',
             'Build de développement',
             'Membres actifs',
+            'Comptes actifs (30 jours)',
             'Sections actives',
             'Année scoute',
             "Méthode d'installation",
@@ -64,6 +65,7 @@ final class SupportInstallationExporter
             'Version du schéma de statistiques',
             'Modules activés',
             'Modules désactivés',
+            'Modules réellement ouverts',
         ];
     }
 
@@ -84,6 +86,7 @@ final class SupportInstallationExporter
                 self::text($row['version_label'] ?? null),
                 self::yesNo($row['is_dev_build'] ?? null),
                 self::text($row['active_members'] ?? null),
+                self::text($row['active_accounts_30d'] ?? null),
                 self::text($row['active_sections'] ?? null),
                 self::text($row['scout_year_label'] ?? null),
                 self::text($row['installation_method'] ?? null),
@@ -94,6 +97,7 @@ final class SupportInstallationExporter
                 self::text($row['statistics_schema_version'] ?? null),
                 self::moduleList($row, true),
                 self::moduleList($row, false),
+                self::openedModules($row),
             ];
         }
 
@@ -141,5 +145,34 @@ final class SupportInstallationExporter
         }
 
         return $matching === [] ? '' : implode(', ', $matching);
+    }
+
+    /**
+     * The modules this installation reports at least one opening for.
+     *
+     * « Non renseigné » when it does not measure at all, and an EMPTY cell
+     * when it measures and opened nothing — the same distinction the
+     * adoption block draws, carried into the spreadsheet. Writing the two
+     * the same way would let a reader sort the column and conclude that
+     * half the fleet uses nothing.
+     *
+     * @param array<string, mixed> $row
+     */
+    private static function openedModules(array $row): string
+    {
+        $usage = $row['module_usage'] ?? null;
+        if (!is_array($usage)) {
+            return self::MISSING;
+        }
+
+        $opened = [];
+        foreach ($usage as $id => $views) {
+            if (is_int($views) && $views > 0) {
+                $opened[] = (string) $id;
+            }
+        }
+        sort($opened);
+
+        return implode(', ', $opened);
     }
 }

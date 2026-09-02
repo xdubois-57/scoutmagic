@@ -3165,6 +3165,21 @@ Two features that look like one, built in an order that is itself the design: an
 **Retention is three scout years**, cut on 1 September (`Modules\UsageStats\Retention`, a daily self-rescheduling purge). Writing the duration down is the point: a table nobody purges is a table kept for ever, which is a retention decision made by omission.
 
 
+### 8.51bis Adoption des modules, on the receiver (`modules/support_dashboard`)
+
+**The dashboard has always known which modules are ENABLED, and never which ones serve.** A module switched on in every unit and opened in none is a candidate for retirement, and it is the single observation no unit can make on its own — which is the whole reason a per-module aggregate travels in the report at all (§8.93, §8.47).
+
+**Three counts per module, and the third is what keeps the second honest.** `enabled` is how many installations have it on. `used` is how many of those report at least one opening. `silent` is how many **cannot answer**, because their own `usage_stats` module is off. Folding `silent` into `used = 0` would turn « nous ne mesurons pas » into « personne ne s'en sert », which is the one mistake here that would retire a module people use every week. The absent-vs-zero rule the payload already lives by (§8.47's rule 1) is carried all the way to the screen: `module_usage` missing is **null**, a module missing from a present list is the zero. When nothing in the filtered set measures at all, the block says so instead of drawing a column of amber zeros — a page full of « 0 utilisés » is a claim, and it would be false.
+
+**Computed in PHP on the filtered set**, like the indicator cards and both charts, and read out of the stored payload rather than a new denormalised table. That is the design `SupportDashboardService` already documents — the population is a federation's units, the module list already lives in the JSON, and splitting filter and aggregate between SQL and PHP is how a table and its own counters end up disagreeing. A block that ignored the filter would contradict the table under it on the same screen.
+
+**Modules are named by their id, never by this receiver's own manifests.** The same rule `TicketCategory` already applies: the id is what both sides agreed on, and a name looked up locally would be wrong precisely when it matters — a unit running a module this receiver does not have, or has under a newer name.
+
+**The « Comptes actifs (30 j) » column carries its window in its label**, and the window is a sliding thirty days rather than a calendar month. The receiver keeps only the LATEST report of each installation, so a calendar-month count would say something different depending on which day of the month it happened to be built — a unit last heard from on the 2nd would look deserted beside one last heard from on the 28th, and the column comparing them would be measuring the calendar. The unit's own screen answers « ce mois » instead, on purpose, and that figure never travels.
+
+**Nothing else on this page changed**, and that was the constraint: `support_dashboard` was already fourteen routes, a nav rail, a dozen filters, the version and build distributions, the ticket queue and its probes, a per-installation detail dialog and an XLSX export. The receiver learned one field (`module_usage` joined `KNOWN_TOP_LEVEL_FIELDS`, so a sender carrying it is no longer warned about as « somebody is ahead of us »), gained one block and one column, and the export gained the two matching columns — with the same silence-versus-zero distinction, « Non renseigné » against an empty cell, because a reader sorting that column must not conclude that half the fleet uses nothing.
+
+
 ## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php
