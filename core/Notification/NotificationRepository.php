@@ -59,16 +59,36 @@ class NotificationRepository
      *
      * @return NotificationRecord[]
      */
-    public function findByUserAccountId(int $userAccountId, int $limit = 50): array
+    public function findByUserAccountId(int $userAccountId, int $limit = 50, int $offset = 0): array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT * FROM notifications WHERE user_account_id = ? ORDER BY created_at DESC, id DESC LIMIT ?'
+            'SELECT * FROM notifications WHERE user_account_id = ?
+              ORDER BY created_at DESC, id DESC
+              LIMIT ? OFFSET ?'
         );
         $stmt->bindValue(1, $userAccountId, \PDO::PARAM_INT);
         $stmt->bindValue(2, $limit, \PDO::PARAM_INT);
+        $stmt->bindValue(3, max(0, $offset), \PDO::PARAM_INT);
         $stmt->execute();
 
         return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * How many notifications this account has in all — what a page count
+     * is made of.
+     *
+     * The centre used to render one hard-capped screenful of a hundred and
+     * say nothing about the rest: an account with more had them silently
+     * out of reach, and nothing on the page even hinted they existed. A
+     * count is what turns that cap into a page.
+     */
+    public function countByUserAccountId(int $userAccountId): int
+    {
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM notifications WHERE user_account_id = ?');
+        $stmt->execute([$userAccountId]);
+
+        return (int) $stmt->fetchColumn();
     }
 
     /**

@@ -33,6 +33,36 @@
             </form>
         {% endif %}
 
+        {% if has_inbound_mail %}
+            {# Unattached first, and by default: what a chief comes here to
+               do is decide about the mail nobody could attribute. The
+               messages this module already filed are on their stays' own
+               pages, and a list that opens on everything buries the dozen
+               that need a decision under the hundreds that do not.
+
+               Counts on the tabs rather than beside them: « rien à trier »
+               and « le filtre cache tout » look identical on an empty
+               list, and only a number tells them apart. #}
+            <ul class="nav nav-pills mb-3 gap-1" aria-label="Filtrer le courrier">
+                {% for key, label in {
+                    'non_rattaches': 'À trier',
+                    'rattaches': 'Rattachés',
+                    'tous': 'Tous',
+                } %}
+                    <li class="nav-item">
+                        <a class="nav-link{{ status == key ? ' active' : '' }}"
+                           href="?statut={{ key }}"
+                           {{ status == key ? 'aria-current="page"' : '' }}>
+                            {{ label }}
+                            <span class="badge rounded-pill text-bg-{{ status == key ? 'light' : 'secondary' }}">
+                                {{ counts[key] }}
+                            </span>
+                        </a>
+                    </li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+
         {% if not has_inbound_mail %}
             {% include 'partials/empty_state.html.twig' with {
                 message: 'Aucune boîte n\'est relevée par le site : rien n\'arrive ici. Un administrateur peut en raccorder une dans la configuration du module Courrier entrant.',
@@ -40,7 +70,9 @@
             } only %}
         {% elseif messages is empty %}
             {% include 'partials/empty_state.html.twig' with {
-                message: 'Aucun message à trier.',
+                message: counts.tous > 0
+                    ? 'Aucun message dans ce filtre. Les autres sont sous les onglets ci-dessus.'
+                    : 'Aucun message à trier.',
                 icon: 'bi-envelope-check',
             } only %}
         {% else %}
@@ -60,25 +92,34 @@
                             </div>
 
                             {% if row.has_body %}
-                                {# Le message est lisible en entier ici. On ne
-                                   supprime plus définitivement un courrier qu'on
-                                   ne peut pas lire — et un extrait de 220
-                                   caractères ne dit pas si le message parle du
-                                   séjour de 2027 ou d'une facture. #}
-                                <details class="mt-2">
-                                    <summary class="small text-body-secondary">
-                                        {{ row.excerpt }}{{ row.truncated ? '…' : '' }}
-                                    </summary>
-                                    <div class="mt-2 camps-message-body">
-                                        {% if row.message.bodyHtml is not empty %}
-                                            {# Déjà assaini et débarrassé des images
-                                               distantes au stockage (§8.58). #}
-                                            {{ row.message.bodyHtml|raw }}
-                                        {% else %}
-                                            <pre class="mb-0 text-body-secondary" style="white-space: pre-wrap;">{{ row.message.bodyText }}</pre>
-                                        {% endif %}
-                                    </div>
-                                </details>
+                                {# Une ligne, pas un paragraphe. L'extrait
+                                   faisait 220 caractères — de quoi occuper trois
+                                   lignes par message et transformer une liste de
+                                   décisions en mur de texte. Il tient maintenant
+                                   sur une ligne tronquée, et le message entier
+                                   s'ouvre dans un dialogue.
+
+                                   Le corps est rendu ICI, caché, et déplacé dans
+                                   le dialogue à l'ouverture : aucune chaîne HTML
+                                   ne transite par un attribut ni par innerHTML.
+                                   Il est déjà assaini et débarrassé des images
+                                   distantes au stockage (§8.58) ; ce n'est pas
+                                   une raison de le refaire passer par une seconde
+                                   analyse dans le navigateur. #}
+                                <div class="small text-body-secondary text-truncate mt-2">{{ row.excerpt }}</div>
+                                <button type="button" class="btn btn-link btn-sm p-0 mt-1"
+                                        data-camps-message-open="camps-message-body-{{ row.message.id }}"
+                                        data-camps-message-title="{{ row.message.subject ?: 'Sans objet' }}">
+                                    <i class="bi bi-envelope-open" aria-hidden="true"></i>
+                                    Lire le message
+                                </button>
+                                <div class="d-none camps-message-body" id="camps-message-body-{{ row.message.id }}">
+                                    {% if row.message.bodyHtml is not empty %}
+                                        {{ row.message.bodyHtml|raw }}
+                                    {% else %}
+                                        <pre class="mb-0 text-body-secondary" style="white-space: pre-wrap;">{{ row.message.bodyText }}</pre>
+                                    {% endif %}
+                                </div>
                             {% endif %}
 
                             {% if row.attachment_count > 0 %}
@@ -184,4 +225,20 @@
             entrant.
         </p>
     </div>
+
+    {# UN dialogue pour toute la page, rempli à l'ouverture en DÉPLAÇANT le
+       corps déjà rendu. Un dialogue par message tiendrait cent corps de
+       messages dans le DOM d'un écran qui en montre les titres. #}
+    {% embed 'partials/modal.html.twig' with { id: 'camps-message-modal', title: 'Message', scrollable: true, size: 'lg' } only %}
+        {% block body %}
+            <div id="camps-message-modal-body" class="camps-message-body"></div>
+        {% endblock %}
+        {% block footer %}
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Fermer</button>
+        {% endblock %}
+    {% endembed %}
+{% endblock %}
+
+{% block scripts %}
+    <script src="{{ asset('/assets/js/camps-message-dialog.js') }}" defer></script>
 {% endblock %}

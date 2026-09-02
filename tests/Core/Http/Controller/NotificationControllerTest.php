@@ -85,6 +85,115 @@ class NotificationControllerTest extends TestCase
         $this->assertStringContainsString('Aujourd&#039;hui', $response->getBody());
     }
 
+    // ── Pagination ──────────────────────────────────────────────────────
+
+    /**
+     * The centre used to read one hard-capped screenful and render it. An
+     * account past the cap had notifications that were not merely
+     * off-screen but UNREACHABLE, with nothing on the page even hinting
+     * they existed.
+     */
+    public function testTheSecondPageHoldsWhatTheFirstOneCouldNot(): void
+    {
+        $this->seed(NotificationController::PAGE_SIZE + 1);
+
+        $first = $this->controller->index(new Request('GET', '/notifications', [], [], [], []), [])->getBody();
+        $second = $this->controller->index(
+            new Request('GET', '/notifications', ['page' => '2'], [], [], []),
+            []
+        )->getBody();
+
+        // Newest first, so the OLDEST is the one pushed onto page two.
+        $this->assertStringContainsString('Titre 001', $second);
+        $this->assertStringNotContainsString('Titre 001', $first);
+    }
+
+    public function testAPageThatDoesNotExistLandsOnTheLastOneRatherThanOnNothing(): void
+    {
+        // The page number comes from a query string: `?page=99999` must not
+        // render an empty screen that reads like « vous n'avez rien ».
+        $this->seed(NotificationController::PAGE_SIZE + 1);
+
+        $body = $this->controller->index(
+            new Request('GET', '/notifications', ['page' => '99999'], [], [], []),
+            []
+        )->getBody();
+
+        $this->assertStringContainsString('Titre 001', $body);
+        $this->assertStringNotContainsString('Aucune notification', $body);
+    }
+
+    public function testANegativePageIsTheFirstOne(): void
+    {
+        $this->seed(2);
+
+        $body = $this->controller->index(
+            new Request('GET', '/notifications', ['page' => '-3'], [], [], []),
+            []
+        )->getBody();
+
+        $this->assertStringContainsString('Titre 002', $body);
+    }
+
+    public function testASingleScreenfulShowsNoPaginationAtAll(): void
+    {
+        // A pagination bar with one disabled button is furniture, not
+        // information (partials/pagination.html.twig).
+        $this->seed(3);
+
+        $body = $this->controller->index(new Request('GET', '/notifications', [], [], [], []), [])->getBody();
+
+        $this->assertStringNotContainsString('Pagination des notifications', $body);
+    }
+
+    public function testThePageSaysHowManyThereAreAndWhatBecomesOfThem(): void
+    {
+        $this->seed(NotificationController::PAGE_SIZE + 1);
+
+        $body = $this->controller->index(new Request('GET', '/notifications', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Pagination des notifications', $body);
+        $this->assertStringContainsString((string) (NotificationController::PAGE_SIZE + 1), $body);
+        $this->assertStringContainsString('durée de conservation', $body);
+    }
+
+    public function testOneAccountsPagesNeverReachAnothersNotifications(): void
+    {
+        // Every read is filtered by the session's own account id, never by
+        // a parameter — and a page number must not become a way around it.
+        $other = $this->pdo->query('SELECT MAX(id) + 1 FROM user_accounts')->fetchColumn();
+        foreach (range(1, NotificationController::PAGE_SIZE + 5) as $n) {
+            $this->notificationRepository->create((int) $other, null, 'core.system', "Autre {$n}", 'Corps', null);
+        }
+        $this->seed(1);
+
+        $body = $this->controller->index(
+            new Request('GET', '/notifications', ['page' => '2'], [], [], []),
+            []
+        )->getBody();
+
+        $this->assertStringNotContainsString('Autre', $body);
+    }
+
+    /**
+     * Titles are zero-padded on purpose: « Titre 1 » is a substring of
+     * « Titre 10 », so an unpadded assertion that page one does NOT hold
+     * the oldest row passes or fails for the wrong reason.
+     */
+    private function seed(int $count): void
+    {
+        foreach (range(1, $count) as $n) {
+            $this->notificationRepository->create(
+                $this->userId,
+                null,
+                'core.system',
+                sprintf('Titre %03d', $n),
+                'Corps',
+                null
+            );
+        }
+    }
+
     public function testIndexShowsEmptyStateWithNoNotifications(): void
     {
         $response = $this->controller->index(new Request('GET', '/notifications', [], [], [], []), []);

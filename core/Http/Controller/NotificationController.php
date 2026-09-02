@@ -25,7 +25,16 @@ use Twig\Environment;
  */
 class NotificationController extends AbstractController
 {
-    private const PAGE_SIZE = 100;
+    /**
+     * One screenful.
+     *
+     * It was a hundred, and it was not a page size but a CEILING: the
+     * centre read a hundred rows and rendered them, and an account with
+     * more simply never saw the rest — nothing on the page said they
+     * existed. Twenty-five is a page a reader can actually scan, and the
+     * ones behind it are now reachable rather than merely unrendered.
+     */
+    public const PAGE_SIZE = 25;
 
     public function __construct(
         protected Environment $twig,
@@ -38,12 +47,27 @@ class NotificationController extends AbstractController
      */
     public function index(Request $request, array $params): Response
     {
-        $userId = AuthSession::getUserAccountId();
-        $records = $this->notificationRepository->findByUserAccountId((int) $userId, self::PAGE_SIZE);
+        $userId = (int) AuthSession::getUserAccountId();
+        $total = $this->notificationRepository->countByUserAccountId($userId);
+        $totalPages = max(1, (int) ceil($total / self::PAGE_SIZE));
+
+        // Clamped rather than trusted: the page number comes from a query
+        // string, and `?page=99999` must land on the last page rather than
+        // on an empty screen that looks like « vous n'avez rien ».
+        $page = max(1, min($totalPages, (int) $request->getQuery('page', 1)));
+
+        $records = $this->notificationRepository->findByUserAccountId(
+            $userId,
+            self::PAGE_SIZE,
+            ($page - 1) * self::PAGE_SIZE
+        );
 
         return $this->render('notifications/index.html.twig', [
             'day_groups' => $this->groupByDay($records),
-            'unread_count' => $this->notificationRepository->countUnread((int) $userId),
+            'unread_count' => $this->notificationRepository->countUnread($userId),
+            'total' => $total,
+            'page' => $page,
+            'total_pages' => $totalPages,
         ]);
     }
 

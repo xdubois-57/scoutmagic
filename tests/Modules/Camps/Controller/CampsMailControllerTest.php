@@ -128,12 +128,110 @@ class CampsMailControllerTest extends TestCase
         AuthSession::logout();
     }
 
-    private function screen(): string
+    private function screen(string $status = ''): string
     {
         return $this->controller->unsorted(
-            new Request('GET', '/chefs/camps/courrier', [], [], [], []),
+            new Request('GET', '/chefs/camps/courrier', $status === '' ? [] : ['statut' => $status], [], [], []),
             []
         )->getBody();
+    }
+
+    /**
+     * A second message, already filed under a stay by this module.
+     *
+     * @return InboundMessage
+     */
+    private function attachedMessage(): InboundMessage
+    {
+        return new InboundMessage(
+            id: 43,
+            mailboxId: 2,
+            consumerId: CampsMessageConsumer::CONSUMER_ID,
+            businessReference: CampsMessageConsumer::referenceFor($this->campId),
+            linkOrigin: LinkOrigin::SENDER,
+            subject: 'Deja classe',
+            fromEmail: 'info@mozet.be',
+            fromName: 'Domaine de Mozet',
+            messageId: '<def@mail>',
+            inReplyTo: null,
+            sentAt: new \DateTimeImmutable('2027-11-03 09:00:00'),
+            bodyText: 'Corps',
+            bodyHtml: '',
+            links: [new \Modules\InboundMail\Api\MessageLink(
+                CampsMessageConsumer::CONSUMER_ID,
+                CampsMessageConsumer::referenceFor($this->campId),
+                LinkOrigin::SENDER
+            )]
+        );
+    }
+
+    // ── The status filter ───────────────────────────────────────────────
+
+    /**
+     * What a chief comes here to do is decide about the mail nobody could
+     * attribute. A list that opens on everything buries the dozen that
+     * need a decision under the hundreds that do not.
+     */
+    public function testTheScreenOpensOnWhatStillNeedsADecision(): void
+    {
+        $this->inbound->setMessages([$this->attachedMessage()]);
+
+        $html = $this->screen();
+
+        $this->assertStringNotContainsString('Deja classe', $html);
+        $this->assertStringContainsString('Aucun message dans ce filtre', html_entity_decode($html));
+    }
+
+    public function testTheAttachedTabShowsWhatTheDefaultHides(): void
+    {
+        $this->inbound->setMessages([$this->attachedMessage()]);
+
+        $this->assertStringContainsString('Deja classe', $this->screen('rattaches'));
+    }
+
+    public function testTheAllTabShowsBoth(): void
+    {
+        $this->inbound->setMessages([$this->attachedMessage()]);
+
+        $html = $this->screen('tous');
+
+        $this->assertStringContainsString('Deja classe', $html);
+    }
+
+    public function testAnUnknownFilterIsTheDefaultRatherThanAnError(): void
+    {
+        $this->inbound->setMessages([$this->attachedMessage()]);
+
+        $this->assertStringNotContainsString('Deja classe', $this->screen('n-importe-quoi'));
+    }
+
+    /**
+     * « Rien à trier » and « le filtre cache tout » look identical on an
+     * empty list, and only a number tells them apart.
+     */
+    public function testEachTabCarriesItsOwnCount(): void
+    {
+        $this->inbound->setMessages([$this->attachedMessage()]);
+
+        $html = $this->screen();
+
+        $this->assertStringContainsString('?statut=rattaches', $html);
+        $this->assertStringContainsString('?statut=tous', $html);
+        // One attached, none to sort: the numbers have to say so.
+        $this->assertMatchesRegularExpression('/Rattach\S*s\s*<span[^>]*>\s*1\s*</u', $html);
+    }
+
+    public function testAnInstallationWithNoMailboxShowsNoFilterAtAll(): void
+    {
+        // Filtering nothing is furniture, and the screen already says why
+        // there is nothing.
+        $this->inbound->setMessages([]);
+        $this->inbound->collecting = false;
+
+        $html = $this->screen();
+
+        $this->assertStringNotContainsString('Filtrer le courrier', $html);
+        $this->assertStringContainsString('Aucune bo', $html);
     }
 
     public function testTheWholeMessageCanBeRead(): void
@@ -141,9 +239,33 @@ class CampsMailControllerTest extends TestCase
         $html = $this->screen();
 
         // The screen used to show 220 characters and offer « Supprimer
-        // définitivement » next to them.
+        // définitivement » next to them. The whole body is still on the
+        // page — it is what the dialog borrows — but it is no longer a
+        // three-line paragraph in the middle of a list of decisions.
         $this->assertStringContainsString('La citerne a été remplacée cet hiver', $html);
-        $this->assertStringContainsString('<details', $html);
+        $this->assertStringContainsString('data-camps-message-open="camps-message-body-42"', $html);
+        $this->assertStringContainsString('id="camps-message-body-42"', $html);
+    }
+
+    public function testTheBodyIsHiddenUntilTheDialogBorrowsIt(): void
+    {
+        // A 220-character excerpt occupied three lines per message and
+        // turned a list of decisions into a wall of text. One truncated
+        // line replaces it; the body sits hidden next to it.
+        $html = $this->screen();
+
+        $this->assertStringContainsString('text-truncate', $html);
+        $this->assertStringContainsString('class="d-none camps-message-body"', $html);
+        $this->assertStringNotContainsString('<details', $html);
+    }
+
+    public function testThePageCarriesExactlyOneDialogHoweverManyMessages(): void
+    {
+        // One per message would hold a hundred message bodies' worth of
+        // markup on a screen that shows their subjects.
+        $html = $this->screen();
+
+        $this->assertSame(1, substr_count($html, 'id="camps-message-modal"'));
     }
 
     public function testAMessageOffersToBecomeACamp(): void
@@ -408,9 +530,22 @@ class RecordingInboundMail implements InboundMailInterface
     /** @var array<int, array{0: string, 1: string, 2: int}> */
     public array $detaches = [];
 
+    public bool $collecting = true;
+
     /** @param InboundMessage[] $messages */
     public function __construct(private array $messages)
     {
+    }
+
+    /** @param InboundMessage[] $messages */
+    public function setMessages(array $messages): void
+    {
+        $this->messages = $messages;
+    }
+
+    public function isCollecting(): bool
+    {
+        return $this->collecting;
     }
 
     /** @var array<int, array{0: string, 1: string, 2: int}> */
@@ -491,11 +626,6 @@ class RecordingInboundMail implements InboundMailInterface
     public function purgeReference(string $consumerId, string $businessReference): int
     {
         return 0;
-    }
-
-    public function isCollecting(): bool
-    {
-        return true;
     }
 
     /** @param string[] $messageIds */

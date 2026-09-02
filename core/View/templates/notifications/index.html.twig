@@ -49,5 +49,30 @@
             {% endfor %}
         </div>
     {% endfor %}
+
+    {#
+      The centre used to render one hard-capped screenful and say nothing
+      about the rest: an account past the cap had notifications that were
+      not merely off-screen but unreachable, with nothing on the page even
+      hinting they existed. The « Tout marquer comme lu » button above acts
+      on ALL of them, not on this page — which is why it stays where it is
+      rather than moving down here next to the page numbers.
+    #}
+    {% if total_pages > 1 %}
+        <div class="d-flex flex-column align-items-center gap-2 mt-4">
+            {% include 'partials/pagination.html.twig' with {
+                page: page,
+                total_pages: total_pages,
+                base_url: '?page=',
+                label: 'Pagination des notifications',
+                centered: true,
+            } only %}
+            <p class="small text-body-secondary mb-0">
+                {{ total }} notification{{ total > 1 ? 's' : '' }} au total. Une notification lue
+                disparaît d'elle-même après la durée de conservation ; une notification non lue est
+                gardée sans limite.
+            </p>
+        </div>
+    {% endif %}
 </div>
 {% endblock %}

@@ -74,14 +74,65 @@ class CampsMailController extends AbstractController
      */
     public function unsorted(Request $request, array $params): Response
     {
-        $rows = $this->messages();
+        $all = $this->messages();
+        $status = self::status((string) $request->getQuery('statut', ''));
 
         return $this->render('@camps/unsorted_mail.html.twig', [
-            'messages' => $rows,
+            'messages' => self::filtered($all, $status),
             'camp_options' => $this->campOptions(),
             'has_inbound_mail' => $this->inboundMail !== null && $this->inboundMail->isCollecting(),
+            'status' => $status,
+            'counts' => [
+                self::STATUS_UNLINKED => count(self::filtered($all, self::STATUS_UNLINKED)),
+                self::STATUS_LINKED => count(self::filtered($all, self::STATUS_LINKED)),
+                self::STATUS_ALL => count($all),
+            ],
             'breadcrumb_current' => 'Courrier des camps',
         ]);
+    }
+
+    /**
+     * The three answers the filter can take, and the default.
+     *
+     * **Unattached is the default, and that is the point of the screen.**
+     * What a chief comes here to do is decide about the mail nobody could
+     * attribute; the messages this module already filed are on their
+     * stays' own pages, and a list that opens on everything buries the
+     * dozen that need a decision under the hundreds that do not.
+     */
+    public const STATUS_UNLINKED = 'non_rattaches';
+    public const STATUS_LINKED = 'rattaches';
+    public const STATUS_ALL = 'tous';
+
+    /** An unknown value reads as the default rather than as an error. */
+    private static function status(string $raw): string
+    {
+        return in_array($raw, [self::STATUS_LINKED, self::STATUS_ALL], true) ? $raw : self::STATUS_UNLINKED;
+    }
+
+    /**
+     * Filtered here rather than in SQL, deliberately: the read is already
+     * bounded to one screenful by `findForTriage()`, the association is
+     * this MODULE's (`linksFor()`) rather than any link the message
+     * carries, and a filter that had to travel through
+     * `Api\InboundMailInterface` would be a query shape every consumer
+     * inherits for one screen's sake.
+     *
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private static function filtered(array $rows, string $status): array
+    {
+        if ($status === self::STATUS_ALL) {
+            return $rows;
+        }
+
+        $wantLinked = $status === self::STATUS_LINKED;
+
+        return array_values(array_filter(
+            $rows,
+            static fn(array $row): bool => (($row['links'] ?? []) !== []) === $wantLinked
+        ));
     }
 
     /**
