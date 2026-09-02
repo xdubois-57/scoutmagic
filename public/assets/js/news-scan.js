@@ -199,18 +199,28 @@
         return parts ? parts[1] + 'h' + parts[2] : '';
     }
 
+    const MONTHS = [
+        'janvier', 'février', 'mars', 'avril', 'mai', 'juin',
+        'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre',
+    ];
+
     /**
-     * `2026-03-14` → `14/03/2026`. Not a Date: the value is a calendar
-     * day, and parsing it as an instant shifts it by one west of
-     * Greenwich.
+     * `2026-03-14` → `14 mars 2026`, the SAME words core's `french_date`
+     * Twig filter writes: this page already prints its own event's date
+     * through that filter, and two spellings on one screen read as two
+     * different dates.
+     *
+     * Not a `Date`: the value is a calendar day, and parsing it as an
+     * instant shifts it by one west of Greenwich.
      *
      * @param {string} isoDate
      * @returns {string}
      */
     function frenchDate(isoDate) {
         const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate);
+        if (!parts) return isoDate;
 
-        return parts ? parts[3] + '/' + parts[2] + '/' + parts[1] : isoDate;
+        return Number.parseInt(parts[3], 10) + ' ' + MONTHS[Number.parseInt(parts[2], 10) - 1] + ' ' + parts[1];
     }
 
     /**

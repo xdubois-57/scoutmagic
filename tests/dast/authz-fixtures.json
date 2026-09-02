@@ -213,6 +213,10 @@
       "slug": "salle-des-fetes",
       "type": "contrat"
     },
+    "/news/qr/{reference}": {
+      "reference": "X7K29QMFA3",
+      "token": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    },
     "/news/scan/{form_id}": {
       "form_id": "1"
     },

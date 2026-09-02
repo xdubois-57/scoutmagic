@@ -963,8 +963,284 @@ class NewsIntegrationTest extends TestCase
         return $articleId;
     }
 
-    private function formControllerWithMassMail(?\Modules\MassMail\Api\MassMailDraftInterface $draft = null): FormController
+    // --- IT-05: the cold follow-up ---
+
+    /**
+     * A ticketed, paid form with four responses spanning the whole cross:
+     * entered+paid, entered+unpaid, paid+absent, and neither.
+     *
+     * @return array{article: int, form: int, responses: array<string, int>}
+     */
+    private function crossedEvent(): array
     {
+        $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId);
+        $formId = $this->formRepository->create(
+            $articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED,
+            null, null, false, 'chief', false, 7, true, '2026-03-14', 'Salle'
+        );
+        $nameField = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
+        $seatField = $this->fieldRepository->create($formId, 1, FormField::TYPE_NUMBER, 'Repas adulte', false, null, null, 100, 15.0, null);
+
+        $tickets = new \Modules\News\Service\TicketService($this->responseRepository);
+        $ids = [];
+        foreach ([
+            'in_paid' => ['Roskam', 11, true],
+            'in_unpaid' => ['Delvaux', 12, true],
+            'paid_absent' => ['Herremans', 13, false],
+            'neither' => ['Delacroix', 14, false],
+        ] as $key => [$name, $receivableId, $used]) {
+            $id = $this->responseRepository->create(
+                $formId, null, null, strtolower($name) . '@test.com',
+                [$nameField => $name, $seatField => '2'],
+                '+++100/0000/000' . $receivableId . '+++',
+                $receivableId
+            );
+            $tickets->issueFor($this->responseRepository->findById($id));
+            if ($used) {
+                $tickets->markUsed($this->responseRepository->findById($id), new \DateTimeImmutable('2026-03-14 19:42:00'));
+            }
+            $ids[$key] = $id;
+        }
+
+        return ['article' => $articleId, 'form' => $formId, 'responses' => $ids];
+    }
+
+    private function receivablesStub(): \Modules\Finance\Api\ExpectedReceivableInterface
+    {
+        $stub = $this->createMock(\Modules\Finance\Api\ExpectedReceivableInterface::class);
+        $stub->method('getReceivableStatus')->willReturnCallback(
+            static fn (int $id): array => in_array($id, [11, 13], true)
+                ? ['amount_due' => 3000, 'amount_received' => 3000, 'status' => 'paid']
+                : ['amount_due' => 3000, 'amount_received' => 0, 'status' => 'unpaid']
+        );
+
+        return $stub;
+    }
+
+    private function responsesBody(int $articleId, string $filter = 'all', ?\Modules\Finance\Api\StatementImportStatusInterface $status = null): string
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+
+        return $this->formControllerWithFinance($this->receivablesStub(), $status)->responses(
+            new Request('GET', '/news/' . $articleId . '/form/responses', $filter === 'all' ? [] : ['filter' => $filter], [], [], []),
+            ['id' => (string) $articleId]
+        )->getBody();
+    }
+
+    public function testTheResponsesScreenShowsTheTicketStateBesideThePayment(): void
+    {
+        $event = $this->crossedEvent();
+
+        $body = $this->responsesBody($event['article']);
+
+        $this->assertStringContainsString('Entré 19:42', $body);
+        $this->assertStringContainsString('Non venu', $body);
+        // The payment is still there, and still first: it is the state
+        // that can change a decision.
+        $this->assertStringContainsString('Payé', $body);
+    }
+
+    public function testTheCrossFilterCountsEachOfItsThreeAnswers(): void
+    {
+        $this->crossedEvent();
+
+        $body = $this->responsesBody($this->articleRepository->findAll()[0]->id);
+
+        // Four in all; one entered and unpaid; one paid and never came.
+        $this->assertStringContainsString('Toutes (4)', $body);
+        $this->assertStringContainsString('Entrés sans paiement (1)', $body);
+        $this->assertStringContainsString('Payé, jamais venu (1)', $body);
+    }
+
+    public function testTheEnteredAndUnpaidFilterKeepsOnlyThatOne(): void
+    {
+        $event = $this->crossedEvent();
+
+        $body = $this->responsesBody($event['article'], 'in_unpaid');
+
+        $this->assertStringContainsString('Delvaux', $body);
+        $this->assertStringNotContainsString('Roskam', $body);
+        $this->assertStringNotContainsString('Herremans', $body);
+    }
+
+    public function testThePaidAndAbsentFilterKeepsOnlyThatOne(): void
+    {
+        $event = $this->crossedEvent();
+
+        $body = $this->responsesBody($event['article'], 'paid_absent');
+
+        $this->assertStringContainsString('Herremans', $body);
+        $this->assertStringNotContainsString('Delacroix', $body, 'never paid, so not on this list');
+        $this->assertStringNotContainsString('Roskam', $body, 'paid but came, so not on this list');
+    }
+
+    public function testAnUnknownFilterFallsBackToShowingEverybody(): void
+    {
+        $event = $this->crossedEvent();
+
+        $body = $this->responsesBody($event['article'], 'n-importe-quoi');
+
+        $this->assertStringContainsString('Roskam', $body);
+        $this->assertStringContainsString('Delacroix', $body);
+    }
+
+    public function testTheEnteredAndUnpaidListNamesTheBankLagAndItsDate(): void
+    {
+        // Without this caption somebody sends a reminder to people who are
+        // perfectly in order: a transfer made yesterday is not known here
+        // until the next statement is imported.
+        $event = $this->crossedEvent();
+        $status = $this->createMock(\Modules\Finance\Api\StatementImportStatusInterface::class);
+        $status->expects($this->atLeastOnce())->method('lastStatementImportedAt')->with(7)->willReturn('2026-02-21 08:00:00');
+
+        $body = $this->responsesBody($event['article'], 'in_unpaid', $status);
+
+        $this->assertStringContainsString('Dernier extrait bancaire importé le', $body);
+        $this->assertStringContainsString('21 février 2026', $body);
+        $this->assertStringContainsString("Vérifiez avant d'envoyer un rappel", $body);
+    }
+
+    public function testTheWarningSaysSoWhenNoStatementWasEverImported(): void
+    {
+        $event = $this->crossedEvent();
+        $status = $this->createMock(\Modules\Finance\Api\StatementImportStatusInterface::class);
+        $status->method('lastStatementImportedAt')->willReturn(null);
+
+        $body = $this->responsesBody($event['article'], 'in_unpaid', $status);
+
+        $this->assertStringContainsString("Aucun extrait bancaire n'a encore été importé", $body);
+    }
+
+    public function testTheWarningIsAbsentFromTheOtherFilters(): void
+    {
+        $event = $this->crossedEvent();
+        $status = $this->createMock(\Modules\Finance\Api\StatementImportStatusInterface::class);
+        $status->method('lastStatementImportedAt')->willReturn('2026-02-21 08:00:00');
+
+        $this->assertStringNotContainsString('Dernier extrait bancaire', $this->responsesBody($event['article'], 'all', $status));
+        $this->assertStringNotContainsString('Dernier extrait bancaire', $this->responsesBody($event['article'], 'paid_absent', $status));
+    }
+
+    public function testAFormWithNoTicketKeepsTheScreenItAlwaysHad(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $articleId = $this->articleWithOneResponse();
+
+        $body = $this->formControllerWithFinance($this->receivablesStub())->responses(
+            new Request('GET', '/news/' . $articleId . '/form/responses', [], [], [], []),
+            ['id' => (string) $articleId]
+        )->getBody();
+
+        $this->assertStringNotContainsString('Entrés sans paiement', $body);
+        $this->assertStringNotContainsString('Non venu', $body);
+    }
+
+    public function testTheExportCarriesTheFilterAndTheTicketColumns(): void
+    {
+        $event = $this->crossedEvent();
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+
+        $response = $this->formControllerWithFinance($this->receivablesStub())->exportResponses(
+            new Request('GET', '/news/' . $event['article'] . '/form/responses/export', ['filter' => 'in_unpaid'], [], [], []),
+            ['id' => (string) $event['article']]
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+
+        $path = tempnam(sys_get_temp_dir(), 'news-export-') . '.xlsx';
+        file_put_contents($path, $response->getBody());
+        $sheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($path)->getActiveSheet();
+        $rows = $sheet->toArray();
+        @unlink($path);
+
+        // A download that quietly held more people than the list above it
+        // would be worse than no filter at all.
+        $this->assertCount(2, $rows, 'one header row and the single entered-and-unpaid response');
+        $this->assertContains('Référence du billet', $rows[0]);
+        $this->assertContains('État du billet', $rows[0]);
+        // And the money is still complete: an export saying only
+        // « payé / impayé » would send a treasurer back to the site.
+        $this->assertContains('Montant attendu', $rows[0]);
+        $this->assertContains('Montant reçu', $rows[0]);
+        $this->assertContains('Entré', $rows[1]);
+    }
+
+    public function testTheMailDraftOffersTheTicketAndItsQrAsMergeVariables(): void
+    {
+        $event = $this->crossedEvent();
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+
+        $captured = [];
+        $response = $this->formControllerWithMassMail($this->recordingDraftProvider($captured), $this->receivablesStub())
+            ->createMailDraft(
+                new Request('POST', '/news/' . $event['article'] . '/form/responses/mail-draft', [], [
+                    '_csrf_token' => CsrfGuard::generateToken(),
+                ], [], []),
+                ['id' => (string) $event['article']]
+            );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertContains('Référence du billet', $captured['columns']);
+        $this->assertContains('QR du billet', $captured['columns']);
+
+        // The QR travels as an absolute URL: a mail-merge body is
+        // sanitized on the way in, and that sanitizer refuses `data:`.
+        $qrUrl = $captured['rows'][0]['values']['QR du billet'];
+        $this->assertStringStartsWith('https://example.be/news/qr/', $qrUrl);
+        $this->assertMatchesRegularExpression('#/news/qr/[A-Z0-9]{10}/[0-9a-f]{16,}$#', $qrUrl);
+        $this->assertMatchesRegularExpression(
+            '/\A[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{2}\z/',
+            $captured['rows'][0]['values']['Référence du billet']
+        );
+    }
+
+    public function testTheMailDraftBodyPutsTheQrWhereAChiefCouldNot(): void
+    {
+        // A chief cannot insert this by hand: the composer's image button
+        // takes a URL, and this one is a merge variable that only
+        // resolves per recipient. The rest of the message is still theirs
+        // to write, and the block can be deleted.
+        $event = $this->crossedEvent();
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+
+        $captured = [];
+        $this->formControllerWithMassMail($this->recordingDraftProvider($captured), $this->receivablesStub())
+            ->createMailDraft(
+                new Request('POST', '/news/' . $event['article'] . '/form/responses/mail-draft', [], [
+                    '_csrf_token' => CsrfGuard::generateToken(),
+                ], [], []),
+                ['id' => (string) $event['article']]
+            );
+
+        $body = (string) $captured['body'];
+        $this->assertStringContainsString('<img src="{{QR du billet}}"', $body);
+        // Wrapped in a section, so a response with no reference yet gets
+        // the message without an empty frame.
+        $this->assertStringContainsString('{{#Référence du billet}}', $body);
+        $this->assertStringContainsString('{{/Référence du billet}}', $body);
+    }
+
+    public function testAFormWithNoTicketLeavesTheComposerEmptyAsBefore(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $articleId = $this->articleWithOneResponse();
+
+        $captured = [];
+        $this->formControllerWithMassMail($this->recordingDraftProvider($captured))->createMailDraft(
+            new Request('POST', '/news/' . $articleId . '/form/responses/mail-draft', [], [
+                '_csrf_token' => CsrfGuard::generateToken(),
+            ], [], []),
+            ['id' => (string) $articleId]
+        );
+
+        $this->assertNull($captured['body']);
+        $this->assertNotContains('Référence du billet', $captured['columns']);
+    }
+
+    private function formControllerWithMassMail(
+        ?\Modules\MassMail\Api\MassMailDraftInterface $draft = null,
+        ?\Modules\Finance\Api\ExpectedReceivableInterface $receivables = null
+    ): FormController {
         $draft ??= $this->stubDraftProvider();
 
         return new FormController(
@@ -974,9 +1250,36 @@ class NewsIntegrationTest extends TestCase
             $this->responseService,
             $this->scoutYearService,
             $this->journalService,
+            $receivables,
+            null,
+            $draft,
+            'https://example.be',
+            null,
+            new \Modules\News\Service\TicketQrTokenService($this->encryption)
+        );
+    }
+
+    /**
+     * A FormController that can see money and the last statement import —
+     * what the « entrés sans paiement » filter and its caption need.
+     */
+    private function formControllerWithFinance(
+        \Modules\Finance\Api\ExpectedReceivableInterface $receivables,
+        ?\Modules\Finance\Api\StatementImportStatusInterface $statementStatus = null
+    ): FormController {
+        return new FormController(
+            $this->twig,
+            $this->articleService,
+            $this->formService,
+            $this->responseService,
+            $this->scoutYearService,
+            $this->journalService,
+            $receivables,
             null,
             null,
-            $draft
+            'https://example.be',
+            $statementStatus,
+            new \Modules\News\Service\TicketQrTokenService($this->encryption)
         );
     }
 
@@ -995,8 +1298,23 @@ class NewsIntegrationTest extends TestCase
     {
         $stub = $this->createMock(\Modules\MassMail\Api\MassMailDraftInterface::class);
         $stub->method('createMergeDraft')->willReturnCallback(
-            function (string $label, string $subject, array $columns, array $rows) use (&$captured): string {
-                $captured = ['label' => $label, 'subject' => $subject, 'columns' => $columns, 'rows' => $rows];
+            function (
+                string $label,
+                string $subject,
+                array $columns,
+                array $rows,
+                string $actorRole,
+                string $actorEmail,
+                ?int $actorAccountId,
+                ?string $bodyHtml = null
+            ) use (&$captured): string {
+                $captured = [
+                    'label' => $label,
+                    'subject' => $subject,
+                    'columns' => $columns,
+                    'rows' => $rows,
+                    'body' => $bodyHtml,
+                ];
 
                 return '/mass-mail/7';
             }

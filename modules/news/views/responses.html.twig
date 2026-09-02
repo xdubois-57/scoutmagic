@@ -15,6 +15,50 @@
     } only %}
 
     {#
+      The cross filter — IT-05's whole reason for existing. Neither state
+      answers the two questions asked the morning after on its own:
+      « entré et impayé » is the list somebody reads to know who to write
+      to, and « payé, jamais venu » explains a discrepancy in the count.
+      Only on a form that delivers a ticket; elsewhere this screen is
+      exactly what it was.
+    #}
+    {% if issues_ticket %}
+        {% include 'partials/page_picker.html.twig' with {
+            picker_id: 'news-responses-filter',
+            pages: [
+                { url: '/news/' ~ article.id ~ '/form/responses', label: 'Toutes (' ~ filter_counts.all ~ ')' },
+                { url: '/news/' ~ article.id ~ '/form/responses?filter=in_unpaid', label: 'Entrés sans paiement (' ~ filter_counts.in_unpaid ~ ')' },
+                { url: '/news/' ~ article.id ~ '/form/responses?filter=paid_absent', label: 'Payé, jamais venu (' ~ filter_counts.paid_absent ~ ')' },
+            ],
+            current_path: '/news/' ~ article.id ~ '/form/responses' ~ (filter == 'all' ? '' : '?filter=' ~ filter),
+            aria_label: 'Filtre des réponses',
+        } only %}
+
+        {% if filter == 'in_unpaid' %}
+            {#
+              Without this caption somebody sends a reminder to people who
+              are perfectly in order: a transfer made yesterday is not
+              known here until the next statement is imported, and nothing
+              on this site can shorten that lag.
+            #}
+            <div class="alert alert-warning d-flex gap-2" role="status">
+                <i class="bi bi-clock-history flex-shrink-0" aria-hidden="true"></i>
+                <span>
+                    {% if last_statement_imported_at %}
+                        Dernier extrait bancaire importé le <strong>{{ last_statement_imported_at|french_date }}</strong>.
+                        Un virement fait après cette date n'apparaît pas encore
+                    {% else %}
+                        Aucun extrait bancaire n'a encore été importé pour ce compte : aucun paiement
+                        ne peut être constaté ici
+                    {% endif %}
+                    — cette liste contient donc peut-être des personnes parfaitement en règle.
+                    Vérifiez avant d'envoyer un rappel.
+                </span>
+            </div>
+        {% endif %}
+    {% endif %}
+
+    {#
       The action group used to be a bare `d-flex gap-2 text-nowrap`: no
       wrapping allowed and no label allowed to break, so three buttons
       ran off the side of a 375-pixel screen. Both halves of the fix are
@@ -23,20 +67,24 @@
       because a `text-nowrap` row overflows again as soon as a fourth
       button appears. « Finance » left this row entirely: it is the nav
       rail's end tab above, since it leaves the module.
+
+      Both carry the current filter, so what a chief sees, downloads and
+      writes to cannot describe three different sets of people.
     #}
     <div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2 mb-3">
         <p class="text-body-secondary small mb-0">
             Chef d'Unité : peut toujours modifier. Répondant identifié : peut modifier tant que le formulaire est ouvert.
         </p>
         <div class="d-flex flex-column flex-sm-row flex-sm-wrap gap-2 text-nowrap">
-            <a href="/news/{{ article.id }}/form/responses/export" class="btn btn-sm btn-outline-primary">
-                <i class="bi bi-file-earmark-spreadsheet" aria-hidden="true"></i> Exporter
+            <a href="/news/{{ article.id }}/form/responses/export{{ filter == 'all' ? '' : '?filter=' ~ filter }}" class="btn btn-sm btn-outline-primary">
+                <i class="bi bi-file-earmark-spreadsheet" aria-hidden="true"></i> Exporter ({{ rows|length }})
             </a>
             {% if mail_draft_available %}
                 <form method="post" action="/news/{{ article.id }}/form/responses/mail-draft" class="d-grid d-sm-inline">
                     {{ csrf_field()|raw }}
+                    <input type="hidden" name="filter" value="{{ filter }}">
                     <button type="submit" class="btn btn-sm btn-outline-primary">
-                        <i class="bi bi-envelope-paper" aria-hidden="true"></i> Écrire
+                        <i class="bi bi-envelope-paper" aria-hidden="true"></i> Écrire ({{ rows|length }})
                     </button>
                 </form>
             {% endif %}
@@ -45,7 +93,9 @@
 
     {% if rows is empty %}
         {% include 'partials/empty_state.html.twig' with {
-            message: 'Aucune réponse pour le moment.',
+            message: filter == 'all'
+                ? 'Aucune réponse pour le moment.'
+                : 'Aucune réponse ne correspond à ce filtre.',
             icon: 'bi-inbox',
         } only %}
     {% else %}
@@ -62,6 +112,9 @@
                             <th class="text-end">Reçu</th>
                             <th>Paiement</th>
                         {% endif %}
+                        {# The ticket, after the money: the payment is the
+                           state that can change a decision. #}
+                        {% if issues_ticket %}<th>Billet</th>{% endif %}
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -83,6 +136,15 @@
                                     {% endif %}
                                 </td>
                             {% endif %}
+                            {% if issues_ticket %}
+                                <td>
+                                    {% if row.response.isTicketUsed %}
+                                        {% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Entré ' ~ row.response.ticketUsedAt|slice(11, 5) } only %}
+                                    {% else %}
+                                        {% include 'partials/status_badge.html.twig' with { status: 'neutral', label: 'Non venu' } only %}
+                                    {% endif %}
+                                </td>
+                            {% endif %}
                             <td>
                                 {% if row.can_edit %}
                                     <a href="/news/{{ article.id }}/form/responses/{{ row.response.id }}/edit">Modifier</a>
@@ -98,13 +160,22 @@
             {% for row in rows %}
                 <div class="card">
                     <div class="card-body">
-                        <div class="d-flex justify-content-between align-items-start">
+                        <div class="d-flex justify-content-between align-items-start gap-2">
                             <span class="fw-bold">{{ row.response.contactEmail }}</span>
-                            {% if row.payment %}
-                                {% if row.payment.status == 'paid' %}{% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Payé' } only %}
-                                {% elseif row.payment.status == 'partial' %}{% include 'partials/status_badge.html.twig' with { status: 'in_progress', label: 'Partiel' } only %}
-                                {% else %}{% include 'partials/status_badge.html.twig' with { status: 'neutral', label: 'Non payé' } only %}{% endif %}
-                            {% endif %}
+                            <span class="d-flex flex-wrap justify-content-end gap-1">
+                                {% if row.payment %}
+                                    {% if row.payment.status == 'paid' %}{% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Payé' } only %}
+                                    {% elseif row.payment.status == 'partial' %}{% include 'partials/status_badge.html.twig' with { status: 'in_progress', label: 'Partiel' } only %}
+                                    {% else %}{% include 'partials/status_badge.html.twig' with { status: 'neutral', label: 'Non payé' } only %}{% endif %}
+                                {% endif %}
+                                {% if issues_ticket %}
+                                    {% if row.response.isTicketUsed %}
+                                        {% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Entré ' ~ row.response.ticketUsedAt|slice(11, 5) } only %}
+                                    {% else %}
+                                        {% include 'partials/status_badge.html.twig' with { status: 'neutral', label: 'Non venu' } only %}
+                                    {% endif %}
+                                {% endif %}
+                            </span>
                         </div>
                         {% for line in row.answers %}
                             <div class="small"><strong>{{ line.label }}</strong> : {{ line.value }}</div>

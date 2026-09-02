@@ -174,7 +174,7 @@ describe('the verdict', () => {
 
         const html = verdictHtml();
         expect(html).toContain('Marché de Noël');
-        expect(html).toContain('08/12/2026');
+        expect(html).toContain('8 décembre 2026');
         expect(html).not.toContain('Aucune réservation');
     });
 

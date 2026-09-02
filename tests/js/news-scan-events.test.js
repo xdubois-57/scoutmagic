@@ -69,7 +69,10 @@ describe('the event search', () => {
 
         await vi.waitFor(() => expect(results()).toContain('Souper spaghetti'));
         expect(results()).toContain('href="/news/scan/7"');
-        expect(results()).toContain('14/03/2026');
+        // The same words core's `french_date` Twig filter writes on
+        // first load — two spellings of one date in one list reads as two
+        // different dates.
+        expect(results()).toContain('14 mars 2026');
         expect(results()).toContain('Salle paroissiale');
         expect(results()).toContain('120 places');
     });

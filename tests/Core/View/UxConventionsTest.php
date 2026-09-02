@@ -260,6 +260,10 @@ final class UxConventionsTest extends TestCase
         '/mass-mail/{id}/recipient-count',
         '/news/{id}/form/responses/export',
         '/news/{id}/poster',
+        // The PNG of one ticket's QR, fetched by a mail client — the twin
+        // of /finance/qr/{id}/{token} above, and the only public route
+        // the ticketing feature has.
+        '/news/qr/{reference}/{token}',
         // The door screen's three endpoints: JSON for the event search
         // and for what a scan resolves to, and the A4 list of expected
         // attendees as a PDF download. None of them renders a page.

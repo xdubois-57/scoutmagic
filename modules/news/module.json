@@ -2,7 +2,7 @@
   "id": "news",
   "name": "Actualités",
   "description": "Articles d'actualité avec formulaires intégrés (inscriptions, paiements optionnels), référencement SEO et affiche A4 avec QR code.",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "enabled_by_default": true,
   "routes": [
     {
@@ -74,6 +74,15 @@
       "role_min": "chief",
       "label": "",
       "breadcrumb": { "label": "Nouvel article", "parents": ["Espace animateurs"] }
+    },
+    {
+      "path": "/news/qr/{reference}/{token}",
+      "method": "GET",
+      "controller": "Modules\\News\\Controller\\TicketQrController",
+      "action": "png",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": ""
     },
     {
       "path": "/news/scan",

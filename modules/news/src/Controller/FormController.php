@@ -20,6 +20,7 @@ use Core\Security\Role;
 use Core\Http\FlashMessage;
 use Core\Service\IntegerInput;
 use Modules\Finance\Api\ExpectedReceivableInterface;
+use Modules\Finance\Api\StatementImportStatusInterface;
 use Modules\News\Repository\Article;
 use Modules\News\Repository\FormField;
 use Modules\News\Repository\FormResponse;
@@ -28,6 +29,8 @@ use Modules\News\Service\ArticleService;
 use Modules\News\Service\FormService;
 use Modules\News\Service\NewsException;
 use Modules\News\Service\ResponseService;
+use Modules\News\Service\TicketQrTokenService;
+use Modules\News\Service\TicketService;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
@@ -47,6 +50,13 @@ class FormController extends AbstractController
     /** The first audience column, and the export's first header. */
     private const MERGE_CONTACT_COLUMN = 'Contact';
 
+    /**
+     * The ticket's two merge columns. Offered only by a form that
+     * delivers a ticket, so a plain sign-up's composer is unchanged.
+     */
+    private const MERGE_TICKET_COLUMN = 'Référence du billet';
+    private const MERGE_TICKET_QR_COLUMN = 'QR du billet';
+
     public function __construct(
         protected Environment $twig,
         private ArticleService $articleService,
@@ -61,9 +71,31 @@ class FormController extends AbstractController
         // then does not exist. Never an error — this module works exactly
         // as before without it, and it is the composition root, never this
         // controller, that decides whether mass_mail is on.
-        private ?MassMailDraftInterface $massMailDraft = null
+        private ?MassMailDraftInterface $massMailDraft = null,
+        private string $baseUrl = '',
+        // Finance again, and optional again: the one date that stops
+        // somebody sending a reminder to people who have already paid.
+        // Without it the « entrés sans paiement » warning still names the
+        // consequence, it just cannot name the day.
+        private ?StatementImportStatusInterface $statementStatus = null,
+        // This module's own, and trailing-optional only so a caller that
+        // never writes to anybody (the responses screen's read path) need
+        // not build it.
+        private ?TicketQrTokenService $ticketQrTokens = null
     ) {
     }
+
+    /**
+     * The cross filter — the whole of IT-05's screen half.
+     *
+     * Two questions get asked the morning after, and neither can be
+     * answered by the payment state or the ticket state alone. « Entré et
+     * impayé » is the list somebody reads to know who to write to; « payé
+     * et jamais venu » explains a discrepancy in the count.
+     */
+    private const FILTER_ALL = 'all';
+    private const FILTER_IN_UNPAID = 'in_unpaid';
+    private const FILTER_PAID_ABSENT = 'paid_absent';
 
     /**
      * POST /news/{id}/form/submit — in-controller: article visibility +
@@ -168,7 +200,7 @@ class FormController extends AbstractController
 
         $fields = $this->formService->getFields($form->id);
         $accountId = (int) AuthSession::getUserAccountId();
-        $rows = array_map(function (FormResponse $response) use ($fields, $form, $role, $accountId) {
+        $allRows = array_map(function (FormResponse $response) use ($fields, $form, $role, $accountId) {
             return [
                 'response' => $response,
                 'answers' => $this->answerLines($fields, $this->responseService->getAnswers($response->id)),
@@ -176,6 +208,9 @@ class FormController extends AbstractController
                 'can_edit' => $this->responseService->canEditResponse($response, $form, $role, $accountId),
             ];
         }, $this->responseService->findByFormId($form->id));
+
+        $filter = self::normalizeFilter((string) $request->getQuery('filter', self::FILTER_ALL));
+        $rows = self::applyFilter($allRows, $filter);
 
         return $this->render('@news/responses.html.twig', [
             'article' => $article,
@@ -192,6 +227,23 @@ class FormController extends AbstractController
             ],
             'fields' => $fields,
             'rows' => $rows,
+            // The ticket column and the cross filter only mean anything
+            // on a form that delivers a ticket; on one that does not,
+            // this screen is exactly what it was.
+            'issues_ticket' => $form->issuesTicket,
+            'filter' => $filter,
+            'filter_counts' => [
+                self::FILTER_ALL => count($allRows),
+                self::FILTER_IN_UNPAID => count(self::applyFilter($allRows, self::FILTER_IN_UNPAID)),
+                self::FILTER_PAID_ABSENT => count(self::applyFilter($allRows, self::FILTER_PAID_ABSENT)),
+            ],
+            // Named on the « entrés sans paiement » list, because that
+            // list contains, alongside the real ones, everybody who paid
+            // after the last statement was imported. Without this
+            // caption somebody sends them a reminder.
+            'last_statement_imported_at' => $form->financeAccountId !== null
+                ? $this->statementStatus?->lastStatementImportedAt($form->financeAccountId)
+                : null,
             'finance_available' => $this->expectedReceivable !== null,
             // The nav rail's last tab, pushed to the far end because it
             // leaves the module — null hides it (FormService::
@@ -211,6 +263,61 @@ class FormController extends AbstractController
             'mail_draft_available' => $this->massMailDraft !== null && $role->hasAccess(Role::CHIEF),
             'csrf_token' => CsrfGuard::generateToken(),
         ]);
+    }
+
+    /**
+     * The rows the filter is applied to, carrying only what it reads —
+     * the response and its payment state. The screen builds a richer row
+     * on top of the same set; the export and the mail draft need no more
+     * than this.
+     *
+     * @return array<int, array{response: FormResponse, payment: ?array{amount_due: int, amount_received: int, status: string}}>
+     */
+    private function filterableRows(NewsForm $form): array
+    {
+        return array_map(
+            fn (FormResponse $response) => [
+                'response' => $response,
+                'payment' => $this->buildReceivableStatus($response),
+            ],
+            $this->responseService->findByFormId($form->id)
+        );
+    }
+
+    private static function normalizeFilter(string $filter): string
+    {
+        return in_array($filter, [self::FILTER_ALL, self::FILTER_IN_UNPAID, self::FILTER_PAID_ABSENT], true)
+            ? $filter
+            : self::FILTER_ALL;
+    }
+
+    /**
+     * The cross of the two states, and the one place it is written.
+     *
+     * The screen, the export and the mail draft all read the same filter
+     * from the same query parameter, so what a chief sees, downloads and
+     * writes to cannot describe three different sets of people.
+     *
+     * « Impayé » is deliberately « not fully paid » — a partial payment
+     * is somebody who still owes, and folding it in with « payé » would
+     * quietly drop them from the list they belong on.
+     *
+     * @template TRow of array{response: FormResponse, payment: ?array{amount_due: int, amount_received: int, status: string}}
+     * @param array<int, TRow> $rows
+     * @return array<int, TRow>
+     */
+    private static function applyFilter(array $rows, string $filter): array
+    {
+        if ($filter === self::FILTER_ALL) {
+            return $rows;
+        }
+
+        return array_values(array_filter($rows, static function (array $row) use ($filter): bool {
+            $used = $row['response']->isTicketUsed();
+            $paid = ($row['payment']['status'] ?? null) === 'paid';
+
+            return $filter === self::FILTER_IN_UNPAID ? ($used && !$paid) : ($paid && !$used);
+        }));
     }
 
     /**
@@ -260,17 +367,24 @@ class FormController extends AbstractController
         }
 
         $fields = $this->formService->getFields($form->id);
-        $responses = $this->responseService->findByFormId($form->id);
+        // The same filter the screen is showing: a chief who filtered to
+        // « payé, jamais venu » and pressed « Écrire » means those people
+        // and not everybody.
+        $responses = array_map(
+            static fn (array $row) => $row['response'],
+            self::applyFilter($this->filterableRows($form), self::normalizeFilter((string) $request->getBody('filter', self::FILTER_ALL)))
+        );
 
         try {
             $url = $this->massMailDraft->createMergeDraft(
                 'Réponses — ' . $article->title,
                 'Réponses — ' . $article->title,
-                $this->responseColumns($fields),
-                $this->responseMergeRows($fields, $responses),
+                $this->responseColumns($fields, $form),
+                $this->responseMergeRows($fields, $responses, $form),
                 AuthSession::getRole(),
                 AuthSession::getEmail() ?? '',
-                (int) AuthSession::getUserAccountId()
+                (int) AuthSession::getUserAccountId(),
+                $this->ticketDraftBody($form)
             );
         } catch (\Throwable $e) {
             FlashMessage::set('error', $e->getMessage());
@@ -303,7 +417,7 @@ class FormController extends AbstractController
      * @param FormField[] $fields
      * @return string[]
      */
-    private function responseColumns(array $fields): array
+    private function responseColumns(array $fields, NewsForm $form): array
     {
         $columns = [self::MERGE_CONTACT_COLUMN];
         foreach ($fields as $field) {
@@ -312,7 +426,47 @@ class FormController extends AbstractController
             }
         }
 
+        // The one thing the reminder before an event needs and the
+        // spreadsheet export deliberately does not offer: the ticket, so
+        // the message can give it back to whoever lost it.
+        if ($form->issuesTicket) {
+            $columns[] = self::MERGE_TICKET_COLUMN;
+            $columns[] = self::MERGE_TICKET_QR_COLUMN;
+        }
+
         return $columns;
+    }
+
+    /**
+     * The reminder's starting body, or null — the composer opens empty
+     * for a form that delivers no ticket, exactly as it always has.
+     *
+     * **A starting block, not a written message.** The rest is still the
+     * staff's to write, and this block can be deleted; what it exists for
+     * is the QR, which a chief cannot insert by hand — the composer's own
+     * image button takes a URL, and this one is a merge variable that
+     * only resolves per recipient.
+     *
+     * Wrapped in a section (`{{#…}} … {{/…}}`, mass_mail's MergeRenderer)
+     * so a response that has no reference yet — one recorded before the
+     * switch was raised and not yet backfilled — receives the message
+     * without an empty frame and a blank reference.
+     */
+    private function ticketDraftBody(NewsForm $form): ?string
+    {
+        if (!$form->issuesTicket) {
+            return null;
+        }
+
+        $reference = '{{' . self::MERGE_TICKET_COLUMN . '}}';
+        $qr = '{{' . self::MERGE_TICKET_QR_COLUMN . '}}';
+
+        return '{{#' . self::MERGE_TICKET_COLUMN . '}}'
+            . '<p>Voici votre billet, à présenter à l\'entrée :</p>'
+            . '<p><strong>' . $reference . '</strong></p>'
+            . '<p><img src="' . $qr . '" alt="QR du billet" width="200" height="200"></p>'
+            . '<p>Si l\'image ne s\'affiche pas, la référence ci-dessus suffit : nous pouvons la saisir à la main.</p>'
+            . '{{/' . self::MERGE_TICKET_COLUMN . '}}';
     }
 
     /**
@@ -324,12 +478,24 @@ class FormController extends AbstractController
      * @param FormResponse[] $responses
      * @return list<array{email: string, values: array<string, string>}>
      */
-    private function responseMergeRows(array $fields, array $responses): array
+    private function responseMergeRows(array $fields, array $responses, NewsForm $form): array
     {
         $rows = [];
         foreach ($responses as $response) {
             $answers = $this->responseService->getAnswers($response->id);
             $values = [self::MERGE_CONTACT_COLUMN => (string) $response->contactEmail];
+
+            if ($form->issuesTicket) {
+                $reference = $response->hasTicket() ? (string) $response->ticketReference : null;
+                $values[self::MERGE_TICKET_COLUMN] = $reference !== null ? TicketService::format($reference) : '';
+                // An absolute URL rather than an inline image: a
+                // mail-merge body is sanitized, and the sanitizer refuses
+                // `data:`. Same mechanism as finance's payment reminder
+                // (Service\TicketQrTokenService).
+                $values[self::MERGE_TICKET_QR_COLUMN] = $reference !== null
+                    ? (string) ($this->ticketQrTokens?->urlFor($reference, $this->baseUrl) ?? '')
+                    : '';
+            }
 
             foreach ($fields as $field) {
                 if ($field->isNonInput()) {
@@ -367,7 +533,13 @@ class FormController extends AbstractController
         }
 
         $fields = $this->formService->getFields($form->id);
-        $responses = $this->responseService->findByFormId($form->id);
+        // The same filter the screen is showing — « dans l'ordre affiché,
+        // filtre compris ». A download that quietly held more people than
+        // the list above it would be worse than no filter at all.
+        $responses = array_map(
+            static fn (array $row) => $row['response'],
+            self::applyFilter($this->filterableRows($form), self::normalizeFilter((string) $request->getQuery('filter', self::FILTER_ALL)))
+        );
         $xlsx = $this->buildXlsx($fields, $responses, $form);
 
         $this->journalService->log(
@@ -665,6 +837,16 @@ class FormController extends AbstractController
             $columns[] = 'Statut paiement';
         }
 
+        // The ticket, after the money and in the order the screen shows
+        // them. An export saying only « payé / impayé » would send a
+        // treasurer back to the site to learn an amount — and a
+        // spreadsheet is precisely where an evening's accounts get done.
+        if ($form->issuesTicket) {
+            $columns[] = 'Référence du billet';
+            $columns[] = 'État du billet';
+            $columns[] = 'Heure d\'entrée';
+        }
+
         // Explicit string typing on every cell that carries free text —
         // header labels, the contact address, and each answer. Without it
         // PhpSpreadsheet's DefaultValueBinder promotes a value beginning
@@ -710,6 +892,25 @@ class FormController extends AbstractController
                 $sheet->setCellValue([$colIndex + 1, $rowNum], $status !== null ? $status['amount_received'] / 100 : 0);
                 $sheet->setCellValueExplicit([$colIndex + 2, $rowNum], (string) ($response->structuredCommunication ?? ''), DataType::TYPE_STRING);
                 $sheet->setCellValueExplicit([$colIndex + 3, $rowNum], $status !== null ? $this->statusLabel($status['status']) : 'Non payé', DataType::TYPE_STRING);
+                $colIndex += 4;
+            }
+
+            if ($form->issuesTicket) {
+                $sheet->setCellValueExplicit(
+                    [$colIndex, $rowNum],
+                    $response->hasTicket() ? TicketService::format((string) $response->ticketReference) : '',
+                    DataType::TYPE_STRING
+                );
+                $sheet->setCellValueExplicit(
+                    [$colIndex + 1, $rowNum],
+                    $response->isTicketUsed() ? 'Entré' : 'Non venu',
+                    DataType::TYPE_STRING
+                );
+                $sheet->setCellValueExplicit(
+                    [$colIndex + 2, $rowNum],
+                    (string) ($response->ticketUsedAt ?? ''),
+                    DataType::TYPE_STRING
+                );
             }
 
             $rowNum++;

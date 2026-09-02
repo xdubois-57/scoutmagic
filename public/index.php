@@ -3245,6 +3245,7 @@ if ($isEnabled('inbound_mail')) {
 $financeStructuredCommunicationForOthers = null;
 $financeExpectedReceivableForOthers = null;
 $financeSepaQrCodeForOthers = null;
+$financeStatementStatusForOthers = null;
 $financeAccountForOthers = null;
 
 if ($isEnabled('finance')) {
@@ -3255,6 +3256,10 @@ if ($isEnabled('finance')) {
     $financeTransactionRepo = new \Modules\Finance\Repository\TransactionRepository($pdo, $encryptionService);
     $financeCheckpointRepo = new \Modules\Finance\Repository\BalanceCheckpointRepository($pdo);
     $financeStatementImportRepo = new \Modules\Finance\Repository\StatementImportRepository($pdo);
+    // How far an account's money is known (§7.5): the one date that stops
+    // the news module's « entrés sans paiement » list turning into a
+    // reminder sent to people who have already paid.
+    $financeStatementStatusForOthers = new \Modules\Finance\Service\StatementImportStatusService($financeStatementImportRepo);
     $financeAttachmentRepo = new \Modules\Finance\Repository\AttachmentRepository($pdo, $encryptionService);
     $financeTransactionAttachmentRepo = new \Modules\Finance\Repository\TransactionAttachmentRepository($pdo);
 
@@ -3834,6 +3839,15 @@ if ($isEnabled('news')) {
     );
     $newsFormService = new \Modules\News\Service\FormService($newsFormRepo, $newsFieldRepo, $newsArticleService, $newsResponseRepo);
     $newsTicketService = new \Modules\News\Service\TicketService($newsResponseRepo);
+    // The reminder before the event carries the QR as an image URL: a
+    // mail-merge body is sanitized on the way in, and that sanitizer
+    // refuses `data:`. Same mechanism as finance's payment reminder
+    // (§8.84), and the only public route this feature has.
+    $newsTicketQrTokenService = new \Modules\News\Service\TicketQrTokenService($encryptionService);
+    $frontController->registerController(
+        \Modules\News\Controller\TicketQrController::class,
+        new \Modules\News\Controller\TicketQrController($twig, $newsTicketService, $newsTicketQrTokenService)
+    );
     // Optional dependency on the finance module (ARCHITECTURE.md §7.5) —
     // the whole payment feature (price fields, SEPA QR, receivables)
     // simply disappears when finance is disabled, since every one of
@@ -3900,7 +3914,10 @@ if ($isEnabled('news')) {
         \Modules\News\Controller\FormController::class,
         new \Modules\News\Controller\FormController(
             $twig, $newsArticleService, $newsFormService, $newsResponseService, $scoutYearService, $journalService,
-            $financeExpectedReceivableForOthers, $humanCheckService, $massMailDraftForOthers
+            $financeExpectedReceivableForOthers, $humanCheckService, $massMailDraftForOthers,
+            (string) ($settingService->get('base_url') ?: ''),
+            $financeStatementStatusForOthers,
+            $newsTicketQrTokenService
         )
     );
 
