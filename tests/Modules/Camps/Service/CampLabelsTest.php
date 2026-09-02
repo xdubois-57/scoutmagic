@@ -66,7 +66,7 @@ class CampLabelsTest extends TestCase
             $this->assertArrayHasKey($status, CampLabels::STATUSES);
             $this->assertArrayHasKey($status, CampLabels::STATUS_TONES);
         }
-        foreach ([Camp::STAY_GRAND_CAMP, Camp::STAY_WEEKEND, Camp::STAY_OTHER] as $type) {
+        foreach ([Camp::STAY_GRAND_CAMP, Camp::STAY_SHORT_CAMP, Camp::STAY_OTHER] as $type) {
             $this->assertArrayHasKey($type, CampLabels::STAY_TYPES);
         }
     }

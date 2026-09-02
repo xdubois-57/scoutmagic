@@ -17,7 +17,21 @@ namespace Modules\Camps\Repository;
 class Camp
 {
     public const STAY_GRAND_CAMP = 'grand_camp';
-    public const STAY_WEEKEND = 'weekend';
+
+    /**
+     * « Petit camp ».
+     *
+     * **The stored value stays `weekend`, and deliberately.** The type was
+     * called « Week-end » until a unit pointed out that a four-day stay is
+     * not one; the WORD changed, the thing it names did not. `stay_type`
+     * is a MySQL ENUM, so renaming the value means an ENUM migration plus
+     * an UPDATE over every stay every installation has ever recorded —
+     * real risk, on data nobody can reconstruct, to change a string no
+     * user ever sees. `Service\CampLabels` is the one place that turns a
+     * stored value into words, which is exactly what makes this safe.
+     */
+    public const STAY_SHORT_CAMP = 'weekend';
+
     public const STAY_OTHER = 'other';
 
     public const STATUS_TO_CONFIRM = 'to_confirm';

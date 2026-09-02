@@ -116,17 +116,17 @@ final class CampsBlueprint
             'yearOnly' => null, 'price' => '620,00', 'participants' => 22, 'bookedByName' => 'Staff Ribambelle Bleue',
         ],
         [
-            'place' => 'grandpre', 'sections' => ['pio1'], 'stayType' => Camp::STAY_WEEKEND,
+            'place' => 'grandpre', 'sections' => ['pio1'], 'stayType' => Camp::STAY_SHORT_CAMP,
             'status' => Camp::STATUS_CANCELLED, 'start' => '2025-03-14', 'end' => '2025-03-16',
             'yearOnly' => null, 'price' => null, 'participants' => null, 'bookedByName' => null,
         ],
         [
-            'place' => 'sapiniere', 'sections' => ['ecl1'], 'stayType' => Camp::STAY_WEEKEND,
+            'place' => 'sapiniere', 'sections' => ['ecl1'], 'stayType' => Camp::STAY_SHORT_CAMP,
             'status' => Camp::STATUS_CONFIRMED, 'start' => '2024-11-15', 'end' => '2024-11-17',
             'yearOnly' => null, 'price' => '480,00', 'participants' => 31, 'bookedByName' => 'Staff Troupe du Faucon',
         ],
         [
-            'place' => 'sapiniere', 'sections' => ['bal1', 'bal2'], 'stayType' => Camp::STAY_WEEKEND,
+            'place' => 'sapiniere', 'sections' => ['bal1', 'bal2'], 'stayType' => Camp::STAY_SHORT_CAMP,
             'status' => Camp::STATUS_CONFIRMED, 'start' => '2026-05-22', 'end' => '2026-05-24',
             'yearOnly' => null, 'price' => '510,00', 'participants' => 28, 'bookedByName' => null,
         ],

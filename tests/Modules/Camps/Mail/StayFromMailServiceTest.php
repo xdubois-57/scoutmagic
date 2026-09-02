@@ -560,10 +560,82 @@ class StayFromMailServiceTest extends TestCase
                 'start_date' => '2028-07-12',
                 'end_date' => '2028-07-19',
                 'price' => number_format(2450, 2, ',', ' '),
+                // Eight days: a grand camp, and the form arrives with it
+                // already chosen.
+                'stay_type' => Camp::STAY_GRAND_CAMP,
             ],
             $this->service($this->llmAnswering('Domaine de Mozet'))
                 ->readValues($this->message(fromName: 'Jean-Pierre Lambert'))
         );
+    }
+
+    // ── The kind of stay the dates describe ─────────────────────────────
+
+    /**
+     * Every stay read out of a message used to be filed as a « Grand camp »
+     * — including a three-day booking whose contract said so in as many
+     * words. The dates were right there and nothing looked at them.
+     *
+     * @return array<string, array{string, string, string}>
+     */
+    public static function stayLengths(): array
+    {
+        return [
+            // Arrival and departure included: a chief counting a
+            // Friday-to-Sunday stay says three days, not two nights.
+            'friday to sunday' => ['2026-09-18', '2026-09-20', Camp::STAY_SHORT_CAMP],
+            'one day' => ['2026-09-18', '2026-09-18', Camp::STAY_SHORT_CAMP],
+            'exactly the threshold' => ['2026-09-18', '2026-09-21', Camp::STAY_SHORT_CAMP],
+            'one day past it' => ['2026-09-18', '2026-09-22', Camp::STAY_GRAND_CAMP],
+            'a full camp' => ['2028-07-12', '2028-07-19', Camp::STAY_GRAND_CAMP],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('stayLengths')]
+    public function testTheKindOfStayIsReadFromItsLength(string $start, string $end, string $expected): void
+    {
+        $this->assertSame($expected, $this->service()->stayTypeFor($start, $end));
+    }
+
+    public function testTheThresholdIsASetting(): void
+    {
+        // A unit that camps from Thursday to Sunday every month means
+        // something different by « petit » than one that does not.
+        $this->pdo->prepare(
+            'INSERT INTO settings (module_id, setting_key, setting_value, default_value,
+                                   setting_type, label, description)
+             VALUES (?, ?, ?, ?, ?, ?, ?)'
+        )->execute(['camps', 'camps_short_stay_max_days', '8', '4', 'number', 'Durée', '']);
+
+        $this->assertSame(
+            Camp::STAY_SHORT_CAMP,
+            $this->serviceWithFreshSettings()->stayTypeFor('2028-07-12', '2028-07-19')
+        );
+    }
+
+    public function testDatesThatCouldNotBeReadLeaveTheDefaultAlone(): void
+    {
+        // Guessing from nothing would file a stay as small because its
+        // dates were unreadable, which is not what anybody meant.
+        $this->assertSame(Camp::STAY_GRAND_CAMP, $this->service()->stayTypeFor('', ''));
+        $this->assertSame(Camp::STAY_GRAND_CAMP, $this->service()->stayTypeFor('2026-09-20', '2026-09-18'));
+    }
+
+    public function testAStayCreatedFromAMessageIsFiledWithTheRightKind(): void
+    {
+        $campId = $this->service($this->llmAnswering('Domaine de Mozet'))->createFrom(
+            $this->message(body: 'Arrivée : 18-09-26 Départ : 20-09-26.')
+        );
+
+        $this->assertNotNull($campId);
+        $this->assertSame(Camp::STAY_SHORT_CAMP, $this->camps->findById($campId)?->stayType);
+    }
+
+    private function serviceWithFreshSettings(): StayFromMailService
+    {
+        $this->settings = new SettingService(new SettingRepository($this->pdo));
+
+        return $this->service();
     }
 
     public function testWithoutTheConnectorTheFormIsPreFilledWithoutAPlaceName(): void

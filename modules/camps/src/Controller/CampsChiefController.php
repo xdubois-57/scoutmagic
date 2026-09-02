@@ -190,6 +190,11 @@ class CampsChiefController extends AbstractController
             'start_date' => $values['start_date'],
             'end_date' => $values['end_date'],
             'price' => $values['price'],
+            // Proposed from the dates the message states, exactly as the
+            // automatic path would have filed it — the two must not
+            // disagree about the same message. A chief changes it in the
+            // form like any other field.
+            'stay_type' => $values['stay_type'],
             'message_id' => (string) $messageId,
         ]);
     }

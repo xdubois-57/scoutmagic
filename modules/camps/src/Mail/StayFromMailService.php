@@ -11,6 +11,7 @@ namespace Modules\Camps\Mail;
 use Core\Audit\AuditSource;
 use Core\Config\SettingService;
 use Core\Journal\JournalService;
+use Core\Service\DateInput;
 use Modules\Camps\Repository\Camp;
 use Modules\Camps\Repository\CampRepository;
 use Modules\Camps\Service\CampService;
@@ -221,7 +222,7 @@ class StayFromMailService
      * `place_name` is empty whenever nothing may be written down: no
      * connector, a model that failed, or a model that was not sure.
      *
-     * @return array{place_name: string, start_date: string, end_date: string, price: string}
+     * @return array{place_name: string, start_date: string, end_date: string, price: string, stay_type: string}
      */
     public function readValues(InboundMessage $message): array
     {
@@ -234,8 +235,59 @@ class StayFromMailService
             'start_date' => $range['start'] ?? '',
             'end_date' => $range['end'] ?? '',
             'price' => $priceCents !== null ? number_format($priceCents / 100, 2, ',', ' ') : '',
+            'stay_type' => $this->stayTypeFor($range['start'] ?? '', $range['end'] ?? ''),
         ];
     }
+
+    /**
+     * Which kind of stay dates of that length describe.
+     *
+     * Every stay read out of a message used to be filed as a « Grand camp »
+     * — including a three-day booking whose contract said so in as many
+     * words. The dates were right there and nothing looked at them.
+     *
+     * **A proposal, never a verdict.** It fills a field a chief can change
+     * before saving, and on the automatic path it is the same value the
+     * pre-filled form would have shown — which is the whole point of this
+     * reading being one reading. Dates that could not be read leave the
+     * module's own default in place rather than guessing from nothing.
+     *
+     * Counted in whole days, arrival and departure included: a
+     * Friday-to-Sunday stay is three days, which is what a chief means by
+     * one. The threshold is a setting because a unit that camps from
+     * Thursday to Sunday every month means something different by « petit »
+     * than one that does not.
+     */
+    public function stayTypeFor(string $start, string $end): string
+    {
+        $from = DateInput::fromStorage($start);
+        $to = DateInput::fromStorage($end);
+        if ($from === null || $to === null || $to < $from) {
+            return Camp::STAY_GRAND_CAMP;
+        }
+
+        $days = (int) $from->diff($to)->days + 1;
+
+        return $days <= $this->shortStayMaxDays() ? Camp::STAY_SHORT_CAMP : Camp::STAY_GRAND_CAMP;
+    }
+
+    /**
+     * `camps_short_stay_max_days`, floored at one.
+     *
+     * A zero or a negative — a stray keystroke, or a row written by hand —
+     * would make every stay a grand camp and quietly undo the setting
+     * rather than announcing itself.
+     */
+    private function shortStayMaxDays(): int
+    {
+        $raw = (int) ($this->settings->get('camps_short_stay_max_days', 'camps', (string) self::DEFAULT_SHORT_STAY_MAX_DAYS)
+            ?? self::DEFAULT_SHORT_STAY_MAX_DAYS);
+
+        return max(1, $raw);
+    }
+
+    /** Friday to Monday, the longest thing a unit still calls a small camp. */
+    public const DEFAULT_SHORT_STAY_MAX_DAYS = 4;
 
     /**
      * Turns an unsorted message into a stay, or answers null and leaves it
@@ -286,7 +338,7 @@ class StayFromMailService
                 ?? $this->campService->create(
                     $placeId,
                     [
-                        'stay_type' => Camp::STAY_GRAND_CAMP,
+                        'stay_type' => $values['stay_type'],
                         'start_date' => $values['start_date'],
                         'end_date' => $values['end_date'],
                         'status' => Camp::STATUS_TO_CONFIRM,

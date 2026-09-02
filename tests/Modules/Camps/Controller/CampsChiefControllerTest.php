@@ -916,6 +916,12 @@ class CampsChiefControllerTest extends TestCase
             $this->assertStringContainsString('2026-09-18', $html);
             $this->assertStringContainsString('2026-09-20', $html);
             $this->assertStringContainsString('Centre de camp Le Grand Pré', $html);
+            // Three days: the form arrives with « Petit camp » already
+            // chosen, the same value the automatic path would have filed.
+            $this->assertMatchesRegularExpression(
+                '/value="weekend" selected/',
+                (string) preg_replace('/\s+/', ' ', $html)
+            );
         } finally {
             foreach (glob($storagePath . '/inbound/*') ?: [] as $file) {
                 @unlink($file);
