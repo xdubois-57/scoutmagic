@@ -2,7 +2,7 @@
   "id": "camps",
   "name": "Camps",
   "description": "Les lieux de camp de l'unité et les séjours qu'elle y a faits — passés et à venir : dates, sections, prix, contacts sur place, avis des staffs précédents. Un staff qui cherche un terrain lit ce que les staffs d'avant en ont pensé, au lieu de repartir de zéro.",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -542,6 +542,13 @@
       "type": "text",
       "label": "Boîtes aux lettres dédiées aux camps",
       "description": "RÉGLAGE HISTORIQUE, plus lu par le module. Le choix se fait désormais sur Configuration > Courrier entrant, en déclarant la boîte « dédiée » au module Camps : c'est ce choix-là, et lui seul, qui autorise la création automatique d'un séjour. Cette valeur n'est conservée que pour la reprise automatique d'une installation qui n'a pas encore vu le nouvel écran."
+    },
+    {
+      "key": "camps_short_stay_max_days",
+      "default_value": "4",
+      "type": "number",
+      "label": "Durée maximale d'un petit camp (jours)",
+      "description": "Un séjour de cette durée ou moins est un « Petit camp » ; au-delà, un « Grand camp ». Compté en jours entiers, arrivée et départ compris : un vendredi-dimanche fait trois jours. Sert uniquement à proposer un type quand les dates sont connues — depuis un message reçu, ou dans le formulaire prérempli — et un chef peut toujours en changer avant d'enregistrer."
     },
     {
       "key": "camps_auto_create_from_mail",

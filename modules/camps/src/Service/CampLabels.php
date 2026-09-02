@@ -25,7 +25,7 @@ class CampLabels
 {
     public const STAY_TYPES = [
         Camp::STAY_GRAND_CAMP => 'Grand camp',
-        Camp::STAY_WEEKEND => 'Week-end',
+        Camp::STAY_SHORT_CAMP => 'Petit camp',
         Camp::STAY_OTHER => 'Autre séjour',
     ];
 
