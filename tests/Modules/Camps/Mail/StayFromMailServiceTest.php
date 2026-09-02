@@ -140,6 +140,10 @@ class StayFromMailServiceTest extends TestCase
             $this->assertSame('2026-09-18', $camp?->startDate);
             $this->assertSame('2026-09-20', $camp?->endDate);
             $this->assertSame('Centre de camp Le Grand Pré', $this->places->findById((int) $camp?->placeId)?->name);
+            // The forfait, not the deposit — and the head count the
+            // contract states in as many words.
+            $this->assertSame(146880, $camp?->priceCents);
+            $this->assertSame(120, $camp?->participantCount);
 
             // And the model was shown the contract, not just « Bonjour, ».
             $this->assertStringContainsString('Arrivee: 18-09-26', $this->asked[0]->prompt);
@@ -291,6 +295,159 @@ class StayFromMailServiceTest extends TestCase
         $this->assertStringNotContainsString('@', $whole);
         $this->assertStringNotContainsString('Fresnaye', $whole);
     }
+    /**
+     * A connector answering the whole venue — name and address — which is
+     * what the model is really asked for, in one call.
+     *
+     * @param array<string, string> $extra
+     */
+    private function llmAnsweringVenue(string $placeName, array $extra): LlmConnectorInterface
+    {
+        $payload = ['place_name' => $placeName] + $extra;
+        $llm = $this->createStub(LlmConnectorInterface::class);
+        $llm->method('isAvailable')->willReturn(true);
+        $llm->method('isTierAvailable')->willReturn(true);
+        $llm->method('complete')->willReturnCallback(
+            function (LlmRequest $request) use ($payload): LlmResponse {
+                $this->asked[] = $request;
+
+                return new LlmResponse((string) json_encode($payload), $payload, 100, 10);
+            }
+        );
+
+        return $llm;
+    }
+
+    // ── Where the place is ──────────────────────────────────────────────
+
+    /**
+     * The address was read by nothing at all, and it cost more than a
+     * blank form field: a place created from a message had a name and
+     * nothing else, so the geocoding pass found neither city nor postcode
+     * to build a query from and the venue never reached the map.
+     */
+    public function testANewPlaceIsCreatedWithTheAddressTheMessageGives(): void
+    {
+        $campId = $this->service($this->llmAnsweringVenue('Camp de La Fresnaye', [
+            'address' => 'Prins Boudewijnlaan',
+            'postal_code' => '1653',
+            'city' => 'Dworp',
+        ]))->createFrom($this->message(body: 'Arrivée : 18-09-26 Départ : 20-09-26.'));
+
+        $place = $this->places->findById((int) $this->camps->findById((int) $campId)?->placeId);
+        $this->assertSame('Prins Boudewijnlaan', $place?->address);
+        $this->assertSame('1653', $place?->postalCode);
+        $this->assertSame('Dworp', $place?->city);
+        // The unit's own default, not a guess read out of the message: a
+        // contract almost never names its country, and the geocoder needs
+        // one to tell this Dworp from another.
+        $this->assertSame('Belgique', $place?->country);
+    }
+
+    public function testTheModelIsAskedForTheAddressInTheSameCallAsTheName(): void
+    {
+        // A second call per message to learn a postcode would not be worth
+        // it; three more fields in a schema it is already filling cost
+        // nothing.
+        $this->service($this->llmAnsweringVenue('Camp de La Fresnaye', ['city' => 'Dworp']))
+            ->readValues($this->message());
+
+        $this->assertCount(1, $this->asked);
+        $this->assertArrayHasKey('address', $this->asked[0]->responseSchema['properties']);
+        $this->assertArrayHasKey('postal_code', $this->asked[0]->responseSchema['properties']);
+        $this->assertArrayHasKey('city', $this->asked[0]->responseSchema['properties']);
+    }
+
+    public function testTheModelIsAskedOnceEvenThoughTwoStepsNeedTheAnswer(): void
+    {
+        // createFrom() reads the values and then resolves the place. Two
+        // identical model calls for one message would also mean two
+        // identical journal entries saying the same thing.
+        $this->service($this->llmAnsweringVenue('Camp de La Fresnaye', ['city' => 'Dworp']))
+            ->createFrom($this->message(body: 'Arrivée : 18-09-26 Départ : 20-09-26.'));
+
+        $this->assertCount(1, $this->asked);
+    }
+
+    /**
+     * @return array<string, array{array<string, mixed>, string, string, string}>
+     */
+    public static function venueAnswers(): array
+    {
+        return [
+            'a full address' => [
+                ['address' => 'Prins Boudewijnlaan 12', 'postal_code' => '1653', 'city' => 'Dworp'],
+                'Prins Boudewijnlaan 12', '1653', 'Dworp',
+            ],
+            // A model that hedges answers an empty string, and an empty
+            // string is a complete answer: the field stays blank.
+            'nothing at all' => [[], '', '', ''],
+            'a street too short to be one' => [['address' => 'Rue'], '', '', ''],
+            'a postcode with no digit' => [['postal_code' => 'inconnu', 'city' => 'Dworp'], '', '', 'Dworp'],
+            'a town of one letter' => [['city' => 'D'], '', '', ''],
+            'an e-mail address is not an address' => [['address' => 'info@mozet.be'], '', '', ''],
+            'a wrong type' => [['city' => 42], '', '', ''],
+            'whitespace is collapsed' => [['city' => "  Dworp \n "], '', '', 'Dworp'],
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $answer
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('venueAnswers')]
+    public function testTheAddressPassesTheSameKindOfGuardTheNameDoes(
+        array $answer,
+        string $address,
+        string $postalCode,
+        string $city
+    ): void {
+        $values = $this->service($this->llmAnsweringVenue('Camp de La Fresnaye', $answer))
+            ->readValues($this->message());
+
+        $this->assertSame($address, $values['address']);
+        $this->assertSame($postalCode, $values['postal_code']);
+        $this->assertSame($city, $values['city']);
+    }
+
+    public function testAPlaceTheUnitAlreadyKnowsIsNeverRewritten(): void
+    {
+        // A model's reading of one message is not a reason to overwrite a
+        // field somebody checked on the ground.
+        $placeId = $this->places->create('Domaine de Mozet', 'Chemin du Fond 3', '5340', 'Mozet', 'Belgique', null);
+
+        $this->service($this->llmAnsweringVenue('Domaine de Mozet', [
+            'address' => 'Autre rue 99',
+            'postal_code' => '9999',
+            'city' => 'Ailleurs',
+        ]))->createFrom($this->message(body: 'Arrivée : 18-09-26 Départ : 20-09-26.'));
+
+        $place = $this->places->findById($placeId);
+        $this->assertSame('Chemin du Fond 3', $place?->address);
+        $this->assertSame('Mozet', $place?->city);
+    }
+
+    public function testTheJournalSaysWhichAddressFieldsCameBack(): void
+    {
+        // The fact a chief needs is « le modèle a répondu un nom sans
+        // adresse ». The values themselves are on the stay's own page.
+        $this->service($this->llmAnsweringVenue('Camp de La Fresnaye', ['city' => 'Dworp']))
+            ->readValues($this->message());
+
+        $context = json_decode((string) $this->journalEntry('camps_place_name_read')['context'], true);
+        $this->assertSame(['city'], $context['address_fields']);
+    }
+
+    public function testTheJournalDoesNotCarryTheAddressItself(): void
+    {
+        $this->service($this->llmAnsweringVenue('Camp de La Fresnaye', [
+            'address' => 'Prins Boudewijnlaan 12',
+            'city' => 'Dworp',
+        ]))->readValues($this->message());
+
+        $entry = $this->journalEntry('camps_place_name_read');
+        $this->assertStringNotContainsString('Boudewijnlaan', $entry['description'] . (string) $entry['context']);
+    }
+
     /** A connector that answers one place name, and remembers what it was asked. */
     private function llmAnswering(string $placeName): LlmConnectorInterface
     {
@@ -576,12 +733,21 @@ class StayFromMailServiceTest extends TestCase
         $this->assertSame(
             [
                 'place_name' => 'Domaine de Mozet',
+                // The connector answered a name and no address — the model
+                // is asked for all four in one call, and an empty field is
+                // a complete answer.
+                'address' => '',
+                'postal_code' => '',
+                'city' => '',
                 'start_date' => '2028-07-12',
                 'end_date' => '2028-07-19',
                 'price' => number_format(2450, 2, ',', ' '),
                 // Eight days: a grand camp, and the form arrives with it
                 // already chosen.
                 'stay_type' => Camp::STAY_GRAND_CAMP,
+                // Nothing in this message says how many people, and a
+                // reading that guessed would be worse than an empty field.
+                'participant_count' => '',
             ],
             $this->service($this->llmAnswering('Domaine de Mozet'))
                 ->readValues($this->message(fromName: 'Jean-Pierre Lambert'))

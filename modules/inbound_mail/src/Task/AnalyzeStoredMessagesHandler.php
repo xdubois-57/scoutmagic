@@ -16,6 +16,7 @@ use Core\Security\EncryptionService;
 use Modules\InboundMail\Repository\InboundMessageRepository;
 use Modules\InboundMail\Service\AnalysisJournal;
 use Modules\InboundMail\Service\AnalysisResultApplier;
+use Modules\InboundMail\Service\LinkedMessageNotifier;
 use Modules\InboundMail\Service\MessageConsumerRegistry;
 
 /**
@@ -90,6 +91,18 @@ class AnalyzeStoredMessagesHandler implements TaskHandlerInterface
     private function analyzeBatch(InboundMessageRepository $messages, EncryptionService $encryption): void
     {
         $applier = new AnalysisResultApplier($messages);
+        // The half this pass was missing. `apply()` writes the rows and
+        // reports which associations are new; somebody then has to tell
+        // the consumer, and only the arrival pass did. So a stay created
+        // automatically from a booking e-mail got the association and NOT
+        // the contract that arrived with it — `onLinked()`, the one place
+        // that files a message's attachments as documents, was never
+        // reached on the only path that creates such a stay.
+        $notifier = new LinkedMessageNotifier(
+            $messages,
+            $this->consumerRegistry ?? new MessageConsumerRegistry(),
+            $this->analysisJournal
+        );
         $now = new \DateTimeImmutable();
         $examined = 0;
         $linked = 0;
@@ -109,7 +122,7 @@ class AnalyzeStoredMessagesHandler implements TaskHandlerInterface
 
             $examined++;
             $results = $this->consumerRegistry?->analyzeAllStored($stored) ?? [];
-            $applier->apply($messageId, $results);
+            $notifier->notify($messageId, $applier->apply($messageId, $results));
 
             foreach ($results as $result) {
                 $linked += count($result->links);

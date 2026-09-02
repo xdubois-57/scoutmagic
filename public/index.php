@@ -4697,21 +4697,6 @@ if ($isEnabled('camps')) {
     // the unit sees every stay.
     $fileOwnershipCheckers[] = new \Modules\Camps\Service\CampFileOwnershipChecker();
 
-    // And the same answer for an attachment of a message attached to a
-    // stay (§8.58). A factory, like rental's: nothing is built unless
-    // somebody asks to download one.
-    if (isset($inboundReadConsumers)) {
-        $inboundReadConsumers->registerFactory(
-            \Modules\Camps\Mail\CampsMessageConsumer::CONSUMER_ID,
-            static fn(): \Modules\InboundMail\Api\MessageConsumerInterface =>
-                new \Modules\Camps\Mail\CampsMessageConsumer(
-                    $campsCampRepo,
-                    $pdo,
-                    $encryptionService
-                )
-        );
-    }
-
     // Read back at the very end of this file, when the response exists.
     $campsMapTileOrigin = \Modules\Camps\Service\MapTiles::ORIGIN;
 
@@ -4750,6 +4735,38 @@ if ($isEnabled('camps')) {
         // the journal as the hourly task.
         $journalService
     );
+    // Who may open an attachment of a message attached to a stay (§8.58),
+    // and what happens when a chief files one under a stay by hand. A
+    // factory, like rental's: nothing is built unless somebody asks.
+    //
+    // **It is built with the document service and the field completion,
+    // and that is the whole point.** It used to be built with neither —
+    // read-only, on the reasoning that this registry only ever answers
+    // « may this person download that file ». But `attach()` calls
+    // `onLinked()` through this same registry, and `onLinked()` is where
+    // Camps turns a message's attachments into a stay's documents. A
+    // consumer without a document service answered that callback by doing
+    // nothing, silently: « Créer un camp depuis ce message » made the stay
+    // and left the contract behind in the mailbox.
+    //
+    // Registered here rather than beside the other file checkers above
+    // because the closure captures by value: the field completion service
+    // does not exist yet up there.
+    if (isset($inboundReadConsumers)) {
+        $inboundReadConsumers->registerFactory(
+            \Modules\Camps\Mail\CampsMessageConsumer::CONSUMER_ID,
+            static fn(): \Modules\InboundMail\Api\MessageConsumerInterface =>
+                new \Modules\Camps\Mail\CampsMessageConsumer(
+                    $campsCampRepo,
+                    $pdo,
+                    $encryptionService,
+                    null,
+                    $campsDocumentService,
+                    $campsFieldCompletion
+                )
+        );
+    }
+
     $frontController->registerController(
         \Modules\Camps\Controller\CampsMailController::class,
         new \Modules\Camps\Controller\CampsMailController(

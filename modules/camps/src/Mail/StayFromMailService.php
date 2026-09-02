@@ -223,20 +223,28 @@ class StayFromMailService
      * `place_name` is empty whenever nothing may be written down: no
      * connector, a model that failed, or a model that was not sure.
      *
-     * @return array{place_name: string, start_date: string, end_date: string, price: string, stay_type: string}
+     * @return array{place_name: string, address: string, postal_code: string, city: string,
+     *   start_date: string, end_date: string, price: string, stay_type: string,
+     *   participant_count: string}
      */
     public function readValues(InboundMessage $message): array
     {
         $text = $this->textOf($message);
         $range = $this->reader->readDateRange($text);
         $priceCents = $this->reader->readPriceCents($text);
+        $participants = $this->reader->readParticipantCount($text);
+        $venue = $this->venueOf($message);
 
         return [
-            'place_name' => $this->placeNameFromBody($message),
+            'place_name' => $venue['name'],
+            'address' => $venue['address'],
+            'postal_code' => $venue['postal_code'],
+            'city' => $venue['city'],
             'start_date' => $range['start'] ?? '',
             'end_date' => $range['end'] ?? '',
             'price' => $priceCents !== null ? number_format($priceCents / 100, 2, ',', ' ') : '',
             'stay_type' => $this->stayTypeFor($range['start'] ?? '', $range['end'] ?? ''),
+            'participant_count' => $participants !== null ? (string) $participants : '',
         ];
     }
 
@@ -344,6 +352,7 @@ class StayFromMailService
                         'end_date' => $values['end_date'],
                         'status' => Camp::STATUS_TO_CONFIRM,
                         'price' => $values['price'],
+                        'participant_count' => $values['participant_count'],
                         'section_ids' => [],
                     ],
                     // No actor: nobody pressed anything. The source says
@@ -399,15 +408,50 @@ class StayFromMailService
     {
         $matched = $this->matchPlaceIdFor($message, $placeName);
         if ($matched !== null) {
+            // A place the unit already knows keeps the address a human
+            // curated. The model's reading of a message is not a reason to
+            // rewrite a field somebody checked on the ground.
             return $matched;
         }
 
         // No match. Creating a row means writing a name into a clear-text
         // column, and the only name allowed to end up there is one the
         // model read out of the body and that passed the guards.
-        return $placeName === ''
-            ? null
-            : $this->placeService->create(['name' => $placeName], null, AuditSource::Email);
+        if ($placeName === '') {
+            return null;
+        }
+
+        // The address goes in with it, or the place is created blind: the
+        // geocoding pass needs a city or a postcode to build a query at
+        // all, so a place created with a name alone can never reach the
+        // map — and nothing said why.
+        $venue = $this->venueOf($message);
+
+        return $this->placeService->create(
+            [
+                'name' => $placeName,
+                'address' => $venue['address'],
+                'postal_code' => $venue['postal_code'],
+                'city' => $venue['city'],
+                'country' => $this->defaultCountry(),
+            ],
+            null,
+            AuditSource::Email
+        );
+    }
+
+    /**
+     * `camps_default_country`, the same answer the creation form starts
+     * from.
+     *
+     * Not read out of the message: a contract almost never names its own
+     * country, and the geocoder needs one to tell « Dworp, Belgique » from
+     * a Dworp somewhere else. The unit's own default is the honest guess,
+     * and it is the one a chief would have accepted on the form.
+     */
+    private function defaultCountry(): string
+    {
+        return (string) ($this->settings->get('camps_default_country', 'camps', 'Belgique') ?? '');
     }
 
     /**
@@ -491,7 +535,24 @@ class StayFromMailService
      * exception. A model that is down must cost this module a creation,
      * never a synchronisation pass.
      */
-    private function placeNameFromBody(InboundMessage $message): string
+    /**
+     * The venue this message is about: its name, and where it is.
+     *
+     * **The address is read in the SAME call as the name**, and that is
+     * the whole reason it can exist at all: a second model call per
+     * message to learn a postcode would not be worth it, while three more
+     * fields in a schema the model is already filling cost nothing.
+     *
+     * It was missing entirely, and it cost more than a blank form field. A
+     * place created from a message had a name and nothing else, so
+     * `Task\GeocodePlacesHandler` picked it up, found neither city nor
+     * postcode to build a query from, stamped it as attempted and moved
+     * on — the stay's venue never appeared on the map, and nothing
+     * anywhere said the address had never been read in the first place.
+     *
+     * @return array{name: string, address: string, postal_code: string, city: string}
+     */
+    private function readVenue(InboundMessage $message): array
     {
         if (!$this->canNamePlaces() || $this->llm === null) {
             // No connector, or no model on the CHEAP tier. Nothing is
@@ -500,14 +561,14 @@ class StayFromMailService
             // answered nothing.
             $this->journalRead($message->id, self::READ_NO_CONNECTOR, null, null);
 
-            return '';
+            return self::NO_VENUE;
         }
 
         $text = $this->textOf($message);
         if ($text === '') {
             $this->journalRead($message->id, self::READ_NO_TEXT, null, null);
 
-            return '';
+            return self::NO_VENUE;
         }
 
         $prompt = mb_substr($text, 0, self::MAX_PROMPT_CHARS);
@@ -519,7 +580,12 @@ class StayFromMailService
                 systemPrompt: self::PLACE_NAME_SYSTEM_PROMPT,
                 responseSchema: [
                     'type' => 'object',
-                    'properties' => ['place_name' => ['type' => 'string']],
+                    'properties' => [
+                        'place_name' => ['type' => 'string'],
+                        'address' => ['type' => 'string'],
+                        'postal_code' => ['type' => 'string'],
+                        'city' => ['type' => 'string'],
+                    ],
                     'required' => ['place_name'],
                 ],
                 maxTokens: self::MAX_TOKENS,
@@ -527,7 +593,7 @@ class StayFromMailService
         } catch (LlmException $e) {
             $this->journalRead($message->id, self::READ_PROVIDER_FAILED, null, null, mb_strlen($prompt), $e);
 
-            return '';
+            return self::NO_VENUE;
         }
 
         $answer = $response->parsed['place_name'] ?? null;
@@ -541,9 +607,71 @@ class StayFromMailService
             default => self::READ_ACCEPTED,
         };
 
-        $this->journalRead($message->id, $outcome, $name, $response, mb_strlen($prompt));
+        $venue = [
+            'name' => $outcome === self::READ_ACCEPTED ? $name : '',
+            'address' => self::cleanAddressPart($response->parsed['address'] ?? null, self::MIN_ADDRESS_LENGTH),
+            'postal_code' => self::cleanPostalCode($response->parsed['postal_code'] ?? null),
+            'city' => self::cleanAddressPart($response->parsed['city'] ?? null, self::MIN_CITY_LENGTH),
+        ];
 
-        return $outcome === self::READ_ACCEPTED ? $name : '';
+        $this->journalRead($message->id, $outcome, $name, $response, mb_strlen($prompt), null, $venue);
+
+        return $venue;
+    }
+
+    /** @var array{name: string, address: string, postal_code: string, city: string} */
+    public const NO_VENUE = ['name' => '', 'address' => '', 'postal_code' => '', 'city' => ''];
+
+    /**
+     * A street and a town are shorter than a place name and longer than a
+     * typo. « Rue » alone is not an address and « D » is not a town.
+     */
+    public const MIN_ADDRESS_LENGTH = 5;
+    public const MIN_CITY_LENGTH = 2;
+
+    /** Enough for a French, Belgian, Dutch or British code, and no more. */
+    public const MAX_POSTAL_CODE_LENGTH = 10;
+
+    /**
+     * The same shape of guard the place name has had since the day it
+     * stopped coming out of the `From:` header: long enough to be the
+     * thing it claims to be, and not an e-mail address. A model that
+     * hedges answers an empty string, and an empty string is a complete
+     * answer here — the field simply stays blank, as it did before this
+     * reading existed.
+     */
+    private static function cleanAddressPart(mixed $value, int $minimum): string
+    {
+        if (!is_string($value)) {
+            return '';
+        }
+
+        $clean = trim(preg_replace('/\s+/u', ' ', $value) ?? '');
+
+        return mb_strlen($clean) >= $minimum
+            && mb_strlen($clean) <= 200
+            && !str_contains($clean, '@')
+            ? $clean
+            : '';
+    }
+
+    /**
+     * A postcode has to contain a digit, and that one rule is what keeps a
+     * model's « inconnu » or « n/a » out of the column.
+     */
+    private static function cleanPostalCode(mixed $value): string
+    {
+        if (!is_string($value)) {
+            return '';
+        }
+
+        $clean = trim(preg_replace('/\s+/u', ' ', $value) ?? '');
+
+        return $clean !== ''
+            && mb_strlen($clean) <= self::MAX_POSTAL_CODE_LENGTH
+            && preg_match('/\d/', $clean) === 1
+            ? $clean
+            : '';
     }
 
     /**
@@ -552,13 +680,19 @@ class StayFromMailService
      * inline is a prompt nobody can check against what was actually sent.
      */
     public const PLACE_NAME_SYSTEM_PROMPT = 'Tu lis un e-mail reçu par une unité scoute au sujet d\'un terrain de camp. '
-        . 'Donne UNIQUEMENT le nom du lieu dont ce message parle : le terrain, la ferme, '
-        . 'le domaine, le gîte ou le bâtiment où le séjour aurait lieu. '
-        . 'Ne donne JAMAIS un nom de personne, ni le nom de l\'expéditeur ou de sa signature, '
-        . 'ni une adresse postale, ni une adresse e-mail, ni une commune seule. '
-        . 'N\'invente rien et ne complète rien : recopie le nom tel qu\'il est écrit dans le message. '
-        . 'Si le message ne nomme pas clairement un lieu, ou si tu hésites, '
-        . 'réponds une chaîne vide.';
+        . 'Identifie le lieu dont ce message parle : le terrain, la ferme, le domaine, le gîte ou '
+        . 'le bâtiment où le séjour aurait lieu. '
+        . 'Donne son nom dans « place_name » : jamais un nom de personne, jamais le nom de '
+        . 'l\'expéditeur ou de sa signature, jamais une adresse postale, jamais une adresse e-mail, '
+        . 'jamais une commune seule. '
+        . 'Donne SON adresse, celle du lieu du séjour et d\'aucun autre, dans « address » (rue et '
+        . 'numéro), « postal_code » (code postal) et « city » (commune). '
+        . 'N\'y mets JAMAIS l\'adresse de l\'expéditeur, celle de sa signature, celle d\'un bureau '
+        . 'où renvoyer un contrat, ni celle de l\'unité scoute elle-même : seule compte l\'adresse '
+        . 'où le camp aurait lieu. '
+        . 'N\'invente rien et ne complète rien : recopie ce qui est écrit dans le message. '
+        . 'Réponds une chaîne vide pour chaque champ que le message ne donne pas clairement, '
+        . 'ou dont tu hésites — un champ vide est une réponse complète.';
 
     public const READ_ACCEPTED = 'accepted';
     public const READ_NO_CONNECTOR = 'no_connector';
@@ -607,18 +741,31 @@ class StayFromMailService
      * The answer is bounded, and no other part of the message is here: not
      * the subject, not the sender, not the body it was read from.
      */
+    /**
+     * @param array{name: string, address: string, postal_code: string, city: string}|null $venue
+     */
     private function journalRead(
         int $messageId,
         string $outcome,
         ?string $answer,
         ?LlmResponse $response,
         ?int $promptChars = null,
-        ?LlmException $error = null
+        ?LlmException $error = null,
+        ?array $venue = null
     ): void {
         $context = [
             'message_id' => $messageId,
             'outcome' => $outcome,
         ];
+        if ($venue !== null) {
+            // Which of the address fields came back, and not their values:
+            // « le modèle a répondu un nom sans adresse » is the fact a
+            // chief needs, and the values are on the stay's own page.
+            $context['address_fields'] = array_values(array_filter(
+                ['address', 'postal_code', 'city'],
+                static fn(string $field): bool => $venue[$field] !== ''
+            ));
+        }
         if ($answer !== null) {
             $context['answer'] = mb_substr($answer, 0, self::MAX_JOURNALLED_ANSWER);
         }
@@ -681,6 +828,26 @@ class StayFromMailService
      * @var array<int, string>
      */
     private array $textCache = [];
+
+    /**
+     * The model is asked once per message, whatever asks.
+     *
+     * `createFrom()` reads the values and then resolves the place, and the
+     * pre-filled form reads the values and then matches the place: without
+     * this, one message would buy two identical model calls and two
+     * identical journal entries saying the same thing.
+     *
+     * @var array<int, array{name: string, address: string, postal_code: string, city: string}>
+     */
+    private array $venueCache = [];
+
+    /**
+     * @return array{name: string, address: string, postal_code: string, city: string}
+     */
+    private function venueOf(InboundMessage $message): array
+    {
+        return $this->venueCache[$message->id] ??= $this->readVenue($message);
+    }
 
     private function textOf(InboundMessage $message): string
     {

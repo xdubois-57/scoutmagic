@@ -49,6 +49,50 @@ final class ConsumerRegistrationOrderTest extends TestCase
     }
 
     /**
+     * The web registry's Camps consumer can file a document, and that is
+     * not a detail.
+     *
+     * It used to be built read-only — `(camps, pdo, encryption)` — on the
+     * reasoning that this registry only ever answers « may this person
+     * download that file ». But `InboundMailService::attach()` calls
+     * `onLinked()` through this same registry, and `onLinked()` is where
+     * Camps turns a message's attachments into a stay's documents. A
+     * consumer built without a document service answered that callback by
+     * doing nothing, in silence: « Créer un camp depuis ce message » made
+     * the stay and left the contract behind in the mailbox.
+     *
+     * Nothing about that was visible from either call site, which is why
+     * it is a test.
+     */
+    public function testTheWebRegistrysCampsConsumerCanFileADocument(): void
+    {
+        $source = (string) file_get_contents(dirname(__DIR__, 4) . '/public/index.php');
+
+        // The Camps factory and nothing else — anchored on the consumer id
+        // it registers, so a wide scan cannot make another module's
+        // dependencies look like this one's.
+        $this->assertSame(
+            1,
+            preg_match(
+                '/registerFactory\(\s*\\\\Modules\\\\Camps\\\\Mail\\\\CampsMessageConsumer::CONSUMER_ID,'
+                . '(.*?)\n        \);/s',
+                $source,
+                $factory
+            ),
+            'no registerFactory() for the Camps consumer in public/index.php'
+        );
+
+        $this->assertStringContainsString(
+            'campsDocumentService',
+            $factory[1],
+            'the web registry builds a Camps consumer with no document service: attach() would '
+            . 'create the association and file nothing, which is how a stay ended up without '
+            . 'the contract that made it'
+        );
+        $this->assertStringContainsString('campsFieldCompletion', $factory[1]);
+    }
+
+    /**
      * The old list of dedicated boxes is retired, and its description has
      * to say so.
      *

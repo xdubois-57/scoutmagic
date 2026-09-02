@@ -2,7 +2,7 @@
   "id": "camps",
   "name": "Camps",
   "description": "Les lieux de camp de l'unité et les séjours qu'elle y a faits — passés et à venir : dates, sections, prix, contacts sur place, avis des staffs précédents. Un staff qui cherche un terrain lit ce que les staffs d'avant en ont pensé, au lieu de repartir de zéro.",
-  "version": "1.9.1",
+  "version": "1.11.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -555,7 +555,7 @@
       "default_value": "1",
       "type": "boolean",
       "label": "Créer un camp depuis un message",
-      "description": "Dans une boîte dédiée uniquement : si un message annonce des dates sans ambiguïté, un séjour est créé automatiquement, visiblement marqué comme tel. Le lieu est d'abord un terrain déjà connu ; un nouveau terrain n'est créé que si le module Connecteur Intelligence Artificielle est actif, son nom étant alors lu dans le contenu du message — objet, corps et pièces jointes — un contrat de location arrivant presque toujours en PDF avec un corps d'un mot ; un document scanné ou photographié est transcrit par le modèle, au plus une fois par message — mais jamais dans le nom de l'expéditeur. Sans ce réglage, ou faute de lieu, le message reste sans rattachement, avec une action « Créer un camp depuis ce message »."
+      "description": "Dans une boîte dédiée uniquement : si un message annonce des dates sans ambiguïté, un séjour est créé automatiquement, visiblement marqué comme tel. Le lieu est d'abord un terrain déjà connu ; un nouveau terrain n'est créé que si le module Connecteur Intelligence Artificielle est actif, son nom ET son adresse étant alors lus dans le contenu du message — objet, corps et pièces jointes — un contrat de location arrivant presque toujours en PDF avec un corps d'un mot ; un document scanné ou photographié est transcrit par le modèle, au plus une fois par message — mais jamais dans le nom de l'expéditeur. Sans ce réglage, ou faute de lieu, le message reste sans rattachement, avec une action « Créer un camp depuis ce message »."
     },
     {
       "key": "camps_ai_summary_enabled",
