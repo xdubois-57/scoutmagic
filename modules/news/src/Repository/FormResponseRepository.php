@@ -46,6 +46,14 @@ class FormResponseRepository
         return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
 
+    public function countByFormId(int $formId): int
+    {
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM news_form_responses WHERE form_id = ?');
+        $stmt->execute([$formId]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
     public function findByAccountAndForm(int $formId, int $userAccountId): ?FormResponse
     {
         $stmt = $this->pdo->prepare('SELECT * FROM news_form_responses WHERE form_id = ? AND user_account_id = ? LIMIT 1');
@@ -204,6 +212,78 @@ class FormResponseRepository
         $stmt->execute([$structuredCommunication, $receivableId, $responseId]);
     }
 
+    /**
+     * Binds a canonical reference to a response — the ticket being
+     * issued. Never overwrites one: a reference already handed out in an
+     * e-mail is the only thing the holder has, so lowering and raising
+     * the form's flag again must not invalidate it. The WHERE clause is
+     * what makes that true even against a concurrent second attempt.
+     *
+     * @return bool false when the row already carried a reference, or
+     *              when the reference collided with another response's —
+     *              the caller retries with a new one.
+     */
+    public function claimTicketReference(int $responseId, string $reference): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE news_form_responses SET ticket_reference = ? WHERE id = ? AND ticket_reference IS NULL'
+        );
+
+        try {
+            $stmt->execute([$reference, $responseId]);
+        } catch (\PDOException) {
+            // The unique index refused it: two responses drew the same
+            // ten characters, which is what the caller's retry is for.
+            return false;
+        }
+
+        return $stmt->rowCount() === 1;
+    }
+
+    public function findByTicketReference(string $canonicalReference): ?FormResponse
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM news_form_responses WHERE ticket_reference = ?');
+        $stmt->execute([$canonicalReference]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        return $row !== false ? $this->hydrate($row) : null;
+    }
+
+    public function findByStructuredCommunication(string $communication): ?FormResponse
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM news_form_responses WHERE structured_communication = ?');
+        $stmt->execute([$communication]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        return $row !== false ? $this->hydrate($row) : null;
+    }
+
+    /**
+     * @return FormResponse[] the form's responses that have no reference yet — what raising the flag backfills.
+     */
+    public function findByFormIdWithoutTicket(int $formId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM news_form_responses WHERE form_id = ? AND ticket_reference IS NULL ORDER BY id ASC'
+        );
+        $stmt->execute([$formId]);
+
+        return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Marks the holder in, or takes the mark back.
+     *
+     * `$usedAt` null is the unmarking — a scan by mistake, a validation
+     * made too early. The previous site's own operation wrote true or
+     * false indifferently, and so does this one.
+     */
+    public function setTicketUsedAt(int $responseId, ?string $usedAt): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE news_form_responses SET ticket_used_at = ? WHERE id = ?');
+        $stmt->execute([$usedAt, $responseId]);
+    }
+
     public function beginTransaction(): void
     {
         $this->pdo->beginTransaction();
@@ -244,7 +324,9 @@ class FormResponseRepository
             structuredCommunication: $row['structured_communication'] !== null ? (string) $row['structured_communication'] : null,
             receivableId: $row['receivable_id'] !== null ? (int) $row['receivable_id'] : null,
             submittedAt: (string) $row['submitted_at'],
-            updatedAt: $row['updated_at'] !== null ? (string) $row['updated_at'] : null
+            updatedAt: $row['updated_at'] !== null ? (string) $row['updated_at'] : null,
+            ticketReference: ($row['ticket_reference'] ?? null) !== null ? (string) $row['ticket_reference'] : null,
+            ticketUsedAt: ($row['ticket_used_at'] ?? null) !== null ? (string) $row['ticket_used_at'] : null
         );
     }
 }

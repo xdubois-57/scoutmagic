@@ -27,10 +27,34 @@ final class NewsForm
         public readonly bool $isForceClosed,
         public readonly string $responseRoleMin,
         public readonly bool $dailyDigestEnabled,
+        /**
+         * The form delivers a ticket. Independent of price: an event can
+         * be ticketed and free — see schema.sql.
+         */
+        public readonly bool $issuesTicket,
+        /** `Y-m-d`, the EVENT's date — never closes_at, which closes the registrations. */
+        public readonly ?string $eventDate,
+        public readonly ?string $eventLocation,
         public readonly ?string $lastDigestSentAt,
         public readonly ?int $financeAccountId,
         public readonly string $createdAt
     ) {
+    }
+
+    /**
+     * Whether there is an event to describe on the ticket, in the e-mail
+     * and at the door.
+     *
+     * **The date decides, and the location rides along.** A date with no
+     * address still tells a reader when to be somewhere and is all the
+     * ICS needs; an address with no date places nothing and cannot
+     * produce a calendar entry at all. So a form carrying only a
+     * location is in the degraded mode — the ticket names the article,
+     * and nothing more.
+     */
+    public function hasEventDetails(): bool
+    {
+        return $this->eventDate !== null && $this->eventDate !== '';
     }
 
     /**

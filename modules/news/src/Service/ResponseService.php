@@ -48,7 +48,19 @@ class ResponseService
         private ?ExpectedReceivableInterface $expectedReceivable = null,
         private ?SepaQrCodeInterface $sepaQrCode = null,
         private ?FinanceAccountInterface $financeAccount = null,
-        private ?JournalService $journalService = null
+        private ?JournalService $journalService = null,
+        // The ticket half. TicketService is this module's own, so it is
+        // required; the ICS builder belongs to the calendar module and is
+        // an optional dependency (ARCHITECTURE.md §7.5) — with calendar
+        // disabled, the confirmation simply carries no attachment and
+        // says everything it said before.
+        private ?TicketService $ticketService = null,
+        // Both are this module's own, and both are trailing-optional for
+        // the same reason as the finance four above: a caller that only
+        // needs the read side (the responses screen, the digest) has no
+        // business constructing a mailer. When they are null the form
+        // simply issues no ticket.
+        private ?TicketMailService $ticketMail = null
     ) {
     }
 
@@ -267,6 +279,24 @@ class ResponseService
             throw $e;
         }
 
+        // The ticket, issued right after the commit and outside it: a
+        // reference is a second, independent write, and a form that
+        // issues none skips it entirely. A failure here must not undo a
+        // submission that otherwise fully succeeded, which is the same
+        // reasoning as the e-mail below.
+        if ($form->issuesTicket && $this->ticketService !== null) {
+            try {
+                $this->ticketService->issueFor($this->responseRepository->findById($responseId));
+            } catch (NewsException $e) {
+                $this->journalService?->log(
+                    'news', 'ticket_reference_failed', 'info',
+                    'Échec de la génération de la référence de billet pour une réponse de formulaire',
+                    ['article_id' => $article->id, 'form_id' => $form->id, 'response_id' => $responseId],
+                    $userAccountId
+                );
+            }
+        }
+
         $response = $this->responseRepository->findById($responseId);
 
         // The response is already committed at this point — a failure to
@@ -440,6 +470,7 @@ class ResponseService
         }
 
         $payment = $this->buildPaymentSummary($form, $response, $total);
+        $ticket = $response->hasTicket() ? (string) $response->ticketReference : null;
 
         $editUrl = null;
         if ($response->userAccountId !== null && $form->isOpen()) {
@@ -477,12 +508,31 @@ class ResponseService
             // `payment_summary` and always survives.
             'payment_qr' => $payment['qr_data_uri'] ?? '',
             'edit_url' => $editUrl,
+            // The ticket. `ticket_reference` is a DECLARED variable, so
+            // it survives a reworded body — and it has to, because it is
+            // the half of the ticket that still works when a mail client
+            // blocks images, which most of them do by default. The QR
+            // itself is shipped-only for the same reason `payment_qr` is.
+            ...($this->ticketMail?->ticketVariables($form, $ticket)
+                ?? ['ticket_reference' => '', 'ticket_qr' => '', 'event_summary' => '']),
         ];
 
         // Through the register (ARCHITECTURE.md §8.7bis): the declared
         // subject is « Confirmation — {{ article_title }} », so with
         // nothing customised this is the message it replaces, unchanged.
         $email = $this->emailTemplateRenderer->render('news.confirmation', $context);
+
+        // The calendar file rides along only on a ticketed event with a
+        // date — TicketMailService owns that pairing, so this message and
+        // the standalone ticket cannot disagree about it.
+        if ($ticket !== null && $this->ticketMail !== null) {
+            $this->ticketMail->sendWithIcs(
+                $article, $form, $response->contactEmail,
+                $email->subject, $email->bodyHtml, $email->bodyText
+            );
+
+            return;
+        }
 
         $this->mailService->send(
             to: $response->contactEmail,

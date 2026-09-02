@@ -47,6 +47,7 @@ use Modules\News\Service\ArticleService;
 use Modules\News\Service\FormService;
 use Modules\News\Service\ResponseService;
 use Modules\News\Service\SeoKeywordService;
+use Modules\News\Task\SendPendingTicketsHandler;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\News\NewsTestHelper;
@@ -102,7 +103,7 @@ class NewsIntegrationTest extends TestCase
         $editableContentService = new EditableContentService(new EditableContentRepository($this->pdo));
         $shortUrlService = new ShortUrlService(new ShortUrlRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))));
         $articleService = new ArticleService($this->articleRepository, $this->formRepository, $editableContentService, $shortUrlService);
-        $formService = new FormService($this->formRepository, $this->fieldRepository, $articleService);
+        $formService = new FormService($this->formRepository, $this->fieldRepository, $articleService, $this->responseRepository);
         $this->articleService = $articleService;
         $this->formService = $formService;
         $this->editableContentService = $editableContentService;
@@ -150,7 +151,8 @@ class NewsIntegrationTest extends TestCase
         $this->newsController = new NewsController(
             $twig, $articleService, $formService, $responseService, new SeoKeywordService(null),
             new PosterPdfService(), $scoutYearService, $settingService, $schedulerService, $userAccountRepository,
-            $memberService, $sectionService, $uploadHandler, new FileRepository($this->pdo), sys_get_temp_dir(), $journalService
+            $memberService, $sectionService, $uploadHandler, new FileRepository($this->pdo), sys_get_temp_dir(), $journalService,
+            new \Modules\News\Service\TicketService($this->responseRepository)
         );
         $this->formController = new FormController($twig, $articleService, $formService, $responseService, $scoutYearService, $journalService);
 
@@ -465,7 +467,8 @@ class NewsIntegrationTest extends TestCase
             $this->twig, $this->articleService, $this->formService, $this->responseService, new SeoKeywordService(null),
             new PosterPdfService(), $this->scoutYearService, $this->settingService, $this->schedulerService, $this->userAccountRepository,
             $this->memberService, $this->sectionService, new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir()),
-            new FileRepository($this->pdo), sys_get_temp_dir(), $this->journalService, $financeAccount
+            new FileRepository($this->pdo), sys_get_temp_dir(), $this->journalService,
+            new \Modules\News\Service\TicketService($this->responseRepository), $financeAccount
         );
 
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
@@ -1165,7 +1168,8 @@ class NewsIntegrationTest extends TestCase
             $this->twig, $this->articleService, $this->formService, $this->responseService, new SeoKeywordService(null),
             new PosterPdfService(), $this->scoutYearService, $this->settingService, $this->schedulerService, $this->userAccountRepository,
             $this->memberService, $this->sectionService, new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir()),
-            new FileRepository($this->pdo), sys_get_temp_dir(), $this->journalService, $financeAccount
+            new FileRepository($this->pdo), sys_get_temp_dir(), $this->journalService,
+            new \Modules\News\Service\TicketService($this->responseRepository), $financeAccount
         );
 
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
@@ -1193,6 +1197,157 @@ class NewsIntegrationTest extends TestCase
                 ['id' => null, 'field_type' => 'short_text', 'label' => 'Nom', 'is_required' => true, 'options_source' => null, 'options_manual' => null, 'capacity_max' => null, 'price_per_unit' => null, 'confirmation_text' => null],
             ]),
         ];
+    }
+
+    // --- IT-02: the two switch transitions ---
+
+    /**
+     * The editor's POST body for an article whose form carries the
+     * ticketing switch.
+     *
+     * @return array<string, string>
+     */
+    private function ticketedArticleBody(string $csrfToken, bool $issuesTicket, string $eventDate = '', string $eventLocation = ''): array
+    {
+        $body = [
+            '_csrf_token' => $csrfToken,
+            'title' => 'Souper spaghetti',
+            'summary' => 'Un résumé en une phrase.',
+            'body_html' => '<p>Bienvenue</p>',
+            'visibility' => 'public',
+            'form_response_limit' => 'unlimited',
+            'form_response_role_min' => 'chief',
+            'form_event_date' => $eventDate,
+            'form_event_location' => $eventLocation,
+            'fields_json' => (string) json_encode([
+                ['id' => null, 'field_type' => 'short_text', 'label' => 'Nom', 'is_required' => true, 'options_source' => null, 'options_manual' => null, 'capacity_max' => null, 'price_per_unit' => null, 'confirmation_text' => null],
+            ]),
+        ];
+        if ($issuesTicket) {
+            $body['form_issues_ticket'] = '1';
+        }
+
+        return $body;
+    }
+
+    public function testRaisingTheTicketSwitchBackfillsExistingResponsesAndSchedulesTheirTickets(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+        $first = $this->responseRepository->create($formId, null, null, 'a@test.com', [], null, null);
+        $second = $this->responseRepository->create($formId, null, null, 'b@test.com', [], null, null);
+
+        $token = CsrfGuard::generateToken();
+        $_FILES['image'] = $this->fakeUploadedImage();
+        $response = $this->newsController->update(
+            new Request('POST', '/news/' . $articleId, [], $this->ticketedArticleBody($token, true), [], []),
+            ['id' => (string) $articleId]
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        // Without this, the people who signed up first are the ones who
+        // turn up at the door with nothing.
+        $this->assertTrue($this->responseRepository->findById($first)?->hasTicket());
+        $this->assertTrue($this->responseRepository->findById($second)?->hasTicket());
+
+        // The references are written inline so the door screen works at
+        // once; the e-mails go to the scheduler, one SMTP round trip per
+        // family being the slow half.
+        $scheduled = $this->schedulerService->find('news', SendPendingTicketsHandler::TASK_KEY, SendPendingTicketsHandler::referenceFor($formId));
+        $this->assertNotNull($scheduled);
+        $payload = json_decode((string) $scheduled['payload'], true);
+        $this->assertSame($formId, $payload['form_id']);
+        $this->assertEqualsCanonicalizing([$first, $second], $payload['response_ids']);
+    }
+
+    public function testSavingAnAlreadyTicketedFormSchedulesNothingAndReissuesNothing(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null, true);
+        $responseId = $this->responseRepository->create($formId, null, null, 'a@test.com', [], null, null);
+        (new \Modules\News\Service\TicketService($this->responseRepository))->issueFor($this->responseRepository->findById($responseId));
+        $before = $this->responseRepository->findById($responseId)?->ticketReference;
+
+        $token = CsrfGuard::generateToken();
+        $_FILES['image'] = $this->fakeUploadedImage();
+        $this->newsController->update(
+            new Request('POST', '/news/' . $articleId, [], $this->ticketedArticleBody($token, true), [], []),
+            ['id' => (string) $articleId]
+        );
+
+        $this->assertSame($before, $this->responseRepository->findById($responseId)?->ticketReference);
+        $this->assertNull($this->schedulerService->find('news', SendPendingTicketsHandler::TASK_KEY, SendPendingTicketsHandler::referenceFor($formId)));
+    }
+
+    public function testLoweringTheTicketSwitchLeavesIssuedTicketsIntact(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null, true);
+        $responseId = $this->responseRepository->create($formId, null, null, 'a@test.com', [], null, null);
+        (new \Modules\News\Service\TicketService($this->responseRepository))->issueFor($this->responseRepository->findById($responseId));
+        $reference = $this->responseRepository->findById($responseId)?->ticketReference;
+
+        $token = CsrfGuard::generateToken();
+        $_FILES['image'] = $this->fakeUploadedImage();
+        $this->newsController->update(
+            new Request('POST', '/news/' . $articleId, [], $this->ticketedArticleBody($token, false), [], []),
+            ['id' => (string) $articleId]
+        );
+
+        // We stop delivering; we do not revoke what was promised.
+        $this->assertFalse($this->formRepository->findById($formId)?->issuesTicket);
+        $this->assertSame($reference, $this->responseRepository->findById($responseId)?->ticketReference);
+    }
+
+    public function testTheEventDateAndPlaceAreSavedOnTheForm(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+
+        $token = CsrfGuard::generateToken();
+        $_FILES['image'] = $this->fakeUploadedImage();
+        $this->newsController->update(
+            new Request('POST', '/news/' . $articleId, [], $this->ticketedArticleBody($token, true, '2026-03-14', 'Salle paroissiale'), [], []),
+            ['id' => (string) $articleId]
+        );
+
+        $form = $this->formRepository->findById($formId);
+        $this->assertSame('2026-03-14', $form?->eventDate);
+        $this->assertSame('Salle paroissiale', $form?->eventLocation);
+        // The EVENT's date, never closes_at: a dinner on 14 March closes
+        // its bookings on the 10th, and reading one as the other would
+        // hide the event on the evening it is being controlled.
+        $this->assertNull($form?->closesAt);
+    }
+
+    public function testTheIcsWarningAppearsOnlyOnceSomebodyHasAnswered(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null, true, '2026-03-14', 'Salle');
+
+        $quiet = $this->newsController->edit(
+            new Request('GET', '/news/' . $articleId . '/gerer', [], [], [], []),
+            ['id' => (string) $articleId]
+        )->getBody();
+        $this->assertStringContainsString('data-ics-already-sent="0"', $quiet);
+
+        $this->responseRepository->create($formId, null, null, 'a@test.com', [], null, null);
+
+        $warned = $this->newsController->edit(
+            new Request('GET', '/news/' . $articleId . '/gerer', [], [], [], []),
+            ['id' => (string) $articleId]
+        )->getBody();
+
+        // Named while the author can still decide, never as a refusal: an
+        // ICS already in somebody's calendar is the one thing on this form
+        // that cannot be corrected afterwards.
+        $this->assertStringContainsString('data-ics-already-sent="1"', $warned);
+        $this->assertStringContainsString('ne sera pas corrigé', $warned);
     }
 
     public function testAnUnofferedFinanceAccountIsNotBoundToTheForm(): void
@@ -1248,7 +1403,8 @@ class NewsIntegrationTest extends TestCase
             new SeoKeywordService(null), new PosterPdfService(), $this->scoutYearService,
             $this->settingService, $this->schedulerService, $this->userAccountRepository,
             $this->memberService, $this->sectionService, $uploadHandler,
-            new FileRepository($this->pdo), sys_get_temp_dir(), $this->journalService
+            new FileRepository($this->pdo), sys_get_temp_dir(), $this->journalService,
+            new \Modules\News\Service\TicketService($this->responseRepository)
         );
 
         $response = $controller->store(new Request('POST', '/news', [], [
@@ -1283,7 +1439,8 @@ class NewsIntegrationTest extends TestCase
             $this->twig, $this->articleService, $this->formService, $this->responseService, new SeoKeywordService(null),
             new PosterPdfService(), $this->scoutYearService, $this->settingService, $this->schedulerService, $this->userAccountRepository,
             $this->memberService, $this->sectionService, new UploadHandler($fileRepository, sys_get_temp_dir()),
-            $fileRepository, sys_get_temp_dir(), $this->journalService, null, null, $variantService
+            $fileRepository, sys_get_temp_dir(), $this->journalService,
+            new \Modules\News\Service\TicketService($this->responseRepository), null, null, $variantService
         );
 
         $_FILES['image'] = $this->fakeUploadedImage();

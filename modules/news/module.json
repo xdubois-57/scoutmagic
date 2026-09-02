@@ -2,7 +2,7 @@
   "id": "news",
   "name": "Actualités",
   "description": "Articles d'actualité avec formulaires intégrés (inscriptions, paiements optionnels), référencement SEO et affiche A4 avec QR code.",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "enabled_by_default": true,
   "routes": [
     {
@@ -201,6 +201,10 @@
     {
       "key": "generate_image_variants",
       "handler": "Modules\\News\\Task\\GenerateImageVariantsHandler"
+    },
+    {
+      "key": "send_pending_tickets",
+      "handler": "Modules\\News\\Task\\SendPendingTicketsHandler"
     }
   ],
   "storage": {
@@ -235,6 +239,40 @@
           "name": "edit_url",
           "label": "Lien pour modifier la réponse",
           "example": "https://exemple.be/news/12/reponse/abc"
+        },
+        {
+          "name": "ticket_reference",
+          "label": "Référence du billet",
+          "example": "X7K2-9QMF-A3"
+        },
+        {
+          "name": "event_summary",
+          "label": "Date et lieu de l'évènement",
+          "example": "Date : 14/03/2026\nLieu : Salle paroissiale, Ottignies"
+        }
+      ]
+    },
+    {
+      "id": "news.ticket",
+      "label": "Billet d'un évènement",
+      "description": "Envoyé aux personnes déjà inscrites le jour où la billetterie est activée sur le formulaire, pour qu'elles ne se présentent pas les mains vides. Les inscriptions suivantes reçoivent leur billet dans l'e-mail de confirmation.",
+      "default_subject": "Votre billet — {{ article_title }}",
+      "template": "@news/email/ticket.html.twig",
+      "variables": [
+        {
+          "name": "article_title",
+          "label": "Titre de l'article",
+          "example": "Souper spaghetti"
+        },
+        {
+          "name": "ticket_reference",
+          "label": "Référence du billet",
+          "example": "X7K2-9QMF-A3"
+        },
+        {
+          "name": "event_summary",
+          "label": "Date et lieu de l'évènement",
+          "example": "Date : 14/03/2026\nLieu : Salle paroissiale, Ottignies"
         }
       ]
     },

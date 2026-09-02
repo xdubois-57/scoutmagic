@@ -89,7 +89,7 @@ class NewsFormHumanCheckTest extends TestCase
         $editableContentService = new EditableContentService(new EditableContentRepository($this->pdo));
         $shortUrlService = new ShortUrlService(new ShortUrlRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))));
         $articleService = new ArticleService($this->articleRepository, $this->formRepository, $editableContentService, $shortUrlService);
-        $formService = new FormService($this->formRepository, $this->fieldRepository, $articleService);
+        $formService = new FormService($this->formRepository, $this->fieldRepository, $articleService, $responseRepository);
 
         $connection = Connection::withPdo($this->pdo);
         $roleResolver = new RoleResolver(new MemberYearRepository($this->pdo), $encryption, $this->pdo);
@@ -133,7 +133,7 @@ class NewsFormHumanCheckTest extends TestCase
             $twig, $articleService, $formService, $responseService, new SeoKeywordService(null),
             new PosterPdfService(), $scoutYearService, $settingService, $schedulerService, $userAccountRepository,
             $memberService, $sectionService, $uploadHandler, new FileRepository($this->pdo), sys_get_temp_dir(), $journalService,
-            null, $humanCheck
+            new \Modules\News\Service\TicketService($responseRepository), null, $humanCheck
         );
         $this->formController = new FormController(
             $twig, $articleService, $formService, $responseService, $scoutYearService, $journalService,

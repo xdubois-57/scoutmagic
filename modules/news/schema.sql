@@ -71,6 +71,26 @@ CREATE TABLE IF NOT EXISTS news_forms (
     is_force_closed BOOLEAN NOT NULL DEFAULT FALSE,
     response_role_min ENUM('intendant', 'chief', 'admin') NOT NULL DEFAULT 'chief',
     daily_digest_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    -- The form delivers a ticket: every response gets a reference, the
+    -- confirmation e-mail carries it, and the door screen accepts it.
+    -- Deliberately INDEPENDENT of price — an event can be ticketed and
+    -- free (an open day, a celebration, an activity where the unit only
+    -- wants to count who came), in which case no price_per_unit is
+    -- declared, no receivable is created, and every payment surface
+    -- disappears rather than showing a « payé/impayé » about a
+    -- receivable that does not exist.
+    issues_ticket BOOLEAN NOT NULL DEFAULT FALSE,
+    -- The EVENT's own date and place, both optional, and neither of them
+    -- closes_at: that one closes the REGISTRATIONS. A dinner on 14 March
+    -- closes its bookings on the 10th, so filtering the door screen by
+    -- closes_at would hide the event on precisely the evening it is
+    -- being controlled. news_articles carries no event date at all — it
+    -- lives in the article's prose, where no code can reach it.
+    -- Filled in, they appear on the ticket, in the e-mail and at the
+    -- door, and the confirmation carries an ICS file. Left empty, the
+    -- ticket names the article and nothing more, and there is no ICS.
+    event_date DATE NULL,
+    event_location VARCHAR(255) NULL,
     -- Bookkeeping for Task\SendResponseDigestHandler: only responses
     -- submitted after this timestamp are "new" for the next digest.
     last_digest_sent_at DATETIME NULL,
@@ -124,12 +144,43 @@ CREATE TABLE IF NOT EXISTS news_form_responses (
     contact_email_blind_index VARCHAR(64) NOT NULL,
     structured_communication VARCHAR(24) NULL,
     receivable_id INT UNSIGNED NULL,
+    -- THE TICKET IS THE RESPONSE. There is no ticket table and no second
+    -- numbering to keep in step — a response gains a reference and a
+    -- used-at stamp, exactly as the previous site added two columns to
+    -- FORM_DATA rather than a dedicated table.
+    --
+    -- The reference is stored CANONICAL: ten characters, uppercase
+    -- letters and digits, no dash. The dashes of « X7K2-9QMF-A3 » are
+    -- put back for display and for the QR (Service\TicketService), and
+    -- stripped again on the way in, so a reference typed by hand at the
+    -- door matches whether or not somebody typed the groups.
+    -- Not personal data (a random token naming nobody) and not a
+    -- credential either: no public route reads it, the door screen is
+    -- behind a session. So it is neither encrypted nor blind-indexed —
+    -- it has to be looked up by exact match, thousands of times an
+    -- evening, on a phone.
+    --
+    -- UNIQUE across the whole table rather than per form, on purpose: a
+    -- scan carries a bare reference and nothing else, so it must resolve
+    -- to one response site-wide — which is also what lets the door
+    -- screen answer « ce billet est pour le Marché de Noël » instead of
+    -- « introuvable ». NULL is the ordinary state of a response to a
+    -- form that issues no ticket, and MySQL allows any number of NULLs
+    -- in a unique index.
+    ticket_reference VARCHAR(16) NULL,
+    -- The state is GLOBAL — used or not — even when the response holds
+    -- four seats. The quantity is shown to the staff so they let the
+    -- right number of people in; the system counts nothing. Unmarking is
+    -- possible (a scan by mistake, a validation made too early), which
+    -- is why this is a nullable timestamp rather than a one-way flag.
+    ticket_used_at DATETIME NULL,
     submitted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     -- No "ON UPDATE CURRENT_TIMESTAMP" — see news_articles.updated_at's
     -- doc comment; set explicitly by Repository\FormResponseRepository.
     updated_at DATETIME NULL,
     INDEX idx_news_response_form (form_id),
     INDEX idx_news_response_blind (form_id, contact_email_blind_index),
+    UNIQUE INDEX idx_news_response_ticket (ticket_reference),
     CONSTRAINT fk_news_response_form FOREIGN KEY (form_id) REFERENCES news_forms(id) ON DELETE CASCADE,
     CONSTRAINT fk_news_response_account FOREIGN KEY (user_account_id) REFERENCES user_accounts(id) ON DELETE SET NULL,
     CONSTRAINT fk_news_response_member_year FOREIGN KEY (member_year_id) REFERENCES member_years(id) ON DELETE SET NULL

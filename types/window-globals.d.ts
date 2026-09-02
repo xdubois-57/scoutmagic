@@ -157,6 +157,17 @@ interface Window {
             variant?: 'danger' | 'primary';
         }) => Promise<string | null>;
     };
+    // public/assets/js/news-event-details.js — the article editor's ICS
+    // warning. Only the decision is exposed, and only for its unit test.
+    ScoutMagicNewsEventDetails?: {
+        needsIcsWarning: (state: {
+            originalDate: string;
+            originalLocation: string;
+            date: string;
+            location: string;
+            icsAlreadySent: boolean;
+        }) => boolean;
+    };
     // public/assets/js/rich-text-link.js — the one "insert a link"
     // implementation behind five rich-text toolbars, loaded by
     // base.html.twig on every page. insertLink resolves true when a link

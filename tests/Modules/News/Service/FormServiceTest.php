@@ -46,7 +46,7 @@ class FormServiceTest extends TestCase
         $shortUrlService = new ShortUrlService(new ShortUrlRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))));
         $articleService = new ArticleService($this->articleRepository, $formRepository, $editableContentService, $shortUrlService);
 
-        $this->service = new FormService($formRepository, $this->fieldRepository, $articleService);
+        $this->service = new FormService($formRepository, $this->fieldRepository, $articleService, new \Modules\News\Repository\FormResponseRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat("a", 32), str_repeat("b", 32))));
 
         $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');
         $stmt->execute(['enc', 'idx']);

@@ -1,0 +1,17 @@
+Voici votre billet
+
+Bonjour,
+
+Vous êtes inscrit(e) à {{ article_title }}. Voici le billet à présenter à l'entrée.
+{% if event_summary|default('') %}
+
+{{ event_summary }}
+{% endif %}
+
+Votre billet — le code à présenter à l'entrée :
+
+{{ ticket_reference }}
+
+Vous recevez ce message parce que cette adresse a été utilisée pour vous inscrire.
+
+{% include 'email/signature.text.twig' %}

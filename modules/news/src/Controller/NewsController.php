@@ -38,6 +38,8 @@ use Modules\News\Service\FormService;
 use Modules\News\Service\NewsException;
 use Modules\News\Service\ResponseService;
 use Modules\News\Service\SeoKeywordService;
+use Modules\News\Service\TicketService;
+use Modules\News\Task\SendPendingTicketsHandler;
 use Modules\News\Task\SendResponseDigestHandler;
 use Twig\Environment;
 
@@ -74,6 +76,7 @@ class NewsController extends AbstractController
         private FileRepository $fileRepository,
         private string $storagePath,
         private JournalService $journalService,
+        private TicketService $ticketService,
         private ?FinanceAccountInterface $financeAccount = null,
         private ?HumanCheckService $humanCheck = null,
         // Optional and trailing (same shape as MemberService's own optional
@@ -346,6 +349,13 @@ class NewsController extends AbstractController
 
         $visibility = (string) $request->getBody('visibility', Article::VISIBILITY_PUBLIC);
 
+        $formSettings = $this->extractFormSettings($request, $visibility);
+        // Read BEFORE the save, acted on after: this is the moment the
+        // form starts issuing tickets, and only that direction. Lowering
+        // the switch needs nothing — the tickets already issued stay
+        // valid and stay scannable.
+        $startsIssuingTickets = $this->formService->willStartIssuingTickets($article->id, (bool) $formSettings['issues_ticket']);
+
         try {
             $imageFileId = $this->resolveUploadedImageFileId($request, $visibility, $accountId);
 
@@ -360,7 +370,7 @@ class NewsController extends AbstractController
                 $imageFileId
             );
 
-            $this->formService->save($article->id, $this->extractFormSettings($request, $visibility), $this->extractFields($request));
+            $form = $this->formService->save($article->id, $formSettings, $this->extractFields($request));
         } catch (NewsException $e) {
             return $this->render('@news/editor.html.twig', $this->editorErrorContext($article, $request, $e->getMessage()))->setStatusCode(422);
         }
@@ -369,6 +379,10 @@ class NewsController extends AbstractController
             'news', 'article_updated', 'info', "Article « {$article->title} » modifié",
             ['article_id' => $article->id], $accountId
         );
+
+        if ($startsIssuingTickets) {
+            $this->issueTicketsForExistingResponses($form, $accountId);
+        }
 
         return $this->redirect('/news/' . $article->id . '/gerer');
     }
@@ -598,6 +612,15 @@ class NewsController extends AbstractController
             'finance_available' => $this->financeAccount !== null,
             'finance_accounts' => $financeAccounts,
             'form_id' => $form?->id,
+            'issues_ticket' => $form !== null && $form->issuesTicket,
+            // The one field on this form that cannot be corrected after
+            // the fact: an ICS already in somebody's calendar. Shown
+            // while the author can still decide, never as a refusal.
+            'ics_already_sent' => $article !== null
+                && $form !== null
+                && $form->issuesTicket
+                && $form->hasEventDetails()
+                && $this->formService->hasResponses($form->id),
             // The nav rail's last tab, pushed to the far end because it
             // leaves the module. Null hides it — see
             // FormService::receivablesLinkFor().
@@ -836,7 +859,7 @@ class NewsController extends AbstractController
      * requires being logged in just to see the page, so the form is
      * effectively "identified" there too.
      *
-     * @return array{access: string, response_limit: string, opens_at: ?string, closes_at: ?string, is_force_closed: bool, response_role_min: string, daily_digest_enabled: bool, finance_account_id: ?int}
+     * @return array{access: string, response_limit: string, opens_at: ?string, closes_at: ?string, is_force_closed: bool, response_role_min: string, daily_digest_enabled: bool, finance_account_id: ?int, issues_ticket: bool, event_date: ?string, event_location: ?string}
      */
     private function extractFormSettings(Request $request, string $visibility): array
     {
@@ -853,7 +876,51 @@ class NewsController extends AbstractController
             'response_role_min' => (string) $request->getBody('form_response_role_min', 'chief'),
             'daily_digest_enabled' => (bool) $request->getBody('form_daily_digest_enabled', false),
             'finance_account_id' => $this->resolveFormFinanceAccountId($request),
+            'issues_ticket' => (bool) $request->getBody('form_issues_ticket', false),
+            'event_date' => $this->nullableString($request->getBody('form_event_date')),
+            'event_location' => $this->nullableString($request->getBody('form_event_location')),
         ];
+    }
+
+    /**
+     * The catch-up that raising a form's ticketing switch owes the people
+     * who registered before it.
+     *
+     * **Two halves, deliberately split.** The references are a handful of
+     * UPDATEs and are written here, synchronously, so the door screen
+     * accepts those tickets the moment the switch is flipped. The
+     * e-mails are one SMTP round trip per family — a hundred of them on a
+     * popular evening — so they go to the scheduler, which is also what
+     * keeps one bounce from losing the rest of the batch.
+     *
+     * The scheduled run is handed the exact rows that just got a
+     * reference. Anyone answering the form between now and then already
+     * receives their ticket inside their ordinary confirmation, and
+     * re-deriving the batch from « every response » would post them a
+     * second one.
+     */
+    private function issueTicketsForExistingResponses(NewsForm $form, ?int $accountId): void
+    {
+        $issued = $this->ticketService->backfillForForm($form->id);
+        if ($issued === []) {
+            return;
+        }
+
+        $this->schedulerService->schedule(
+            'news',
+            SendPendingTicketsHandler::TASK_KEY,
+            new \DateTimeImmutable(),
+            ['form_id' => $form->id, 'response_ids' => array_map(static fn ($r) => $r->id, $issued)],
+            SendPendingTicketsHandler::referenceFor($form->id),
+            $accountId
+        );
+
+        $this->journalService->log(
+            'news', 'tickets_backfilled', 'info',
+            'Billets générés pour les réponses déjà enregistrées d\'un formulaire',
+            ['form_id' => $form->id, 'count' => count($issued)],
+            $accountId
+        );
     }
 
     /**

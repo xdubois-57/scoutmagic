@@ -22,7 +22,16 @@
     {% if preview is defined and preview %}
         {% include '@news/partials/_editor_preview.html.twig' %}
     {% else %}
-        <form method="POST" action="{{ article ? '/news/' ~ article.id : '/news' }}" id="news-editor-form" enctype="multipart/form-data">
+        {#
+          The three data- attributes news-event-details.js reads: what the
+          event date and place were WHEN THIS PAGE WAS LOADED, and whether
+          an ICS has already gone out for this form. It asks before saving
+          only when a value actually changed — see that file.
+        #}
+        <form method="POST" action="{{ article ? '/news/' ~ article.id : '/news' }}" id="news-editor-form" enctype="multipart/form-data"
+              data-original-event-date="{{ form and form.eventDate ? form.eventDate : '' }}"
+              data-original-event-location="{{ form and form.eventLocation ? form.eventLocation : '' }}"
+              data-ics-already-sent="{{ ics_already_sent|default(false) ? '1' : '0' }}">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="fields_json" id="fields_json_input" value="">
 
@@ -219,4 +228,5 @@
 }|json_encode(json_flags)|raw }}
 </script>
 <script src="{{ asset('/assets/js/news-form-builder.js') }}" defer></script>
+<script src="{{ asset('/assets/js/news-event-details.js') }}" defer></script>
 {% endblock %}

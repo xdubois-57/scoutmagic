@@ -3,11 +3,21 @@ Nous avons bien reçu votre réponse
 Bonjour,
 
 Votre réponse pour {{ article_title }} est bien enregistrée.
+{% if event_summary|default('') %}
+
+{{ event_summary }}
+{% endif %}
 {% if answers_summary %}
 
 Voici ce que nous avons noté :
 
 {{ answers_summary }}
+{% endif %}
+{% if ticket_reference|default('') %}
+
+Votre billet — le code à présenter à l'entrée :
+
+{{ ticket_reference }}
 {% endif %}
 {% if payment_summary %}
 

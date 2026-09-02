@@ -3832,16 +3832,27 @@ if ($isEnabled('news')) {
     $newsArticleService = new \Modules\News\Service\ArticleService(
         $newsArticleRepo, $newsFormRepo, $editableContentService, $shortUrlService, $financeExpectedReceivableForOthers
     );
-    $newsFormService = new \Modules\News\Service\FormService($newsFormRepo, $newsFieldRepo, $newsArticleService);
+    $newsFormService = new \Modules\News\Service\FormService($newsFormRepo, $newsFieldRepo, $newsArticleService, $newsResponseRepo);
+    $newsTicketService = new \Modules\News\Service\TicketService($newsResponseRepo);
     // Optional dependency on the finance module (ARCHITECTURE.md §7.5) —
     // the whole payment feature (price fields, SEPA QR, receivables)
     // simply disappears when finance is disabled, since every one of
     // these four is null in that case.
+    // The ticket's mail side, including the ICS the confirmation carries
+    // when the event has a date — the calendar module is an optional
+    // dependency, so with it off the message loses its attachment and
+    // nothing else.
+    $newsTicketMailService = new \Modules\News\Service\TicketMailService(
+        $mailService,
+        $emailTemplateRenderer,
+        (string) ($settingService->get('site_name') ?: 'Unité scoute'),
+        $calendarIcsBuilderForOthers
+    );
     $newsResponseService = new \Modules\News\Service\ResponseService(
         $newsResponseRepo, $roleResolver, $sectionService, $mailService, $emailTemplateRenderer, $shortUrlService,
         (string) ($settingService->get('base_url') ?: ''), (string) ($settingService->get('site_name') ?: 'Unité scoute'),
         $financeStructuredCommunicationForOthers, $financeExpectedReceivableForOthers, $financeSepaQrCodeForOthers, $financeAccountForOthers,
-        $journalService
+        $journalService, $newsTicketService, $newsTicketMailService
     );
     // Optional dependency on the llm_connector module (ARCHITECTURE.md
     // §7.5), same reused instance as RGPD content generation above — the
@@ -3854,6 +3865,7 @@ if ($isEnabled('news')) {
             $twig, $newsArticleService, $newsFormService, $newsResponseService, $newsSeoKeywordService,
             $posterPdfService, $scoutYearService, $settingService, $schedulerService, $userAccountRepo,
             $memberService, $sectionService, $uploadHandler, $fileRepository, $storagePath, $journalService,
+            $newsTicketService,
             $financeAccountForOthers, $humanCheckService, $imageVariantService
         )
     );

@@ -11,7 +11,17 @@
   The SEPA QR code is the one thing a customised body cannot carry (it is
   an image, and the editor stores none), so it is shipped-only and written
   `|default('')`. Everything needed to pay — amount, IBAN, structured
-  communication — is in `payment_summary` and therefore survives.
+  communication — is in `payment_summary` and therefore survives. The
+  ticket's own QR is shipped-only for the same reason, and its reference
+  is a declared variable for the opposite one: most mail clients block
+  images by default, and a buyer whose ticket did not render must not be
+  left with nothing to show at the door.
+
+  TWO CODES, AND THE TICKET COMES FIRST — it is the one needed first in
+  time. Each carries its own heading, but the readability of this e-mail
+  is not what makes it safe: the door's scanner accepts an EPC transfer
+  payload as readily as a bare reference, and answers with the right
+  ticket either way, so handing over the wrong code costs nothing.
 #}
 {% extends 'email/base.html.twig' %}
 {% block content %}
@@ -20,9 +30,29 @@
     <p style="margin:0 0 16px;">
         Votre réponse pour <strong>{{ article_title }}</strong> est bien enregistrée.
     </p>
+    {% if event_summary|default('') %}
+        <p style="margin:0 0 16px;padding:12px 16px;background-color:#f8f9fa;border-radius:6px;">{{ event_summary|nl2br }}</p>
+    {% endif %}
     {% if answers_summary %}
         <p style="margin:0 0 8px;">Voici ce que nous avons noté :</p>
         <p style="margin:0 0 16px;padding:12px 16px;background-color:#f8f9fa;border-radius:6px;">{{ answers_summary|nl2br }}</p>
+    {% endif %}
+    {% if ticket_reference|default('') %}
+        <div style="margin:0 0 16px;padding:16px;border:2px dashed #adb5bd;border-radius:8px;text-align:center;">
+            <p style="margin:0 0 12px;font-size:13px;font-weight:bold;text-transform:uppercase;letter-spacing:0.05em;color:#6c757d;">
+                Votre billet — le code à présenter à l'entrée
+            </p>
+            {% if ticket_qr|default('') %}
+                <p style="margin:0 0 12px;">
+                    <img src="{{ ticket_qr }}" alt="QR code du billet" width="180" height="180">
+                </p>
+            {% endif %}
+            <p style="margin:0 0 8px;font-family:monospace;font-size:20px;font-weight:bold;letter-spacing:0.15em;color:#212529;">{{ ticket_reference }}</p>
+            <p style="margin:0;font-size:13px;color:#6c757d;">
+                Présentez ce code à l'entrée. Si l'image ne s'affiche pas, la référence ci-dessus
+                suffit — nous pouvons la saisir à la main.
+            </p>
+        </div>
     {% endif %}
     {% if payment_summary %}
         <p style="margin:0 0 8px;"><strong>Paiement</strong></p>

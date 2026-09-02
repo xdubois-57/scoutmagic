@@ -51,6 +51,64 @@
     <p class="form-text">Un email récapitulatif vous sera envoyé chaque jour si de nouvelles réponses ont été soumises.</p>
 </div>
 
+{#
+  The ticket, and it is INDEPENDENT of the price above. An event can be
+  ticketed and free — an open day, a celebration, an activity where the
+  unit only wants to count who came — and then nothing about payment is
+  shown anywhere: no block in the e-mail, no state at the door, no
+  « entrés sans paiement » filter. A « payé/impayé » on a free event
+  would invite somebody to go looking for a receivable that does not
+  exist.
+#}
+<div class="mb-4">
+    <h4 class="h6">Billetterie</h4>
+    <div class="form-check form-switch">
+        <input class="form-check-input" type="checkbox" role="switch" id="form_issues_ticket" name="form_issues_ticket" value="1"
+               {{ form and form.issuesTicket ? 'checked' : '' }}
+               aria-checked="{{ form and form.issuesTicket ? 'true' : 'false' }}">
+        <label class="form-check-label" for="form_issues_ticket">Délivrer un billet à chaque réponse</label>
+    </div>
+    <p class="form-text">
+        Chaque réponse reçoit une référence et un code QR, envoyés dans l'e-mail de confirmation.
+        L'écran « Scanner un billet » accepte alors ces billets à l'entrée. Indépendant du prix : un
+        évènement peut être billetté et gratuit.
+    </p>
+
+    <div class="row g-2 mt-1">
+        <div class="col-12 col-sm-5">
+            <label class="form-label small" for="form_event_date">Date de l'évènement</label>
+            <input type="date" class="form-control" id="form_event_date" name="form_event_date"
+                   value="{{ form and form.eventDate ? form.eventDate : '' }}">
+        </div>
+        <div class="col-12 col-sm-7">
+            <label class="form-label small" for="form_event_location">Lieu de l'évènement</label>
+            <input type="text" class="form-control" id="form_event_location" name="form_event_location"
+                   maxlength="255" placeholder="Salle paroissiale, Ottignies"
+                   value="{{ form and form.eventLocation ? form.eventLocation : '' }}">
+        </div>
+    </div>
+    <p class="form-text">
+        Facultatifs. Renseignés, ils s'affichent sur le billet et à la porte, et l'e-mail de
+        confirmation porte un fichier d'agenda. Cette date ne ferme pas les inscriptions — c'est
+        « Fermeture », plus haut, qui le fait.
+    </p>
+    {% if ics_already_sent|default(false) %}
+        {#
+          The one thing on this form that cannot be corrected afterwards.
+          An ICS lives in the recipient's own calendar with the old date
+          and the old address, and nothing this site does later updates
+          it. Everything else on the ticket is read from the database at
+          display time and fixes itself.
+        #}
+        <div class="alert alert-warning small" role="status">
+            <i class="bi bi-calendar-x me-1" aria-hidden="true"></i>
+            Des personnes sont déjà inscrites et ont reçu un fichier d'agenda portant la date et le
+            lieu actuels. Si vous les modifiez, leur agenda <strong>ne sera pas corrigé</strong> :
+            il faudra les prévenir autrement.
+        </div>
+    {% endif %}
+</div>
+
 {% if finance_available %}
     <div class="mb-4 d-none" id="news-payment-settings">
         <h4 class="h6">Paiement</h4>

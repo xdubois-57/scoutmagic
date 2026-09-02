@@ -88,7 +88,7 @@ final class NewsSeeder
             // deleted (its receivables go with it). Nothing is deleted here.
             null,
         );
-        $this->formService = new FormService($formRepository, new FormFieldRepository($pdo), $this->articleService);
+        $this->formService = new FormService($formRepository, new FormFieldRepository($pdo), $this->articleService, new FormResponseRepository($pdo, $encryption));
         $this->responseRepository = new FormResponseRepository($pdo, $encryption);
         $this->uploadHandler = new UploadHandler(new FileRepository($pdo), $this->storagePath);
     }

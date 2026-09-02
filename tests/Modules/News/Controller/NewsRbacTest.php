@@ -90,7 +90,7 @@ class NewsRbacTest extends TestCase
         $editableContentService = new EditableContentService(new EditableContentRepository($this->pdo));
         $shortUrlService = new ShortUrlService(new ShortUrlRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))));
         $articleService = new ArticleService($articleRepository, $formRepository, $editableContentService, $shortUrlService);
-        $formService = new FormService($formRepository, new \Modules\News\Repository\FormFieldRepository($this->pdo), $articleService);
+        $formService = new FormService($formRepository, new \Modules\News\Repository\FormFieldRepository($this->pdo), $articleService, new \Modules\News\Repository\FormResponseRepository($this->pdo, $encryption));
 
         $connection = Connection::withPdo($this->pdo);
         $roleResolver = new RoleResolver(new MemberYearRepository($this->pdo), $encryption, $this->pdo);
@@ -127,7 +127,8 @@ class NewsRbacTest extends TestCase
         $this->newsController = new NewsController(
             $twig, $articleService, $formService, $responseService, new SeoKeywordService(null),
             new PosterPdfService(), $scoutYearService, $settingService, $schedulerService, $userAccountRepository,
-            $memberService, $sectionService, $uploadHandler, new FileRepository($this->pdo), sys_get_temp_dir(), $journalService
+            $memberService, $sectionService, $uploadHandler, new FileRepository($this->pdo), sys_get_temp_dir(), $journalService,
+            new \Modules\News\Service\TicketService(new \Modules\News\Repository\FormResponseRepository($this->pdo, $encryption))
         );
         $this->formController = new FormController($twig, $articleService, $formService, $responseService, $scoutYearService, $journalService);
 

@@ -9,11 +9,13 @@ declare(strict_types=1);
 namespace Modules\News\Service;
 
 use Core\Security\HtmlSanitizer;
+use Core\Service\DateInput;
 use Core\Security\Role;
 use Modules\News\Repository\Article;
 use Modules\News\Repository\FormField;
 use Modules\News\Repository\FormFieldRepository;
 use Modules\News\Repository\FormRepository;
+use Modules\News\Repository\FormResponseRepository;
 use Modules\News\Repository\NewsForm;
 
 /**
@@ -31,7 +33,8 @@ class FormService
     public function __construct(
         private FormRepository $formRepository,
         private FormFieldRepository $fieldRepository,
-        private ArticleService $articleService
+        private ArticleService $articleService,
+        private FormResponseRepository $responseRepository
     ) {
         $this->htmlSanitizer = new HtmlSanitizer();
     }
@@ -81,7 +84,7 @@ class FormService
     }
 
     /**
-     * @param array{access: string, response_limit: string, opens_at: ?string, closes_at: ?string, is_force_closed: bool, response_role_min: string, daily_digest_enabled: bool, finance_account_id: ?int} $settings
+     * @param array{access: string, response_limit: string, opens_at: ?string, closes_at: ?string, is_force_closed: bool, response_role_min: string, daily_digest_enabled: bool, finance_account_id: ?int, issues_ticket?: bool, event_date?: ?string, event_location?: ?string} $settings
      * @param array<int, array{id: ?int, field_type: string, label: ?string, is_required: bool, options_source: ?string, options_manual: ?string, capacity_max: ?int, price_per_unit: ?float, confirmation_text: ?string}> $fields
      */
     public function save(int $articleId, array $settings, array $fields): NewsForm
@@ -92,18 +95,24 @@ class FormService
         $responseLimit = $access === NewsForm::ACCESS_PUBLIC ? NewsForm::RESPONSE_LIMIT_UNLIMITED : $this->normalizeResponseLimit($settings['response_limit']);
         $responseRoleMin = in_array($settings['response_role_min'], ['intendant', 'chief', 'admin'], true) ? $settings['response_role_min'] : 'chief';
 
+        $issuesTicket = (bool) ($settings['issues_ticket'] ?? false);
+        $eventDate = self::normalizeEventDate($settings['event_date'] ?? null);
+        $eventLocation = self::normalizeEventLocation($settings['event_location'] ?? null);
+
         $existing = $this->formRepository->findByArticleId($articleId);
 
         if ($existing === null) {
             $formId = $this->formRepository->create(
                 $articleId, $access, $responseLimit, $settings['opens_at'], $settings['closes_at'],
-                $settings['is_force_closed'], $responseRoleMin, $settings['daily_digest_enabled'], $settings['finance_account_id']
+                $settings['is_force_closed'], $responseRoleMin, $settings['daily_digest_enabled'], $settings['finance_account_id'],
+                $issuesTicket, $eventDate, $eventLocation
             );
         } else {
             $formId = $existing->id;
             $this->formRepository->update(
                 $formId, $access, $responseLimit, $settings['opens_at'], $settings['closes_at'],
-                $settings['is_force_closed'], $responseRoleMin, $settings['daily_digest_enabled'], $settings['finance_account_id']
+                $settings['is_force_closed'], $responseRoleMin, $settings['daily_digest_enabled'], $settings['finance_account_id'],
+                $issuesTicket, $eventDate, $eventLocation
             );
         }
 
@@ -111,6 +120,55 @@ class FormService
         $this->articleService->markHasForm($articleId, true);
 
         return $this->formRepository->findById($formId);
+    }
+
+    /**
+     * Whether this save is the moment the form STARTS delivering tickets
+     * — false to true, and only that direction.
+     *
+     * The caller reads it before calling save() and acts on it after, to
+     * backfill the references the responses already recorded do not have
+     * and post their tickets. The opposite transition needs nothing: a
+     * ticket already issued stays valid and stays scannable. We stop
+     * delivering; we do not revoke what was promised.
+     */
+    public function willStartIssuingTickets(int $articleId, bool $issuesTicket): bool
+    {
+        if (!$issuesTicket) {
+            return false;
+        }
+
+        $existing = $this->formRepository->findByArticleId($articleId);
+
+        return $existing !== null && !$existing->issuesTicket;
+    }
+
+    public function hasResponses(int $formId): bool
+    {
+        return $this->responseRepository->countByFormId($formId) > 0;
+    }
+
+    /**
+     * A browser's own `<input type="date">` always sends `Y-m-d`; anything
+     * else reached this from somewhere that is not the form, and a date the
+     * ICS cannot render is worse than no date at all.
+     *
+     * Through `Core\Service\DateInput` rather than PHP's own
+     * format-parsing constructor: that idiom raises a ValueError, not
+     * `false`, on a value carrying a NUL byte, and
+     * `Tests\Security\DateParsingConvergenceTest` is what stops the
+     * twenty-first copy of that bug.
+     */
+    private static function normalizeEventDate(?string $value): ?string
+    {
+        return DateInput::isoStringOrNull($value);
+    }
+
+    private static function normalizeEventLocation(?string $value): ?string
+    {
+        $value = $value !== null ? trim($value) : '';
+
+        return $value === '' ? null : mb_substr($value, 0, 255);
     }
 
     /**

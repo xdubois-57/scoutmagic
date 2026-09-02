@@ -35,6 +35,9 @@ class NewsTestHelper
             is_force_closed INTEGER NOT NULL DEFAULT 0,
             response_role_min TEXT NOT NULL DEFAULT "chief",
             daily_digest_enabled INTEGER NOT NULL DEFAULT 0,
+            issues_ticket INTEGER NOT NULL DEFAULT 0,
+            event_date TEXT NULL,
+            event_location TEXT NULL,
             last_digest_sent_at TEXT NULL,
             finance_account_id INTEGER NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -65,6 +68,8 @@ class NewsTestHelper
             contact_email_blind_index TEXT NOT NULL,
             structured_communication TEXT NULL,
             receivable_id INTEGER NULL,
+            ticket_reference TEXT NULL UNIQUE,
+            ticket_used_at TEXT NULL,
             submitted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NULL,
             FOREIGN KEY (form_id) REFERENCES news_forms(id)

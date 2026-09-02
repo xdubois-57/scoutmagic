@@ -1,0 +1,46 @@
+{#
+  The ticket, on its own — sent to people who registered BEFORE the
+  ticketing switch was turned on. Everybody who registers afterwards gets
+  the same ticket inside their ordinary confirmation
+  (email/confirmation.html.twig), which is why this message exists only
+  for that one catch-up: without it, the first families to sign up for an
+  event would be the ones turning up at the door empty-handed.
+
+  Same division of labour as the confirmation. `ticket_reference` and
+  `event_summary` are DECLARED variables and therefore plain text, so a
+  unit that reworded this message still gets them substituted into its
+  own wording. The QR is an image and the editor stores none, so it is
+  shipped-only and written `|default('')` — and the reference in plain
+  text underneath is what keeps the message usable in the mail clients
+  that block images, which is most of them.
+#}
+{% extends 'email/base.html.twig' %}
+{% block content %}
+    <h2 style="margin:0 0 20px;font-size:20px;line-height:1.3;color:#212529;">Voici votre billet</h2>
+    <p style="margin:0 0 16px;">Bonjour,</p>
+    <p style="margin:0 0 16px;">
+        Vous êtes inscrit(e) à <strong>{{ article_title }}</strong>. Voici le billet à présenter
+        à l'entrée.
+    </p>
+    {% if event_summary|default('') %}
+        <p style="margin:0 0 16px;padding:12px 16px;background-color:#f8f9fa;border-radius:6px;">{{ event_summary|nl2br }}</p>
+    {% endif %}
+    <div style="margin:0 0 16px;padding:16px;border:2px dashed #adb5bd;border-radius:8px;text-align:center;">
+        <p style="margin:0 0 12px;font-size:13px;font-weight:bold;text-transform:uppercase;letter-spacing:0.05em;color:#6c757d;">
+            Votre billet — le code à présenter à l'entrée
+        </p>
+        {% if ticket_qr|default('') %}
+            <p style="margin:0 0 12px;">
+                <img src="{{ ticket_qr }}" alt="QR code du billet" width="180" height="180">
+            </p>
+        {% endif %}
+        <p style="margin:0 0 8px;font-family:monospace;font-size:20px;font-weight:bold;letter-spacing:0.15em;color:#212529;">{{ ticket_reference }}</p>
+        <p style="margin:0;font-size:13px;color:#6c757d;">
+            Présentez ce code à l'entrée. Si l'image ne s'affiche pas, la référence ci-dessus
+            suffit — nous pouvons la saisir à la main.
+        </p>
+    </div>
+    <p style="margin:0;font-size:13px;color:#6c757d;">
+        Vous recevez ce message parce que cette adresse a été utilisée pour vous inscrire.
+    </p>
+{% endblock %}

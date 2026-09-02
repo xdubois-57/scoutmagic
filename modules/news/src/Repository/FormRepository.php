@@ -39,15 +39,19 @@ class FormRepository
         bool $isForceClosed,
         string $responseRoleMin,
         bool $dailyDigestEnabled,
-        ?int $financeAccountId
+        ?int $financeAccountId,
+        bool $issuesTicket = false,
+        ?string $eventDate = null,
+        ?string $eventLocation = null
     ): int {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO news_forms (news_article_id, access, response_limit, opens_at, closes_at, is_force_closed, response_role_min, daily_digest_enabled, finance_account_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO news_forms (news_article_id, access, response_limit, opens_at, closes_at, is_force_closed, response_role_min, daily_digest_enabled, finance_account_id, issues_ticket, event_date, event_location)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $articleId, $access, $responseLimit, $opensAt, $closesAt,
             $isForceClosed ? 1 : 0, $responseRoleMin, $dailyDigestEnabled ? 1 : 0, $financeAccountId,
+            $issuesTicket ? 1 : 0, $eventDate, $eventLocation,
         ]);
         return (int) $this->pdo->lastInsertId();
     }
@@ -61,14 +65,18 @@ class FormRepository
         bool $isForceClosed,
         string $responseRoleMin,
         bool $dailyDigestEnabled,
-        ?int $financeAccountId
+        ?int $financeAccountId,
+        bool $issuesTicket = false,
+        ?string $eventDate = null,
+        ?string $eventLocation = null
     ): void {
         $stmt = $this->pdo->prepare(
-            'UPDATE news_forms SET access = ?, response_limit = ?, opens_at = ?, closes_at = ?, is_force_closed = ?, response_role_min = ?, daily_digest_enabled = ?, finance_account_id = ? WHERE id = ?'
+            'UPDATE news_forms SET access = ?, response_limit = ?, opens_at = ?, closes_at = ?, is_force_closed = ?, response_role_min = ?, daily_digest_enabled = ?, finance_account_id = ?, issues_ticket = ?, event_date = ?, event_location = ? WHERE id = ?'
         );
         $stmt->execute([
             $access, $responseLimit, $opensAt, $closesAt,
-            $isForceClosed ? 1 : 0, $responseRoleMin, $dailyDigestEnabled ? 1 : 0, $financeAccountId, $id,
+            $isForceClosed ? 1 : 0, $responseRoleMin, $dailyDigestEnabled ? 1 : 0, $financeAccountId,
+            $issuesTicket ? 1 : 0, $eventDate, $eventLocation, $id,
         ]);
     }
 
@@ -94,6 +102,20 @@ class FormRepository
     }
 
     /**
+     * Whether any form at all delivers a ticket — the one question the
+     * conditional « Scanner un billet » menu entry asks
+     * (Menu\NewsMenuEntryProvider). A unit that never runs a ticketed
+     * event must not carry a dead entry in its menu, and that is checked
+     * on every menu build, so it is a bounded EXISTS rather than a list.
+     */
+    public function anyFormIssuesTickets(): bool
+    {
+        $stmt = $this->pdo->query('SELECT 1 FROM news_forms WHERE issues_ticket = 1 LIMIT 1');
+
+        return $stmt !== false && $stmt->fetchColumn() !== false;
+    }
+
+    /**
      * @param array<string, mixed> $row
      */
     private function hydrate(array $row): NewsForm
@@ -108,6 +130,9 @@ class FormRepository
             isForceClosed: (bool) $row['is_force_closed'],
             responseRoleMin: (string) $row['response_role_min'],
             dailyDigestEnabled: (bool) $row['daily_digest_enabled'],
+            issuesTicket: (bool) $row['issues_ticket'],
+            eventDate: ($row['event_date'] ?? null) !== null ? (string) $row['event_date'] : null,
+            eventLocation: ($row['event_location'] ?? null) !== null ? (string) $row['event_location'] : null,
             lastDigestSentAt: $row['last_digest_sent_at'] !== null ? (string) $row['last_digest_sent_at'] : null,
             financeAccountId: $row['finance_account_id'] !== null ? (int) $row['finance_account_id'] : null,
             createdAt: (string) $row['created_at']

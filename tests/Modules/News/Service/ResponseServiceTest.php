@@ -75,22 +75,31 @@ class ResponseServiceTest extends TestCase
         ?ExpectedReceivableInterface $expectedReceivable = null,
         ?SepaQrCodeInterface $sepaQrCode = null,
         ?FinanceAccountInterface $financeAccount = null,
-        ?JournalService $journalService = null
+        ?JournalService $journalService = null,
+        ?\Modules\Calendar\Api\IcsFeedBuilderInterface $icsBuilder = null
     ): ResponseService {
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $connection = Connection::withPdo($this->pdo);
         $roleResolver = new RoleResolver(new MemberYearRepository($this->pdo), $encryption, $this->pdo);
         $sectionService = new SectionService($connection, $encryption, new MemberBadgeRepository($this->pdo));
-        $twig = new Environment(new ArrayLoader([
-            '@news/email/confirmation.html.twig' => 'html',
-            '@news/email/confirmation.text.twig' => 'text',
-        ]));
+        // The real bodies, not stubs: whether the ticket block renders at
+        // all is half of what these tests are about.
+        $twig = \Core\View\TwigFactory::create(
+            dirname(__DIR__, 4) . '/core/View/templates',
+            false,
+            ['news' => dirname(__DIR__, 4) . '/modules/news/views']
+        );
+        $twig->addGlobal('site_name', 'Test Unit');
         $shortUrlService = new ShortUrlService(new ShortUrlRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))));
+
+        $renderer = EmailTemplateRendererFactory::shippedOnlyForModule($twig, 'news');
 
         return new ResponseService(
             $this->responseRepository, $roleResolver, $sectionService,
-            $this->mailService, EmailTemplateRendererFactory::shippedOnlyForModule($twig, 'news'), $shortUrlService, 'https://example.com', 'Test Unit',
-            $structuredCommunication, $expectedReceivable, $sepaQrCode, $financeAccount, $journalService
+            $this->mailService, $renderer, $shortUrlService, 'https://example.com', 'Test Unit',
+            $structuredCommunication, $expectedReceivable, $sepaQrCode, $financeAccount, $journalService,
+            new \Modules\News\Service\TicketService($this->responseRepository),
+            new \Modules\News\Service\TicketMailService($this->mailService, $renderer, 'Test Unit', $icsBuilder)
         );
     }
 
@@ -334,6 +343,149 @@ class ResponseServiceTest extends TestCase
 
         $this->assertSame('+++100/0000/00034+++', $response->structuredCommunication);
         $this->assertSame(55, $response->receivableId);
+    }
+
+    // --- IT-02: the ticket ---
+
+    /**
+     * @param array<string, mixed> $overrides
+     */
+    private function makeFormTicketed(bool $issuesTicket, ?string $eventDate = null, ?string $eventLocation = null): void
+    {
+        $this->formRepository->update(
+            $this->formId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED,
+            null, null, false, 'chief', false, null, $issuesTicket, $eventDate, $eventLocation
+        );
+    }
+
+    public function testSubmittingToATicketedFormIssuesAReference(): void
+    {
+        $this->makeFormTicketed(true);
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', false, null, null, null, null, null);
+
+        $response = $this->service()->submit(
+            $this->article, $this->form(), [$this->fieldRepository->findById($fieldId)],
+            null, null, 1, 'a@test.com', [$fieldId => 'Roskam'], null
+        );
+
+        $this->assertTrue($this->responseRepository->findById($response->id)?->hasTicket());
+    }
+
+    public function testSubmittingToAFormThatIssuesNoTicketLeavesTheReferenceEmpty(): void
+    {
+        // The flag is the whole switch: with it down, nothing changes.
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', false, null, null, null, null, null);
+
+        $response = $this->service()->submit(
+            $this->article, $this->form(), [$this->fieldRepository->findById($fieldId)],
+            null, null, 1, 'a@test.com', [$fieldId => 'Roskam'], null
+        );
+
+        $this->assertFalse($this->responseRepository->findById($response->id)?->hasTicket());
+    }
+
+    public function testTheConfirmationCarriesTheReferenceInPlainTextAndItsQr(): void
+    {
+        $this->makeFormTicketed(true);
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', false, null, null, null, null, null);
+
+        $sentHtml = null;
+        $sentText = null;
+        $this->mailService->method('send')->willReturnCallback(
+            function (string $to, string $subject, string $html, string $text) use (&$sentHtml, &$sentText): void {
+                $sentHtml = $html;
+                $sentText = $text;
+            }
+        );
+
+        $response = $this->service()->submit(
+            $this->article, $this->form(), [$this->fieldRepository->findById($fieldId)],
+            null, null, 1, 'a@test.com', [$fieldId => 'Roskam'], null
+        );
+
+        $reference = \Modules\News\Service\TicketService::format(
+            (string) $this->responseRepository->findById($response->id)?->ticketReference
+        );
+
+        $this->assertStringContainsString($reference, (string) $sentHtml);
+        $this->assertStringContainsString('data:image/png;base64,', (string) $sentHtml);
+        // Most mail clients block images by default, so the plain-text
+        // half must be able to get somebody through the door on its own.
+        $this->assertStringContainsString($reference, (string) $sentText);
+    }
+
+    public function testTheConfirmationOfANonTicketedFormCarriesNoTicketBlock(): void
+    {
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', false, null, null, null, null, null);
+
+        $sentHtml = null;
+        $this->mailService->method('send')->willReturnCallback(
+            function (string $to, string $subject, string $html) use (&$sentHtml): void {
+                $sentHtml = $html;
+            }
+        );
+
+        $this->service()->submit(
+            $this->article, $this->form(), [$this->fieldRepository->findById($fieldId)],
+            null, null, 1, 'a@test.com', [$fieldId => 'Roskam'], null
+        );
+
+        $this->assertStringNotContainsString('le code à présenter à l\'entrée', (string) $sentHtml);
+    }
+
+    public function testAnEventWithADateSendsAnIcsAndOneWithoutDoesNot(): void
+    {
+        $icsBuilder = $this->createMock(\Modules\Calendar\Api\IcsFeedBuilderInterface::class);
+        $icsBuilder->method('buildVirtualCalendar')->willReturn("BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n");
+
+        $attachments = [];
+        $this->mailService->method('send')->willReturnCallback(
+            function (string $to, string $s, string $h, string $t, ?string $r = null, array $a = []) use (&$attachments): void {
+                $attachments[] = $a;
+            }
+        );
+
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', false, null, null, null, null, null);
+        $field = $this->fieldRepository->findById($fieldId);
+
+        $this->makeFormTicketed(true, '2026-03-14', 'Salle paroissiale');
+        $this->service(null, null, null, null, null, $icsBuilder)
+            ->submit($this->article, $this->form(), [$field], null, null, 1, 'a@test.com', [$fieldId => 'Roskam'], null);
+
+        $this->assertCount(1, $attachments[0], 'a dated event carries its calendar file');
+        $this->assertSame('evenement.ics', $attachments[0][0]['name']);
+        $this->assertFileDoesNotExist($attachments[0][0]['path'], 'the temp file is deleted once the mail is out');
+
+        // No date, no calendar entry to make — and the message is
+        // otherwise unchanged. A perfectly usable degraded mode.
+        $this->makeFormTicketed(true);
+        $this->service(null, null, null, null, null, $icsBuilder)
+            ->submit($this->article, $this->form(), [$field], null, null, 1, 'b@test.com', [$fieldId => 'Delvaux'], null);
+
+        $this->assertSame([], $attachments[1]);
+    }
+
+    public function testTheEventDateAndPlaceAreWrittenIntoTheConfirmation(): void
+    {
+        $this->makeFormTicketed(true, '2026-03-14', 'Salle paroissiale');
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', false, null, null, null, null, null);
+
+        $sentText = null;
+        $this->mailService->method('send')->willReturnCallback(
+            function (string $to, string $subject, string $html, string $text) use (&$sentText): void {
+                $sentText = $text;
+            }
+        );
+
+        $this->service()->submit(
+            $this->article, $this->form(), [$this->fieldRepository->findById($fieldId)],
+            null, null, 1, 'a@test.com', [$fieldId => 'Roskam'], null
+        );
+
+        // A ticket forwarded to a friend who never read the article has to
+        // be self-contained.
+        $this->assertStringContainsString('14/03/2026', (string) $sentText);
+        $this->assertStringContainsString('Salle paroissiale', (string) $sentText);
     }
 
     public function testCanEditResponseAllowsAdminAlways(): void
