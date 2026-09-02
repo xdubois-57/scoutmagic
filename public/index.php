@@ -4768,6 +4768,18 @@ if ($isEnabled('camps')) {
     // Registered here rather than beside the other file checkers above
     // because the closure captures by value: the field completion service
     // does not exist yet up there.
+    //
+    // **And it is built with the gateway and the reading services too.**
+    // It used to receive `null` for both, on the reasoning that the web
+    // never analyses anything — but « Relancer l'analyse » on
+    // /chefs/camps/courrier runs this very consumer
+    // (`InboundMailService::reanalyzeUnlinked()`), and a consumer without
+    // the gateway cannot look a thread up while one without
+    // `StayFromMailService` reads no attachment. The button was therefore
+    // strictly weaker than the hourly task and said so nowhere: it could
+    // only ever re-check the sender's address, which is the one signal
+    // that had already failed on arrival. Same failure shape as the
+    // document service above, one screen further along.
     if (isset($inboundReadConsumers)) {
         $inboundReadConsumers->registerFactory(
             \Modules\Camps\Mail\CampsMessageConsumer::CONSUMER_ID,
@@ -4776,9 +4788,18 @@ if ($isEnabled('camps')) {
                     $campsCampRepo,
                     $pdo,
                     $encryptionService,
-                    null,
+                    $inboundMailForOthers,
                     $campsDocumentService,
-                    $campsFieldCompletion
+                    $campsFieldCompletion,
+                    $campsStayFromMail,
+                    // Recognising a stay the unit already booked: no
+                    // setting, no model, no writes — see
+                    // Modules\Camps\Mail\ExistingStayMatcher.
+                    new \Modules\Camps\Mail\ExistingStayMatcher(
+                        $campsCampRepo,
+                        $campsMessageReader,
+                        $journalService
+                    )
                 )
         );
     }

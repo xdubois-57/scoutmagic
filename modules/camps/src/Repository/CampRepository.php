@@ -68,6 +68,33 @@ class CampRepository
     }
 
     /**
+     * Every stay running exactly from one day to another, newest first.
+     *
+     * The other axis again, and the one a message asks about: a booking
+     * states a period, not a place id. Deliberately EXACT on both ends —
+     * an overlap test would put a week-long camp and the weekend inside it
+     * on the same footing, and « du 18 au 20 » is a claim about two days,
+     * not about a neighbourhood of them.
+     *
+     * A stay missing either end can never match: `Mail\ExistingStayMatcher`
+     * only ever asks with two dates it read, and a year-only stay states
+     * no day for them to equal.
+     *
+     * @return Camp[]
+     */
+    public function findByDateRange(string $startDate, string $endDate): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT c.* FROM camp_camps c
+              WHERE c.start_date = ? AND c.end_date = ?
+              ORDER BY c.id DESC'
+        );
+        $stmt->execute([$startDate, $endDate]);
+
+        return $this->hydrateAll($stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
      * Every stay one of these sections went on, newest first.
      *
      * The other axis of findByPlace(): "which stays involved these

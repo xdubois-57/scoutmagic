@@ -849,6 +849,21 @@ class StayFromMailService
         return $this->venueCache[$message->id] ??= $this->readVenue($message);
     }
 
+    /**
+     * Everything this service reads of one message: its subject, its body
+     * and the text of its attachments.
+     *
+     * Public because `Mail\CampsMessageConsumer` asks the same question
+     * for a different purpose — recognising a stay rather than creating
+     * one — and a second assembly of the same three parts would drift
+     * from this one. Memoised per message id, so asking twice costs one
+     * reading of the contract.
+     */
+    public function fullTextOf(InboundMessage $message): string
+    {
+        return $this->textOf($message);
+    }
+
     private function textOf(InboundMessage $message): string
     {
         if (!isset($this->textCache[$message->id])) {

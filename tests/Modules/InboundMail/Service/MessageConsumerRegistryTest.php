@@ -154,6 +154,10 @@ class MessageConsumerRegistryTest extends TestCase
         $this->assertTrue(LinkOrigin::THREAD->isCertain());
         $this->assertFalse(LinkOrigin::SENDER->isCertain());
         $this->assertFalse(LinkOrigin::AI->isCertain());
+        // A period two stays could both state truthfully is a reading, not
+        // a proof: a second site quoting for the same weekend names the
+        // same two days.
+        $this->assertFalse(LinkOrigin::PERIOD->isCertain());
         // A human decided: the strongest of the lot.
         $this->assertTrue(LinkOrigin::MANUAL->isCertain());
     }

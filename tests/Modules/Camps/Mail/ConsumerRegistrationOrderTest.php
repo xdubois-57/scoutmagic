@@ -93,6 +93,82 @@ final class ConsumerRegistrationOrderTest extends TestCase
     }
 
     /**
+     * And it can re-analyse, which is the same defect one screen further
+     * along.
+     *
+     * « Relancer l'analyse » on /chefs/camps/courrier runs THIS consumer,
+     * through `InboundMailService::reanalyzeUnlinked()`. It was built with
+     * `null` for the gateway and nothing for the reading services, so the
+     * button could not look a thread up, could not read an attachment and
+     * could not recognise a stay by its period: it re-checked the sender's
+     * address, the one signal that had already failed on arrival, and
+     * reported « rien de neuf » with complete confidence.
+     *
+     * Nothing about that was visible from either call site — the button
+     * worked, it simply could not find anything — which is why it is a
+     * test.
+     */
+    public function testTheWebRegistrysCampsConsumerCanReanalyseAsWellAsTheHourlyTask(): void
+    {
+        $factory = self::webCampsFactory();
+
+        $this->assertStringContainsString(
+            'inboundMailForOthers',
+            $factory,
+            'the web registry builds a Camps consumer with no gateway: « Relancer l\'analyse » '
+            . 'could not recognise a reply in a thread already attached to a stay'
+        );
+        $this->assertStringContainsString(
+            'campsStayFromMail',
+            $factory,
+            'without it the re-run reads no attachment, so a booking that states its dates only '
+            . 'in its contract stays unattached however often the button is pressed'
+        );
+        $this->assertStringContainsString(
+            'ExistingStayMatcher',
+            $factory,
+            'without it the re-run cannot attach a message to a stay the unit already booked'
+        );
+    }
+
+    /**
+     * The camps factory in public/index.php and nothing else — anchored on
+     * the consumer id it registers, so a wide scan cannot make another
+     * module's dependencies look like this one's.
+     */
+    private static function webCampsFactory(): string
+    {
+        $source = (string) file_get_contents(dirname(__DIR__, 4) . '/public/index.php');
+
+        self::assertSame(
+            1,
+            preg_match(
+                '/registerFactory\(\s*\\\\Modules\\\\Camps\\\\Mail\\\\CampsMessageConsumer::CONSUMER_ID,'
+                . '(.*?)\n        \);/s',
+                $source,
+                $factory
+            ),
+            'no registerFactory() for the Camps consumer in public/index.php'
+        );
+
+        return $factory[1];
+    }
+
+    /**
+     * The hourly task gets it too, or the two passes disagree about what
+     * they can recognise — and the way they disagree is silent.
+     */
+    public function testTheHourlyTasksCampsConsumerCanRecogniseAStayByItsPeriod(): void
+    {
+        $bootstrap = (string) file_get_contents(dirname(__DIR__, 4) . '/public/scheduler-bootstrap.php');
+
+        $this->assertStringContainsString(
+            'new \\Modules\\Camps\\Mail\\ExistingStayMatcher(',
+            $bootstrap
+        );
+    }
+
+    /**
      * The old list of dedicated boxes is retired, and its description has
      * to say so.
      *

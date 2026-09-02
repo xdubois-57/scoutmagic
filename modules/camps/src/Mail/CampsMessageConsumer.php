@@ -41,17 +41,30 @@ use Modules\InboundMail\Api\MessageLink;
  * Nothing weaker. Never a place name in a subject, never auto-creation.
  *
  * **A dedicated mailbox** — an address whose whole contents are about
- * camps, e.g. camps@unite.be. It no longer produces an association at all
- * for mail nobody could attribute: the message is stored like every other
- * (§8.58), the chief sees it in the unit's mail, and the module's own
- * users see it too because a dedicated box grants them `ReadMode::ALL`.
- * The reserved `unsorted` reference this replaced was a business object
- * that was not one — a bucket masquerading as a stay, with its own
- * retention, its own screen and its own purge task, all duplicating what
- * `inbound_mail` now does once for everybody.
+ * camps, e.g. camps@unite.be. Everything above still applies, and one
+ * reading more is allowed:
+ *   3. the PERIOD the message announces, when the module already holds
+ *      exactly one stay running over exactly those days
+ *      (`Mail\ExistingStayMatcher`).
+ * That third rule exists because the first two miss the ordinary case:
+ * two messages about one booking — a contract and, weeks later, a note
+ * asking about the arrival time — carry different subjects, share no
+ * `References` chain, and are as often sent BY the unit as to it. Nothing
+ * in a thread id or a sender address connects them; the dates do, and
+ * they are stated in both.
+ *
+ * Beyond that, mail nobody could attribute produces no association at
+ * all: the message is stored like every other (§8.58), the chief sees it
+ * in the unit's mail, and the module's own users see it too because a
+ * dedicated box grants them `ReadMode::ALL`. The reserved `unsorted`
+ * reference this replaced was a business object that was not one — a
+ * bucket masquerading as a stay, with its own retention, its own screen
+ * and its own purge task, all duplicating what `inbound_mail` now does
+ * once for everybody.
  *
  * **Ambiguity produces propositions, never a guess.** Two stays matching
- * one sender inside the window means two propositions and no attachment:
+ * one sender inside the window — or two stays over the same days —
+ * means two propositions and no attachment:
  * putting a farmer's e-mail on whichever of two stays sorted first is
  * worse than leaving it unattached, because the chief reading the wrong
  * stay has no way to know. Saying « c'est l'un de ces deux, choisissez »
@@ -90,7 +103,18 @@ class CampsMessageConsumer implements MessageConsumerInterface
          * nobody could attribute stays unsorted, which is what this module
          * did before the setting had any code behind it.
          */
-        private ?StayFromMailService $stayFromMail = null
+        private ?StayFromMailService $stayFromMail = null,
+        /**
+         * Recognising a stay the module ALREADY has
+         * (`Mail\ExistingStayMatcher`).
+         *
+         * Separate from the service above, and not optional in the same
+         * sense: it costs no model call, obeys no setting, and writes
+         * nothing. Null only because every collaborator here is, and a
+         * caller that builds none of them still gets the two
+         * identifications this consumer has always had.
+         */
+        private ?ExistingStayMatcher $existingStay = null
     ) {
     }
 
@@ -143,7 +167,77 @@ class CampsMessageConsumer implements MessageConsumerInterface
         // 2. A known contact writing, bounded by a window around the stay
         //    they are a contact of. One match is an association; several
         //    are propositions, and none is chosen.
-        return $this->fromSender($message);
+        $bySender = $this->fromSender($message);
+        if ($bySender->links !== [] || $bySender->candidates !== []) {
+            return $bySender;
+        }
+
+        // 3. The period the message announces, on a dedicated box only.
+        //
+        //    Third and last because it is the weakest of the three, and
+        //    last is also the only place it is safe: on the unit's shared
+        //    address a parent writing « on part du 18 au 20 » about a
+        //    week-end de section would land on the camp booked those days.
+        //    A box whose whole contents are about camps is the one place
+        //    that reading is worth acting on — the same asymmetry this
+        //    class already applies to auto-creation.
+        return $this->fromPeriod($message);
+    }
+
+    /**
+     * The stay whose days this message states, when there is exactly one.
+     *
+     * Reads the subject and the body and nothing else: this runs on
+     * arrival, inside the synchronisation loop, where an attachment's
+     * bytes may not be touched (§8.58). The deferred pass reads the
+     * contract too — see `analyzeStored()` — and that is the difference
+     * between the two, not a difference of rule.
+     */
+    private function fromPeriod(CandidateMessage $message): AnalysisResult
+    {
+        if ($this->existingStay === null || $message->mailboxDedicatedTo !== self::CONSUMER_ID) {
+            return AnalysisResult::nothing();
+        }
+
+        return $this->resultForPeriod(
+            $this->existingStay->matching(trim($message->subject . "\n" . $message->bodyText))
+        );
+    }
+
+    /**
+     * One stay is an association, several are propositions, none is
+     * nothing — the shape `fromSender()` already answers in, so a chief
+     * reading either explanation reads the same kind of sentence.
+     *
+     * @param Camp[] $camps
+     */
+    private function resultForPeriod(array $camps): AnalysisResult
+    {
+        if (count($camps) === 1) {
+            return AnalysisResult::linkedTo(
+                self::CONSUMER_ID,
+                self::referenceFor($camps[0]->id),
+                LinkOrigin::PERIOD
+            );
+        }
+
+        if (count($camps) < 2) {
+            return AnalysisResult::nothing();
+        }
+
+        $candidates = [];
+        foreach (array_slice($camps, 0, self::MAX_PROPOSITIONS) as $camp) {
+            $candidates[] = new MessageCandidate(
+                businessReference: self::referenceFor($camp->id),
+                label: $this->labelFor($camp),
+                evidenceType: 'period',
+                explanation: 'Le message annonce exactement les dates de ce séjour. '
+                    . count($camps) . ' séjours couvrent cette période : '
+                    . 'ScoutMagic n\'en choisit aucun.'
+            );
+        }
+
+        return new AnalysisResult([], $candidates);
     }
 
     /**
@@ -234,51 +328,67 @@ class CampsMessageConsumer implements MessageConsumerInterface
     }
 
     /**
-     * Automatic stay creation, and nothing else.
+     * The deferred pass: recognise a stay this module already has, and
+     * failing that, create one.
      *
-     * It belongs on the deferred pass rather than on arrival for two
-     * reasons. It needs a **stored** message — `StayFromMailService` reads
-     * the body and may call the AI connector, neither of which
-     * `CandidateMessage` can carry — and it is bounded and hourly, so a
-     * first synchronisation of a five-year-old box does not try to invent
-     * four hundred stays inside one page view.
+     * It belongs here rather than on arrival for two reasons. It needs a
+     * **stored** message — the attachments' bytes and, for creation, the
+     * AI connector, neither of which `CandidateMessage` can carry — and it
+     * is bounded and hourly, so a first synchronisation of a five-year-old
+     * box does not try to invent four hundred stays inside one page view.
      *
-     * Three guards, all of them load-bearing:
+     * **Recognising comes first, and obeys none of creation's settings.**
+     * That ordering is the whole point: attaching a message to a stay the
+     * unit already booked writes nothing new down, so gating it on
+     * `camps_auto_create_from_mail` — a setting about INVENTING stays —
+     * was a unit with automatic creation off getting no association
+     * either, and a unit with it on getting one only as a side effect of
+     * `StayFromMailService::createFrom()` failing to find a place to
+     * duplicate. Reading the contract's own dates and putting the message
+     * on the booking they name needs neither a setting nor a model.
      *
-     * - **a dedicated mailbox only.** On the unit's shared address, a
-     *   supplier's quotation would become a camp.
-     * - **`camps_auto_create_from_mail`**, through
-     *   `StayFromMailService::isAutomatic()`. A unit that turned it off
-     *   gets nothing here, ever.
+     * The guards that remain are still load-bearing:
+     *
+     * - **a dedicated mailbox only**, for both readings. On the unit's
+     *   shared address a supplier's quotation would become a camp, and a
+     *   parent's « on part du 18 au 20 » would land on one.
+     * - **`camps_auto_create_from_mail`** for creation and creation
+     *   alone, through `StayFromMailService::isAutomatic()`.
      * - **nothing already attached.** A message that a chief has since
      *   oriented by hand must not sprout a second stay because an hourly
      *   task got to it afterwards.
      */
     public function analyzeStored(InboundMessage $message): AnalysisResult
     {
-        if ($this->stayFromMail === null) {
-            return AnalysisResult::nothing();
-        }
-
         // A message something else already claimed is not a message anybody
         // is wondering about, and it leaves nothing behind: the journal
-        // entry below is for the mail that produced NOTHING, which is the
-        // only case a chief comes looking for.
+        // entries below are for the mail that produced NOTHING, which is
+        // the only case a chief comes looking for.
         if ($message->links !== []) {
             return AnalysisResult::nothing();
         }
 
-        // The remaining guards each say which one it was. They all used to
-        // answer the same silence, so « ma boîte camps ne crée rien » had
-        // five possible causes and no way to tell them apart — see
+        if (!$this->isDedicatedMailbox($message->mailboxId)) {
+            $this->stayFromMail?->journalSkip($message->id, StayFromMailService::SKIP_MAILBOX_NOT_DEDICATED);
+
+            return AnalysisResult::nothing();
+        }
+
+        $matched = $this->fromStoredPeriod($message);
+        if ($matched->links !== [] || $matched->candidates !== []) {
+            return $matched;
+        }
+
+        if ($this->stayFromMail === null) {
+            return AnalysisResult::nothing();
+        }
+
+        // Only creation is left, and the setting that governs it says so
+        // by name — « ma boîte camps ne crée rien » used to have five
+        // possible causes and no way to tell them apart. See
         // Mail\StayFromMailService::journalSkip().
-        $refusal = match (true) {
-            !$this->isDedicatedMailbox($message->mailboxId) => StayFromMailService::SKIP_MAILBOX_NOT_DEDICATED,
-            !$this->stayFromMail->isAutomatic() => StayFromMailService::SKIP_NOT_AUTOMATIC,
-            default => null,
-        };
-        if ($refusal !== null) {
-            $this->stayFromMail->journalSkip($message->id, $refusal);
+        if (!$this->stayFromMail->isAutomatic()) {
+            $this->stayFromMail->journalSkip($message->id, StayFromMailService::SKIP_NOT_AUTOMATIC);
 
             return AnalysisResult::nothing();
         }
@@ -288,6 +398,71 @@ class CampsMessageConsumer implements MessageConsumerInterface
         return $campId === null
             ? AnalysisResult::nothing()
             : AnalysisResult::linkedTo(self::CONSUMER_ID, self::referenceFor($campId), LinkOrigin::SENDER);
+    }
+
+    /**
+     * The period reading again, with the contract in it.
+     *
+     * The difference from `fromPeriod()` is the text, not the rule: here
+     * the attachments have been read (`Mail\AttachmentTextReader`), which
+     * is what makes it work on the ordinary booking — a PDF stating
+     * « Arrivée : 18-09-26 / Départ : 20-09-26 » under a covering note
+     * that states nothing at all.
+     *
+     * A model call happens in exactly one case: two stays over the same
+     * days, where the venue is the only thing that can separate them.
+     * That price is worth paying to avoid a wrong attachment and is not
+     * worth paying for anything else here.
+     */
+    private function fromStoredPeriod(InboundMessage $message): AnalysisResult
+    {
+        if ($this->existingStay === null) {
+            return AnalysisResult::nothing();
+        }
+
+        // The subject and the body first, and on their own. They answer
+        // the ordinary case — « Camp complet du 18 au 20 septembre 2026 »
+        // in the subject line — for the price of a regular expression, and
+        // an answer found here costs no file read, no OCR call and nothing
+        // leaving the installation.
+        $service = $this->stayFromMail;
+        $text = trim($message->subject . "\n" . $message->bodyText);
+        $camps = $this->existingStay->matching($text);
+
+        // Only when they said nothing is the contract worth opening: a
+        // booking often arrives as a PDF under a covering note that states
+        // no date at all, and that PDF is the one place the period is
+        // written down.
+        if ($camps === [] && $service !== null) {
+            $text = $service->fullTextOf($message);
+            $camps = $this->existingStay->matching($text);
+        }
+
+        if (count($camps) > 1 && $service !== null) {
+            $camps = ExistingStayMatcher::narrowedToPlace(
+                $camps,
+                $service->matchPlaceIdFor($message, $service->readValues($message)['place_name'])
+            );
+        }
+
+        $result = $this->resultForPeriod($camps);
+        if ($result->links !== []) {
+            $this->existingStay->journalMatch(
+                $message->id,
+                $text,
+                $camps,
+                ExistingStayMatcher::OUTCOME_LINKED
+            );
+        } elseif ($result->candidates !== []) {
+            $this->existingStay->journalMatch(
+                $message->id,
+                $text,
+                $camps,
+                ExistingStayMatcher::OUTCOME_PROPOSED
+            );
+        }
+
+        return $result;
     }
 
     public function describeReference(string $businessReference): ?string
@@ -307,6 +482,8 @@ class CampsMessageConsumer implements MessageConsumerInterface
         return [
             'réponse dans une conversation déjà rattachée à un séjour',
             'adresse d\'un contact connu du séjour, pendant la fenêtre du camp',
+            'sur une boîte dédiée uniquement : période annoncée par le message, '
+                . 'quand un seul séjour couvre exactement ces dates',
             'sur une boîte dédiée uniquement : tout le courrier, non classé par défaut',
         ];
     }

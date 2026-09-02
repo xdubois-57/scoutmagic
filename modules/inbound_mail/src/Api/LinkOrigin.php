@@ -29,6 +29,22 @@ enum LinkOrigin: string
     /** The sender's address, bounded by a time window around the object. */
     case SENDER = 'sender';
 
+    /**
+     * The message announces a period, and the consumer knows exactly one
+     * business object covering it.
+     *
+     * Weaker than a thread and stronger than nothing, which is the gap it
+     * was written for: two messages about one booking are rarely replies
+     * to each other — a confirmation and a covering note carry different
+     * subjects and no common `References` — and their sender is as often
+     * the unit itself as the site. Dates stated to the day, matching one
+     * object and one only, are what remains of the evidence.
+     *
+     * Not certain, and the interface says so: a quotation from a second
+     * site for the same weekend states the same period truthfully.
+     */
+    case PERIOD = 'period';
+
     /** A model's suggestion, used only where 1-3 failed or were ambiguous. */
     case AI = 'ai';
 
@@ -58,6 +74,7 @@ enum LinkOrigin: string
             self::REFERENCE => 'Référence dans le sujet',
             self::THREAD => 'Réponse dans la conversation',
             self::SENDER => 'Adresse de l\'expéditeur',
+            self::PERIOD => 'Période annoncée dans le message',
             self::AI => 'Suggestion automatique',
             self::ATTACHMENT => 'Pièce jointe, destinataire inconnu',
             self::MANUAL => 'Association manuelle',
@@ -66,8 +83,9 @@ enum LinkOrigin: string
 
     /**
      * Whether this origin is certain enough to be presented without a
-     * caveat. Sender matching, AI and a bare attachment are not: each can
-     * attach a message to the wrong file, and the interface says so.
+     * caveat. Sender matching, an announced period, AI and a bare
+     * attachment are not: each can attach a message to the wrong file, and
+     * the interface says so.
      */
     public function isCertain(): bool
     {

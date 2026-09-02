@@ -506,6 +506,17 @@ function scoutmagic_bootstrap_scheduler(
                             // journal, named. It is the module's most
                             // asked-about behaviour and was its most silent.
                             $journalService
+                        ),
+                        // The stay a message names rather than the stay it
+                        // would invent. Built beside the service above and
+                        // deliberately NOT inside it: it obeys none of
+                        // `camps_auto_create_from_mail`'s guards, because
+                        // attaching a message to a booking the unit already
+                        // made writes nothing new down.
+                        new \Modules\Camps\Mail\ExistingStayMatcher(
+                            $campsCampRepo,
+                            $campsMessageReader,
+                            $journalService
                         )
                     ));
                 }

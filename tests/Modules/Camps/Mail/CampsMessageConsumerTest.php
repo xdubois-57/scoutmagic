@@ -726,7 +726,7 @@ class CampsMessageConsumerTest extends TestCase
     }
 
     /** A stored message with no association at all — the deferred pass's subject. */
-    private function unattachedMessage(int $mailboxId): \Modules\InboundMail\Api\InboundMessage
+    private function unattachedMessage(int $mailboxId, ?string $bodyText = null): \Modules\InboundMail\Api\InboundMessage
     {
         $message = $this->bookingMessage('');
 
@@ -742,7 +742,7 @@ class CampsMessageConsumerTest extends TestCase
             messageId: $message->messageId,
             inReplyTo: $message->inReplyTo,
             sentAt: $message->sentAt,
-            bodyText: $message->bodyText,
+            bodyText: $bodyText ?? $message->bodyText,
             bodyHtml: $message->bodyHtml
         );
     }
@@ -750,6 +750,236 @@ class CampsMessageConsumerTest extends TestCase
     /**
      * @param string[] $references
      */
+    // ── The period a message announces (the third identification) ───────
+
+    /**
+     * The complaint this whole section exists for.
+     *
+     * A unit books a field; the contract creates the stay. A fortnight
+     * later the same staff writes to the site to ask about the arrival
+     * time — new subject, no `References` chain back to the first message,
+     * and the unit's OWN address in `From:`. Neither of the two
+     * identifications this consumer had could see anything, so « Relancer
+     * l'analyse » changed nothing however often it was pressed.
+     *
+     * What both messages carry is the period, and on a box the unit
+     * declared to be its camps box that is evidence enough.
+     */
+    public function testAMessageAnnouncingTheStaysDatesIsAttachedToIt(): void
+    {
+        $result = $this->consumerWithMatcher()->analyze(
+            $this->periodMessage('Du 12 au 19 juillet 2026', self::DEDICATED_MAILBOX)
+        );
+
+        $this->assertSame('camp-' . $this->campId, $result->links[0]->businessReference);
+        // Honest about how it got there: a second site quoting for the
+        // same week states the same two dates just as truthfully.
+        $this->assertSame(LinkOrigin::PERIOD, $result->links[0]->origin);
+        $this->assertFalse(LinkOrigin::PERIOD->isCertain());
+    }
+
+    public function testThePeriodIsReadOnADedicatedBoxAndNowhereElse(): void
+    {
+        // On the unit's shared address a parent writing « on part du 12 au
+        // 19 juillet » about something else entirely would land on the
+        // camp booked those days — and everything this consumer takes is
+        // a message another module will never see.
+        $this->assertTrue(
+            $this->consumerWithMatcher()
+                ->analyze($this->periodMessage('Du 12 au 19 juillet 2026', self::SHARED_MAILBOX))
+                ->isEmpty()
+        );
+    }
+
+    public function testAKnownContactStillWinsOverThePeriod(): void
+    {
+        // Ordering, and it is not cosmetic: the sender is the stronger
+        // evidence, and the origin a chief reads has to be the reason the
+        // message is actually there.
+        $this->contacts->create($this->campId, null, null, 'lambert@example.org', null, null);
+
+        $result = $this->consumerWithMatcher()->analyze(
+            $this->periodMessage('Du 12 au 19 juillet 2026', self::DEDICATED_MAILBOX, 'lambert@example.org')
+        );
+
+        $this->assertSame(LinkOrigin::SENDER, $result->links[0]->origin);
+    }
+
+    public function testTwoStaysOverTheSameDaysProduceTwoPropositionsAndNoAssociation(): void
+    {
+        $this->pdo->exec("INSERT INTO camp_places (name) VALUES ('Ferme du Moulin')");
+        $this->camps->create(
+            2, Camp::STAY_GRAND_CAMP, '2026-07-12', '2026-07-19', null,
+            Camp::STATUS_CONFIRMED, null, null, null, null, []
+        );
+
+        $result = $this->consumerWithMatcher()->analyze(
+            $this->periodMessage('Du 12 au 19 juillet 2026', self::DEDICATED_MAILBOX)
+        );
+
+        $this->assertSame([], $result->links, 'ScoutMagic chooses neither');
+        $this->assertCount(2, $result->candidates);
+        $this->assertStringContainsString('2 séjours', $result->candidates[0]->explanation);
+    }
+
+    public function testAPeriodMatchingNoStayClaimsNothing(): void
+    {
+        $this->assertTrue(
+            $this->consumerWithMatcher()
+                ->analyze($this->periodMessage('Du 12 au 19 juillet 2029', self::DEDICATED_MAILBOX))
+                ->isEmpty()
+        );
+    }
+
+    /**
+     * The regression in one test: attaching to a stay the unit ALREADY
+     * booked is not creating one, and must not obey the setting that
+     * governs creating.
+     *
+     * `camps_auto_create_from_mail` off used to mean the deferred pass
+     * returned before it read anything at all — so a unit that had
+     * deliberately turned automatic creation off got no association
+     * either, on mail whose own contract named the booking to the day.
+     */
+    public function testAUnitWithAutomaticCreationOffStillGetsItsMessageAttached(): void
+    {
+        $stayFromMail = $this->createMock(\Modules\Camps\Mail\StayFromMailService::class);
+        $stayFromMail->method('isAutomatic')->willReturn(false);
+        $stayFromMail->method('fullTextOf')->willReturn('Du 12 au 19 juillet 2026');
+        $stayFromMail->expects($this->never())->method('createFrom');
+
+        $consumer = new CampsMessageConsumer(
+            $this->camps, $this->pdo, $this->encryption,
+            $this->dedicatedTo(self::DEDICATED_MAILBOX), null, null, $stayFromMail, $this->matcher()
+        );
+
+        $result = $consumer->analyzeStored($this->unattachedMessage(self::DEDICATED_MAILBOX));
+
+        $this->assertSame('camp-' . $this->campId, $result->links[0]->businessReference);
+    }
+
+    public function testTheDeferredPassPrefersTheStayItFindsOverTheStayItWouldInvent(): void
+    {
+        // Two messages about one booking is the normal case. The second
+        // one must not grow a duplicate stay, and it must not need the
+        // creation path to fail first for that to happen.
+        $stayFromMail = $this->createMock(\Modules\Camps\Mail\StayFromMailService::class);
+        $stayFromMail->method('isAutomatic')->willReturn(true);
+        $stayFromMail->method('fullTextOf')->willReturn('Arrivée : 12-07-26 16:30   Départ : 19-07-26 10:00');
+        $stayFromMail->expects($this->never())->method('createFrom');
+
+        $consumer = new CampsMessageConsumer(
+            $this->camps, $this->pdo, $this->encryption,
+            $this->dedicatedTo(self::DEDICATED_MAILBOX), null, null, $stayFromMail, $this->matcher()
+        );
+
+        $this->assertSame(
+            'camp-' . $this->campId,
+            $consumer->analyzeStored($this->unattachedMessage(self::DEDICATED_MAILBOX))->links[0]->businessReference
+        );
+    }
+
+    public function testTheDeferredPassStillCreatesWhenNoStayMatchesThePeriod(): void
+    {
+        $stayFromMail = $this->createMock(\Modules\Camps\Mail\StayFromMailService::class);
+        $stayFromMail->method('isAutomatic')->willReturn(true);
+        $stayFromMail->method('fullTextOf')->willReturn('Du 12 au 19 juillet 2029');
+        $stayFromMail->expects($this->once())->method('createFrom')->willReturn($this->campId);
+
+        $consumer = new CampsMessageConsumer(
+            $this->camps, $this->pdo, $this->encryption,
+            $this->dedicatedTo(self::DEDICATED_MAILBOX), null, null, $stayFromMail, $this->matcher()
+        );
+
+        $this->assertSame(
+            'camp-' . $this->campId,
+            $consumer->analyzeStored($this->unattachedMessage(self::DEDICATED_MAILBOX))->links[0]->businessReference
+        );
+    }
+
+    /**
+     * A body that already answered costs no file read.
+     *
+     * Not a micro-optimisation: reading the attachments means opening a
+     * stored file and, for a scanned contract, sending one page image to
+     * the AI provider. Doing that for a message whose own subject line
+     * names the camp would be paying — in money and in what leaves the
+     * installation — for an answer already in hand.
+     */
+    public function testTheAttachmentsAreNotOpenedWhenTheBodyAlreadyNamedThePeriod(): void
+    {
+        $stayFromMail = $this->createMock(\Modules\Camps\Mail\StayFromMailService::class);
+        $stayFromMail->method('isAutomatic')->willReturn(true);
+        $stayFromMail->expects($this->never())->method('fullTextOf');
+
+        $consumer = new CampsMessageConsumer(
+            $this->camps, $this->pdo, $this->encryption,
+            $this->dedicatedTo(self::DEDICATED_MAILBOX), null, null, $stayFromMail, $this->matcher()
+        );
+
+        $result = $consumer->analyzeStored(
+            $this->unattachedMessage(self::DEDICATED_MAILBOX, 'Du 12 au 19 juillet 2026')
+        );
+
+        $this->assertSame('camp-' . $this->campId, $result->links[0]->businessReference);
+    }
+
+    public function testAPeriodIsNotReadOnASharedBoxByTheDeferredPassEither(): void
+    {
+        $stayFromMail = $this->createMock(\Modules\Camps\Mail\StayFromMailService::class);
+        $stayFromMail->method('fullTextOf')->willReturn('Du 12 au 19 juillet 2026');
+
+        $consumer = new CampsMessageConsumer(
+            $this->camps, $this->pdo, $this->encryption,
+            $this->dedicatedTo(self::DEDICATED_MAILBOX), null, null, $stayFromMail, $this->matcher()
+        );
+
+        $this->assertTrue($consumer->analyzeStored($this->unattachedMessage(self::SHARED_MAILBOX))->isEmpty());
+    }
+
+    private function matcher(): \Modules\Camps\Mail\ExistingStayMatcher
+    {
+        return new \Modules\Camps\Mail\ExistingStayMatcher($this->camps, new \Modules\Camps\Mail\MessageReader());
+    }
+
+    private function consumerWithMatcher(): CampsMessageConsumer
+    {
+        return new CampsMessageConsumer(
+            $this->camps,
+            $this->pdo,
+            $this->encryption,
+            $this->dedicatedTo(self::DEDICATED_MAILBOX),
+            null,
+            null,
+            null,
+            $this->matcher()
+        );
+    }
+
+    /** A message whose SUBJECT states a period, on a box declared dedicated or not. */
+    private function periodMessage(
+        string $subject,
+        int $mailboxId,
+        string $from = 'staff@unite.be'
+    ): CandidateMessage {
+        return new CandidateMessage(
+            mailboxId: $mailboxId,
+            subject: $subject,
+            fromEmail: $from,
+            fromName: null,
+            messageId: '<msg@mail>',
+            inReplyTo: null,
+            references: [],
+            toEmails: ['fresnaye@example.org'],
+            sentAt: new \DateTimeImmutable('2026-06-01'),
+            bodyText: 'Nous voulions confirmer notre heure d\'arrivée.',
+            bodyHtml: '',
+            mailboxDedicatedTo: $mailboxId === self::DEDICATED_MAILBOX
+                ? CampsMessageConsumer::CONSUMER_ID
+                : null
+        );
+    }
+
     private function message(
         string $from,
         string $subject = 'Bonjour',
