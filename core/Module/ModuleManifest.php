@@ -196,7 +196,9 @@ class ModuleManifest
     {
         // Validate id
         if (empty($data['id']) || !is_string($data['id'])) {
-            throw new ModuleException("Module manifest missing or invalid 'id'" . ($sourcePath ? " in {$sourcePath}" : ''));
+            throw new ModuleException(
+                "Module manifest missing or invalid 'id'" . ($sourcePath ? " in {$sourcePath}" : '')
+            );
         }
         $id = $data['id'];
 
@@ -365,7 +367,8 @@ class ModuleManifest
             }
             foreach (array_keys($data['help']) as $key) {
                 if ($key !== 'dir') {
-                    throw new ModuleException("Module '{$id}' help declares an unknown key '{$key}' (only 'dir' is supported)");
+                    throw new ModuleException("Module '{$id}' help declares an unknown key '{$key}' (only 'dir' is "
+                        . "supported)");
                 }
             }
             $dir = $data['help']['dir'] ?? 'help';
@@ -487,7 +490,8 @@ class ModuleManifest
             // vocabulary's own shape is refused rather than escaped.
             if ($route['menu_icon'] !== '' && preg_match('/^bi-[a-z0-9-]+$/', $route['menu_icon']) !== 1) {
                 throw new ModuleException(
-                    "Module '{$moduleId}' route[{$index}] 'menu_icon' must be a Bootstrap Icons class, e.g. 'bi-calendar3'"
+                    "Module '{$moduleId}' route[{$index}] 'menu_icon' must be a Bootstrap Icons class, e.g. "
+                        . "'bi-calendar3'"
                 );
             }
             $menuIcon = $route['menu_icon'] !== '' ? $route['menu_icon'] : null;
@@ -804,7 +808,8 @@ class ModuleManifest
         }
 
         if (!in_array($cookie['category'], self::VALID_COOKIE_CATEGORIES, true)) {
-            throw new ModuleException("Module '{$moduleId}' cookies[{$index}] invalid category '{$cookie['category']}'");
+            throw new ModuleException("Module '{$moduleId}' cookies[{$index}] invalid category "
+                . "'{$cookie['category']}'");
         }
 
         return [
@@ -841,7 +846,8 @@ class ModuleManifest
         }
 
         if (!in_array($notification['role_min'], self::VALID_ROLES, true)) {
-            throw new ModuleException("Module '{$moduleId}' notifications[{$index}] invalid role_min '{$notification['role_min']}'");
+            throw new ModuleException("Module '{$moduleId}' notifications[{$index}] invalid role_min "
+                . "'{$notification['role_min']}'");
         }
 
         if (!str_starts_with($notification['id'], $moduleId . '.')) {
@@ -935,7 +941,8 @@ class ModuleManifest
         }
 
         if (!str_starts_with($email['id'], $moduleId . '.')) {
-            throw new ModuleException("Module '{$moduleId}' emails[{$index}] id '{$email['id']}' must be prefixed '{$moduleId}.'");
+            throw new ModuleException("Module '{$moduleId}' emails[{$index}] id '{$email['id']}' must be prefixed "
+                . "'{$moduleId}.'");
         }
 
         if (isset($email['editable']) && !is_bool($email['editable'])) {
@@ -950,7 +957,8 @@ class ModuleManifest
 
             foreach ($email['variables'] as $j => $variable) {
                 if (!is_array($variable)) {
-                    throw new ModuleException("Module '{$moduleId}' emails[{$index}] variables[{$j}] must be an object");
+                    throw new ModuleException("Module '{$moduleId}' emails[{$index}] variables[{$j}] must be an "
+                        . "object");
                 }
                 foreach (['name', 'label', 'example'] as $field) {
                     if (!isset($variable[$field]) || !is_string($variable[$field]) || $variable[$field] === '') {

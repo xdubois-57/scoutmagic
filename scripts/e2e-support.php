@@ -824,7 +824,8 @@ function e2e_activate_all_modules(
         if ($module->validationError !== null) {
             fwrite(
                 STDERR,
-                "E2E provisioning failed: module '{$moduleId}' has an invalid module.json — {$module->validationError}\n"
+                "E2E provisioning failed: module '{$moduleId}' has an invalid module.json — "
+                    . "{$module->validationError}\n"
             );
             exit(1);
         }

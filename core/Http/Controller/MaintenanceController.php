@@ -177,7 +177,8 @@ class MaintenanceController extends AbstractController
             'update_latest_version' => $latestVersion,
             'update_release_notes' => (string) ($this->settingService->get('update_release_notes') ?: ''),
             'update_release_html_url' => (string) ($this->settingService->get('update_release_html_url') ?: ''),
-            'update_dependencies_changed' => (bool) ((int) ($this->settingService->get('update_dependencies_changed') ?: '0')),
+            'update_dependencies_changed' =>
+                (bool) ((int) ($this->settingService->get('update_dependencies_changed') ?: '0')),
             // Twenty, not five. Five showed roughly one evening of dev-mode
             // auto-updates: the six consecutive rollbacks that wedged
             // production did not fit on the page at once, so the pattern
@@ -201,7 +202,8 @@ class MaintenanceController extends AbstractController
             'auto_update_silent_days' => $autoUpdateHealth['silent_days'],
             'auto_update_silence_warning' => $autoUpdateHealth['warn'],
             'auto_update_last_push_at' => (string) ($this->settingService->get('auto_update_last_push_at') ?: ''),
-            'auto_update_last_push_result' => (string) ($this->settingService->get('auto_update_last_push_result') ?: ''),
+            'auto_update_last_push_result' =>
+                (string) ($this->settingService->get('auto_update_last_push_result') ?: ''),
             'webhook_url' => rtrim(
                 (string) ($this->settingService->get('base_url') ?: ''),
                 '/'

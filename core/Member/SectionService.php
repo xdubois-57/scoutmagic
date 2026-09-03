@@ -460,7 +460,8 @@ class SectionService
         $placeholders = implode(', ', array_fill(0, count($memberYearIds), '?'));
 
         $stmt = $pdo->prepare(
-            "SELECT my.*, m.desk_id FROM member_years my JOIN members m ON my.member_id = m.id WHERE my.id IN ({$placeholders})"
+            "SELECT my.*, m.desk_id FROM member_years my JOIN members m ON my.member_id = m.id WHERE my.id IN "
+                . "({$placeholders})"
         );
         $stmt->execute($memberYearIds);
         $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);

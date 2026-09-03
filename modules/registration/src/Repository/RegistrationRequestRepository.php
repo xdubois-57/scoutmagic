@@ -640,8 +640,12 @@ class RegistrationRequestRepository
                 ? $this->encryption->decrypt($row['internal_notes_encrypted'], 'registration_requests.internal_notes')
                 : null,
             linkedMemberId: $row['linked_member_id'] !== null ? (int) $row['linked_member_id'] : null,
-            acceptedEmailSentAt: DateInput::fromStorage($row['accepted_email_sent_at'] === null ? null : (string) $row['accepted_email_sent_at']),
-            refusedEmailSentAt: DateInput::fromStorage($row['refused_email_sent_at'] === null ? null : (string) $row['refused_email_sent_at']),
+            acceptedEmailSentAt: DateInput::fromStorage(
+                $row['accepted_email_sent_at'] === null ? null : (string) $row['accepted_email_sent_at']
+            ),
+            refusedEmailSentAt: DateInput::fromStorage(
+                $row['refused_email_sent_at'] === null ? null : (string) $row['refused_email_sent_at']
+            ),
             finalAt: DateInput::fromStorage($row['final_at'] === null ? null : (string) $row['final_at'])
         );
     }

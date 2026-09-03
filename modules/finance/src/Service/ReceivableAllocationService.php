@@ -228,7 +228,9 @@ class ReceivableAllocationService
 
                     $ownShare = $existing !== null ? max(0, $existing->amountCents) : 0;
                     $remainingDue = $receivable->amountDueCents - ($allocatedByReceivable[$receivable->id] - $ownShare);
-                    $remainingOnTransaction = self::toCents($transaction->amount) - ($usedByTransaction[$transaction->id] - $ownShare);
+                    $remainingOnTransaction = self::toCents(
+                        $transaction->amount
+                    ) - ($usedByTransaction[$transaction->id] - $ownShare);
 
                     $amount = max(0, min($remainingDue, $remainingOnTransaction));
 

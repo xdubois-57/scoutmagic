@@ -429,7 +429,9 @@ class PassageController extends AbstractController
         // Anything that is not « respecter les souhaits » is the default
         // method, so a body naming something unknown gets the balanced run
         // rather than an error page.
-        $method = (string) ($data['method'] ?? PassageOptimizationService::METHOD_BALANCED) === PassageOptimizationService::METHOD_WISHES
+        $method = (string) (
+            $data['method'] ?? PassageOptimizationService::METHOD_BALANCED
+        ) === PassageOptimizationService::METHOD_WISHES
             ? PassageOptimizationService::METHOD_WISHES
             : PassageOptimizationService::METHOD_BALANCED;
 
@@ -696,7 +698,9 @@ class PassageController extends AbstractController
         return false;
     }
 
-    private function targetYearLabelFor(\Modules\Registration\Repository\RegistrationRequest $registrationRequest): string
+    private function targetYearLabelFor(
+        \Modules\Registration\Repository\RegistrationRequest $registrationRequest
+    ): string
     {
         $year = $this->scoutYearService->findById($registrationRequest->scoutYearId);
 

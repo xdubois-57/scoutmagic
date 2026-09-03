@@ -56,7 +56,8 @@ class SchemaComparator
         // Check for tables in actual but not in declared
         foreach ($actualByName as $name => $table) {
             if (!isset($declaredByName[$name])) {
-                $this->warnings[] = "Table '{$name}' exists in database but not in declared schema. Skipping (never auto-drop).";
+                $this->warnings[] = "Table '{$name}' exists in database but not in declared schema. Skipping (never "
+                    . "auto-drop).";
             }
         }
 
@@ -155,7 +156,8 @@ class SchemaComparator
 
         $body = implode(",\n", $lines);
 
-        return "CREATE TABLE `{$table->name}` (\n{$body}\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
+        return "CREATE TABLE `{$table->name}` (\n{$body}\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 "
+            . "COLLATE=utf8mb4_unicode_ci";
     }
 
     /**

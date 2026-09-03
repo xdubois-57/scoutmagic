@@ -485,7 +485,8 @@ class AlbumService
             file_put_contents($tmpPath, $bytes);
             return $this->uploadHandler->handle(
                 ['tmp_name' => $tmpPath, 'size' => strlen($bytes), 'error' => UPLOAD_ERR_OK, 'name' => 'og_image'],
-                "gallery/{$albumId}/og", self::OG_IMAGE_ALLOWED_MIMES, self::OG_IMAGE_MAX_BYTES, 'identified', 'gallery', $createdBy
+                "gallery/{$albumId}/og", self::OG_IMAGE_ALLOWED_MIMES, self::OG_IMAGE_MAX_BYTES, 'identified',
+                'gallery', $createdBy
             );
         } catch (UploadException) {
             // Best-effort — an unsupported/oversized image just leaves the

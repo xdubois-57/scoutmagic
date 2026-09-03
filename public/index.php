@@ -880,7 +880,8 @@ $settingService->register('support_last_mail_probe_at', '', 'text', "Date de la 
     "Horodatage de la dernière sonde de diagnostic envoyée, qui porte aussi la limite d'une sonde par heure. Renseigné automatiquement.",
     null, null, null, false, 295);
 $settingService->register('support_last_mail_probe_key', '', 'text', "Clé de la dernière sonde e-mail",
-    "Clé de corrélation de la dernière sonde de diagnostic envoyée, pour la citer au support. Renseignée automatiquement.",
+    "Clé de corrélation de la dernière sonde de diagnostic envoyée, pour la citer au support. Renseignée "
+        . "automatiquement.",
     null, null, null, false, 296);
 // `installed_at` declares itself (Core\Statistics\InstallationDateService::
 // register()) because SetupController writes it before this file has ever
@@ -1118,7 +1119,9 @@ $emailTemplateRenderer = new \Core\Mail\Template\EmailTemplateRenderer(
 // Create NotificationService (Web Push, Core\Notification) — VAPID subject
 // must be a mailto: or an https URL, never empty, hence the fallback chain
 // down to a hardcoded URL for a freshly-setup site with no contact email yet.
-$vapidSubjectEmail = (string) ($settingService->get('contact_email') ?: $settingService->get('mail_from_address') ?: '');
+$vapidSubjectEmail = (string) (
+    $settingService->get('contact_email') ?: $settingService->get('mail_from_address') ?: ''
+);
 $vapidSubject = $vapidSubjectEmail !== ''
     ? 'mailto:' . $vapidSubjectEmail
     : (string) ($settingService->get('base_url') ?: 'https://localhost');
@@ -1313,7 +1316,8 @@ $memberDocumentService = new \Core\Member\MemberDocumentService($memberDocumentR
 // Member\MemberEmailService). $memberEmailRepository was already built
 // above, before $roleResolver.
 $memberEmailService = new \Core\Member\MemberEmailService(
-    $memberEmailRepository, $mailService, $emailTemplateRenderer, $journalService, $sectionService, $memberService, $scoutYearService,
+    $memberEmailRepository, $mailService, $emailTemplateRenderer, $journalService, $sectionService, $memberService,
+    $scoutYearService,
     (string) $settingService->get('base_url'), (string) ($settingService->get('site_name') ?: 'Unité scoute')
 );
 
@@ -2466,7 +2470,8 @@ if ($isEnabled('usage_stats')) {
     // support_dashboard). Tests\Modules\UsageStats\ModuleSchedulingTest
     // fails if this list drifts from module.json's `scheduled_tasks`.
     foreach ([
-        \Modules\UsageStats\Task\PurgePageViewsHandler::TASK_KEY => \Modules\UsageStats\Task\PurgePageViewsHandler::REFERENCE,
+        \Modules\UsageStats\Task\PurgePageViewsHandler::TASK_KEY =>
+            \Modules\UsageStats\Task\PurgePageViewsHandler::REFERENCE,
     ] as $usageTaskKey => $usageTaskReference) {
         $schedulerService->rearm('usage_stats', $usageTaskKey, $usageTaskReference, new DateTimeImmutable());
     }
@@ -2608,7 +2613,8 @@ $expenseReceiptProvider = null;
 // (mass_mail, gallery, calendar) still require the re-registration
 // further down, once their blocks have run.
 $memberPageService = new \Core\Member\MemberPageService(
-    $sectionService, $memberService, $badgeRepository, $memberBadgeRepository, $ageBranchRepo, $memberDocumentService, $memberEmailService,
+    $sectionService, $memberService, $badgeRepository, $memberBadgeRepository, $ageBranchRepo, $memberDocumentService,
+    $memberEmailService,
     $sectionDocumentService, $moduleHooks
 );
 
@@ -2699,7 +2705,8 @@ $frontController->registerController(
     )
 );
 $frontController->registerController(MaintenanceController::class, new MaintenanceController(
-    $twig, $backupService, $backupRepository, $fileRepository, $updateHistoryRepository, $schedulerService, $moduleManager, $encryptionService, $journalService, $settingService, $storagePath, $secretManager,
+    $twig, $backupService, $backupRepository, $fileRepository, $updateHistoryRepository, $schedulerService,
+    $moduleManager, $encryptionService, $journalService, $settingService, $storagePath, $secretManager,
     null,
     // A runner of its own, with a SHORT budget: updateStatus() runs one
     // slice per poll while an update sits in `migrating`, inside a request
@@ -3450,7 +3457,9 @@ if ($isEnabled('finance')) {
     // How far an account's money is known (§7.5): the one date that stops
     // the news module's « entrés sans paiement » list turning into a
     // reminder sent to people who have already paid.
-    $financeStatementStatusForOthers = new \Modules\Finance\Service\StatementImportStatusService($financeStatementImportRepo);
+    $financeStatementStatusForOthers = new \Modules\Finance\Service\StatementImportStatusService(
+        $financeStatementImportRepo
+    );
     $financeAttachmentRepo = new \Modules\Finance\Repository\AttachmentRepository($pdo, $encryptionService);
     $financeTransactionAttachmentRepo = new \Modules\Finance\Repository\TransactionAttachmentRepository($pdo);
 
@@ -3475,7 +3484,8 @@ if ($isEnabled('finance')) {
     );
     $financeAccountVisibility = new \Modules\Finance\Service\AccountVisibility($financeTreasurerScope);
     $financeService = new \Modules\Finance\Service\FinanceService(
-        $financeAccountRepo, $financeCategoryRepo, $financeFiscalYearRepo, $sectionService, $financeTransactionRepo, $financeBalanceService,
+        $financeAccountRepo, $financeCategoryRepo, $financeFiscalYearRepo, $sectionService, $financeTransactionRepo,
+        $financeBalanceService,
         $settingService, $financeCategoryRuleRepo, $financeAccountTransferCategoryService, $financeAccountVisibility
     );
     $financeRuleEngine = new \Modules\Finance\Service\CategoryRuleEngine($financeTransactionRepo,
@@ -3524,7 +3534,8 @@ if ($isEnabled('finance')) {
 
     $financeImportService = new \Modules\Finance\Service\ImportService(
         $pdo, $encryptionService, $financeParserFactory, $financeTransactionRepo, $financeCheckpointRepo,
-        $financeStatementImportRepo, $financeFiscalYearRepo, $financeRuleEngine, $financeBalanceService, $financeReceiptMatchingService,
+        $financeStatementImportRepo, $financeFiscalYearRepo, $financeRuleEngine, $financeBalanceService,
+        $financeReceiptMatchingService,
         $financeBulkCategorizationService, $financeAllocationService
     );
     $financeEncryptedFileStorage = new \Core\File\EncryptedFileStorageService($fileRepository, $encryptionService,
@@ -3692,7 +3703,8 @@ if ($isEnabled('finance')) {
         \Modules\Finance\Controller\DashboardController::class,
         new \Modules\Finance\Controller\DashboardController(
             $twig, $financeService, $financeBalanceService, $financeTransactionRepo, $financeReceiptService,
-            $financeCategoryRepo, $financeAttachmentRepo, $financeTransactionAttachmentRepo, $financeStatementImportRepo,
+            $financeCategoryRepo, $financeAttachmentRepo, $financeTransactionAttachmentRepo,
+            $financeStatementImportRepo,
             $financeFirstReceiptResolver, $financeReconciliationService, $scoutYearService
         )
     );
@@ -3751,7 +3763,9 @@ if ($isEnabled('finance')) {
 
     // Public API implementations (ARCHITECTURE.md §7.5) — instantiated
     // here so other modules (news) can consume them as nullable deps.
-    $financeStructuredCommunicationForOthers = new \Modules\Finance\Service\StructuredCommunicationService($financeExpectedReceivableRepo);
+    $financeStructuredCommunicationForOthers = new \Modules\Finance\Service\StructuredCommunicationService(
+        $financeExpectedReceivableRepo
+    );
     $financeExpectedReceivableForOthers = new \Modules\Finance\Service\ExpectedReceivableService(
         $financeExpectedReceivableRepo,
         $financeAllocationService
@@ -3815,7 +3829,9 @@ if ($isEnabled('finance')) {
         $pdo,
         $financeCampaignRepo,
         $financeCampaignRowRepo,
-        new \Modules\Finance\Service\CampaignImportService(new \Modules\Finance\Repository\MemberLookupRepository($pdo)),
+        new \Modules\Finance\Service\CampaignImportService(
+            new \Modules\Finance\Repository\MemberLookupRepository($pdo)
+        ),
         $financeExpectedReceivableForOthers,
         $financeStructuredCommunicationForOthers,
         $financeAccountRepo,
@@ -3986,7 +4002,8 @@ if ($isEnabled('mass_mail')) {
     $massMailAccessService = new \Modules\MassMail\Service\MassMailAccessService($memberService, $sectionService);
     $massMailService = new \Modules\MassMail\Service\MassMailService(
         $massMailEmailRepo, $massMailRecipientRepo, $massMailAttachmentRepo, $fileRepository,
-        $massMailListService, $memberService, $memberEmailService, $sectionService, $mailService, $schedulerService, $journalService,
+        $massMailListService, $memberService, $memberEmailService, $sectionService, $mailService, $schedulerService,
+        $journalService,
         new \Core\Security\HtmlSanitizer(), $scoutYearService, $importJournalRepo, $storagePath,
         $massMailAudienceRepo, $massMailResolutionRepo, $massMailSuppressedRepo, $massMailMergeRenderer
     );
@@ -4087,8 +4104,10 @@ if ($isEnabled('news')) {
     );
     $newsResponseService = new \Modules\News\Service\ResponseService(
         $newsResponseRepo, $roleResolver, $sectionService, $mailService, $emailTemplateRenderer, $shortUrlService,
-        (string) ($settingService->get('base_url') ?: ''), (string) ($settingService->get('site_name') ?: 'Unité scoute'),
-        $financeStructuredCommunicationForOthers, $financeExpectedReceivableForOthers, $financeSepaQrCodeForOthers, $financeAccountForOthers,
+        (string) ($settingService->get('base_url') ?: ''),
+        (string) ($settingService->get('site_name') ?: 'Unité scoute'),
+        $financeStructuredCommunicationForOthers, $financeExpectedReceivableForOthers, $financeSepaQrCodeForOthers,
+        $financeAccountForOthers,
         $journalService, $newsTicketService, $newsTicketMailService
     );
     // Optional dependency on the llm_connector module (ARCHITECTURE.md
@@ -4766,15 +4785,19 @@ if ($isEnabled('support_dashboard')) {
     foreach ([
         // Rate-limit rows are written on every accepted report and only ever
         // read for the last hour — without this the table grows forever.
-        \Modules\SupportDashboard\Task\PurgeRateLimitsHandler::TASK_KEY => \Modules\SupportDashboard\Task\PurgeRateLimitsHandler::REFERENCE,
+        \Modules\SupportDashboard\Task\PurgeRateLimitsHandler::TASK_KEY =>
+            \Modules\SupportDashboard\Task\PurgeRateLimitsHandler::REFERENCE,
         // Retention (§8.50): past support_retention_months with no report,
         // the whole record goes — id, URL, payload and credential hash.
-        \Modules\SupportDashboard\Task\PurgeInstallationsHandler::TASK_KEY => \Modules\SupportDashboard\Task\PurgeInstallationsHandler::REFERENCE,
+        \Modules\SupportDashboard\Task\PurgeInstallationsHandler::TASK_KEY =>
+            \Modules\SupportDashboard\Task\PurgeInstallationsHandler::REFERENCE,
         // Monthly history (§8.51): closes every calendar month that ended.
-        \Modules\SupportDashboard\Task\FinalizeMonthlyAggregateHandler::TASK_KEY => \Modules\SupportDashboard\Task\FinalizeMonthlyAggregateHandler::REFERENCE,
+        \Modules\SupportDashboard\Task\FinalizeMonthlyAggregateHandler::TASK_KEY =>
+            \Modules\SupportDashboard\Task\FinalizeMonthlyAggregateHandler::REFERENCE,
         // Ticket retention (roadmap IT-28): the diagnostic archives, then
         // the tickets themselves, then the analyses that summarise them.
-        \Modules\SupportDashboard\Task\PurgeTicketsHandler::TASK_KEY => \Modules\SupportDashboard\Task\PurgeTicketsHandler::REFERENCE,
+        \Modules\SupportDashboard\Task\PurgeTicketsHandler::TASK_KEY =>
+            \Modules\SupportDashboard\Task\PurgeTicketsHandler::REFERENCE,
     ] as $supportTaskKey => $supportTaskReference) {
         $schedulerService->rearm('support_dashboard', $supportTaskKey, $supportTaskReference, new DateTimeImmutable());
     }
@@ -4812,7 +4835,8 @@ if ($isEnabled('test_tools')) {
     foreach ([
         // Retention (§8.63): past mail_capture_retention messages, the
         // oldest go — rows and encrypted files together.
-        \Modules\TestTools\Task\PurgeCapturedEmailsHandler::TASK_KEY => \Modules\TestTools\Task\PurgeCapturedEmailsHandler::REFERENCE,
+        \Modules\TestTools\Task\PurgeCapturedEmailsHandler::TASK_KEY =>
+            \Modules\TestTools\Task\PurgeCapturedEmailsHandler::REFERENCE,
     ] as $testToolsTaskKey => $testToolsTaskReference) {
         $schedulerService->rearm('test_tools', $testToolsTaskKey, $testToolsTaskReference, new DateTimeImmutable());
     }
@@ -5137,7 +5161,8 @@ if ($isEnabled('retro')) {
         $retroRateLimitService);
     $retroBoardService = new \Modules\Retro\Service\BoardService(
         $retroBoardRepo, $retroCommentRepo, $memberService, $sectionService, $schedulerService, $journalService,
-        $mailService, $emailTemplateRenderer, (string) ($settingService->get('site_name') ?: 'Unité scoute'), (string) ($settingService->get('base_url') ?: ''),
+        $mailService, $emailTemplateRenderer, (string) ($settingService->get('site_name') ?: 'Unité scoute'),
+        (string) ($settingService->get('base_url') ?: ''),
         $shortUrlService,
         $calendarServiceForOthers,
         $retroSummaryService
@@ -5294,7 +5319,9 @@ if ($isEnabled('registration')) {
     // different modules now feed that page (this one and calendar), so it
     // is registered once, after every module block, with whichever
     // providers exist by then.
-    $registrationScoutYearVeto = new \Modules\Registration\Service\ScoutYearTransitionVetoService($registrationRequestRepo);
+    $registrationScoutYearVeto = new \Modules\Registration\Service\ScoutYearTransitionVetoService(
+        $registrationRequestRepo
+    );
     $scoutYearAdminService = new ScoutYearAdminService($settingService, $registrationScoutYearVeto);
 
     // Api\ScoutYearPreparationProvider (ARCHITECTURE.md §7.5) — the second
@@ -5453,7 +5480,8 @@ if ($isEnabled('registration')) {
     $frontController->registerController(
         \Modules\Registration\Controller\PassageController::class,
         new \Modules\Registration\Controller\PassageController(
-            $twig, $registrationPassageService, $registrationRequestRepo, $registrationSectionTransferRepo, $sectionService,
+            $twig, $registrationPassageService, $registrationRequestRepo, $registrationSectionTransferRepo,
+            $sectionService,
             $registrationAgeBracketRepo, $registrationSlotService, $scoutYearResolver, $scoutYearService,
             new \Modules\Registration\Service\PassageStatisticsService(
                 $sectionService,
@@ -5541,7 +5569,8 @@ if ($isEnabled('registration')) {
         // re-registration already carries (phpstan-baseline.neon).
         $massMailService = new \Modules\MassMail\Service\MassMailService(
             $massMailEmailRepo, $massMailRecipientRepo, $massMailAttachmentRepo, $fileRepository,
-            $massMailListService, $memberService, $memberEmailService, $sectionService, $mailService, $schedulerService, $journalService,
+            $massMailListService, $memberService, $memberEmailService, $sectionService, $mailService, $schedulerService,
+            $journalService,
             new \Core\Security\HtmlSanitizer(), $scoutYearService, $importJournalRepo, $storagePath,
             new \Modules\MassMail\Repository\AudienceRepository($pdo, $encryptionService),
             new \Modules\MassMail\Repository\MemberResolutionRepository($pdo, $encryptionService),
@@ -6265,7 +6294,8 @@ if (
         : null;
 
     $memberPageService = new \Core\Member\MemberPageService(
-        $sectionService, $memberService, $badgeRepository, $memberBadgeRepository, $ageBranchRepo, $memberDocumentService, $memberEmailService,
+        $sectionService, $memberService, $badgeRepository, $memberBadgeRepository, $ageBranchRepo,
+        $memberDocumentService, $memberEmailService,
         $sectionDocumentService, $moduleHooks, $massMailQueryForMember, $galleryAlbumProviderForMember, $calendarEventLookupForOthers
     );
 

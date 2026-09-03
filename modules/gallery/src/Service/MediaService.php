@@ -152,7 +152,8 @@ class MediaService
             // the exact same ownership check as /gallery/media/{id}/{size},
             // instead of stopping at the flat 'identified' floor below.
             $fileId = $this->uploadHandler->handle(
-                $uploadedFile, "gallery/{$album->id}/orig", $allowedMimes, $maxBytes, 'identified', 'gallery', $accountId,
+                $uploadedFile, "gallery/{$album->id}/orig", $allowedMimes, $maxBytes, 'identified', 'gallery',
+                $accountId,
                 $album->ownerType, $album->ownerId
             );
         } catch (UploadException $e) {

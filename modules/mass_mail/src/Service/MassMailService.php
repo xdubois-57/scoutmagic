@@ -505,7 +505,9 @@ class MassMailService
     private function freezeListRecipients(Email $email): array
     {
         $members = $this->mailingListService->resolveMembersForYears(
-            $email->listType, $email->listId, $email->listSectionId, $this->orderYearsMostRecentFirst($email->scoutYearIds)
+            $email->listType, $email->listId, $email->listSectionId, $this->orderYearsMostRecentFirst(
+                $email->scoutYearIds
+            )
         );
 
         $validCount = 0;

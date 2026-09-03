@@ -80,7 +80,8 @@ class StatisticsPayloadBuilder
             'generated_at' => (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format(\DateTimeInterface::ATOM),
             'scoutmagic' => [
                 'version' => $this->collect(fn(): string => VersionFile::read($this->projectRoot)),
-                'is_dev_build' => $this->collect(fn(): bool => VersionFile::isDevBuild(VersionFile::read($this->projectRoot))),
+                'is_dev_build' =>
+                    $this->collect(fn(): bool => VersionFile::isDevBuild(VersionFile::read($this->projectRoot))),
             ],
             'scout_year' => [
                 'label' => $this->collect(fn(): ?string => $this->scoutYearLabel($publicScoutYearId)),
@@ -123,7 +124,8 @@ class StatisticsPayloadBuilder
                 'auto_update_level' => $this->collect(fn(): ?string => $this->settingValue('auto_update_level')),
             ],
             'lifecycle' => [
-                'installed_at' => $this->collect(fn(): ?string => $this->settingValue(InstallationDateService::SETTING_KEY)),
+                'installed_at' =>
+                    $this->collect(fn(): ?string => $this->settingValue(InstallationDateService::SETTING_KEY)),
                 'last_upgraded_at' => $this->collect(fn(): ?string => $this->lastUpgradedAt()),
             ],
             'storage' => [

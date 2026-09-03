@@ -149,10 +149,16 @@ class RegistrationSecondaryEmailRepository
             confirmationTokenHash: $row['confirmation_token_hash'] !== null
                 ? (string) $row['confirmation_token_hash']
                 : null,
-            confirmationExpiresAt: DateInput::fromStorage($row['confirmation_expires_at'] === null ? null : (string) $row['confirmation_expires_at']),
-            lastConfirmationSentAt: DateInput::fromStorage($row['last_confirmation_sent_at'] === null ? null : (string) $row['last_confirmation_sent_at']),
+            confirmationExpiresAt: DateInput::fromStorage(
+                $row['confirmation_expires_at'] === null ? null : (string) $row['confirmation_expires_at']
+            ),
+            lastConfirmationSentAt: DateInput::fromStorage(
+                $row['last_confirmation_sent_at'] === null ? null : (string) $row['last_confirmation_sent_at']
+            ),
             confirmedAt: DateInput::fromStorage($row['confirmed_at'] === null ? null : (string) $row['confirmed_at']),
-            deactivatedAt: DateInput::fromStorage($row['deactivated_at'] === null ? null : (string) $row['deactivated_at']),
+            deactivatedAt: DateInput::fromStorage(
+                $row['deactivated_at'] === null ? null : (string) $row['deactivated_at']
+            ),
             createdAt: DateInput::requireFromStorage((string) $row['created_at'], 'created_at')
         );
     }

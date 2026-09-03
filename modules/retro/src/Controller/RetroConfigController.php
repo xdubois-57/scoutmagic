@@ -90,7 +90,13 @@ class RetroConfigController extends AbstractController
             return $this->saveError('Rôle minimum de clôture invalide.');
         }
         if ($maxCommentLength < self::MIN_MAX_COMMENT_LENGTH || $maxCommentLength > self::MAX_MAX_COMMENT_LENGTH) {
-            return $this->saveError('La longueur maximale par défaut doit être comprise entre ' . self::MIN_MAX_COMMENT_LENGTH . ' et ' . self::MAX_MAX_COMMENT_LENGTH . '.');
+            return $this->saveError(
+                'La longueur maximale par défaut doit être comprise entre '
+                    . self::MIN_MAX_COMMENT_LENGTH
+                    . ' et '
+                    . self::MAX_MAX_COMMENT_LENGTH
+                    . '.'
+            );
         }
         if ($voteBudget < 1 || $voteBudget > IntegerInput::UNSIGNED_INT_MAX) {
             return $this->saveError('Le budget de points par défaut doit être d\'au moins 1.');

@@ -304,7 +304,8 @@ class SupportPackageService
 
         $clock = self::timezoneInfo();
         $clockLine = "Fuseau horaire de l'application : {$clock['application_timezone']} "
-            . "(UTC{$clock['utc_offset']})\n        Fuseau horaire PHP de l'hébergement : {$clock['host_php_timezone']}";
+            . "(UTC{$clock['utc_offset']})\n        Fuseau horaire PHP de l'hébergement : "
+            . "{$clock['host_php_timezone']}";
 
         return <<<TXT
         ARCHIVE DE SUPPORT SCOUTMAGIC

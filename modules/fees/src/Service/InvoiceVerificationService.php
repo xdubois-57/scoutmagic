@@ -543,7 +543,8 @@ class InvoiceVerificationService
 
         return count(array_filter(
             $inSection,
-            fn(RosterSnapshotMember $m): bool => $this->tariffs->categoryForFeeCategoryId($m->feeCategoryId) === $category
+            fn(RosterSnapshotMember $m): bool =>
+                $this->tariffs->categoryForFeeCategoryId($m->feeCategoryId) === $category
         ));
     }
 

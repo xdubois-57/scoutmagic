@@ -887,10 +887,14 @@ class RentalBookingRepository
             agreedTotalCents: isset($row['agreed_total_cents']) ? (int) $row['agreed_total_cents'] : null,
             conditionsVersion: $row['conditions_version'] !== null ? (string) $row['conditions_version'] : null,
             conditionsHash: $row['conditions_hash'] !== null ? (string) $row['conditions_hash'] : null,
-            conditionsAcceptedAt: DateInput::fromStorage($row['conditions_accepted_at'] === null ? null : (string) $row['conditions_accepted_at']),
+            conditionsAcceptedAt: DateInput::fromStorage(
+                $row['conditions_accepted_at'] === null ? null : (string) $row['conditions_accepted_at']
+            ),
             privacyVersion: $row['privacy_version'] !== null ? (string) $row['privacy_version'] : null,
             privacyHash: $row['privacy_hash'] !== null ? (string) $row['privacy_hash'] : null,
-            privacyAcknowledgedAt: DateInput::fromStorage($row['privacy_acknowledged_at'] === null ? null : (string) $row['privacy_acknowledged_at'])
+            privacyAcknowledgedAt: DateInput::fromStorage(
+                $row['privacy_acknowledged_at'] === null ? null : (string) $row['privacy_acknowledged_at']
+            )
         );
     }
 }

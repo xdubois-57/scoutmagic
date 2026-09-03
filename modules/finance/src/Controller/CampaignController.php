@@ -294,7 +294,9 @@ class CampaignController extends AbstractController
             FlashMessage::set('error', $e->getMessage());
         }
 
-        return $this->redirect($redirect . '?filter=' . CampaignOverviewService::normalizeFilter($request->getBody('filter')));
+        return $this->redirect(
+            $redirect . '?filter=' . CampaignOverviewService::normalizeFilter($request->getBody('filter'))
+        );
     }
 
     /**

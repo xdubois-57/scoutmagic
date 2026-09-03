@@ -85,7 +85,9 @@ class UpdateHistoryRepository
      */
     public function findRecent(int $limit): array
     {
-        $stmt = $this->pdo->prepare('SELECT * FROM update_history ORDER BY started_at DESC, id DESC LIMIT ' . (int) $limit);
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM update_history ORDER BY started_at DESC, id DESC LIMIT ' . (int) $limit
+        );
         $stmt->execute();
 
         return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));

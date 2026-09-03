@@ -94,7 +94,14 @@ class UploadController extends AbstractController
 
         if ($uploadedFile === null) {
             FlashMessage::set('error', 'Aucun fichier sélectionné.');
-            return $this->redirect('/upload?context=' . urlencode($context) . '&key=' . urlencode($key) . '&return=' . urlencode($returnUrl));
+            return $this->redirect(
+                '/upload?context='
+                    . urlencode($context)
+                    . '&key='
+                    . urlencode($key)
+                    . '&return='
+                    . urlencode($returnUrl)
+            );
         }
 
         try {
@@ -138,7 +145,14 @@ class UploadController extends AbstractController
             return $this->redirect($returnUrl);
         } catch (UploadException $e) {
             FlashMessage::set('error', $e->getMessage());
-            return $this->redirect('/upload?context=' . urlencode($context) . '&key=' . urlencode($key) . '&return=' . urlencode($returnUrl));
+            return $this->redirect(
+                '/upload?context='
+                    . urlencode($context)
+                    . '&key='
+                    . urlencode($key)
+                    . '&return='
+                    . urlencode($returnUrl)
+            );
         }
     }
 

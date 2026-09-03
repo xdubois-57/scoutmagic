@@ -73,7 +73,8 @@ class MemberLookupRepository
         }
 
         $placeholders = implode(',', array_fill(0, count($values), '?'));
-        $stmt = $this->pdo->prepare("SELECT desk_id, id, merged_into_member_id FROM members WHERE desk_id IN ($placeholders)");
+        $stmt = $this->pdo->prepare("SELECT desk_id, id, merged_into_member_id FROM members WHERE desk_id IN "
+            . "($placeholders)");
         $stmt->execute($values);
 
         $resolved = [];

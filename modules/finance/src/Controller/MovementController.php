@@ -509,7 +509,9 @@ class MovementController extends AbstractController
                 'label' => $transaction->label,
                 'amount' => $transaction->amount,
                 'counterparty' => MovementPresenter::counterparty(
-                    $transaction, $firstReceipts[$transaction->id] ?? null, $accountNamesById[$transaction->accountId] ?? ''
+                    $transaction, $firstReceipts[
+                        $transaction->id
+                    ] ?? null, $accountNamesById[$transaction->accountId] ?? ''
                 ),
                 'description' => MovementPresenter::description($transaction, $firstReceipts[$transaction->id] ?? null),
             ], $matches),

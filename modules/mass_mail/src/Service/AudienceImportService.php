@@ -123,7 +123,8 @@ class AudienceImportService
             $invalid = array_values(array_filter($addresses,
                 fn(string $a) => filter_var($a, FILTER_VALIDATE_EMAIL) === false));
             if ($invalid !== []) {
-                $errors[] = "Ligne {$lineNo} — la valeur « {$invalid[0]} » de la colonne Email n'est pas une adresse valide.";
+                $errors[] = "Ligne {$lineNo} — la valeur « {$invalid[0]} » de la colonne Email n'est pas une adresse "
+                    . "valide.";
                 continue;
             }
 

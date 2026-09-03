@@ -136,14 +136,16 @@ class FormService
         if ($existing === null) {
             $formId = $this->formRepository->create(
                 $articleId, $access, $responseLimit, $settings['opens_at'], $settings['closes_at'],
-                $settings['is_force_closed'], $responseRoleMin, $settings['daily_digest_enabled'], $settings['finance_account_id'],
+                $settings['is_force_closed'], $responseRoleMin, $settings['daily_digest_enabled'],
+                $settings['finance_account_id'],
                 $issuesTicket, $eventDate, $eventLocation
             );
         } else {
             $formId = $existing->id;
             $this->formRepository->update(
                 $formId, $access, $responseLimit, $settings['opens_at'], $settings['closes_at'],
-                $settings['is_force_closed'], $responseRoleMin, $settings['daily_digest_enabled'], $settings['finance_account_id'],
+                $settings['is_force_closed'], $responseRoleMin, $settings['daily_digest_enabled'],
+                $settings['finance_account_id'],
                 $issuesTicket, $eventDate, $eventLocation
             );
         }

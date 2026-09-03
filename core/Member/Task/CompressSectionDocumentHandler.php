@@ -86,7 +86,9 @@ class CompressSectionDocumentHandler implements TaskHandlerInterface
             return;
         }
 
-        $quality = (string) ($context->settings->get('section_document_compression_quality') ?: PdfCompressor::QUALITY_BALANCED);
+        $quality = (string) (
+            $context->settings->get('section_document_compression_quality') ?: PdfCompressor::QUALITY_BALANCED
+        );
         $compressed = $compressor->compress($content, $backend, $quality);
 
         if ($compressed === null) {

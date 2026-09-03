@@ -297,7 +297,8 @@ class PassageOptimizationService
                     // The staff's own reading wins over the family's when
                     // there is one (IT-17): it is the later, better
                     // informed statement of the same wish.
-                    'desired_section_id' => $staffNotes[$memberId]['preferred_section_id'] ?? $answer?->preferredSectionId,
+                    'desired_section_id' =>
+                        $staffNotes[$memberId]['preferred_section_id'] ?? $answer?->preferredSectionId,
                     // Somebody changing branch always arrives at its first
                     // rank; that is what "changing branch" means here.
                     'first_year' => true,

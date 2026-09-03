@@ -387,7 +387,8 @@ class RegistrationRequestController extends AbstractController
             'r' => $registrationRequest,
             // The child's name is already decrypted on the entity — no
             // extra decryption for the breadcrumb title.
-            'breadcrumb_current' => trim($registrationRequest->childFirstName . ' ' . $registrationRequest->childLastName),
+            'breadcrumb_current' =>
+                trim($registrationRequest->childFirstName . ' ' . $registrationRequest->childLastName),
             'scout_year_label' => $scoutYearLabel,
             'slot_label' => $this->slotLabel($brackets, $slot),
             'desired_section_label' => $registrationRequest->desiredSectionId !== null

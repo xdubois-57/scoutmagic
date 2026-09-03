@@ -184,7 +184,9 @@ class MigrationRunner
      */
     public function isPending(array $schemaFiles): bool
     {
-        return $this->getStoredSetting($this->schemaHashSettingKey($schemaFiles)) !== $this->computeSchemaHash($schemaFiles);
+        return $this->getStoredSetting(
+            $this->schemaHashSettingKey($schemaFiles)
+        ) !== $this->computeSchemaHash($schemaFiles);
     }
 
     /**

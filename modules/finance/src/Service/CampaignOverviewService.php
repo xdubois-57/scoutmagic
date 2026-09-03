@@ -295,7 +295,9 @@ class CampaignOverviewService
             return null;
         }
 
-        $label = trim(($authorNames[$authorId]['first_name'] ?? '') . ' ' . ($authorNames[$authorId]['last_name'] ?? ''));
+        $label = trim(
+            ($authorNames[$authorId]['first_name'] ?? '') . ' ' . ($authorNames[$authorId]['last_name'] ?? '')
+        );
 
         return $label !== '' ? $label : null;
     }

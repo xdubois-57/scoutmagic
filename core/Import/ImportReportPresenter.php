@@ -111,7 +111,8 @@ class ImportReportPresenter
             'counts' => [
                 'arrived' => count($diff->arrivedMemberIds),
                 'departed' => count($diff->departedMemberIds),
-                'moved' => count($diff->sectionChanges) + count($diff->functionChanges) + count($diff->feeCategoryChanges),
+                'moved' =>
+                    count($diff->sectionChanges) + count($diff->functionChanges) + count($diff->feeCategoryChanges),
                 'access' => $diff->accessImpactCount(),
             ],
             'is_empty' => $diff->isEmpty(),

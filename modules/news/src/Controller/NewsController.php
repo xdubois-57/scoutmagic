@@ -455,7 +455,9 @@ class NewsController extends AbstractController
         // the list card and social-share description, and short enough
         // that Core\Pdf\PosterPdfService's own truncation never kicks in.
         $pdf = $this->posterPdfService->generate(
-            $article->title, (string) $article->summary, $qrUrl, $shortName, $this->buildImageDataUri($article->imageFileId)
+            $article->title, (string) $article->summary, $qrUrl, $shortName, $this->buildImageDataUri(
+                $article->imageFileId
+            )
         );
         $slug = preg_replace('/[^a-z0-9]+/', '-', mb_strtolower($article->title)) ?? 'article';
 

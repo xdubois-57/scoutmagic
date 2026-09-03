@@ -115,7 +115,9 @@ class SendBatchHandler implements TaskHandlerInterface
             // Cached per batch — several recipients typically share the
             // same email/sender section.
             if (!isset($senderIdentityBySection[$email->sectionId])) {
-                $senderIdentityBySection[$email->sectionId] = $massMailService->resolveSenderIdentity($email->sectionId);
+                $senderIdentityBySection[
+                    $email->sectionId
+                ] = $massMailService->resolveSenderIdentity($email->sectionId);
             }
             $sender = $senderIdentityBySection[$email->sectionId];
 
@@ -268,7 +270,9 @@ class SendBatchHandler implements TaskHandlerInterface
             $intervalMinutes = self::DEFAULT_BATCH_INTERVAL_MINUTES;
         }
 
-        $schedulerService = new SchedulerService(new \Core\Scheduler\SchedulerRepository($context->connection->getPdo()));
+        $schedulerService = new SchedulerService(
+            new \Core\Scheduler\SchedulerRepository($context->connection->getPdo())
+        );
         $schedulerService->scheduleAfter('mass_mail', 'send_batch', $intervalMinutes * 60);
     }
 

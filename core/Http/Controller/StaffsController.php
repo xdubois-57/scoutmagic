@@ -162,7 +162,8 @@ class StaffsController extends AbstractController
             'section_document_years' => $sectionDocumentYears,
             'section_document_compression_backend' => $compressionBackend,
             'section_document_compression_backend_none' => $compressionBackend === PdfCompressor::BACKEND_NONE,
-            'section_document_oversize_warning_mb' => (int) ($this->settingService->get('section_document_oversize_warning_mb') ?: 5),
+            'section_document_oversize_warning_mb' =>
+                (int) ($this->settingService->get('section_document_oversize_warning_mb') ?: 5),
             'available_badges' => $availableBadges,
         ];
         // The section picker changes what this page shows without changing

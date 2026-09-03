@@ -144,7 +144,9 @@ class ProcessVideoHandler implements TaskHandlerInterface
             }
 
             $mediaRepository->markVideoDone(
-                $mediaId, $thumbKey, $mediumKey, $largeKey, $originalKey, $probe['width'], $probe['height'], $probe['durationSeconds']
+                $mediaId, $thumbKey, $mediumKey, $largeKey, $originalKey, $probe[
+                    'width'
+                ], $probe['height'], $probe['durationSeconds']
             );
 
             // Module spec: drop the staging original's bytes once processed,

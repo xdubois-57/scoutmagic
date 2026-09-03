@@ -117,7 +117,8 @@ class GalleryConfigController extends AbstractController
             }
             $value = (int) $raw;
             if ($value < $bounds['min'] || $value > $bounds['max']) {
-                return $this->saveError("{$bounds['label']} doit être comprise entre {$bounds['min']} et {$bounds['max']}.");
+                return $this->saveError("{$bounds['label']} doit être comprise entre {$bounds['min']} et "
+                    . "{$bounds['max']}.");
             }
             $numericValues[$key] = (string) $value;
         }

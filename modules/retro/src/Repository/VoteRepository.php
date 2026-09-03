@@ -72,7 +72,8 @@ class VoteRepository
         }
 
         $placeholders = implode(',', array_fill(0, count($voterHashes), '?'));
-        $stmt = $this->pdo->prepare("SELECT voter_hash FROM retro_votes WHERE board_id = ? AND voter_hash IN ({$placeholders})");
+        $stmt = $this->pdo->prepare("SELECT voter_hash FROM retro_votes WHERE board_id = ? AND voter_hash IN "
+            . "({$placeholders})");
         $stmt->execute([$boardId, ...$voterHashes]);
 
         return $stmt->fetchAll(\PDO::FETCH_COLUMN);

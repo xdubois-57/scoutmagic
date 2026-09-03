@@ -37,7 +37,9 @@ class StructuredCommunicationService implements StructuredCommunicationInterface
             }
         }
 
-        throw new \RuntimeException('Unable to generate a unique structured communication after ' . self::MAX_ATTEMPTS . ' attempts.');
+        throw new \RuntimeException(
+            'Unable to generate a unique structured communication after ' . self::MAX_ATTEMPTS . ' attempts.'
+        );
     }
 
     /**

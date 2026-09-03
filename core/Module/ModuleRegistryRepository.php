@@ -69,7 +69,9 @@ class ModuleRegistryRepository
 
         if ($existing === null) {
             $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
-            $nextOrder = (int) $this->pdo->query('SELECT COALESCE(MAX(sort_order), -1) + 1 FROM module_registry')->fetchColumn();
+            $nextOrder = (int) $this->pdo->query(
+                'SELECT COALESCE(MAX(sort_order), -1) + 1 FROM module_registry'
+            )->fetchColumn();
             $stmt = $this->pdo->prepare(
                 'INSERT INTO module_registry (module_id, enabled, installed_version, sort_order, enabled_at, '
                     . 'enabled_by) VALUES (?, ?, ?, ?, ?, ?)'

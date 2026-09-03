@@ -119,7 +119,9 @@ class PurgeOldMovementsHandler implements TaskHandlerInterface
             );
 
             foreach ($transactionIds as $transactionId) {
-                foreach ($transactionAttachmentRepository->findAttachmentIdsForTransaction($transactionId) as $attachmentId) {
+                foreach (
+                    $transactionAttachmentRepository->findAttachmentIdsForTransaction($transactionId) as $attachmentId
+                ) {
                     $affectedAttachmentIds[$attachmentId] = true;
                 }
                 $transactionAttachmentRepository->deleteAllForTransaction($transactionId);

@@ -201,7 +201,8 @@ class ScoutYearTransitionService
                 'key' => self::PHASE_SITE,
                 'title' => 'Mise à jour du site',
                 'subtitle' => null,
-                'note' => "Le site est à jour pour {$targetYear['label']} : c'est typiquement au tour des staffs d'agir.",
+                'note' => "Le site est à jour pour {$targetYear['label']} : c'est typiquement au tour des staffs "
+                    . "d'agir.",
                 'current' => false,
                 'steps' => [],
             ],

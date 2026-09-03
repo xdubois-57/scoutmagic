@@ -472,7 +472,13 @@ class BoardService implements RetroEventLinkLookupInterface
             throw new RetroException('Délai de clôture automatique invalide.');
         }
         if ($maxCommentLength < self::MIN_MAX_COMMENT_LENGTH || $maxCommentLength > self::MAX_MAX_COMMENT_LENGTH) {
-            throw new RetroException('La longueur maximale doit être comprise entre ' . self::MIN_MAX_COMMENT_LENGTH . ' et ' . self::MAX_MAX_COMMENT_LENGTH . '.');
+            throw new RetroException(
+                'La longueur maximale doit être comprise entre '
+                    . self::MIN_MAX_COMMENT_LENGTH
+                    . ' et '
+                    . self::MAX_MAX_COMMENT_LENGTH
+                    . '.'
+            );
         }
         if ($voteBudget < 1) {
             $voteBudget = 1;

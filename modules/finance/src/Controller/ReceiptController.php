@@ -653,7 +653,9 @@ class ReceiptController extends AbstractController
         $this->journalService->log('finance', 'receipt_replaced', 'info', 'Reçu remplacé',
             ['old_attachment_id' => $id, 'new_attachment_id' => $newAttachment->id], AuthSession::getUserAccountId());
 
-        return $this->redirect('/finance/receipts' . ($newAttachment->accountId !== null ? '?account_id=' . $newAttachment->accountId : ''));
+        return $this->redirect(
+            '/finance/receipts' . ($newAttachment->accountId !== null ? '?account_id=' . $newAttachment->accountId : '')
+        );
     }
 
     /**

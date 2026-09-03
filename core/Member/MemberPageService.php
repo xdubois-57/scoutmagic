@@ -89,7 +89,9 @@ class MemberPageService
         $resendCooldownMinutes = [];
         foreach ($memberEmails as $memberEmail) {
             if ($memberEmail->isPending()) {
-                $resendCooldownMinutes[$memberEmail->id] = $this->memberEmailService->resendCooldownRemainingMinutes($memberEmail);
+                $resendCooldownMinutes[
+                    $memberEmail->id
+                ] = $this->memberEmailService->resendCooldownRemainingMinutes($memberEmail);
             }
         }
 

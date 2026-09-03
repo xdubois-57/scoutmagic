@@ -248,7 +248,8 @@ class ReceiptService
             ? Attachment::SUGGESTED_SOURCE_MANUAL
             : null;
         $id = $this->attachmentRepository->create(
-            $account?->id, $fileId, $mimeType, $originalFilename, $suggestedAmount, $suggestedDate, null, $uploadedBy, $suggestedSource,
+            $account?->id, $fileId, $mimeType, $originalFilename, $suggestedAmount, $suggestedDate, null, $uploadedBy,
+            $suggestedSource,
             $contentHash
         );
 

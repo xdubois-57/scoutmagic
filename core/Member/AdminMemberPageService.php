@@ -146,7 +146,9 @@ class AdminMemberPageService
         // Both keyed on the PERSISTENT member id: a debt does not expire
         // when the scout year turns, and a registration request produced
         // a person rather than one year's row.
-        $settled = $this->hooks?->getOptional(MemberPaymentProvider::class)?->getSettledPayments($profile->memberId) ?? [];
+        $settled = $this->hooks?->getOptional(
+            MemberPaymentProvider::class
+        )?->getSettledPayments($profile->memberId) ?? [];
         $campStays = $this->hooks?->getOptional(MemberCampStayProvider::class)?->getCampStays($profile->memberId) ?? [];
 
         return [
@@ -156,13 +158,17 @@ class AdminMemberPageService
             'section_history' => $this->buildSectionHistory($profile->memberId, $scoutYearId),
             'member_emails' => $this->buildReadOnlyEmails($profile),
             'member_documents' => $this->buildDocuments($profile->memberId),
-            'open_payments' => $this->hooks?->getOptional(MemberPaymentProvider::class)?->getOpenPayments($profile->memberId) ?? [],
+            'open_payments' =>
+                $this->hooks?->getOptional(MemberPaymentProvider::class)?->getOpenPayments($profile->memberId) ?? [],
             'settled_payments' => $settled,
             // Said on screen rather than left to be inferred: a member of
             // ten years has more closed rows than this page shows, and a
             // silently truncated list reads as a complete one.
             'settled_payments_capped' => count($settled) >= MemberPaymentProvider::SETTLED_LIMIT,
-            'registration_origin' => $this->hooks?->getOptional(MemberRegistrationOriginProvider::class)?->getRegistrationOrigin($profile->memberId),
+            'registration_origin' =>
+                $this->hooks?->getOptional(
+                    MemberRegistrationOriginProvider::class
+                )?->getRegistrationOrigin($profile->memberId),
             // Scoped to the year the page is showing, unlike everything
             // else here: a training path is a statement about where
             // somebody stood in a given season, not a fact that
@@ -173,7 +179,10 @@ class AdminMemberPageService
             ),
             'camp_stays' => $campStays,
             'camp_stays_capped' => count($campStays) >= MemberCampStayProvider::LIMIT,
-            'discussion_groups' => $this->hooks?->getOptional(MemberDiscussionGroupProvider::class)?->getDiscussionGroups($profile->memberId) ?? [],
+            'discussion_groups' =>
+                $this->hooks?->getOptional(
+                    MemberDiscussionGroupProvider::class
+                )?->getDiscussionGroups($profile->memberId) ?? [],
         ];
     }
 

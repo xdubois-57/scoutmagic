@@ -322,7 +322,9 @@ class InboundMailboxRepository
             folders: $folders,
             isEnabled: (bool) $row['is_enabled'],
             syncState: SyncState::from((string) $row['sync_state']),
-            lastSyncedAt: DateInput::fromStorage($row['last_synced_at'] === null ? null : (string) $row['last_synced_at']),
+            lastSyncedAt: DateInput::fromStorage(
+                $row['last_synced_at'] === null ? null : (string) $row['last_synced_at']
+            ),
             lastError: $row['last_error'] !== null ? (string) $row['last_error'] : null,
             lastErrorAt: DateInput::fromStorage($row['last_error_at'] === null ? null : (string) $row['last_error_at']),
             purpose: MailboxPurpose::fromString(

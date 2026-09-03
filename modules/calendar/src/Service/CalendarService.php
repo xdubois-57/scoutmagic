@@ -170,7 +170,8 @@ class CalendarService implements CalendarEventLookupInterface, \Modules\Calendar
     public function selectableCalendars(): array
     {
         return array_map(
-            static fn(array $calendar): \Modules\Calendar\Api\SelectableCalendar => new \Modules\Calendar\Api\SelectableCalendar(
+            static fn(array $calendar): \Modules\Calendar\Api\SelectableCalendar =>
+                new \Modules\Calendar\Api\SelectableCalendar(
                 (int) $calendar['id'],
                 (string) $calendar['label'],
                 (bool) $calendar['is_section']
