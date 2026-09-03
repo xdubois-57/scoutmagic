@@ -69,7 +69,8 @@ class RestoreBackupHandler implements TaskHandlerInterface
      */
     public function handle(array $payload, TaskContext $context): void
     {
-        $requestedBy = isset($payload['requested_by_user_account_id']) && $payload['requested_by_user_account_id'] !== null
+        $requestedBy = isset($payload['requested_by_user_account_id'])
+            && $payload['requested_by_user_account_id'] !== null
             ? (int) $payload['requested_by_user_account_id']
             : null;
 
@@ -154,7 +155,8 @@ class RestoreBackupHandler implements TaskHandlerInterface
 
                 return;
             } catch (\Throwable $restoreError) {
-                $this->rollbackToSafetyBackup($context, $backupService, (string) $safetyDbDump, (string) $safetyZip, $requestedBy, $restoreError);
+                $this->rollbackToSafetyBackup($context, $backupService, (string) $safetyDbDump, (string) $safetyZip,
+                    $requestedBy, $restoreError);
             }
         } catch (\Throwable $e) {
             $context->journal->log(
@@ -233,7 +235,8 @@ class RestoreBackupHandler implements TaskHandlerInterface
                     'core',
                     'backup_restore_failed',
                     'info',
-                    'Échec de la migration lors de la reprise d\'une restauration, sans sauvegarde de sécurité disponible pour restauration',
+                    'Échec de la migration lors de la reprise d\'une restauration, sans sauvegarde de sécurité '
+                        . 'disponible pour restauration',
                     ['error' => $migrationError->getMessage()],
                     $requestedBy
                 );
@@ -265,7 +268,12 @@ class RestoreBackupHandler implements TaskHandlerInterface
      * migration left incomplete by the time budget gets another turn
      * shortly — routed back into resumeMigration() next time.
      */
-    private function scheduleMigrationResume(TaskContext $context, int $safetyBackupId, string $source, ?int $requestedBy): void
+    private function scheduleMigrationResume(
+        TaskContext $context,
+        int $safetyBackupId,
+        string $source,
+        ?int $requestedBy
+    ): void
     {
         $schedulerService = new SchedulerService(new SchedulerRepository($context->connection->getPdo()));
         $schedulerService->scheduleAfter('core', 'restore_backup', 0, [
@@ -354,7 +362,8 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 $requestedBy
             );
             $notifyTitle = 'Échec critique de la restauration';
-            $notifyBody = 'La restauration a échoué et la restauration automatique de l\'état précédent a également échoué. Une intervention manuelle est nécessaire.';
+            $notifyBody = 'La restauration a échoué et la restauration automatique de l\'état précédent a également '
+                . 'échoué. Une intervention manuelle est nécessaire.';
         }
 
         RequesterNotice::send($context, $requestedBy, self::TYPE_FAILED, $notifyTitle, $notifyBody);
@@ -362,7 +371,12 @@ class RestoreBackupHandler implements TaskHandlerInterface
 
     /**
      * @param array<string, mixed> $payload
-     * @return array{0: string, 1: ?string, 2: ?string, 3: ?string} dbDumpPath, filesZipPath, password, extractedUploadDbDump (for finally cleanup)
+     * @return array{
+     *     0: string,
+     *     1: ?string,
+     *     2: ?string,
+     *     3: ?string
+     * } dbDumpPath, filesZipPath, password, extractedUploadDbDump (for finally cleanup)
      */
     private function resolveSource(array $payload, \PDO $pdo, string $storagePath, EncryptionService $encryption): array
     {
@@ -394,7 +408,8 @@ class RestoreBackupHandler implements TaskHandlerInterface
             $dbSql = $zip->getFromName('database.sql');
             if ($dbSql === false) {
                 $zip->close();
-                throw new BackupException('Le fichier uploadé n\'est pas un backup valide (database.sql introuvable — mot de passe incorrect ?).');
+                throw new BackupException('Le fichier uploadé n\'est pas un backup valide (database.sql introuvable — '
+                    . 'mot de passe incorrect ?).');
             }
             $zip->close();
 
@@ -434,7 +449,11 @@ class RestoreBackupHandler implements TaskHandlerInterface
      * Deletes (file + row) every backup beyond the KEEP_BACKUPS most recent
      * — same purge as the other background Maintenance tasks.
      */
-    private function purgeBeyondLimit(BackupRepository $backupRepository, FileRepository $fileRepository, string $storagePath): void
+    private function purgeBeyondLimit(
+        BackupRepository $backupRepository,
+        FileRepository $fileRepository,
+        string $storagePath
+    ): void
     {
         foreach ($backupRepository->findBeyond(self::KEEP_BACKUPS) as $old) {
             foreach ([$old->fileId, $old->dbDumpFileId] as $fileId) {

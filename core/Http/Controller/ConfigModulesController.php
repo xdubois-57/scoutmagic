@@ -122,7 +122,8 @@ class ConfigModulesController extends AbstractController
             return $this->json(['success' => false, 'error' => UserFacingMessage::from(
                 $e,
                 $enabled
-                    ? 'Ce module n\'a pas pu être activé — vérifiez qu\'il est complet et que les modules dont il dépend sont activés.'
+                    ? 'Ce module n\'a pas pu être activé — vérifiez qu\'il est complet et que les modules dont il '
+                        . 'dépend sont activés.'
                     : 'Ce module n\'a pas pu être désactivé — vérifiez qu\'aucun autre module actif n\'en dépend.'
             )], 400);
         }

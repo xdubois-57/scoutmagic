@@ -56,12 +56,14 @@ class MemberEmailAddressController extends AbstractController
         }
 
         try {
-            $this->memberEmailService->addEmail($memberId, (string) $request->getBody('email', ''), AuthSession::getUserAccountId());
+            $this->memberEmailService->addEmail($memberId, (string) $request->getBody('email', ''),
+                AuthSession::getUserAccountId());
             FlashMessage::set('success', 'Adresse ajoutée — un email de confirmation vient de vous être envoyé.');
         } catch (MemberEmailException $e) {
             FlashMessage::set('error', $e->getMessage());
         } catch (MailException) {
-            FlashMessage::set('error', "L'adresse a été enregistrée, mais l'email de confirmation n'a pas pu être envoyé. Réessayez avec « Renvoyer ».");
+            FlashMessage::set('error', "L'adresse a été enregistrée, mais l'email de confirmation n'a pas pu être "
+                . "envoyé. Réessayez avec « Renvoyer ».");
         }
 
         return $this->redirect('/members/' . $memberYearId);
@@ -85,7 +87,8 @@ class MemberEmailAddressController extends AbstractController
         }
 
         try {
-            $this->memberEmailService->resendConfirmation($memberId, (int) $params['email_id'], AuthSession::getUserAccountId());
+            $this->memberEmailService->resendConfirmation($memberId, (int) $params['email_id'],
+                AuthSession::getUserAccountId());
             FlashMessage::set('success', 'Email de confirmation renvoyé.');
         } catch (MemberEmailException $e) {
             FlashMessage::set('error', $e->getMessage());
@@ -114,7 +117,11 @@ class MemberEmailAddressController extends AbstractController
         }
 
         try {
-            $this->memberEmailService->deleteEmail($memberId, (int) $params['email_id'], AuthSession::getUserAccountId());
+            $this->memberEmailService->deleteEmail(
+                $memberId,
+                (int) $params['email_id'],
+                AuthSession::getUserAccountId()
+            );
             FlashMessage::set('success', 'Adresse supprimée.');
         } catch (MemberEmailException $e) {
             FlashMessage::set('error', $e->getMessage());
@@ -141,7 +148,8 @@ class MemberEmailAddressController extends AbstractController
         }
 
         try {
-            $this->memberEmailService->reactivateEmail($memberId, (int) $params['email_id'], AuthSession::getUserAccountId());
+            $this->memberEmailService->reactivateEmail($memberId, (int) $params['email_id'],
+                AuthSession::getUserAccountId());
             FlashMessage::set('success', 'Adresse réactivée.');
         } catch (MemberEmailException $e) {
             FlashMessage::set('error', $e->getMessage());

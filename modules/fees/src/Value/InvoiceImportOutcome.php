@@ -69,7 +69,8 @@ final class InvoiceImportOutcome
         ?string $issueDate,
         int $totalCents
     ): self {
-        return new self(self::STALE_ROSTER, null, [], $unknownSectionCodes, $ignoredRowCount, $documentNumber, $issueDate, $totalCents);
+        return new self(self::STALE_ROSTER, null, [], $unknownSectionCodes, $ignoredRowCount, $documentNumber,
+            $issueDate, $totalCents);
     }
 
     public static function alreadyImported(int $invoiceId, string $documentNumber): self

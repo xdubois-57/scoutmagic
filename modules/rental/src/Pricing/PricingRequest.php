@@ -22,11 +22,15 @@ final class PricingRequest
 {
     /**
      * @param string $arrivalDate `Y-m-d`.
-     * @param string $departureDate `Y-m-d`. The day the renter leaves — whether it is itself billed depends on the billing unit.
-     * @param int $persons Expected head count. Actual, never pre-raised to a minimum: applying the minimum is the engine's job and has to stay visible in the result.
-     * @param int $units How many items of a countable stock are wanted (three of eight tents). Ignored by the person-based and per-room billing units.
+     * @param string $departureDate `Y-m-d`. The day the renter leaves — whether it is itself billed depends on the
+     *     billing unit.
+     * @param int $persons Expected head count. Actual, never pre-raised to a minimum: applying the minimum is the
+     *     engine's job and has to stay visible in the result.
+     * @param int $units How many items of a countable stock are wanted (three of eight tents). Ignored by the
+     *     person-based and per-room billing units.
      * @param int $rooms How many rooms are wanted. Only used by BillingUnit::PER_ROOM_DAY.
-     * @param int|null $renterCategoryId Second axis of the price grid; null means "not stated yet", which prices from the default rate and warns.
+     * @param int|null $renterCategoryId Second axis of the price grid; null means "not stated yet", which prices from
+     *     the default rate and warns.
      */
     public function __construct(
         public readonly string $arrivalDate,

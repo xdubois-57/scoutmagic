@@ -102,7 +102,12 @@ class RequestEmailService
      *         RegistrationRequestController shows the error and leaves
      *         *_email_sent_at untouched, so retrying is always available).
      */
-    private function send(RegistrationRequest $request, string $contentKey, string $subject, string $targetYearLabel): void
+    private function send(
+        RegistrationRequest $request,
+        string $contentKey,
+        string $subject,
+        string $targetYearLabel
+    ): void
     {
         // The token is minted here but only PERSISTED once the mail is
         // actually out (below). Persisting first — what this method used to
@@ -119,7 +124,8 @@ class RequestEmailService
         ]);
 
         try {
-            $this->mailService->send(to: $request->email, subject: $subject, bodyHtml: $body, bodyText: self::toPlainText($body));
+            $this->mailService->send(to: $request->email, subject: $subject, bodyHtml: $body,
+                bodyText: self::toPlainText($body));
         } catch (MailException $e) {
             // Nothing was written: the previous tracking link still works and
             // *_email_sent_at is untouched, so retrying really is free. Worth
@@ -142,7 +148,8 @@ class RequestEmailService
             );
 
             throw new RegistrationException(
-                "L'email n'a pas pu être envoyé à la famille — le lien de suivi précédent reste valable, réessayez dans quelques instants.",
+                "L'email n'a pas pu être envoyé à la famille — le lien de suivi précédent reste valable, réessayez "
+                    . "dans quelques instants.",
                 0,
                 $e
             );

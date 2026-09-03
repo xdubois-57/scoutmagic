@@ -62,7 +62,8 @@ class ConfigController extends AbstractController
             // module's own words rather than the page's.
             'future_audience_notice' => $this->mailingListService->futureAudienceNotice(),
             'batch_size' => (string) $this->settingService->get(self::SETTING_BATCH_SIZE, 'mass_mail', '20'),
-            'batch_interval_minutes' => (string) $this->settingService->get(self::SETTING_BATCH_INTERVAL_MINUTES, 'mass_mail', '5'),
+            'batch_interval_minutes' => (string) $this->settingService->get(self::SETTING_BATCH_INTERVAL_MINUTES,
+                'mass_mail', '5'),
             'csrf_token' => CsrfGuard::generateToken(),
         ]);
     }
@@ -91,7 +92,10 @@ class ConfigController extends AbstractController
             return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
         }
 
-        return $this->json(['success' => true, 'list' => ['id' => $list->id, 'name' => $list->name, 'is_active' => $list->isActive]]);
+        return $this->json([
+            'success' => true,
+            'list' => ['id' => $list->id, 'name' => $list->name, 'is_active' => $list->isActive]
+        ]);
     }
 
     /**
@@ -118,7 +122,10 @@ class ConfigController extends AbstractController
             return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
         }
 
-        return $this->json(['success' => true, 'list' => ['id' => $list->id, 'name' => $list->name, 'is_active' => $list->isActive]]);
+        return $this->json([
+            'success' => true,
+            'list' => ['id' => $list->id, 'name' => $list->name, 'is_active' => $list->isActive]
+        ]);
     }
 
     /**
@@ -198,7 +205,8 @@ class ConfigController extends AbstractController
                 'success' => false,
                 'error' => UserFacingMessage::from(
                     $e,
-                    "La vitesse d'envoi n'a pas pu être enregistrée — réessayez, ou modifiez ces deux réglages depuis Configuration > Réglages."
+                    "La vitesse d'envoi n'a pas pu être enregistrée — réessayez, ou modifiez ces deux réglages depuis "
+                        . "Configuration > Réglages."
                 ),
             ], 422);
         }

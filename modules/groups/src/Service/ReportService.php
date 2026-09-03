@@ -67,7 +67,8 @@ class ReportService
         ], $actorAccountId);
 
         $post = $this->postRepository->findById($postId);
-        if ($post !== null && $this->shouldHide($post->hiddenAt, $post->moderationCleared, $this->postReports->countFor($postId))) {
+        if ($post !== null && $this->shouldHide($post->hiddenAt, $post->moderationCleared,
+            $this->postReports->countFor($postId))) {
             $this->postRepository->setHiddenAt($postId, Timestamps::now());
             $this->journal('group_post_auto_hidden', 'Message de groupe masqué automatiquement', [
                 'group_id' => $groupId,
@@ -94,7 +95,8 @@ class ReportService
         ], $actorAccountId);
 
         $reply = $this->replyRepository->findById($replyId);
-        if ($reply !== null && $this->shouldHide($reply->hiddenAt, $reply->moderationCleared, $this->replyReports->countFor($replyId))) {
+        if ($reply !== null && $this->shouldHide($reply->hiddenAt, $reply->moderationCleared,
+            $this->replyReports->countFor($replyId))) {
             $this->replyRepository->setHiddenAt($replyId, Timestamps::now());
             $this->journal('group_reply_auto_hidden', 'Réponse de groupe masquée automatiquement', [
                 'group_id' => $groupId,

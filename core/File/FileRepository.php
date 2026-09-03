@@ -59,7 +59,8 @@ class FileRepository
             'INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min, module_id, created_by, encrypted, owner_member_id, owner_type, owner_id)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
-        $stmt->execute([$relativePath, $originalName, $mimeType, $sizeBytes, $roleMin, $moduleId, $createdBy, $encrypted ? 1 : 0, $ownerMemberId, $ownerType, $ownerId]);
+        $stmt->execute([$relativePath, $originalName, $mimeType, $sizeBytes, $roleMin, $moduleId, $createdBy,
+            $encrypted ? 1 : 0, $ownerMemberId, $ownerType, $ownerId]);
 
         return (int) $this->pdo->lastInsertId();
     }

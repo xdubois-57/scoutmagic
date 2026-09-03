@@ -145,12 +145,26 @@ class RetroConfigController extends AbstractController
     {
         return [
             'ai_available' => $this->aiAvailable(),
-            'retro_role_min_create_board' => (string) ($this->settingService->get('retro_role_min_create_board', 'retro') ?: 'intendant'),
-            'retro_role_min_close_board' => (string) ($this->settingService->get('retro_role_min_close_board', 'retro') ?: 'chief'),
-            'retro_default_max_comment_length' => (int) ($this->settingService->get('retro_default_max_comment_length', 'retro') ?: 140),
-            'retro_default_vote_budget' => (int) ($this->settingService->get('retro_default_vote_budget', 'retro') ?: 5),
-            'retro_polling_interval_seconds' => (int) ($this->settingService->get('retro_polling_interval_seconds', 'retro') ?: 8),
-            'retro_moderation_mode' => (string) ($this->settingService->get('retro_moderation_mode', 'retro') ?: 'disabled'),
+            'retro_role_min_create_board' => (string) ($this->settingService->get(
+                'retro_role_min_create_board',
+                'retro'
+            ) ?: 'intendant'),
+            'retro_role_min_close_board' => (string) ($this->settingService->get(
+                'retro_role_min_close_board',
+                'retro'
+            ) ?: 'chief'),
+            'retro_default_max_comment_length' => (int) ($this->settingService->get('retro_default_max_comment_length',
+                'retro') ?: 140),
+            'retro_default_vote_budget' => (int) ($this->settingService->get(
+                'retro_default_vote_budget',
+                'retro'
+            ) ?: 5),
+            'retro_polling_interval_seconds' => (int) ($this->settingService->get('retro_polling_interval_seconds',
+                'retro') ?: 8),
+            'retro_moderation_mode' => (string) ($this->settingService->get(
+                'retro_moderation_mode',
+                'retro'
+            ) ?: 'disabled'),
             'csrf_token' => CsrfGuard::generateToken(),
         ];
     }

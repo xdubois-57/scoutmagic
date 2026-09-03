@@ -250,18 +250,21 @@ class AvailabilityCalculator
         }
 
         if ($constraints->minNights > 0 && $nights < $constraints->minNights) {
-            $errors[] = sprintf('La durée minimum est de %d nuit%s.', $constraints->minNights, $constraints->minNights > 1 ? 's' : '');
+            $errors[] = sprintf('La durée minimum est de %d nuit%s.', $constraints->minNights,
+                $constraints->minNights > 1 ? 's' : '');
         }
 
         if ($constraints->maxNights > 0 && $nights > $constraints->maxNights) {
-            $errors[] = sprintf('La durée maximum est de %d nuit%s.', $constraints->maxNights, $constraints->maxNights > 1 ? 's' : '');
+            $errors[] = sprintf('La durée maximum est de %d nuit%s.', $constraints->maxNights,
+                $constraints->maxNights > 1 ? 's' : '');
         }
 
         if ($start < $constraints->earliestArrival($today)) {
             // Deliberately phrased as "too early to ask", never as
             // "unavailable": the asset may well be free.
             $errors[] = $constraints->minNoticeDays > 0
-                ? sprintf('Une demande doit être introduite au moins %d jour%s à l\'avance.', $constraints->minNoticeDays, $constraints->minNoticeDays > 1 ? 's' : '')
+                ? sprintf('Une demande doit être introduite au moins %d jour%s à l\'avance.',
+                    $constraints->minNoticeDays, $constraints->minNoticeDays > 1 ? 's' : '')
                 : 'Cette date est déjà passée.';
         }
 
@@ -281,10 +284,12 @@ class AvailabilityCalculator
         if ($units < 1) {
             $errors[] = 'La quantité demandée doit valoir au moins 1.';
         } elseif ($units > $totalUnits) {
-            $errors[] = sprintf('Seul%s %d exemplaire%s existe%s.', $totalUnits > 1 ? 's' : '', $totalUnits, $totalUnits > 1 ? 's' : '', $totalUnits > 1 ? 'nt' : '');
+            $errors[] = sprintf('Seul%s %d exemplaire%s existe%s.', $totalUnits > 1 ? 's' : '', $totalUnits,
+                $totalUnits > 1 ? 's' : '', $totalUnits > 1 ? 'nt' : '');
         } elseif (
             $this->daysCoveredByStay($start, $end, $billingUnit) !== []
-            && !$this->isRangeAvailable($start, $end, $units, $totalUnits, $occupancies, $billingUnit, $constraints->bufferNights)
+            && !$this->isRangeAvailable($start, $end, $units, $totalUnits, $occupancies, $billingUnit,
+                $constraints->bufferNights)
         ) {
             // Says nothing about WHY the period is taken. Skipped outright
             // for a range covering no day: the duration rules above have
@@ -509,6 +514,7 @@ class AvailabilityCalculator
         BillingUnit $billingUnit,
         int $bufferNights = 0
     ): bool {
-        return !$this->isRangeAvailable($arrival, $departure, $units, $totalUnits, $occupancies, $billingUnit, $bufferNights);
+        return !$this->isRangeAvailable($arrival, $departure, $units, $totalUnits, $occupancies, $billingUnit,
+            $bufferNights);
     }
 }

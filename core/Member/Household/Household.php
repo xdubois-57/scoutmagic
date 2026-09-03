@@ -39,7 +39,8 @@ final class Household
 {
     /**
      * @param HouseholdMember[] $members every active member_year at this address, leaving ones included
-     * @param int $incomingRegistrations accepted/encoded registration requests at the same address (0 when the registration module is disabled)
+     * @param int $incomingRegistrations accepted/encoded registration requests at the same address (0 when the
+     *     registration module is disabled)
      */
     public function __construct(
         public readonly string $addressBlindIndex,

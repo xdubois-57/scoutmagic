@@ -274,13 +274,15 @@ class UpdateHistoryRepository
 
     public function markFailed(int $id, string $errorMessage): void
     {
-        $stmt = $this->pdo->prepare("UPDATE update_history SET status = 'failed', error_message = ?, completed_at = ? WHERE id = ?");
+        $stmt = $this->pdo->prepare("UPDATE update_history SET status = 'failed', error_message = ?, completed_at = ? "
+            . "WHERE id = ?");
         $stmt->execute([substr($errorMessage, 0, 500), self::now(), $id]);
     }
 
     public function markRolledBack(int $id, string $errorMessage): void
     {
-        $stmt = $this->pdo->prepare("UPDATE update_history SET status = 'rolled_back', error_message = ?, completed_at = ? WHERE id = ?");
+        $stmt = $this->pdo->prepare("UPDATE update_history SET status = 'rolled_back', error_message = ?, "
+            . "completed_at = ? WHERE id = ?");
         $stmt->execute([substr($errorMessage, 0, 500), self::now(), $id]);
     }
 

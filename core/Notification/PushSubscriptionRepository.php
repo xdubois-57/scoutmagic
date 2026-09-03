@@ -57,7 +57,13 @@ class PushSubscriptionRepository
         return $row !== false ? $this->hydrate($row) : null;
     }
 
-    public function create(int $userAccountId, string $endpoint, string $authKey, string $p256dhKey, ?string $deviceLabel = null): int
+    public function create(
+        int $userAccountId,
+        string $endpoint,
+        string $authKey,
+        string $p256dhKey,
+        ?string $deviceLabel = null
+    ): int
     {
         $stmt = $this->pdo->prepare(
             'INSERT INTO push_subscriptions (user_account_id, endpoint, endpoint_blind_index, auth_key, p256dh_key, device_label)
@@ -101,7 +107,8 @@ class PushSubscriptionRepository
      */
     public function recordSuccess(int $id): void
     {
-        $stmt = $this->pdo->prepare('UPDATE push_subscriptions SET last_success_at = ?, failure_count = 0 WHERE id = ?');
+        $stmt = $this->pdo->prepare('UPDATE push_subscriptions SET last_success_at = ?, failure_count = 0 WHERE id = '
+            . '?');
         $stmt->execute([(new \DateTimeImmutable())->format('Y-m-d H:i:s'), $id]);
     }
 

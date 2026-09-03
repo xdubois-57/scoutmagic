@@ -56,7 +56,23 @@ class NotificationService
     private const DISCRETION_TITLE = 'Nouvelle notification';
     private const PUSH_BATCH_SIZE = 20;
 
-    /** @var array<string, array<int, array{id: string, label: string, description: string, group: string, role_min: string, channels: array{in_app: string, push: string, email: string}, default_on_role_min?: ?string}>> */
+    /**
+     * @var array<
+     *     string,
+     *     array<
+     *         int,
+     *         array{
+     *             id: string,
+     *             label: string,
+     *             description: string,
+     *             group: string,
+     *             role_min: string,
+     *             channels: array{in_app: string, push: string, email: string},
+     *             default_on_role_min?: ?string
+     *         }
+     *     >
+     * >
+     */
     private array $moduleTypes = [];
 
     /** @var array<string, NotificationType>|null */
@@ -82,7 +98,18 @@ class NotificationService
      * Invalidates the type cache so a later getAllDeclaredTypes()/
      * findType() call picks them up.
      *
-     * @param array<int, array{id: string, label: string, description: string, group: string, role_min: string, channels: array{in_app: string, push: string, email: string}, default_on_role_min?: ?string}> $notifications
+     * @param array<
+     *     int,
+     *     array{
+     *         id: string,
+     *         label: string,
+     *         description: string,
+     *         group: string,
+     *         role_min: string,
+     *         channels: array{in_app: string, push: string, email: string},
+     *         default_on_role_min?: ?string
+     *     }
+     * > $notifications
      */
     public function registerModuleTypes(string $moduleId, array $notifications): void
     {
@@ -144,7 +171,9 @@ class NotificationService
         $type = $this->findType($typeId);
         if ($type === null) {
             throw new \InvalidArgumentException(
-                "Undeclared notification type '{$typeId}' — every type must be declared in Core\\Notification\\NotificationRegistry or a module's module.json \"notifications\" section before it can be dispatched."
+                "Undeclared notification type '{$typeId}' — every type must be declared in "
+                    . "Core\\Notification\\NotificationRegistry or a module's module.json \"notifications\" section "
+                    . "before it can be dispatched."
             );
         }
 
@@ -161,7 +190,9 @@ class NotificationService
 
         foreach ($recipients as $recipient) {
             $userAccountId = (int) $recipient['userAccountId'];
-            $memberId = isset($recipient['memberId']) && $recipient['memberId'] !== null ? (int) $recipient['memberId'] : null;
+            $memberId = isset($recipient['memberId']) && $recipient['memberId'] !== null
+                ? (int) $recipient['memberId']
+                : null;
 
             // One role resolution per recipient, used twice: the role_min
             // re-check below and, further down, whether a type declaring
@@ -179,7 +210,8 @@ class NotificationService
             // apply as declared.
             $defaultsOn = $role === null || $type->defaultsOnForRole($role);
 
-            $notificationId = $this->notificationRepository->create($userAccountId, $memberId, $typeId, $title, $body, $url);
+            $notificationId = $this->notificationRepository->create($userAccountId, $memberId, $typeId, $title, $body,
+                $url);
 
             $this->journalService->log(
                 'core',
@@ -214,11 +246,13 @@ class NotificationService
 
         foreach ($pushBuckets as $bucket) {
             $delaySeconds = max(0, $bucket['runAt']->getTimestamp() - time());
-            $this->schedulerService->scheduleAfter('core', 'send_notifications', $delaySeconds, ['notification_ids' => $bucket['ids']]);
+            $this->schedulerService->scheduleAfter('core', 'send_notifications', $delaySeconds,
+                ['notification_ids' => $bucket['ids']]);
         }
 
         if ($emailIds !== []) {
-            $this->schedulerService->scheduleAfter('core', 'send_notification_emails', 0, ['notification_ids' => $emailIds]);
+            $this->schedulerService->scheduleAfter('core', 'send_notification_emails', 0,
+                ['notification_ids' => $emailIds]);
         }
     }
 
@@ -229,7 +263,8 @@ class NotificationService
      */
     public function notify(int $userAccountId, string $title, string $body, ?string $url = null): void
     {
-        $notificationId = $this->notificationRepository->create($userAccountId, null, self::SYSTEM_TYPE_ID, $title, $body, $url);
+        $notificationId = $this->notificationRepository->create($userAccountId, null, self::SYSTEM_TYPE_ID, $title,
+            $body, $url);
 
         $record = new NotificationRecord(
             id: $notificationId,
@@ -367,7 +402,13 @@ class NotificationService
      * subscribing the same endpoint (e.g. the browser rotated its keys)
      * replaces the previous row rather than duplicating it.
      */
-    public function subscribe(int $userAccountId, string $endpoint, string $authKey, string $p256dhKey, ?string $deviceLabel = null): void
+    public function subscribe(
+        int $userAccountId,
+        string $endpoint,
+        string $authKey,
+        string $p256dhKey,
+        ?string $deviceLabel = null
+    ): void
     {
         $this->pushSubscriptionRepository->deleteByEndpoint($userAccountId, $endpoint);
         $this->pushSubscriptionRepository->create($userAccountId, $endpoint, $authKey, $p256dhKey, $deviceLabel);
@@ -393,7 +434,12 @@ class NotificationService
      * preference override else the type's own declared default. A locked
      * channel ("on"/"off") ignores any preference row entirely.
      */
-    public function channelEnabled(int $userAccountId, NotificationType $type, string $channel, ?Role $role = null): bool
+    public function channelEnabled(
+        int $userAccountId,
+        NotificationType $type,
+        string $channel,
+        ?Role $role = null
+    ): bool
     {
         if ($type->isChannelLocked($channel)) {
             return $type->channels[$channel] === 'on';
@@ -620,7 +666,11 @@ class NotificationService
     }
 
     /**
-     * @param array<string, int> $endpointMap mutated: plaintext endpoint => push_subscriptions.id, for flushQueuedPush() to correlate reports back afterward
+     * @param array<
+     *     string,
+     *     int
+     * > $endpointMap mutated: plaintext endpoint => push_subscriptions.id, for flushQueuedPush() to correlate reports
+     * back afterward
      */
     private function queuePushForAccount(NotificationRecord $record, array &$endpointMap): void
     {

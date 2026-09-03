@@ -19,7 +19,8 @@ class BalanceCheckpointRepository
      */
     public function findByAccountId(int $accountId): array
     {
-        $stmt = $this->pdo->prepare('SELECT * FROM finance_balance_checkpoints WHERE account_id = ? ORDER BY checkpoint_date ASC, id ASC');
+        $stmt = $this->pdo->prepare('SELECT * FROM finance_balance_checkpoints WHERE account_id = ? ORDER BY '
+            . 'checkpoint_date ASC, id ASC');
         $stmt->execute([$accountId]);
         return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
@@ -49,7 +50,8 @@ class BalanceCheckpointRepository
     public function findEarliestForAccount(int $accountId): ?BalanceCheckpoint
     {
         $stmt = $this->pdo->prepare(
-            'SELECT * FROM finance_balance_checkpoints WHERE account_id = ? ORDER BY checkpoint_date ASC, id ASC LIMIT 1'
+            'SELECT * FROM finance_balance_checkpoints WHERE account_id = ? ORDER BY checkpoint_date ASC, id ASC '
+                . 'LIMIT 1'
         );
         $stmt->execute([$accountId]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
@@ -87,7 +89,8 @@ class BalanceCheckpointRepository
      */
     public function deleteBeforeOrAt(int $accountId, string $date): int
     {
-        $stmt = $this->pdo->prepare('DELETE FROM finance_balance_checkpoints WHERE account_id = ? AND checkpoint_date <= ?');
+        $stmt = $this->pdo->prepare('DELETE FROM finance_balance_checkpoints WHERE account_id = ? AND checkpoint_date '
+            . '<= ?');
         $stmt->execute([$accountId, $date]);
         return $stmt->rowCount();
     }

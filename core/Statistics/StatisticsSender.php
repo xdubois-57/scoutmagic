@@ -177,7 +177,11 @@ class StatisticsSender
                 $userAgent
             );
         } catch (\Throwable $e) {
-            return $this->recordFailure($this->redact('transport_error: ' . $e->getMessage(), $secret), null, $scheduled);
+            return $this->recordFailure(
+                $this->redact('transport_error: ' . $e->getMessage(), $secret),
+                null,
+                $scheduled
+            );
         }
         $durationMs = (int) round((microtime(true) - $startedAt) * 1000);
 
@@ -380,7 +384,11 @@ class StatisticsSender
         return StatisticsSendResult::sent($statusCode, $durationMs);
     }
 
-    private function recordFailure(string $reason, ?int $durationMs = null, bool $scheduled = true): StatisticsSendResult
+    private function recordFailure(
+        string $reason,
+        ?int $durationMs = null,
+        bool $scheduled = true
+    ): StatisticsSendResult
     {
         // A failed test leaves "État des envois" alone as well. The panel
         // describes the daily task, and a manual attempt that failed —

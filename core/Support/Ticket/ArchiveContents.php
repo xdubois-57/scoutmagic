@@ -34,7 +34,8 @@ final class ArchiveContents
         'statistics' => "Les compteurs agrégés du site : version, modules actifs, effectifs. Aucune donnée de membre.",
         'database_structure' => 'La structure des tables — jamais leur contenu.',
         'configuration_parameters' => "Les paramètres de configuration du site, secrets retirés.",
-        'event_journal' => "Un résumé du journal des évènements des dernières 48 h, qui contient des identifiants internes.",
+        'event_journal' => "Un résumé du journal des évènements des dernières 48 h, qui contient des identifiants "
+            . "internes.",
         'scheduled_tasks' => "L'état des tâches planifiées du site.",
         'update_history' => 'Quelle version tournait à quel moment, et le résultat de chaque mise à jour.',
         'phpinfo' => "La configuration détaillée de PHP sur votre hébergement (sans les variables d'environnement).",

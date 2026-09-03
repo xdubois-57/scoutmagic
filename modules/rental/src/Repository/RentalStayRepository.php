@@ -311,7 +311,18 @@ class RentalStayRepository
     }
 
     /**
-     * @return array<int, array{id: int, label: string, sort_order: int, arrival_state: InventoryState, departure_state: InventoryState, arrival_note: ?string, departure_note: ?string}>
+     * @return array<
+     *     int,
+     *     array{
+     *         id: int,
+     *         label: string,
+     *         sort_order: int,
+     *         arrival_state: InventoryState,
+     *         departure_state: InventoryState,
+     *         arrival_note: ?string,
+     *         departure_note: ?string
+     *     }
+     * >
      */
     public function findBookingInventory(int $bookingId): array
     {

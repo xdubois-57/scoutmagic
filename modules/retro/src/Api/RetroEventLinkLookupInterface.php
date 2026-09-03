@@ -27,7 +27,12 @@ interface RetroEventLinkLookupInterface
      * when the caller has no identified viewer at all (e.g. an anonymous
      * ICS feed) — such a viewer never qualifies for any audience level.
      */
-    public function findLinkedBoardLink(int $eventId, Role $viewerRole, ?string $viewerEmail, ?int $scoutYearId): ?RetroLinkSummary;
+    public function findLinkedBoardLink(
+        int $eventId,
+        Role $viewerRole,
+        ?string $viewerEmail,
+        ?int $scoutYearId
+    ): ?RetroLinkSummary;
 
     /**
      * Whether ANY board is linked to this event, regardless of the

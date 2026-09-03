@@ -36,7 +36,13 @@ class PosterPdfService
      *                must be embedded rather than fetched by URL/path.
      * @return string raw PDF bytes
      */
-    public function generate(string $title, string $bodyHtml, string $qrUrl, string $unitShortName = '', ?string $imageDataUri = null): string
+    public function generate(
+        string $title,
+        string $bodyHtml,
+        string $qrUrl,
+        string $unitShortName = '',
+        ?string $imageDataUri = null
+    ): string
     {
         $titleExcerpt = $this->truncate($title, self::TITLE_EXCERPT_LENGTH);
         $excerpt = $this->buildExcerpt($bodyHtml);
@@ -87,7 +93,15 @@ class PosterPdfService
         return $result->getDataUri();
     }
 
-    private function renderHtml(string $title, string $excerpt, string $qrDataUri, string $qrUrl, string $unitShortName, string $date, ?string $imageDataUri): string
+    private function renderHtml(
+        string $title,
+        string $excerpt,
+        string $qrDataUri,
+        string $qrUrl,
+        string $unitShortName,
+        string $date,
+        ?string $imageDataUri
+    ): string
     {
         $imageHtml = $imageDataUri !== null
             ? '<div class="image-wrap"><img src="' . $imageDataUri . '" alt=""></div>'

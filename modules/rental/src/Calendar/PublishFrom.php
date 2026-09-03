@@ -36,7 +36,8 @@ enum PublishFrom: string
     public function explanation(): string
     {
         return match ($this) {
-            self::CONFIRMATION => "Seules les locations confirmées apparaissent. Une demande sans suite ne s'affiche jamais.",
+            self::CONFIRMATION => "Seules les locations confirmées apparaissent. Une demande sans suite ne s'affiche "
+                . "jamais.",
             self::HOLD => 'Les dates apparaissent dès qu\'elles sont retenues, même avant confirmation.',
         };
     }

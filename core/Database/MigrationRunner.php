@@ -630,7 +630,8 @@ class MigrationRunner
             $key,
             (string) json_encode($progress->toArray()),
             'Progression de migration de schéma en cours (interne)',
-            'État intermédiaire d\'une migration d\'un ou plusieurs modules interrompue par le budget de temps ; supprimé automatiquement une fois la migration terminée.'
+            'État intermédiaire d\'une migration d\'un ou plusieurs modules interrompue par le budget de temps ; '
+                . 'supprimé automatiquement une fois la migration terminée.'
         );
     }
 
@@ -679,7 +680,8 @@ class MigrationRunner
             $key,
             $hash,
             'Empreinte du schéma migré (interne)',
-            'Utilisée pour éviter de revérifier le schéma de la base de données à chaque page tant que schema.sql/drops.sql n\'ont pas changé depuis la dernière migration réussie.'
+            'Utilisée pour éviter de revérifier le schéma de la base de données à chaque page tant que '
+                . 'schema.sql/drops.sql n\'ont pas changé depuis la dernière migration réussie.'
         );
     }
 

@@ -104,7 +104,8 @@ class NotificationConfigController extends AbstractController
             AuthSession::getUserAccountId()
         );
 
-        FlashMessage::set('success', "Clés VAPID régénérées. {$deviceCount} appareil(s) déconnecté(s) — chacun devra réactiver les notifications push.");
+        FlashMessage::set('success', "Clés VAPID régénérées. {$deviceCount} appareil(s) déconnecté(s) — chacun devra "
+            . "réactiver les notifications push.");
 
         return $this->redirect('/config/notifications');
     }

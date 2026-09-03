@@ -35,7 +35,18 @@ class HouseholdDetailRepository
      * Name, encoded fee category and departure state, per member_year id.
      *
      * @param int[] $memberYearIds
-     * @return array<int, array{member_id: int, first_name: string, last_name: string, totem: ?string, fee_category_id: ?int, leaving: bool, leaving_marked_at: ?string}>
+     * @return array<
+     *     int,
+     *     array{
+     *         member_id: int,
+     *         first_name: string,
+     *         last_name: string,
+     *         totem: ?string,
+     *         fee_category_id: ?int,
+     *         leaving: bool,
+     *         leaving_marked_at: ?string
+     *     }
+     * >
      */
     public function findMembers(array $memberYearIds): array
     {
@@ -157,7 +168,8 @@ class HouseholdDetailRepository
                 number: $this->nullIfEmpty($this->decrypt($row['number_encrypted'], 'member_addresses.number')),
                 box: $this->nullIfEmpty($this->decrypt($row['box_encrypted'], 'member_addresses.box')),
                 complement: null,
-                postalCode: $this->nullIfEmpty($this->decrypt($row['postal_code_encrypted'], 'member_addresses.postal_code')),
+                postalCode: $this->nullIfEmpty($this->decrypt($row['postal_code_encrypted'],
+                    'member_addresses.postal_code')),
                 city: $this->nullIfEmpty($this->decrypt($row['city_encrypted'], 'member_addresses.city')),
                 country: null,
             );

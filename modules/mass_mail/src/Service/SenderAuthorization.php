@@ -18,7 +18,8 @@ namespace Modules\MassMail\Service;
 final class SenderAuthorization
 {
     /**
-     * @param int[] $allowedListSectionIds Section ids this account may target a default list for (ignored when $isChefDUniteOrAbove).
+     * @param int[] $allowedListSectionIds Section ids this account may target a default list for (ignored when
+     *     $isChefDUniteOrAbove).
      */
     public function __construct(
         public readonly bool $isChefDUniteOrAbove,

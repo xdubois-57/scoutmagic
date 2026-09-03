@@ -75,7 +75,8 @@ class FormFieldRepository
         ?string $confirmationText
     ): void {
         $stmt = $this->pdo->prepare(
-            'UPDATE news_form_fields SET sort_order = ?, field_type = ?, label = ?, is_required = ?, options_source = ?, options_manual = ?, capacity_max = ?, price_per_unit = ?, confirmation_text = ? WHERE id = ?'
+            'UPDATE news_form_fields SET sort_order = ?, field_type = ?, label = ?, is_required = ?, options_source = '
+                . '?, options_manual = ?, capacity_max = ?, price_per_unit = ?, confirmation_text = ? WHERE id = ?'
         );
         $stmt->execute([
             $sortOrder, $fieldType, $label, $isRequired ? 1 : 0,

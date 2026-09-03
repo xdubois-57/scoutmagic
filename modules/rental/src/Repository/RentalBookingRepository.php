@@ -77,7 +77,14 @@ class RentalBookingRepository
      * stored, so this is the one and only chance to put it in the email
      * (§13 of the conventions).
      *
-     * @param array{name: string, email: string, phone: ?string, organisation: ?string, purpose: ?string, comment: ?string} $renter
+     * @param array{
+     *     name: string,
+     *     email: string,
+     *     phone: ?string,
+     *     organisation: ?string,
+     *     purpose: ?string,
+     *     comment: ?string
+     * } $renter
      * @return array{id: int, tracking_token: string}
      */
     public function create(
@@ -262,7 +269,8 @@ class RentalBookingRepository
     public function regenerateTrackingToken(int $id): string
     {
         $token = CapabilityToken::generate();
-        $stmt = $this->pdo->prepare('UPDATE rental_bookings SET tracking_token_encrypted = ?, updated_at = ? WHERE id = ?');
+        $stmt = $this->pdo->prepare('UPDATE rental_bookings SET tracking_token_encrypted = ?, updated_at = ? WHERE id '
+            . '= ?');
         $stmt->execute([
             $this->encryption->encrypt($token, self::CTX_TRACKING_TOKEN),
             (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
@@ -580,7 +588,15 @@ class RentalBookingRepository
      * by the hundred — would cost the whole module for one screen's
      * benefit.
      *
-     * @return array{name: ?string, address: ?string, country: ?string, vat_number: ?string, enterprise_number: ?string, email: ?string, reference: ?string}
+     * @return array{
+     *     name: ?string,
+     *     address: ?string,
+     *     country: ?string,
+     *     vat_number: ?string,
+     *     enterprise_number: ?string,
+     *     email: ?string,
+     *     reference: ?string
+     * }
      */
     public function findBillingIdentity(int $bookingId): array
     {
@@ -618,7 +634,15 @@ class RentalBookingRepository
     }
 
     /**
-     * @param array{name?: ?string, address?: ?string, country?: ?string, vat_number?: ?string, enterprise_number?: ?string, email?: ?string, reference?: ?string} $identity
+     * @param array{
+     *     name?: ?string,
+     *     address?: ?string,
+     *     country?: ?string,
+     *     vat_number?: ?string,
+     *     enterprise_number?: ?string,
+     *     email?: ?string,
+     *     reference?: ?string
+     * } $identity
      */
     public function saveBillingIdentity(int $bookingId, array $identity): void
     {
@@ -848,7 +872,8 @@ class RentalBookingRepository
             renterName: $this->encryption->decrypt((string) $row['renter_name_encrypted'], self::CTX_NAME),
             renterEmail: $this->encryption->decrypt((string) $row['renter_email_encrypted'], self::CTX_EMAIL),
             renterPhone: $this->decryptOptional($row['renter_phone_encrypted'] ?? null, self::CTX_PHONE),
-            renterOrganisation: $this->decryptOptional($row['renter_organisation_encrypted'] ?? null, self::CTX_ORGANISATION),
+            renterOrganisation: $this->decryptOptional($row['renter_organisation_encrypted'] ?? null,
+                self::CTX_ORGANISATION),
             purpose: $this->decryptOptional($row['purpose_encrypted'] ?? null, self::CTX_PURPOSE),
             renterComment: $this->decryptOptional($row['renter_comment_encrypted'] ?? null, self::CTX_COMMENT),
             status: BookingStatus::tryFrom((string) $row['status']) ?? BookingStatus::RECEIVED,

@@ -59,7 +59,9 @@ class RentalPricingRepository
             periods: $this->findPeriods($assetId),
             categories: $this->findCategories($assetId),
             priceGridCents: $this->findGrid($assetId),
-            defaultUnitPriceCents: $row['default_unit_price_cents'] !== null ? (int) $row['default_unit_price_cents'] : null,
+            defaultUnitPriceCents: $row['default_unit_price_cents'] !== null
+                ? (int) $row['default_unit_price_cents']
+                : null,
             minimumAmountCents: $row['minimum_amount_cents'] !== null ? (int) $row['minimum_amount_cents'] : null,
             minimumPersons: $row['minimum_persons'] !== null ? (int) $row['minimum_persons'] : null,
             fees: $this->findFees($assetId)
@@ -206,7 +208,8 @@ class RentalPricingRepository
      */
     public function findGrid(int $assetId): array
     {
-        $stmt = $this->pdo->prepare('SELECT period_id, category_id, unit_price_cents FROM rental_price_grid WHERE asset_id = ?');
+        $stmt = $this->pdo->prepare('SELECT period_id, category_id, unit_price_cents FROM rental_price_grid WHERE '
+            . 'asset_id = ?');
         $stmt->execute([$assetId]);
 
         $grid = [];

@@ -64,7 +64,8 @@ class InvoiceVerificationService
         $sectionLabels = $this->sectionLabels();
 
         return array_map(
-            fn(StoredInvoiceLine $line): ReconstitutedLine => $this->reconstitute($line, $snapshotMembers, $sectionLabels),
+            fn(StoredInvoiceLine $line): ReconstitutedLine => $this->reconstitute($line, $snapshotMembers,
+                $sectionLabels),
             $this->invoices->findLines($invoice->id)
         );
     }
@@ -149,7 +150,11 @@ class InvoiceVerificationService
                     );
                 }
 
-                if ($line->sectionId !== null && $member->sectionId !== null && $line->sectionId !== $member->sectionId) {
+                if (
+                    $line->sectionId !== null
+                    && $member->sectionId !== null
+                    && $line->sectionId !== $member->sectionId
+                ) {
                     // No amount, ever: the tariff is the same on either
                     // section, so a figure here would put euros on a
                     // difference that is not money.
@@ -469,7 +474,11 @@ class InvoiceVerificationService
      * @param RosterSnapshotMember[]|null $snapshotMembers
      * @param array<int, string> $sectionLabels
      */
-    private function reconstitute(StoredInvoiceLine $line, ?array $snapshotMembers, array $sectionLabels): ReconstitutedLine
+    private function reconstitute(
+        StoredInvoiceLine $line,
+        ?array $snapshotMembers,
+        array $sectionLabels
+    ): ReconstitutedLine
     {
         $sectionLabel = $line->sectionId === null ? null : ($sectionLabels[$line->sectionId] ?? $line->sectionCode);
         $expected = null;

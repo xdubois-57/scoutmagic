@@ -66,7 +66,8 @@ class RetroChiefController extends AbstractController
 
         return $this->render('@retro/list.html.twig', [
             'boards' => array_map($toEntry, $this->boardRepository->findUnarchivedOrderedByCreated()),
-            'archived_boards' => array_map($toEntry, $this->boardRepository->findRecentArchived(self::ARCHIVED_BOARDS_SHOWN)),
+            'archived_boards' => array_map($toEntry,
+                $this->boardRepository->findRecentArchived(self::ARCHIVED_BOARDS_SHOWN)),
             'archived_total' => $archivedTotal,
             'can_create' => $this->hasRequiredRole('retro_role_min_create_board', 'intendant'),
             'can_close' => $this->hasRequiredRole('retro_role_min_close_board', 'chief'),
@@ -314,7 +315,8 @@ class RetroChiefController extends AbstractController
             'board' => $board,
             'events' => $events,
             'calendar_enabled' => in_array('calendar', $this->moduleManager->getEnabledModuleIds(), true),
-            'default_max_comment_length' => (int) ($this->settingService->get('retro_default_max_comment_length', 'retro') ?: 140),
+            'default_max_comment_length' => (int) ($this->settingService->get('retro_default_max_comment_length',
+                'retro') ?: 140),
             'default_vote_budget' => (int) ($this->settingService->get('retro_default_vote_budget', 'retro') ?: 5),
             'public_url' => $board !== null ? $baseUrl . $this->boardService->publicUrl($board) : null,
             // Create-form default only — "the email address is the one

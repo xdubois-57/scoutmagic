@@ -160,7 +160,8 @@ class ConfigController extends AbstractController
                 return $this->json(['success' => false, 'error' => 'Fournisseur introuvable.']);
             }
         } elseif ($apiKey === '') {
-            return $this->json(['success' => false, 'error' => 'La clé API est obligatoire pour un nouveau fournisseur.']);
+            return $this->json(['success' => false, 'error' => 'La clé API est obligatoire pour un nouveau '
+                . 'fournisseur.']);
         }
 
         // "Exactly one active provider" is maintained by a deactivate-then-
@@ -260,7 +261,9 @@ class ConfigController extends AbstractController
                 'provider_name' => $provider['name'],
                 'cheap_model' => $cheapModel ? $cheapModel['display_name'] : null,
                 'capable_model' => $capableModel ? $capableModel['display_name'] : null,
-                'ocr_model' => $ocrModel ? $ocrModel['display_name'] : ($cheapModel ? $cheapModel['display_name'] : null),
+                'ocr_model' => $ocrModel
+                    ? $ocrModel['display_name']
+                    : ($cheapModel ? $cheapModel['display_name'] : null),
                 'ocr_fallback' => $ocrModel === null && $cheapModel !== null,
             ]);
         } catch (\Throwable $e) {
@@ -285,7 +288,8 @@ class ConfigController extends AbstractController
                 'success' => false,
                 'error' => UserFacingMessage::from(
                     $e,
-                    "La connexion au fournisseur IA a échoué — vérifiez la clé d'API et l'adresse du service, puis réessayez."
+                    "La connexion au fournisseur IA a échoué — vérifiez la clé d'API et l'adresse du service, puis "
+                        . "réessayez."
                 ),
             ]);
         }
@@ -322,7 +326,11 @@ class ConfigController extends AbstractController
         return \Core\Security\SsrfUrlValidator::isPublicHttpsUrl($apiEndpoint);
     }
 
-    private function createDriver(string $driver, string $apiEndpoint, string $apiKey): \Modules\LlmConnector\Provider\LlmProviderInterface
+    private function createDriver(
+        string $driver,
+        string $apiEndpoint,
+        string $apiKey
+    ): \Modules\LlmConnector\Provider\LlmProviderInterface
     {
         return match ($driver) {
             'anthropic' => new AnthropicProvider($apiEndpoint, $apiKey),

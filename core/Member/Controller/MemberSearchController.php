@@ -411,7 +411,9 @@ class MemberSearchController extends AbstractController
         $effective = $this->resolver->getEffectiveYear(ScoutYearSession::getPreviewId(), $role);
 
         $selectedRaw = $request->getQuery('selected');
-        $selectedIds = is_array($selectedRaw) ? array_values(array_filter(array_map('intval', $selectedRaw), fn(int $id) => $id > 0)) : [];
+        $selectedIds = is_array($selectedRaw)
+            ? array_values(array_filter(array_map('intval', $selectedRaw), fn(int $id) => $id > 0))
+            : [];
 
         if ($selectedIds !== []) {
             $memberYearIds = array_values(array_filter(

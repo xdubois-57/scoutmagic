@@ -210,7 +210,11 @@ class CampsAttachmentController extends AbstractController
         }
 
         try {
-            $this->linkService->attach($camp->id, (string) $request->getBody('url', ''), AuthSession::getUserAccountId());
+            $this->linkService->attach(
+                $camp->id,
+                (string) $request->getBody('url', ''),
+                AuthSession::getUserAccountId()
+            );
             FlashMessage::set('success', 'Lien ajouté.');
         } catch (CampsException $e) {
             FlashMessage::set('error', $e->getMessage());

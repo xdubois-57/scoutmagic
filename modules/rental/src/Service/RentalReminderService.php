@@ -151,7 +151,12 @@ class RentalReminderService
      */
     private function send(DueReminder $reminder, ?string $renterEmail, \DateTimeImmutable $today): bool
     {
-        if (!$this->reminderRepository->claim($reminder->subjectType(), $reminder->subjectId, $reminder->kind, $today)) {
+        if (!$this->reminderRepository->claim(
+            $reminder->subjectType(),
+            $reminder->subjectId,
+            $reminder->kind,
+            $today
+        )) {
             return false;
         }
 

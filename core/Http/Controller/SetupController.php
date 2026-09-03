@@ -218,7 +218,8 @@ class SetupController extends AbstractController
         }
 
         if ($this->secretManager->isInitialized()) {
-            return $this->json(['success' => false, 'message' => 'Action indisponible : le site est déjà configuré.'], 403);
+            return $this->json(['success' => false, 'message' => 'Action indisponible : le site est déjà configuré.'],
+                403);
         }
         // setup.js reads `message`, not `error` — keep the key, unify the sentence.
         if (!CsrfGuard::validateRequest()) {
@@ -259,7 +260,10 @@ class SetupController extends AbstractController
             'setup_database_installed',
             'security',
             'Base de données installée depuis l\'assistant de configuration',
-            ['statements_executed' => count($migrationResult->executedStatements), 'warnings' => count($migrationResult->warnings)]
+            [
+                'statements_executed' => count($migrationResult->executedStatements),
+                'warnings' => count($migrationResult->warnings)
+            ]
         );
 
         return $this->json([
@@ -289,7 +293,8 @@ class SetupController extends AbstractController
         }
 
         if ($this->secretManager->isInitialized()) {
-            return $this->json(['success' => false, 'message' => 'Action indisponible : le site est déjà configuré.'], 403);
+            return $this->json(['success' => false, 'message' => 'Action indisponible : le site est déjà configuré.'],
+                403);
         }
         // setup.js reads `message`, not `error` — keep the key, unify the sentence.
         if (!CsrfGuard::validateRequest()) {
@@ -782,8 +787,10 @@ class SetupController extends AbstractController
             $mailService->send(
                 to: $recipient,
                 subject: 'Email de test',
-                bodyHtml: '<p>Ceci est un email de test envoyé depuis la page de configuration.</p><p>Si vous lisez ceci, votre configuration SMTP fonctionne correctement.</p>',
-                bodyText: "Ceci est un email de test envoyé depuis la page de configuration.\n\nSi vous lisez ceci, votre configuration SMTP fonctionne correctement."
+                bodyHtml: '<p>Ceci est un email de test envoyé depuis la page de configuration.</p><p>Si vous lisez '
+                    . 'ceci, votre configuration SMTP fonctionne correctement.</p>',
+                bodyText: "Ceci est un email de test envoyé depuis la page de configuration.\n\nSi vous lisez ceci, "
+                    . "votre configuration SMTP fonctionne correctement."
             );
 
             return $this->json(['success' => true, 'message' => 'Email envoyé avec succès.']);
@@ -969,7 +976,8 @@ class SetupController extends AbstractController
             $this->secretManager->writeSecrets($secrets);
 
             // Create initial admin account (base64 keys decoded to match the boot sequence)
-            $this->createAdminAccount($connection, $secrets['encryption_key'], $secrets['blind_index_key'], $data['admin_email'], $data['admin_password']);
+            $this->createAdminAccount($connection, $secrets['encryption_key'], $secrets['blind_index_key'],
+                $data['admin_email'], $data['admin_password']);
 
             // Record the installation date now, while "now" is genuinely the
             // moment this site came into existence (Core\Statistics\
@@ -986,8 +994,10 @@ class SetupController extends AbstractController
             // own register() call, which would otherwise create the row with
             // its default (on) and silently ignore an operator who unchecked
             // the box.
-            $setupSettingService->register('statistics_enabled', '1', 'boolean', 'Envoi automatique des statistiques d\'utilisation',
-                'Autorise l\'envoi quotidien d\'un rapport d\'utilisation agrégé vers ScoutMagic. Le rapport contient l\'adresse de ce site, jamais de donnée de membre. Géré depuis la page Support.',
+            $setupSettingService->register('statistics_enabled', '1', 'boolean', 'Envoi automatique des statistiques '
+                . 'd\'utilisation',
+                'Autorise l\'envoi quotidien d\'un rapport d\'utilisation agrégé vers ScoutMagic. Le rapport contient '
+                    . 'l\'adresse de ce site, jamais de donnée de membre. Géré depuis la page Support.',
                 null, null, null, true, 280);
             $setupSettingService->setInternal('statistics_enabled', $data['statistics_enabled']);
 
@@ -997,7 +1007,8 @@ class SetupController extends AbstractController
                 $tokenDeleted ? 'success' : 'warning',
                 $tokenDeleted
                     ? 'Installation terminée avec succès. Bienvenue !'
-                    : 'Installation terminée avec succès, mais token.php n\'a pas pu être supprimé automatiquement — retirez-le manuellement via FTP pour des raisons de sécurité.'
+                    : 'Installation terminée avec succès, mais token.php n\'a pas pu être supprimé automatiquement — '
+                        . 'retirez-le manuellement via FTP pour des raisons de sécurité.'
             );
             return $this->redirect('/');
         } catch (\Throwable $e) {
@@ -1043,7 +1054,8 @@ class SetupController extends AbstractController
 
             // Write non-secret settings to settings table
             if ($this->settingService !== null) {
-                $nonSecretKeys = ['site_name', 'short_name', 'base_url', 'mail_from_address', 'mail_from_name', 'dkim_selector', 'dmarc_report_email'];
+                $nonSecretKeys = ['site_name', 'short_name', 'base_url', 'mail_from_address', 'mail_from_name',
+                    'dkim_selector', 'dmarc_report_email'];
                 foreach ($nonSecretKeys as $nsKey) {
                     if (isset($data[$nsKey])) {
                         try {
@@ -1233,7 +1245,8 @@ class SetupController extends AbstractController
             if ($data['admin_password'] === '') {
                 $errors['admin_password'] = 'Le mot de passe administrateur est requis.';
             } else {
-                $violation = self::passwordPolicyError($data['admin_password'], (string) ($data['admin_password_confirm'] ?? ''));
+                $violation = self::passwordPolicyError($data['admin_password'],
+                    (string) ($data['admin_password_confirm'] ?? ''));
                 if ($violation !== null) {
                     $errors['admin_password'] = $violation;
                 }
@@ -1245,7 +1258,8 @@ class SetupController extends AbstractController
             }
             // Password is only required when changing admin email to a new address without existing account
             if ($data['admin_password'] !== '') {
-                $violation = self::passwordPolicyError($data['admin_password'], (string) ($data['admin_password_confirm'] ?? ''));
+                $violation = self::passwordPolicyError($data['admin_password'],
+                    (string) ($data['admin_password_confirm'] ?? ''));
                 if ($violation !== null) {
                     $errors['admin_password'] = $violation;
                 }
@@ -1291,7 +1305,13 @@ class SetupController extends AbstractController
         return null;
     }
 
-    private function createAdminAccount(Connection $connection, string $encryptionKey, string $blindIndexKey, string $email, string $password): void
+    private function createAdminAccount(
+        Connection $connection,
+        string $encryptionKey,
+        string $blindIndexKey,
+        string $email,
+        string $password
+    ): void
     {
         // $encryptionKey/$blindIndexKey are the base64-encoded values stored in
         // secrets.enc — decode to raw bytes exactly as the boot sequence does
@@ -1305,7 +1325,8 @@ class SetupController extends AbstractController
 
         $pdo = $connection->getPdo();
         $stmt = $pdo->prepare(
-            'INSERT INTO user_accounts (email_encrypted, email_blind_index, password_hash, is_super_admin) VALUES (?, ?, ?, TRUE)'
+            'INSERT INTO user_accounts (email_encrypted, email_blind_index, password_hash, is_super_admin) VALUES (?, '
+                . '?, ?, TRUE)'
         );
         $stmt->execute([$emailEncrypted, $emailBlindIndex, $passwordHash]);
     }
@@ -1340,7 +1361,8 @@ class SetupController extends AbstractController
             // Create new admin account
             $emailEncrypted = $encryptionService->encrypt($normalizedEmail, 'user_accounts.email');
             $stmt = $pdo->prepare(
-                'INSERT INTO user_accounts (email_encrypted, email_blind_index, password_hash, is_super_admin) VALUES (?, ?, ?, TRUE)'
+                'INSERT INTO user_accounts (email_encrypted, email_blind_index, password_hash, is_super_admin) VALUES '
+                    . '(?, ?, ?, TRUE)'
             );
             $stmt->execute([$emailEncrypted, $blindIndex, $passwordHash]);
         }

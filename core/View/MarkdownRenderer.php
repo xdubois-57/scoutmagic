@@ -66,7 +66,13 @@ namespace Core\View;
 final class MarkdownRenderer
 {
     /**
-     * @param array{heading_base_level?: int, allow_asset_images?: bool, blockquotes?: bool, ordered_lists?: bool, wrapped_list_items?: bool} $options
+     * @param array{
+     *     heading_base_level?: int,
+     *     allow_asset_images?: bool,
+     *     blockquotes?: bool,
+     *     ordered_lists?: bool,
+     *     wrapped_list_items?: bool
+     * } $options
      */
     public static function toHtml(string $markdown, array $options = []): string
     {
@@ -192,7 +198,10 @@ final class MarkdownRenderer
                 // base (help pages use 1) maps # to <h{base}> and each
                 // extra # one level deeper, never past <h6>.
                 $level = min(6, $headingBaseLevel + strlen($m[1]) - 1);
-                $html .= '<h' . $level . ' class="fw-semibold mt-2 mb-1">' . self::inline($m[2], $allowAssetImages) . '</h' . $level . '>';
+                $html .= '<h' . $level . ' class="fw-semibold mt-2 mb-1">' . self::inline(
+                    $m[2],
+                    $allowAssetImages
+                ) . '</h' . $level . '>';
                 continue;
             }
 
@@ -251,7 +260,11 @@ final class MarkdownRenderer
         if ($allowAssetImages) {
             $escaped = (string) preg_replace_callback(
                 '/!\[([^\]]*)\]\((\/assets\/[^\s)]+)\)/',
-                static fn (array $m): string => '<img src="' . $m[2] . '" alt="' . $m[1] . '" class="img-fluid rounded my-2">',
+                static fn (array $m): string => '<img src="'
+                    . $m[2]
+                    . '" alt="'
+                    . $m[1]
+                    . '" class="img-fluid rounded my-2">',
                 $escaped
             );
         }

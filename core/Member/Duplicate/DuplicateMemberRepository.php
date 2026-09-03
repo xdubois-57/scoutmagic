@@ -156,7 +156,9 @@ class DuplicateMemberRepository
         return $stmt === false ? 0 : (int) $stmt->fetchColumn();
     }
 
-    /** @return array{id: int, kept_member_id: int, duplicate_member_id: int, same_address: bool, status: string}|null */
+    /**
+     * @return array{id: int, kept_member_id: int, duplicate_member_id: int, same_address: bool, status: string}|null
+     */
     public function findById(int $id): ?array
     {
         $stmt = $this->pdo->prepare('SELECT * FROM member_duplicate_candidates WHERE id = ?');

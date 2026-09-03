@@ -50,7 +50,8 @@ class AttachmentRepository
      */
     public function findActiveOrdered(): array
     {
-        $stmt = $this->pdo->query("SELECT * FROM finance_attachments WHERE status = 'active' ORDER BY uploaded_at DESC");
+        $stmt = $this->pdo->query("SELECT * FROM finance_attachments WHERE status = 'active' ORDER BY uploaded_at "
+            . "DESC");
         $rows = $stmt !== false ? $stmt->fetchAll(\PDO::FETCH_ASSOC) : [];
         return array_map([$this, 'hydrate'], $rows);
     }
@@ -130,7 +131,8 @@ class AttachmentRepository
      */
     public function findActiveByAccountId(int $accountId): array
     {
-        $stmt = $this->pdo->prepare("SELECT * FROM finance_attachments WHERE status = 'active' AND account_id = ? ORDER BY uploaded_at DESC");
+        $stmt = $this->pdo->prepare("SELECT * FROM finance_attachments WHERE status = 'active' AND account_id = ? "
+            . "ORDER BY uploaded_at DESC");
         $stmt->execute([$accountId]);
         return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
@@ -142,7 +144,8 @@ class AttachmentRepository
      */
     public function countActiveByAccountId(int $accountId): int
     {
-        $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM finance_attachments WHERE status = 'active' AND account_id = ?");
+        $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM finance_attachments WHERE status = 'active' AND account_id "
+            . "= ?");
         $stmt->execute([$accountId]);
         return (int) $stmt->fetchColumn();
     }
@@ -235,7 +238,14 @@ class AttachmentRepository
      *
      * @return int the number of movement associations that were dropped
      */
-    public function reassign(int $attachmentId, ?int $accountId, int $fileId, string $ownerType, int $ownerId, string $roleMin): int
+    public function reassign(
+        int $attachmentId,
+        ?int $accountId,
+        int $fileId,
+        string $ownerType,
+        int $ownerId,
+        string $roleMin
+    ): int
     {
         $this->pdo->beginTransaction();
 
@@ -310,13 +320,20 @@ class AttachmentRepository
      *
      * @return array<int, array{attachment: Attachment, movement_count: int}>
      */
-    public function findFilteredForAccount(?int $accountId, bool $pendingOnly, ?string $search, int $limit, int $offset): array
+    public function findFilteredForAccount(
+        ?int $accountId,
+        bool $pendingOnly,
+        ?string $search,
+        int $limit,
+        int $offset
+    ): array
     {
         $search = $search !== null ? trim($search) : null;
 
         if ($search === null || $search === '') {
             [$fromWhere, $params] = $this->buildFilterSql($accountId, $pendingOnly);
-            $sql = "SELECT fa.*, COUNT(fta.transaction_id) AS movement_count {$fromWhere} ORDER BY fa.uploaded_at DESC LIMIT ? OFFSET ?";
+            $sql = "SELECT fa.*, COUNT(fta.transaction_id) AS movement_count {$fromWhere} ORDER BY fa.uploaded_at "
+                . "DESC LIMIT ? OFFSET ?";
             $params[] = $limit;
             $params[] = $offset;
 
@@ -359,7 +376,8 @@ class AttachmentRepository
     private function findAllMatchingSearch(?int $accountId, bool $pendingOnly, string $search): array
     {
         [$fromWhere, $params] = $this->buildFilterSql($accountId, $pendingOnly);
-        $stmt = $this->pdo->prepare("SELECT fa.*, COUNT(fta.transaction_id) AS movement_count {$fromWhere} ORDER BY fa.uploaded_at DESC");
+        $stmt = $this->pdo->prepare("SELECT fa.*, COUNT(fta.transaction_id) AS movement_count {$fromWhere} ORDER BY "
+            . "fa.uploaded_at DESC");
         $stmt->execute($params);
 
         $results = [];
@@ -380,13 +398,19 @@ class AttachmentRepository
         if ($attachment->suggestedDate !== null && mb_stripos($attachment->suggestedDate, $search) !== false) {
             return true;
         }
-        if ($attachment->suggestedAmount !== null && str_contains(number_format($attachment->suggestedAmount, 2, '.', ''), $search)) {
+        if ($attachment->suggestedAmount !== null && str_contains(
+            number_format($attachment->suggestedAmount, 2, '.', ''),
+            $search
+        )) {
             return true;
         }
         if ($attachment->suggestedLabel !== null && mb_stripos($attachment->suggestedLabel, $search) !== false) {
             return true;
         }
-        if ($attachment->suggestedDescription !== null && mb_stripos($attachment->suggestedDescription, $search) !== false) {
+        if ($attachment->suggestedDescription !== null && mb_stripos(
+            $attachment->suggestedDescription,
+            $search
+        ) !== false) {
             return true;
         }
         return false;
@@ -421,9 +445,15 @@ class AttachmentRepository
      * written by Task\ExtractReceiptDataHandler (Attachment::
      * SUGGESTED_SOURCE_MANUAL / SUGGESTED_SOURCE_AI) — null clears it.
      */
-    public function updateSuggestedData(int $id, ?float $suggestedAmount, ?string $suggestedDate, ?string $suggestedSource = null): void
+    public function updateSuggestedData(
+        int $id,
+        ?float $suggestedAmount,
+        ?string $suggestedDate,
+        ?string $suggestedSource = null
+    ): void
     {
-        $stmt = $this->pdo->prepare('UPDATE finance_attachments SET suggested_amount = ?, suggested_date = ?, suggested_source = ? WHERE id = ?');
+        $stmt = $this->pdo->prepare('UPDATE finance_attachments SET suggested_amount = ?, suggested_date = ?, '
+            . 'suggested_source = ? WHERE id = ?');
         $stmt->execute([$suggestedAmount, $suggestedDate, $suggestedSource, $id]);
     }
 
@@ -447,7 +477,8 @@ class AttachmentRepository
     public function updateSuggestedDescription(int $id, string $suggestedDescription): void
     {
         $stmt = $this->pdo->prepare('UPDATE finance_attachments SET suggested_description = ? WHERE id = ?');
-        $stmt->execute([$this->encryption->encrypt($suggestedDescription, 'finance_attachments.suggested_description'), $id]);
+        $stmt->execute([$this->encryption->encrypt($suggestedDescription, 'finance_attachments.suggested_description'),
+            $id]);
     }
 
     /**
@@ -474,14 +505,22 @@ class AttachmentRepository
             originalFilename: (string) $row['original_filename'],
             suggestedAmount: $row['suggested_amount'] !== null ? (float) $row['suggested_amount'] : null,
             suggestedDate: $row['suggested_date'] !== null ? (string) $row['suggested_date'] : null,
-            suggestedLabel: $row['suggested_label'] !== null ? $this->decryptOrLegacyPlaintext((string) $row['suggested_label'], 'finance_attachments.suggested_label') : null,
+            suggestedLabel: $row['suggested_label'] !== null ? $this->decryptOrLegacyPlaintext(
+                (string) $row['suggested_label'],
+                'finance_attachments.suggested_label'
+            ) : null,
             suggestedSource: $row['suggested_source'] !== null ? (string) $row['suggested_source'] : null,
             status: (string) $row['status'],
             parentAttachmentId: $row['parent_attachment_id'] !== null ? (int) $row['parent_attachment_id'] : null,
             uploadedBy: $row['uploaded_by'] !== null ? (int) $row['uploaded_by'] : null,
             uploadedAt: (string) $row['uploaded_at'],
-            matchingAiAttemptedAt: $row['matching_ai_attempted_at'] !== null ? (string) $row['matching_ai_attempted_at'] : null,
-            suggestedDescription: $row['suggested_description'] !== null ? $this->decryptOrLegacyPlaintext((string) $row['suggested_description'], 'finance_attachments.suggested_description') : null
+            matchingAiAttemptedAt: $row['matching_ai_attempted_at'] !== null
+                ? (string) $row['matching_ai_attempted_at']
+                : null,
+            suggestedDescription: $row['suggested_description'] !== null ? $this->decryptOrLegacyPlaintext(
+                (string) $row['suggested_description'],
+                'finance_attachments.suggested_description'
+            ) : null
         );
     }
 

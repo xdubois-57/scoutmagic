@@ -20,7 +20,8 @@ class OnCallRepository
     public function findForRange(string $fromDate, string $toDate): array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT * FROM sos_oncall_assignments WHERE assignment_date BETWEEN ? AND ? ORDER BY assignment_date ASC, id ASC'
+            'SELECT * FROM sos_oncall_assignments WHERE assignment_date BETWEEN ? AND ? ORDER BY assignment_date ASC, '
+                . 'id ASC'
         );
         $stmt->execute([$fromDate, $toDate]);
         return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));

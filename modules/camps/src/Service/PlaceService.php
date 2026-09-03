@@ -58,7 +58,12 @@ class PlaceService
     /**
      * @param array<string, string|null> $fields
      */
-    public function update(Place $place, array $fields, ?int $actorUserAccountId, AuditSource $source = AuditSource::Human): void
+    public function update(
+        Place $place,
+        array $fields,
+        ?int $actorUserAccountId,
+        AuditSource $source = AuditSource::Human
+    ): void
     {
         $name = trim((string) ($fields['name'] ?? ''));
         if ($name === '') {
@@ -197,7 +202,8 @@ class PlaceService
             return;
         }
 
-        $this->audit->record(self::ENTITY_TYPE, $placeId, $fieldKey, $from, $to, $source, null, null, $actorUserAccountId);
+        $this->audit->record(self::ENTITY_TYPE, $placeId, $fieldKey, $from, $to, $source, null, null,
+            $actorUserAccountId);
     }
 
     /**

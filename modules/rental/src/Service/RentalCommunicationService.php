@@ -173,7 +173,10 @@ class RentalCommunicationService
      * exists to be confirmed or dismissed by somebody who knows, and the
      * manager of the booking is that somebody.
      *
-     * @return list<array{message: \Modules\InboundMail\Api\InboundMessage, candidates: \Modules\InboundMail\Api\MessageCandidate[]}>
+     * @return list<array{
+     *     message: \Modules\InboundMail\Api\InboundMessage,
+     *     candidates: \Modules\InboundMail\Api\MessageCandidate[]
+     * }>
      */
     public function propositions(RentalBooking $booking): array
     {
@@ -212,7 +215,12 @@ class RentalCommunicationService
      * Scoped by the API itself: a proposition whose target is not this
      * booking is refused, whatever the screen posted.
      */
-    public function confirmProposition(RentalBooking $booking, int $messageId, int $candidateId, ?int $userAccountId): bool
+    public function confirmProposition(
+        RentalBooking $booking,
+        int $messageId,
+        int $candidateId,
+        ?int $userAccountId
+    ): bool
     {
         if ($this->inboundMail === null) {
             return false;
@@ -273,7 +281,8 @@ class RentalCommunicationService
         }
 
         $target = $this->bookingRepository->findById($targetBookingId);
-        if ($target === null || !$this->authorizationService->canManageAssetId($actorEmail, $scoutYearId, $target->assetId)) {
+        if ($target === null || !$this->authorizationService->canManageAssetId($actorEmail, $scoutYearId,
+            $target->assetId)) {
             // Deliberately the same answer for "no such booking" and "not
             // yours": otherwise this is an oracle for which bookings exist.
             throw new RentalException("Cette réservation n'est pas accessible.");

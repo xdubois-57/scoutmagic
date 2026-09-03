@@ -41,7 +41,11 @@ final class MovementPresenter
         if ($movement->counterpartyName !== null && trim($movement->counterpartyName) !== '') {
             return $movement->counterpartyName;
         }
-        if ($firstReceipt !== null && $firstReceipt->suggestedLabel !== null && trim($firstReceipt->suggestedLabel) !== '') {
+        if (
+            $firstReceipt !== null
+            && $firstReceipt->suggestedLabel !== null
+            && trim($firstReceipt->suggestedLabel) !== ''
+        ) {
             return $firstReceipt->suggestedLabel;
         }
         return $accountName;
@@ -66,7 +70,11 @@ final class MovementPresenter
         if ($movement->comment !== null && mb_strlen(trim($movement->comment)) > self::MIN_COMMENT_LENGTH) {
             return $movement->comment;
         }
-        if ($firstReceipt !== null && $firstReceipt->suggestedDescription !== null && trim($firstReceipt->suggestedDescription) !== '') {
+        if (
+            $firstReceipt !== null
+            && $firstReceipt->suggestedDescription !== null
+            && trim($firstReceipt->suggestedDescription) !== ''
+        ) {
             return $firstReceipt->suggestedDescription;
         }
         return $movement->label;

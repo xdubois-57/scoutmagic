@@ -30,7 +30,8 @@ class RosterReplacementRefusedException extends ImportException
         parent::__construct(
             $assessment->verdict === RosterReplacementVerdict::NO_ADMIN_LEFT
                 ? "Cet import laisserait le site sans administrateur. Il est refusé."
-                : "Ce fichier ne correspond pas à l'unité telle que le site la connaît. Aucune modification n'a été faite."
+                : "Ce fichier ne correspond pas à l'unité telle que le site la connaît. Aucune modification n'a été "
+                    . "faite."
         );
     }
 }

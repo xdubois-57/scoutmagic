@@ -426,7 +426,11 @@ class RentalManagementController extends AbstractController
     private function uploadComplianceFile(Request $request, RentalAsset $asset): ?int
     {
         $file = $request->getFile('document');
-        if ($this->uploadHandler === null || $file === null || ($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+        if (
+            $this->uploadHandler === null
+            || $file === null
+            || ($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE
+        ) {
             return null;
         }
 
@@ -1054,7 +1058,10 @@ class RentalManagementController extends AbstractController
      */
     public function generateDocument(Request $request, array $params): Response
     {
-        return $this->bookingAction($request, function (RentalBooking $booking, RentalAsset $asset) use ($request): void {
+        return $this->bookingAction($request, function (
+            RentalBooking $booking,
+            RentalAsset $asset
+        ) use ($request): void {
             if ($this->documentService === null) {
                 throw new RentalException('Les documents ne sont pas disponibles.');
             }
@@ -1092,7 +1099,10 @@ class RentalManagementController extends AbstractController
      */
     public function sendDocument(Request $request, array $params): Response
     {
-        return $this->bookingAction($request, function (RentalBooking $booking, RentalAsset $asset) use ($request): void {
+        return $this->bookingAction($request, function (
+            RentalBooking $booking,
+            RentalAsset $asset
+        ) use ($request): void {
             if ($this->documentService === null || $this->mailService === null) {
                 throw new RentalException("L'envoi de documents n'est pas disponible.");
             }
@@ -1595,7 +1605,8 @@ class RentalManagementController extends AbstractController
         FlashMessage::set(
             'success',
             $enabled
-                ? "Publication activée. L'occupation apparaît comme événement calculé : rien n'est écrit dans le calendrier."
+                ? "Publication activée. L'occupation apparaît comme événement calculé : rien n'est écrit dans le "
+                    . "calendrier."
                 : 'Publication désactivée.'
         );
 
@@ -1876,7 +1887,10 @@ class RentalManagementController extends AbstractController
      */
     public function changeStatus(Request $request, array $params): Response
     {
-        return $this->bookingAction($request, function (RentalBooking $booking, RentalAsset $asset) use ($request): void {
+        return $this->bookingAction($request, function (
+            RentalBooking $booking,
+            RentalAsset $asset
+        ) use ($request): void {
             $target = BookingStatus::tryFrom((string) $request->getBody('status', ''));
             if ($target === null) {
                 throw new RentalException("Cet état n'existe pas.");
@@ -1999,7 +2013,10 @@ class RentalManagementController extends AbstractController
      */
     public function priceLine(Request $request, array $params): Response
     {
-        return $this->bookingAction($request, function (RentalBooking $booking, RentalAsset $asset) use ($request): void {
+        return $this->bookingAction($request, function (
+            RentalBooking $booking,
+            RentalAsset $asset
+        ) use ($request): void {
             $action = (string) $request->getBody('line_action', '');
             $index = (int) $request->getBody('index', -1);
             $actor = $this->actorMemberId();
@@ -2045,7 +2062,10 @@ class RentalManagementController extends AbstractController
      */
     public function propose(Request $request, array $params): Response
     {
-        return $this->bookingAction($request, function (RentalBooking $booking, RentalAsset $asset) use ($request): void {
+        return $this->bookingAction($request, function (
+            RentalBooking $booking,
+            RentalAsset $asset
+        ) use ($request): void {
             $kind = ChangeRequestKind::tryFrom((string) $request->getBody('kind', ''));
             if ($kind === null) {
                 throw new RentalException("Ce type de proposition n'existe pas.");
@@ -2086,7 +2106,10 @@ class RentalManagementController extends AbstractController
      */
     public function decideChange(Request $request, array $params): Response
     {
-        return $this->bookingAction($request, function (RentalBooking $booking, RentalAsset $asset) use ($request): void {
+        return $this->bookingAction($request, function (
+            RentalBooking $booking,
+            RentalAsset $asset
+        ) use ($request): void {
             $changeRequest = $this->changeRequestRepository->findById((int) $request->getBody('request_id', 0));
             if ($changeRequest === null || $changeRequest->bookingId !== $booking->id) {
                 throw new RentalException("Cette demande n'existe pas.");
@@ -2117,7 +2140,11 @@ class RentalManagementController extends AbstractController
                 return;
             }
 
-            $this->operationsService->refuseChange($changeRequest, ChangeRequestOrigin::MANAGER, $this->actorMemberId());
+            $this->operationsService->refuseChange(
+                $changeRequest,
+                ChangeRequestOrigin::MANAGER,
+                $this->actorMemberId()
+            );
             FlashMessage::set(
                 'success',
                 'Demande refusée. La réservation est inchangée.'

@@ -77,7 +77,10 @@ class OpenRegistrationHandler implements TaskHandlerInterface
         $monthDay = trim((string) ($context->settings->get('registration_scheduled_open_at', 'registration') ?: ''));
         if (preg_match('/^\d{2}-\d{2}$/', $monthDay) === 1) {
             $dueOn = self::dueDateForYear($monthDay, new \DateTimeImmutable(), self::catchUpDays($context->settings));
-            $appliedOn = (string) ($context->settings->get('registration_scheduled_open_applied_on', 'registration') ?: '');
+            $appliedOn = (string) ($context->settings->get(
+                'registration_scheduled_open_applied_on',
+                'registration'
+            ) ?: '');
 
             if ($dueOn !== null && $appliedOn < $dueOn) {
                 $context->settings->set('registration_form_open', '1', 'registration');

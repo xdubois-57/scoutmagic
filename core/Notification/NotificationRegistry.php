@@ -96,7 +96,8 @@ class NotificationRegistry
             new NotificationType(
                 id: 'core.update_installed',
                 label: 'Mise à jour installée',
-                description: 'Quand une mise à jour du site s\'installe automatiquement (nouvelle version ou build de développement)',
+                description: 'Quand une mise à jour du site s\'installe automatiquement (nouvelle version ou build de '
+                    . 'développement)',
                 group: 'Maintenance',
                 roleMin: 'admin',
                 channels: ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_off'],
@@ -105,7 +106,8 @@ class NotificationRegistry
             new NotificationType(
                 id: 'core.update_failed',
                 label: 'Échec de mise à jour',
-                description: 'Quand une mise à jour automatique du site échoue, avec ou sans restauration de la version précédente',
+                description: 'Quand une mise à jour automatique du site échoue, avec ou sans restauration de la '
+                    . 'version précédente',
                 group: 'Maintenance',
                 roleMin: 'admin',
                 channels: ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_off'],
@@ -127,7 +129,8 @@ class NotificationRegistry
             new NotificationType(
                 id: 'core.security_alert',
                 label: 'Alerte de sécurité',
-                description: "Évènement de sécurité concernant ton compte (ex : nouvelle connexion, changement de mot de passe)",
+                description: "Évènement de sécurité concernant ton compte (ex : nouvelle connexion, changement de mot "
+                    . "de passe)",
                 group: 'Sécurité',
                 roleMin: 'identified',
                 channels: ['in_app' => 'on', 'push' => 'on', 'email' => 'default_off']
@@ -149,7 +152,8 @@ class NotificationRegistry
             new NotificationType(
                 id: 'core.unit_logo_updated_ios',
                 label: 'Nouveau logo — réinstallation iOS',
-                description: "Quand le logo de l'unité a changé et que l'administrateur invite les utilisateurs iOS à réinstaller l'application pour le voir",
+                description: "Quand le logo de l'unité a changé et que l'administrateur invite les utilisateurs iOS à "
+                    . "réinstaller l'application pour le voir",
                 group: 'Informations',
                 roleMin: 'identified',
                 channels: ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_off']

@@ -138,7 +138,8 @@ class ImportService
                         }
                     }
 
-                    $this->checkpointRepository->create($account->id, $checkpointDate, $balance, BalanceCheckpoint::SOURCE_IMPORT);
+                    $this->checkpointRepository->create($account->id, $checkpointDate, $balance,
+                        BalanceCheckpoint::SOURCE_IMPORT);
                 }
 
                 $statementImportId = $this->statementImportRepository->create(
@@ -208,7 +209,10 @@ class ImportService
      */
     private function verifyIban(string $sourceIban, string $accountIban): void
     {
-        if ($this->encryption->blindIndex($sourceIban, 'finance_iban') === $this->encryption->blindIndex($accountIban, 'finance_iban')) {
+        if ($this->encryption->blindIndex(
+            $sourceIban,
+            'finance_iban'
+        ) === $this->encryption->blindIndex($accountIban, 'finance_iban')) {
             return;
         }
 

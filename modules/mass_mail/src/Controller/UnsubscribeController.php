@@ -56,7 +56,9 @@ class UnsubscribeController extends AbstractController
         $id = (int) ($params['id'] ?? 0);
         $token = (string) $request->getQuery('token', '');
 
-        $recipient = ($id > 0 && $token !== '') ? $this->recipientRepository->verifyUnsubscribeToken($id, $token) : null;
+        $recipient = ($id > 0 && $token !== '')
+            ? $this->recipientRepository->verifyUnsubscribeToken($id, $token)
+            : null;
 
         return $this->render('@mass_mail/unsubscribe.html.twig', [
             'state' => $recipient !== null ? 'confirm' : 'invalid',
@@ -79,7 +81,9 @@ class UnsubscribeController extends AbstractController
         $queryToken = (string) $request->getQuery('token', '');
         $token = $queryToken !== '' ? $queryToken : (string) $request->getBody('token', '');
 
-        $recipient = ($id > 0 && $token !== '') ? $this->recipientRepository->verifyUnsubscribeToken($id, $token) : null;
+        $recipient = ($id > 0 && $token !== '')
+            ? $this->recipientRepository->verifyUnsubscribeToken($id, $token)
+            : null;
         if ($recipient === null) {
             return $this->render('@mass_mail/unsubscribe.html.twig', ['state' => 'invalid']);
         }

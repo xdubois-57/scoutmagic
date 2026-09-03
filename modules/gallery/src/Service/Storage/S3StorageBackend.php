@@ -110,7 +110,9 @@ class S3StorageBackend implements StorageBackendInterface
      */
     public static function servingOrigin(string $endpoint, string $bucket, ?string $publicUrl): ?string
     {
-        $target = $publicUrl !== null && $publicUrl !== '' ? $publicUrl : self::stripBucketFromEndpointHost($endpoint, $bucket);
+        $target = $publicUrl !== null && $publicUrl !== ''
+            ? $publicUrl
+            : self::stripBucketFromEndpointHost($endpoint, $bucket);
         $parts = parse_url($target);
         if (!isset($parts['scheme'], $parts['host'])) {
             return null;
@@ -408,11 +410,15 @@ class S3StorageBackend implements StorageBackendInterface
 
         return match ($code) {
             'NoSuchBucket' => 'le bucket indiqué n\'existe pas sur ce service (vérifiez son nom et la région)',
-            'InvalidAccessKeyId' => 'la clé d\'accès est inconnue de ce service (vérifiez qu\'elle appartient bien à ce fournisseur)',
-            'SignatureDoesNotMatch' => 'la clé secrète ne correspond pas à la clé d\'accès (recopiez-la, sans espace avant ni après)',
-            'AccessDenied', 'Forbidden' => 'les identifiants n\'ont pas les droits nécessaires sur ce bucket (lecture, écriture, listage et suppression sont tous requis)',
+            'InvalidAccessKeyId' => 'la clé d\'accès est inconnue de ce service (vérifiez qu\'elle appartient bien à '
+                . 'ce fournisseur)',
+            'SignatureDoesNotMatch' => 'la clé secrète ne correspond pas à la clé d\'accès (recopiez-la, sans espace '
+                . 'avant ni après)',
+            'AccessDenied', 'Forbidden' => 'les identifiants n\'ont pas les droits nécessaires sur ce bucket (lecture, '
+                . 'écriture, listage et suppression sont tous requis)',
             'RequestTimeTooSkewed' => 'l\'horloge du serveur est trop décalée par rapport à celle du fournisseur',
-            'NotFound' => 'le bucket ou l\'adresse du service est introuvable (vérifiez l\'adresse et le nom du bucket)',
+            'NotFound' => 'le bucket ou l\'adresse du service est introuvable (vérifiez l\'adresse et le nom du '
+                . 'bucket)',
             default => 'le service a refusé la requête (voir le journal pour le détail technique)',
         };
     }

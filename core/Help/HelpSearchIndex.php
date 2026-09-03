@@ -48,7 +48,17 @@ final class HelpSearchIndex
      * without a current path: a result list is not a page context, and
      * the reader clicking a result is by definition not on it yet.
      *
-     * @return array<int, array{id: string, title: string, summary: string, category: string, questions: string[], link: ?array{path: string, label: string}}>
+     * @return array<
+     *     int,
+     *     array{
+     *         id: string,
+     *         title: string,
+     *         summary: string,
+     *         category: string,
+     *         questions: string[],
+     *         link: ?array{path: string, label: string}
+     *     }
+     * >
      */
     public function forRole(Role $role): array
     {

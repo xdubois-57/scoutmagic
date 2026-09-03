@@ -176,7 +176,9 @@ class CampaignNotificationService
             $demand = [
                 'member_id' => $row->memberId,
                 'member_year_id' => $memberYearIdByMemberId[$row->memberId] ?? 0,
-                'name' => $entry !== null && trim($entry->firstName) !== '' ? $entry->firstName : ('Membre #' . $row->memberId),
+                'name' => $entry !== null && trim($entry->firstName) !== ''
+                    ? $entry->firstName
+                    : ('Membre #' . $row->memberId),
                 'amount_cents' => $settlement->amountRemainingCents(),
             ];
 

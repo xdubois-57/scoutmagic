@@ -49,7 +49,11 @@ class MultidayEventReminderHandler implements TaskHandlerInterface
             return; // calendar deleted, or no longer a section calendar
         }
 
-        $sectionService = new SectionService($context->connection, $context->encryption, new MemberBadgeRepository($pdo));
+        $sectionService = new SectionService(
+            $context->connection,
+            $context->encryption,
+            new MemberBadgeRepository($pdo)
+        );
         $scoutYearId = (int) (new ScoutYearService($pdo))->getCurrentYear()['id'];
         $staff = $sectionService->getSectionStaff($calendar->sectionId, $scoutYearId);
         if ($staff === []) {

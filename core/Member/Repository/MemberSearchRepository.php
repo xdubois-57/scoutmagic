@@ -39,7 +39,11 @@ class MemberSearchRepository
      *
      * @return MemberSearchResult[]
      */
-    public function findAllForYear(int $scoutYearId, string $scoutYearLabel = '', string $scoutYearStartDate = ''): array
+    public function findAllForYear(
+        int $scoutYearId,
+        string $scoutYearLabel = '',
+        string $scoutYearStartDate = ''
+    ): array
     {
         $pdo = $this->connection->getPdo();
 

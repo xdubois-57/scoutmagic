@@ -214,7 +214,8 @@ class ImportReportPresenter
             [
                 'label' => 'Lignes du CSV non retenues',
                 'value' => $quality->linesNotRetained,
-                'why' => "une même personne occupe plusieurs lignes (une par fonction et par adresse) — comportement normal",
+                'why' => "une même personne occupe plusieurs lignes (une par fonction et par adresse) — comportement "
+                    . "normal",
             ],
         ];
     }

@@ -463,18 +463,23 @@ class SupportTicketRepository
             'reference' => (string) $row['reference'],
             'installation_id' => (int) $row['installation_id'],
             'category' => TicketCategory::tryFromValue((string) $row['category']),
-            'description' => $this->encryption->decrypt((string) $row['description_encrypted'], 'support_tickets.description'),
-            'contact_email' => $this->encryption->decrypt((string) $row['contact_email_encrypted'], 'support_tickets.contact_email'),
+            'description' => $this->encryption->decrypt((string) $row['description_encrypted'],
+                'support_tickets.description'),
+            'contact_email' => $this->encryption->decrypt((string) $row['contact_email_encrypted'],
+                'support_tickets.contact_email'),
             'site_version' => $row['site_version'] !== null ? (string) $row['site_version'] : null,
             'php_version' => $row['php_version'] !== null ? (string) $row['php_version'] : null,
             'status' => (string) $row['status'],
             'created_at' => (string) $row['created_at'],
             'closed_at' => $row['closed_at'] !== null ? (string) $row['closed_at'] : null,
             'resolution_note' => ($row['resolution_note_encrypted'] ?? null) !== null
-                ? $this->encryption->decrypt((string) $row['resolution_note_encrypted'], 'support_tickets.resolution_note')
+                ? $this->encryption->decrypt((string) $row['resolution_note_encrypted'],
+                    'support_tickets.resolution_note')
                 : null,
             'archive_file_id' => ($row['archive_file_id'] ?? null) !== null ? (int) $row['archive_file_id'] : null,
-            'archive_received_at' => ($row['archive_received_at'] ?? null) !== null ? (string) $row['archive_received_at'] : null,
+            'archive_received_at' => ($row['archive_received_at'] ?? null) !== null
+                ? (string) $row['archive_received_at']
+                : null,
             'statistics_snapshot' => self::decodeSnapshot(
                 ($row['statistics_snapshot_encrypted'] ?? null) !== null
                     ? $this->encryption->decrypt(

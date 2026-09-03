@@ -26,7 +26,8 @@ class SectionTransferRepository
     public function findDestinationSectionId(int $memberId, int $targetScoutYearId): ?int
     {
         $stmt = $this->pdo->prepare(
-            'SELECT destination_section_id FROM registration_section_transfers WHERE member_id = ? AND target_scout_year_id = ?'
+            'SELECT destination_section_id FROM registration_section_transfers WHERE member_id = ? AND '
+                . 'target_scout_year_id = ?'
         );
         $stmt->execute([$memberId, $targetScoutYearId]);
         $value = $stmt->fetchColumn();

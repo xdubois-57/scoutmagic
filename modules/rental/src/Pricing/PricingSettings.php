@@ -31,10 +31,13 @@ namespace Modules\Rental\Pricing;
 final class PricingSettings
 {
     /**
-     * @param PricePeriod[] $periods Seasons, in configuration order. May be empty: an asset with one rate all year needs no period at all.
-     * @param RenterCategory[] $categories Configurable renter categories (youth movement, non-profit, private, company, internal…).
+     * @param PricePeriod[] $periods Seasons, in configuration order. May be empty: an asset with one rate all year
+     *     needs no period at all.
+     * @param RenterCategory[] $categories Configurable renter categories (youth movement, non-profit, private, company,
+     *     internal…).
      * @param array<string, int> $priceGridCents Unit price in cents, keyed by self::gridKey(periodId, categoryId).
-     * @param int|null $defaultUnitPriceCents Rate used when the grid has no cell for the resolved (period, category). Null means "not priced yet", which produces a warning rather than a silent zero.
+     * @param int|null $defaultUnitPriceCents Rate used when the grid has no cell for the resolved (period, category).
+     *     Null means "not priced yet", which produces a warning rather than a silent zero.
      * @param int|null $minimumAmountCents Floor for the base subtotal. Mutually exclusive with $minimumPersons.
      * @param int|null $minimumPersons Floor for the person count. Mutually exclusive with $minimumAmountCents.
      * @param RentalFee[] $fees Ordered; meter fees are quoted separately (see RentalFee).

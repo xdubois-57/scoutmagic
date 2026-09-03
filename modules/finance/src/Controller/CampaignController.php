@@ -379,7 +379,8 @@ class CampaignController extends AbstractController
             // do not (AGENTS.md § Exception messages that reach a visitor).
             FlashMessage::set('error', \Core\Exception\UserFacingMessage::from(
                 $e,
-                "Le brouillon de rappel n'a pas pu être créé. Vérifiez que le publipostage est configuré pour votre section."
+                "Le brouillon de rappel n'a pas pu être créé. Vérifiez que le publipostage est configuré pour votre "
+                    . "section."
             ));
 
             return $this->redirect($redirect);
@@ -425,8 +426,15 @@ class CampaignController extends AbstractController
             $notified = $this->notificationService->notifyFamilies($campaign, $actorAccountId);
 
             FlashMessage::set('success', $notified > 0
-                ? 'Les familles sont prévenues — ' . $notified . ' compte' . ($notified > 1 ? 's' : '') . ' notifié' . ($notified > 1 ? 's' : '') . '.'
-                : "La campagne est marquée comme notifiée. Aucun compte n'a reçu de notification : soit tout est réglé, soit aucune famille n'a de compte sur le site.");
+                ? 'Les familles sont prévenues — '
+                    . $notified
+                    . ' compte'
+                    . ($notified > 1 ? 's' : '')
+                    . ' notifié'
+                    . ($notified > 1 ? 's' : '')
+                    . '.'
+                : "La campagne est marquée comme notifiée. Aucun compte n'a reçu de notification : soit tout est "
+                    . "réglé, soit aucune famille n'a de compte sur le site.");
         } catch (FinanceException $e) {
             FlashMessage::set('error', $e->getMessage());
         }

@@ -39,7 +39,8 @@ class RegistrationMenuHookService implements MenuEntryProvider
             return [];
         }
 
-        $retentionMonths = (int) ($this->settingService->get('registration_espace_animes_retention_months', 'registration') ?: 3);
+        $retentionMonths = (int) ($this->settingService->get('registration_espace_animes_retention_months',
+            'registration') ?: 3);
         $now = new \DateTimeImmutable();
 
         $entries = [];
@@ -77,7 +78,8 @@ class RegistrationMenuHookService implements MenuEntryProvider
             return false;
         }
 
-        if (in_array($request->status, [RegistrationRequest::STATUS_REFUSED, RegistrationRequest::STATUS_WITHDRAWN], true)
+        if (in_array($request->status, [RegistrationRequest::STATUS_REFUSED, RegistrationRequest::STATUS_WITHDRAWN],
+            true)
             && $request->finalAt !== null
         ) {
             return $now < $request->finalAt->modify("+{$retentionMonths} months");

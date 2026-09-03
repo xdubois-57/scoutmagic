@@ -33,7 +33,9 @@ final class DeskClipboardText
     {
         $lines = [
             $review->addressLabel,
-            $review->deskSize . ' membre(s) dans Desk — tarif attendu : ' . HouseholdCategoryLabel::for($review->expectedCategory),
+            $review->deskSize
+                . ' membre(s) dans Desk — tarif attendu : '
+                . HouseholdCategoryLabel::for($review->expectedCategory),
         ];
 
         foreach ($review->members as $member) {

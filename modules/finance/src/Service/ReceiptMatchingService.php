@@ -120,7 +120,8 @@ class ReceiptMatchingService
 
         $match = $this->findRuleBasedMatch($receipt, $candidates);
         if ($match !== null) {
-            $this->associate($receipt, $match, 'receipt_auto_matched', 'Reçu associé automatiquement à un mouvement (règles, sans IA)');
+            $this->associate($receipt, $match, 'receipt_auto_matched',
+                'Reçu associé automatiquement à un mouvement (règles, sans IA)');
             return;
         }
 
@@ -252,7 +253,9 @@ class ReceiptMatchingService
         }
 
         $parsed = $response->parsed;
-        $transactionId = isset($parsed['transaction_id']) && is_numeric($parsed['transaction_id']) ? (int) $parsed['transaction_id'] : null;
+        $transactionId = isset($parsed['transaction_id']) && is_numeric($parsed['transaction_id'])
+            ? (int) $parsed['transaction_id']
+            : null;
 
         if ($transactionId === null || !isset($candidatesById[$transactionId])) {
             $this->journalService->log(
@@ -298,7 +301,8 @@ class ReceiptMatchingService
             . "Montant : {$amount}\nDate approximative : {$date}\nCommerçant : {$merchant}\n\n"
             . "Voici les mouvements bancaires candidats (environ 3 semaines autour de cette date) :\n"
             . implode("\n", $lines)
-            . "\n\nIdentifie l'id du mouvement qui correspond à ce reçu. Si aucun ne correspond avec certitude, réponds avec transaction_id à null plutôt que de deviner.";
+            . "\n\nIdentifie l'id du mouvement qui correspond à ce reçu. Si aucun ne correspond avec certitude, "
+            . "réponds avec transaction_id à null plutôt que de deviner.";
     }
 
     private function score(Attachment $receipt, Transaction $transaction, string $referenceDate): float

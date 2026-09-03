@@ -83,7 +83,10 @@ class ReenrollmentCampaignHandler implements TaskHandlerInterface
         }
 
         // ── the two reminders ────────────────────────────────────────
-        foreach ([ReenrollmentCampaignService::EMAIL_REMINDER_1, ReenrollmentCampaignService::EMAIL_REMINDER_2] as $reminder) {
+        foreach ([
+            ReenrollmentCampaignService::EMAIL_REMINDER_1,
+            ReenrollmentCampaignService::EMAIL_REMINDER_2
+        ] as $reminder) {
             $due = $campaign->reminderDate($reminder, $now);
             // Null means the setting is absent OR the date falls before
             // the campaign opened — the roadmap's own case: skipped
@@ -141,7 +144,8 @@ class ReenrollmentCampaignHandler implements TaskHandlerInterface
             $context->encryption,
             new \Core\Badge\MemberBadgeRepository($pdo)
         );
-        $requestRepository = new \Modules\Registration\Repository\RegistrationRequestRepository($pdo, $context->encryption);
+        $requestRepository = new \Modules\Registration\Repository\RegistrationRequestRepository($pdo,
+            $context->encryption);
 
         return new ReenrollmentCampaignService(
             $context->settings,

@@ -75,7 +75,8 @@ class RateLimitService
         $since = (new \DateTimeImmutable('-' . self::WINDOW_MINUTES . ' minutes'))->format('Y-m-d H:i:s');
 
         if ($this->repository->countSince($identifierHash, $actionType, $since) >= $limit) {
-            throw new RetroException('Trop d\'actions récentes — merci de patienter quelques instants.', RetroException::TYPE_RATE_LIMITED);
+            throw new RetroException('Trop d\'actions récentes — merci de patienter quelques instants.',
+                RetroException::TYPE_RATE_LIMITED);
         }
 
         $this->repository->record($identifierHash, $actionType);

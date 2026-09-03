@@ -289,7 +289,8 @@ class StayFromMailService
      */
     private function shortStayMaxDays(): int
     {
-        $raw = (int) ($this->settings->get('camps_short_stay_max_days', 'camps', (string) self::DEFAULT_SHORT_STAY_MAX_DAYS)
+        $raw = (int) ($this->settings->get('camps_short_stay_max_days', 'camps',
+            (string) self::DEFAULT_SHORT_STAY_MAX_DAYS)
             ?? self::DEFAULT_SHORT_STAY_MAX_DAYS);
 
         return max(1, $raw);
@@ -679,7 +680,8 @@ class StayFromMailService
      * the tests and this class all quote the same words — a prompt written
      * inline is a prompt nobody can check against what was actually sent.
      */
-    public const PLACE_NAME_SYSTEM_PROMPT = 'Tu lis un e-mail reçu par une unité scoute au sujet d\'un terrain de camp. '
+    public const PLACE_NAME_SYSTEM_PROMPT = 'Tu lis un e-mail reçu par une unité scoute au sujet d\'un terrain de '
+        . 'camp. '
         . 'Identifie le lieu dont ce message parle : le terrain, la ferme, le domaine, le gîte ou '
         . 'le bâtiment où le séjour aurait lieu. '
         . 'Donne son nom dans « place_name » : jamais un nom de personne, jamais le nom de '

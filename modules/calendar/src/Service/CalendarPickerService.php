@@ -97,7 +97,12 @@ class CalendarPickerService
      * @param Calendar[] $eligibleCalendars
      * @return int[]
      */
-    public function resolveCalendarIdsForGrid(int $selectedCalendarId, array $eligibleCalendars, string $email, int $scoutYearId): array
+    public function resolveCalendarIdsForGrid(
+        int $selectedCalendarId,
+        array $eligibleCalendars,
+        string $email,
+        int $scoutYearId
+    ): array
     {
         if ($selectedCalendarId !== self::MY_EVENTS_ID) {
             return [$selectedCalendarId];

@@ -167,7 +167,10 @@ class AdminMemberPageService
             // else here: a training path is a statement about where
             // somebody stood in a given season, not a fact that
             // accumulates.
-            'formation_path' => $this->hooks?->getOptional(FormationPathProvider::class)?->getFormationPath($profile->memberId, $scoutYearId),
+            'formation_path' => $this->hooks?->getOptional(FormationPathProvider::class)?->getFormationPath(
+                $profile->memberId,
+                $scoutYearId
+            ),
             'camp_stays' => $campStays,
             'camp_stays_capped' => count($campStays) >= MemberCampStayProvider::LIMIT,
             'discussion_groups' => $this->hooks?->getOptional(MemberDiscussionGroupProvider::class)?->getDiscussionGroups($profile->memberId) ?? [],

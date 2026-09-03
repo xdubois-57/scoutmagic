@@ -135,7 +135,8 @@ class PublicRegistrationController extends AbstractController
         if (!$availability['form_available']) {
             return $this->render(
                 '@registration/public.html.twig',
-                $this->buildPageContext('Les inscriptions ne sont pas ouvertes pour le moment.', $request->getBodyAll(), null)
+                $this->buildPageContext('Les inscriptions ne sont pas ouvertes pour le moment.', $request->getBodyAll(),
+                    null)
             )->setStatusCode(422);
         }
 
@@ -254,7 +255,12 @@ class PublicRegistrationController extends AbstractController
      * it only exists at all once a code for the CURRENT public year was
      * verified — always targets that current year, never the next one.
      *
-     * @return array{form_open: bool, session_unlocked: bool, form_available: bool, target: array{id: int, label: string, start_date: string, end_date: string, used_code: bool}}
+     * @return array{
+     *     form_open: bool,
+     *     session_unlocked: bool,
+     *     form_available: bool,
+     *     target: array{id: int, label: string, start_date: string, end_date: string, used_code: bool}
+     * }
      */
     private function resolveAvailability(?string $submittedCode): array
     {
@@ -330,7 +336,8 @@ class PublicRegistrationController extends AbstractController
         }
 
         return [
-            'parcours_image_file_id' => (int) $this->settingService->get('registration_parcours_image_file_id', 'registration', '0'),
+            'parcours_image_file_id' => (int) $this->settingService->get('registration_parcours_image_file_id',
+                'registration', '0'),
             'target_year_label' => $targetLabel,
             'birth_years_by_branch' => $this->slotService->birthYearsByBranch($targetLabel),
             'waitlist_enabled' => $waitlistEnabled,
@@ -403,7 +410,8 @@ class PublicRegistrationController extends AbstractController
     {
         $errors = [];
 
-        foreach (['parent_name', 'child_last_name', 'child_first_name', 'street', 'number', 'postal_code', 'city', 'phone1'] as $key) {
+        foreach (['parent_name', 'child_last_name', 'child_first_name', 'street', 'number', 'postal_code', 'city',
+            'phone1'] as $key) {
             if ($fields[$key] === '') {
                 $errors[] = 'Merci de compléter tous les champs obligatoires.';
                 break;

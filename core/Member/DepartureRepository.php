@@ -29,7 +29,9 @@ class DepartureRepository
     public function markLeaving(int $memberYearId, ?string $comment): void
     {
         $trimmed = $comment !== null ? trim($comment) : '';
-        $commentEncrypted = $trimmed !== '' ? $this->encryption->encrypt($trimmed, 'member_years.leaving_comment') : null;
+        $commentEncrypted = $trimmed !== ''
+            ? $this->encryption->encrypt($trimmed, 'member_years.leaving_comment')
+            : null;
 
         $stmt = $this->pdo->prepare(
             'UPDATE member_years SET leaving = 1, leaving_marked_at = ?, leaving_comment_encrypted = ? WHERE id = ?'
@@ -40,7 +42,8 @@ class DepartureRepository
     public function unmarkLeaving(int $memberYearId): void
     {
         $stmt = $this->pdo->prepare(
-            'UPDATE member_years SET leaving = 0, leaving_marked_at = NULL, leaving_comment_encrypted = NULL WHERE id = ?'
+            'UPDATE member_years SET leaving = 0, leaving_marked_at = NULL, leaving_comment_encrypted = NULL WHERE id '
+                . '= ?'
         );
         $stmt->execute([$memberYearId]);
     }
@@ -57,7 +60,9 @@ class DepartureRepository
     public function updateComment(int $memberYearId, ?string $comment): void
     {
         $trimmed = $comment !== null ? trim($comment) : '';
-        $commentEncrypted = $trimmed !== '' ? $this->encryption->encrypt($trimmed, 'member_years.leaving_comment') : null;
+        $commentEncrypted = $trimmed !== ''
+            ? $this->encryption->encrypt($trimmed, 'member_years.leaving_comment')
+            : null;
 
         $stmt = $this->pdo->prepare('UPDATE member_years SET leaving_comment_encrypted = ? WHERE id = ?');
         $stmt->execute([$commentEncrypted, $memberYearId]);
@@ -103,7 +108,9 @@ class DepartureRepository
         return new DepartureStatus(
             leaving: (bool) $row['leaving'],
             markedAt: DateInput::fromStorage($row['leaving_marked_at'] === null ? null : (string) $row['leaving_marked_at']),
-            comment: $row['leaving_comment_encrypted'] !== null ? $this->encryption->decrypt($row['leaving_comment_encrypted'], 'member_years.leaving_comment') : null
+            comment: $row['leaving_comment_encrypted'] !== null
+                ? $this->encryption->decrypt($row['leaving_comment_encrypted'], 'member_years.leaving_comment')
+                : null
         );
     }
 

@@ -86,8 +86,10 @@ enum RenterDecision: string
             self::REFUSED => 'Nous ne pouvons malheureusement pas donner suite à votre demande.',
             self::PROPOSED => 'Nous vous faisons une proposition pour votre demande.',
             self::INFO_REQUESTED => 'Nous avons besoin d\'une précision avant de vous répondre.',
-            self::CHANGE_ACCEPTED => 'Votre demande de modification a été acceptée : votre réservation a été mise à jour.',
-            self::CHANGE_REFUSED => 'Votre demande de modification n\'a pas pu être acceptée. Votre réservation est inchangée.',
+            self::CHANGE_ACCEPTED => 'Votre demande de modification a été acceptée : votre réservation a été mise à '
+                . 'jour.',
+            self::CHANGE_REFUSED => 'Votre demande de modification n\'a pas pu être acceptée. Votre réservation est '
+                . 'inchangée.',
             self::CANCELLED => 'Votre réservation a été annulée.',
         };
     }
@@ -138,12 +140,16 @@ enum RenterDecision: string
     {
         return match ($this) {
             self::CONFIRMED => 'Confirmer cette réservation ? Le locataire recevra la confirmation par email.',
-            self::REFUSED => 'Refuser cette demande ? Les dates seront libérées et le locataire en sera informé par email.',
+            self::REFUSED => 'Refuser cette demande ? Les dates seront libérées et le locataire en sera informé par '
+                . 'email.',
             self::PROPOSED => 'Envoyer cette proposition au locataire par email ?',
             self::INFO_REQUESTED => 'Demander une précision au locataire ? Il la recevra par email.',
-            self::CHANGE_ACCEPTED => 'Accepter cette demande ? Elle sera appliquée, et le locataire en sera informé par email.',
-            self::CHANGE_REFUSED => 'Refuser cette demande ? La réservation reste inchangée, et le locataire en sera informé par email.',
-            self::CANCELLED => 'Annuler cette réservation ? Les dates seront libérées et le locataire en sera informé par email.',
+            self::CHANGE_ACCEPTED => 'Accepter cette demande ? Elle sera appliquée, et le locataire en sera informé '
+                . 'par email.',
+            self::CHANGE_REFUSED => 'Refuser cette demande ? La réservation reste inchangée, et le locataire en sera '
+                . 'informé par email.',
+            self::CANCELLED => 'Annuler cette réservation ? Les dates seront libérées et le locataire en sera informé '
+                . 'par email.',
         };
     }
 

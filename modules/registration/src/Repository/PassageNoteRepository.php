@@ -40,7 +40,12 @@ class PassageNoteRepository
      * each field on its own as it is edited, and one save must never
      * silently clobber the other's field.
      */
-    public function setPreferredSection(int $memberId, int $scoutYearId, ?int $sectionId, ?int $actingUserAccountId): void
+    public function setPreferredSection(
+        int $memberId,
+        int $scoutYearId,
+        ?int $sectionId,
+        ?int $actingUserAccountId
+    ): void
     {
         $this->ensureRow($memberId, $scoutYearId);
 
@@ -120,7 +125,16 @@ class PassageNoteRepository
      * Every staff entry for one target year, keyed by member id — what the
      * Passage page reads, so it never fires one query per line.
      *
-     * @return array<int, array{preferred_section_id: ?int, staff_note: ?string, ai_source_hash: ?string, ai_suggestion: ?string, ai_confirmed: bool}>
+     * @return array<
+     *     int,
+     *     array{
+     *         preferred_section_id: ?int,
+     *         staff_note: ?string,
+     *         ai_source_hash: ?string,
+     *         ai_suggestion: ?string,
+     *         ai_confirmed: bool
+     *     }
+     * >
      */
     public function findForYear(int $scoutYearId): array
     {
@@ -138,7 +152,13 @@ class PassageNoteRepository
     }
 
     /**
-     * @return array{preferred_section_id: ?int, staff_note: ?string, ai_source_hash: ?string, ai_suggestion: ?string, ai_confirmed: bool}|null
+     * @return array{
+     *     preferred_section_id: ?int,
+     *     staff_note: ?string,
+     *     ai_source_hash: ?string,
+     *     ai_suggestion: ?string,
+     *     ai_confirmed: bool
+     * }|null
      */
     public function find(int $memberId, int $scoutYearId): ?array
     {
@@ -153,7 +173,13 @@ class PassageNoteRepository
 
     /**
      * @param array<string, mixed> $row
-     * @return array{preferred_section_id: ?int, staff_note: ?string, ai_source_hash: ?string, ai_suggestion: ?string, ai_confirmed: bool}
+     * @return array{
+     *     preferred_section_id: ?int,
+     *     staff_note: ?string,
+     *     ai_source_hash: ?string,
+     *     ai_suggestion: ?string,
+     *     ai_confirmed: bool
+     * }
      */
     private function hydrate(array $row): array
     {
@@ -164,7 +190,10 @@ class PassageNoteRepository
                 : null,
             'ai_source_hash' => $row['ai_source_hash'] !== null ? (string) $row['ai_source_hash'] : null,
             'ai_suggestion' => $row['ai_suggestion_encrypted'] !== null
-                ? $this->encryption->decrypt($row['ai_suggestion_encrypted'], 'registration_passage_notes.ai_suggestion')
+                ? $this->encryption->decrypt(
+                    $row['ai_suggestion_encrypted'],
+                    'registration_passage_notes.ai_suggestion'
+                )
                 : null,
             'ai_confirmed' => (bool) ($row['ai_confirmed'] ?? false),
         ];

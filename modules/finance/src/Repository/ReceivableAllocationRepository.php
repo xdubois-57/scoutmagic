@@ -148,7 +148,8 @@ class ReceivableAllocationRepository
     public function update(int $id, int $amountCents, string $source, ?int $updatedBy): void
     {
         $stmt = $this->pdo->prepare(
-            'UPDATE finance_receivable_allocations SET amount_cents = ?, source = ?, created_by = ?, created_at = ? WHERE id = ?'
+            'UPDATE finance_receivable_allocations SET amount_cents = ?, source = ?, created_by = ?, created_at = ? '
+                . 'WHERE id = ?'
         );
         $stmt->execute([$amountCents, $source, $updatedBy, date('Y-m-d H:i:s'), $id]);
     }

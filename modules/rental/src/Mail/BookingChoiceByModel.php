@@ -76,7 +76,8 @@ class BookingChoiceByModel
         try {
             $response = $this->llm->complete(new LlmRequest(
                 tier: LlmTier::CHEAP,
-                prompt: "Réservations possibles :\n" . $list . "\nMessage :\n" . mb_substr($text, 0, self::MAX_PROMPT_CHARS),
+                prompt: "Réservations possibles :\n" . $list . "\nMessage :\n" . mb_substr($text, 0,
+                    self::MAX_PROMPT_CHARS),
                 systemPrompt: self::SYSTEM_PROMPT,
                 responseSchema: [
                     'type' => 'object',

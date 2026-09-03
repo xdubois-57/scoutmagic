@@ -119,14 +119,17 @@ class MediaService
     {
         $maxMedia = (int) $this->settingService->get('gallery_max_media_per_album', 'gallery', 200);
         if ($maxMedia < 1) {
-            throw new GalleryException('La limite de médias par album est mal configurée — prévenez un administrateur.');
+            throw new GalleryException('La limite de médias par album est mal configurée — prévenez un '
+                . 'administrateur.');
         }
         if ($this->mediaRepository->countByAlbumId($album->id) >= $maxMedia) {
             throw new GalleryException("Cet album a atteint la limite de {$maxMedia} médias.");
         }
 
         $tmpName = (string) ($uploadedFile['tmp_name'] ?? '');
-        $mimeType = $tmpName !== '' && is_file($tmpName) ? (string) (new \finfo(FILEINFO_MIME_TYPE))->file($tmpName) : '';
+        $mimeType = $tmpName !== '' && is_file($tmpName)
+            ? (string) (new \finfo(FILEINFO_MIME_TYPE))->file($tmpName)
+            : '';
         $isVideo = in_array($mimeType, self::VIDEO_MIMES, true);
         $isPhoto = in_array($mimeType, self::PHOTO_MIMES, true);
 
@@ -349,7 +352,11 @@ class MediaService
      */
     public function videoUploadAllowed(): bool
     {
-        return (bool) $this->settingService->get('gallery_allow_video', 'gallery', true) && $this->ffmpegAvailability->check();
+        return (bool) $this->settingService->get(
+            'gallery_allow_video',
+            'gallery',
+            true
+        ) && $this->ffmpegAvailability->check();
     }
 
     /**
@@ -358,7 +365,8 @@ class MediaService
     private function assertNotMigrating(Album $album): void
     {
         if ($album->isMigrating()) {
-            throw new GalleryException('Une migration de stockage est en cours pour cet album — réessayez une fois celle-ci terminée.');
+            throw new GalleryException('Une migration de stockage est en cours pour cet album — réessayez une fois '
+                . 'celle-ci terminée.');
         }
     }
 }

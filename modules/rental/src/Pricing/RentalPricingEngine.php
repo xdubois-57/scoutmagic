@@ -49,7 +49,11 @@ class RentalPricingEngine
         // corrected total (§6.10).
         $effectivePersons = $request->persons;
         $minimumPersonsApplied = false;
-        if ($settings->minimumPersons !== null && $unit->isPersonBased() && $request->persons < $settings->minimumPersons) {
+        if (
+            $settings->minimumPersons !== null
+            && $unit->isPersonBased()
+            && $request->persons < $settings->minimumPersons
+        ) {
             $effectivePersons = $settings->minimumPersons;
             $minimumPersonsApplied = true;
         }
@@ -189,7 +193,13 @@ class RentalPricingEngine
         }
 
         if ($unit === BillingUnit::PER_ROOM_DAY) {
-            return sprintf('%d pièce%s × %d %s', $request->rooms, $request->rooms > 1 ? 's' : '', $timeUnits, $timeNoun);
+            return sprintf(
+                '%d pièce%s × %d %s',
+                $request->rooms,
+                $request->rooms > 1 ? 's' : '',
+                $timeUnits,
+                $timeNoun
+            );
         }
 
         if ($unit === BillingUnit::FLAT_STAY) {
@@ -206,7 +216,11 @@ class RentalPricingEngine
     /**
      * @param string[] $warnings
      */
-    private function resolveCategory(PricingSettings $settings, PricingRequest $request, array &$warnings): ?RenterCategory
+    private function resolveCategory(
+        PricingSettings $settings,
+        PricingRequest $request,
+        array &$warnings
+    ): ?RenterCategory
     {
         if ($settings->categories === []) {
             return null;
@@ -288,7 +302,8 @@ class RentalPricingEngine
             }
             if (!$period->covers($day)) {
                 $warnings[] = sprintf(
-                    'Le séjour dépasse la période « %s » : le tarif de la date d\'arrivée est appliqué à tout le séjour.',
+                    'Le séjour dépasse la période « %s » : le tarif de la date d\'arrivée est appliqué à tout le '
+                        . 'séjour.',
                     $period->label
                 );
                 break;

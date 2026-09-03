@@ -86,7 +86,12 @@ class StatisticsIntakeService
      * @param string $clientIp the source address, used for rate limiting
      *        and journaling only — never stored in clear
      */
-    public function receive(string $rawBody, string $authorizationHeader, string $clientIp, bool $isSecureTransport): StatisticsIntakeResult
+    public function receive(
+        string $rawBody,
+        string $authorizationHeader,
+        string $clientIp,
+        bool $isSecureTransport
+    ): StatisticsIntakeResult
     {
         if (!$isSecureTransport) {
             return $this->reject(StatisticsIntakeResult::REJECT_INSECURE_TRANSPORT, 400, $clientIp);

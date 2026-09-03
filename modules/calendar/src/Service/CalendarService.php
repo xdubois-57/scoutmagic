@@ -262,7 +262,10 @@ class CalendarService implements CalendarEventLookupInterface, \Modules\Calendar
     ): array {
         $visible = $this->getVisibleCalendars($viewerRole);
         if ($sectionId !== null) {
-            $visible = array_filter($visible, fn(Calendar $c) => $c->sectionId === null || $c->sectionId === $sectionId);
+            $visible = array_filter(
+                $visible,
+                fn(Calendar $c) => $c->sectionId === null || $c->sectionId === $sectionId
+            );
         }
         $calendarIds = array_values(array_map(fn(Calendar $c) => $c->id, $visible));
         if ($calendarIds === []) {
@@ -546,7 +549,8 @@ class CalendarService implements CalendarEventLookupInterface, \Modules\Calendar
         $isoWeekdayOfLast = (int) $lastOfMonth->format('N');
         $gridEnd = $lastOfMonth->modify('+' . (7 - $isoWeekdayOfLast) . ' days');
 
-        return $this->eventRepository->findByCalendarIdsInRange($calendarIds, $gridStart->format('Y-m-d'), $gridEnd->format('Y-m-d'));
+        return $this->eventRepository->findByCalendarIdsInRange($calendarIds, $gridStart->format('Y-m-d'),
+            $gridEnd->format('Y-m-d'));
     }
 
     /**
@@ -567,12 +571,23 @@ class CalendarService implements CalendarEventLookupInterface, \Modules\Calendar
      * @param CalendarEvent[] $events
      * @return GridEvent[]
      */
-    public function toGridEvents(array $events, ?Role $viewerRole = null, ?string $viewerEmail = null, ?int $scoutYearId = null): array
+    public function toGridEvents(
+        array $events,
+        ?Role $viewerRole = null,
+        ?string $viewerEmail = null,
+        ?int $scoutYearId = null
+    ): array
     {
         $colors = $this->colorsByCalendarId();
         $labels = $this->labelsByCalendarId();
 
-        return array_map(function (CalendarEvent $event) use ($colors, $labels, $viewerRole, $viewerEmail, $scoutYearId): GridEvent {
+        return array_map(function (CalendarEvent $event) use (
+            $colors,
+            $labels,
+            $viewerRole,
+            $viewerEmail,
+            $scoutYearId
+        ): GridEvent {
             $calendarLabel = $labels[$event->calendarId] ?? 'Calendrier';
 
             $tooltip = $event->title;
@@ -600,7 +615,8 @@ class CalendarService implements CalendarEventLookupInterface, \Modules\Calendar
             if ($viewerRole !== null && $this->retroEventLinkLookup !== null) {
                 $data['auto-create-retro'] = $event->autoCreateRetro ? '1' : '0';
                 $data['has-linked-retro'] = $this->retroEventLinkLookup->hasLinkedBoard($event->id) ? '1' : '0';
-                $link = $this->retroEventLinkLookup->findLinkedBoardLink($event->id, $viewerRole, $viewerEmail, $scoutYearId);
+                $link = $this->retroEventLinkLookup->findLinkedBoardLink($event->id, $viewerRole, $viewerEmail,
+                    $scoutYearId);
                 $data['retro-link'] = $link?->url ?? '';
                 $data['retro-link-title'] = $link?->title ?? '';
             }

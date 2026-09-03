@@ -182,7 +182,11 @@ class CalendarChiefController extends AbstractController
             'next_month_param' => sprintf('%04d-%02d', $nextYear, $nextMonth),
             'weeks' => $weeks,
             'default_title' => (string) $this->settingService->get('event_default_title', 'calendar', 'Réunion'),
-            'default_start_time' => (string) $this->settingService->get('event_default_start_time', 'calendar', '14:00'),
+            'default_start_time' => (string) $this->settingService->get(
+                'event_default_start_time',
+                'calendar',
+                '14:00'
+            ),
             'default_end_time' => (string) $this->settingService->get('event_default_end_time', 'calendar', '17:45'),
             'default_location' => (string) $this->settingService->get('event_default_location', 'calendar', ''),
             'retro_module_active' => in_array('retro', $this->moduleManager->getEnabledModuleIds(), true),

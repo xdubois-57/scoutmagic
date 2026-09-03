@@ -44,7 +44,12 @@ final class PostPermission
         return new self(true);
     }
 
-    public static function deny(string $reason, string $message, ?string $actionUrl = null, ?string $actionLabel = null): self
+    public static function deny(
+        string $reason,
+        string $message,
+        ?string $actionUrl = null,
+        ?string $actionLabel = null
+    ): self
     {
         return new self(false, $reason, $message, $actionUrl, $actionLabel);
     }

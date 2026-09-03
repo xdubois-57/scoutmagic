@@ -23,7 +23,10 @@ class OvhApiClient
     private ?int $timeDelta = null;
 
     /**
-     * @param (\Closure(string, string, array<string, string>, ?string): array{status: int, body: string})|null $transport
+     * @param (\Closure(string, string, array<
+     *     string,
+     *     string
+     * >, ?string): array{status: int, body: string})|null $transport
      */
     public function __construct(
         private string $applicationKey,

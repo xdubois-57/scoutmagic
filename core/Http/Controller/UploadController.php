@@ -72,7 +72,8 @@ class UploadController extends AbstractController
      */
     public function store(Request $request, array $params): Response
     {
-        if (($guard = $this->guardCsrf($request, SafeRedirect::internalPath((string) $request->getBody('return_url', '/')))) !== null) {
+        if (($guard = $this->guardCsrf($request,
+            SafeRedirect::internalPath((string) $request->getBody('return_url', '/')))) !== null) {
             return $guard;
         }
 

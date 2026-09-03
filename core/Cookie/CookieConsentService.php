@@ -19,15 +19,20 @@ class CookieConsentService
     private const CATEGORY_META = [
         'necessary' => [
             'label' => 'Cookies strictement nécessaires',
-            'description' => 'Ces cookies sont indispensables au fonctionnement du site et ne peuvent pas être désactivés. Ils sont définis en réponse à des actions de votre part comme la connexion ou le remplissage de formulaires.',
+            'description' => 'Ces cookies sont indispensables au fonctionnement du site et ne peuvent pas être '
+                . 'désactivés. Ils sont définis en réponse à des actions de votre part comme la connexion ou le '
+                . 'remplissage de formulaires.',
         ],
         'functional' => [
             'label' => 'Cookies fonctionnels',
-            'description' => 'Ces cookies permettent d\'améliorer le confort d\'utilisation du site en mémorisant vos préférences. Si vous les désactivez, certaines fonctionnalités optionnelles pourraient ne plus être disponibles.',
+            'description' => 'Ces cookies permettent d\'améliorer le confort d\'utilisation du site en mémorisant vos '
+                . 'préférences. Si vous les désactivez, certaines fonctionnalités optionnelles pourraient ne plus être '
+                . 'disponibles.',
         ],
         'analytics' => [
             'label' => 'Cookies d\'analyse',
-            'description' => 'Ces cookies permettent de mesurer la fréquentation du site afin d\'en améliorer le fonctionnement. Les données collectées sont anonymes.',
+            'description' => 'Ces cookies permettent de mesurer la fréquentation du site afin d\'en améliorer le '
+                . 'fonctionnement. Les données collectées sont anonymes.',
         ],
     ];
 
@@ -51,7 +56,14 @@ class CookieConsentService
     /**
      * Get all declared cookies from core + active modules, grouped by category.
      *
-     * @return array<string, array{label: string, description: string, cookies: array<int, array{name: string, purpose: string, duration: string}>}>
+     * @return array<
+     *     string,
+     *     array{
+     *         label: string,
+     *         description: string,
+     *         cookies: array<int, array{name: string, purpose: string, duration: string}>
+     *     }
+     * >
      */
     public function getAllDeclaredCookies(): array
     {

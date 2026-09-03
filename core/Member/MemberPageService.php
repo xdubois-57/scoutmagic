@@ -59,7 +59,13 @@ class MemberPageService
     /**
      * @return array<string, mixed>
      */
-    public function buildPageData(MemberProfile $profile, int $scoutYearId, bool $isSelf, bool $isChiefOrAbove, Role $viewerRole): array
+    public function buildPageData(
+        MemberProfile $profile,
+        int $scoutYearId,
+        bool $isSelf,
+        bool $isChiefOrAbove,
+        Role $viewerRole
+    ): array
     {
         // §3-§8 personal-data blocks: visible to the member themselves or
         // to a chief/admin (same rule the page already applies to
@@ -91,13 +97,17 @@ class MemberPageService
             'branch_card' => $section !== null ? $this->buildBranchCard($section) : null,
             'section_info' => $section !== null ? $this->buildSectionInfo($profile, $section, $scoutYearId) : null,
             'recent_mass_mail_emails' => $showPersonal ? $this->getRecentMassMailEmails($profile) : [],
-            'member_documents' => $isSelf ? $this->memberDocumentService->listForMember($profile->memberId, $scoutYearId) : [],
+            'member_documents' => $isSelf
+                ? $this->memberDocumentService->listForMember($profile->memberId, $scoutYearId)
+                : [],
             // §7bis — "Documents de section": every past/present section the
             // member was active in that has staff-uploaded documents, most
             // recent year first. Not self-only, unlike member_documents
             // above — these are staff-shared content, not private uploads,
             // so a chief/admin viewing the page sees the same thing.
-            'member_section_documents' => $showPersonal ? $this->sectionDocumentService->listForMemberPage($profile->memberId) : [],
+            'member_section_documents' => $showPersonal
+                ? $this->sectionDocumentService->listForMemberPage($profile->memberId)
+                : [],
             'member_emails' => $memberEmails,
             'member_email_resend_cooldown_minutes' => $resendCooldownMinutes,
             'gallery_albums' => $this->getGalleryAlbums($profile),
@@ -127,7 +137,8 @@ class MemberPageService
                 ? ($this->hooks?->getOptional(MemberPaymentProvider::class)?->getOpenPayments($profile->memberId) ?? [])
                 : [],
             'formation_path' => $isSelf
-                ? $this->hooks?->getOptional(FormationPathProvider::class)?->getFormationPath($profile->memberId, $scoutYearId)
+                ? $this->hooks?->getOptional(FormationPathProvider::class)?->getFormationPath($profile->memberId,
+                    $scoutYearId)
                 : null,
         ];
     }
@@ -139,7 +150,16 @@ class MemberPageService
      * member has no section-linked function at all (e.g. a still-
      * unconfirmed function with no section).
      *
-     * @return array{id: int, desk_code: string, name: ?string, email: ?string, age_branch_id: int, branch_name: string, branch_sort_order: int, color: ?string}|null
+     * @return array{
+     *     id: int,
+     *     desk_code: string,
+     *     name: ?string,
+     *     email: ?string,
+     *     age_branch_id: int,
+     *     branch_name: string,
+     *     branch_sort_order: int,
+     *     color: ?string
+     * }|null
      */
     private function resolveOwnSection(MemberProfile $profile): ?array
     {
@@ -186,12 +206,20 @@ class MemberPageService
      * functions this year.
      *
      * @param array{id: int, name: ?string, email: ?string} $section
-     * @return array{section: array<string, mixed>, responsable: ?MemberProfile, badge_assignments: array<string, MemberProfile[]>, referent_holders: MemberProfile[], next_event: mixed, functions_this_year: mixed}
+     * @return array{
+     *     section: array<string, mixed>,
+     *     responsable: ?MemberProfile,
+     *     badge_assignments: array<string, MemberProfile[]>,
+     *     referent_holders: MemberProfile[],
+     *     next_event: mixed,
+     *     functions_this_year: mixed
+     * }
      */
     private function buildSectionInfo(MemberProfile $profile, array $section, int $scoutYearId): array
     {
         $responsable = null;
-        $lead = $this->hooks?->getOptional(SectionResponsableProvider::class)?->getResponsable($section['id'], $scoutYearId);
+        $lead = $this->hooks?->getOptional(SectionResponsableProvider::class)?->getResponsable($section['id'],
+            $scoutYearId);
         if ($lead !== null) {
             // SectionService::hydrateMemberProfile() (which every
             // SectionResponsableProvider implementation is built on)
@@ -221,7 +249,10 @@ class MemberPageService
         $referentHolders = [];
         $referentBadge = $this->badgeRepository->findByReferentSectionId($section['id']);
         if ($referentBadge !== null) {
-            $holderIds = $this->memberBadgeRepository->findMemberYearIdsForBadgeAndYear($referentBadge->id, $scoutYearId);
+            $holderIds = $this->memberBadgeRepository->findMemberYearIdsForBadgeAndYear(
+                $referentBadge->id,
+                $scoutYearId
+            );
             $holders = $this->sectionService->hydrateMemberProfiles($holderIds);
             foreach ($holderIds as $memberYearId) {
                 if (isset($holders[$memberYearId])) {

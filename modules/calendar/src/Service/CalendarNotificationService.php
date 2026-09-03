@@ -185,7 +185,12 @@ class CalendarNotificationService
         $this->dispatchEventNotification('calendar.event_changed', $event, 'Activité modifiée', $actorUserAccountId);
     }
 
-    private function dispatchEventNotification(string $typeId, CalendarEvent $event, string $title, ?int $actorUserAccountId): void
+    private function dispatchEventNotification(
+        string $typeId,
+        CalendarEvent $event,
+        string $title,
+        ?int $actorUserAccountId
+    ): void
     {
         if ($this->notificationService === null || $this->userAccountRepository === null) {
             return;
@@ -252,7 +257,8 @@ class CalendarNotificationService
 
     public function cancelActivityReminderForEvent(int $eventId): void
     {
-        $existing = $this->schedulerService->find(self::MODULE_ID, self::REMINDER_TASK_KEY, $this->reminderReferenceFor($eventId));
+        $existing = $this->schedulerService->find(self::MODULE_ID, self::REMINDER_TASK_KEY,
+            $this->reminderReferenceFor($eventId));
         if ($existing !== null && $existing['status'] === 'pending') {
             $this->schedulerService->cancel((int) $existing['id']);
         }

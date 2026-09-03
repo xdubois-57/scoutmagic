@@ -427,7 +427,8 @@ class StatisticsPayloadBuilder
     private function lastUpgradedAt(): ?string
     {
         $stmt = $this->pdo->query(
-            "SELECT completed_at FROM update_history WHERE status = 'completed' AND completed_at IS NOT NULL ORDER BY completed_at DESC LIMIT 1"
+            "SELECT completed_at FROM update_history WHERE status = 'completed' AND completed_at IS NOT NULL ORDER BY "
+                . "completed_at DESC LIMIT 1"
         );
         $value = $stmt !== false ? $stmt->fetchColumn() : false;
 

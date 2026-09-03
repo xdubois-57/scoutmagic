@@ -77,7 +77,11 @@ class DynamicMenuRegistrar
      * what keeps a module's top-level page highlighted across its sub-pages.
      *
      * @param MenuEntry[] $entries The return value of register().
-     * @return array{menuId: string, pageUrl: string, matchLength: int} The updated highlight, unchanged when nothing matched better.
+     * @return array{
+     *     menuId: string,
+     *     pageUrl: string,
+     *     matchLength: int
+     * } The updated highlight, unchanged when nothing matched better.
      */
     public function resolveActive(
         array $entries,

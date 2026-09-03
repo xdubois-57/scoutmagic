@@ -123,7 +123,8 @@ class BoardRepository
      */
     public function findUnarchivedOrderedByCreated(): array
     {
-        $stmt = $this->pdo->prepare("SELECT * FROM retro_boards WHERE status <> 'archived' ORDER BY created_at DESC, id DESC");
+        $stmt = $this->pdo->prepare("SELECT * FROM retro_boards WHERE status <> 'archived' ORDER BY created_at DESC, "
+            . "id DESC");
         $stmt->execute();
 
         return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
@@ -137,7 +138,8 @@ class BoardRepository
      */
     public function findRecentArchived(int $limit): array
     {
-        $stmt = $this->pdo->prepare("SELECT * FROM retro_boards WHERE status = 'archived' ORDER BY created_at DESC, id DESC LIMIT ?");
+        $stmt = $this->pdo->prepare("SELECT * FROM retro_boards WHERE status = 'archived' ORDER BY created_at DESC, "
+            . "id DESC LIMIT ?");
         $stmt->bindValue(1, $limit, \PDO::PARAM_INT);
         $stmt->execute();
 
@@ -198,7 +200,8 @@ class BoardRepository
 
     public function close(int $id): void
     {
-        $stmt = $this->pdo->prepare("UPDATE retro_boards SET status = 'closed', closed_at = CURRENT_TIMESTAMP WHERE id = ?");
+        $stmt = $this->pdo->prepare("UPDATE retro_boards SET status = 'closed', closed_at = CURRENT_TIMESTAMP WHERE "
+            . "id = ?");
         $stmt->execute([$id]);
     }
 
@@ -209,7 +212,8 @@ class BoardRepository
      */
     public function reopen(int $id, ?string $autoCloseAt): void
     {
-        $stmt = $this->pdo->prepare("UPDATE retro_boards SET status = 'open', closed_at = NULL, auto_close_at = ? WHERE id = ?");
+        $stmt = $this->pdo->prepare("UPDATE retro_boards SET status = 'open', closed_at = NULL, auto_close_at = ? "
+            . "WHERE id = ?");
         $stmt->execute([$autoCloseAt, $id]);
     }
 
@@ -227,7 +231,8 @@ class BoardRepository
 
     public function regenerateLink(int $id, string $token, ?string $shortCode): void
     {
-        $stmt = $this->pdo->prepare('UPDATE retro_boards SET token_encrypted = ?, token_blind_index = ?, short_code = ? WHERE id = ?');
+        $stmt = $this->pdo->prepare('UPDATE retro_boards SET token_encrypted = ?, token_blind_index = ?, short_code = '
+            . '? WHERE id = ?');
         $stmt->execute([
             $this->encryption->encrypt($token, self::TOKEN_ENCRYPTION_CONTEXT),
             $this->encryption->blindIndex($token, self::TOKEN_BLIND_INDEX_PURPOSE),

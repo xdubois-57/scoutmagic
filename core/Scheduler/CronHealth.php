@@ -62,7 +62,8 @@ final class CronHealth
     public const HEARTBEAT_FILE = 'temp/cron-heartbeat';
 
     /**
-     * @param string $storagePath Absolute path to `storage/`. An empty string means "no heartbeat readable" — never an error.
+     * @param string $storagePath Absolute path to `storage/`. An empty string means "no heartbeat readable" — never an
+     *     error.
      * @param SettingService|null $settings Null before the site is initialized: only the heartbeat is then consulted.
      */
     public function __construct(

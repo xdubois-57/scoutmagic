@@ -142,7 +142,8 @@ class SchemaComparator
 
         // Add foreign keys
         foreach ($table->foreignKeys as $fk) {
-            $fkLine = "    CONSTRAINT `{$fk->name}` FOREIGN KEY (`{$fk->column}`) REFERENCES `{$fk->referencedTable}` (`{$fk->referencedColumn}`)";
+            $fkLine = "    CONSTRAINT `{$fk->name}` FOREIGN KEY (`{$fk->column}`) REFERENCES "
+                . "`{$fk->referencedTable}` (`{$fk->referencedColumn}`)";
             if ($fk->onDelete !== null) {
                 $fkLine .= " ON DELETE {$fk->onDelete}";
             }
@@ -181,7 +182,8 @@ class SchemaComparator
         // Check for columns in actual but not in declared
         foreach ($actualColumns as $name => $col) {
             if (!isset($declaredColumns[$name])) {
-                $this->warnings[] = "Column '{$declared->name}.{$name}' exists in database but not in declared schema. Skipping (never auto-drop).";
+                $this->warnings[] = "Column '{$declared->name}.{$name}' exists in database but not in declared "
+                    . "schema. Skipping (never auto-drop).";
             }
         }
 
@@ -230,7 +232,8 @@ class SchemaComparator
 
         foreach ($declared->foreignKeys as $fk) {
             if (!isset($actualFks[$fk->name])) {
-                $fkSql = "ALTER TABLE `{$declared->name}` ADD CONSTRAINT `{$fk->name}` FOREIGN KEY (`{$fk->column}`) REFERENCES `{$fk->referencedTable}` (`{$fk->referencedColumn}`)";
+                $fkSql = "ALTER TABLE `{$declared->name}` ADD CONSTRAINT `{$fk->name}` FOREIGN KEY (`{$fk->column}`) "
+                    . "REFERENCES `{$fk->referencedTable}` (`{$fk->referencedColumn}`)";
                 if ($fk->onDelete !== null) {
                     $fkSql .= " ON DELETE {$fk->onDelete}";
                 }

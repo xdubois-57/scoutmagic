@@ -30,7 +30,8 @@ final class CronStatus
 
     /**
      * @param self::STATE_* $state
-     * @param int|null $lastHeartbeatAt Unix timestamp of the last time public/cron.php STARTED (file, works pre-database).
+     * @param int|null $lastHeartbeatAt Unix timestamp of the last time public/cron.php STARTED (file, works
+     *     pre-database).
      * @param int|null $lastFullPassAt Unix timestamp of the last time it completed far enough to reach the database.
      * @param int|null $medianIntervalSeconds Median gap between recorded passes, null with fewer than two of them.
      */
@@ -54,7 +55,8 @@ final class CronStatus
      */
     public function lastSeenAt(): ?int
     {
-        $candidates = array_filter([$this->lastHeartbeatAt, $this->lastFullPassAt], static fn(?int $at): bool => $at !== null);
+        $candidates = array_filter([$this->lastHeartbeatAt, $this->lastFullPassAt],
+            static fn(?int $at): bool => $at !== null);
 
         return $candidates === [] ? null : max($candidates);
     }

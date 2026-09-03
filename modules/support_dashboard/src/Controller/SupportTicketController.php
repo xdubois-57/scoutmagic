@@ -136,7 +136,8 @@ class SupportTicketController extends AbstractController
             ->setHeader('Content-Type', 'text/plain; charset=utf-8')
             ->setHeader(
                 'Content-Disposition',
-                'attachment; filename="sondes-' . preg_replace('/[^A-Za-z0-9_-]/', '', (string) ($ticket['reference'] ?? 'ticket')) . '.txt"'
+                'attachment; filename="sondes-' . preg_replace('/[^A-Za-z0-9_-]/', '',
+                    (string) ($ticket['reference'] ?? 'ticket')) . '.txt"'
             )
             ->setHeader('Content-Length', (string) strlen($report));
     }

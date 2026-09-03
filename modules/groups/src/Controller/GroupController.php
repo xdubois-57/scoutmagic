@@ -227,7 +227,9 @@ class GroupController extends AbstractController
             // its count. Resolved only for a moderator: nobody else is
             // shown the entry, and nobody else may open the page behind
             // it (Controller\ReportController::index()).
-            'reported_count' => $canModerate ? count($this->reportService?->reportedInGroup($group->id)['post_ids'] ?? []) : 0,
+            'reported_count' => $canModerate
+                ? count($this->reportService?->reportedInGroup($group->id)['post_ids'] ?? [])
+                : 0,
             // The message the pin confirmation names as the one about to
             // lose its pin — a group keeps exactly one. Read from the
             // page just built rather than queried again, and empty for
@@ -632,7 +634,8 @@ class GroupController extends AbstractController
             && !$this->membershipService->canCreateAnotherGroup($creatorMemberId)
         ) {
             FlashMessage::set('error', sprintf(
-                'Vous avez déjà %d groupes ouverts, soit le maximum autorisé. Clôturez-en un avant d\'en créer un nouveau.',
+                'Vous avez déjà %d groupes ouverts, soit le maximum autorisé. Clôturez-en un avant d\'en créer un '
+                    . 'nouveau.',
                 $this->membershipService->creationQuota()
             ));
 
@@ -675,7 +678,10 @@ class GroupController extends AbstractController
      */
     public function edit(Request $request, array $params): Response
     {
-        return $this->moderatorAction($request, $params, function (DiscussionGroup $group, GroupSessionContext $context) use ($request): Response {
+        return $this->moderatorAction($request, $params, function (
+            DiscussionGroup $group,
+            GroupSessionContext $context
+        ) use ($request): Response {
             $name = trim((string) $request->getBody('name', ''));
             if ($name === '') {
                 FlashMessage::set('error', 'Le nom du groupe ne peut pas être vide.');
@@ -718,9 +724,13 @@ class GroupController extends AbstractController
      */
     public function close(Request $request, array $params): Response
     {
-        return $this->moderatorAction($request, $params, function (DiscussionGroup $group, GroupSessionContext $context): Response {
+        return $this->moderatorAction($request, $params, function (
+            DiscussionGroup $group,
+            GroupSessionContext $context
+        ): Response {
             $this->membershipService?->close($group, $context->userAccountId);
-            FlashMessage::set('success', 'Le groupe est clôturé : il reste consultable, mais n\'accepte plus de nouvelle publication.');
+            FlashMessage::set('success',
+                'Le groupe est clôturé : il reste consultable, mais n\'accepte plus de nouvelle publication.');
 
             return $this->redirect('/groups/' . $group->id);
         });
@@ -738,12 +748,19 @@ class GroupController extends AbstractController
      */
     public function reopen(Request $request, array $params): Response
     {
-        return $this->moderatorAction($request, $params, function (DiscussionGroup $group, GroupSessionContext $context): Response {
+        return $this->moderatorAction($request, $params, function (
+            DiscussionGroup $group,
+            GroupSessionContext $context
+        ): Response {
             if ($this->membershipService === null) {
                 return new Response('Not Found', 404);
             }
 
-            $outcome = $this->membershipService->reopen($group, $context->effectiveScoutYearId, $context->userAccountId);
+            $outcome = $this->membershipService->reopen(
+                $group,
+                $context->effectiveScoutYearId,
+                $context->userAccountId
+            );
             FlashMessage::set($outcome === ReopenOutcome::REOPENED ? 'success' : 'error', $outcome->message());
 
             return $this->redirect('/groups/' . $group->id);

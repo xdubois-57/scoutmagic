@@ -41,7 +41,10 @@ class MemberStatsService
      *     max_count: int,
      *     branches: array<int, array{
      *         name: string, age_range: string, color: string,
-     *         rows: array<int, array{year_label: string, birth_year: int, total: int, male: int, female: int, other: int}>
+     *         rows: array<
+     *             int,
+     *             array{year_label: string, birth_year: int, total: int, male: int, female: int, other: int}
+     *         >
      *     }>
      * }
      */
@@ -59,7 +62,8 @@ class MemberStatsService
         $rows = $this->repository->getMemberBranchData($scoutYearId);
         foreach ($rows as $row) {
             $birthYear = MemberYearService::extractBirthYear($row['birth_date']);
-            $effectiveAge = $this->memberYearService->getEffectiveAge($birthYear, $row['scout_year_offset'], $referenceYear);
+            $effectiveAge = $this->memberYearService->getEffectiveAge($birthYear, $row['scout_year_offset'],
+                $referenceYear);
 
             if (!$effectiveAge->isInKnownBranch()) {
                 continue; // no usable birth year, or effective age outside the four animés branches
@@ -79,7 +83,18 @@ class MemberStatsService
      * @return array{
      *     totals: array{total: int, male: int, female: int, other: int},
      *     max_count: int,
-     *     branches: array<int, array{name: string, age_range: string, color: string, rows: array<int, array{year_label: string, birth_year: int, total: int, male: int, female: int, other: int}>}>
+     *     branches: array<
+     *         int,
+     *         array{
+     *             name: string,
+     *             age_range: string,
+     *             color: string,
+     *             rows: array<
+     *                 int,
+     *                 array{year_label: string, birth_year: int, total: int, male: int, female: int, other: int}
+     *             >
+     *         }
+     *     >
      * }
      */
     private function buildViewModel(array $counts, int $referenceYear): array
@@ -144,7 +159,10 @@ class MemberStatsService
     private function resolveBranchColor(int $branchIndex, array $allSections): string
     {
         $sortOrder = ($branchIndex + 1) * 10;
-        $branchSections = array_values(array_filter($allSections, fn(array $s) => $s['branch_sort_order'] === $sortOrder));
+        $branchSections = array_values(array_filter(
+            $allSections,
+            fn(array $s) => $s['branch_sort_order'] === $sortOrder
+        ));
         if ($branchSections === []) {
             return MemberYearService::colorForBranchSortOrder($sortOrder);
         }

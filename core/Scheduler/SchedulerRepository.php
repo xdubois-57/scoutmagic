@@ -136,12 +136,14 @@ class SchedulerRepository
     {
         if ($reference !== null) {
             $stmt = $this->pdo->prepare(
-                'SELECT * FROM scheduled_actions WHERE module_id = ? AND task_key = ? AND reference = ? AND status = ? ORDER BY created_at DESC LIMIT 1'
+                'SELECT * FROM scheduled_actions WHERE module_id = ? AND task_key = ? AND reference = ? AND status = '
+                    . '? ORDER BY created_at DESC LIMIT 1'
             );
             $stmt->execute([$moduleId, $taskKey, $reference, 'pending']);
         } else {
             $stmt = $this->pdo->prepare(
-                'SELECT * FROM scheduled_actions WHERE module_id = ? AND task_key = ? AND reference IS NULL AND status = ? ORDER BY created_at DESC LIMIT 1'
+                'SELECT * FROM scheduled_actions WHERE module_id = ? AND task_key = ? AND reference IS NULL AND '
+                    . 'status = ? ORDER BY created_at DESC LIMIT 1'
             );
             $stmt->execute([$moduleId, $taskKey, 'pending']);
         }

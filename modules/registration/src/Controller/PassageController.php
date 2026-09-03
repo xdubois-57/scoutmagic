@@ -123,7 +123,9 @@ class PassageController extends AbstractController
             // provider, absent block: the page must not mention a feature
             // this unit does not have (ARCHITECTURE.md §7.5).
             'ai_available' => $this->commentReview !== null && $this->commentReview->isAvailable(),
-            'ai_pending' => $this->commentReview !== null ? $this->commentReview->pendingCount((int) $targetYear['id']) : 0,
+            'ai_pending' => $this->commentReview !== null
+                ? $this->commentReview->pendingCount((int) $targetYear['id'])
+                : 0,
             // IT-18 — what the « Optimiser » dialog says before anybody
             // presses anything: how many lines are already settled and how
             // many are still to place.
@@ -167,7 +169,9 @@ class PassageController extends AbstractController
         // 0 ("— Non défini —") clears the field, exactly like the fiche's
         // own picker; anything else must belong to the request's own slot
         // branch or it is treated as "no section" rather than trusted.
-        $sectionId = $submitted > 0 && $this->sectionBelongsToRequestSlot($registrationRequest, $submitted) ? $submitted : null;
+        $sectionId = $submitted > 0 && $this->sectionBelongsToRequestSlot($registrationRequest, $submitted)
+            ? $submitted
+            : null;
 
         $this->requestRepository->updateIntendedSection($registrationRequest->id, $sectionId);
 
@@ -222,7 +226,8 @@ class PassageController extends AbstractController
             ]);
         }
 
-        $allowedSectionIds = $this->arrivalSectionIdsForMember($memberId, (int) $publicYear['id'], (string) $publicYear['label']);
+        $allowedSectionIds = $this->arrivalSectionIdsForMember($memberId, (int) $publicYear['id'],
+            (string) $publicYear['label']);
         if (!in_array($submittedSectionId, $allowedSectionIds, true)) {
             return $this->json(
                 ['success' => false, 'error' => "Cette section n'appartient pas à la branche d'arrivée de ce membre."],
@@ -276,10 +281,12 @@ class PassageController extends AbstractController
         $sectionId = (int) ($data['preferred_section_id'] ?? 0);
 
         if ($sectionId !== 0) {
-            $allowed = $this->arrivalSectionIdsForMember($memberId, (int) $publicYear['id'], (string) $publicYear['label']);
+            $allowed = $this->arrivalSectionIdsForMember($memberId, (int) $publicYear['id'],
+                (string) $publicYear['label']);
             if (!in_array($sectionId, $allowed, true)) {
                 return $this->json(
-                    ['success' => false, 'error' => "Cette section n'appartient pas à la branche d'arrivée de ce membre."],
+                    ['success' => false, 'error' => "Cette section n'appartient pas à la branche d'arrivée de ce "
+                        . "membre."],
                     422
                 );
             }
@@ -494,7 +501,10 @@ class PassageController extends AbstractController
      *
      * @param array{id: int, label: string} $publicYear
      * @param array{id: int, label: string} $targetYear
-     * @return array{0: array<int, array<string, mixed>>, 1: array<string, array{section_label: string, members: array<int, array<string, mixed>>}>}
+     * @return array{
+     *     0: array<int, array<string, mixed>>,
+     *     1: array<string, array{section_label: string, members: array<int, array<string, mixed>>}>
+     * }
      */
     private function passagePopulation(array $publicYear, array $targetYear): array
     {
@@ -594,7 +604,11 @@ class PassageController extends AbstractController
      */
     private function arrivalBranchIdForMember(int $memberId, int $publicYearId, string $publicYearLabel): ?int
     {
-        foreach ($this->passageService->arrivalSectionsForMember($memberId, $publicYearId, $publicYearLabel) as $section) {
+        foreach ($this->passageService->arrivalSectionsForMember(
+            $memberId,
+            $publicYearId,
+            $publicYearLabel
+        ) as $section) {
             return (int) $section['age_branch_id'];
         }
 
@@ -643,7 +657,10 @@ class PassageController extends AbstractController
     }
 
     /**
-     * @return array{0: array{id: int, label: string, start_date: string, end_date: string}, 1: array{id: int, label: string, start_date: string, end_date: string}}
+     * @return array{
+     *     0: array{id: int, label: string, start_date: string, end_date: string},
+     *     1: array{id: int, label: string, start_date: string, end_date: string}
+     * }
      */
     private function resolveYears(): array
     {
@@ -655,7 +672,10 @@ class PassageController extends AbstractController
         return [$publicYear, $targetYear];
     }
 
-    private function sectionBelongsToRequestSlot(\Modules\Registration\Repository\RegistrationRequest $registrationRequest, int $sectionId): bool
+    private function sectionBelongsToRequestSlot(
+        \Modules\Registration\Repository\RegistrationRequest $registrationRequest,
+        int $sectionId
+    ): bool
     {
         $brackets = $this->ageBracketRepository->findAllOrdered();
         $referenceYear = SlotMath::referenceCalendarYear(

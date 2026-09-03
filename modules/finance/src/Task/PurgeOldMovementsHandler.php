@@ -63,7 +63,8 @@ class PurgeOldMovementsHandler implements TaskHandlerInterface
         $attachmentRepository = new AttachmentRepository($pdo, $context->encryption);
         $checkpointRepository = new BalanceCheckpointRepository($pdo);
         $balanceService = new BalanceService($checkpointRepository, $transactionRepository);
-        $fileStorage = new EncryptedFileStorageService(new FileRepository($pdo), $context->encryption, $context->storagePath);
+        $fileStorage = new EncryptedFileStorageService(new FileRepository($pdo), $context->encryption,
+            $context->storagePath);
 
         $retentionYears = (int) $context->settings->get(self::SETTING_KEY, 'finance', '5');
         $cutoffDate = (new \DateTimeImmutable())->modify("-{$retentionYears} years")->format('Y-m-d');
@@ -128,7 +129,8 @@ class PurgeOldMovementsHandler implements TaskHandlerInterface
 
             $checkpointRepository->deleteBeforeOrAt($account->id, $fiscalYear->endDate);
             if ($consolidatedBalance !== null) {
-                $checkpointRepository->create($account->id, $fiscalYear->endDate, $consolidatedBalance, BalanceCheckpoint::SOURCE_MANUAL);
+                $checkpointRepository->create($account->id, $fiscalYear->endDate, $consolidatedBalance,
+                    BalanceCheckpoint::SOURCE_MANUAL);
             }
 
             $pdo->commit();

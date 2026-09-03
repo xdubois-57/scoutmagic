@@ -60,7 +60,11 @@ class CalendarEventRepository
      * @param int[] $calendarIds
      * @return CalendarEvent[]
      */
-    public function findByCalendarIdsWithEffectiveEndInRange(array $calendarIds, string $fromDate, string $toDate): array
+    public function findByCalendarIdsWithEffectiveEndInRange(
+        array $calendarIds,
+        string $fromDate,
+        string $toDate
+    ): array
     {
         if (count($calendarIds) === 0) {
             return [];
@@ -110,7 +114,8 @@ class CalendarEventRepository
      */
     public function findByCalendarId(int $calendarId): array
     {
-        $stmt = $this->pdo->prepare('SELECT * FROM calendar_events WHERE calendar_id = ? ORDER BY start_date, start_time');
+        $stmt = $this->pdo->prepare('SELECT * FROM calendar_events WHERE calendar_id = ? ORDER BY start_date, '
+            . 'start_time');
         $stmt->execute([$calendarId]);
         return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
@@ -183,7 +188,8 @@ class CalendarEventRepository
                 (calendar_id, title, start_date, end_date, start_time, end_time, location, description, created_by, auto_create_retro)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
-        $stmt->execute([$calendarId, $title, $startDate, $endDate, $startTime, $endTime, $location, $description, $createdBy, $autoCreateRetro ? 1 : 0]);
+        $stmt->execute([$calendarId, $title, $startDate, $endDate, $startTime, $endTime, $location, $description,
+            $createdBy, $autoCreateRetro ? 1 : 0]);
         return (int) $this->pdo->lastInsertId();
     }
 
@@ -212,7 +218,8 @@ class CalendarEventRepository
                  location = ?, description = ?, auto_create_retro = ?, sequence = sequence + 1, updated_at = CURRENT_TIMESTAMP
              WHERE id = ?'
         );
-        $stmt->execute([$calendarId, $title, $startDate, $endDate, $startTime, $endTime, $location, $description, $autoCreateRetro ? 1 : 0, $id]);
+        $stmt->execute([$calendarId, $title, $startDate, $endDate, $startTime, $endTime, $location, $description,
+            $autoCreateRetro ? 1 : 0, $id]);
     }
 
     public function delete(int $id): void

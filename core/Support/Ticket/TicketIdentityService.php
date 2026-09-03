@@ -140,7 +140,8 @@ class TicketIdentityService
                 'core',
                 'support_identity_provisioned',
                 'info',
-                "Identité d'installation créée pour l'envoi d'un ticket de support, sans activer l'envoi de statistiques",
+                "Identité d'installation créée pour l'envoi d'un ticket de support, sans activer l'envoi de "
+                    . "statistiques",
                 ['installation_id' => $installationId]
             );
         }

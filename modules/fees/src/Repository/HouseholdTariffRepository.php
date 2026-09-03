@@ -24,7 +24,8 @@ class HouseholdTariffRepository
     /** @return array<string, HouseholdTariff> keyed by household category value */
     public function findAll(): array
     {
-        $stmt = $this->pdo->query('SELECT household_category, fee_category_id, amount_cents FROM fees_household_tariffs');
+        $stmt = $this->pdo->query('SELECT household_category, fee_category_id, amount_cents FROM '
+            . 'fees_household_tariffs');
         if ($stmt === false) {
             return [];
         }

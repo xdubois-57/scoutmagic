@@ -66,10 +66,20 @@ class ReenrollmentConfigController extends AbstractController
 
         return $this->render('@registration/reenrollment_config.html.twig', [
             'is_open' => $this->campaign->isOpen(),
-            'open_at' => (string) $this->settingService->get(ReenrollmentCampaignService::SETTING_OPEN_AT, 'registration', ''),
-            'close_at' => (string) $this->settingService->get(ReenrollmentCampaignService::SETTING_CLOSE_AT, 'registration', ''),
-            'reminder_1_days' => (string) $this->settingService->get(ReenrollmentCampaignService::SETTING_REMINDER_1_DAYS, 'registration', ''),
-            'reminder_2_days' => (string) $this->settingService->get(ReenrollmentCampaignService::SETTING_REMINDER_2_DAYS, 'registration', ''),
+            'open_at' => (string) $this->settingService->get(ReenrollmentCampaignService::SETTING_OPEN_AT,
+                'registration', ''),
+            'close_at' => (string) $this->settingService->get(ReenrollmentCampaignService::SETTING_CLOSE_AT,
+                'registration', ''),
+            'reminder_1_days' => (string) $this->settingService->get(
+                ReenrollmentCampaignService::SETTING_REMINDER_1_DAYS,
+                'registration',
+                ''
+            ),
+            'reminder_2_days' => (string) $this->settingService->get(
+                ReenrollmentCampaignService::SETTING_REMINDER_2_DAYS,
+                'registration',
+                ''
+            ),
             'close_date' => $closeDate?->format('d/m/Y'),
             'tracking' => $this->campaign->tracking(),
             'csrf_token' => CsrfGuard::generateToken(),
@@ -150,7 +160,8 @@ class ReenrollmentConfigController extends AbstractController
         if (!$this->campaign->isOpen()) {
             FlashMessage::set(
                 'error',
-                "La campagne est fermée : relancer une famille vers un formulaire qu'elle ne peut plus remplir ne l'aiderait pas."
+                "La campagne est fermée : relancer une famille vers un formulaire qu'elle ne peut plus remplir ne "
+                    . "l'aiderait pas."
             );
 
             return $this->redirect(self::PAGE_URL);
@@ -187,7 +198,8 @@ class ReenrollmentConfigController extends AbstractController
             AuthSession::getUserAccountId()
         );
 
-        FlashMessage::set('success', 'Relance programmée : les familles sans réponse la recevront dans quelques minutes.');
+        FlashMessage::set('success',
+            'Relance programmée : les familles sans réponse la recevront dans quelques minutes.');
 
         return $this->redirect(self::PAGE_URL);
     }

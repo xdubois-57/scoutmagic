@@ -137,7 +137,10 @@ class ModuleManager
                 return false;
             }
             foreach ($data as $entry) {
-                if (!is_array($entry) || !isset($entry['stamp'], $entry['manifest']) || !$entry['manifest'] instanceof ModuleManifest) {
+                if (!is_array($entry) || !isset(
+                    $entry['stamp'],
+                    $entry['manifest']
+                ) || !$entry['manifest'] instanceof ModuleManifest) {
                     return false;
                 }
             }
@@ -306,7 +309,13 @@ class ModuleManager
         // Modules in registry but missing from disk
         foreach ($registryMap as $moduleId => $entry) {
             $manifest = new ModuleManifest($moduleId, $moduleId, $entry['installed_version'], [], [], [], [], []);
-            $modules[$moduleId] = new ModuleInfo($manifest, $entry['enabled'], $entry['installed_version'], false, null);
+            $modules[$moduleId] = new ModuleInfo(
+                $manifest,
+                $entry['enabled'],
+                $entry['installed_version'],
+                false,
+                null
+            );
             $sortKeys[$moduleId] = $entry['sort_order'];
         }
 

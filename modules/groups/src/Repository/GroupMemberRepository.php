@@ -65,7 +65,8 @@ class GroupMemberRepository
      */
     public function findByGroup(int $groupId): array
     {
-        $stmt = $this->pdo->prepare('SELECT * FROM discussion_group_members WHERE group_id = ? ORDER BY is_moderator DESC, id');
+        $stmt = $this->pdo->prepare('SELECT * FROM discussion_group_members WHERE group_id = ? ORDER BY is_moderator '
+            . 'DESC, id');
         $stmt->execute([$groupId]);
 
         return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));

@@ -66,7 +66,8 @@ class MediaRepository
             'INSERT INTO gallery_media (album_id, media_type, file_id, processing_status, sort_order, original_filename, created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?)'
         );
-        $stmt->execute([$albumId, $mediaType, $fileId, Media::STATUS_PENDING, $sortOrder, $originalFilename, date('Y-m-d H:i:s')]);
+        $stmt->execute([$albumId, $mediaType, $fileId, Media::STATUS_PENDING, $sortOrder, $originalFilename,
+            date('Y-m-d H:i:s')]);
         return (int) $this->pdo->lastInsertId();
     }
 
@@ -82,10 +83,18 @@ class MediaRepository
         $stmt->execute([Media::STATUS_FAILED, $id]);
     }
 
-    public function markPhotoDone(int $id, string $thumbPath, string $mediumPath, string $largePath, int $width, int $height): void
+    public function markPhotoDone(
+        int $id,
+        string $thumbPath,
+        string $mediumPath,
+        string $largePath,
+        int $width,
+        int $height
+    ): void
     {
         $stmt = $this->pdo->prepare(
-            'UPDATE gallery_media SET processing_status = ?, thumb_path = ?, medium_path = ?, large_path = ?, width = ?, height = ? WHERE id = ?'
+            'UPDATE gallery_media SET processing_status = ?, thumb_path = ?, medium_path = ?, large_path = ?, width = '
+                . '?, height = ? WHERE id = ?'
         );
         $stmt->execute([Media::STATUS_DONE, $thumbPath, $mediumPath, $largePath, $width, $height, $id]);
     }
@@ -101,9 +110,11 @@ class MediaRepository
         int $durationSeconds
     ): void {
         $stmt = $this->pdo->prepare(
-            'UPDATE gallery_media SET processing_status = ?, thumb_path = ?, medium_path = ?, large_path = ?, original_path = ?, width = ?, height = ?, duration_seconds = ? WHERE id = ?'
+            'UPDATE gallery_media SET processing_status = ?, thumb_path = ?, medium_path = ?, large_path = ?, '
+                . 'original_path = ?, width = ?, height = ?, duration_seconds = ? WHERE id = ?'
         );
-        $stmt->execute([Media::STATUS_DONE, $thumbPath, $mediumPath, $largePath, $originalPath, $width, $height, $durationSeconds, $id]);
+        $stmt->execute([Media::STATUS_DONE, $thumbPath, $mediumPath, $largePath, $originalPath, $width, $height,
+            $durationSeconds, $id]);
     }
 
     /**

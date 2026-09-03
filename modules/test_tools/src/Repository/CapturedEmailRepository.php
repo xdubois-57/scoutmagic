@@ -328,7 +328,10 @@ class CapturedEmailRepository
 
     /**
      * @param array<int, int> $capturedEmailIds
-     * @return array<int, array<int, array{id: int, file_name: string, mime_type: string, size_bytes: int, file_id: int|null}>>
+     * @return array<
+     *     int,
+     *     array<int, array{id: int, file_name: string, mime_type: string, size_bytes: int, file_id: int|null}>
+     * >
      */
     private function findAttachmentsFor(array $capturedEmailIds): array
     {
@@ -338,7 +341,9 @@ class CapturedEmailRepository
 
         $placeholders = implode(',', array_fill(0, count($capturedEmailIds), '?'));
         $stmt = $this->pdo->prepare(
-            'SELECT * FROM captured_email_attachments WHERE captured_email_id IN (' . $placeholders . ') ORDER BY id ASC'
+            'SELECT * FROM captured_email_attachments WHERE captured_email_id IN ('
+                . $placeholders
+                . ') ORDER BY id ASC'
         );
         $stmt->execute($capturedEmailIds);
 
@@ -358,7 +363,10 @@ class CapturedEmailRepository
 
     /**
      * @param array<string, mixed> $row
-     * @param array<int, array{id: int, file_name: string, mime_type: string, size_bytes: int, file_id: int|null}> $attachments
+     * @param array<
+     *     int,
+     *     array{id: int, file_name: string, mime_type: string, size_bytes: int, file_id: int|null}
+     * > $attachments
      */
     private function hydrate(array $row, array $attachments): CapturedEmail
     {

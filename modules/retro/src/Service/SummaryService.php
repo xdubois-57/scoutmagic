@@ -28,7 +28,8 @@ class SummaryService
             'bullets' => [
                 'type' => 'array',
                 'items' => ['type' => 'string'],
-                'description' => '3 à 5 points courts (une phrase chacun) résumant les thèmes qui ressortent des commentaires.',
+                'description' => '3 à 5 points courts (une phrase chacun) résumant les thèmes qui ressortent des '
+                    . 'commentaires.',
             ],
         ],
         'required' => ['bullets'],
@@ -68,7 +69,8 @@ class SummaryService
         $request = new LlmRequest(
             tier: LlmTier::CHEAP,
             prompt: $prompt,
-            systemPrompt: 'Tu résumes les commentaires anonymes d\'une rétrospective d\'unité scoute pour les animateurs. '
+            systemPrompt: 'Tu résumes les commentaires anonymes d\'une rétrospective d\'unité scoute pour les '
+                . 'animateurs. '
                 . 'Identifie les thèmes qui reviennent, pas une liste exhaustive de chaque commentaire.',
             responseSchema: self::RESPONSE_SCHEMA
         );

@@ -32,7 +32,9 @@ use Twig\Environment;
  */
 class SectionRosterController extends AbstractController
 {
-    /** Sentinel section id for the "Toutes" (all sections) picker entry — same convention as the trombinoscope module. */
+    /**
+     * Sentinel section id for the "Toutes" (all sections) picker entry — same convention as the trombinoscope module.
+     */
     public const ALL_SECTIONS_ID = 0;
 
     public function __construct(
@@ -91,10 +93,15 @@ class SectionRosterController extends AbstractController
             'selected_id' => $selectedId,
             'section_blocks' => $sectionBlocks,
             'can_view_member_link' => $role->hasAccess(Role::ADMIN),
-            'export_url' => '/chefs/membres/export' . ($selectedId !== self::ALL_SECTIONS_ID ? '?section=' . $selectedId : ''),
+            'export_url' => '/chefs/membres/export'
+                . ($selectedId !== self::ALL_SECTIONS_ID ? '?section=' . $selectedId : ''),
             'scout_year_label' => $effectiveYear->label,
             'movement_statuses' => array_values(array_map(
-                fn(MemberMovementStatus $status) => ['tone' => $status->tone(), 'label' => $status->label(), 'description' => $status->description()],
+                fn(MemberMovementStatus $status) => [
+                    'tone' => $status->tone(),
+                    'label' => $status->label(),
+                    'description' => $status->description()
+                ],
                 array_filter(MemberMovementStatus::cases(), fn(MemberMovementStatus $s) => $s->isNotable())
             )),
         ];
@@ -145,7 +152,13 @@ class SectionRosterController extends AbstractController
     private function resolveSelection(Request $request, array $allSections): array
     {
         $pickerSections = [
-            ['id' => self::ALL_SECTIONS_ID, 'desk_code' => '__all__', 'name' => 'Toutes', 'branch_name' => '', 'color' => null],
+            [
+                'id' => self::ALL_SECTIONS_ID,
+                'desk_code' => '__all__',
+                'name' => 'Toutes',
+                'branch_name' => '',
+                'color' => null
+            ],
         ];
         foreach ($allSections as $section) {
             $pickerSections[] = $section;

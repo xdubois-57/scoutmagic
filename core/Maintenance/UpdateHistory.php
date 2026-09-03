@@ -11,7 +11,8 @@ namespace Core\Maintenance;
 class UpdateHistory
 {
     /** @var string[] */
-    public const STATUSES = ['pending', 'backing_up', 'downloading', 'installing', 'migrating', 'completed', 'failed', 'rolled_back'];
+    public const STATUSES = ['pending', 'backing_up', 'downloading', 'installing', 'migrating', 'completed', 'failed',
+        'rolled_back'];
 
     public function __construct(
         public readonly int $id,

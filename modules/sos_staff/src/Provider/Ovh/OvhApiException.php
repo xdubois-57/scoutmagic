@@ -63,7 +63,8 @@ class OvhApiException extends \RuntimeException implements UserFacingException
     public static function httpError(int $status, string $detail): self
     {
         return new self(
-            "L'API OVH a refusé la requête (erreur HTTP {$status}) — vérifiez les clés d'API et les droits accordés, puis réessayez.",
+            "L'API OVH a refusé la requête (erreur HTTP {$status}) — vérifiez les clés d'API et les droits "
+                . "accordés, puis réessayez.",
             0,
             null,
             $detail !== '' ? $detail : null

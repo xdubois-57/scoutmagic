@@ -35,12 +35,37 @@ class MonthGridBuilder
     /**
      * @param GridEvent[] $events
      * @return array<int, array{
-     *     days: array<int, array{date: string, day_number: int, in_month: bool, is_today: bool, overflow_count: int, overflow_labels: array<int, string>}>,
-     *     bars: array<int, array{event: GridEvent, col_start: int, col_span: int, row: int, continues_before: bool, continues_after: bool}>,
+     *     days: array<
+     *         int,
+     *         array{
+     *             date: string,
+     *             day_number: int,
+     *             in_month: bool,
+     *             is_today: bool,
+     *             overflow_count: int,
+     *             overflow_labels: array<int, string>
+     *         }
+     *     >,
+     *     bars: array<
+     *         int,
+     *         array{
+     *             event: GridEvent,
+     *             col_start: int,
+     *             col_span: int,
+     *             row: int,
+     *             continues_before: bool,
+     *             continues_after: bool
+     *         }
+     *     >,
      *     row_count: int
      * }>
      */
-    public function build(int $year, int $month, array $events, int $maxVisibleRows = self::DEFAULT_MAX_VISIBLE_ROWS): array
+    public function build(
+        int $year,
+        int $month,
+        array $events,
+        int $maxVisibleRows = self::DEFAULT_MAX_VISIBLE_ROWS
+    ): array
     {
         $firstOfMonth = DateInput::firstOfMonth($year, $month);
         $lastOfMonth = $firstOfMonth->modify('last day of this month');
@@ -109,8 +134,41 @@ class MonthGridBuilder
      * instead.
      *
      * @param GridEvent[] $weekEvents
-     * @param array<int, array{date: string, day_number: int, in_month: bool, is_today: bool, overflow_count: int, overflow_labels: array<int, string>}> $days 7 entries, Monday first
-     * @return array{0: array<int, array{event: GridEvent, col_start: int, col_span: int, row: int, continues_before: bool, continues_after: bool}>, 1: array<int, array{date: string, day_number: int, in_month: bool, is_today: bool, overflow_count: int, overflow_labels: array<int, string>}>}
+     * @param array<
+     *     int,
+     *     array{
+     *         date: string,
+     *         day_number: int,
+     *         in_month: bool,
+     *         is_today: bool,
+     *         overflow_count: int,
+     *         overflow_labels: array<int, string>
+     *     }
+     * > $days 7 entries, Monday first
+     * @return array{
+     *     0: array<
+     *         int,
+     *         array{
+     *             event: GridEvent,
+     *             col_start: int,
+     *             col_span: int,
+     *             row: int,
+     *             continues_before: bool,
+     *             continues_after: bool
+     *         }
+     *     >,
+     *     1: array<
+     *         int,
+     *         array{
+     *             date: string,
+     *             day_number: int,
+     *             in_month: bool,
+     *             is_today: bool,
+     *             overflow_count: int,
+     *             overflow_labels: array<int, string>
+     *         }
+     *     >
+     * }
      */
     private function layoutWeekBars(array $weekEvents, array $days, int $maxVisibleRows): array
     {
@@ -130,7 +188,9 @@ class MonthGridBuilder
         $weekEnd = $days[6]['date'];
         $dateToColumn = array_flip(array_column($days, 'date')); // date => 0..6
 
-        /** @var array<int, array<int, array{0: int, 1: int}>> $rowRanges row => list of [colStart, colEnd] (1-indexed) */
+        /**
+         * @var array<int, array<int, array{0: int, 1: int}>> $rowRanges row => list of [colStart, colEnd] (1-indexed)
+         */
         $rowRanges = [];
         $bars = [];
 

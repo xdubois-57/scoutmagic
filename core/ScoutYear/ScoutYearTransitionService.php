@@ -140,7 +140,17 @@ class ScoutYearTransitionService
      * @param array{id: int, label: string, start_date: string, end_date: string} $targetYear
      * @param array{id: int, label: string, start_date: string, end_date: string} $publicYear
      * @return array{
-     *   phases: array<int, array{key: string, title: string, subtitle: ?string, note: ?string, current: bool, steps: array<int, array<string, mixed>>}>,
+     *   phases: array<
+     *       int,
+     *       array{
+     *           key: string,
+     *           title: string,
+     *           subtitle: ?string,
+     *           note: ?string,
+     *           current: bool,
+     *           steps: array<int, array<string, mixed>>
+     *       }
+     *   >,
      *   current_step: int,
      *   step_count: int,
      *   desk_encoding_date: string
@@ -303,7 +313,9 @@ class ScoutYearTransitionService
                 'key' => 'departures',
                 'phase' => self::PHASE_PREPARATION,
                 'title' => "Indiquer les animés qui se désinscrivent en {$targetLabel}",
-                'description' => "Chaque staff coche, sur la page Départs, les animés de sa section qui ne reviendront pas en {$targetLabel}. Le repérage se remet à zéro tout seul au prochain import Desk — il n'y a jamais rien à effacer d'une année à l'autre.",
+                'description' => "Chaque staff coche, sur la page Départs, les animés de sa section qui ne "
+                    . "reviendront pas en {$targetLabel}. Le repérage se remet à zéro tout seul au prochain import "
+                    . "Desk — il n'y a jamais rien à effacer d'une année à l'autre.",
                 'auto_done' => null,
                 'action_url' => '/departs',
                 'action_label' => 'Aller aux Départs',
@@ -312,7 +324,8 @@ class ScoutYearTransitionService
                 'key' => 'passage',
                 'phase' => self::PHASE_PREPARATION,
                 'title' => 'Indiquer la section des animés qui changent de branche',
-                'description' => "Sur la page Passage, choisissez la section d'arrivée de chaque animé qui quitte sa branche en {$targetLabel}.",
+                'description' => "Sur la page Passage, choisissez la section d'arrivée de chaque animé qui quitte sa "
+                    . "branche en {$targetLabel}.",
                 'auto_done' => $this->passageDone(),
                 'progress' => $this->passageProgress(),
                 'action_url' => '/passage',
@@ -322,7 +335,9 @@ class ScoutYearTransitionService
                 'key' => 'confirm_registrations',
                 'phase' => self::PHASE_PREPARATION,
                 'title' => 'Confirmer les inscriptions et indiquer la branche cible',
-                'description' => "Acceptez ou refusez les demandes d'inscription pour {$targetLabel}, puis renseignez la « section prévue » de chaque demande acceptée — c'est elle qui alimente le bloc « nouvelles inscriptions » de la page Passage.",
+                'description' => "Acceptez ou refusez les demandes d'inscription pour {$targetLabel}, puis "
+                    . "renseignez la « section prévue » de chaque demande acceptée — c'est elle qui alimente le bloc "
+                    . "« nouvelles inscriptions » de la page Passage.",
                 'auto_done' => null,
                 'action_url' => '/config/inscriptions',
                 'action_label' => 'Aller aux inscriptions',
@@ -331,15 +346,22 @@ class ScoutYearTransitionService
                 'key' => 'desk_staff',
                 'phase' => self::PHASE_DESK,
                 'title' => 'Encoder les nouveaux staffs dans Desk',
-                'description' => "Dans Desk, encodez les animateurs et animatrices qui rejoignent l'unité en {$targetLabel}, ainsi que les changements de staff. Cette étape se passe hors du site : cochez-la vous-même une fois faite.",
+                'description' => "Dans Desk, encodez les animateurs et animatrices qui rejoignent l'unité en "
+                    . "{$targetLabel}, ainsi que les changements de staff. Cette étape se passe hors du site : "
+                    . "cochez-la vous-même une fois faite.",
                 'auto_done' => null,
             ],
             [
                 'key' => 'desk_members',
                 'phase' => self::PHASE_DESK,
                 'title' => 'Encoder les animés dans Desk (nouveaux inscrits, passages, sortants)',
-                'description' => "Dans Desk, reportez les décisions de la phase de préparation : les nouvelles inscriptions, les passages d'une section à l'autre, et les départs. Cette étape se passe hors du site : cochez-la vous-même une fois faite.",
-                'note' => "Une fois l'import fait (étape suivante), les animateurs peuvent se fier à la prévisualisation de {$targetLabel} et télécharger la liste des membres {$targetLabel} depuis « Membres par section ». Cette liste permet déjà de communiquer avec les familles par email.",
+                'description' => "Dans Desk, reportez les décisions de la phase de préparation : les nouvelles "
+                    . "inscriptions, les passages d'une section à l'autre, et les départs. Cette étape se passe hors "
+                    . "du "
+                    . "site : cochez-la vous-même une fois faite.",
+                'note' => "Une fois l'import fait (étape suivante), les animateurs peuvent se fier à la "
+                    . "prévisualisation de {$targetLabel} et télécharger la liste des membres {$targetLabel} depuis "
+                    . "« Membres par section ». Cette liste permet déjà de communiquer avec les familles par email.",
                 'note_url' => '/chefs/membres',
                 'note_label' => 'Aller aux membres par section',
                 'auto_done' => null,
@@ -348,14 +370,16 @@ class ScoutYearTransitionService
                 'key' => 'fees',
                 'phase' => self::PHASE_DESK,
                 'title' => 'Mettre à jour les cotisations',
-                'description' => "Dans Desk, mettez à jour les cotisations pour {$targetLabel}. Cette étape se passe hors du site : cochez-la vous-même une fois faite.",
+                'description' => "Dans Desk, mettez à jour les cotisations pour {$targetLabel}. Cette étape se passe "
+                    . "hors du site : cochez-la vous-même une fois faite.",
                 'auto_done' => null,
             ],
             [
                 'key' => 'preview',
                 'phase' => self::PHASE_DESK,
                 'title' => "Prévisualiser le site de l'année prochaine ({$targetLabel})",
-                'description' => "Choisissez {$targetLabel} ci-dessous pour voir le site tel qu'il apparaîtra. Cette prévisualisation ne concerne que votre session et n'affecte aucun autre utilisateur.",
+                'description' => "Choisissez {$targetLabel} ci-dessous pour voir le site tel qu'il apparaîtra. Cette "
+                    . "prévisualisation ne concerne que votre session et n'affecte aucun autre utilisateur.",
                 'auto_done' => $sessionPreviewId === $target,
                 'action' => 'preview',
             ],
@@ -363,7 +387,8 @@ class ScoutYearTransitionService
                 'key' => 'import',
                 'phase' => self::PHASE_DESK,
                 'title' => 'Importer les données Desk',
-                'description' => "Importez le fichier CSV Desk pour l'année {$targetLabel} depuis la page « Import Desk ». Les membres de la nouvelle année deviennent alors disponibles.",
+                'description' => "Importez le fichier CSV Desk pour l'année {$targetLabel} depuis la page « Import "
+                    . "Desk ». Les membres de la nouvelle année deviennent alors disponibles.",
                 'auto_done' => $memberCount > 0,
                 'progress' => $memberCount > 0 ? "{$memberCount} membre(s) importé(s) pour {$targetLabel}" : null,
                 'action_url' => '/admin/import',
@@ -373,10 +398,12 @@ class ScoutYearTransitionService
                 'key' => 'activate_staff',
                 'phase' => self::PHASE_SITE,
                 'title' => "Activer l'année {$targetLabel} pour les staffs",
-                'description' => "Les animateurs et intendants verront {$targetLabel} dès leur prochaine connexion, tandis que les animés et les visiteurs restent sur l'année courante ({$publicLabel}).",
+                'description' => "Les animateurs et intendants verront {$targetLabel} dès leur prochaine connexion, "
+                    . "tandis que les animés et les visiteurs restent sur l'année courante ({$publicLabel}).",
                 'auto_done' => $staffYearId === $target,
                 'warning' => $memberCount === 0
-                    ? "Aucun membre n'a encore été importé pour {$targetLabel} : les staffs verraient une année vide. Rien ne vous empêche d'activer quand même, mais l'import est normalement fait d'abord."
+                    ? "Aucun membre n'a encore été importé pour {$targetLabel} : les staffs verraient une année "
+                        . "vide. Rien ne vous empêche d'activer quand même, mais l'import est normalement fait d'abord."
                     : null,
                 'action' => 'activate-staff',
             ],
@@ -384,7 +411,8 @@ class ScoutYearTransitionService
                 'key' => 'ephemerides',
                 'phase' => self::PHASE_SITE,
                 'title' => "Encoder les éphémérides de l'année sur le site",
-                'description' => "Encodez dans le calendrier les dates de {$targetLabel} : réunions, week-ends, camps, réunions de staff.",
+                'description' => "Encodez dans le calendrier les dates de {$targetLabel} : réunions, week-ends, "
+                    . "camps, réunions de staff.",
                 'auto_done' => $this->ephemeridesDone($targetYear),
                 'progress' => $this->ephemeridesProgress($targetYear),
                 'action_url' => '/chefs/calendar',
@@ -394,7 +422,8 @@ class ScoutYearTransitionService
                 'key' => 'badges',
                 'phase' => self::PHASE_SITE,
                 'title' => 'Encoder les badges (trésorier·e, infirmier·e, référent·e·s…)',
-                'description' => "Attribuez les badges transversaux de {$targetLabel} aux membres du staff, depuis la page Staffs.",
+                'description' => "Attribuez les badges transversaux de {$targetLabel} aux membres du staff, depuis "
+                    . "la page Staffs.",
                 'auto_done' => null,
                 'action_url' => '/chefs/staffs',
                 'action_label' => 'Aller aux staffs',
@@ -403,7 +432,8 @@ class ScoutYearTransitionService
                 'key' => 'trombinoscope',
                 'phase' => self::PHASE_SITE,
                 'title' => 'Mettre à jour le trombinoscope',
-                'description' => "Le trombinoscope se reconstruit tout seul à partir de l'import Desk : vérifiez les photos et les responsables de section pour {$targetLabel}.",
+                'description' => "Le trombinoscope se reconstruit tout seul à partir de l'import Desk : vérifiez les "
+                    . "photos et les responsables de section pour {$targetLabel}.",
                 'auto_done' => null,
                 'action_url' => '/trombinoscope',
                 'action_label' => 'Aller au trombinoscope',
@@ -412,7 +442,8 @@ class ScoutYearTransitionService
                 'key' => 'staff_photos',
                 'phase' => self::PHASE_SITE,
                 'title' => 'Mettre à jour les photos de staff',
-                'description' => "Chaque section a une photo de staff par année scoute. Tant que celle de {$targetLabel} n'est pas prise, le site continue d'afficher celle de l'année précédente.",
+                'description' => "Chaque section a une photo de staff par année scoute. Tant que celle de "
+                    . "{$targetLabel} n'est pas prise, le site continue d'afficher celle de l'année précédente.",
                 'auto_done' => $this->staffPhotosDone($target),
                 'progress' => $this->staffPhotosProgress($target),
                 'action_url' => '/chefs/staffs',
@@ -422,7 +453,8 @@ class ScoutYearTransitionService
                 'key' => 'activate_public',
                 'phase' => self::PHASE_SITE,
                 'title' => 'Activer pour tout le monde',
-                'description' => "Bascule l'ensemble du site (visiteurs inclus) sur {$targetLabel} de façon permanente et désactive l'année du staff.",
+                'description' => "Bascule l'ensemble du site (visiteurs inclus) sur {$targetLabel} de façon "
+                    . "permanente et désactive l'année du staff.",
                 'auto_done' => $publicYearId === $target,
                 'action' => 'activate-public',
             ],

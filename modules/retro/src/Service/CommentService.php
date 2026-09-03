@@ -78,7 +78,8 @@ class CommentService
             $result = $this->moderationService->moderate($body, $board->maxCommentLength);
             if ($result !== null && $result['flagged']) {
                 throw new RetroException(
-                    $result['reason'] ?? 'Ce message peut être perçu comme une attaque personnelle ou un propos irrespectueux. Merci de reformuler ta pensée.',
+                    $result['reason'] ?? 'Ce message peut être perçu comme une attaque personnelle ou un propos '
+                        . 'irrespectueux. Merci de reformuler ta pensée.',
                     RetroException::TYPE_OFFENSIVE,
                     $result['suggestion']
                 );

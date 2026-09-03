@@ -26,8 +26,13 @@ class NotificationType
     private const ENABLED_VALUES = ['on', 'default_on'];
 
     /**
-     * @param array{in_app: string, push: string, email: string} $channels each value one of "on"/"off"/"default_on"/"default_off"
-     * @param ?string $defaultOnRoleMin role at or above which a "default_on" channel actually starts on — see defaultsOnForRole()
+     * @param array{
+     *     in_app: string,
+     *     push: string,
+     *     email: string
+     * } $channels each value one of "on"/"off"/"default_on"/"default_off"
+     * @param ?string $defaultOnRoleMin role at or above which a "default_on" channel actually starts on — see
+     *     defaultsOnForRole()
      */
     public function __construct(
         public readonly string $id,

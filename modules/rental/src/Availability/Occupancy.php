@@ -48,9 +48,11 @@ final class Occupancy
      * @param string $arrivalDate `Y-m-d`.
      * @param string $departureDate `Y-m-d`.
      * @param int $units How much of a countable stock this takes. 1 for an exclusive asset.
-     * @param string|null $reference An internal identifier for the manager-facing calendar. NEVER rendered publicly — see the class docblock.
+     * @param string|null $reference An internal identifier for the manager-facing calendar. NEVER rendered publicly —
+     *     see the class docblock.
      * @param bool $isFirm Whether this is a commitment or merely a temporary hold. See the note below.
-     * @param bool $endDateIsHeld Whether `$departureDate` is itself taken, whatever the billing unit. See the note below.
+     * @param bool $endDateIsHeld Whether `$departureDate` is itself taken, whatever the billing unit. See the note
+     *     below.
      */
     public function __construct(
         public readonly string $arrivalDate,

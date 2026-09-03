@@ -191,9 +191,14 @@ class ArticleService implements HomeNewsProvider
         if ($imageFileId === null) {
             throw new NewsException('Une image est obligatoire pour l\'article.');
         }
-        [$isIndexed, $seoKeywords, $seoStopDate] = $this->enforceSeoRules($visibility, $isIndexed, $seoKeywords, $seoStopDate);
+        [
+            $isIndexed,
+            $seoKeywords,
+            $seoStopDate
+        ] = $this->enforceSeoRules($visibility, $isIndexed, $seoKeywords, $seoStopDate);
 
-        $id = $this->articleRepository->create($title, $visibility, $isIndexed, $seoKeywords, $seoStopDate, $createdBy, $summary, $imageFileId);
+        $id = $this->articleRepository->create($title, $visibility, $isIndexed, $seoKeywords, $seoStopDate, $createdBy,
+            $summary, $imageFileId);
 
         $code = $this->shortUrlService->createShortUrl('/news/' . $id, $createdBy);
         $this->articleRepository->setShortUrlCode($id, $code);
@@ -222,9 +227,14 @@ class ArticleService implements HomeNewsProvider
         if ($imageFileId === null && ($existing === null || $existing->imageFileId === null)) {
             throw new NewsException('Une image est obligatoire pour l\'article.');
         }
-        [$isIndexed, $seoKeywords, $seoStopDate] = $this->enforceSeoRules($visibility, $isIndexed, $seoKeywords, $seoStopDate);
+        [
+            $isIndexed,
+            $seoKeywords,
+            $seoStopDate
+        ] = $this->enforceSeoRules($visibility, $isIndexed, $seoKeywords, $seoStopDate);
 
-        $this->articleRepository->update($id, $title, $visibility, $isIndexed, $seoKeywords, $seoStopDate, $summary, $imageFileId);
+        $this->articleRepository->update($id, $title, $visibility, $isIndexed, $seoKeywords, $seoStopDate, $summary,
+            $imageFileId);
 
         return $this->articleRepository->findById($id);
     }
@@ -279,7 +289,12 @@ class ArticleService implements HomeNewsProvider
      *
      * @return array{0: bool, 1: ?string, 2: ?string}
      */
-    private function enforceSeoRules(string $visibility, bool $isIndexed, ?string $seoKeywords, ?string $seoStopDate): array
+    private function enforceSeoRules(
+        string $visibility,
+        bool $isIndexed,
+        ?string $seoKeywords,
+        ?string $seoStopDate
+    ): array
     {
         if (in_array($visibility, [Article::VISIBILITY_DIRECT_LINK, Article::VISIBILITY_IDENTIFIED], true)) {
             return [false, null, null];

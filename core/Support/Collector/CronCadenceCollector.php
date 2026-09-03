@@ -107,7 +107,10 @@ class CronCadenceCollector implements SupportCollectorInterface
             $lines[] = 'cette version du code n\'était pas encore installée à son dernier passage.';
         } else {
             foreach ($history as $stamp) {
-                $lines[] = $stamp . '  ' . date('Y-m-d H:i:s', $stamp) . '  (il y a ' . $this->duration($now - $stamp) . ')';
+                $lines[] = $stamp . '  ' . date(
+                    'Y-m-d H:i:s',
+                    $stamp
+                ) . '  (il y a ' . $this->duration($now - $stamp) . ')';
             }
         }
         $lines[] = '';
@@ -124,7 +127,9 @@ class CronCadenceCollector implements SupportCollectorInterface
             $lines[] = 'ou chemin PHP devenu invalide.';
             $context->addNote('Le cron réel n\'a pas tourné depuis ' . $this->duration((int) $sinceLastSeen) . '.');
         } else {
-            $lines[] = 'VRAI CRON : détecté et actif (dernier passage il y a ' . $this->duration((int) $sinceLastSeen) . ').';
+            $lines[] = 'VRAI CRON : détecté et actif (dernier passage il y a '
+                . $this->duration((int) $sinceLastSeen)
+                . ').';
         }
 
         // A heartbeat with no cron_last_run behind it is its own diagnosis,
@@ -227,7 +232,15 @@ class CronCadenceCollector implements SupportCollectorInterface
         }
 
         $latencies = [];
-        $lines[] = sprintf('%-20s %-28s %-20s %-20s %-10s %s', 'module', 'tâche', 'prévu', 'exécuté', 'retard', 'statut');
+        $lines[] = sprintf(
+            '%-20s %-28s %-20s %-20s %-10s %s',
+            'module',
+            'tâche',
+            'prévu',
+            'exécuté',
+            'retard',
+            'statut'
+        );
         foreach ($rows as $row) {
             $runAt = (int) strtotime((string) $row['run_at']);
             $executedAt = (int) strtotime((string) $row['executed_at']);
@@ -259,7 +272,10 @@ class CronCadenceCollector implements SupportCollectorInterface
             return '0 (jamais)';
         }
 
-        return $timestamp . ' — ' . date('Y-m-d H:i:s', $timestamp) . ' (il y a ' . $this->duration($now - $timestamp) . ')';
+        return $timestamp . ' — ' . date(
+            'Y-m-d H:i:s',
+            $timestamp
+        ) . ' (il y a ' . $this->duration($now - $timestamp) . ')';
     }
 
     private function duration(int $seconds): string

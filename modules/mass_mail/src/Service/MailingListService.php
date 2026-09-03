@@ -155,13 +155,15 @@ class MailingListService
             'list_type' => 'default_active_members',
             'list_section_id' => null,
             'label' => self::ACTIVE_MEMBERS_LABEL,
-            'description' => "Tous les membres actifs de l'unité, toutes sections confondues, pour l'année scoute sélectionnée.",
+            'description' => "Tous les membres actifs de l'unité, toutes sections confondues, pour l'année scoute "
+                . "sélectionnée.",
         ];
         $lists[] = [
             'list_type' => 'default_chiefs',
             'list_section_id' => null,
             'label' => self::CHIEFS_LABEL,
-            'description' => "Les membres ayant une fonction de chef ou plus (chef, chef d'unité, super-administrateur), "
+            'description' => "Les membres ayant une fonction de chef ou plus (chef, chef d'unité, "
+                . "super-administrateur), "
                 . "toutes sections confondues, pour l'année scoute sélectionnée.",
         ];
 
@@ -220,7 +222,13 @@ class MailingListService
      * @param int[] $sectionIds
      * @throws MailingListException on an invalid name/description or empty criteria
      */
-    public function createCustomList(string $name, string $description, array $functionIds, array $sectionIds, ?int $createdBy): MailingList
+    public function createCustomList(
+        string $name,
+        string $description,
+        array $functionIds,
+        array $sectionIds,
+        ?int $createdBy
+    ): MailingList
     {
         $this->validateCriteria($name, $description, $functionIds, $sectionIds);
 
@@ -235,7 +243,13 @@ class MailingListService
      * @param int[] $sectionIds
      * @throws MailingListException on an invalid name/description, empty criteria, or an unknown list
      */
-    public function updateCustomList(int $id, string $name, string $description, array $functionIds, array $sectionIds): MailingList
+    public function updateCustomList(
+        int $id,
+        string $name,
+        string $description,
+        array $functionIds,
+        array $sectionIds
+    ): MailingList
     {
         if ($this->listRepository->findById($id) === null) {
             throw new MailingListException('Liste introuvable.');
@@ -273,7 +287,8 @@ class MailingListService
             throw new MailingListException('Liste introuvable.');
         }
         if ($this->listRepository->isReferencedByAnyEmail($id)) {
-            throw new MailingListException('Cette liste est utilisée par au moins un email — désactivez-la au lieu de la supprimer.');
+            throw new MailingListException('Cette liste est utilisée par au moins un email — désactivez-la au lieu de '
+                . 'la supprimer.');
         }
 
         $this->listRepository->delete($id);
@@ -406,7 +421,12 @@ class MailingListService
      * @return array<int, array{member_id: int, email: ?string, scout_year_id: int}>
      * @throws MailingListException on an unknown custom list id, or when the external list is unavailable
      */
-    public function resolveMembersForYears(string $listType, ?int $listId, ?int $listSectionId, array $scoutYearIds): array
+    public function resolveMembersForYears(
+        string $listType,
+        ?int $listId,
+        ?int $listSectionId,
+        array $scoutYearIds
+    ): array
     {
         // The external list is never re-scoped by the compose dialog's own
         // year checkboxes (module spec) — resolved exactly once, tagged
@@ -445,7 +465,11 @@ class MailingListService
                     $seenAddresses[$addressKey] = true;
                 }
 
-                $merged[] = ['member_id' => $member['member_id'], 'email' => $member['email'], 'scout_year_id' => $scoutYearId];
+                $merged[] = [
+                    'member_id' => $member['member_id'],
+                    'email' => $member['email'],
+                    'scout_year_id' => $scoutYearId
+                ];
             }
         }
 
@@ -474,14 +498,21 @@ class MailingListService
             if ($addressKey !== null) {
                 $seenAddresses[$addressKey] = true;
             }
-            $merged[] = ['member_id' => $member['member_id'], 'email' => $member['email'], 'scout_year_id' => $scoutYearId];
+            $merged[] = [
+                'member_id' => $member['member_id'],
+                'email' => $member['email'],
+                'scout_year_id' => $scoutYearId
+            ];
         }
 
         return $merged;
     }
 
     /**
-     * @return array<int, array{id: int, label: string, role: string}> every function, for the "Nouvelle liste" multi-select
+     * @return array<
+     *     int,
+     *     array{id: int, label: string, role: string}
+     * > every function, for the "Nouvelle liste" multi-select
      */
     public function getAllFunctions(): array
     {

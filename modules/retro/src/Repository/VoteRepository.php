@@ -26,7 +26,8 @@ class VoteRepository
     public function create(int $commentId, int $boardId, string $voterHash, string $voterBoardHash, int $weight): int
     {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO retro_votes (comment_id, board_id, voter_hash, voter_board_hash, weight) VALUES (?, ?, ?, ?, ?)'
+            'INSERT INTO retro_votes (comment_id, board_id, voter_hash, voter_board_hash, weight) VALUES (?, ?, ?, ?, '
+                . '?)'
         );
         $stmt->execute([$commentId, $boardId, $voterHash, $voterBoardHash, $weight]);
 
@@ -85,7 +86,8 @@ class VoteRepository
      */
     public function sumWeightForVoterOnBoard(int $boardId, string $voterBoardHash): int
     {
-        $stmt = $this->pdo->prepare('SELECT COALESCE(SUM(weight), 0) FROM retro_votes WHERE board_id = ? AND voter_board_hash = ?');
+        $stmt = $this->pdo->prepare('SELECT COALESCE(SUM(weight), 0) FROM retro_votes WHERE board_id = ? AND '
+            . 'voter_board_hash = ?');
         $stmt->execute([$boardId, $voterBoardHash]);
 
         return (int) $stmt->fetchColumn();

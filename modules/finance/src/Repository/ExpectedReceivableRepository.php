@@ -124,7 +124,8 @@ class ExpectedReceivableRepository
 
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
         $stmt = $this->pdo->prepare(
-            "SELECT * FROM finance_expected_receivables WHERE source_module = ? AND source_reference_id IN ($placeholders) ORDER BY id ASC"
+            "SELECT * FROM finance_expected_receivables WHERE source_module = ? AND source_reference_id IN "
+                . "($placeholders) ORDER BY id ASC"
         );
         $stmt->execute(array_merge([$sourceModule], $ids));
 
@@ -166,7 +167,8 @@ class ExpectedReceivableRepository
     public function findBySource(string $sourceModule, int $sourceReferenceId): array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT * FROM finance_expected_receivables WHERE source_module = ? AND source_reference_id = ? ORDER BY id ASC'
+            'SELECT * FROM finance_expected_receivables WHERE source_module = ? AND source_reference_id = ? ORDER BY '
+                . 'id ASC'
         );
         $stmt->execute([$sourceModule, $sourceReferenceId]);
         return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
@@ -182,7 +184,8 @@ class ExpectedReceivableRepository
     public function findAllByModule(string $sourceModule): array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT * FROM finance_expected_receivables WHERE source_module = ? ORDER BY source_reference_id ASC, id ASC'
+            'SELECT * FROM finance_expected_receivables WHERE source_module = ? ORDER BY source_reference_id ASC, id '
+                . 'ASC'
         );
         $stmt->execute([$sourceModule]);
         return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
@@ -196,13 +199,15 @@ class ExpectedReceivableRepository
      */
     public function findDistinctSourceModules(): array
     {
-        $stmt = $this->pdo->query('SELECT DISTINCT source_module FROM finance_expected_receivables ORDER BY source_module ASC');
+        $stmt = $this->pdo->query('SELECT DISTINCT source_module FROM finance_expected_receivables ORDER BY '
+            . 'source_module ASC');
         return $stmt !== false ? array_map('strval', $stmt->fetchAll(\PDO::FETCH_COLUMN)) : [];
     }
 
     public function deleteBySource(string $sourceModule, int $sourceReferenceId): void
     {
-        $stmt = $this->pdo->prepare('DELETE FROM finance_expected_receivables WHERE source_module = ? AND source_reference_id = ?');
+        $stmt = $this->pdo->prepare('DELETE FROM finance_expected_receivables WHERE source_module = ? AND '
+            . 'source_reference_id = ?');
         $stmt->execute([$sourceModule, $sourceReferenceId]);
     }
 
@@ -218,7 +223,8 @@ class ExpectedReceivableRepository
         }
 
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
-        $stmt = $this->pdo->prepare("SELECT * FROM finance_expected_receivables WHERE id IN ($placeholders) ORDER BY id ASC");
+        $stmt = $this->pdo->prepare("SELECT * FROM finance_expected_receivables WHERE id IN ($placeholders) ORDER "
+            . "BY id ASC");
         $stmt->execute($ids);
 
         return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
@@ -249,7 +255,8 @@ class ExpectedReceivableRepository
      */
     public function setWaived(int $id, ?string $at, ?int $by): void
     {
-        $stmt = $this->pdo->prepare('UPDATE finance_expected_receivables SET waived_at = ?, waived_by = ? WHERE id = ?');
+        $stmt = $this->pdo->prepare('UPDATE finance_expected_receivables SET waived_at = ?, waived_by = ? WHERE id = '
+            . '?');
         $stmt->execute([$at, $by, $id]);
     }
 
@@ -261,7 +268,8 @@ class ExpectedReceivableRepository
      */
     public function setRefundRequested(int $id, ?string $at, ?int $by): void
     {
-        $stmt = $this->pdo->prepare('UPDATE finance_expected_receivables SET refund_requested_at = ?, refund_requested_by = ? WHERE id = ?');
+        $stmt = $this->pdo->prepare('UPDATE finance_expected_receivables SET refund_requested_at = ?, '
+            . 'refund_requested_by = ? WHERE id = ?');
         $stmt->execute([$at, $by, $id]);
     }
 
@@ -277,7 +285,9 @@ class ExpectedReceivableRepository
             accountId: (int) $row['account_id'],
             amountDueCents: (int) $row['amount_due_cents'],
             communication: (string) $row['communication'],
-            label: $row['label_encrypted'] !== null ? $this->encryption->decrypt($row['label_encrypted'], 'finance_expected_receivables.label') : null,
+            label: $row['label_encrypted'] !== null
+                ? $this->encryption->decrypt($row['label_encrypted'], 'finance_expected_receivables.label')
+                : null,
             createdAt: (string) $row['created_at'],
             memberId: isset($row['member_id']) ? (int) $row['member_id'] : null,
             waivedAt: isset($row['waived_at']) ? (string) $row['waived_at'] : null,

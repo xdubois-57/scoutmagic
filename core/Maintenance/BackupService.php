@@ -158,7 +158,8 @@ class BackupService implements BackupServiceInterface
             throw new BackupException('Un mot de passe est requis.');
         }
         if (!$this->supportsZipEncryption()) {
-            throw new BackupException('Le serveur ne supporte pas le chiffrement des archives — contactez votre hébergeur.');
+            throw new BackupException('Le serveur ne supporte pas le chiffrement des archives — contactez votre '
+                . 'hébergeur.');
         }
 
         $dbDumpPath = $scope === 'full_config' ? $this->createConfigOnlyDump() : $this->createDatabaseDump();
@@ -187,7 +188,13 @@ class BackupService implements BackupServiceInterface
                 // complete, and it is unencrypted. RESTORABLE_TOP_LEVEL is
                 // a superset check, so both archives stay restorable.
                 foreach (['core', 'modules', 'public', 'storage'] as $topDir) {
-                    $this->addDirectoryToZip($zip, $this->basePath . '/' . $topDir, $topDir, $includeGallery, $password);
+                    $this->addDirectoryToZip(
+                        $zip,
+                        $this->basePath . '/' . $topDir,
+                        $topDir,
+                        $includeGallery,
+                        $password
+                    );
                 }
             }
         } catch (\Throwable $e) {

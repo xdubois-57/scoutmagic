@@ -162,13 +162,15 @@ class HelpFrontMatterParser
 
         $id = $values['id'];
         if (preg_match(self::ID_PATTERN, $id) !== 1) {
-            throw new HelpException("Help topic {$filePath} has an invalid id '{$id}' (lowercase letters, digits and dashes only)");
+            throw new HelpException("Help topic {$filePath} has an invalid id '{$id}' (lowercase letters, digits "
+                . "and dashes only)");
         }
         if (basename($filePath) !== $id . '.md') {
             throw new HelpException("Help topic {$filePath} declares id '{$id}' but the file is not named '{$id}.md'");
         }
         if (in_array($id, self::RESERVED_IDS, true)) {
-            throw new HelpException("Help topic {$filePath} claims the reserved id '{$id}' — a route of that name answers at /aide/{$id}, so the topic would be unreachable");
+            throw new HelpException("Help topic {$filePath} claims the reserved id '{$id}' — a route of that name "
+                . "answers at /aide/{$id}, so the topic would be unreachable");
         }
 
         $roleMin = Role::tryFrom($values['role_min']);
@@ -241,7 +243,8 @@ class HelpFrontMatterParser
             // by segment by Core\Help\HelpService.
             if (str_contains($declared, '*') && !$this->isTrailingStarOnly($declared)) {
                 if (preg_match('#^(?:/(?:\*|[^\s*/]+))+$#', $declared) !== 1) {
-                    throw new HelpException("Help topic {$filePath} declares an invalid path '{$declared}' (a '*' stands for one whole segment)");
+                    throw new HelpException("Help topic {$filePath} declares an invalid path '{$declared}' (a '*' "
+                        . "stands for one whole segment)");
                 }
                 $paths[] = ['path' => $declared, 'match' => 'pattern'];
                 continue;
@@ -257,7 +260,8 @@ class HelpFrontMatterParser
             }
 
             if (preg_match('#^/[^\s*]*$#', $declared) !== 1) {
-                throw new HelpException("Help topic {$filePath} declares an invalid path '{$declared}' (must start with '/', '*' only as a whole segment)");
+                throw new HelpException("Help topic {$filePath} declares an invalid path '{$declared}' (must start "
+                    . "with '/', '*' only as a whole segment)");
             }
             $paths[] = ['path' => $declared, 'match' => 'exact'];
         }
@@ -300,6 +304,9 @@ class HelpFrontMatterParser
             return [];
         }
 
-        return array_values(array_filter(array_map('trim', explode(',', $raw)), static fn (string $v): bool => $v !== ''));
+        return array_values(array_filter(
+            array_map('trim', explode(',', $raw)),
+            static fn (string $v): bool => $v !== ''
+        ));
     }
 }

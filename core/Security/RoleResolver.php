@@ -175,7 +175,8 @@ class RoleResolver
 
         $direct = array_values(array_filter(
             $direct,
-            fn(array $row) => !$this->memberEmailRepo->isBlindIndexInactiveForMember((int) $row['member_id'], $blindIndex)
+            fn(array $row) => !$this->memberEmailRepo->isBlindIndexInactiveForMember((int) $row['member_id'],
+                $blindIndex)
         ));
 
         $memberIds = $this->memberEmailRepo->findMemberIdsByValidBlindIndex($blindIndex);

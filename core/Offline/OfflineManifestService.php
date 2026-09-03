@@ -142,7 +142,11 @@ class OfflineManifestService
         }
 
         foreach ($linkedMembers as $member) {
-            $this->addImage($images, $this->memberPhotoService->resolveFileId($member->memberId, $scoutYearId), 'thumb');
+            $this->addImage(
+                $images,
+                $this->memberPhotoService->resolveFileId($member->memberId, $scoutYearId),
+                'thumb'
+            );
             $this->addImage($images, $this->resolveBranchLogoFileId($member), 'md');
         }
 

@@ -46,13 +46,15 @@ class SettingService
     {
         $setting = $this->repository->findByModuleAndKey($moduleId, $key);
         if ($setting === null) {
-            throw new SettingException("Le réglage « {$key} » est introuvable — il a peut-être été supprimé, rechargez la page.");
+            throw new SettingException("Le réglage « {$key} » est introuvable — il a peut-être été supprimé, "
+                . "rechargez la page.");
         }
         if (!(bool) $setting['editable']) {
             throw new SettingException("Le réglage « {$key} » n'est pas modifiable depuis cette page.");
         }
         if (!$this->validateValue($value, $setting)) {
-            throw new SettingException("La valeur saisie pour le réglage « {$key} » est invalide — vérifiez le format attendu.");
+            throw new SettingException("La valeur saisie pour le réglage « {$key} » est invalide — vérifiez le "
+                . "format attendu.");
         }
 
         $this->repository->updateValue($moduleId, $key, $value);
@@ -72,10 +74,12 @@ class SettingService
     {
         $setting = $this->repository->findByModuleAndKey($moduleId, $key);
         if ($setting === null) {
-            throw new SettingException("Le réglage « {$key} » est introuvable — il a peut-être été supprimé, rechargez la page.");
+            throw new SettingException("Le réglage « {$key} » est introuvable — il a peut-être été supprimé, "
+                . "rechargez la page.");
         }
         if (!$this->validateValue($value, $setting)) {
-            throw new SettingException("La valeur saisie pour le réglage « {$key} » est invalide — vérifiez le format attendu.");
+            throw new SettingException("La valeur saisie pour le réglage « {$key} » est invalide — vérifiez le "
+                . "format attendu.");
         }
 
         $this->repository->updateValue($moduleId, $key, $value);
@@ -196,7 +200,10 @@ class SettingService
     /**
      * Get all settings grouped by module_id.
      *
-     * @return array<string, array{label: string, icon: string|null, description: string|null, settings: array<int, array<string, mixed>>}>
+     * @return array<
+     *     string,
+     *     array{label: string, icon: string|null, description: string|null, settings: array<int, array<string, mixed>>}
+     * >
      */
     public function getAllGrouped(): array
     {

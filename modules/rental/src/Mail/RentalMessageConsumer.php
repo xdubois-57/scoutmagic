@@ -369,7 +369,8 @@ class RentalMessageConsumer implements MessageConsumerInterface, ReferenceDirect
      */
     private static function isAlive(RentalBooking $booking): bool
     {
-        return !in_array($booking->status, [BookingStatus::REFUSED, BookingStatus::CANCELLED, BookingStatus::EXPIRED], true);
+        return !in_array($booking->status, [BookingStatus::REFUSED, BookingStatus::CANCELLED, BookingStatus::EXPIRED],
+            true);
     }
 
     /**

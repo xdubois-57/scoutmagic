@@ -99,7 +99,10 @@ class ReconciliationService
      *     split: array<int, array<string, mixed>>,
      *     orphans: array<int, array<string, mixed>>,
      *     overpaid: array<int, array<string, mixed>>,
-     *     cross_account: array{received_here: array<int, array<string, mixed>>, paid_elsewhere: array<int, array<string, mixed>>},
+     *     cross_account: array{
+     *         received_here: array<int, array<string, mixed>>,
+     *         paid_elsewhere: array<int, array<string, mixed>>
+     *     },
      *     counts: array<string, int>
      * }
      * @throws FinanceException when the account is unknown or out of reach
@@ -162,7 +165,8 @@ class ReconciliationService
                 continue;
             }
 
-            $proposal = $this->splitProposal($credit, $remainder, $allocatedReceivableIds, $receivables, $settlements, $householdByMemberId, $identities);
+            $proposal = $this->splitProposal($credit, $remainder, $allocatedReceivableIds, $receivables, $settlements,
+                $householdByMemberId, $identities);
             if ($proposal !== null) {
                 $split[] = $proposal;
             }
@@ -174,10 +178,12 @@ class ReconciliationService
             if ($settlement === null || $settlement->amountOverpaidCents <= 0) {
                 continue;
             }
-            $overpaid[] = $this->overpaidRow($receivable, $settlement, $identities, $householdByMemberId, $receivables, $settlements);
+            $overpaid[] = $this->overpaidRow($receivable, $settlement, $identities, $householdByMemberId, $receivables,
+                $settlements);
         }
 
-        $crossAccount = $this->crossAccount($account, $receivables, $settlements, $credits, $allocationsByTransaction, $identities);
+        $crossAccount = $this->crossAccount($account, $receivables, $settlements, $credits, $allocationsByTransaction,
+            $identities);
 
         return [
             'account' => $account,
@@ -391,7 +397,9 @@ class ReconciliationService
             'receivable_id' => $receivable->id,
             'member_id' => $receivable->memberId,
             'name' => $this->displayName($receivable->memberId, $identities),
-            'section' => $receivable->memberId !== null ? ($identities[$receivable->memberId]->sectionName ?? null) : null,
+            'section' => $receivable->memberId !== null
+                ? ($identities[$receivable->memberId]->sectionName ?? null)
+                : null,
             'amount_due' => $settlement->amountDueCents,
             'amount_received' => $settlement->amountDesignatedCents,
             'amount_overpaid' => $settlement->amountOverpaidCents,

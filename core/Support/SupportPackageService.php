@@ -204,7 +204,10 @@ class SupportPackageService
         return trim($value) !== '' ? trim($value) : null;
     }
 
-    private function runCollector(SupportCollectorInterface $collector, SupportCollectorContext $context): SupportCollectionOutcome
+    private function runCollector(
+        SupportCollectorInterface $collector,
+        SupportCollectorContext $context
+    ): SupportCollectionOutcome
     {
         $context->resetCollectorState();
         $startedAt = microtime(true);
@@ -216,7 +219,8 @@ class SupportPackageService
             $unavailable = $context->unavailableReason();
 
             return $unavailable !== null
-                ? SupportCollectionOutcome::unavailable($collector->name(), $context->redact($unavailable), $durationMs, $context->notes())
+                ? SupportCollectionOutcome::unavailable($collector->name(), $context->redact($unavailable), $durationMs,
+                    $context->notes())
                 : SupportCollectionOutcome::success($collector->name(), $durationMs, $context->notes());
         } catch (\Throwable $e) {
             return SupportCollectionOutcome::failed(

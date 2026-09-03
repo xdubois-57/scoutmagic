@@ -29,7 +29,8 @@ class CategoryRepository
      */
     public function findActiveOrdered(): array
     {
-        $stmt = $this->pdo->query('SELECT * FROM finance_categories WHERE is_active = 1 ORDER BY sort_order ASC, id ASC');
+        $stmt = $this->pdo->query('SELECT * FROM finance_categories WHERE is_active = 1 ORDER BY sort_order ASC, id '
+            . 'ASC');
         $rows = $stmt !== false ? $stmt->fetchAll(\PDO::FETCH_ASSOC) : [];
         return array_map([$this, 'hydrate'], $rows);
     }
@@ -55,7 +56,8 @@ class CategoryRepository
         $stmt = $this->pdo->query('SELECT COALESCE(MAX(sort_order), -1) FROM finance_categories');
         $nextOrder = ((int) ($stmt !== false ? $stmt->fetchColumn() : -1)) + 1;
 
-        $stmt = $this->pdo->prepare('INSERT INTO finance_categories (name, description, sort_order, account_id, is_default) VALUES (?, ?, ?, ?, ?)');
+        $stmt = $this->pdo->prepare('INSERT INTO finance_categories (name, description, sort_order, account_id, '
+            . 'is_default) VALUES (?, ?, ?, ?, ?)');
         $stmt->execute([$name, $description, $nextOrder, $accountId, $isDefault ? 1 : 0]);
         return (int) $this->pdo->lastInsertId();
     }

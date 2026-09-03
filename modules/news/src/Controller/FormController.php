@@ -165,7 +165,8 @@ class FormController extends AbstractController
             (string) $request->getServer('REMOTE_ADDR', '')
         );
         if ($humanCheckResult !== null && !$humanCheckResult->accepted) {
-            return $this->rerenderFormWithError($request, $article, $form, $fields, $email, $scoutYearId, 'Une erreur est survenue. Veuillez réessayer.');
+            return $this->rerenderFormWithError($request, $article, $form, $fields, $email, $scoutYearId,
+                'Une erreur est survenue. Veuillez réessayer.');
         }
 
         try {
@@ -176,7 +177,8 @@ class FormController extends AbstractController
                 $memberYearId
             );
         } catch (NewsException $e) {
-            return $this->rerenderFormWithError($request, $article, $form, $fields, $email, $scoutYearId, $e->getMessage());
+            return $this->rerenderFormWithError($request, $article, $form, $fields, $email, $scoutYearId,
+                $e->getMessage());
         }
 
         $this->journalService->log(
@@ -296,7 +298,10 @@ class FormController extends AbstractController
      * on top of the same set; the export and the mail draft need no more
      * than this.
      *
-     * @return array<int, array{response: FormResponse, payment: ?array{amount_due: int, amount_received: int, status: string}}>
+     * @return array<
+     *     int,
+     *     array{response: FormResponse, payment: ?array{amount_due: int, amount_received: int, status: string}}
+     * >
      */
     private function filterableRows(NewsForm $form): array
     {
@@ -327,7 +332,10 @@ class FormController extends AbstractController
      * is somebody who still owes, and folding it in with « payé » would
      * quietly drop them from the list they belong on.
      *
-     * @template TRow of array{response: FormResponse, payment: ?array{amount_due: int, amount_received: int, status: string}}
+     * @template TRow of array{
+     *     response: FormResponse,
+     *     payment: ?array{amount_due: int, amount_received: int, status: string}
+     * }
      * @param array<int, TRow> $rows
      * @return array<int, TRow>
      */
@@ -355,7 +363,10 @@ class FormController extends AbstractController
      * it reusable by the next module. mass_mail receives a list of
      * people and their values, as it always did.
      *
-     * @template TRow of array{response: FormResponse, payment: ?array{amount_due: int, amount_received: int, status: string}}
+     * @template TRow of array{
+     *     response: FormResponse,
+     *     payment: ?array{amount_due: int, amount_received: int, status: string}
+     * }
      * @param array<int, TRow> $rows
      * @return array<int, TRow>
      */
@@ -429,7 +440,8 @@ class FormController extends AbstractController
         $responses = array_map(
             static fn (array $row) => $row['response'],
             self::applyAudience(
-                self::applyFilter($this->filterableRows($form), self::normalizeFilter((string) $request->getBody('filter', self::FILTER_ALL))),
+                self::applyFilter($this->filterableRows($form),
+                    self::normalizeFilter((string) $request->getBody('filter', self::FILTER_ALL))),
                 $audience
             )
         );
@@ -455,7 +467,12 @@ class FormController extends AbstractController
             'form_responses_mail_draft',
             'info',
             "Brouillon d'e-mail créé vers les répondants de l'article « {$article->title} »",
-            ['article_id' => $article->id, 'form_id' => $form->id, 'response_count' => count($responses), 'audience' => $audience],
+            [
+                'article_id' => $article->id,
+                'form_id' => $form->id,
+                'response_count' => count($responses),
+                'audience' => $audience
+            ],
             (int) AuthSession::getUserAccountId()
         );
 
@@ -566,7 +583,8 @@ class FormController extends AbstractController
         // the list above it would be worse than no filter at all.
         $responses = array_map(
             static fn (array $row) => $row['response'],
-            self::applyFilter($this->filterableRows($form), self::normalizeFilter((string) $request->getQuery('filter', self::FILTER_ALL)))
+            self::applyFilter($this->filterableRows($form),
+                self::normalizeFilter((string) $request->getQuery('filter', self::FILTER_ALL)))
         );
         $xlsx = $this->buildXlsx($fields, $responses, $form);
 
@@ -623,7 +641,9 @@ class FormController extends AbstractController
      */
     public function updateResponse(Request $request, array $params): Response
     {
-        if (($guard = $this->guardCsrf($request, '/news/' . (int) ($params['id'] ?? 0) . '/form/responses/' . (int) ($params['response_id'] ?? 0) . '/edit')) !== null) {
+        if (($guard = $this->guardCsrf($request,
+            '/news/' . (int) ($params['id'] ?? 0) . '/form/responses/' . (int) ($params['response_id'] ?? 0) . '/edit'
+            )) !== null) {
             return $guard;
         }
 
@@ -721,9 +741,19 @@ class FormController extends AbstractController
      *
      * @param FormField[] $fields
      */
-    private function rerenderFormWithError(Request $request, Article $article, NewsForm $form, array $fields, ?string $email, int $scoutYearId, string $errorMessage): Response
+    private function rerenderFormWithError(
+        Request $request,
+        Article $article,
+        NewsForm $form,
+        array $fields,
+        ?string $email,
+        int $scoutYearId,
+        string $errorMessage
+    ): Response
     {
-        $memberOptions = $form->access === NewsForm::ACCESS_IDENTIFIED ? $this->responseService->resolveMemberOptions($email, $scoutYearId) : [];
+        $memberOptions = $form->access === NewsForm::ACCESS_IDENTIFIED
+            ? $this->responseService->resolveMemberOptions($email, $scoutYearId)
+            : [];
 
         return $this->render('@news/detail.html.twig', [
             'article' => $article,
@@ -776,7 +806,8 @@ class FormController extends AbstractController
             if ($field->isNonInput()) {
                 continue;
             }
-            $answers[$field->id] = $request->getBody('field_' . $field->id, $field->fieldType === FormField::TYPE_CHECKBOX ? [] : '');
+            $answers[$field->id] = $request->getBody('field_' . $field->id,
+                $field->fieldType === FormField::TYPE_CHECKBOX ? [] : '');
         }
         return $answers;
     }
@@ -789,7 +820,9 @@ class FormController extends AbstractController
     private function fieldsForTemplate(array $fields, array $memberOptions, ?int $excludeResponseId = null): array
     {
         return array_map(function (FormField $field) use ($memberOptions, $excludeResponseId) {
-            $options = $field->optionsSource === FormField::OPTIONS_SOURCE_MEMBERS ? array_values($memberOptions) : $field->manualOptions();
+            $options = $field->optionsSource === FormField::OPTIONS_SOURCE_MEMBERS
+                ? array_values($memberOptions)
+                : $field->manualOptions();
             return [
                 'field' => $field,
                 'options' => $options,

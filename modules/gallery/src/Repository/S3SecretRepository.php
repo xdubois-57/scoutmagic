@@ -51,9 +51,11 @@ class S3SecretRepository
         $exists = (bool) $this->pdo->query('SELECT 1 FROM gallery_s3_secret WHERE id = 1')->fetchColumn();
 
         if ($exists) {
-            $stmt = $this->pdo->prepare('UPDATE gallery_s3_secret SET secret_key_encrypted = ?, updated_at = ? WHERE id = 1');
+            $stmt = $this->pdo->prepare('UPDATE gallery_s3_secret SET secret_key_encrypted = ?, updated_at = ? WHERE '
+                . 'id = 1');
         } else {
-            $stmt = $this->pdo->prepare('INSERT INTO gallery_s3_secret (id, secret_key_encrypted, updated_at) VALUES (1, ?, ?)');
+            $stmt = $this->pdo->prepare('INSERT INTO gallery_s3_secret (id, secret_key_encrypted, updated_at) VALUES '
+                . '(1, ?, ?)');
         }
         $stmt->execute([$encrypted, $now]);
     }

@@ -75,7 +75,8 @@ class AudienceImportService
 
         $dataRows = $this->collectDataRows($rows, $columns);
         if ($dataRows === []) {
-            throw new AudienceImportException(['Le fichier ne contient aucune ligne de données sous la ligne d\'en-têtes.']);
+            throw new AudienceImportException(['Le fichier ne contient aucune ligne de données sous la ligne '
+                . 'd\'en-têtes.']);
         }
         if (count($dataRows) > self::MAX_ROWS) {
             throw new AudienceImportException([sprintf(
@@ -87,7 +88,8 @@ class AudienceImportService
 
         $memberIdsByDeskId = $tiersColumn !== null
             ? $this->memberResolutionRepository->findMemberIdsByDeskIds(
-                array_values(array_filter(array_map(fn(array $r) => trim($r['data'][$tiersColumn] ?? ''), $dataRows), fn(string $v) => $v !== ''))
+                array_values(array_filter(array_map(fn(array $r) => trim($r['data'][$tiersColumn] ?? ''), $dataRows),
+                    fn(string $v) => $v !== ''))
             )
             : [];
 
@@ -118,27 +120,39 @@ class AudienceImportService
             }
 
             $addresses = $this->splitAddresses($emailValue);
-            $invalid = array_values(array_filter($addresses, fn(string $a) => filter_var($a, FILTER_VALIDATE_EMAIL) === false));
+            $invalid = array_values(array_filter($addresses,
+                fn(string $a) => filter_var($a, FILTER_VALIDATE_EMAIL) === false));
             if ($invalid !== []) {
                 $errors[] = "Ligne {$lineNo} — la valeur « {$invalid[0]} » de la colonne Email n'est pas une adresse valide.";
                 continue;
             }
 
-            $resolved[] = ['line' => $lineNo, 'member_id' => null, 'email' => implode('; ', $addresses), 'data' => $row['data']];
+            $resolved[] = [
+                'line' => $lineNo,
+                'member_id' => null,
+                'email' => implode('; ', $addresses),
+                'data' => $row['data']
+            ];
         }
 
         if ($errors !== []) {
             throw new AudienceImportException($errors);
         }
 
-        $audienceId = $this->audienceRepository->createAudience($originalFilename, $sheetName, $columns, count($resolved), $createdBy);
+        $audienceId = $this->audienceRepository->createAudience($originalFilename, $sheetName, $columns,
+            count($resolved), $createdBy);
         foreach ($resolved as $row) {
-            $this->audienceRepository->createRow($audienceId, $row['line'], $row['member_id'], $row['email'], $row['data']);
+            $this->audienceRepository->createRow($audienceId, $row['line'], $row['member_id'], $row['email'],
+                $row['data']);
         }
 
         $this->journalService->log(
             'mass_mail', 'audience_imported', 'info', 'Audience de publipostage importée depuis un fichier Excel',
-            ['audience_id' => $audienceId, 'row_count' => count($resolved), 'column_count' => count($columns)], $createdBy
+            [
+                'audience_id' => $audienceId,
+                'row_count' => count($resolved),
+                'column_count' => count($columns)
+            ], $createdBy
         );
 
         $audience = $this->audienceRepository->findById($audienceId);
@@ -214,7 +228,8 @@ class AudienceImportService
         if ($columns === []) {
             $errors[] = 'La première ligne de la feuille doit contenir les en-têtes de colonnes.';
         } elseif ($tiersColumn === null && $emailColumn === null) {
-            $errors[] = 'Le fichier doit contenir une colonne « Tiers » (identifiant Desk du membre) et/ou une colonne « Email ».';
+            $errors[] = 'Le fichier doit contenir une colonne « Tiers » (identifiant Desk du membre) et/ou une colonne '
+                . '« Email ».';
         }
 
         if ($errors !== []) {
@@ -227,7 +242,10 @@ class AudienceImportService
     /**
      * @param array<int, array<int, mixed>> $rows
      * @param string[] $columns Column names keyed by cell index.
-     * @return array<int, array{line: int, data: array<string, string>}> data keyed by column NAME; entirely-empty rows skipped
+     * @return array<
+     *     int,
+     *     array{line: int, data: array<string, string>}
+     * > data keyed by column NAME; entirely-empty rows skipped
      */
     private function collectDataRows(array $rows, array $columns): array
     {
@@ -260,7 +278,8 @@ class AudienceImportService
      */
     private function splitAddresses(string $value): array
     {
-        return array_values(array_filter(array_map('trim', (array) preg_split('/[;,]/', $value)), fn(string $a) => $a !== ''));
+        return array_values(array_filter(array_map('trim', (array) preg_split('/[;,]/', $value)),
+            fn(string $a) => $a !== ''));
     }
 
     /**
@@ -289,14 +308,18 @@ class AudienceImportService
 
         $duplicateMemberGroups = array_values(array_filter($memberLines, fn(array $lines) => count($lines) > 1));
         if ($duplicateMemberGroups !== []) {
-            $linesList = implode(' ; ', array_map(fn(array $lines) => 'lignes ' . implode(', ', $lines), $duplicateMemberGroups));
-            $warnings[] = "Un même Tiers apparaît sur plusieurs lignes ({$linesList}) : chaque ligne enverra son propre email.";
+            $linesList = implode(' ; ',
+                array_map(fn(array $lines) => 'lignes ' . implode(', ', $lines), $duplicateMemberGroups));
+            $warnings[] = "Un même Tiers apparaît sur plusieurs lignes ({$linesList}) : chaque ligne enverra son "
+                . "propre email.";
         }
 
         $duplicateAddressGroups = array_values(array_filter($addressLines, fn(array $lines) => count($lines) > 1));
         if ($duplicateAddressGroups !== []) {
-            $linesList = implode(' ; ', array_map(fn(array $lines) => 'lignes ' . implode(', ', $lines), $duplicateAddressGroups));
-            $warnings[] = "Une même adresse email apparaît sur plusieurs lignes ({$linesList}) : chaque ligne enverra son propre email.";
+            $linesList = implode(' ; ',
+                array_map(fn(array $lines) => 'lignes ' . implode(', ', $lines), $duplicateAddressGroups));
+            $warnings[] = "Une même adresse email apparaît sur plusieurs lignes ({$linesList}) : chaque ligne "
+                . "enverra son propre email.";
         }
 
         return $warnings;

@@ -19,11 +19,23 @@ class ProviderRepository
     }
 
     /**
-     * @return array<int, array{id: int, name: string, driver: string, api_endpoint: string, is_active: bool, created_at: string, updated_at: string}>
+     * @return array<
+     *     int,
+     *     array{
+     *         id: int,
+     *         name: string,
+     *         driver: string,
+     *         api_endpoint: string,
+     *         is_active: bool,
+     *         created_at: string,
+     *         updated_at: string
+     *     }
+     * >
      */
     public function findAll(): array
     {
-        $stmt = $this->pdo->query('SELECT id, name, driver, api_endpoint, is_active, created_at, updated_at FROM llm_providers ORDER BY name');
+        $stmt = $this->pdo->query('SELECT id, name, driver, api_endpoint, is_active, created_at, updated_at FROM '
+            . 'llm_providers ORDER BY name');
         if ($stmt === false) {
             return [];
         }
@@ -46,7 +58,16 @@ class ProviderRepository
     /**
      * Find a provider by ID, including decrypted API key.
      *
-     * @return array{id: int, name: string, driver: string, api_endpoint: string, api_key: string, is_active: bool, created_at: string, updated_at: string}|null
+     * @return array{
+     *     id: int,
+     *     name: string,
+     *     driver: string,
+     *     api_endpoint: string,
+     *     api_key: string,
+     *     is_active: bool,
+     *     created_at: string,
+     *     updated_at: string
+     * }|null
      */
     public function findById(int $id): ?array
     {
@@ -95,7 +116,10 @@ class ProviderRepository
     }
 
     /**
-     * @return array<int, array{id: int, name: string, driver: string, api_endpoint: string, api_key: string, is_active: bool}>
+     * @return array<
+     *     int,
+     *     array{id: int, name: string, driver: string, api_endpoint: string, api_key: string, is_active: bool}
+     * >
      */
     public function findAllActive(): array
     {
@@ -115,7 +139,13 @@ class ProviderRepository
         return $rows;
     }
 
-    public function create(string $name, string $driver, string $apiEndpoint, string $apiKey, bool $isActive = true): int
+    public function create(
+        string $name,
+        string $driver,
+        string $apiEndpoint,
+        string $apiKey,
+        bool $isActive = true
+    ): int
     {
         $now = date('Y-m-d H:i:s');
         $encryptedKey = $this->encryption->encrypt($apiKey, 'llm_providers.api_key');
@@ -129,19 +159,28 @@ class ProviderRepository
         return (int) $this->pdo->lastInsertId();
     }
 
-    public function update(int $id, string $name, string $driver, string $apiEndpoint, ?string $apiKey, bool $isActive): void
+    public function update(
+        int $id,
+        string $name,
+        string $driver,
+        string $apiEndpoint,
+        ?string $apiKey,
+        bool $isActive
+    ): void
     {
         $now = date('Y-m-d H:i:s');
 
         if ($apiKey !== null) {
             $encryptedKey = $this->encryption->encrypt($apiKey, 'llm_providers.api_key');
             $stmt = $this->pdo->prepare(
-                'UPDATE llm_providers SET name = ?, driver = ?, api_endpoint = ?, api_key = ?, is_active = ?, updated_at = ? WHERE id = ?'
+                'UPDATE llm_providers SET name = ?, driver = ?, api_endpoint = ?, api_key = ?, is_active = ?, '
+                    . 'updated_at = ? WHERE id = ?'
             );
             $stmt->execute([$name, $driver, $apiEndpoint, $encryptedKey, $isActive ? 1 : 0, $now, $id]);
         } else {
             $stmt = $this->pdo->prepare(
-                'UPDATE llm_providers SET name = ?, driver = ?, api_endpoint = ?, is_active = ?, updated_at = ? WHERE id = ?'
+                'UPDATE llm_providers SET name = ?, driver = ?, api_endpoint = ?, is_active = ?, updated_at = ? WHERE '
+                    . 'id = ?'
             );
             $stmt->execute([$name, $driver, $apiEndpoint, $isActive ? 1 : 0, $now, $id]);
         }
@@ -201,7 +240,8 @@ class ProviderRepository
     public function findByDriver(string $driver): ?array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT id, name, driver, api_endpoint, is_active FROM llm_providers WHERE driver = ? ORDER BY id ASC LIMIT 1'
+            'SELECT id, name, driver, api_endpoint, is_active FROM llm_providers WHERE driver = ? ORDER BY id ASC '
+                . 'LIMIT 1'
         );
         $stmt->execute([$driver]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);

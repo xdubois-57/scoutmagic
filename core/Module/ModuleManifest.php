@@ -46,16 +46,69 @@ class ModuleManifest
     private const VALID_OFFLINE_MATCH_VALUES = ['exact', 'child'];
 
     /**
-     * @param array<int, array{path: string, method: string, controller: string, action: string, menu: string, role_min: string, label: string, menu_order: int, menu_order_explicit: bool, menu_icon: ?string, menu_group: ?string, breadcrumb: ?array{label: string, parents: array<string>, ancestors: array<int, array{label: string, path: string}>}}> $routes
-     * @param array<int, array{key: string, default_value: string, type: string, label: string, description: string, validation_regex: ?string, editable: bool}> $settings
+     * @param array<
+     *     int,
+     *     array{
+     *         path: string,
+     *         method: string,
+     *         controller: string,
+     *         action: string,
+     *         menu: string,
+     *         role_min: string,
+     *         label: string,
+     *         menu_order: int,
+     *         menu_order_explicit: bool,
+     *         menu_icon: ?string,
+     *         menu_group: ?string,
+     *         breadcrumb: ?array{
+     *             label: string,
+     *             parents: array<string>,
+     *             ancestors: array<int, array{label: string, path: string}>
+     *         }
+     *     }
+     * > $routes
+     * @param array<
+     *     int,
+     *     array{
+     *         key: string,
+     *         default_value: string,
+     *         type: string,
+     *         label: string,
+     *         description: string,
+     *         validation_regex: ?string,
+     *         editable: bool
+     *     }
+     * > $settings
      * @param array<int, array{name: string, category: string, purpose: string, duration: string}> $cookies
      * @param array<int, array{key: string, handler: string}> $scheduledTasks
      * @param array<string, array{role_min: string}> $storage
-     * @param array<int, array{id: string, label: string, description: string, group: string, role_min: string, channels: array{in_app: string, push: string, email: string}, default_on_role_min: ?string}> $notifications
+     * @param array<
+     *     int,
+     *     array{
+     *         id: string,
+     *         label: string,
+     *         description: string,
+     *         group: string,
+     *         role_min: string,
+     *         channels: array{in_app: string, push: string, email: string},
+     *         default_on_role_min: ?string
+     *     }
+     * > $notifications
      * @param array<int, array{path: string, label: string, match: string, role_min: string}> $offline
      * @param array<int, string> $requires
      * @param array<int, string> $visibleWhen
-     * @param array<int, array{id: string, label: string, description: string, default_subject: string, template: string, editable: bool, variables: array<int, array{name: string, label: string, example: string}>}> $emails
+     * @param array<
+     *     int,
+     *     array{
+     *         id: string,
+     *         label: string,
+     *         description: string,
+     *         default_subject: string,
+     *         template: string,
+     *         editable: bool,
+     *         variables: array<int, array{name: string, label: string, example: string}>
+     *     }
+     * > $emails
      */
     public function __construct(
         public readonly string $id,
@@ -287,7 +340,8 @@ class ModuleManifest
                 }
                 if (!in_array($flag, InstallationProfile::KNOWN_FLAGS, true)) {
                     $known = implode(', ', InstallationProfile::KNOWN_FLAGS);
-                    throw new ModuleException("Module '{$id}' visible_when[{$i}] is not a known installation flag: '{$flag}' (known: {$known})");
+                    throw new ModuleException("Module '{$id}' visible_when[{$i}] is not a known installation flag: "
+                        . "'{$flag}' (known: {$known})");
                 }
                 if (in_array($flag, $visibleWhen, true)) {
                     throw new ModuleException("Module '{$id}' visible_when[{$i}] duplicates flag '{$flag}'");
@@ -339,12 +393,31 @@ class ModuleManifest
             }
         }
 
-        return new self($id, $data['name'], $data['version'], $routes, $settings, $cookies, $scheduledTasks, $storage, $enabledByDefault, $description, $notifications, $offline, $requires, $visibleWhen, $helpDirectory, $emails);
+        return new self($id, $data['name'], $data['version'], $routes, $settings, $cookies, $scheduledTasks, $storage,
+            $enabledByDefault, $description, $notifications, $offline, $requires, $visibleWhen, $helpDirectory, $emails
+            );
     }
 
     /**
      * @param array<string, mixed>|mixed $route
-     * @return array{path: string, method: string, controller: string, action: string, menu: string, role_min: string, label: string, menu_order: int, menu_order_explicit: bool, menu_icon: ?string, menu_group: ?string, breadcrumb: ?array{label: string, parents: array<string>, ancestors: array<int, array{label: string, path: string}>}}
+     * @return array{
+     *     path: string,
+     *     method: string,
+     *     controller: string,
+     *     action: string,
+     *     menu: string,
+     *     role_min: string,
+     *     label: string,
+     *     menu_order: int,
+     *     menu_order_explicit: bool,
+     *     menu_icon: ?string,
+     *     menu_group: ?string,
+     *     breadcrumb: ?array{
+     *         label: string,
+     *         parents: array<string>,
+     *         ancestors: array<int, array{label: string, path: string}>
+     *     }
+     * }
      */
     private static function validateRoute(string $moduleId, mixed $route, int $index): array
     {
@@ -374,7 +447,8 @@ class ModuleManifest
 
         if ($routeLevel < $menuLevel) {
             throw new ModuleException(
-                "Module '{$moduleId}' route[{$index}] role_min '{$route['role_min']}' is more permissive than menu '{$route['menu']}' minimum '{$menuMinRole}'"
+                "Module '{$moduleId}' route[{$index}] role_min '{$route['role_min']}' is more permissive than menu "
+                    . "'{$route['menu']}' minimum '{$menuMinRole}'"
             );
         }
 
@@ -435,7 +509,8 @@ class ModuleManifest
             $validGroups = MenuBuilder::groupIdsFor($route['menu']);
             if (!in_array($route['menu_group'], $validGroups, true)) {
                 throw new ModuleException(
-                    "Module '{$moduleId}' route[{$index}] invalid menu_group value '{$route['menu_group']}' for menu '{$route['menu']}'"
+                    "Module '{$moduleId}' route[{$index}] invalid menu_group value '{$route['menu_group']}' for "
+                        . "menu '{$route['menu']}'"
                 );
             }
 
@@ -589,7 +664,8 @@ class ModuleManifest
             }
             foreach ($breadcrumb['parents'] as $parent) {
                 if (!is_string($parent) || $parent === '') {
-                    throw new ModuleException("Module '{$moduleId}' route[{$index}] breadcrumb 'parents' must be an array of non-empty strings");
+                    throw new ModuleException("Module '{$moduleId}' route[{$index}] breadcrumb 'parents' must be an "
+                        . "array of non-empty strings");
                 }
                 $parents[] = $parent;
             }
@@ -633,16 +709,20 @@ class ModuleManifest
         $validated = [];
         foreach ($ancestors as $ancestor) {
             if (!is_array($ancestor) || !isset($ancestor['label'], $ancestor['path'])) {
-                throw new ModuleException("Module '{$moduleId}' route[{$index}] breadcrumb 'ancestors' entries must be objects with 'label' and 'path'");
+                throw new ModuleException("Module '{$moduleId}' route[{$index}] breadcrumb 'ancestors' entries must "
+                    . "be objects with 'label' and 'path'");
             }
             if (!is_string($ancestor['label']) || $ancestor['label'] === '') {
-                throw new ModuleException("Module '{$moduleId}' route[{$index}] breadcrumb ancestor 'label' must be a non-empty string");
+                throw new ModuleException("Module '{$moduleId}' route[{$index}] breadcrumb ancestor 'label' must be "
+                    . "a non-empty string");
             }
             if (!is_string($ancestor['path']) || !str_starts_with($ancestor['path'], '/')) {
-                throw new ModuleException("Module '{$moduleId}' route[{$index}] breadcrumb ancestor 'path' must be an absolute path");
+                throw new ModuleException("Module '{$moduleId}' route[{$index}] breadcrumb ancestor 'path' must be "
+                    . "an absolute path");
             }
             if (str_contains($ancestor['path'], '{')) {
-                throw new ModuleException("Module '{$moduleId}' route[{$index}] breadcrumb ancestor 'path' must be a concrete page, not a pattern");
+                throw new ModuleException("Module '{$moduleId}' route[{$index}] breadcrumb ancestor 'path' must be "
+                    . "a concrete page, not a pattern");
             }
             $validated[] = ['label' => $ancestor['label'], 'path' => $ancestor['path']];
         }
@@ -652,7 +732,15 @@ class ModuleManifest
 
     /**
      * @param array<string, mixed>|mixed $setting
-     * @return array{key: string, default_value: string, type: string, label: string, description: string, validation_regex: ?string, editable: bool}
+     * @return array{
+     *     key: string,
+     *     default_value: string,
+     *     type: string,
+     *     label: string,
+     *     description: string,
+     *     validation_regex: ?string,
+     *     editable: bool
+     * }
      */
     private static function validateSetting(string $moduleId, mixed $setting, int $index): array
     {
@@ -685,7 +773,9 @@ class ModuleManifest
             'type' => $setting['type'],
             'label' => $setting['label'],
             'description' => $setting['description'],
-            'validation_regex' => isset($setting['validation_regex']) && is_string($setting['validation_regex']) && $setting['validation_regex'] !== ''
+            'validation_regex' => isset($setting['validation_regex'])
+                && is_string($setting['validation_regex'])
+                && $setting['validation_regex'] !== ''
                 ? $setting['validation_regex'] : null,
             // "editable": false declares a setting the Paramètres page does
             // not render at all (core/View/templates/config/settings.html.twig
@@ -727,7 +817,15 @@ class ModuleManifest
 
     /**
      * @param array<string, mixed>|mixed $notification
-     * @return array{id: string, label: string, description: string, group: string, role_min: string, channels: array{in_app: string, push: string, email: string}, default_on_role_min: ?string}
+     * @return array{
+     *     id: string,
+     *     label: string,
+     *     description: string,
+     *     group: string,
+     *     role_min: string,
+     *     channels: array{in_app: string, push: string, email: string},
+     *     default_on_role_min: ?string
+     * }
      */
     private static function validateNotification(string $moduleId, mixed $notification, int $index): array
     {
@@ -747,7 +845,8 @@ class ModuleManifest
         }
 
         if (!str_starts_with($notification['id'], $moduleId . '.')) {
-            throw new ModuleException("Module '{$moduleId}' notifications[{$index}] id '{$notification['id']}' must be prefixed '{$moduleId}.'");
+            throw new ModuleException("Module '{$moduleId}' notifications[{$index}] id '{$notification['id']}' must "
+                . "be prefixed '{$moduleId}.'");
         }
 
         if (!isset($notification['channels']) || !is_array($notification['channels'])) {
@@ -758,7 +857,8 @@ class ModuleManifest
         foreach (['in_app', 'push', 'email'] as $channel) {
             $value = $notification['channels'][$channel] ?? null;
             if (!is_string($value) || !in_array($value, self::VALID_CHANNEL_VALUES, true)) {
-                throw new ModuleException("Module '{$moduleId}' notifications[{$index}] channels.{$channel} must be one of: " . implode(', ', self::VALID_CHANNEL_VALUES));
+                throw new ModuleException("Module '{$moduleId}' notifications[{$index}] channels.{$channel} must be "
+                    . "one of: " . implode(', ', self::VALID_CHANNEL_VALUES));
             }
             $channels[$channel] = $value;
         }
@@ -775,7 +875,8 @@ class ModuleManifest
             }
             if (!self::roleAtLeast($defaultOnRoleMin, $notification['role_min'])) {
                 throw new ModuleException(
-                    "Module '{$moduleId}' notifications[{$index}] default_on_role_min '{$defaultOnRoleMin}' must be at or above role_min '{$notification['role_min']}'"
+                    "Module '{$moduleId}' notifications[{$index}] default_on_role_min '{$defaultOnRoleMin}' must be "
+                        . "at or above role_min '{$notification['role_min']}'"
                 );
             }
         }
@@ -810,7 +911,15 @@ class ModuleManifest
      * `{{ … }}` and substituted back reliably.
      *
      * @param array<string, mixed>|mixed $email
-     * @return array{id: string, label: string, description: string, default_subject: string, template: string, editable: bool, variables: array<int, array{name: string, label: string, example: string}>}
+     * @return array{
+     *     id: string,
+     *     label: string,
+     *     description: string,
+     *     default_subject: string,
+     *     template: string,
+     *     editable: bool,
+     *     variables: array<int, array{name: string, label: string, example: string}>
+     * }
      */
     private static function validateEmail(string $moduleId, mixed $email, int $index): array
     {
@@ -845,17 +954,20 @@ class ModuleManifest
                 }
                 foreach (['name', 'label', 'example'] as $field) {
                     if (!isset($variable[$field]) || !is_string($variable[$field]) || $variable[$field] === '') {
-                        throw new ModuleException("Module '{$moduleId}' emails[{$index}] variables[{$j}] missing or invalid '{$field}'");
+                        throw new ModuleException("Module '{$moduleId}' emails[{$index}] variables[{$j}] missing or "
+                            . "invalid '{$field}'");
                     }
                 }
                 if (preg_match('/^[a-z][a-z0-9_]*$/', $variable['name']) !== 1) {
                     throw new ModuleException(
-                        "Module '{$moduleId}' emails[{$index}] variables[{$j}] name '{$variable['name']}' must be a lowercase identifier"
+                        "Module '{$moduleId}' emails[{$index}] variables[{$j}] name '{$variable['name']}' must be a "
+                            . "lowercase identifier"
                     );
                 }
                 foreach ($variables as $existing) {
                     if ($existing['name'] === $variable['name']) {
-                        throw new ModuleException("Module '{$moduleId}' emails[{$index}] declares variable '{$variable['name']}' twice");
+                        throw new ModuleException("Module '{$moduleId}' emails[{$index}] declares variable "
+                            . "'{$variable['name']}' twice");
                     }
                 }
 
@@ -921,7 +1033,8 @@ class ModuleManifest
 
         $match = (string) ($entry['match'] ?? 'exact');
         if (!in_array($match, self::VALID_OFFLINE_MATCH_VALUES, true)) {
-            throw new ModuleException("Module '{$moduleId}' offline[{$index}] invalid match '{$match}' — must be 'exact' or 'child'");
+            throw new ModuleException("Module '{$moduleId}' offline[{$index}] invalid match '{$match}' — must be "
+                . "'exact' or 'child'");
         }
 
         return [

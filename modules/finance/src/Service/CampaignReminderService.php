@@ -88,13 +88,15 @@ class CampaignReminderService
         $account = $this->accountRepository->findById($campaign->accountId);
         if ($account === null || $account->iban === null || $account->iban === '') {
             throw new FinanceException(
-                "Le compte de cette campagne n'a pas d'IBAN configuré : le rappel n'aurait aucun moyen de paiement à donner."
+                "Le compte de cette campagne n'a pas d'IBAN configuré : le rappel n'aurait aucun moyen de paiement à "
+                    . "donner."
             );
         }
 
         $recipients = $this->buildRecipients($campaign);
         if ($recipients === []) {
-            throw new FinanceException("Aucune créance à rappeler : soit tout est réglé, soit aucune adresse n'est connue.");
+            throw new FinanceException("Aucune créance à rappeler : soit tout est réglé, soit aucune adresse n'est "
+                . "connue.");
         }
 
         $maxBlocks = 0;
@@ -107,7 +109,8 @@ class CampaignReminderService
         foreach ($recipients as $email => $recipient) {
             $rows[] = [
                 'email' => (string) $email,
-                'values' => $this->valuesFor($recipient, $maxBlocks, $account->holderName ?? $account->name, IbanNormalizer::format(IbanNormalizer::normalize($account->iban))),
+                'values' => $this->valuesFor($recipient, $maxBlocks, $account->holderName ?? $account->name,
+                    IbanNormalizer::format(IbanNormalizer::normalize($account->iban))),
             ];
         }
 
@@ -166,7 +169,13 @@ class CampaignReminderService
      * mail-merge module itself. A parent of three receives one mail
      * carrying three blocks, never three mails.
      *
-     * @return array<string, array{demands: array<int, array{name: string, amount_cents: int, communication: string, receivable_id: int}>, total: int}>
+     * @return array<
+     *     string,
+     *     array{
+     *         demands: array<int, array{name: string, amount_cents: int, communication: string, receivable_id: int}>,
+     *         total: int
+     *     }
+     * >
      */
     private function buildRecipients(Campaign $campaign): array
     {
@@ -242,7 +251,10 @@ class CampaignReminderService
     }
 
     /**
-     * @param array{demands: array<int, array{name: string, amount_cents: int, communication: string, receivable_id: int}>, total: int} $recipient
+     * @param array{
+     *     demands: array<int, array{name: string, amount_cents: int, communication: string, receivable_id: int}>,
+     *     total: int
+     * } $recipient
      * @return array<string, string>
      */
     private function valuesFor(array $recipient, int $maxBlocks, string $beneficiary, string $iban): array

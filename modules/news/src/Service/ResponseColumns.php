@@ -85,7 +85,8 @@ class ResponseColumns
 
         if ($this->hasPayment($fields)) {
             $columns[] = new ResponseColumn(self::AMOUNT_DUE, 'amount_due', null, ResponseColumn::KIND_AMOUNT_DUE);
-            $columns[] = new ResponseColumn(self::AMOUNT_RECEIVED, 'amount_received', null, ResponseColumn::KIND_AMOUNT_RECEIVED);
+            $columns[] = new ResponseColumn(self::AMOUNT_RECEIVED, 'amount_received', null,
+                ResponseColumn::KIND_AMOUNT_RECEIVED);
             $columns[] = new ResponseColumn(self::STRUCTURED_COMMUNICATION, 'structured_communication');
             $columns[] = new ResponseColumn(self::PAYMENT_STATUS, 'payment_status');
         }
@@ -137,7 +138,9 @@ class ResponseColumns
             'amount_received' => self::money($payment['amount_received'] ?? 0),
             'structured_communication' => (string) ($response->structuredCommunication ?? ''),
             'payment_status' => self::statusLabel($payment['status'] ?? null),
-            'ticket_reference' => $response->hasTicket() ? TicketService::format((string) $response->ticketReference) : '',
+            'ticket_reference' => $response->hasTicket()
+                ? TicketService::format((string) $response->ticketReference)
+                : '',
             'ticket_state' => $response->isTicketUsed() ? 'Entré' : 'Non venu',
             'ticket_used_at' => (string) ($response->ticketUsedAt ?? ''),
             'ticket_qr' => $this->ticketQrUrl($response),

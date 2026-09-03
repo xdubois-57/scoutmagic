@@ -147,7 +147,12 @@ final class SlotMath
      * an `int` parameter would let PHP coerce the null to 0 at the call
      * site and quietly announce an unconfigured branch as complete.
      */
-    public static function tierForRemaining(?int $capacity, int $remainingEstimate, float $availableThreshold, float $limitedThreshold): ?string
+    public static function tierForRemaining(
+        ?int $capacity,
+        int $remainingEstimate,
+        float $availableThreshold,
+        float $limitedThreshold
+    ): ?string
     {
         if ($capacity === null) {
             return null;

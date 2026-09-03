@@ -359,7 +359,10 @@ class PassageOptimizationService
         );
         $memberByMemberYearId = array_flip($memberYearIdByMember);
 
-        foreach ($this->passageService->householdMemberYearIds(array_values($memberYearIdByMember), $publicYearId) as $memberYearId => $neighbours) {
+        foreach ($this->passageService->householdMemberYearIds(
+            array_values($memberYearIdByMember),
+            $publicYearId
+        ) as $memberYearId => $neighbours) {
             $left = $memberByMemberYearId[$memberYearId] ?? null;
             if ($left === null) {
                 continue;

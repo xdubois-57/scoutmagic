@@ -95,7 +95,8 @@ class InboundMailboxRepository
      */
     public function findCredentials(int $mailboxId): ?MailboxCredentials
     {
-        $stmt = $this->pdo->prepare('SELECT username_encrypted, password_encrypted FROM inbound_mailboxes WHERE id = ?');
+        $stmt = $this->pdo->prepare('SELECT username_encrypted, password_encrypted FROM inbound_mailboxes WHERE id = '
+            . '?');
         $stmt->execute([$mailboxId]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
 

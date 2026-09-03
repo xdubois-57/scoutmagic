@@ -33,10 +33,16 @@ final class PriceLine
     public const RULE_MANUAL = 'manual';
 
     /**
-     * @param int $quantity Whole units — nights, person-nights, people, rooms. Never a fraction: the engine has no pro-rata, by design.
-     * @param int|null $unitPriceCents Null for a line whose amount is not a quantity × price product (a flat fee), so a template can tell "1 × 50 €" from "50 €".
-     * @param bool $isInformational True for a line shown but excluded from the total — meter fees, which are settled on real readings after the stay.
-     * @param array<string, string|int|null> $meta Extra facts worth snapshotting (period id, category id, fee id, whether a minimum applied).
+     * @param int $quantity Whole units — nights, person-nights, people, rooms. Never a fraction: the engine has no
+     *     pro-rata, by design.
+     * @param int|null $unitPriceCents Null for a line whose amount is not a quantity × price product (a flat fee), so a
+     *     template can tell "1 × 50 €" from "50 €".
+     * @param bool $isInformational True for a line shown but excluded from the total — meter fees, which are settled on
+     *     real readings after the stay.
+     * @param array<
+     *     string,
+     *     string|int|null
+     * > $meta Extra facts worth snapshotting (period id, category id, fee id, whether a minimum applied).
      */
     public function __construct(
         public readonly string $label,

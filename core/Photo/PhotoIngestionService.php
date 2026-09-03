@@ -207,7 +207,8 @@ class PhotoIngestionService
                 }
                 $this->memberPhotoService->setPhoto($memberId, $scoutYearId, $fileId, $actorId);
 
-                return new PhotoIngestionResult($fileId, true, ['member_id' => $memberId, 'scout_year_id' => $scoutYearId]);
+                return new PhotoIngestionResult($fileId, true,
+                    ['member_id' => $memberId, 'scout_year_id' => $scoutYearId]);
 
             case self::CONTEXT_SECTION_PHOTO:
                 [$sectionId, $scoutYearId] = self::splitPairKey($key);
@@ -216,7 +217,8 @@ class PhotoIngestionService
                 }
                 $this->sectionPhotoService->setPhoto($sectionId, $scoutYearId, $fileId, $actorId);
 
-                return new PhotoIngestionResult($fileId, true, ['section_id' => $sectionId, 'scout_year_id' => $scoutYearId]);
+                return new PhotoIngestionResult($fileId, true,
+                    ['section_id' => $sectionId, 'scout_year_id' => $scoutYearId]);
 
             case self::CONTEXT_ACCOUNT_PHOTO:
                 // Nobody sets somebody else's face, configuration mode

@@ -85,16 +85,47 @@ class FormService
     }
 
     /**
-     * @param array{access: string, response_limit: string, opens_at: ?string, closes_at: ?string, is_force_closed: bool, response_role_min: string, daily_digest_enabled: bool, finance_account_id: ?int, issues_ticket?: bool, event_date?: ?string, event_location?: ?string} $settings
-     * @param array<int, array{id: ?int, field_type: string, label: ?string, is_required: bool, options_source: ?string, options_manual: ?string, capacity_max: ?int, price_per_unit: ?float, confirmation_text: ?string}> $fields
+     * @param array{
+     *     access: string,
+     *     response_limit: string,
+     *     opens_at: ?string,
+     *     closes_at: ?string,
+     *     is_force_closed: bool,
+     *     response_role_min: string,
+     *     daily_digest_enabled: bool,
+     *     finance_account_id: ?int,
+     *     issues_ticket?: bool,
+     *     event_date?: ?string,
+     *     event_location?: ?string
+     * } $settings
+     * @param array<
+     *     int,
+     *     array{
+     *         id: ?int,
+     *         field_type: string,
+     *         label: ?string,
+     *         is_required: bool,
+     *         options_source: ?string,
+     *         options_manual: ?string,
+     *         capacity_max: ?int,
+     *         price_per_unit: ?float,
+     *         confirmation_text: ?string
+     *     }
+     * > $fields
      */
     public function save(int $articleId, array $settings, array $fields): NewsForm
     {
-        $access = $settings['access'] === NewsForm::ACCESS_PUBLIC ? NewsForm::ACCESS_PUBLIC : NewsForm::ACCESS_IDENTIFIED;
+        $access = $settings['access'] === NewsForm::ACCESS_PUBLIC
+            ? NewsForm::ACCESS_PUBLIC
+            : NewsForm::ACCESS_IDENTIFIED;
         // Forced to unlimited when access is public (module spec: no
         // account/member to enforce a per-person limit against).
-        $responseLimit = $access === NewsForm::ACCESS_PUBLIC ? NewsForm::RESPONSE_LIMIT_UNLIMITED : $this->normalizeResponseLimit($settings['response_limit']);
-        $responseRoleMin = in_array($settings['response_role_min'], ['intendant', 'chief', 'admin'], true) ? $settings['response_role_min'] : 'chief';
+        $responseLimit = $access === NewsForm::ACCESS_PUBLIC
+            ? NewsForm::RESPONSE_LIMIT_UNLIMITED
+            : $this->normalizeResponseLimit($settings['response_limit']);
+        $responseRoleMin = in_array($settings['response_role_min'], ['intendant', 'chief', 'admin'], true)
+            ? $settings['response_role_min']
+            : 'chief';
 
         $issuesTicket = (bool) ($settings['issues_ticket'] ?? false);
         $eventDate = self::normalizeEventDate($settings['event_date'] ?? null);
@@ -198,7 +229,20 @@ class FormService
     }
 
     /**
-     * @param array<int, array{id: ?int, field_type: string, label: ?string, is_required: bool, options_source: ?string, options_manual: ?string, capacity_max: ?int, price_per_unit: ?float, confirmation_text: ?string}> $fields
+     * @param array<
+     *     int,
+     *     array{
+     *         id: ?int,
+     *         field_type: string,
+     *         label: ?string,
+     *         is_required: bool,
+     *         options_source: ?string,
+     *         options_manual: ?string,
+     *         capacity_max: ?int,
+     *         price_per_unit: ?float,
+     *         confirmation_text: ?string
+     *     }
+     * > $fields
      */
     private function reconcileFields(int $formId, array $fields): void
     {
@@ -212,7 +256,9 @@ class FormService
             }
 
             $isNonInput = in_array($field['field_type'], FormField::NON_INPUT_TYPES, true);
-            $optionsSource = in_array($field['field_type'], FormField::OPTION_BASED_TYPES, true) ? $field['options_source'] : null;
+            $optionsSource = in_array($field['field_type'], FormField::OPTION_BASED_TYPES, true)
+                ? $field['options_source']
+                : null;
             $optionsManual = $optionsSource === FormField::OPTIONS_SOURCE_MANUAL ? $field['options_manual'] : null;
             $capacityMax = $field['field_type'] === FormField::TYPE_NUMBER ? $field['capacity_max'] : null;
             $pricePerUnit = $field['field_type'] === FormField::TYPE_NUMBER ? $field['price_per_unit'] : null;
@@ -248,7 +294,10 @@ class FormService
 
     private function normalizeResponseLimit(string $value): string
     {
-        return in_array($value, [NewsForm::RESPONSE_LIMIT_UNLIMITED, NewsForm::RESPONSE_LIMIT_ONE_PER_ACCOUNT, NewsForm::RESPONSE_LIMIT_ONE_PER_MEMBER], true)
+        return in_array($value,
+            [NewsForm::RESPONSE_LIMIT_UNLIMITED, NewsForm::RESPONSE_LIMIT_ONE_PER_ACCOUNT,
+                NewsForm::RESPONSE_LIMIT_ONE_PER_MEMBER],
+            true)
             ? $value
             : NewsForm::RESPONSE_LIMIT_UNLIMITED;
     }

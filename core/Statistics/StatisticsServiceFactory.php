@@ -95,7 +95,10 @@ final class StatisticsServiceFactory
         );
     }
 
-    public static function sender(TaskContext $context, ?StatisticsTransportInterface $transport = null): StatisticsSender
+    public static function sender(
+        TaskContext $context,
+        ?StatisticsTransportInterface $transport = null
+    ): StatisticsSender
     {
         return new StatisticsSender(
             $context->settings,

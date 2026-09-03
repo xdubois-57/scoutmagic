@@ -136,7 +136,10 @@ class GalleryStorageLocationController extends AbstractController
      */
     public function update(Request $request, array $params): Response
     {
-        if (($guard = $this->guardCsrf($request, '/config/gallery/locations/' . (int) ($params['id'] ?? 0) . '/edit')) !== null) {
+        if (($guard = $this->guardCsrf(
+            $request,
+            '/config/gallery/locations/' . (int) ($params['id'] ?? 0) . '/edit'
+        )) !== null) {
             return $guard;
         }
 
@@ -249,7 +252,8 @@ class GalleryStorageLocationController extends AbstractController
         $this->storageLocationRepository->setDefault($location->id);
 
         $this->journalService->log(
-            'gallery', 'storage_location_default_changed', 'info', "Emplacement de stockage « {$location->label} » défini par défaut",
+            'gallery', 'storage_location_default_changed', 'info', "Emplacement de stockage « {$location->label} » "
+                . "défini par défaut",
             [], (int) AuthSession::getUserAccountId()
         );
 
@@ -292,7 +296,9 @@ class GalleryStorageLocationController extends AbstractController
     {
         return [
             'location' => $location,
-            'referenced_count' => $location !== null ? $this->storageLocationRepository->countAlbumsUsing($location->id) : 0,
+            'referenced_count' => $location !== null
+                ? $this->storageLocationRepository->countAlbumsUsing($location->id)
+                : 0,
             'gallery_s3_ai_available' => $this->s3ErrorExplainerService->isAvailable(),
             'csrf_token' => CsrfGuard::generateToken(),
         ];
@@ -328,7 +334,10 @@ class GalleryStorageLocationController extends AbstractController
         }
 
         foreach (explode('/', $subdir) as $segment) {
-            if ($segment === '' || $segment === '.' || $segment === '..' || preg_match('/^[A-Za-z0-9._-]+$/', $segment) !== 1) {
+            if ($segment === '' || $segment === '.' || $segment === '..' || preg_match(
+                '/^[A-Za-z0-9._-]+$/',
+                $segment
+            ) !== 1) {
                 throw new GalleryException(
                     'Le sous-dossier ne peut contenir que des lettres, chiffres, points, tirets et « / ».'
                 );

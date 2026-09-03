@@ -37,7 +37,16 @@ class RecipientRepository
      * (see the Recipient entity), $audienceRowId only ever set for a
      * mail-merge freeze.
      */
-    public function create(int $emailId, ?int $memberId, ?int $scoutYearId, ?string $emailAddress, string $status, ?string $errorMessage, ?int $memberEmailId = null, ?int $audienceRowId = null): int
+    public function create(
+        int $emailId,
+        ?int $memberId,
+        ?int $scoutYearId,
+        ?string $emailAddress,
+        string $status,
+        ?string $errorMessage,
+        ?int $memberEmailId = null,
+        ?int $audienceRowId = null
+    ): int
     {
         $stmt = $this->pdo->prepare(
             'INSERT INTO mass_mail_recipients (email_id, member_id, scout_year_id, email_address_encrypted, member_email_id, audience_row_id, status, error_message)
@@ -47,7 +56,9 @@ class RecipientRepository
             $emailId,
             $memberId,
             $scoutYearId,
-            $emailAddress !== null ? $this->encryption->encrypt($emailAddress, 'mass_mail_recipients.email_address') : null,
+            $emailAddress !== null
+                ? $this->encryption->encrypt($emailAddress, 'mass_mail_recipients.email_address')
+                : null,
             $memberEmailId,
             $audienceRowId,
             $status,
@@ -129,7 +140,10 @@ class RecipientRepository
     public function findOldestPending(int $limit): array
     {
         $stmt = $this->pdo->prepare(
-            "SELECT * FROM mass_mail_recipients WHERE status = 'pending' ORDER BY created_at ASC, id ASC LIMIT " . max(0, $limit)
+            "SELECT * FROM mass_mail_recipients WHERE status = 'pending' ORDER BY created_at ASC, id ASC LIMIT " . max(
+                0,
+                $limit
+            )
         );
         $stmt->execute();
         return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
@@ -138,7 +152,8 @@ class RecipientRepository
     public function recordSendSuccess(int $id): void
     {
         $stmt = $this->pdo->prepare(
-            "UPDATE mass_mail_recipients SET status = 'sent', sent_at = CURRENT_TIMESTAMP, error_message = NULL, attempts = attempts + 1 WHERE id = ?"
+            "UPDATE mass_mail_recipients SET status = 'sent', sent_at = CURRENT_TIMESTAMP, error_message = NULL, "
+                . "attempts = attempts + 1 WHERE id = ?"
         );
         $stmt->execute([$id]);
     }
@@ -166,7 +181,8 @@ class RecipientRepository
     public function resend(int $id): void
     {
         $stmt = $this->pdo->prepare(
-            "UPDATE mass_mail_recipients SET status = 'pending', error_message = NULL, attempts = attempts + 1 WHERE id = ?"
+            "UPDATE mass_mail_recipients SET status = 'pending', error_message = NULL, attempts = attempts + 1 WHERE "
+                . "id = ?"
         );
         $stmt->execute([$id]);
     }
@@ -176,7 +192,8 @@ class RecipientRepository
      */
     public function countGroupedByStatus(int $emailId): array
     {
-        $stmt = $this->pdo->prepare('SELECT status, COUNT(*) AS c FROM mass_mail_recipients WHERE email_id = ? GROUP BY status');
+        $stmt = $this->pdo->prepare('SELECT status, COUNT(*) AS c FROM mass_mail_recipients WHERE email_id = ? GROUP '
+            . 'BY status');
         $stmt->execute([$emailId]);
 
         $counts = ['pending' => 0, 'sent' => 0, 'error' => 0];
@@ -194,7 +211,8 @@ class RecipientRepository
 
     public function hasPending(int $emailId): bool
     {
-        $stmt = $this->pdo->prepare("SELECT 1 FROM mass_mail_recipients WHERE email_id = ? AND status = 'pending' LIMIT 1");
+        $stmt = $this->pdo->prepare("SELECT 1 FROM mass_mail_recipients WHERE email_id = ? AND status = 'pending' "
+            . "LIMIT 1");
         $stmt->execute([$emailId]);
         return $stmt->fetchColumn() !== false;
     }
@@ -273,7 +291,9 @@ class RecipientRepository
             emailId: (int) $row['email_id'],
             memberId: $row['member_id'] !== null ? (int) $row['member_id'] : null,
             scoutYearId: $row['scout_year_id'] !== null ? (int) $row['scout_year_id'] : null,
-            emailAddress: $row['email_address_encrypted'] !== null ? $this->encryption->decrypt($row['email_address_encrypted'], 'mass_mail_recipients.email_address') : null,
+            emailAddress: $row['email_address_encrypted'] !== null
+                ? $this->encryption->decrypt($row['email_address_encrypted'], 'mass_mail_recipients.email_address')
+                : null,
             memberEmailId: $row['member_email_id'] !== null ? (int) $row['member_email_id'] : null,
             audienceRowId: $row['audience_row_id'] !== null ? (int) $row['audience_row_id'] : null,
             status: (string) $row['status'],

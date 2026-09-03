@@ -276,7 +276,16 @@ class FrontController
      * offline, so its content ships inside the page rather than being
      * fetched on open.
      *
-     * @return array<int, array{id: string, title: string, summary: string, html: string, page_link: ?array{path: string, label: string}}>
+     * @return array<
+     *     int,
+     *     array{
+     *         id: string,
+     *         title: string,
+     *         summary: string,
+     *         html: string,
+     *         page_link: ?array{path: string, label: string}
+     *     }
+     * >
      */
     private function buildRouteHelp(Request $request): array
     {

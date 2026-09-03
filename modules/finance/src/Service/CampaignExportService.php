@@ -101,9 +101,14 @@ class CampaignExportService
             $sheet->setCellValueExplicit([4, $line], (string) ($row['communication'] ?? ''), DataType::TYPE_STRING);
             $sheet->setCellValueExplicit([5, $line], self::euros($row['amount_due'] ?? 0), DataType::TYPE_NUMERIC);
             $sheet->setCellValueExplicit([6, $line], self::euros($row['amount_received'] ?? 0), DataType::TYPE_NUMERIC);
-            $sheet->setCellValueExplicit([7, $line], self::euros($row['amount_remaining'] ?? 0), DataType::TYPE_NUMERIC);
+            $sheet->setCellValueExplicit(
+                [7, $line],
+                self::euros($row['amount_remaining'] ?? 0),
+                DataType::TYPE_NUMERIC
+            );
             $sheet->setCellValueExplicit([8, $line], self::euros($row['amount_overpaid'] ?? 0), DataType::TYPE_NUMERIC);
-            $sheet->setCellValueExplicit([9, $line], self::STATUS_LABELS[$row['status'] ?? ''] ?? '', DataType::TYPE_STRING);
+            $sheet->setCellValueExplicit([9, $line], self::STATUS_LABELS[$row['status'] ?? ''] ?? '',
+                DataType::TYPE_STRING);
             $sheet->setCellValueExplicit([10, $line], (string) ($row['note'] ?? ''), DataType::TYPE_STRING);
             $sheet->setCellValueExplicit([11, $line], (string) ($row['note_author'] ?? ''), DataType::TYPE_STRING);
             $sheet->setCellValueExplicit([12, $line], (string) ($row['note_updated_at'] ?? ''), DataType::TYPE_STRING);

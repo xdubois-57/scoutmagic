@@ -51,7 +51,8 @@ class TrackingService
      */
     public function isLinkedByEmail(int $requestId, string $email): bool
     {
-        $blindIndex = $this->encryption->blindIndex(RegistrationRequestRepository::normalizeEmail($email), 'registration_email');
+        $blindIndex = $this->encryption->blindIndex(RegistrationRequestRepository::normalizeEmail($email),
+            'registration_email');
 
         foreach ($this->requestRepository->findAllByEmailBlindIndex($blindIndex) as $request) {
             if ($request->id === $requestId) {
@@ -59,7 +60,11 @@ class TrackingService
             }
         }
 
-        return in_array($requestId, $this->secondaryEmailRepository->findRequestIdsByValidBlindIndex($blindIndex), true);
+        return in_array(
+            $requestId,
+            $this->secondaryEmailRepository->findRequestIdsByValidBlindIndex($blindIndex),
+            true
+        );
     }
 
     /**
@@ -71,7 +76,8 @@ class TrackingService
      */
     public function findAllLinkedByEmail(string $email): array
     {
-        $blindIndex = $this->encryption->blindIndex(RegistrationRequestRepository::normalizeEmail($email), 'registration_email');
+        $blindIndex = $this->encryption->blindIndex(RegistrationRequestRepository::normalizeEmail($email),
+            'registration_email');
 
         $all = $this->requestRepository->findAllByEmailBlindIndex($blindIndex);
         $seenIds = array_map(static fn(RegistrationRequest $r) => $r->id, $all);

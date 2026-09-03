@@ -57,11 +57,14 @@ enum MemberMovementStatus: string
     {
         return match ($this) {
             self::NEW => "Ce membre n'était pas membre de l'unité l'année scoute précédente.",
-            self::SECTION_CHANGE => "Ce membre a changé de section au sein de la même branche depuis l'année scoute précédente.",
+            self::SECTION_CHANGE => "Ce membre a changé de section au sein de la même branche depuis l'année scoute "
+                . "précédente.",
             self::BRANCH_CHANGE => "Ce membre a changé de branche depuis l'année scoute précédente.",
-            self::RETURNING => "Ce membre était déjà connu de l'unité mais ne se trouvait pas, l'année scoute précédente, dans une situation active en section — il ou elle revient cette année.",
+            self::RETURNING => "Ce membre était déjà connu de l'unité mais ne se trouvait pas, l'année scoute "
+                . "précédente, dans une situation active en section — il ou elle revient cette année.",
             self::CONTINUING => "Ce membre poursuit dans la continuité de l'année scoute précédente.",
-            self::UNKNOWN => "L'historique disponible ne permet pas de déterminer la situation de ce membre avec certitude.",
+            self::UNKNOWN => "L'historique disponible ne permet pas de déterminer la situation de ce membre avec "
+                . "certitude.",
         };
     }
 

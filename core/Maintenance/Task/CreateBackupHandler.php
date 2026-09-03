@@ -129,7 +129,8 @@ class CreateBackupHandler implements TaskHandlerInterface
                     [['userAccountId' => $backup->requestedBy, 'memberId' => null]],
                     [
                         'title' => 'Échec de la sauvegarde',
-                        'body' => 'La génération de votre sauvegarde a échoué. Consultez la page Maintenance pour plus de détails.',
+                        'body' => 'La génération de votre sauvegarde a échoué. Consultez la page Maintenance pour plus '
+                            . 'de détails.',
                         'url' => '/config/maintenance',
                     ]
                 );
@@ -142,7 +143,11 @@ class CreateBackupHandler implements TaskHandlerInterface
      * module spec's 5-backup cap, enforced after every successful
      * generation.
      */
-    private function purgeBeyondLimit(BackupRepository $backupRepository, FileRepository $fileRepository, string $storagePath): void
+    private function purgeBeyondLimit(
+        BackupRepository $backupRepository,
+        FileRepository $fileRepository,
+        string $storagePath
+    ): void
     {
         foreach ($backupRepository->findBeyond(self::KEEP) as $old) {
             foreach ([$old->fileId, $old->dbDumpFileId] as $fileId) {

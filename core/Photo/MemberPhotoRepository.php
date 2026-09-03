@@ -47,7 +47,8 @@ class MemberPhotoRepository
         $existingId = $stmt->fetchColumn();
 
         if ($existingId !== false) {
-            $update = $this->pdo->prepare('UPDATE member_photos SET file_id = ?, created_by = ?, created_at = ? WHERE id = ?');
+            $update = $this->pdo->prepare('UPDATE member_photos SET file_id = ?, created_by = ?, created_at = ? WHERE '
+                . 'id = ?');
             $update->execute([$fileId, $createdBy, date('Y-m-d H:i:s'), (int) $existingId]);
             return;
         }

@@ -132,7 +132,8 @@ class StaffsController extends AbstractController
         // be assigned to Staff d'U members"; BadgeService::toggleAssignment()
         // enforces this server-side too, regardless of this filtering).
         if ($currentSection !== null && $currentSection['desk_code'] !== UnitStaffSectionService::DESK_CODE) {
-            $availableBadges = array_values(array_filter($availableBadges, fn(Badge $b) => $b->referentSectionId === null));
+            $availableBadges = array_values(array_filter($availableBadges,
+                fn(Badge $b) => $b->referentSectionId === null));
         }
 
         // Documents de section (module addendum) — built for any selected
@@ -142,7 +143,8 @@ class StaffsController extends AbstractController
         // request site-wide, since it's a real subprocess spawn.
         $sectionDocumentYears = [];
         if ($currentSection !== null) {
-            $sectionDocumentYears = $this->sectionDocumentService->listYearsForStaffsPage($currentSection['id'], $scoutYearId);
+            $sectionDocumentYears = $this->sectionDocumentService->listYearsForStaffsPage($currentSection['id'],
+                $scoutYearId);
         }
         $compressionBackend = $this->sectionDocumentService->refreshDetectedBackend();
 

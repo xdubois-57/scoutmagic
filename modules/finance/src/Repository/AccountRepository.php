@@ -143,7 +143,9 @@ class AccountRepository
             accountType: (string) $row['account_type'],
             sectionId: $row['section_id'] !== null ? (int) $row['section_id'] : null,
             iban: $row['iban'] !== null ? $this->encryption->decrypt($row['iban'], 'finance_accounts.iban') : null,
-            holderName: $row['holder_name'] !== null ? $this->encryption->decrypt($row['holder_name'], 'finance_accounts.holder_name') : null,
+            holderName: $row['holder_name'] !== null
+                ? $this->encryption->decrypt($row['holder_name'], 'finance_accounts.holder_name')
+                : null,
             roleMinView: (string) $row['role_min_view'],
             status: (string) $row['status'],
             isDefault: (bool) $row['is_default']

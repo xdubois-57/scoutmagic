@@ -58,7 +58,8 @@ class RosterSnapshotRepository
     public function capture(int $scoutYearId, \DateTimeImmutable $takenAt, ?int $importJournalId = null): RosterSnapshot
     {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO fees_roster_snapshots (scout_year_id, import_journal_id, taken_at, member_count) VALUES (?, ?, ?, 0)'
+            'INSERT INTO fees_roster_snapshots (scout_year_id, import_journal_id, taken_at, member_count) VALUES (?, '
+                . '?, ?, 0)'
         );
         $stmt->execute([$scoutYearId, $importJournalId, $takenAt->format('Y-m-d H:i:s')]);
         $snapshotId = (int) $this->pdo->lastInsertId();

@@ -97,7 +97,8 @@ class HelpAssistantController extends AbstractController
         $body = json_decode((string) $request->getRawBody(), true);
         $body = is_array($body) ? $body : [];
 
-        if (($guard = $this->guardCsrfJson($request, isset($body['_csrf_token']) && is_string($body['_csrf_token']) ? $body['_csrf_token'] : null)) !== null) {
+        if (($guard = $this->guardCsrfJson($request,
+            isset($body['_csrf_token']) && is_string($body['_csrf_token']) ? $body['_csrf_token'] : null)) !== null) {
             return $guard;
         }
 

@@ -96,7 +96,12 @@ class GroupListService
             $sectionIds = $sectionIdsByGroup[$group->id] ?? [];
             $isExplicit = array_key_exists($group->id, $explicitByGroup);
 
-            if (!$context->isSiteAdmin() && !$isExplicit && !$this->isDerived($group, $sectionIds, $periods, $context)) {
+            if (!$context->isSiteAdmin() && !$isExplicit && !$this->isDerived(
+                $group,
+                $sectionIds,
+                $periods,
+                $context
+            )) {
                 continue;
             }
 
@@ -214,7 +219,12 @@ class GroupListService
      * @param int[] $sectionIds
      * @param array<string, bool> $periods
      */
-    private function isDerived(DiscussionGroup $group, array $sectionIds, array $periods, GroupSessionContext $context): bool
+    private function isDerived(
+        DiscussionGroup $group,
+        array $sectionIds,
+        array $periods,
+        GroupSessionContext $context
+    ): bool
     {
         $scoutYearId = $group->scoutYearId ?? $context->effectiveScoutYearId;
 

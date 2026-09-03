@@ -26,7 +26,12 @@ final class StreamStatisticsTransport implements StatisticsTransportInterface
     private const CONNECT_TIMEOUT_SECONDS = 10;
     private const TOTAL_TIMEOUT_SECONDS = 20;
 
-    public function post(string $url, string $jsonBody, string $bearerToken, string $userAgent): StatisticsTransportResponse
+    public function post(
+        string $url,
+        string $jsonBody,
+        string $bearerToken,
+        string $userAgent
+    ): StatisticsTransportResponse
     {
         $context = stream_context_create([
             'http' => [

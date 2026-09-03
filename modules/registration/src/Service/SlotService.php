@@ -82,7 +82,8 @@ class SlotService
         $seeded = 0;
         foreach ($this->ageBracketRepository->findAllOrdered() as $bracket) {
             for ($yearInBranch = 1; $yearInBranch <= $bracket->durationYears; $yearInBranch++) {
-                if ($this->slotCapacityRepository->insertIfMissing($bracket->ageBranchId, $yearInBranch, self::DEFAULT_CAPACITY)) {
+                if ($this->slotCapacityRepository->insertIfMissing($bracket->ageBranchId, $yearInBranch,
+                    self::DEFAULT_CAPACITY)) {
                     $seeded++;
                 }
             }
@@ -129,10 +130,16 @@ class SlotService
      *
      * @return array<string, array<int>> tier => birth years (deduplicated, sorted)
      */
-    public function waitlistTiersByBirthYear(int $targetScoutYearId, string $targetScoutYearLabel, int $currentScoutYearId): array
+    public function waitlistTiersByBirthYear(
+        int $targetScoutYearId,
+        string $targetScoutYearLabel,
+        int $currentScoutYearId
+    ): array
     {
-        $availableThreshold = (float) $this->settingService->get('registration_waitlist_threshold_available', 'registration', '0.5');
-        $limitedThreshold = (float) $this->settingService->get('registration_waitlist_threshold_limited', 'registration', '0.1');
+        $availableThreshold = (float) $this->settingService->get('registration_waitlist_threshold_available',
+            'registration', '0.5');
+        $limitedThreshold = (float) $this->settingService->get('registration_waitlist_threshold_limited',
+            'registration', '0.1');
 
         $brackets = $this->ageBracketRepository->findAllOrdered();
         $capacities = $this->slotCapacityRepository->findAllAsMap();
@@ -189,7 +196,12 @@ class SlotService
      *
      * @return array<int, array{birth_year: int, branch_label: string, year_in_branch: int, tier: ?string}>
      */
-    public function birthYearSlotsForPublic(int $targetScoutYearId, string $targetScoutYearLabel, int $currentScoutYearId, bool $waitlistEnabled): array
+    public function birthYearSlotsForPublic(
+        int $targetScoutYearId,
+        string $targetScoutYearLabel,
+        int $currentScoutYearId,
+        bool $waitlistEnabled
+    ): array
     {
         $brackets = $this->ageBracketRepository->findAllOrdered();
         $referenceYear = SlotMath::referenceCalendarYear(
@@ -199,7 +211,11 @@ class SlotService
 
         $tierByBirthYear = [];
         if ($waitlistEnabled) {
-            foreach ($this->waitlistTiersByBirthYear($targetScoutYearId, $targetScoutYearLabel, $currentScoutYearId) as $tier => $years) {
+            foreach ($this->waitlistTiersByBirthYear(
+                $targetScoutYearId,
+                $targetScoutYearLabel,
+                $currentScoutYearId
+            ) as $tier => $years) {
                 foreach ($years as $year) {
                     $tierByBirthYear[$year] = $tier;
                 }
@@ -241,10 +257,16 @@ class SlotService
      *   capacity: ?int, projected: int, accepted: int, remaining: ?int, tier: ?string
      * }>
      */
-    public function capacityBreakdownForYear(int $targetScoutYearId, string $targetScoutYearLabel, int $currentScoutYearId): array
+    public function capacityBreakdownForYear(
+        int $targetScoutYearId,
+        string $targetScoutYearLabel,
+        int $currentScoutYearId
+    ): array
     {
-        $availableThreshold = (float) $this->settingService->get('registration_waitlist_threshold_available', 'registration', '0.5');
-        $limitedThreshold = (float) $this->settingService->get('registration_waitlist_threshold_limited', 'registration', '0.1');
+        $availableThreshold = (float) $this->settingService->get('registration_waitlist_threshold_available',
+            'registration', '0.5');
+        $limitedThreshold = (float) $this->settingService->get('registration_waitlist_threshold_limited',
+            'registration', '0.1');
 
         $brackets = $this->ageBracketRepository->findAllOrdered();
         $capacities = $this->slotCapacityRepository->findAllAsMap();
@@ -274,7 +296,8 @@ class SlotService
                     'projected' => $projectedCount,
                     'accepted' => $acceptedCount,
                     'remaining' => $remaining,
-                    'tier' => SlotMath::tierForRemaining($capacity, $remaining ?? 0, $availableThreshold, $limitedThreshold),
+                    'tier' => SlotMath::tierForRemaining($capacity, $remaining ?? 0, $availableThreshold,
+                        $limitedThreshold),
                 ];
             }
         }
@@ -335,7 +358,11 @@ class SlotService
             }
             $birthDate = $this->encryption->decrypt($row['birth_date_encrypted'], 'member_years.birth_date');
             $birthYear = MemberYearService::extractBirthYear($birthDate);
-            $effective = $memberYearService->getEffectiveAge($birthYear, (int) $row['scout_year_offset'], $referenceYear);
+            $effective = $memberYearService->getEffectiveAge(
+                $birthYear,
+                (int) $row['scout_year_offset'],
+                $referenceYear
+            );
             if ($effective->branchName === null || $effective->yearInBranch === null) {
                 continue;
             }
@@ -369,7 +396,11 @@ class SlotService
      * @param array<\Modules\Registration\Repository\AgeBracket> $orderedBrackets
      * @return array<string, int> "{ageBranchId}:{yearInBranch}" => accepted request count
      */
-    private function acceptedCountBySlot(int $targetScoutYearId, array $orderedBrackets, int $referenceCalendarYear): array
+    private function acceptedCountBySlot(
+        int $targetScoutYearId,
+        array $orderedBrackets,
+        int $referenceCalendarYear
+    ): array
     {
         $counts = [];
         foreach ($this->requestRepository->findAcceptedForYear($targetScoutYearId) as $request) {
@@ -387,7 +418,10 @@ class SlotService
     /**
      * @param array<\Modules\Registration\Repository\AgeBracket> $brackets
      */
-    private function findBracketBySortOrder(array $brackets, int $sortOrder): ?\Modules\Registration\Repository\AgeBracket
+    private function findBracketBySortOrder(
+        array $brackets,
+        int $sortOrder
+    ): ?\Modules\Registration\Repository\AgeBracket
     {
         foreach ($brackets as $bracket) {
             if ($bracket->branchSortOrder === $sortOrder) {

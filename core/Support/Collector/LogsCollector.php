@@ -179,7 +179,10 @@ class LogsCollector implements SupportCollectorInterface
                 continue;
             }
 
-            if (preg_match('/\b(PHP )?(Fatal error|Parse error|Recoverable fatal error)\b|\bUncaught\b/i', $line) === 1) {
+            if (preg_match(
+                '/\b(PHP )?(Fatal error|Parse error|Recoverable fatal error)\b|\bUncaught\b/i',
+                $line
+            ) === 1) {
                 $this->fatalCount++;
                 $key = self::signature($line);
                 $this->fatals[$key] ??= ['count' => 0, 'example' => self::firstLine($line)];
@@ -372,11 +375,14 @@ class LogsCollector implements SupportCollectorInterface
     {
         $patterns = [
             // [Wed Aug 20 03:00:00.000000 2026] — Apache error log
-            '/^\[([A-Za-z]{3} [A-Za-z]{3} +\d{1,2} \d{2}:\d{2}:\d{2})(?:\.\d+)? (\d{4})\]/' => static fn(array $m): string => $m[1] . ' ' . $m[2],
+            '/^\[([A-Za-z]{3} [A-Za-z]{3} +\d{1,2} \d{2}:\d{2}:\d{2})(?:\.\d+)? (\d{4})\]/' => static fn(array $m): string => $m[1]
+                . ' '
+                . $m[2],
             // [20-Aug-2026 03:00:00 UTC] — PHP error log
             '/^\[(\d{2}-[A-Za-z]{3}-\d{4} \d{2}:\d{2}:\d{2}(?: [A-Za-z\/_+\-0-9]+)?)\]/' => static fn(array $m): string => $m[1],
             // 203.0.113.1 - - [20/Aug/2026:03:00:00 +0200] — access log
-            '/\[(\d{2}\/[A-Za-z]{3}\/\d{4}):(\d{2}:\d{2}:\d{2}) ([+\-]\d{4})\]/' => static fn(array $m): string => str_replace('/', ' ', $m[1]) . ' ' . $m[2] . ' ' . $m[3],
+            '/\[(\d{2}\/[A-Za-z]{3}\/\d{4}):(\d{2}:\d{2}:\d{2}) ([+\-]\d{4})\]/' => static fn(array $m): string => str_replace('/',
+                ' ', $m[1]) . ' ' . $m[2] . ' ' . $m[3],
             // 2026-08-20T03:00:00+00:00 or 2026-08-20 03:00:00
             '/^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[+\-]\d{2}:?\d{2}|Z)?)/' => static fn(array $m): string => $m[1],
         ];

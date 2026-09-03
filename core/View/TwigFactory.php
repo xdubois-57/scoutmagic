@@ -81,7 +81,11 @@ class TwigFactory
         // Register csrf_field() function
         $environment->addFunction(new TwigFunction('csrf_field', function (): string {
             $token = CsrfGuard::generateToken();
-            return '<input type="hidden" name="_csrf_token" value="' . htmlspecialchars($token, ENT_QUOTES, 'UTF-8') . '">';
+            return '<input type="hidden" name="_csrf_token" value="' . htmlspecialchars(
+                $token,
+                ENT_QUOTES,
+                'UTF-8'
+            ) . '">';
         }, ['is_safe' => ['html']]));
 
         // Register get_flash() function
@@ -121,7 +125,10 @@ class TwigFactory
             return $path . '?v=' . rawurlencode($version);
         }));
 
-        $environment->addFunction(new TwigFunction('file_url', function (int|string|null $id, ?string $variant = null): string {
+        $environment->addFunction(new TwigFunction('file_url', function (
+            int|string|null $id,
+            ?string $variant = null
+        ): string {
             if ($id === null || $id === '' || $id === 0) {
                 return '';
             }
@@ -143,7 +150,11 @@ class TwigFactory
         // nothing at all: several call sites (a section's text, the
         // federation blurb) are empty on most installs, and an empty
         // <div> would be a box in a layout for no reason.
-        $environment->addFunction(new TwigFunction('editable', function (string $key, string $default = '', string $type = 'rich_text') use ($environment): string {
+        $environment->addFunction(new TwigFunction('editable', function (
+            string $key,
+            string $default = '',
+            string $type = 'rich_text'
+        ) use ($environment): string {
             /** @var EditableContentService|null $service */
             $service = $environment->getGlobals()['_editable_content_service'] ?? null;
             $configMode = $environment->getGlobals()['config_mode'] ?? false;
@@ -157,7 +168,8 @@ class TwigFactory
                 return '<div class="editable-content' . $richTextClass . '"'
                     . ' data-key="' . htmlspecialchars($key, ENT_QUOTES) . '"'
                     . ' data-type="' . htmlspecialchars($type, ENT_QUOTES) . '">'
-                    . '<div class="editable-overlay"><button class="btn btn-sm btn-outline-primary editable-edit-btn"><i class="bi bi-pencil"></i> Modifier</button></div>'
+                    . '<div class="editable-overlay"><button class="btn btn-sm btn-outline-primary '
+                    . 'editable-edit-btn"><i class="bi bi-pencil"></i> Modifier</button></div>'
                     . $value
                     . '</div>';
             }
@@ -177,7 +189,11 @@ class TwigFactory
         // below) — a bare placeholder box with no button was a real bug:
         // clicking it did nothing, since editable.js only wires up
         // .editable-edit-btn elements.
-        $environment->addFunction(new TwigFunction('editable_image', function (string $key, string $alt = '', string $cssClass = 'img-fluid rounded') use ($environment): string {
+        $environment->addFunction(new TwigFunction('editable_image', function (
+            string $key,
+            string $alt = '',
+            string $cssClass = 'img-fluid rounded'
+        ) use ($environment): string {
             /** @var EditableContentService|null $service */
             $service = $environment->getGlobals()['_editable_content_service'] ?? null;
             $configMode = $environment->getGlobals()['config_mode'] ?? false;
@@ -187,14 +203,22 @@ class TwigFactory
 
             if ($configMode) {
                 $img = $hasImage
-                    ? '<img src="/files/' . (int) $fileId . '/md" alt="' . htmlspecialchars($alt, ENT_QUOTES) . '" class="' . htmlspecialchars($cssClass, ENT_QUOTES) . '">'
-                    : '<div class="d-flex align-items-center justify-content-center bg-light rounded" style="min-height:200px;">'
+                    ? '<img src="/files/' . (int) $fileId . '/md" alt="' . htmlspecialchars(
+                        $alt,
+                        ENT_QUOTES
+                    ) . '" class="' . htmlspecialchars($cssClass, ENT_QUOTES) . '">'
+                    : '<div class="d-flex align-items-center justify-content-center bg-light rounded" '
+                        . 'style="min-height:200px;">'
                         . '<span class="text-muted"><i class="bi bi-image"></i> Cliquer pour ajouter une image</span>'
                         . '</div>';
                 $buttonLabel = $hasImage ? 'Changer' : 'Ajouter';
 
-                return '<div class="editable-image" data-key="' . htmlspecialchars($key, ENT_QUOTES) . '" data-type="image">'
-                    . '<div class="editable-overlay"><button class="btn btn-sm btn-outline-primary editable-edit-btn"><i class="bi bi-camera"></i> ' . $buttonLabel . '</button></div>'
+                return '<div class="editable-image" data-key="' . htmlspecialchars(
+                    $key,
+                    ENT_QUOTES
+                ) . '" data-type="image">'
+                    . '<div class="editable-overlay"><button class="btn btn-sm btn-outline-primary '
+                    . 'editable-edit-btn"><i class="bi bi-camera"></i> ' . $buttonLabel . '</button></div>'
                     . $img
                     . '</div>';
             }
@@ -204,7 +228,10 @@ class TwigFactory
                 // page's hero — usually the largest paint on the page —
                 // and lazy-loading the LCP image delays it for no saving
                 // (there is one editable image per page, not dozens).
-                return '<img src="/files/' . (int) $fileId . '/md" alt="' . htmlspecialchars($alt, ENT_QUOTES) . '" class="' . htmlspecialchars($cssClass, ENT_QUOTES) . '" decoding="async">';
+                return '<img src="/files/' . (int) $fileId . '/md" alt="' . htmlspecialchars(
+                    $alt,
+                    ENT_QUOTES
+                ) . '" class="' . htmlspecialchars($cssClass, ENT_QUOTES) . '" decoding="async">';
             }
 
             return '';
@@ -224,7 +251,12 @@ class TwigFactory
         // the trigger everywhere else. Server-side authorization for the
         // resulting upload is enforced by UploadController, never by this
         // flag alone (see Core\Http\Controller\UploadController::store()).
-        $environment->addFunction(new TwigFunction('member_photo', function (int $memberId, string $alt = '', string $cssClass = 'rounded-circle', bool $editable = false) use ($environment): string {
+        $environment->addFunction(new TwigFunction('member_photo', function (
+            int $memberId,
+            string $alt = '',
+            string $cssClass = 'rounded-circle',
+            bool $editable = false
+        ) use ($environment): string {
             /** @var \Core\Photo\MemberPhotoService|null $service */
             $service = $environment->getGlobals()['_member_photo_service'] ?? null;
             $scoutYearId = (int) ($environment->getGlobals()['effective_scout_year_id'] ?? 0);
@@ -236,19 +268,30 @@ class TwigFactory
                 // loading="lazy": the trombinoscope and rosters render one
                 // of these per member, each /files/… request a full
                 // application boot — only the visible ones should fire.
-                $img = '<img src="/files/' . $fileId . '/thumb" alt="' . htmlspecialchars($alt, ENT_QUOTES) . '" class="' . htmlspecialchars($cssClass, ENT_QUOTES) . '" loading="lazy" decoding="async">';
+                $img = '<img src="/files/' . $fileId . '/thumb" alt="' . htmlspecialchars(
+                    $alt,
+                    ENT_QUOTES
+                ) . '" class="' . htmlspecialchars($cssClass, ENT_QUOTES) . '" loading="lazy" decoding="async">';
             } else {
                 $initials = mb_strtoupper(mb_substr(trim($alt), 0, 2));
-                $img = '<div class="' . htmlspecialchars($cssClass, ENT_QUOTES) . ' member-photo-placeholder" title="' . htmlspecialchars($alt, ENT_QUOTES) . '">'
-                    . '<span class="member-photo-initials d-inline-flex align-items-center justify-content-center rounded-circle bg-primary text-white fw-bold">'
+                $img = '<div class="' . htmlspecialchars(
+                    $cssClass,
+                    ENT_QUOTES
+                ) . ' member-photo-placeholder" title="' . htmlspecialchars($alt, ENT_QUOTES) . '">'
+                    . '<span class="member-photo-initials d-inline-flex align-items-center justify-content-center '
+                    . 'rounded-circle bg-primary text-white fw-bold">'
                     . htmlspecialchars($initials, ENT_QUOTES)
                     . '</span></div>';
             }
 
             if (($configMode || $editable) && $scoutYearId > 0) {
                 $key = $memberId . ':' . $scoutYearId;
-                return '<div class="editable-image" data-key="' . htmlspecialchars($key, ENT_QUOTES) . '" data-context="member_photo">'
-                    . '<div class="editable-overlay"><button class="btn btn-sm btn-outline-primary editable-edit-btn"><i class="bi bi-pencil"></i></button></div>'
+                return '<div class="editable-image" data-key="' . htmlspecialchars(
+                    $key,
+                    ENT_QUOTES
+                ) . '" data-context="member_photo">'
+                    . '<div class="editable-overlay"><button class="btn btn-sm btn-outline-primary '
+                    . 'editable-edit-btn"><i class="bi bi-pencil"></i></button></div>'
                     . $img
                     . '</div>';
             }
@@ -275,7 +318,10 @@ class TwigFactory
         // `editable: true` only OFFERS the click-to-replace overlay —
         // Controller\UploadController re-authorises every upload on its
         // own, and a flag in a template is never sufficient.
-        $environment->addFunction(new TwigFunction('person_avatar', function (string $name, array $options = []) use ($environment): string {
+        $environment->addFunction(new TwigFunction('person_avatar', function (
+            string $name,
+            array $options = []
+        ) use ($environment): string {
             $memberId = (int) ($options['member_id'] ?? 0);
             $accountId = (int) ($options['account_id'] ?? 0);
             $size = (int) ($options['size'] ?? 40);
@@ -322,25 +368,41 @@ class TwigFactory
         // landscape rendition by Core\Photo\SectionPhotoProcessor before
         // it's ever stored — the inline aspect-ratio/object-fit here is
         // just a display-time safety net, not the actual crop.
-        $environment->addFunction(new TwigFunction('section_photo', function (int $sectionId, string $alt = '', string $cssClass = 'w-100 rounded') use ($environment): string {
+        $environment->addFunction(new TwigFunction('section_photo', function (
+            int $sectionId,
+            string $alt = '',
+            string $cssClass = 'w-100 rounded'
+        ) use ($environment): string {
             /** @var \Core\Photo\SectionPhotoService|null $service */
             $service = $environment->getGlobals()['_section_photo_service'] ?? null;
             $scoutYearId = (int) ($environment->getGlobals()['effective_scout_year_id'] ?? 0);
             $configMode = $environment->getGlobals()['config_mode'] ?? false;
 
-            $fileId = ($service !== null && $scoutYearId > 0) ? $service->resolveFileId($sectionId, $scoutYearId) : null;
+            $fileId = ($service !== null && $scoutYearId > 0)
+                ? $service->resolveFileId($sectionId, $scoutYearId)
+                : null;
             $imgStyle = 'aspect-ratio:4/3;object-fit:cover;';
 
             if ($configMode && $scoutYearId > 0) {
                 $key = $sectionId . ':' . $scoutYearId;
                 if ($fileId !== null) {
-                    $img = '<img src="/files/' . $fileId . '/md" alt="' . htmlspecialchars($alt, ENT_QUOTES) . '" class="' . htmlspecialchars($cssClass, ENT_QUOTES) . '" style="' . $imgStyle . '">';
+                    $img = '<img src="/files/' . $fileId . '/md" alt="' . htmlspecialchars(
+                        $alt,
+                        ENT_QUOTES
+                    ) . '" class="' . htmlspecialchars($cssClass, ENT_QUOTES) . '" style="' . $imgStyle . '">';
                 } else {
-                    $img = '<div class="d-flex align-items-center justify-content-center bg-light rounded ' . htmlspecialchars($cssClass, ENT_QUOTES) . '" style="' . $imgStyle . '">'
-                        . '<span class="text-muted"><i class="bi bi-image"></i> Cliquer pour ajouter la photo du staff</span></div>';
+                    $img = '<div class="d-flex align-items-center justify-content-center bg-light rounded '
+                        . htmlspecialchars($cssClass,
+                        ENT_QUOTES) . '" style="' . $imgStyle . '">'
+                        . '<span class="text-muted"><i class="bi bi-image"></i> Cliquer pour ajouter la photo du '
+                        . 'staff</span></div>';
                 }
-                return '<div class="editable-image" data-key="' . htmlspecialchars($key, ENT_QUOTES) . '" data-context="section_photo">'
-                    . '<div class="editable-overlay"><button class="btn btn-sm btn-outline-primary editable-edit-btn"><i class="bi bi-camera"></i> Changer</button></div>'
+                return '<div class="editable-image" data-key="' . htmlspecialchars(
+                    $key,
+                    ENT_QUOTES
+                ) . '" data-context="section_photo">'
+                    . '<div class="editable-overlay"><button class="btn btn-sm btn-outline-primary '
+                    . 'editable-edit-btn"><i class="bi bi-camera"></i> Changer</button></div>'
                     . $img
                     . '</div>';
             }
@@ -348,7 +410,13 @@ class TwigFactory
             if ($fileId !== null) {
                 // loading="lazy" is safe against layout shift here: the
                 // aspect-ratio style reserves the box before the bytes land.
-                return '<img src="/files/' . $fileId . '/md" alt="' . htmlspecialchars($alt, ENT_QUOTES) . '" class="' . htmlspecialchars($cssClass, ENT_QUOTES) . '" style="' . $imgStyle . '" loading="lazy" decoding="async">';
+                return '<img src="/files/' . $fileId . '/md" alt="' . htmlspecialchars(
+                    $alt,
+                    ENT_QUOTES
+                ) . '" class="' . htmlspecialchars(
+                    $cssClass,
+                    ENT_QUOTES
+                ) . '" style="' . $imgStyle . '" loading="lazy" decoding="async">';
             }
 
             return '';
@@ -452,7 +520,11 @@ class TwigFactory
                 return '';
             }
 
-            return (int) $dateTime->format('j') . ' ' . $months[(int) $dateTime->format('n')] . ' ' . $dateTime->format('Y');
+            return (int) $dateTime->format('j')
+                . ' '
+                . $months[(int) $dateTime->format('n')]
+                . ' '
+                . $dateTime->format('Y');
         }));
 
         // "il y a 2 heures" — a coarse, French relative age for a stored
