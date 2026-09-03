@@ -340,6 +340,9 @@ final class UxConventionsTest extends TestCase
         // screen — the twin of /finance/reconciliation/creances below,
         // never a page.
         '/chefs/camps/courrier/sejours',
+        // JSON for « Rattacher à… » on the chief's courrier page — the
+        // targets a module's own directory offers, never a page.
+        '/courrier/cibles',
         // XLSX download of a campaign's lines — the file the filter
         // on screen selected, never a page.
         '/finance/campaigns/{id}/export',

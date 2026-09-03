@@ -30,6 +30,7 @@
         }
 
         var title = document.getElementById('camps-message-modal-title');
+        var meta = document.getElementById('camps-message-modal-meta');
         /** Where the body was before the dialog borrowed it. */
         var origin = null;
         var borrowed = null;
@@ -64,6 +65,11 @@
                     // textContent, not innerHTML: a subject is somebody
                     // else's text.
                     title.textContent = button.dataset.campsMessageTitle || 'Message';
+                }
+                if (meta) {
+                    // Who wrote, and when: a dialog showing a body with no
+                    // sender is a body nobody can act on.
+                    meta.textContent = button.dataset.campsMessageMeta || '';
                 }
 
                 // Bootstrap builds its own instance on a data-bs-toggle

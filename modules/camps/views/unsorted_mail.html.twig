@@ -19,48 +19,39 @@
                question a chief asks on an empty screen too, and a button
                that appears only when it has work looks broken exactly then.
                Its answer says so plainly. #}
-            <form method="post" action="/chefs/camps/courrier/relancer" class="mb-3">
-                {{ csrf_field()|raw }}
-                <button type="submit" class="btn btn-outline-secondary">
-                    <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
-                    Relancer l'analyse
-                </button>
-                <span class="form-text d-block mt-1">
-                    Réexamine les messages qui ne sont rattachés à rien, avec ce que le site sait
-                    aujourd'hui. Utile après avoir rattaché un message d'une conversation, ou créé
-                    un lieu. Rien n'est jamais détaché, et une proposition écartée le reste.
-                </span>
-            </form>
-        {% endif %}
-
-        {% if has_inbound_mail %}
-            {# Unattached first, and by default: what a chief comes here to
-               do is decide about the mail nobody could attribute. The
-               messages this module already filed are on their stays' own
-               pages, and a list that opens on everything buries the dozen
-               that need a decision under the hundreds that do not.
-
-               Counts on the tabs rather than beside them: « rien à trier »
-               and « le filtre cache tout » look identical on an empty
-               list, and only a number tells them apart. #}
-            <ul class="nav nav-pills mb-3 gap-1" aria-label="Filtrer le courrier">
-                {% for key, label in {
-                    'non_rattaches': 'À trier',
-                    'rattaches': 'Rattachés',
-                    'tous': 'Tous',
-                } %}
-                    <li class="nav-item">
-                        <a class="nav-link{{ status == key ? ' active' : '' }}"
-                           href="?statut={{ key }}"
-                           {{ status == key ? 'aria-current="page"' : '' }}>
-                            {{ label }}
-                            <span class="badge rounded-pill text-bg-{{ status == key ? 'light' : 'secondary' }}">
-                                {{ counts[key] }}
-                            </span>
-                        </a>
-                    </li>
-                {% endfor %}
-            </ul>
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                {# Unattached first, and by default: what a chief comes here
+                   to do is decide about the mail nobody could attribute.
+                   Counts on the tabs rather than beside them: « rien à
+                   trier » and « le filtre cache tout » look identical on an
+                   empty list, and only a number tells them apart. #}
+                <ul class="nav nav-pills gap-1 mb-0" aria-label="Filtrer le courrier">
+                    {% for key, label in {
+                        'non_rattaches': 'À trier',
+                        'rattaches': 'Rattachés',
+                        'tous': 'Tous',
+                    } %}
+                        <li class="nav-item">
+                            <a class="nav-link{{ status == key ? ' active' : '' }}"
+                               href="?statut={{ key }}{{ include_bulk ? '&automatique=1' : '' }}"
+                               {{ status == key ? 'aria-current="page"' : '' }}>
+                                {{ label }}
+                                <span class="badge rounded-pill text-bg-{{ status == key ? 'light' : 'secondary' }}">
+                                    {{ counts[key] }}
+                                </span>
+                            </a>
+                        </li>
+                    {% endfor %}
+                </ul>
+                <form method="post" action="/chefs/camps/courrier/relancer">
+                    {{ csrf_field()|raw }}
+                    <button type="submit" class="btn btn-sm btn-outline-secondary"
+                            title="Réexamine les messages qui ne sont rattachés à rien, avec ce que le site sait aujourd'hui. Rien n'est jamais détaché, et une proposition écartée le reste.">
+                        <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
+                        Relancer l'analyse
+                    </button>
+                </form>
+            </div>
         {% endif %}
 
         {% if not has_inbound_mail %}
@@ -88,54 +79,54 @@
                                 </div>
                                 <span class="small text-body-secondary text-nowrap">
                                     {{ row.message.sentAt|date_fr }}
+                                    {% if row.message.isBulk %}<span class="badge text-bg-light">automatique</span>{% endif %}
                                 </span>
                             </div>
 
                             {% if row.has_body %}
-                                {# Une ligne, pas un paragraphe. L'extrait
-                                   faisait 220 caractères — de quoi occuper trois
-                                   lignes par message et transformer une liste de
-                                   décisions en mur de texte. Il tient maintenant
-                                   sur une ligne tronquée, et le message entier
-                                   s'ouvre dans un dialogue.
+                                {# One line, not a paragraph. The excerpt used to
+                                   run to 220 characters — three lines per message,
+                                   turning a list of decisions into a wall of text.
+                                   It now fits one truncated line, and the whole
+                                   message opens in a dialog.
 
-                                   Le corps est rendu ICI, caché, et déplacé dans
-                                   le dialogue à l'ouverture : aucune chaîne HTML
-                                   ne transite par un attribut ni par innerHTML.
-                                   Il est déjà assaini et débarrassé des images
-                                   distantes au stockage (§8.58) ; ce n'est pas
-                                   une raison de le refaire passer par une seconde
-                                   analyse dans le navigateur. #}
+                                   The body is rendered HERE, hidden, and MOVED
+                                   into the dialog on opening: no HTML string
+                                   travels through an attribute or innerHTML. It
+                                   was sanitised and stripped of remote images when
+                                   stored (§8.58); that is no reason to run it
+                                   through a second parse in the browser. #}
                                 <div class="small text-body-secondary text-truncate mt-2">{{ row.excerpt }}</div>
                                 <button type="button" class="btn btn-link btn-sm p-0 mt-1"
                                         data-camps-message-open="camps-message-body-{{ row.message.id }}"
-                                        data-camps-message-title="{{ row.message.subject ?: 'Sans objet' }}">
+                                        data-camps-message-title="{{ row.message.subject ?: 'Sans objet' }}"
+                                        data-camps-message-meta="{{ row.message.displayFrom() }} · {{ row.message.sentAt|datetime_fr }}">
                                     <i class="bi bi-envelope-open" aria-hidden="true"></i>
                                     Lire le message
                                 </button>
                                 <div class="d-none camps-message-body" id="camps-message-body-{{ row.message.id }}">
-                                    {% if row.message.bodyHtml is not empty %}
-                                        {{ row.message.bodyHtml|raw }}
-                                    {% else %}
-                                        <pre class="mb-0 text-body-secondary" style="white-space: pre-wrap;">{{ row.message.bodyText }}</pre>
-                                    {% endif %}
+                                    {% include '@inbound_mail/partials/message_body.html.twig' with { message: row.message } only %}
                                 </div>
                             {% endif %}
 
-                            {% if row.attachment_count > 0 %}
-                                <div class="small mt-2">
-                                    <i class="bi bi-paperclip" aria-hidden="true"></i>
-                                    {{ row.attachment_count }} pièce{{ row.attachment_count > 1 ? 's' : '' }} jointe{{ row.attachment_count > 1 ? 's' : '' }}
+                            {% if row.message.hasAttachments or row.message.hasOmittedAttachments %}
+                                {# Openable from the card: a chief decides about a
+                                   contract by reading it, not by counting it. #}
+                                <div class="mt-2">
+                                    {% include '@inbound_mail/partials/attachments.html.twig' with { message: row.message, downloadable: true } only %}
                                 </div>
                             {% endif %}
 
-                            {# Ce que CE module en a fait, et rien d'autre : les
-                               rattachements d'un autre module ne regardent pas
-                               cet écran. #}
+                            {# What THIS module made of it and nothing else:
+                               another module's associations are not this
+                               screen's business. #}
                             {% if row.links is not empty %}
                                 <div class="mt-2 d-flex flex-wrap gap-1">
                                     {% for link in row.links %}
-                                        <span class="badge text-bg-success">Rattaché — {{ link.businessReference }}</span>
+                                        {% set campId = link.businessReference|replace({'camp-': ''}) %}
+                                        <a class="badge text-bg-success text-decoration-none" href="/chefs/camps/sejours/{{ campId }}">
+                                            Rattaché — {{ row.labels[link.businessReference]|default(link.businessReference) }}
+                                        </a>
                                     {% endfor %}
                                 </div>
                             {% endif %}
@@ -176,45 +167,79 @@
                                 </div>
                             {% endif %}
 
-                            <div class="d-flex flex-wrap align-items-end gap-2 mt-3">
-                                <form method="post" action="/chefs/camps/courrier/{{ row.message.id }}/rattacher"
-                                      class="d-flex flex-wrap align-items-end gap-2 flex-grow-1">
-                                    {{ csrf_field()|raw }}
-                                    <div class="flex-grow-1" style="min-width: 14rem;">
-                                        {% include '@camps/partials/stay_picker.html.twig' with {
-                                            message_id: row.message.id,
-                                            options: row.camp_options,
-                                            preferred_ids: row.preferred_stay_ids,
-                                            searchable: can_search_stays,
-                                        } only %}
-                                    </div>
-                                    <button type="submit" class="btn btn-primary btn-sm">Rattacher</button>
-                                </form>
-
-                                {# Le message ne correspond à aucun séjour connu :
-                                   en créer un depuis ce qu'il dit, plutôt que de
-                                   retaper des dates qu'on a sous les yeux. #}
-                                <a class="btn btn-outline-secondary btn-sm"
-                                   href="/chefs/camps/nouveau?message={{ row.message.id }}">
-                                    <i class="bi bi-plus-lg" aria-hidden="true"></i>
-                                    Créer un camp depuis ce message
-                                </a>
-
-                                {% for link in row.links %}
-                                    <form method="post" action="/chefs/camps/courrier/{{ row.message.id }}/supprimer"
-                                          data-confirm="Retirer ce message du séjour ? Il reste dans le courrier de l'unité.">
+                            {# ONE primary gesture per card. When the module
+                               proposed something, or already filed the message,
+                               the free picker sits behind a fold, so two
+                               « Rattacher » buttons never face the chief at
+                               once; with nothing proposed the picker IS the
+                               gesture and stands on its own. #}
+                            {% set folded = row.candidates is not empty or row.links is not empty %}
+                            {% if folded %}
+                            <details class="mt-3">
+                                <summary class="btn btn-link btn-sm p-0">
+                                    {{ row.links is empty ? 'Rattacher à un autre séjour' : 'Rattacher aussi à un autre séjour' }}
+                                </summary>
+                            {% else %}
+                            <div class="mt-3">
+                            {% endif %}
+                                <div class="d-flex flex-wrap align-items-end gap-2 mt-2">
+                                    <form method="post" action="/chefs/camps/courrier/{{ row.message.id }}/rattacher"
+                                          class="d-flex flex-wrap align-items-end gap-2 flex-grow-1">
                                         {{ csrf_field()|raw }}
-                                        <input type="hidden" name="business_reference" value="{{ link.businessReference }}">
-                                        <button type="submit" class="btn btn-outline-danger btn-sm">
-                                            Retirer de {{ link.businessReference }}
-                                        </button>
+                                        <div class="flex-grow-1" style="min-width: 14rem;">
+                                            {% include '@camps/partials/stay_picker.html.twig' with {
+                                                message_id: row.message.id,
+                                                options: row.camp_options,
+                                                preferred_ids: row.preferred_stay_ids,
+                                                searchable: can_search_stays,
+                                            } only %}
+                                        </div>
+                                        <button type="submit" class="btn btn-primary btn-sm">Rattacher</button>
                                     </form>
-                                {% endfor %}
+
+                                    {# The message matches no known stay: create one
+                                       from what it says rather than retype dates that
+                                       are right there. #}
+                                    <a class="btn btn-outline-secondary btn-sm"
+                                       href="/chefs/camps/nouveau?message={{ row.message.id }}">
+                                        <i class="bi bi-plus-lg" aria-hidden="true"></i>
+                                        Créer un camp depuis ce message
+                                    </a>
+                                </div>
+                            {% if folded %}
+                            </details>
+                            {% else %}
                             </div>
+                            {% endif %}
+
+                            {% if row.links is not empty %}
+                                <div class="d-flex flex-wrap gap-2 mt-2">
+                                    {% for link in row.links %}
+                                        <form method="post" action="/chefs/camps/courrier/{{ row.message.id }}/supprimer"
+                                              data-confirm="Détacher ce message du séjour ? Il reste dans le courrier de l'unité.">
+                                            {{ csrf_field()|raw }}
+                                            <input type="hidden" name="business_reference" value="{{ link.businessReference }}">
+                                            <button type="submit" class="btn btn-outline-danger btn-sm">
+                                                Détacher de « {{ row.labels[link.businessReference]|default(link.businessReference) }} »
+                                            </button>
+                                        </form>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
                         </div>
                     </div>
                 {% endfor %}
             </div>
+        {% endif %}
+
+        {% if has_inbound_mail and bulk_count > 0 %}
+            <p class="mt-3 mb-0">
+                {% if include_bulk %}
+                    <a href="?statut={{ status }}">Masquer le courrier automatique</a>
+                {% else %}
+                    <a href="?statut={{ status }}&automatique=1">Afficher le courrier automatique ({{ bulk_count }})</a>
+                {% endif %}
+            </p>
         {% endif %}
 
         <p class="text-body-secondary small mt-4">
@@ -224,12 +249,13 @@
         </p>
     </div>
 
-    {# UN dialogue pour toute la page, rempli à l'ouverture en DÉPLAÇANT le
-       corps déjà rendu. Un dialogue par message tiendrait cent corps de
-       messages dans le DOM d'un écran qui en montre les titres. #}
+    {# ONE dialog for the whole page, filled on opening by MOVING the body
+       already rendered. A dialog per message would keep a hundred message
+       bodies in the DOM of a screen that shows their titles. #}
     {% embed 'partials/modal.html.twig' with { id: 'camps-message-modal', title: 'Message', scrollable: true, size: 'lg' } only %}
         {% block body %}
-            <div id="camps-message-modal-body" class="camps-message-body"></div>
+            <p id="camps-message-modal-meta" class="small text-body-secondary"></p>
+            <div id="camps-message-modal-body"></div>
         {% endblock %}
         {% block footer %}
             <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Fermer</button>

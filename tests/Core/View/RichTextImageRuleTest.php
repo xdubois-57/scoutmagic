@@ -68,9 +68,11 @@ final class RichTextImageRuleTest extends TestCase
      * @var array<string, string>
      */
     private const EXCLUDED = [
-        'modules/rental/views/management/_communications.html.twig' => '{{ message.bodyHtml|raw }}',
-        'modules/camps/views/camp.html.twig' => '{{ message.bodyHtml|raw }}',
-        'modules/camps/views/unsorted_mail.html.twig' => '{{ row.message.bodyHtml|raw }}',
+        // The one partial every screen renders a received body through
+        // (§8.58): the booking page, the stay page, the camps mail screen
+        // and /courrier all include it rather than printing the body
+        // themselves.
+        'modules/inbound_mail/views/partials/message_text.html.twig' => '{{ message.bodyHtml|raw }}',
     ];
 
     public function testEveryRichTextContainerCarriesTheSharedClass(): void

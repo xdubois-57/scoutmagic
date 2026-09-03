@@ -86,8 +86,26 @@ class CandidateMessage
          * about mailbox purpose unless it means to; null reads as "shared",
          * which is the answer that grants a consumer nothing extra.
          */
-        public readonly ?string $mailboxDedicatedTo = null
+        public readonly ?string $mailboxDedicatedTo = null,
+        /**
+         * The object one of the recipients names, when that recipient is
+         * a signed reply address this site minted (§8.58) — the gateway
+         * verified the signature; the consumer still checks the object
+         * exists. Null on every ordinary message.
+         */
+        public readonly ?AddressedReference $addressedTo = null
     ) {
+    }
+
+    /**
+     * The reference this message was addressed to, if the signed reply
+     * address is this consumer's.
+     */
+    public function addressedReferenceFor(string $consumerId): ?string
+    {
+        return $this->addressedTo !== null && $this->addressedTo->consumerId === $consumerId
+            ? $this->addressedTo->businessReference
+            : null;
     }
 
     /**

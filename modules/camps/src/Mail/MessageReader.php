@@ -40,13 +40,16 @@ class MessageReader
      *
      * @return array{start: string, end: string}|null
      */
-    public function readDateRange(string $text): ?array
+    public function readDateRange(string $text, ?\DateTimeImmutable $reference = null): ?array
     {
         $text = $this->normalise($text);
 
-        // "du 12 au 19 juillet 2028" — one month, one year, stated once.
+        // « du 12 au 19 juillet 2028 » — one month, one year, stated once.
+        // « 1er » and a weekday before the day are read the same: « du
+        // vendredi 1er au dimanche 3 mai 2026 » is how a contract is
+        // written, and it used to read as nothing.
         if (preg_match(
-            '/\bdu\s+(\d{1,2})\s+au\s+(\d{1,2})\s+([a-zéû]+)\s+(\d{4})\b/u',
+            '/\bdu\s+' . self::DAY . '\s+au\s+' . self::DAY . '\s+([a-zéû]+)\s+(\d{4})\b/u',
             $text,
             $m
         ) === 1) {
@@ -56,9 +59,9 @@ class MessageReader
             }
         }
 
-        // "du 30 avril au 3 mai 2026" — two months, the year stated once.
+        // « du 30 avril au 3 mai 2026 » — two months, the year stated once.
         if (preg_match(
-            '/\bdu\s+(\d{1,2})\s+([a-zéû]+)\s+au\s+(\d{1,2})\s+([a-zéû]+)\s+(\d{4})\b/u',
+            '/\bdu\s+' . self::DAY . '\s+([a-zéû]+)\s+au\s+' . self::DAY . '\s+([a-zéû]+)\s+(\d{4})\b/u',
             $text,
             $m
         ) === 1) {
@@ -70,6 +73,19 @@ class MessageReader
                 $startYear = $startMonth > $endMonth ? $year - 1 : $year;
 
                 return $this->range($startYear, $startMonth, (int) $m[1], $year, $endMonth, (int) $m[3]);
+            }
+        }
+
+        // « du 12 au 19 juillet » with no year at all, the way a farmer
+        // writes back about the summer. The year is the message's own:
+        // the next occurrence of that range from the day it was sent, so
+        // a January message about July means this July and a December
+        // one means the next. Only when a reference date is given —
+        // without one, a range with no year is still not read.
+        if ($reference !== null) {
+            $yearless = $this->readYearlessRange($text, $reference);
+            if ($yearless !== null) {
+                return $yearless;
             }
         }
 
@@ -318,8 +334,65 @@ class MessageReader
         return $end >= $start ? ['start' => $start, 'end' => $end] : null;
     }
 
+    /**
+     * « du 12 au 19 juillet » or « du 30 avril au 3 mai », no year: the
+     * next occurrence of that range from the day the message was sent.
+     *
+     * @return array{start: string, end: string}|null
+     */
+    private function readYearlessRange(string $text, \DateTimeImmutable $reference): ?array
+    {
+        $twoMonths = preg_match(
+            '/\bdu\s+' . self::DAY . '\s+([a-zéû]+)\s+au\s+' . self::DAY . '\s+([a-zéû]+)\b(?!\s+\d{4})/u',
+            $text,
+            $m
+        ) === 1;
+        if ($twoMonths) {
+            $startDay = (int) $m[1];
+            $startMonth = self::MONTHS[$m[2]] ?? null;
+            $endDay = (int) $m[3];
+            $endMonth = self::MONTHS[$m[4]] ?? null;
+        } elseif (preg_match(
+            '/\bdu\s+' . self::DAY . '\s+au\s+' . self::DAY . '\s+([a-zéû]+)\b(?!\s+\d{4})/u',
+            $text,
+            $m
+        ) === 1) {
+            $startDay = (int) $m[1];
+            $endDay = (int) $m[2];
+            $startMonth = $endMonth = self::MONTHS[$m[3]] ?? null;
+        } else {
+            return null;
+        }
+
+        if ($startMonth === null || $endMonth === null) {
+            return null;
+        }
+
+        $year = (int) $reference->format('Y');
+        $startYear = $startMonth > $endMonth ? $year - 1 : $year;
+        $range = $this->range($startYear, $startMonth, $startDay, $year, $endMonth, $endDay);
+        if ($range !== null && $range['end'] < $reference->format('Y-m-d')) {
+            // Already past when the message was sent: it means next year's.
+            $range = $this->range($startYear + 1, $startMonth, $startDay, $year + 1, $endMonth, $endDay);
+        }
+
+        return $range;
+    }
+
+    /**
+     * A day of the month as a message writes it: « 12 », « 1er », and
+     * optionally the weekday before it, which is never captured.
+     */
+    private const DAY = '(?:(?:lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\s+)?(\d{1,2})(?:er)?';
+
     private function normalise(string $text): string
     {
+        // Quoted lines — the earlier message a reply carries under « > »
+        // — are not this message's statement. Reading them made the
+        // farmer's confirmation say whatever the unit's own request had
+        // said, first.
+        $text = (string) preg_replace('/^[ \t]*>.*$/mu', ' ', $text);
+
         return mb_strtolower(trim((string) preg_replace('/\s+/u', ' ', $text)), 'UTF-8');
     }
 }

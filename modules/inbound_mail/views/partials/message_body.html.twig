@@ -1,0 +1,34 @@
+{#
+  The body of a received message, the one way every screen shows it.
+
+  Four screens used to render it four ways — a card on /courrier, a
+  monospace <pre> in a dialog on the camps screen, a monospace <pre>
+  always expanded on a booking, a <details> on a stay — and a reader who
+  had learned one found the next unfamiliar. This partial is the body;
+  the screen around it decides only whether it opens folded.
+
+  The HTML was sanitised and stripped of remote images when the message
+  was STORED (§7.9), never at render time, so no screen has to remember.
+  The text body keeps its line breaks and wraps like prose: monospace is
+  for code, and a farmer's reply is not code.
+
+  Parameters:
+    message   -- the Modules\InboundMail\Api\InboundMessage
+    folded    -- true to render behind a native <details> whose summary is
+                 « Lire le message »; false (default) to show it outright
+#}
+{% set has_text = message.bodyHtml is not empty or message.bodyText|trim is not empty %}
+{% if folded|default(false) and has_text %}
+    <details class="inbound-message">
+        <summary class="btn btn-link btn-sm p-0 inbound-message__toggle">
+            <i class="bi bi-envelope-open" aria-hidden="true"></i> Lire le message
+        </summary>
+        <div class="inbound-message__body mt-2">
+            {% include '@inbound_mail/partials/message_text.html.twig' with { message: message } only %}
+        </div>
+    </details>
+{% else %}
+    <div class="inbound-message__body">
+        {% include '@inbound_mail/partials/message_text.html.twig' with { message: message } only %}
+    </div>
+{% endif %}

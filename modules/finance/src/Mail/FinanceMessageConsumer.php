@@ -25,6 +25,8 @@ use Modules\InboundMail\Api\LinkOrigin;
 use Modules\InboundMail\Api\MessageCandidate;
 use Modules\InboundMail\Api\MessageConsumerInterface;
 use Modules\InboundMail\Api\MessageLink;
+use Modules\InboundMail\Api\ReferenceDirectory;
+use Modules\InboundMail\Api\ReferenceSuggestion;
 
 /**
  * An invoice arriving by email, offered as a receipt on the account it
@@ -74,7 +76,7 @@ use Modules\InboundMail\Api\MessageLink;
  * this account". A consumer that needed finance to change would have been
  * a consumer built at the wrong layer.
  */
-class FinanceMessageConsumer implements MessageConsumerInterface
+class FinanceMessageConsumer implements MessageConsumerInterface, ReferenceDirectory, \Modules\InboundMail\Api\PropositionListener
 {
     public const CONSUMER_ID = 'finance';
 
@@ -156,8 +158,37 @@ class FinanceMessageConsumer implements MessageConsumerInterface
          * means a forwarded message is judged on its real `From:`, which
          * is the trustworthy half of the signal anyway.
          */
-        private ?ForwardedSenderExtractor $forwardedSender = null
+        private ?ForwardedSenderExtractor $forwardedSender = null,
+        /**
+         * Who tells the treasurers that a receipt waits for them
+         * (`Mail\FinanceMailNotifier`). Null: nobody is told, and the
+         * proposition still waits in « Courrier à trier ».
+         */
+        private ?FinanceMailNotifier $notifier = null
     ) {
+    }
+
+    /**
+     * A receipt proposed towards accounts of this module: the treasurers
+     * are told (`Api\PropositionListener`).
+     *
+     * @param \Modules\InboundMail\Api\MessageCandidate[] $candidates
+     */
+    public function onProposed(InboundMessage $message, array $candidates): void
+    {
+        if ($this->notifier === null) {
+            return;
+        }
+
+        $labels = [];
+        foreach ($candidates as $candidate) {
+            $label = $this->describeReference($candidate->businessReference);
+            if ($label !== null && !in_array($label, $labels, true)) {
+                $labels[] = $label;
+            }
+        }
+
+        $this->notifier->proposed($labels);
     }
 
     public function consumerId(): string
@@ -168,6 +199,58 @@ class FinanceMessageConsumer implements MessageConsumerInterface
     public function displayName(): string
     {
         return 'Finances';
+    }
+
+    // ── Api\ReferenceDirectory: the accounts as a treasurer names them ──
+
+    /**
+     * @return ReferenceSuggestion[]
+     */
+    public function searchReferences(string $query, int $limit = 10): array
+    {
+        $needle = \Core\Service\TextNormalizerService::fold(trim($query));
+        if ($needle === '') {
+            return [];
+        }
+
+        $suggestions = [];
+        foreach ($this->accounts->findAllOrdered() as $account) {
+            if ($account->status !== Account::STATUS_ACTIVE) {
+                continue;
+            }
+
+            $isExact = self::referenceFor($account->id) === trim($query);
+            if ($isExact || str_contains(\Core\Service\TextNormalizerService::fold($account->name), $needle)) {
+                $suggestion = new ReferenceSuggestion(self::referenceFor($account->id), $account->name, 'Compte');
+                $isExact ? array_unshift($suggestions, $suggestion) : $suggestions[] = $suggestion;
+            }
+        }
+
+        // The sorting pile is a place too: « je ne sais pas quel compte »
+        // is an answer a chief may give, and it is where the treasury
+        // sorts.
+        if (trim($query) === self::REFERENCE_UNKNOWN || str_contains('compte inconnu', $needle)) {
+            $suggestions[] = new ReferenceSuggestion(
+                self::REFERENCE_UNKNOWN,
+                'Compte inconnu',
+                'La pile que la trésorerie trie'
+            );
+        }
+
+        return array_slice($suggestions, 0, max(1, $limit));
+    }
+
+    public function referenceUrl(string $businessReference): ?string
+    {
+        if ($businessReference === self::REFERENCE_UNKNOWN) {
+            return '/finance/receipts?account_id=unassigned';
+        }
+
+        $accountId = self::accountIdFromReference($businessReference);
+
+        return $accountId !== null && $this->accounts->findById($accountId) !== null
+            ? '/finance/receipts?account_id=' . $accountId
+            : null;
     }
 
     public static function referenceFor(int $accountId): string
@@ -206,8 +289,23 @@ class FinanceMessageConsumer implements MessageConsumerInterface
         // MONEY, made inside the document's own covering text; the sender
         // is a statement about a person, and a person can be wrong about
         // which account an expense belongs to in a way an IBAN cannot.
-        $account = $this->theOneAccountNamed($message->subject . "\n" . $message->bodyText);
+        $account = $this->theOneAccountNamed(self::readableText($message));
+        $staffAccount = $this->accountOfTheSendersStaff($message);
+
         if ($account !== null) {
+            // An association rather than a proposition in two cases, and
+            // only those: the box is the treasury's own — the operator has
+            // said everything arriving here is this module's business,
+            // and the worst outcome is a receipt on the wrong account,
+            // which « Changer de compte » corrects — or the sender's own
+            // section says the same account the IBAN does, two independent
+            // statements agreeing.
+            if ($message->mailboxIsDedicatedTo(self::CONSUMER_ID)
+                || ($staffAccount !== null && $staffAccount->id === $account->id)
+            ) {
+                return AnalysisResult::linkedTo(self::CONSUMER_ID, self::referenceFor($account->id), LinkOrigin::IBAN);
+            }
+
             return AnalysisResult::proposing(new MessageCandidate(
                 businessReference: self::referenceFor($account->id),
                 label: $account->name,
@@ -217,7 +315,6 @@ class FinanceMessageConsumer implements MessageConsumerInterface
             ));
         }
 
-        $staffAccount = $this->accountOfTheSendersStaff($message);
         if ($staffAccount !== null) {
             return AnalysisResult::linkedTo(self::CONSUMER_ID, self::referenceFor($staffAccount->id), LinkOrigin::SENDER);
         }
@@ -495,6 +592,28 @@ class FinanceMessageConsumer implements MessageConsumerInterface
     }
 
     /**
+     * The subject, the text body and the text of the HTML body.
+     *
+     * The HTML part too, because a message written on a phone or in
+     * Outlook often has no text part worth the name — and the IBAN a
+     * supplier pastes into it was invisible to a search of `bodyText`
+     * alone, while the very same class already fell back to the HTML to
+     * find a forwarded sender.
+     */
+    private static function readableText(CandidateMessage $message): string
+    {
+        $html = $message->bodyHtml === ''
+            ? ''
+            : html_entity_decode(
+                strip_tags(preg_replace('/<[^>]+>/', ' ', $message->bodyHtml) ?? ''),
+                ENT_QUOTES | ENT_HTML5,
+                'UTF-8'
+            );
+
+        return $message->subject . "\n" . $message->bodyText . "\n" . $html;
+    }
+
+    /**
      * Every IBAN-shaped run in the text, normalised.
      *
      * A pattern rather than a parser: what comes back is checked against
@@ -505,20 +624,46 @@ class FinanceMessageConsumer implements MessageConsumerInterface
      */
     private function ibansIn(string $text): array
     {
+        // What a bank site or a `&nbsp;` in HTML puts between the groups
+        // — a no-break space, a narrow one, a figure space — and the
+        // hyphen some people type instead: all read as the plain space
+        // the pattern below expects. Before this, `BE68 5390 0754 7034`
+        // copied from a banking site gave zero matches.
+        $text = preg_replace('/[\x{00A0}\x{202F}\x{2007}]/u', ' ', $text) ?? $text;
+        $text = preg_replace('/(?<=[A-Za-z0-9])-(?=[A-Za-z0-9]{2,4}\b)/', ' ', $text) ?? $text;
+
         // Single spaces only, and never a newline: a character class that
         // included `\s` would run past the end of the IBAN and swallow the
         // start of the next line, turning a perfectly good match into an
         // invalid one. Groups of two to four are how an IBAN is written
         // when it is written for a human to read.
-        if (preg_match_all('/\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]{2,4}){2,8}\b/i', $text, $matches) === false) {
-            return [];
-        }
-
+        $pattern = '/\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]{2,4}){2,8}\b/i';
         $ibans = [];
-        foreach ($matches[0] as $raw) {
-            $normalized = IbanNormalizer::normalize($raw);
-            if (IbanNormalizer::isValidFullIban($normalized)) {
-                $ibans[$normalized] = $normalized;
+        $offset = 0;
+
+        while (preg_match($pattern, $text, $match, PREG_OFFSET_CAPTURE, $offset) === 1) {
+            [$raw, $at] = $match[0];
+            $offset = $at + strlen($raw);
+
+            // The greedy run swallows whatever short token follows on the
+            // same line — « … 7034 BIC », or the « vers » between two
+            // accounts in « de BE92 … vers BE71 … » — so the trailing
+            // groups are dropped one at a time until what is left is a
+            // valid IBAN, and the scan resumes right after it rather than
+            // after everything the run swallowed.
+            $groups = preg_split('/ /', trim($raw)) ?: [];
+            while ($groups !== []) {
+                $candidate = implode(' ', $groups);
+                $normalized = IbanNormalizer::normalize($candidate);
+                if (IbanNormalizer::isValidFullIban($normalized)) {
+                    $ibans[$normalized] = $normalized;
+                    $offset = $at + strlen($candidate);
+                    break;
+                }
+                if (!IbanNormalizer::looksLikeFullIban($normalized)) {
+                    break;
+                }
+                array_pop($groups);
             }
         }
 

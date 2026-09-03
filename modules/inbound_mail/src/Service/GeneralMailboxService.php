@@ -89,12 +89,12 @@ class GeneralMailboxService
      * three, which is a different lie from the one it exists to end.
      *
      * @param array{mailbox_id?: ?int, association?: string, include_bulk?: bool} $filters
-     * @return array{none: int, some: int, all: int}
+     * @return array{none: int, proposed: int, some: int, all: int}
      */
     public function counts(array $filters): array
     {
         $counts = [];
-        foreach (['none', 'some', 'all'] as $association) {
+        foreach (['none', 'proposed', 'some', 'all'] as $association) {
             $counts[$association] = $this->messages->countPage(
                 ['association' => $association] + $filters
             );
@@ -166,7 +166,7 @@ class GeneralMailboxService
             );
             $this->dismiss($messageId, $candidate);
 
-            $this->notifyLinked($messageId, $candidate);
+            $this->notifyLinked($messageId, $candidate, $userAccountId);
 
             return true;
         }
@@ -245,7 +245,7 @@ class GeneralMailboxService
         );
     }
 
-    private function notifyLinked(int $messageId, MessageCandidate $candidate): void
+    private function notifyLinked(int $messageId, MessageCandidate $candidate, ?int $userAccountId): void
     {
         $consumer = $this->consumers->find($candidate->consumerId);
         $message = $this->messages->findAnyById($messageId);
@@ -254,11 +254,16 @@ class GeneralMailboxService
         }
 
         try {
+            // With the author. The row above named them and this callback
+            // did not, so a consumer that files something « only ever by a
+            // person » (Finance's receipts) saw nobody and took the
+            // unattended route on every confirmation made here.
             $consumer->onLinked($message, new \Modules\InboundMail\Api\MessageLink(
                 $candidate->consumerId,
                 $candidate->businessReference,
                 LinkOrigin::MANUAL,
-                $candidate->attachmentId
+                $candidate->attachmentId,
+                $userAccountId
             ));
         } catch (\Throwable) {
             // The association is already written. One module's bookkeeping

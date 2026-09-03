@@ -99,7 +99,13 @@ class MailboxSyncService
          * Null writes nothing, which is what a test that only cares about
          * storage wants.
          */
-        private ?AnalysisJournal $analysisJournal = null
+        private ?AnalysisJournal $analysisJournal = null,
+        /**
+         * Recognises the signed reply addresses this site minted, so a
+         * bare « Répondre » names its object before any consumer reads a
+         * word (§8.58). Null: no address is ever recognised.
+         */
+        private ?ReplyAddressService $replyAddresses = null
     ) {
         $this->consumerRegistry->setAnalysisJournal($analysisJournal);
     }
@@ -225,7 +231,8 @@ class MailboxSyncService
             // may read a signal more strongly on a box the unit declared
             // to be its own than on the unit's public address — and only
             // this says which it is.
-            mailboxDedicatedTo: $mailbox->isDedicated() ? $mailbox->dedicatedTo : null
+            mailboxDedicatedTo: $mailbox->isDedicated() ? $mailbox->dedicatedTo : null,
+            addressedTo: $this->replyAddresses?->resolve($message->toEmails)
         );
 
         // EVERY consumer is asked, and every answer is applied. Under the
@@ -252,7 +259,7 @@ class MailboxSyncService
             : null;
 
         if ($existingId !== null) {
-            $this->notifyLinked($existingId, $this->applier->apply($existingId, $results));
+            $this->notifyApplied($existingId, $this->applier->applyAndReport($existingId, $results));
 
             // Nothing was *stored*: the message was already here, and its
             // attachments with it. Nothing is journalled either — this is a
@@ -294,7 +301,7 @@ class MailboxSyncService
             rawHeaders: $keepHeaders ? $message->rawHeaders : null
         );
 
-        $created = $this->applier->apply($storedId, $results);
+        $applied = $this->applier->applyAndReport($storedId, $results);
 
         // One line per message, whatever came of it — « personne ne l'a
         // reconnu » included, which is the answer a unit most often needs
@@ -317,7 +324,7 @@ class MailboxSyncService
         // and it reads them off the stored message.
         $this->storeAttachments($message, $storedId, $mailbox->id, $candidate->bodyHtml);
 
-        $this->notifyLinked($storedId, $created);
+        $this->notifyApplied($storedId, $applied);
 
         return true;
     }
@@ -353,11 +360,10 @@ class MailboxSyncService
     }
 
     /**
-     * Tell each consumer about the associations that were actually created.
-     *
-     * @param array<int, array{consumerId: string, link: MessageLink}> $created
+     * Tell each consumer about the associations and propositions that were
+     * actually created.
      */
-    private function notifyLinked(int $messageId, array $created): void
+    private function notifyApplied(int $messageId, AppliedAnalysis $applied): void
     {
         // One owner for the callback, shared with the deferred pass — see
         // Service\LinkedMessageNotifier, which exists because only this
@@ -366,7 +372,7 @@ class MailboxSyncService
             $this->messageRepository,
             $this->consumerRegistry,
             $this->analysisJournal
-        ))->notify($messageId, $created);
+        ))->notify($messageId, $applied->links, $applied->candidates);
     }
 
     private function storeAttachments(

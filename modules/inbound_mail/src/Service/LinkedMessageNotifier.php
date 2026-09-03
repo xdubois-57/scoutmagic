@@ -10,6 +10,7 @@ namespace Modules\InboundMail\Service;
 
 use Modules\InboundMail\Api\MessageConsumerInterface;
 use Modules\InboundMail\Api\MessageLink;
+use Modules\InboundMail\Api\PropositionListener;
 use Modules\InboundMail\Repository\InboundMessageRepository;
 
 /**
@@ -45,9 +46,12 @@ class LinkedMessageNotifier
     /**
      * @param array<int, array{consumerId: string, link: MessageLink}> $created
      *   exactly what `AnalysisResultApplier::apply()` returns
+     * @param array<int, array{consumerId: string, candidate: \Modules\InboundMail\Api\MessageCandidate}> $proposed
      */
-    public function notify(int $messageId, array $created): void
+    public function notify(int $messageId, array $created, array $proposed = []): void
     {
+        $this->notifyProposed($messageId, $proposed);
+
         foreach ($created as $entry) {
             $consumer = $this->consumerRegistry->find($entry['consumerId']);
             if ($consumer === null) {
@@ -85,6 +89,52 @@ class LinkedMessageNotifier
                 AnalysisJournal::PASS_FILING,
                 $e
             );
+        }
+    }
+
+    /**
+     * Tell each consumer that implements `Api\PropositionListener` about
+     * the propositions of its own that were just written — grouped, so a
+     * message with two candidates of one module is one call, and one
+     * notification to whoever settles them.
+     *
+     * @param array<int, array{consumerId: string, candidate: \Modules\InboundMail\Api\MessageCandidate}> $proposed
+     */
+    private function notifyProposed(int $messageId, array $proposed): void
+    {
+        if ($proposed === []) {
+            return;
+        }
+
+        $byConsumer = [];
+        foreach ($proposed as $entry) {
+            $byConsumer[$entry['consumerId']][] = $entry['candidate'];
+        }
+
+        $stored = null;
+        foreach ($byConsumer as $consumerId => $candidates) {
+            $consumer = $this->consumerRegistry->find($consumerId);
+            if (!$consumer instanceof PropositionListener) {
+                continue;
+            }
+
+            $stored ??= $this->messageRepository->findAnyForAnalysis($messageId);
+            if ($stored === null) {
+                return;
+            }
+
+            try {
+                $consumer->onProposed($stored, $candidates);
+            } catch (\Throwable $e) {
+                // The propositions are written; a notification that could
+                // not go out must not undo the analysis that made them.
+                $this->analysisJournal?->failed(
+                    $consumerId,
+                    $stored->mailboxId,
+                    AnalysisJournal::PASS_FILING,
+                    $e
+                );
+            }
         }
     }
 }

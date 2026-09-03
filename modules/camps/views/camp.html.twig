@@ -351,34 +351,29 @@
             </p>
             <div class="d-flex flex-column gap-2">
                 {% for message in messages %}
-                    {# Un <details> natif plutôt qu'un dépliage maison : il
-                       s'ouvre au clavier, s'imprime ouvert et ne demande aucun
+                    {# A native <details> rather than a home-made toggle: it
+                       opens from the keyboard, prints open and needs no
                        script. #}
                     <details class="border rounded p-3">
-                        <summary class="d-flex flex-wrap justify-content-between gap-2">
-                            <span class="min-w-0">
-                                <span class="fw-semibold">{{ message.subject ?: 'Sans objet' }}</span>
-                                <span class="d-block small text-body-secondary">{{ message.displayFrom() }}</span>
+                        {# The summary stays a block: `d-flex` on it hid the
+                           disclosure marker, and the card read as static. #}
+                        <summary>
+                            <span class="d-inline-flex flex-wrap justify-content-between gap-2 w-100 align-top" style="width: calc(100% - 1.5rem) !important">
+                                <span class="min-w-0">
+                                    <span class="fw-semibold">{{ message.subject ?: 'Sans objet' }}</span>
+                                    <span class="d-block small text-body-secondary">{{ message.displayFrom() }}</span>
+                                </span>
+                                <span class="small text-body-secondary text-nowrap">{{ message.sentAt|date_fr }}</span>
                             </span>
-                            <span class="small text-body-secondary text-nowrap">{{ message.sentAt|date_fr }}</span>
                         </summary>
 
-                        <div class="mt-3 camps-message-body">
-                            {% if message.bodyHtml is not empty %}
-                                {# Déjà assaini et débarrassé des images distantes au
-                                   stockage (§8.58), jamais au rendu. #}
-                                {{ message.bodyHtml|raw }}
-                            {% else %}
-                                <pre class="mb-0 text-body-secondary" style="white-space: pre-wrap;">{{ message.bodyText }}</pre>
-                            {% endif %}
+                        <div class="mt-3">
+                            {% include '@inbound_mail/partials/message_body.html.twig' with { message: message } only %}
                         </div>
 
-                        {% if message.hasAttachments() %}
-                            <div class="small mt-3">
-                                <i class="bi bi-paperclip" aria-hidden="true"></i>
-                                {% for attachment in message.attachments %}
-                                    <a href="{{ file_url(attachment.fileId) }}">{{ attachment.filename }}</a>{{ loop.last ? '' : ', ' }}
-                                {% endfor %}
+                        {% if message.hasAttachments() or message.hasOmittedAttachments() %}
+                            <div class="mt-3">
+                                {% include '@inbound_mail/partials/attachments.html.twig' with { message: message, downloadable: true } only %}
                             </div>
                         {% endif %}
                     </details>

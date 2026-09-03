@@ -26,6 +26,7 @@ use Modules\InboundMail\Service\MailboxClientFactory;
 use Modules\InboundMail\Service\MailboxErrorFormatter;
 use Modules\InboundMail\Service\MailboxScopeService;
 use Modules\InboundMail\Service\MailboxSyncService;
+use Modules\InboundMail\Service\ReplyAddressService;
 use Modules\InboundMail\Service\MessageConsumerRegistry;
 use Modules\InboundMail\Service\MessageContentSanitizer;
 use Modules\InboundMail\Service\StorageQuotaService;
@@ -113,7 +114,11 @@ class SyncMailboxesHandler implements TaskHandlerInterface
          * message stored, and one per consumer that threw. Null writes
          * nothing.
          */
-        private ?AnalysisJournal $analysisJournal = null
+        private ?AnalysisJournal $analysisJournal = null,
+        /**
+         * Recognises the signed reply addresses this site minted (§8.58).
+         */
+        private ?ReplyAddressService $replyAddresses = null
     ) {
     }
 
@@ -139,7 +144,8 @@ class SyncMailboxesHandler implements TaskHandlerInterface
                 $this->quotaService,
                 new FileRepository($pdo),
                 $this->scopeService,
-                $this->analysisJournal
+                $this->analysisJournal,
+                $this->replyAddresses
             );
 
             $service->syncAll(new \DateTimeImmutable());

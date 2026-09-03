@@ -110,6 +110,35 @@ class CampsMessageConsumerTest extends TestCase
         $this->assertNull($this->consumer()->claim($this->message('lambert@example.org')));
     }
 
+    public function testACancelledStayDoesNotCompeteForItsContactsMessage(): void
+    {
+        // A stay cancelled and re-booked with the same farmer used to turn
+        // every one of their messages into two propositions for sixteen
+        // months. The cancelled one is out of the rule.
+        $cancelled = $this->camps->create(
+            1, Camp::STAY_GRAND_CAMP, '2026-08-01', '2026-08-08', null,
+            Camp::STATUS_CANCELLED, null, null, null, null, []
+        );
+        $this->contacts->create($this->campId, null, null, 'lambert@example.org', null, null);
+        $this->contacts->create($cancelled, null, null, 'lambert@example.org', null, null);
+
+        $result = $this->consumer()->analyze($this->message('lambert@example.org'));
+
+        $this->assertSame([], $result->candidates);
+        $this->assertSame('camp-' . $this->campId, $result->links[0]->businessReference);
+    }
+
+    public function testACancelledStayIsNeverMatchedByItsPeriod(): void
+    {
+        $this->pdo->exec("UPDATE camp_camps SET status = 'cancelled' WHERE id = " . $this->campId);
+
+        $this->assertTrue(
+            $this->consumerWithMatcher()
+                ->analyze($this->periodMessage('Du 12 au 19 juillet 2026', self::DEDICATED_MAILBOX))
+                ->isEmpty()
+        );
+    }
+
     public function testAReplyInAKnownThreadIsClaimed(): void
     {
         $inbound = $this->createStub(InboundMailInterface::class);
@@ -242,6 +271,37 @@ class CampsMessageConsumerTest extends TestCase
             'camp-' . $this->campId,
             $consumer->analyzeStored($this->unattachedMessage(self::DEDICATED_MAILBOX))->links[0]->businessReference
         );
+    }
+
+    public function testAReferenceIsNamedTheWayThePickerNamesTheStay(): void
+    {
+        // « Camps — camp-51 » on a green badge told a Chef d'Unité nothing.
+        $consumer = new CampsMessageConsumer($this->camps, $this->pdo, $this->encryption);
+
+        $label = $consumer->describeReference('camp-' . $this->campId);
+
+        $this->assertNotNull($label);
+        $this->assertStringContainsString('Domaine de Mozet', $label);
+        $this->assertNull($consumer->describeReference('camp-999'));
+        $this->assertNull($consumer->describeReference('LOC-2027-0042'));
+    }
+
+    public function testTheDirectoryFindsAStayByItsPlaceAndSaysWhereItLives(): void
+    {
+        $consumer = new CampsMessageConsumer(
+            $this->camps, $this->pdo, $this->encryption,
+            null, null, null, null, null,
+            new \Modules\Camps\Service\StaySearchService($this->camps)
+        );
+
+        $found = $consumer->searchReferences('mozet');
+        $this->assertSame('camp-' . $this->campId, $found[0]->businessReference);
+        $this->assertStringContainsString('Domaine de Mozet', $found[0]->label);
+
+        // Typed in full, the reference is offered as itself.
+        $this->assertSame('camp-' . $this->campId, $consumer->searchReferences('camp-' . $this->campId)[0]->businessReference);
+        $this->assertSame('/chefs/camps/sejours/' . $this->campId, $consumer->referenceUrl('camp-' . $this->campId));
+        $this->assertNull($consumer->referenceUrl('camp-999'));
     }
 
     public function testOnlyAStayReferenceReadsBackAsAStay(): void
@@ -569,6 +629,74 @@ class CampsMessageConsumerTest extends TestCase
         $result = $consumer->analyzeStored($this->unattachedMessage(self::DEDICATED_MAILBOX));
 
         $this->assertSame('camp-' . $this->campId, $result->links[0]->businessReference);
+        // The stay exists because of the dates read in the content, and
+        // that is what the chief reads next to the association — not
+        // « adresse de l'expéditeur », which played no part.
+        $this->assertSame(LinkOrigin::PERIOD, $result->links[0]->origin);
+    }
+
+    public function testTheChiefsAreToldOfAStayCreatedFromAMessage(): void
+    {
+        $stayFromMail = $this->createMock(\Modules\Camps\Mail\StayFromMailService::class);
+        $stayFromMail->method('isAutomatic')->willReturn(true);
+        $stayFromMail->method('createFrom')->willReturn($this->campId);
+        $notifier = $this->createMock(\Modules\Camps\Mail\CampsMailNotifier::class);
+        $notifier->expects($this->once())->method('stayCreated')->with(
+            $this->callback(fn(Camp $camp): bool => $camp->id === $this->campId),
+            $this->callback(static fn(string $label): bool => str_contains($label, 'juillet 2026'))
+        );
+
+        $consumer = new CampsMessageConsumer(
+            $this->camps, $this->pdo, $this->encryption,
+            $this->dedicatedTo(self::DEDICATED_MAILBOX), null, null, $stayFromMail,
+            notifier: $notifier
+        );
+
+        $consumer->analyzeStored($this->unattachedMessage(self::DEDICATED_MAILBOX));
+    }
+
+    public function testNoStayCreatedMeansNobodyIsTold(): void
+    {
+        $stayFromMail = $this->createMock(\Modules\Camps\Mail\StayFromMailService::class);
+        $stayFromMail->method('isAutomatic')->willReturn(true);
+        $stayFromMail->method('createFrom')->willReturn(null);
+        $notifier = $this->createMock(\Modules\Camps\Mail\CampsMailNotifier::class);
+        $notifier->expects($this->never())->method('stayCreated');
+
+        $consumer = new CampsMessageConsumer(
+            $this->camps, $this->pdo, $this->encryption,
+            $this->dedicatedTo(self::DEDICATED_MAILBOX), null, null, $stayFromMail,
+            notifier: $notifier
+        );
+
+        $this->assertTrue($consumer->analyzeStored($this->unattachedMessage(self::DEDICATED_MAILBOX))->isEmpty());
+    }
+
+    public function testAPropositionTellsTheChiefsWhichStays(): void
+    {
+        $second = $this->camps->create(
+            1, Camp::STAY_GRAND_CAMP, '2026-07-20', '2026-07-27', null,
+            Camp::STATUS_CONFIRMED, null, null, null, null, []
+        );
+        $notifier = $this->createMock(\Modules\Camps\Mail\CampsMailNotifier::class);
+        $notifier->expects($this->once())->method('proposed')->with(
+            $this->callback(fn(array $camps): bool
+                => array_map(static fn(Camp $c) => $c->id, $camps) === [$this->campId, $second]),
+            $this->callback(fn(array $labels): bool
+                => str_contains($labels[$this->campId] ?? '', '12–19 juillet 2026') && isset($labels[$second]))
+        );
+
+        $consumer = new CampsMessageConsumer(
+            $this->camps, $this->pdo, $this->encryption, null, notifier: $notifier
+        );
+        $consumer->onProposed(
+            $this->unattachedMessage(self::SHARED_MAILBOX),
+            [
+                new \Modules\InboundMail\Api\MessageCandidate('camp-' . $this->campId, 'a', 'sender_window', 'x'),
+                new \Modules\InboundMail\Api\MessageCandidate('camp-' . $second, 'b', 'sender_window', 'x'),
+                new \Modules\InboundMail\Api\MessageCandidate('camp-99999', 'c', 'sender_window', 'x'),
+            ]
+        );
     }
 
     public function testAMessageOnASharedBoxIsNeverTurnedIntoAStay(): void
@@ -942,7 +1070,7 @@ class CampsMessageConsumerTest extends TestCase
         return new \Modules\Camps\Mail\ExistingStayMatcher($this->camps, new \Modules\Camps\Mail\MessageReader());
     }
 
-    private function consumerWithMatcher(): CampsMessageConsumer
+    private function consumerWithMatcher(?\Modules\Camps\Mail\StayChoiceByModel $modelChoice = null): CampsMessageConsumer
     {
         return new CampsMessageConsumer(
             $this->camps,
@@ -952,7 +1080,192 @@ class CampsMessageConsumerTest extends TestCase
             null,
             null,
             null,
-            $this->matcher()
+            $this->matcher(),
+            null,
+            $modelChoice
+        );
+    }
+
+    // ── Two signals crossed: the sender's stays, narrowed by the period ──
+
+    public function testThePeriodInTheMessageTellsTwoStaysOfOneContactApart(): void
+    {
+        // The farmer who hosts the unit every summer: two stays in the
+        // window under one address, and the dates in the message are
+        // what a chief would read to tell them apart. So does the module.
+        $second = $this->camps->create(
+            1, Camp::STAY_GRAND_CAMP, '2026-07-20', '2026-07-27', null,
+            Camp::STATUS_CONFIRMED, null, null, null, null, []
+        );
+        $this->contacts->create($this->campId, null, null, 'lambert@example.org', null, null);
+        $this->contacts->create($second, null, null, 'lambert@example.org', null, null);
+
+        $result = $this->consumerWithMatcher()->analyze(
+            $this->message('lambert@example.org', 'Confirmation du 20 au 27 juillet 2026')
+        );
+
+        $this->assertSame([], $result->candidates);
+        $this->assertCount(1, $result->links);
+        $this->assertSame('camp-' . $second, $result->links[0]->businessReference);
+        $this->assertSame(LinkOrigin::SENDER, $result->links[0]->origin);
+    }
+
+    public function testAPeriodMatchingNeitherOfTheSendersStaysLeavesBothProposed(): void
+    {
+        $second = $this->camps->create(
+            1, Camp::STAY_GRAND_CAMP, '2026-07-20', '2026-07-27', null,
+            Camp::STATUS_CONFIRMED, null, null, null, null, []
+        );
+        $this->contacts->create($this->campId, null, null, 'lambert@example.org', null, null);
+        $this->contacts->create($second, null, null, 'lambert@example.org', null, null);
+
+        $result = $this->consumerWithMatcher()->analyze(
+            $this->message('lambert@example.org', 'Vos dates du 1 au 8 août 2026 ?')
+        );
+
+        $this->assertSame([], $result->links);
+        $this->assertCount(2, $result->candidates);
+    }
+
+    public function testAPeriodNamingAStrangersStayDoesNotOverrideTheSender(): void
+    {
+        // The period narrows the sender's list; it never adds to it. A
+        // farmer mentioning dates that happen to be another stay's is
+        // still writing about one of their own.
+        $second = $this->camps->create(
+            1, Camp::STAY_GRAND_CAMP, '2026-07-20', '2026-07-27', null,
+            Camp::STATUS_CONFIRMED, null, null, null, null, []
+        );
+        $other = $this->camps->create(
+            1, Camp::STAY_SHORT_CAMP, '2026-06-06', '2026-06-07', null,
+            Camp::STATUS_CONFIRMED, null, null, null, null, []
+        );
+        $this->contacts->create($this->campId, null, null, 'lambert@example.org', null, null);
+        $this->contacts->create($second, null, null, 'lambert@example.org', null, null);
+
+        $result = $this->consumerWithMatcher()->analyze(
+            $this->message('lambert@example.org', 'Le week-end du 6 au 7 juin 2026')
+        );
+
+        $this->assertSame([], $result->links);
+        $this->assertNotContains(
+            'camp-' . $other,
+            array_map(static fn($c) => $c->businessReference, $result->candidates)
+        );
+    }
+
+    // ── The model, last, and only to order (§8.59) ───────────────────────
+
+    public function testTheModelsPickLeadsThePropositionsAndAssociatesNothing(): void
+    {
+        $second = $this->camps->create(
+            1, Camp::STAY_GRAND_CAMP, '2026-07-20', '2026-07-27', null,
+            Camp::STATUS_CONFIRMED, null, null, null, null, []
+        );
+        $this->contacts->create($this->campId, null, null, 'lambert@example.org', null, null);
+        $this->contacts->create($second, null, null, 'lambert@example.org', null, null);
+        $llm = new \Tests\Modules\InboundMail\ScriptedLlm('camp-' . $second);
+
+        $result = $this->consumerWithMatcher(new \Modules\Camps\Mail\StayChoiceByModel($llm))->analyze(
+            $this->message('lambert@example.org', 'Le pré pour la fin juillet')
+        );
+
+        $this->assertSame([], $result->links, 'the model never associates');
+        $this->assertSame(
+            ['camp-' . $second, 'camp-' . $this->campId],
+            array_map(static fn($c) => $c->businessReference, $result->candidates)
+        );
+        $this->assertSame('ai', $result->candidates[0]->evidenceType);
+        $this->assertStringContainsString('Le modèle suggère', $result->candidates[0]->explanation);
+        $this->assertSame('sender_window', $result->candidates[1]->evidenceType);
+        $this->assertSame(1, $llm->calls);
+    }
+
+    public function testTheModelIsNotAskedWhenThePeriodAlreadyDecided(): void
+    {
+        $second = $this->camps->create(
+            1, Camp::STAY_GRAND_CAMP, '2026-07-20', '2026-07-27', null,
+            Camp::STATUS_CONFIRMED, null, null, null, null, []
+        );
+        $this->contacts->create($this->campId, null, null, 'lambert@example.org', null, null);
+        $this->contacts->create($second, null, null, 'lambert@example.org', null, null);
+        $llm = new \Tests\Modules\InboundMail\ScriptedLlm('camp-' . $this->campId);
+
+        $result = $this->consumerWithMatcher(new \Modules\Camps\Mail\StayChoiceByModel($llm))->analyze(
+            $this->message('lambert@example.org', 'Confirmation du 20 au 27 juillet 2026')
+        );
+
+        $this->assertCount(1, $result->links);
+        $this->assertSame(0, $llm->calls);
+    }
+
+    // ── onLinked(): a person's decision teaches the stay ─────────────────
+
+    public function testAManualAssociationMakesTheSenderAContactOfTheStay(): void
+    {
+        // The farmer's spouse writes from their own address. Filing that
+        // message by hand is the chief saying « cette adresse, c'est ce
+        // séjour » — said once, remembered for the next message.
+        $consumer = $this->consumer();
+        $message = $this->messageFrom('epouse@example.org', 'Marie Lambert', LinkOrigin::MANUAL);
+
+        $consumer->onLinked($message, new MessageLink(
+            CampsMessageConsumer::CONSUMER_ID,
+            'camp-' . $this->campId,
+            LinkOrigin::MANUAL
+        ));
+
+        $contacts = $this->contacts->findByCamp($this->campId);
+        $this->assertCount(1, $contacts);
+        $this->assertSame('epouse@example.org', $contacts[0]->email);
+        $this->assertSame('Marie Lambert', $contacts[0]->name);
+        $this->assertSame('Correspondant', $contacts[0]->roleLabel);
+
+        $this->assertCount(1, $consumer->analyze($this->message('epouse@example.org'))->links);
+    }
+
+    public function testAKnownAddressIsNotAddedTwice(): void
+    {
+        $this->contacts->create($this->campId, 'M. Lambert', 'Fermier', 'lambert@example.org', null, null);
+
+        $this->consumer()->onLinked(
+            $this->messageFrom('Lambert@Example.org', null, LinkOrigin::MANUAL),
+            new MessageLink(CampsMessageConsumer::CONSUMER_ID, 'camp-' . $this->campId, LinkOrigin::MANUAL)
+        );
+
+        $contacts = $this->contacts->findByCamp($this->campId);
+        $this->assertCount(1, $contacts);
+        $this->assertSame('Fermier', $contacts[0]->roleLabel, 'the contact the chief typed is left alone');
+    }
+
+    public function testAnAutomaticAssociationTeachesNothing(): void
+    {
+        $this->consumer()->onLinked(
+            $this->messageFrom('quelquun@example.org', null, LinkOrigin::THREAD),
+            new MessageLink(CampsMessageConsumer::CONSUMER_ID, 'camp-' . $this->campId, LinkOrigin::THREAD)
+        );
+
+        $this->assertSame([], $this->contacts->findByCamp($this->campId));
+    }
+
+    private function messageFrom(string $from, ?string $name, LinkOrigin $origin): \Modules\InboundMail\Api\InboundMessage
+    {
+        return new \Modules\InboundMail\Api\InboundMessage(
+            1,
+            self::SHARED_MAILBOX,
+            CampsMessageConsumer::CONSUMER_ID,
+            'camp-' . $this->campId,
+            $origin,
+            'Bonjour',
+            $from,
+            $name,
+            '<msg@mail>',
+            null,
+            new \DateTimeImmutable('2026-06-01'),
+            'Corps',
+            '',
+            [],
+            []
         );
     }
 

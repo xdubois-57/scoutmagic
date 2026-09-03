@@ -1,11 +1,12 @@
 ---
 id: courrier-orienter
 title: Orienter un message
-summary: Confirmer une proposition, retirer une association, et ce qui disparaît quand.
+summary: Confirmer une proposition, rattacher à la main, détacher, et ce qui disparaît quand.
 category: Espace chefs d'U
 role_min: admin
 question: Comment classer un e-mail reçu dans le bon dossier ?
-question: Comment défaire une association faite par erreur ?
+question: Comment rattacher à la main un e-mail qu'aucun module n'a reconnu ?
+question: Comment défaire un rattachement fait par erreur ?
 paths: /courrier/*
 related: courrier-unite, courrier-entrant
 ---
@@ -13,21 +14,28 @@ related: courrier-unite, courrier-entrant
 ## Ouvrir un message
 
 Vous y trouverez le message tel qu'il est arrivé, ses pièces jointes,
-et deux listes distinctes.
+et trois blocs.
 
-**Les associations** — ce à quoi le message est rattaché. « Retirer »
-enlève **une** association : ni le message, ni les autres associations
-ne disparaissent. C'est voulu — retirer une association est presque
-toujours une correction, et faire disparaître le message empêcherait
-de le rattacher au bon dossier.
+**Les rattachements** — ce à quoi le message est rattaché. Chaque ligne
+mène à l'élément concerné, séjour, réservation ou compte. « Détacher »
+enlève **un** rattachement : ni le message, ni les autres rattachements
+ne disparaissent. C'est voulu — détacher est presque toujours une
+correction, et faire disparaître le message empêcherait de le
+rattacher au bon dossier.
 
 **Les propositions** — ce qu'un module pense pouvoir rattacher, sans
-en être sûr. Chacune dit sur quoi elle repose. « Associer » la
+en être sûr. Chacune dit sur quoi elle repose. « Rattacher » la
 confirme ; « Écarter » la retire définitivement. Quand plusieurs
 cibles sont possibles, le site n'en choisit aucune : mettre un message
 sur le mauvais dossier est pire que ne pas le rattacher, car le
 gestionnaire qui lit le mauvais dossier n'a aucun moyen de s'en
 apercevoir.
+
+**« Rattacher à… »** — pour un message qu'aucun module n'a reconnu ni
+proposé. Choisissez le module, tapez ce que vous diriez à voix haute (un
+lieu et un mois, le nom d'un locataire, une référence) et choisissez la
+cible dans la liste. Rattacher n'enlève rien : un même message peut
+appartenir à un séjour et à une facture à la fois.
 
 Écarter une proposition **ne conserve pas** le message. « Écarter »
 veut dire « ce message ne concerne pas ce module » — le prendre pour

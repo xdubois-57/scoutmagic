@@ -2,7 +2,7 @@
   "id": "finance",
   "name": "Finances",
   "description": "Gestion financière de l'unité : comptes, exercices, catégorisation, import de relevés bancaires, mouvements, reçus.",
-  "version": "1.21.2",
+  "version": "1.23.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -16,7 +16,12 @@
       "menu_icon": "bi-cash-coin",
       "menu_group": "gestion",
       "menu_order": 10,
-      "breadcrumb": { "label": "Finances", "parents": ["Espace animateurs"] }
+      "breadcrumb": {
+        "label": "Finances",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
     },
     {
       "path": "/finance/receivables",
@@ -26,7 +31,18 @@
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": "",
-      "breadcrumb": { "label": "Paiements attendus", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Finances", "path": "/finance" }] }
+      "breadcrumb": {
+        "label": "Paiements attendus",
+        "parents": [
+          "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Finances",
+            "path": "/finance"
+          }
+        ]
+      }
     },
     {
       "path": "/finance/campaigns",
@@ -36,7 +52,18 @@
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": "",
-      "breadcrumb": { "label": "Campagnes", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Finances", "path": "/finance" }] }
+      "breadcrumb": {
+        "label": "Campagnes",
+        "parents": [
+          "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Finances",
+            "path": "/finance"
+          }
+        ]
+      }
     },
     {
       "path": "/finance/campaigns/new",
@@ -46,7 +73,18 @@
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": "",
-      "breadcrumb": { "label": "Nouvelle campagne", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Campagnes", "path": "/finance/campaigns" }] }
+      "breadcrumb": {
+        "label": "Nouvelle campagne",
+        "parents": [
+          "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Campagnes",
+            "path": "/finance/campaigns"
+          }
+        ]
+      }
     },
     {
       "path": "/finance/campaigns",
@@ -56,7 +94,18 @@
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": "",
-      "breadcrumb": { "label": "Nouvelle campagne", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Campagnes", "path": "/finance/campaigns" }] }
+      "breadcrumb": {
+        "label": "Nouvelle campagne",
+        "parents": [
+          "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Campagnes",
+            "path": "/finance/campaigns"
+          }
+        ]
+      }
     },
     {
       "path": "/finance/campaigns/{id}",
@@ -66,7 +115,18 @@
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": "",
-      "breadcrumb": { "label": "Campagne", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Campagnes", "path": "/finance/campaigns" }] }
+      "breadcrumb": {
+        "label": "Campagne",
+        "parents": [
+          "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Campagnes",
+            "path": "/finance/campaigns"
+          }
+        ]
+      }
     },
     {
       "path": "/finance/campaigns/{id}/export",
@@ -148,7 +208,18 @@
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": "",
-      "breadcrumb": { "label": "Rapprochement", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Finances", "path": "/finance" }] }
+      "breadcrumb": {
+        "label": "Rapprochement",
+        "parents": [
+          "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Finances",
+            "path": "/finance"
+          }
+        ]
+      }
     },
     {
       "path": "/finance/reconciliation/creances",
@@ -194,7 +265,18 @@
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": "",
-      "breadcrumb": { "label": "QR de paiement", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Paiements attendus", "path": "/finance/receivables" }] }
+      "breadcrumb": {
+        "label": "QR de paiement",
+        "parents": [
+          "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Paiements attendus",
+            "path": "/finance/receivables"
+          }
+        ]
+      }
     },
     {
       "path": "/finance/tools",
@@ -204,7 +286,18 @@
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": "",
-      "breadcrumb": { "label": "Outils", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Finances", "path": "/finance" }] }
+      "breadcrumb": {
+        "label": "Outils",
+        "parents": [
+          "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Finances",
+            "path": "/finance"
+          }
+        ]
+      }
     },
     {
       "path": "/finance/tools/qr",
@@ -214,7 +307,12 @@
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": "",
-      "breadcrumb": { "label": "Outils", "parents": ["Espace animateurs"] }
+      "breadcrumb": {
+        "label": "Outils",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
     },
     {
       "path": "/finance/tools/communication",
@@ -224,7 +322,12 @@
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": "",
-      "breadcrumb": { "label": "Outils", "parents": ["Espace animateurs"] }
+      "breadcrumb": {
+        "label": "Outils",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
     },
     {
       "path": "/finance/movements",
@@ -234,7 +337,18 @@
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": "",
-      "breadcrumb": { "label": "Mouvements", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Finances", "path": "/finance" }] }
+      "breadcrumb": {
+        "label": "Mouvements",
+        "parents": [
+          "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Finances",
+            "path": "/finance"
+          }
+        ]
+      }
     },
     {
       "path": "/finance/movements/export",
@@ -262,7 +376,18 @@
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": "",
-      "breadcrumb": { "label": "Importer", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Finances", "path": "/finance" }] }
+      "breadcrumb": {
+        "label": "Importer",
+        "parents": [
+          "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Finances",
+            "path": "/finance"
+          }
+        ]
+      }
     },
     {
       "path": "/finance/import",
@@ -272,7 +397,12 @@
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": "",
-      "breadcrumb": { "label": "Résultat d'import", "parents": ["Espace animateurs"] }
+      "breadcrumb": {
+        "label": "Résultat d'import",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
     },
     {
       "path": "/finance/receipts",
@@ -282,7 +412,18 @@
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": "",
-      "breadcrumb": { "label": "Reçus", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Finances", "path": "/finance" }] }
+      "breadcrumb": {
+        "label": "Reçus",
+        "parents": [
+          "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Finances",
+            "path": "/finance"
+          }
+        ]
+      }
     },
     {
       "path": "/finance/receipts/new",
@@ -292,7 +433,18 @@
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": "",
-      "breadcrumb": { "label": "Nouveau reçu", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Reçus", "path": "/finance/receipts" }] }
+      "breadcrumb": {
+        "label": "Nouveau reçu",
+        "parents": [
+          "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Reçus",
+            "path": "/finance/receipts"
+          }
+        ]
+      }
     },
     {
       "path": "/finance/receipts/search",
@@ -335,6 +487,24 @@
       "method": "POST",
       "controller": "Modules\\Finance\\Controller\\ReceiptController",
       "action": "replace",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
+      "path": "/finance/receipts/courrier/{id}/confirmation",
+      "method": "POST",
+      "controller": "Modules\\Finance\\Controller\\ReceiptController",
+      "action": "confirmMailProposition",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
+      "path": "/finance/receipts/courrier/{id}/rejet",
+      "method": "POST",
+      "controller": "Modules\\Finance\\Controller\\ReceiptController",
+      "action": "dismissMailProposition",
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": ""
@@ -412,7 +582,12 @@
       "label": "Finances",
       "menu_icon": "bi-cash-coin",
       "menu_group": "modules",
-      "breadcrumb": { "label": "Finances", "parents": ["Configuration"] }
+      "breadcrumb": {
+        "label": "Finances",
+        "parents": [
+          "Configuration"
+        ]
+      }
     },
     {
       "path": "/config/finance/accounts",
@@ -422,7 +597,18 @@
       "menu": "configuration",
       "role_min": "superadmin",
       "label": "",
-      "breadcrumb": { "label": "Comptes", "parents": ["Configuration"], "ancestors": [{ "label": "Finances", "path": "/config/finance" }] }
+      "breadcrumb": {
+        "label": "Comptes",
+        "parents": [
+          "Configuration"
+        ],
+        "ancestors": [
+          {
+            "label": "Finances",
+            "path": "/config/finance"
+          }
+        ]
+      }
     },
     {
       "path": "/config/finance/accounts",
@@ -441,7 +627,18 @@
       "menu": "configuration",
       "role_min": "superadmin",
       "label": "",
-      "breadcrumb": { "label": "Catégories", "parents": ["Configuration"], "ancestors": [{ "label": "Finances", "path": "/config/finance" }] }
+      "breadcrumb": {
+        "label": "Catégories",
+        "parents": [
+          "Configuration"
+        ],
+        "ancestors": [
+          {
+            "label": "Finances",
+            "path": "/config/finance"
+          }
+        ]
+      }
     },
     {
       "path": "/config/finance/categories",
@@ -514,6 +711,18 @@
         "in_app": "default_on",
         "push": "default_on",
         "email": "default_off"
+      }
+    },
+    {
+      "id": "finance.mail_proposition",
+      "label": "Reçu arrivé par e-mail à confirmer",
+      "description": "Une pièce jointe reçue par e-mail pourrait être un reçu d'un compte de l'unité : rien n'est enregistré tant qu'un trésorier ne l'a pas confirmé dans « Courrier à trier ».",
+      "group": "Finances",
+      "role_min": "chief",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "off"
       }
     }
   ],

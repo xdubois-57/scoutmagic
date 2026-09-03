@@ -37,6 +37,7 @@ class GeneralMailboxTest extends TestCase
     private \PDO $pdo;
     private InboundMessageRepository $messages;
     private GeneralMailboxService $mailbox;
+    private FakeMessageConsumer $consumer;
     private int $mailboxId;
     private int $otherMailboxId;
 
@@ -50,7 +51,8 @@ class GeneralMailboxTest extends TestCase
         $mailboxes = new InboundMailboxRepository($this->pdo, $encryption);
 
         $registry = new MessageConsumerRegistry();
-        $registry->register(new FakeMessageConsumer('rental'));
+        $this->consumer = new FakeMessageConsumer('rental');
+        $registry->register($this->consumer);
         $this->mailbox = new GeneralMailboxService($this->messages, $mailboxes, $registry);
 
         $this->mailboxId = $mailboxes->create('Unité', ProviderType::FAKE, 'h', 993, 'ssl', 'a@b.be', 's', [], true);
@@ -207,6 +209,23 @@ class GeneralMailboxTest extends TestCase
         $this->assertSame(LinkOrigin::MANUAL, $links[0]->origin);
         $this->assertSame('rental', $links[0]->consumerId);
         $this->assertSame('LOC-1', $links[0]->businessReference);
+    }
+
+    public function testTheConsumerIsToldWhoConfirmed(): void
+    {
+        // The row named the author and the callback did not, so a module
+        // that files something « only ever by a person » saw nobody and
+        // took its unattended route on every confirmation made here.
+        $id = $this->store('m@x');
+        $this->addCandidate($id);
+        $candidate = $this->mailbox->candidatesFor($id)[0];
+
+        $this->mailbox->confirmCandidate($id, $candidate->id, 7);
+
+        $this->assertCount(1, $this->consumer->linked);
+        [, $link] = $this->consumer->linked[0];
+        $this->assertSame(LinkOrigin::MANUAL, $link->origin);
+        $this->assertSame(7, $link->createdByUserAccountId);
     }
 
     public function testAConfirmedPropositionStopsBeingAsked(): void

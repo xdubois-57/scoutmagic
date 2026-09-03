@@ -154,6 +154,9 @@
     "/finance/receipts/{id}": {
       "id": "1"
     },
+    "/finance/receipts/courrier/{id}": {
+      "id": "1"
+    },
     "/gallery/media/{media_id}": {
       "media_id": "1",
       "size": "192"

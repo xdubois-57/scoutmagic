@@ -58,8 +58,30 @@ class InboundMailConfigController extends AbstractController
          * Null means the button is not offered rather than offered and
          * inert — a button that does nothing is worse than none.
          */
-        private ?ManualRefreshService $refreshService = null
+        private ?ManualRefreshService $refreshService = null,
+        /**
+         * Read for one thing: whether a real cron has run lately. On shared
+         * hosting without one the relève only happens on page views, and a
+         * unit that does not know it reads the delay as a broken box.
+         */
+        private ?\Core\Config\SettingService $settings = null
     ) {
+    }
+
+    /**
+     * Whether a real cron has run recently — the same signal and window
+     * the push-notification and rental pages use: `cron_last_run` is
+     * stamped only by `public/cron.php`, never by a web request.
+     */
+    private function cronDetected(): bool
+    {
+        if ($this->settings === null) {
+            return true;
+        }
+
+        $lastRun = (int) ($this->settings->get('cron_last_run') ?: 0);
+
+        return $lastRun > 0 && (time() - $lastRun) < 600;
     }
 
     /**
@@ -82,6 +104,7 @@ class InboundMailConfigController extends AbstractController
             'scope_summaries' => $summaries,
             'stored_counts' => $this->adminService->storedMessageCounts(),
             'can_refresh' => $this->refreshService !== null,
+            'cron_detected' => $this->cronDetected(),
             'csrf_token' => CsrfGuard::generateToken(),
         ]);
     }

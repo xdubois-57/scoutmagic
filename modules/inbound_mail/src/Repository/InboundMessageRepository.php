@@ -196,7 +196,48 @@ class InboundMessageRepository
             return false;
         }
 
+        // An association settles this consumer's question about the
+        // message, so its own propositions on it are set aside in the same
+        // movement. Without this a proposition survived the very decision
+        // it was asking for: the screen kept asking « est-ce LOC-42 ? »
+        // about a message somebody had just filed under LOC-42 by hand,
+        // and the standing proposition kept the message out of the
+        // retention purge for ever.
+        $this->dismissCandidatesSettledBy($messageId, $consumerId, $attachmentId, new \DateTimeImmutable());
+
         return true;
+    }
+
+    /**
+     * Set aside every proposition of one consumer that a new association
+     * has just answered.
+     *
+     * A whole-message association (attachment 0) answers all of that
+     * consumer's propositions on the message — they were alternatives to
+     * one question. An attachment-level one answers only the propositions
+     * about that attachment.
+     *
+     * @return int how many propositions were set aside
+     */
+    public function dismissCandidatesSettledBy(
+        int $messageId,
+        string $consumerId,
+        int $attachmentId,
+        \DateTimeImmutable $now
+    ): int {
+        $sql = 'UPDATE inbound_message_candidates SET dismissed_at = ?
+                 WHERE message_id = ? AND consumer_id = ? AND dismissed_at IS NULL';
+        $params = [$now->format('Y-m-d H:i:s'), $messageId, $consumerId];
+
+        if ($attachmentId !== 0) {
+            $sql .= ' AND attachment_id = ?';
+            $params[] = $attachmentId;
+        }
+
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+
+        return $stmt->rowCount();
     }
 
     public function hasLink(
@@ -296,7 +337,8 @@ class InboundMessageRepository
         int $messageId,
         string $consumerId,
         string $fromReference,
-        string $toReference
+        string $toReference,
+        ?int $userAccountId = null
     ): bool {
         if (!$this->hasLink($messageId, $consumerId, $fromReference)) {
             return false;
@@ -308,11 +350,24 @@ class InboundMessageRepository
             return true;
         }
 
+        // The origin becomes `manual` with the reference: a move is a
+        // person deciding where the message belongs, and a booking page
+        // that kept reading « adresse de l'expéditeur — rattachement
+        // incertain » after a manager moved it there presented their
+        // decision as the machine's guess (D20).
         $stmt = $this->pdo->prepare(
-            'UPDATE inbound_message_links SET business_reference = ?
+            'UPDATE inbound_message_links
+                SET business_reference = ?, link_origin = ?, created_by_user_account_id = ?
               WHERE message_id = ? AND consumer_id = ? AND business_reference = ?'
         );
-        $stmt->execute([$toReference, $messageId, $consumerId, $fromReference]);
+        $stmt->execute([
+            $toReference,
+            LinkOrigin::MANUAL->value,
+            $userAccountId,
+            $messageId,
+            $consumerId,
+            $fromReference,
+        ]);
 
         return $stmt->rowCount() > 0;
     }
@@ -440,6 +495,22 @@ class InboundMessageRepository
      * Whether a message still carries a proposition nobody has set aside —
      * what keeps it out of the retention purge.
      */
+    /**
+     * How many messages still carry an unsettled proposition of this
+     * consumer. Confirming and dismissing both settle one, and so does an
+     * association on the same object (`dismissCandidatesSettledBy()`).
+     */
+    public function countMessagesWithActiveCandidatesFor(string $consumerId): int
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(DISTINCT message_id) FROM inbound_message_candidates
+              WHERE consumer_id = ? AND dismissed_at IS NULL'
+        );
+        $stmt->execute([$consumerId]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
     public function hasActiveCandidates(int $messageId): bool
     {
         $stmt = $this->pdo->prepare(
@@ -712,6 +783,8 @@ class InboundMessageRepository
                 continue;
             }
 
+            $index = $this->messageIdIndex($candidate);
+
             $stmt = $this->pdo->prepare(
                 'SELECT l.business_reference, l.consumer_id
                    FROM inbound_messages m
@@ -719,7 +792,27 @@ class InboundMessageRepository
                   WHERE m.mailbox_id = ? AND l.consumer_id = ? AND m.message_id_blind_index = ?
                   LIMIT 1'
             );
-            $stmt->execute([$mailboxId, $consumerId, $this->messageIdIndex($candidate)]);
+            $stmt->execute([$mailboxId, $consumerId, $index]);
+            $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+            if (is_array($row)) {
+                return [
+                    'reference' => (string) $row['business_reference'],
+                    'consumer_id' => (string) $row['consumer_id'],
+                ];
+            }
+
+            // A message the SITE sent about the object: the ordinary
+            // first reply — « Re: votre réservation » with the reference
+            // gone from the subject — answers one of these, and knowing
+            // only the inbound ids meant the thread rule recognised a
+            // reply to a reply and never the reply itself.
+            $stmt = $this->pdo->prepare(
+                'SELECT business_reference, consumer_id FROM inbound_outbound_message_ids
+                  WHERE consumer_id = ? AND message_id_blind_index = ?
+                  LIMIT 1'
+            );
+            $stmt->execute([$consumerId, $index]);
             $row = $stmt->fetch(\PDO::FETCH_ASSOC);
 
             if (is_array($row)) {
@@ -731,6 +824,29 @@ class InboundMessageRepository
         }
 
         return null;
+    }
+
+    /**
+     * Remember a Message-ID the site sent about a business object, so the
+     * reply to it threads onto that object. Idempotent per (consumer, id).
+     */
+    public function recordOutboundMessageId(string $consumerId, string $businessReference, string $messageId): void
+    {
+        if (trim($messageId, "<> \t") === '') {
+            return;
+        }
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO inbound_outbound_message_ids (consumer_id, business_reference, message_id_blind_index)
+             VALUES (?, ?, ?)'
+        );
+
+        try {
+            $stmt->execute([$consumerId, $businessReference, $this->messageIdIndex($messageId)]);
+        } catch (\PDOException) {
+            // The unique index: the same id recorded twice is the state
+            // the caller asked for.
+        }
     }
 
     // ── Deletion ────────────────────────────────────────────────────────
@@ -1193,6 +1309,13 @@ class InboundMessageRepository
                                      WHERE c.message_id = m.id AND c.dismissed_at IS NULL)';
         } elseif ($association === 'some') {
             $where[] = 'EXISTS (SELECT 1 FROM inbound_message_links l WHERE l.message_id = m.id)';
+        } elseif ($association === 'proposed') {
+            // « Avec proposition » is the pile somebody is being asked
+            // about: a standing proposition, whatever else the message
+            // carries. Without this filter the chief had to open each
+            // message to find out whether a module was waiting on them.
+            $where[] = 'EXISTS (SELECT 1 FROM inbound_message_candidates c
+                                 WHERE c.message_id = m.id AND c.dismissed_at IS NULL)';
         }
 
         if (($filters['include_bulk'] ?? false) !== true) {

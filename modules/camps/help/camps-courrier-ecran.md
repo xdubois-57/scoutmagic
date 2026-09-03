@@ -18,7 +18,17 @@ Il montre trois choses, et rien d'autre :
 - sur une boîte dédiée, **tout le reste** de cette boîte.
 
 Chaque message se lit **en entier** : on ne décide pas du sort d'un
-courrier dont on n'a vu que les premières lignes.
+courrier dont on n'a vu que les premières lignes. Ses pièces jointes
+s'ouvrent depuis la carte, avant même de décider.
+
+Sous chaque message, une proposition se confirme d'un « Rattacher » ;
+pour un séjour que le site n'a pas proposé, « Rattacher à un autre
+séjour » ouvre une recherche — un lieu, un mois, une année — et
+« Créer un camp depuis ce message » ouvre le formulaire pré-rempli.
+
+Le courrier automatique — lettres d'information, réponses automatiques,
+rapports de non-remise — est masqué par défaut ; « Afficher le courrier
+automatique » le fait revenir.
 
 « Retirer » enlève le rattachement à un séjour ; le message ne disparaît
 pas pour autant — il reste dans le courrier de l'unité, que le chef
@@ -31,3 +41,18 @@ Quand plusieurs séjours correspondent au même expéditeur, le site
 **n'en choisit aucun** : il vous propose les deux. Mettre le message sur
 le mauvais séjour serait pire que de ne pas le rattacher, parce que le
 chef qui lit le mauvais séjour n'a aucun moyen de s'en apercevoir.
+
+## Quand le site hésite
+
+Plusieurs propositions sous un message veulent dire que plusieurs
+séjours correspondent et que le site n'en choisit aucun. Les chefs des
+sections concernées en sont avertis par la notification « Message reçu
+à rattacher à un séjour » ; un séjour créé depuis un message est
+annoncé par « Séjour créé depuis un message ». Si l'unité a activé le
+connecteur IA, le modèle suggère lequel afficher en premier, et la
+proposition le dit ; il ne rattache jamais rien lui-même.
+
+Rattacher vous-même un message venu d'une adresse que le séjour ne
+connaissait pas en fait un contact du séjour, noté « Correspondant » :
+les messages suivants de cette adresse s'y rattachent seuls, et ceux
+déjà en attente sont réexaminés aussitôt.

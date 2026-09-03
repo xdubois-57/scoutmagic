@@ -7,6 +7,7 @@ namespace Tests\Modules\InboundMail\Repository;
 use Core\File\FileRepository;
 use Core\Security\EncryptionService;
 use Modules\InboundMail\Api\LinkOrigin;
+use Modules\InboundMail\Api\MessageCandidate;
 use Modules\InboundMail\Mailbox\ProviderType;
 use Modules\InboundMail\Repository\InboundMailboxRepository;
 use Modules\InboundMail\Repository\InboundMessageRepository;
@@ -413,6 +414,45 @@ class InboundMessageLinkTest extends TestCase
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────
+
+    // ── An association answers the propositions it was asked about ─────
+
+    public function testAWholeMessageAssociationSetsAsideEveryPropositionOfThatConsumer(): void
+    {
+        // The propositions were alternatives to one question — « which of
+        // these two bookings? » — and a person answering it by filing the
+        // message under LOC-42 has answered it. A proposition that survived
+        // its own answer kept asking on the next page load, and kept the
+        // message out of the retention purge for ever.
+        $id = $this->storeMessage('settled@mail');
+        $this->messages->addCandidate($id, 'rental', $this->candidate('LOC-2027-0042'));
+        $this->messages->addCandidate($id, 'rental', $this->candidate('LOC-2027-0043'));
+        $this->messages->addCandidate($id, 'finance', $this->candidate('account-3'));
+
+        $this->assertTrue($this->messages->addLink($id, 'rental', 'LOC-2027-0042', LinkOrigin::MANUAL));
+
+        $standing = $this->messages->findActiveCandidates($id);
+        $this->assertCount(1, $standing);
+        $this->assertSame('finance', $standing[0]->consumerId, 'another module\'s question is still open');
+    }
+
+    public function testAnAttachmentLevelAssociationSetsAsideOnlyThePropositionsAboutThatAttachment(): void
+    {
+        $id = $this->storeMessage('partial@mail');
+        $this->messages->addCandidate($id, 'finance', $this->candidate('account-3', 7));
+        $this->messages->addCandidate($id, 'finance', $this->candidate('account-3', 8));
+
+        $this->messages->addLink($id, 'finance', 'account-3', LinkOrigin::MANUAL, 7);
+
+        $standing = $this->messages->findActiveCandidates($id);
+        $this->assertCount(1, $standing);
+        $this->assertSame(8, $standing[0]->attachmentId);
+    }
+
+    private function candidate(string $reference, int $attachmentId = 0): MessageCandidate
+    {
+        return new MessageCandidate($reference, 'Cible', 'sender_window', 'Explication', $attachmentId);
+    }
 
     private function storeMessage(string $messageId): int
     {

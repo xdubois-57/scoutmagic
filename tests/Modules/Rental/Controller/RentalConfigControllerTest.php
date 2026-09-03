@@ -18,7 +18,6 @@ use Core\Security\CsrfGuard;
 use Core\Security\EncryptionService;
 use Core\View\TwigFactory;
 use Modules\Rental\Controller\RentalConfigController;
-use Modules\Rental\Mail\MailboxSelection;
 use Modules\Rental\Repository\RentalAssetManagerRepository;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Service\RentalAssetService;
@@ -97,7 +96,7 @@ class RentalConfigControllerTest extends TestCase
         $this->twig = TwigFactory::create(
             dirname(__DIR__, 4) . '/core/View/templates',
             false,
-            ['rental' => dirname(__DIR__, 4) . '/modules/rental/views']
+            ['rental' => dirname(__DIR__, 4) . '/modules/rental/views', 'inbound_mail' => dirname(__DIR__, 4) . '/modules/inbound_mail/views']
         );
         foreach ([
             'site_name' => 'Unité Test',
@@ -667,184 +666,5 @@ class RentalConfigControllerTest extends TestCase
         );
 
         $this->assertSame('Local original', $this->assetRepository->findById($assetId)?->name);
-    }
-
-    // ── saveMailboxes() (§7.4) ──────────────────────────────────────────
-
-    /**
-     * @param array<int, string> $mailboxIds
-     */
-    private function postMailboxes(array $mailboxIds, ?MailboxSelection $selection = null): \Core\Http\Response
-    {
-        $this->settingService->register(
-            MailboxSelection::SETTING_KEY,
-            '',
-            'text',
-            'Boîtes surveillées',
-            'Les boîtes que ce module écoute.',
-            'rental'
-        );
-
-        $controller = new RentalConfigController(
-            $this->twig,
-            $this->assetRepository,
-            new RentalAssetService(
-                $this->assetRepository,
-                new RentalSlugGenerator($this->assetRepository),
-                new JournalService(new JournalRepository($this->pdo))
-            ),
-            $this->managerService,
-            new ScoutYearService($this->pdo),
-            $this->settingService,
-            null,
-            $selection
-        );
-
-        $body = ['mailbox_ids' => $mailboxIds, '_csrf_token' => CsrfGuard::generateToken()];
-        $_POST = $body;
-
-        return $controller->saveMailboxes(
-            new Request('POST', '/admin/locations/mailboxes', [], $body, [], []),
-            []
-        );
-    }
-
-    public function testSavingTheWatchedMailboxesStoresTheChosenOnes(): void
-    {
-        $selection = new MailboxSelection($this->settingService, new TwoMailboxes());
-
-        $response = $this->postMailboxes(['2'], $selection);
-
-        $this->assertSame(302, $response->getStatusCode());
-        $this->assertSame('/admin/locations#courrier', $response->getHeaders()['Location'] ?? null);
-        $this->assertSame([2], $selection->selectedIds());
-    }
-
-    /**
-     * Filtered against what actually exists: a stale id from a deleted box
-     * would silently narrow the selection to something no manager could
-     * see on the page, or undo.
-     */
-    public function testAnIdThatIsNotAKnownMailboxIsDropped(): void
-    {
-        $selection = new MailboxSelection($this->settingService, new TwoMailboxes());
-
-        $this->postMailboxes(['2', '999'], $selection);
-
-        $this->assertSame([2], $selection->selectedIds());
-    }
-
-    public function testSubmittingNothingClearsTheSelection(): void
-    {
-        $selection = new MailboxSelection($this->settingService, new TwoMailboxes());
-        $this->postMailboxes(['2', '3'], $selection);
-
-        $this->postMailboxes([], $selection);
-
-        $this->assertSame([], $selection->selectedIds());
-    }
-
-    /**
-     * Without `inbound_mail` there is nothing to select from, and the route
-     * answers as if it did not exist rather than storing a selection the
-     * module could never act on.
-     */
-    public function testTheRouteIsNotThereWithoutTheInboundMailModule(): void
-    {
-        $response = $this->postMailboxes(['2'], null);
-
-        $this->assertSame(404, $response->getStatusCode());
-    }
-
-    public function testSavingMailboxesWithoutACsrfTokenStoresNothing(): void
-    {
-        $selection = new MailboxSelection($this->settingService, new TwoMailboxes());
-        $_POST = [];
-
-        $controller = new RentalConfigController(
-            $this->twig,
-            $this->assetRepository,
-            new RentalAssetService(
-                $this->assetRepository,
-                new RentalSlugGenerator($this->assetRepository),
-                new JournalService(new JournalRepository($this->pdo))
-            ),
-            $this->managerService,
-            new ScoutYearService($this->pdo),
-            $this->settingService,
-            null,
-            $selection
-        );
-        $controller->saveMailboxes(
-            new Request('POST', '/admin/locations/mailboxes', [], ['mailbox_ids' => ['2']], [], []),
-            []
-        );
-
-        $this->assertSame([], $selection->selectedIds());
-    }
-}
-
-/**
- * Two configured mailboxes, as `listMailboxSummaries()` exposes them — a
- * name and a state, never the host or the account (§8.58).
- *
- * @internal
- */
-class TwoMailboxes implements \Modules\InboundMail\Api\InboundMailInterface
-{
-    use \Tests\Modules\InboundMail\InertInboundMail;
-
-    /** @return \Modules\InboundMail\Api\InboundMessage[] */
-    public function findForReference(string $consumerId, string $businessReference): array
-    {
-        return [];
-    }
-
-    public function findOneForReference(
-        string $consumerId,
-        string $businessReference,
-        int $messageId
-    ): ?\Modules\InboundMail\Api\InboundMessage {
-        return null;
-    }
-
-    /** @param int[] $preserveFileIds */
-    public function detach(
-        string $consumerId,
-        string $businessReference,
-        int $messageId,
-        array $preserveFileIds = []
-    ): bool {
-        return false;
-    }
-
-    public function move(string $consumerId, string $fromReference, string $toReference, int $messageId): bool
-    {
-        return false;
-    }
-
-    public function purgeReference(string $consumerId, string $businessReference): int
-    {
-        return 0;
-    }
-
-    public function isCollecting(): bool
-    {
-        return true;
-    }
-
-    /** @param string[] $messageIds */
-    public function findReferenceByThread(string $consumerId, int $mailboxId, array $messageIds): ?string
-    {
-        return null;
-    }
-
-    /** @return array<int, array{name: string, state: string, is_enabled: bool}> */
-    public function listMailboxSummaries(): array
-    {
-        return [
-            2 => ['name' => 'Boîte location', 'state' => 'ok', 'is_enabled' => true],
-            3 => ['name' => 'Boîte unité', 'state' => 'ok', 'is_enabled' => true],
-        ];
     }
 }

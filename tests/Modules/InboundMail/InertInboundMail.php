@@ -47,9 +47,28 @@ trait InertInboundMail
         return false;
     }
 
-    public function move(string $consumerId, string $fromReference, string $toReference, int $messageId): bool
-    {
+    public function move(
+        string $consumerId,
+        string $fromReference,
+        string $toReference,
+        int $messageId,
+        ?int $userAccountId = null
+    ): bool {
         return false;
+    }
+
+    public function replyAddressFor(string $consumerId, string $businessReference): ?string
+    {
+        return null;
+    }
+
+    public function countCandidatesFor(string $consumerId): int
+    {
+        return 0;
+    }
+
+    public function recordOutboundMessageId(string $consumerId, string $businessReference, string $messageId): void
+    {
     }
 
     public function purgeReference(string $consumerId, string $businessReference): int

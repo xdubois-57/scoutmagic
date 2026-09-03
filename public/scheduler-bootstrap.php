@@ -143,7 +143,20 @@ function scoutmagic_bootstrap_scheduler(
         static fn (): object => new \Modules\InboundMail\Service\InboundMailService(
             new \Modules\InboundMail\Repository\InboundMessageRepository($pdo, $encryptionService),
             new \Modules\InboundMail\Repository\InboundMailboxRepository($pdo, $encryptionService),
-            new \Core\File\FileRepository($pdo)
+            new \Core\File\FileRepository($pdo),
+            null,
+            null,
+            null,
+            // Signed reply addresses (§8.58) for the mail a task sends —
+            // the rental reminders, for one. No scope service here: the
+            // box declared dedicated to the consumer, else the first
+            // enabled box whose account is an address.
+            new \Modules\InboundMail\Service\ReplyAddressService(
+                new \Modules\InboundMail\Repository\InboundMailboxRepository($pdo, $encryptionService),
+                $encryptionService,
+                null,
+                $settingService
+            )
         )
     );
 
@@ -300,18 +313,16 @@ function scoutmagic_bootstrap_scheduler(
         // inbound-mail tasks: the synchronisation's arrival pass and the
         // deferred content pass ask the same consumers, and two copies of
         // this wiring would be two places for it to drift.
-        $inboundConsumerRegistry = static function (\Core\Scheduler\TaskContext $context) use ($pdo, $encryptionService, $settingService, $journalService, $storagePath, $enabledModuleIds): \Modules\InboundMail\Service\MessageConsumerRegistry {
+        $inboundConsumerRegistry = static function (\Core\Scheduler\TaskContext $context) use ($pdo, $encryptionService, $settingService, $journalService, $storagePath, $enabledModuleIds, $notificationService, $userAccountRepo): \Modules\InboundMail\Service\MessageConsumerRegistry {
                 $registry = new \Modules\InboundMail\Service\MessageConsumerRegistry();
                 $inboundMail = $context->getOptional(\Modules\InboundMail\Api\InboundMailInterface::class);
                 $auditService = new \Core\Audit\AuditService(new \Core\Audit\AuditRepository($pdo, $encryptionService));
                 $fileRepository = new \Core\File\FileRepository($pdo);
 
-                // Registered FIRST, and deliberately: it claims only a
-                // message whose subject carries a key this receiver
-                // itself issued, which is the narrowest claim of the
-                // lot, and a probe landing in a shared box must not be
-                // swallowed by a consumer with a wider appetite
-                // (roadmap IT-27).
+                // Claims only a message whose subject carries a key this
+                // receiver itself issued — the narrowest claim of the lot
+                // (roadmap IT-27). Order is immaterial: every consumer
+                // the box is open to is asked, and every answer applied.
                 if (in_array('support_dashboard', $enabledModuleIds, true)) {
                     $registry->register(new \Modules\SupportDashboard\Mail\SupportMessageConsumer(
                         new \Modules\SupportDashboard\Service\MailProbeService(
@@ -345,7 +356,22 @@ function scoutmagic_bootstrap_scheduler(
                             $journalService,
                             $storagePath
                         ),
-                        (new \Modules\Rental\Mail\MailboxSelection($settingService, $inboundMail))->selectedIds()
+                        // The model as a last resort between two bookings
+                        // of one renter (§8.59): orders the propositions,
+                        // never associates. Null without the connector.
+                        modelChoice: new \Modules\Rental\Mail\BookingChoiceByModel(
+                            $context->getOptional(\Modules\LlmConnector\Api\LlmConnectorInterface::class)
+                        ),
+                        // THIS is the path that tells the managers: the
+                        // relève runs from the scheduler. Null without a
+                        // notification service (cron.php without one).
+                        notifier: $notificationService === null ? null : new \Modules\Rental\Mail\RentalMailNotifier(
+                            $notificationService,
+                            new \Modules\Rental\Repository\RentalAssetManagerRepository($pdo),
+                            new \Core\Import\MemberYearRepository($pdo),
+                            $userAccountRepo,
+                            new \Modules\Rental\Repository\RentalAssetRepository($pdo, $encryptionService)
+                        )
                     ));
                 }
 
@@ -457,16 +483,23 @@ function scoutmagic_bootstrap_scheduler(
                             $financeAccountRepository,
                             $financeScoutYearId
                         ),
-                        new \Modules\Finance\Mail\ForwardedSenderExtractor()
+                        new \Modules\Finance\Mail\ForwardedSenderExtractor(),
+                        // The treasurers are told from here, where the
+                        // relève actually runs.
+                        $notificationService === null ? null : new \Modules\Finance\Mail\FinanceMailNotifier(
+                            $notificationService,
+                            $pdo,
+                            new \Core\Badge\BadgeRepository($pdo),
+                            new \Core\Badge\MemberBadgeRepository($pdo),
+                            $userAccountRepo,
+                            $financeScoutYearId
+                        )
                     ));
                 }
 
-                // The camps consumer is registered LAST, and that ordering
-                // is load-bearing: MessageConsumerRegistry is
-                // first-claim-wins in registration order, and a dedicated
-                // camps mailbox claims EVERYTHING it is offered.
-                // Registered earlier, it would swallow the mail another
-                // module was waiting for.
+                // Order is immaterial here too (§8.58): a dedicated camps
+                // box is open to camps alone by configuration, and on a
+                // shared box every consumer the operator allowed is asked.
                 if ($inboundMail !== null && in_array('camps', $enabledModuleIds, true)) {
                     $llm = $context->getOptional(\Modules\LlmConnector\Api\LlmConnectorInterface::class);
                     $campsPlaceRepo = new \Modules\Camps\Repository\PlaceRepository($pdo);
@@ -532,6 +565,27 @@ function scoutmagic_bootstrap_scheduler(
                             $campsCampRepo,
                             $campsMessageReader,
                             $journalService
+                        ),
+                        // The model as a last resort between two stays:
+                        // orders the propositions, never associates.
+                        modelChoice: new \Modules\Camps\Mail\StayChoiceByModel($llm),
+                        // The stay's chiefs are told of a proposition, or
+                        // of a stay created from a message, from here —
+                        // the deferred pass is the one that creates stays.
+                        notifier: $notificationService === null ? null : new \Modules\Camps\Mail\CampsMailNotifier(
+                            $notificationService,
+                            new \Modules\Camps\Service\ReviewNotificationService(
+                                $campsCampRepo,
+                                new \Core\Member\SectionService(
+                                    \Core\Database\Connection::withPdo($pdo),
+                                    $encryptionService,
+                                    new \Core\Badge\MemberBadgeRepository($pdo)
+                                ),
+                                $userAccountRepo,
+                                $encryptionService,
+                                $pdo,
+                                $notificationService
+                            )
                         )
                     ));
                 }
@@ -593,23 +647,31 @@ function scoutmagic_bootstrap_scheduler(
                 );
 
                 $registry = $inboundConsumerRegistry($context);
+                $inboundMailboxes = new \Modules\InboundMail\Repository\InboundMailboxRepository($pdo, $encryptionService);
+                // What each box lets each module do (IT-05). Built from
+                // the SAME registry the handler gets, so the modules the
+                // screen scopes and the modules the sync asks cannot be
+                // two different lists.
+                $inboundScopes = new \Modules\InboundMail\Service\MailboxScopeService($inboundMailboxes, $registry);
 
                 return new \Modules\InboundMail\Task\SyncMailboxesHandler(
                     $registry,
                     $quota,
-                    // What each box lets each module do (IT-05). Built from
-                    // the SAME registry the handler gets, so the modules the
-                    // screen scopes and the modules the sync asks cannot be
-                    // two different lists.
-                    new \Modules\InboundMail\Service\MailboxScopeService(
-                        new \Modules\InboundMail\Repository\InboundMailboxRepository($pdo, $encryptionService),
-                        $registry
-                    ),
+                    $inboundScopes,
                     // One journal line per message stored, saying what each
                     // module made of it — including « rien », which is the
                     // answer a unit most often needs and the one this
                     // pipeline never gave.
-                    new \Modules\InboundMail\Service\AnalysisJournal($journalService)
+                    new \Modules\InboundMail\Service\AnalysisJournal($journalService),
+                    // The signed reply addresses this site minted, read
+                    // off the recipients before any consumer is asked
+                    // (§8.58).
+                    new \Modules\InboundMail\Service\ReplyAddressService(
+                        $inboundMailboxes,
+                        $encryptionService,
+                        $inboundScopes,
+                        $settingService
+                    )
                 );
             }
         );

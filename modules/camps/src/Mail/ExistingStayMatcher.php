@@ -67,9 +67,9 @@ class ExistingStayMatcher
      *
      * @return Camp[]
      */
-    public function matching(string $text): array
+    public function matching(string $text, ?\DateTimeImmutable $reference = null): array
     {
-        $range = $this->reader->readDateRange($text);
+        $range = $this->reader->readDateRange($text, $reference);
         if ($range === null) {
             return [];
         }

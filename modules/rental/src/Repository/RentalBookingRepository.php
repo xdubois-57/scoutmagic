@@ -724,10 +724,49 @@ class RentalBookingRepository
      */
     public function findByRenterEmail(string $email): array
     {
-        $stmt = $this->pdo->prepare('SELECT * FROM rental_bookings WHERE renter_email_blind_index = ? ORDER BY arrival_date DESC');
-        $stmt->execute([$this->encryption->blindIndex(self::normalizeEmail($email), self::BLIND_INDEX_PURPOSE)]);
+        // The renter's own address, and every address a manager has since
+        // taught the booking by filing a message from it by hand
+        // (rental_booking_emails).
+        $index = $this->encryption->blindIndex(self::normalizeEmail($email), self::BLIND_INDEX_PURPOSE);
+        $stmt = $this->pdo->prepare(
+            'SELECT b.* FROM rental_bookings b
+              WHERE b.renter_email_blind_index = ?
+                 OR EXISTS (SELECT 1 FROM rental_booking_emails e
+                             WHERE e.booking_id = b.id AND e.email_blind_index = ?)
+              ORDER BY b.arrival_date DESC'
+        );
+        $stmt->execute([$index, $index]);
 
         return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Teach a booking one more address its correspondence comes from.
+     *
+     * @return bool whether the address was new to this booking
+     */
+    public function addRenterEmail(int $bookingId, string $email): bool
+    {
+        $normalized = self::normalizeEmail($email);
+        if ($normalized === '' || filter_var($normalized, FILTER_VALIDATE_EMAIL) === false) {
+            return false;
+        }
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO rental_booking_emails (booking_id, email_encrypted, email_blind_index) VALUES (?, ?, ?)'
+        );
+
+        try {
+            $stmt->execute([
+                $bookingId,
+                $this->encryption->encrypt($normalized, self::CTX_EMAIL),
+                $this->encryption->blindIndex($normalized, self::BLIND_INDEX_PURPOSE),
+            ]);
+        } catch (\PDOException) {
+            return false;
+        }
+
+        return true;
     }
 
     /**

@@ -78,6 +78,57 @@ class FinanceMessageConsumerTest extends TestCase
         $this->assertStringContainsString('signal faible', $result->candidates[0]->explanation);
     }
 
+    public function testTheIbanOnTheTreasurysOwnBoxIsAnAssociation(): void
+    {
+        // The operator said everything arriving here is this module's
+        // business; the IBAN says which account. Asking a treasurer to
+        // confirm both is asking for the sake of asking, and the worst
+        // outcome — the wrong account — is one click to correct.
+        $result = $this->consumer()->analyze($this->message(
+            'Facture de la fédération',
+            'Merci de virer sur le compte BE92 0015 1175 7023.',
+            [$this->pdfAttachment()],
+            dedicatedTo: FinanceMessageConsumer::CONSUMER_ID
+        ));
+
+        $this->assertSame([], $result->candidates);
+        $this->assertCount(1, $result->links);
+        $this->assertSame(FinanceMessageConsumer::referenceFor($this->accountId), $result->links[0]->businessReference);
+        $this->assertSame(LinkOrigin::IBAN, $result->links[0]->origin);
+    }
+
+    public function testTheIbanAndTheSendersStaffAgreeingIsAnAssociation(): void
+    {
+        // Two independent statements naming the same account: the money's
+        // own, in the text, and the person's, from the unit's membership.
+        $accountId = $this->animateurOfOneStaff('anna@example.be', iban: 'BE71096123456769');
+
+        $result = $this->consumerWithSenderStaff()->analyze($this->message(
+            'Facture',
+            'À payer sur BE71 0961 2345 6769.',
+            [$this->pdfAttachment()],
+            fromEmail: 'anna@example.be'
+        ));
+
+        $this->assertSame([], $result->candidates);
+        $this->assertCount(1, $result->links);
+        $this->assertSame(FinanceMessageConsumer::referenceFor($accountId), $result->links[0]->businessReference);
+        $this->assertSame(LinkOrigin::IBAN, $result->links[0]->origin);
+    }
+
+    public function testAPropositionTellsTheTreasurersWhichAccounts(): void
+    {
+        $notifier = $this->createMock(\Modules\Finance\Mail\FinanceMailNotifier::class);
+        $notifier->expects($this->once())->method('proposed')->with(['Compte courant', 'compte inconnu']);
+
+        $consumer = $this->consumer(notifier: $notifier);
+        $consumer->onProposed($this->storedMessage(), [
+            new \Modules\InboundMail\Api\MessageCandidate(FinanceMessageConsumer::referenceFor($this->accountId), 'a', 'iban_in_body', 'x'),
+            new \Modules\InboundMail\Api\MessageCandidate(FinanceMessageConsumer::REFERENCE_UNKNOWN, 'b', 'attachment', 'x'),
+            new \Modules\InboundMail\Api\MessageCandidate(FinanceMessageConsumer::referenceFor($this->accountId), 'a', 'iban_in_body', 'x'),
+        ]);
+    }
+
     public function testAnIbanWithNoAttachmentIsNothingToFile(): void
     {
         $result = $this->consumer()->analyze($this->message(
@@ -113,6 +164,61 @@ class FinanceMessageConsumerTest extends TestCase
         ));
 
         $this->assertTrue($result->isEmpty());
+    }
+
+    public function testTheIbanIsFoundThroughTheNoBreakSpacesABankSitePastes(): void
+    {
+        $result = $this->consumer()->analyze($this->message(
+            'Facture',
+            "Virement sur BE92\u{00A0}0015\u{00A0}1175\u{00A0}7023 merci.",
+            [$this->pdfAttachment()]
+        ));
+
+        $this->assertCount(1, $result->candidates);
+    }
+
+    public function testTheIbanIsFoundWhenTypedWithHyphens(): void
+    {
+        $result = $this->consumer()->analyze($this->message(
+            'Facture',
+            'Virement sur BE92-0015-1175-7023 merci.',
+            [$this->pdfAttachment()]
+        ));
+
+        $this->assertCount(1, $result->candidates);
+    }
+
+    public function testTheIbanIsFoundWhenTheBicFollowsOnTheSameLine(): void
+    {
+        $result = $this->consumer()->analyze($this->message(
+            'Facture',
+            'IBAN BE92 0015 1175 7023 BIC GEBABEBB',
+            [$this->pdfAttachment()]
+        ));
+
+        $this->assertCount(1, $result->candidates);
+    }
+
+    public function testTheIbanIsFoundInAnHtmlOnlyMessage(): void
+    {
+        // A phone or Outlook message often has no text part worth the
+        // name; the IBAN a supplier pasted into the HTML was invisible.
+        $result = $this->consumer()->analyze(new CandidateMessage(
+            mailboxId: 1,
+            subject: 'Facture',
+            fromEmail: 'fournisseur@example.be',
+            fromName: null,
+            messageId: 'a@b',
+            inReplyTo: null,
+            references: [],
+            toEmails: [],
+            sentAt: new \DateTimeImmutable('2027-07-12 09:30:00'),
+            bodyText: '',
+            bodyHtml: '<p>Virement sur <b>BE92&nbsp;0015&nbsp;1175&nbsp;7023</b></p>',
+            attachments: [$this->pdfAttachment()]
+        ));
+
+        $this->assertCount(1, $result->candidates);
     }
 
     public function testTheIbanIsFoundInTheSubjectToo(): void
@@ -190,6 +296,23 @@ class FinanceMessageConsumerTest extends TestCase
      * `inbound_mail` cannot do better on its own: it does not know what
      * `account-12` is, and by §7.6 it never will.
      */
+    public function testTheDirectoryOffersTheActiveAccountsAndThePile(): void
+    {
+        $consumer = $this->consumer();
+
+        $found = $consumer->searchReferences('courant');
+        $this->assertCount(1, $found);
+        $this->assertSame(FinanceMessageConsumer::referenceFor($this->accountId), $found[0]->businessReference);
+        $this->assertSame('Compte courant', $found[0]->label);
+
+        $pile = $consumer->searchReferences('inconnu');
+        $this->assertSame(FinanceMessageConsumer::REFERENCE_UNKNOWN, $pile[0]->businessReference);
+
+        $this->assertSame('/finance/receipts?account_id=' . $this->accountId, $consumer->referenceUrl(FinanceMessageConsumer::referenceFor($this->accountId)));
+        $this->assertSame('/finance/receipts?account_id=unassigned', $consumer->referenceUrl(FinanceMessageConsumer::REFERENCE_UNKNOWN));
+        $this->assertNull($consumer->referenceUrl('account-999'));
+    }
+
     public function testTheSortingPileIsNamedInFrench(): void
     {
         $this->assertSame('compte inconnu', $this->consumer()->describeReference(FinanceMessageConsumer::REFERENCE_UNKNOWN));
@@ -687,7 +810,8 @@ class FinanceMessageConsumerTest extends TestCase
         ?int $actorFor = null,
         ?\Closure $readFile = null,
         ?\Modules\Finance\Api\ExpenseReceiptInterface $receipts = null,
-        bool $withSenderStaff = false
+        bool $withSenderStaff = false,
+        ?\Modules\Finance\Mail\FinanceMailNotifier $notifier = null
     ): FinanceMessageConsumer {
         $receipts ??= new RecordingExpenseReceipts($filed);
 
@@ -709,7 +833,8 @@ class FinanceMessageConsumerTest extends TestCase
                     : null,
             $readFile ?? static fn(int $fileId): ?string => 'des octets',
             $withSenderStaff ? $this->senderStaffResolver() : null,
-            $withSenderStaff ? new \Modules\Finance\Mail\ForwardedSenderExtractor() : null
+            $withSenderStaff ? new \Modules\Finance\Mail\ForwardedSenderExtractor() : null,
+            $notifier
         );
     }
 
@@ -746,7 +871,7 @@ class FinanceMessageConsumerTest extends TestCase
      *
      * @return int the id of that section's account
      */
-    private function animateurOfOneStaff(string $email, string $accountName = 'Louveteaux'): int
+    private function animateurOfOneStaff(string $email, string $accountName = 'Louveteaux', ?string $iban = null): int
     {
         static $nextId = 0;
         $nextId++;
@@ -765,7 +890,7 @@ class FinanceMessageConsumerTest extends TestCase
         $stmt = $this->pdo->prepare('INSERT INTO member_functions (member_year_id, function_id, section_id) VALUES (?, 1, ?)');
         $stmt->execute([$memberYearId, $sectionId]);
 
-        $accountId = $this->accounts->create($accountName, Account::TYPE_BANK, $sectionId, null, null, 'intendant');
+        $accountId = $this->accounts->create($accountName, Account::TYPE_BANK, $sectionId, $iban, null, 'intendant');
         $this->accounts->updateStatus($accountId, Account::STATUS_ACTIVE);
 
         return $accountId;

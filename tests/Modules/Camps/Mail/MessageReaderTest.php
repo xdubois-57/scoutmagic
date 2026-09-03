@@ -64,7 +64,81 @@ class MessageReaderTest extends TestCase
                 '2026-09-18',
                 '2026-09-20',
             ],
+            // How a contract writes the first of the month, and how a
+            // farmer writes back: weekday, « 1er », the lot.
+            'the first of the month' => ['du 1er au 8 août 2027', '2027-08-01', '2027-08-08'],
+            'weekdays before the days' => [
+                'du samedi 12 au dimanche 19 juillet 2028',
+                '2028-07-12',
+                '2028-07-19',
+            ],
+            'weekday and « 1er » across two months' => [
+                'du vendredi 1er mai au dimanche 3 mai 2026',
+                '2026-05-01',
+                '2026-05-03',
+            ],
         ];
+    }
+
+    // ── No year, the way a farmer writes back about the summer ──────────
+
+    public function testAYearlessRangeIsReadAgainstWhenTheMessageWasSent(): void
+    {
+        $this->assertSame(
+            ['start' => '2026-07-12', 'end' => '2026-07-19'],
+            $this->reader->readDateRange('Le pré est libre du 12 au 19 juillet.', new \DateTimeImmutable('2026-03-01'))
+        );
+    }
+
+    public function testAYearlessRangeAlreadyPastMeansNextYears(): void
+    {
+        $this->assertSame(
+            ['start' => '2027-07-12', 'end' => '2027-07-19'],
+            $this->reader->readDateRange('du 12 au 19 juillet', new \DateTimeImmutable('2026-09-01'))
+        );
+    }
+
+    public function testAYearlessRangeAcrossNewYearIsReadTheSameWay(): void
+    {
+        $this->assertSame(
+            ['start' => '2026-12-30', 'end' => '2027-01-02'],
+            $this->reader->readDateRange('du 30 décembre au 2 janvier', new \DateTimeImmutable('2026-11-01'))
+        );
+    }
+
+    public function testWithoutAReferenceAYearlessRangeIsRefused(): void
+    {
+        // Nothing to anchor the year on: guessing « this year » from the
+        // clock would read differently on the day the message is
+        // re-analysed than on the day it arrived.
+        $this->assertNull($this->reader->readDateRange('du 12 au 19 juillet'));
+    }
+
+    public function testAStatedYearStillWinsOverTheReference(): void
+    {
+        $this->assertSame(
+            ['start' => '2030-07-12', 'end' => '2030-07-19'],
+            $this->reader->readDateRange('du 12 au 19 juillet 2030', new \DateTimeImmutable('2026-03-01'))
+        );
+    }
+
+    // ── Quoted lines are not this message's statement ───────────────────
+
+    public function testTheQuotedRequestUnderAReplyIsNotRead(): void
+    {
+        $text = "Bonjour,\n\nC'est noté.\n\n> Nous souhaiterions le pré du 12 au 19 juillet 2028.\n> Merci";
+
+        $this->assertNull($this->reader->readDateRange($text));
+    }
+
+    public function testTheReplysOwnDatesAreReadAboveTheQuotedOnes(): void
+    {
+        $text = "Ce sera plutôt du 20 au 27 juillet 2028.\n\n> Nous souhaiterions le pré du 12 au 19 juillet 2028.";
+
+        $this->assertSame(
+            ['start' => '2028-07-20', 'end' => '2028-07-27'],
+            $this->reader->readDateRange($text)
+        );
     }
 
     /**

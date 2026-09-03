@@ -56,8 +56,132 @@ class ReceiptController extends AbstractController
         private FinanceService $financeService,
         private ReceiptService $receiptService,
         private FirstReceiptResolver $firstReceiptResolver,
-        private JournalService $journalService
+        private JournalService $journalService,
+        /**
+         * The mail this module proposed on and nobody answered (§8.58).
+         * Null without `inbound_mail`, and the page then has no « Courrier
+         * à trier » block — which is exactly true.
+         */
+        private ?\Modules\InboundMail\Api\InboundMailInterface $inboundMail = null
     ) {
+    }
+
+    /**
+     * The references this session may answer for: its visible accounts,
+     * and the sorting pile when it may sort it. What `confirmCandidate()`
+     * is scoped by, so a proposition towards an account this treasurer
+     * cannot open is refused whatever the screen posted.
+     *
+     * @param \Modules\Finance\Repository\Account[] $accounts
+     * @return string[]
+     */
+    private static function mailReferences(array $accounts, bool $maySortThePile): array
+    {
+        $references = array_map(
+            static fn($account): string => \Modules\Finance\Mail\FinanceMessageConsumer::referenceFor($account->id),
+            $accounts
+        );
+        if ($maySortThePile) {
+            $references[] = \Modules\Finance\Mail\FinanceMessageConsumer::REFERENCE_UNKNOWN;
+        }
+
+        return $references;
+    }
+
+    /**
+     * The messages carrying a standing proposition towards one of this
+     * session's accounts, with those propositions.
+     *
+     * @param string[] $references
+     * @return list<array{message: \Modules\InboundMail\Api\InboundMessage, candidates: \Modules\InboundMail\Api\MessageCandidate[]}>
+     */
+    private function mailPropositions(array $references): array
+    {
+        if ($this->inboundMail === null || $references === []) {
+            return [];
+        }
+
+        $consumerId = \Modules\Finance\Mail\FinanceMessageConsumer::CONSUMER_ID;
+        $messages = $this->inboundMail->findForTriage($consumerId, $references);
+        if ($messages === []) {
+            return [];
+        }
+
+        $byMessage = $this->inboundMail->findCandidatesFor(
+            $consumerId,
+            array_map(static fn($message) => $message->id, $messages)
+        );
+
+        $rows = [];
+        foreach ($messages as $message) {
+            $candidates = array_values(array_filter(
+                $byMessage[$message->id] ?? [],
+                static fn($candidate): bool => in_array($candidate->businessReference, $references, true)
+            ));
+            if ($candidates !== []) {
+                $rows[] = ['message' => $message, 'candidates' => $candidates];
+            }
+        }
+
+        return $rows;
+    }
+
+    /**
+     * POST /finance/receipts/courrier/{id}/confirmation — a treasurer says
+     * yes to what the module suspected: the attachment becomes a receipt
+     * on that account, filed by them.
+     *
+     * @param array<string, string> $params
+     */
+    public function confirmMailProposition(Request $request, array $params): Response
+    {
+        return $this->decideMailProposition($request, $params, true);
+    }
+
+    /**
+     * POST /finance/receipts/courrier/{id}/rejet
+     *
+     * @param array<string, string> $params
+     */
+    public function dismissMailProposition(Request $request, array $params): Response
+    {
+        return $this->decideMailProposition($request, $params, false);
+    }
+
+    /**
+     * @param array<string, string> $params
+     */
+    private function decideMailProposition(Request $request, array $params, bool $confirm): Response
+    {
+        if (($guard = $this->guardCsrf($request, '/finance/receipts')) !== null) {
+            return $guard;
+        }
+
+        if ($this->inboundMail === null) {
+            return $this->notFound();
+        }
+
+        $role = Role::fromString(AuthSession::getRole());
+        $references = self::mailReferences(
+            $this->financeService->getAccountsForUser($role),
+            $this->financeService->isUnassignedReceiptVisibleTo($role)
+        );
+        $messageId = (int) ($params['id'] ?? 0);
+        $candidateId = (int) $request->getBody('candidate_id', 0);
+        $consumerId = \Modules\Finance\Mail\FinanceMessageConsumer::CONSUMER_ID;
+
+        $done = $confirm
+            ? $this->inboundMail->confirmCandidate($consumerId, $references, $messageId, $candidateId, AuthSession::getUserAccountId())
+            : $this->inboundMail->dismissCandidate($consumerId, $references, $messageId, $candidateId);
+
+        FlashMessage::set(
+            $done ? 'success' : 'error',
+            $done
+                ? ($confirm ? 'Message rattaché : la pièce jointe est enregistrée comme reçu.' : 'Proposition écartée.')
+                : 'Cette proposition n\'existe plus.'
+        );
+
+        return $this->redirect('/finance/receipts');
     }
 
     /**
@@ -96,6 +220,7 @@ class ReceiptController extends AbstractController
             'selected_account' => $account,
             'selected_key' => $account === null ? self::UNASSIGNED_KEY : $account->id,
             'may_sort_the_pile' => $maySortThePile,
+            'mail_propositions' => $this->mailPropositions(self::mailReferences($accounts, $maySortThePile)),
             'unassigned_count' => $unassignedCount,
             'rows' => $this->buildRows($accountId, $pendingOnly, $search, $page),
             'pending_only' => $pendingOnly,

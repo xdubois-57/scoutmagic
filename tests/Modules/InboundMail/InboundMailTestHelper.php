@@ -112,6 +112,15 @@ class InboundMailTestHelper
             UNIQUE (message_id, consumer_id, business_reference, attachment_id)
         )');
 
+        $pdo->exec('CREATE TABLE inbound_outbound_message_ids (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            consumer_id TEXT NOT NULL,
+            business_reference TEXT NOT NULL,
+            message_id_blind_index TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (consumer_id, message_id_blind_index)
+        )');
+
         $pdo->exec('CREATE TABLE inbound_message_attachments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             message_id INTEGER NOT NULL,

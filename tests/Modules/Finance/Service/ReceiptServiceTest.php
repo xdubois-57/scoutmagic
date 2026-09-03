@@ -271,6 +271,59 @@ class ReceiptServiceTest extends TestCase
         $this->assertSame([], $this->transactionAttachmentRepository->findTransactionIdsForAttachment($attachment->id));
     }
 
+    // ── The same bytes, twice (§8.67) ───────────────────────────────────
+
+    public function testAModuleHandingTheSameBytesAgainGetsTheReceiptItAlreadyFiled(): void
+    {
+        $first = $this->service->upload('%PDF facture', 'application/pdf', 'facture.pdf', $this->accountId, null, null, null, true);
+        $again = $this->service->upload('%PDF facture', 'application/pdf', 'facture (1).pdf', $this->accountId, null, null, null, true);
+
+        $this->assertSame($first->id, $again->id);
+        $this->assertCount(1, $this->attachmentRepository->findActiveOrdered());
+    }
+
+    public function testAPersonsRepeatedUploadIsTheirsToExplain(): void
+    {
+        // The default: a treasurer uploading the same file twice gets two
+        // receipts, as they always did, and deletes the one they did not
+        // mean. Silently answering their second upload with the first
+        // would look like a lost file.
+        $first = $this->service->upload('%PDF facture', 'application/pdf', 'facture.pdf', $this->accountId, null, null, 1);
+        $again = $this->service->upload('%PDF facture', 'application/pdf', 'facture.pdf', $this->accountId, null, null, 1);
+
+        $this->assertNotSame($first->id, $again->id);
+    }
+
+    public function testTheSameBytesOnAnotherAccountAreAnotherReceipt(): void
+    {
+        $other = $this->accountRepository->create('Autre', Account::TYPE_BANK, null, null, null, 'intendant');
+
+        $first = $this->service->upload('%PDF facture', 'application/pdf', 'facture.pdf', $this->accountId, null, null, null, true);
+        $second = $this->service->upload('%PDF facture', 'application/pdf', 'facture.pdf', $other, null, null, null, true);
+
+        $this->assertNotSame($first->id, $second->id);
+    }
+
+    public function testTheSortingPileDeduplicatesTooButOnlyAgainstItself(): void
+    {
+        $onAccount = $this->service->upload('%PDF facture', 'application/pdf', 'facture.pdf', $this->accountId, null, null, null, true);
+        $pile = $this->service->uploadUnattributed('%PDF facture', 'application/pdf', 'facture.pdf', null, true);
+        $pileAgain = $this->service->uploadUnattributed('%PDF facture', 'application/pdf', 'facture.pdf', null, true);
+
+        $this->assertNotSame($onAccount->id, $pile->id);
+        $this->assertSame($pile->id, $pileAgain->id);
+    }
+
+    public function testADeletedReceiptIsNotWhatTheSameBytesComeBackTo(): void
+    {
+        $first = $this->service->upload('%PDF facture', 'application/pdf', 'facture.pdf', $this->accountId, null, null, null, true);
+        $this->service->delete($first->id);
+
+        $again = $this->service->upload('%PDF facture', 'application/pdf', 'facture.pdf', $this->accountId, null, null, null, true);
+
+        $this->assertNotSame($first->id, $again->id);
+    }
+
     public function testListPendingExcludesAssociatedAttachments(): void
     {
         $pending = $this->service->upload('content', 'application/pdf', 'pending.pdf', $this->accountId, null, null, 1);

@@ -18,6 +18,10 @@ use Modules\InboundMail\Api\LinkOrigin;
 use Modules\InboundMail\Api\MessageCandidate;
 use Modules\InboundMail\Api\MessageConsumerInterface;
 use Modules\InboundMail\Api\MessageLink;
+use Modules\InboundMail\Api\ReferenceDirectory;
+use Modules\InboundMail\Api\ReferenceSuggestion;
+use Core\Service\TextNormalizerService;
+use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Document\DocumentType;
 use Modules\Rental\Document\RentalDocument;
@@ -52,7 +56,7 @@ use Modules\Rental\Service\RentalDocumentService;
  * **A cancelled or archived booking still matches.** The correspondence
  * about why a stay fell through belongs on that stay.
  */
-class RentalMessageConsumer implements MessageConsumerInterface
+class RentalMessageConsumer implements MessageConsumerInterface, ReferenceDirectory, \Modules\InboundMail\Api\PropositionListener
 {
     public const CONSUMER_ID = 'rental';
 
@@ -77,15 +81,6 @@ class RentalMessageConsumer implements MessageConsumerInterface
         private RentalBookingRepository $bookingRepository,
         private InboundMailInterface $inboundMail,
         private RentalDocumentService $documentService,
-        /**
-         * The mailboxes this module listens to, by id. **Empty means every
-         * mailbox**, which is the right default for a unit with one box:
-         * asking them to tick it before anything works would be a
-         * configuration step whose only possible answer is "yes".
-         *
-         * @var int[]
-         */
-        private array $mailboxIds = [],
         private int $windowDaysAfter = self::DEFAULT_WINDOW_DAYS_AFTER,
         private BookingReferenceMatcher $referenceMatcher = new BookingReferenceMatcher(),
         /**
@@ -98,8 +93,130 @@ class RentalMessageConsumer implements MessageConsumerInterface
          */
         private ?RentalAuthorizationService $authorizationService = null,
         private ?int $scoutYearId = null,
-        private ?string $requesterEmail = null
+        private ?string $requesterEmail = null,
+        /**
+         * The unit's assets, for « Rattacher à… » on the chief's screen
+         * (`Api\ReferenceDirectory`): a booking is named by its asset and
+         * reached through its asset's slug. Null on the scheduled path,
+         * where nobody searches.
+         */
+        private ?\Modules\Rental\Repository\RentalAssetRepository $assetRepository = null,
+        /**
+         * The model as a last resort between several bookings of one
+         * renter (`Mail\BookingChoiceByModel`). Null, or no model on the
+         * cheap tier, leaves the propositions exactly as the rules made
+         * them.
+         */
+        private ?BookingChoiceByModel $modelChoice = null,
+        /**
+         * Who tells the asset's managers that a message waits for their
+         * decision (`Mail\RentalMailNotifier`). Null: nobody is told, and
+         * the proposition still waits on the booking's page.
+         */
+        private ?RentalMailNotifier $notifier = null
     ) {
+    }
+
+    /**
+     * A message proposed towards bookings of this module: the managers
+     * of each booking's asset are told (`Api\PropositionListener`).
+     *
+     * @param \Modules\InboundMail\Api\MessageCandidate[] $candidates
+     */
+    public function onProposed(InboundMessage $message, array $candidates): void
+    {
+        if ($this->notifier === null) {
+            return;
+        }
+
+        $bookings = [];
+        $labels = [];
+        $urls = [];
+        foreach ($candidates as $candidate) {
+            $booking = $this->bookingRepository->findByReference($candidate->businessReference);
+            if ($booking === null || isset($labels[$booking->reference])) {
+                continue;
+            }
+            $bookings[] = $booking;
+            $labels[$booking->reference] = $this->labelFor($booking);
+            $url = $this->referenceUrl($booking->reference);
+            if ($url !== null) {
+                $urls[$booking->reference] = $url;
+            }
+        }
+
+        $this->notifier->proposed($bookings, $labels, $urls);
+    }
+
+    // ── Api\ReferenceDirectory: the bookings as a person names them ────
+
+    /**
+     * @return ReferenceSuggestion[]
+     */
+    public function searchReferences(string $query, int $limit = 10): array
+    {
+        $query = trim($query);
+        if ($query === '' || $this->assetRepository === null) {
+            return [];
+        }
+
+        $assetNames = [];
+        foreach ($this->assetRepository->findAll() as $asset) {
+            $assetNames[$asset->id] = $asset->name;
+        }
+
+        $terms = array_values(array_filter(explode(' ', TextNormalizerService::fold($query))));
+        $exact = strtoupper($query);
+        $suggestions = [];
+
+        foreach ($this->bookingRepository->findAllForAssets(array_keys($assetNames)) as $booking) {
+            $assetName = $assetNames[$booking->assetId] ?? '';
+            $haystack = TextNormalizerService::fold(implode(' ', [
+                $booking->reference,
+                $booking->renterName,
+                (string) $booking->renterOrganisation,
+                $assetName,
+                $booking->arrivalDate,
+                $booking->departureDate,
+            ]));
+
+            $isExact = $booking->reference === $exact;
+            if (!$isExact) {
+                foreach ($terms as $term) {
+                    if (!str_contains($haystack, $term)) {
+                        continue 2;
+                    }
+                }
+            }
+
+            $suggestion = new ReferenceSuggestion(
+                $booking->reference,
+                $booking->reference . ' — ' . $booking->renterName,
+                trim($assetName . ' · du ' . $booking->arrivalDate . ' au ' . $booking->departureDate
+                    . ' · ' . $booking->status->label())
+            );
+
+            // An exact reference leads, whatever else matched.
+            if ($isExact) {
+                array_unshift($suggestions, $suggestion);
+            } else {
+                $suggestions[] = $suggestion;
+            }
+        }
+
+        return array_slice($suggestions, 0, max(1, $limit));
+    }
+
+    public function referenceUrl(string $businessReference): ?string
+    {
+        $booking = $this->bookingRepository->findByReference($businessReference);
+        if ($booking === null) {
+            return null;
+        }
+
+        $asset = $this->assetRepository?->findById($booking->assetId);
+
+        return $asset === null ? null : '/mes-locations/' . $asset->slug . '/reservations/' . $booking->id;
     }
 
     public function consumerId(): string
@@ -114,8 +231,21 @@ class RentalMessageConsumer implements MessageConsumerInterface
 
     public function analyze(CandidateMessage $message): AnalysisResult
     {
-        if (!$this->listensTo($message->mailboxId)) {
-            return AnalysisResult::nothing();
+        // Which boxes this module reads is the mailbox configuration's
+        // answer (§8.58, `Service\MailboxScopeService`): a consumer is
+        // only ever handed the messages of a box it was opened to. The
+        // module's own list of box ids, which used to be checked here,
+        // said something the operator's answer could contradict without
+        // anything on either screen explaining why nothing arrived.
+        // Level 0: the message answers a mail the site sent, at the signed
+        // reply address that mail carried (§8.58). Minted and verified by
+        // the gateway; only the booking's existence is checked here.
+        // Upper-cased because that is what a booking reference IS
+        // (`LOC-2027-0042`) and the mail layer lowercases recipients.
+        $addressed = $message->addressedReferenceFor(self::CONSUMER_ID);
+        $addressed = $addressed === null ? null : strtoupper($addressed);
+        if ($addressed !== null && $this->bookingRepository->findByReference($addressed) !== null) {
+            return AnalysisResult::linkedTo(self::CONSUMER_ID, $addressed, LinkOrigin::REPLY_ADDRESS);
         }
 
         $reference = $this->referenceMatcher->match($message->subject, $message->bodyText);
@@ -150,7 +280,36 @@ class RentalMessageConsumer implements MessageConsumerInterface
      */
     private function fromSender(CandidateMessage $message): AnalysisResult
     {
-        $inWindow = $this->bookingsInWindow($message);
+        if ($message->fromEmail === '') {
+            return AnalysisResult::nothing();
+        }
+
+        $all = $this->bookingRepository->findByRenterEmail($message->fromEmail);
+        if ($all === []) {
+            return AnalysisResult::nothing();
+        }
+
+        // A renter with exactly one booking that is still alive is not
+        // ambiguous, whatever the date: their enquiry sent before the
+        // request existed, or their question three months after the
+        // stay, is about the one booking they have. The window below is
+        // what tells two bookings apart, and it has nothing to tell here.
+        $alive = array_values(array_filter($all, static fn(RentalBooking $booking): bool => self::isAlive($booking)));
+        if (count($alive) === 1 && count($all) === 1) {
+            return AnalysisResult::linkedTo(self::CONSUMER_ID, $alive[0]->reference, LinkOrigin::SENDER);
+        }
+
+        $inWindow = array_values(array_filter(
+            $all,
+            fn(RentalBooking $booking) => $this->covers($booking, $message->sentAt)
+        ));
+
+        // Among several in the window, the ones the unit refused,
+        // cancelled or let lapse do not compete with the live one.
+        $liveInWindow = array_values(array_filter($inWindow, static fn(RentalBooking $b): bool => self::isAlive($b)));
+        if (count($liveInWindow) === 1) {
+            return AnalysisResult::linkedTo(self::CONSUMER_ID, $liveInWindow[0]->reference, LinkOrigin::SENDER);
+        }
 
         if (count($inWindow) === 1) {
             return AnalysisResult::linkedTo(self::CONSUMER_ID, $inWindow[0]->reference, LinkOrigin::SENDER);
@@ -172,13 +331,29 @@ class RentalMessageConsumer implements MessageConsumerInterface
         // Bounded. A renter with a standing booking every month would
         // otherwise turn one email into a wall of propositions nobody
         // reads, which is a different way of saying nothing.
+        $shortlist = array_slice($inWindow, 0, self::MAX_PROPOSITIONS);
+
+        // The model, last, and only to ORDER the list: its pick leads,
+        // says so, and the others stay — it never associates (§8.59).
+        $options = [];
+        foreach ($shortlist as $booking) {
+            $options[$booking->reference] = $this->labelFor($booking);
+        }
+        $picked = $this->modelChoice?->choose($message->subject . "\n" . $message->bodyText, $options);
+        if ($picked !== null) {
+            usort($shortlist, static fn(RentalBooking $a, RentalBooking $b): int
+                => ($a->reference === $picked ? 0 : 1) <=> ($b->reference === $picked ? 0 : 1));
+        }
+
         $candidates = [];
-        foreach (array_slice($inWindow, 0, self::MAX_PROPOSITIONS) as $booking) {
+        foreach ($shortlist as $booking) {
+            $isPick = $booking->reference === $picked;
             $candidates[] = new MessageCandidate(
                 businessReference: $booking->reference,
                 label: $this->labelFor($booking),
-                evidenceType: 'sender_window',
-                explanation: 'L\'adresse de l\'expéditeur est celle du locataire, et le message est '
+                evidenceType: $isPick ? 'ai' : 'sender_window',
+                explanation: ($isPick ? 'Le modèle suggère cette réservation d\'après le contenu du message. ' : '')
+                    . 'L\'adresse de l\'expéditeur est celle du locataire, et le message est '
                     . 'arrivé pendant la période de cette réservation. '
                     . count($inWindow) . ' réservations de ce locataire correspondent : '
                     . 'ScoutMagic n\'en choisit aucune.'
@@ -186,6 +361,15 @@ class RentalMessageConsumer implements MessageConsumerInterface
         }
 
         return new AnalysisResult([], $candidates);
+    }
+
+    /**
+     * A booking still worth a renter's message: not refused, cancelled or
+     * lapsed.
+     */
+    private static function isAlive(RentalBooking $booking): bool
+    {
+        return !in_array($booking->status, [BookingStatus::REFUSED, BookingStatus::CANCELLED, BookingStatus::EXPIRED], true);
     }
 
     /**
@@ -271,16 +455,32 @@ class RentalMessageConsumer implements MessageConsumerInterface
      */
     public function onLinked(InboundMessage $message, MessageLink $link): void
     {
-        if ($message->attachments === []) {
-            return;
-        }
-
         $booking = $this->bookingRepository->findByReference($link->businessReference);
         if ($booking === null) {
             return;
         }
 
+        if ($link->origin === LinkOrigin::MANUAL) {
+            $this->learnFrom($message, $booking);
+        }
+
+        if ($message->attachments === []) {
+            return;
+        }
+
+        // Idempotent per file: a message moved onto a booking whose
+        // documents were moved there first, or confirmed twice, must not
+        // file the same attachment twice.
+        $alreadyFiled = [];
+        foreach ($this->documentService->forBooking($booking->id) as $document) {
+            $alreadyFiled[$document->fileId] = true;
+        }
+
         foreach ($message->attachments as $attachment) {
+            if (isset($alreadyFiled[$attachment->fileId])) {
+                continue;
+            }
+
             // Registered as email-sourced: the row points at the message's
             // OWN file id, not at a copy, so deleting the document later
             // must leave the bytes — and the message's attachment — alone
@@ -297,6 +497,38 @@ class RentalMessageConsumer implements MessageConsumerInterface
     }
 
     /**
+     * What a manager's decision teaches the module, and what it does with
+     * it at once.
+     *
+     * The sender's address becomes one of the booking's addresses — the
+     * renter writing from work, the partner answering from home — so the
+     * next message from it is recognised without anybody's help. And the
+     * unattributed mail is offered to this module again straight away:
+     * the rest of that thread, and every earlier message from that
+     * address, just became attributable. Bounded, and never inside a
+     * synchronisation — a manual association only ever happens in a
+     * request.
+     */
+    private function learnFrom(InboundMessage $message, RentalBooking $booking): void
+    {
+        $sender = RentalBookingRepository::normalizeEmail($message->fromEmail);
+        if ($sender !== '' && $sender !== RentalBookingRepository::normalizeEmail($booking->renterEmail)) {
+            $this->bookingRepository->addRenterEmail($booking->id, $sender);
+        }
+
+        try {
+            $this->inboundMail->reanalyzeUnlinked(self::CONSUMER_ID, self::REANALYSIS_AFTER_DECISION);
+        } catch (\Throwable) {
+            // The association a person just made is already written; a
+            // re-run that fails must not undo their click or show them an
+            // error about it.
+        }
+    }
+
+    /** How many unattributed messages one manual decision re-examines. */
+    public const REANALYSIS_AFTER_DECISION = 50;
+
+    /**
      * Take back the documents `onLinked()` filed on that booking.
      *
      * **This is the bug that made the callback necessary.** Reassigning a
@@ -306,6 +538,16 @@ class RentalMessageConsumer implements MessageConsumerInterface
      * bytes are never touched — a document sourced from an email points at
      * the message's own file (§8.59), and `delete()` already knows it does
      * not own them.
+     *
+     * **Only what is still `Non classé`.** A document a manager has since
+     * re-classified — the signed contract, the invoice — is theirs, not the
+     * message's: they read the file and said what it is, and the message
+     * leaving the booking must not take that decision with it. Deleting
+     * every email-sourced row regardless of type was a real data loss: the
+     * communication service kept the re-classified file and handed it to
+     * the booking, and this callback then removed the document row it
+     * had just been asked to keep, leaving an orphaned file nothing
+     * listed.
      */
     public function onUnlinked(InboundMessage $message, MessageLink $link): void
     {
@@ -325,6 +567,7 @@ class RentalMessageConsumer implements MessageConsumerInterface
 
         foreach ($this->documentService->forBooking($booking->id) as $document) {
             if ($document->source === RentalDocument::SOURCE_EMAIL
+                && $document->type === DocumentType::UNSORTED
                 && in_array($document->fileId, $fileIds, true)
             ) {
                 $this->documentService->delete($document);
@@ -370,29 +613,6 @@ class RentalMessageConsumer implements MessageConsumerInterface
     }
 
     /**
-     * @param int[] $mailboxIds
-     */
-    public function withMailboxes(array $mailboxIds): self
-    {
-        return new self(
-            $this->bookingRepository,
-            $this->inboundMail,
-            $this->documentService,
-            $mailboxIds,
-            $this->windowDaysAfter,
-            $this->referenceMatcher,
-            $this->authorizationService,
-            $this->scoutYearId,
-            $this->requesterEmail
-        );
-    }
-
-    private function listensTo(int $mailboxId): bool
-    {
-        return $this->mailboxIds === [] || in_array($mailboxId, $this->mailboxIds, true);
-    }
-
-    /**
      * §7.6 level 3: the renter's own address, and only inside the window.
      *
      * Both halves matter. Without the address this would attach anything;
@@ -400,21 +620,6 @@ class RentalMessageConsumer implements MessageConsumerInterface
      * to a booking from three years ago. And with several bookings in
      * range, it attaches nothing at all.
      */
-    /**
-     * @return RentalBooking[]
-     */
-    private function bookingsInWindow(CandidateMessage $message): array
-    {
-        if ($message->fromEmail === '') {
-            return [];
-        }
-
-        return array_values(array_filter(
-            $this->bookingRepository->findByRenterEmail($message->fromEmail),
-            fn(RentalBooking $booking) => $this->covers($booking, $message->sentAt)
-        ));
-    }
-
     /**
      * Whether a message sent at $sentAt is plausibly about this booking:
      * from the moment the request was made until some weeks after the

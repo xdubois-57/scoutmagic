@@ -994,9 +994,9 @@ It never marks a message read, never moves one, never deletes one, never creates
 
 ### 23.2 What it keeps, and what it throws away
 
-**A message no module recognises is discarded** — not stored, not queued, not listed, not notified. Keeping it would build an archive of the unit's mailbox with no screen to consult it, which is the worst possible position under the RGPD. The read position still advances past it, so one unrecognised newsletter cannot block a mailbox forever.
+**Everything read is kept, recognised or not** — a message no module recognises is stored like the others, listed on the Chef d'Unité's « Courrier » page where it can be oriented by hand, and removed automatically after the configured retention (90 days by default) when nothing points at it and no proposition is standing. Discarding it, as the module first did, silently lost a registration sent to the wrong address with nobody able to find out. The read position still advances past every message, so one awkward newsletter cannot block a mailbox forever.
 
-A claimed message keeps its subject, sender, date and both bodies, all encrypted at rest. The HTML is cleaned once on arrival and **remote images are removed rather than proxied**: a hidden image in a stranger's email is a read receipt, and proxying still fetches it.
+A message keeps its subject, sender, date and both bodies, all encrypted at rest. The HTML is cleaned once on arrival and **remote images are removed rather than proxied**: a hidden image in a stranger's email is a read receipt, and proxying still fetches it.
 
 ### 23.3 Attachments
 
@@ -1008,9 +1008,11 @@ PDF, images and office documents only — no archives, nothing executable — wi
 
 **Gmail connects over IMAP with an app password**, deliberately: a native connector would oblige every unit to pay for an annual security assessment, without which their sync would break every seven days.
 
+**Signed reply addresses**, on by default (« Adresse de réponse signée sur les e-mails envoyés »): the mail the site sends about an object carries a `Reply-To` of the form `locations+rental.LOC-2027-0042.9f3a1b2c4d5e@unite.be`, so a bare reply is attached to that object on arrival whoever writes and whatever the subject. The twelve hex characters are a keyed signature; an address without it is an ordinary address. Requires a watched box whose account is an address and a provider that accepts `+tag` addresses; the operator turns it off when replies bounce, and replies to mail already sent are still recognised.
+
 ### 23.5 What a consuming module gets
 
-Messages for one of its own business objects, and nothing else. There is no "all messages", no mailbox listing and no search — so a manager who may open a booking does not thereby gain a window onto the unit's correspondence.
+Messages for one of its own business objects, its own standing propositions, and — for a box the superadmin declared it may read in full — that box's mail, through a triage list scoped to the references the requester may reach. There is no "all messages", no mailbox listing and no search — so a manager who may open a booking does not thereby gain a window onto the unit's correspondence. A module says what it is sure of (an association, made unattended) and what it merely suspects (a proposition, confirmed or dismissed by a person); when several objects fit, it proposes each and chooses none — at most asking the AI connector, when the unit has one, to say which proposition to show first. A module may also record the Message-IDs of the mail it sends about an object, so the first reply to that mail threads onto the object even with the reference gone from the subject. A person's manual filing is a signal the module may learn from (an address the object did not know); an automatic one never is. A module may ask to be told when its propositions are written, and tells the people who settle them through an ordinary, declared, disableable notification (`rental.mail_proposition`, `camps.mail_proposition`, `camps.stay_from_mail`, `finance.mail_proposition`) that names the object and never the sender; what nobody settled is counted on the attention page, per module.
 
 ## 24. Mail merge — publipostage from an Excel file (module mass_mail)
 

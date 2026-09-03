@@ -1,6 +1,6 @@
 {#
-  The Communications tab of a booking (§7.7): the emails that arrived about
-  this stay, in the order they arrived.
+  The Courrier panel of a booking (§7.7): the emails that arrived about
+  this stay, and what the module is not sure about.
 
   Three things this panel is deliberate about:
 
@@ -9,27 +9,85 @@
     because the sender's address matched inside a time window is a guess.
     Presenting both as simply "attached" would let a manager act on the
     second with the confidence of the first.
-  - **There is no way to attach a message here.** Attaching is what the
-    automatic rules do; correcting them is what detach and move are for.
-    A button that opened the mailbox would be a doorway onto everybody's
-    correspondence.
+  - **Propositions are answered here**, by the manager of the booking. A
+    proposition only exists to be confirmed or dismissed by somebody who
+    knows, and until this panel showed them only the Chef d'Unité could.
   - **Remote images are already gone** from the bodies below — a hidden
     image in a stranger's email is a read receipt, and it was stripped when
     the message was stored, not when it is rendered.
 
-  Requires `asset`, `booking`, `messages`, `message_documents` and
-  `move_targets`.
+  Requires `asset`, `booking`, `messages`, `message_propositions`,
+  `message_documents` and `move_targets`.
 #}
 <div class="card mb-4" id="communications">
     <div class="card-body">
-        <h2 class="h5 mb-2">Communications</h2>
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+            <h2 class="h5 mb-0">Courrier</h2>
+            <form method="post" action="/mes-locations/message/relancer">
+                {{ csrf_field()|raw }}
+                <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                <button type="submit" class="btn btn-sm btn-outline-secondary"
+                        title="Réexamine les messages que rien ne rattache, avec ce que le site sait aujourd'hui">
+                    <i class="bi bi-arrow-clockwise" aria-hidden="true"></i> Relancer l'analyse
+                </button>
+            </form>
+        </div>
         <p class="text-body-secondary small">
-            Les emails reçus au sujet de cette réservation, rattachés automatiquement.
+            Les e-mails reçus au sujet de cette réservation, rattachés automatiquement.
             ScoutMagic lit la boîte de l'unité sans jamais la modifier : rien n'y est
             marqué comme lu, déplacé ni supprimé.
         </p>
 
-        {% if messages is empty %}
+        {% if message_propositions is not empty %}
+            <h3 class="h6 mt-3">Propositions à confirmer</h3>
+            {% for row in message_propositions %}
+                <div class="border border-warning rounded p-3 mb-3">
+                    <div class="d-flex flex-wrap justify-content-between gap-2">
+                        <div class="min-w-0">
+                            <strong>{{ row.message.displayFrom }}</strong>
+                            <div class="form-text mb-0">{{ row.message.sentAt|datetime_fr }}</div>
+                        </div>
+                    </div>
+                    <div class="fw-semibold my-2">{{ row.message.subject ?: 'Sans objet' }}</div>
+                    {% include '@inbound_mail/partials/message_body.html.twig' with { message: row.message, folded: true } only %}
+                    {% if row.message.hasAttachments or row.message.hasOmittedAttachments %}
+                        <div class="mt-2">
+                            {% include '@inbound_mail/partials/attachments.html.twig' with { message: row.message } only %}
+                        </div>
+                    {% endif %}
+                    {% for candidate in row.candidates %}
+                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-3">
+                            <div class="small">{{ candidate.explanation }}</div>
+                            <div class="d-flex gap-2">
+                                <form method="post" action="/mes-locations/message/proposition/confirmation">
+                                    {{ csrf_field()|raw }}
+                                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                    <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                    <input type="hidden" name="message_id" value="{{ row.message.id }}">
+                                    <input type="hidden" name="candidate_id" value="{{ candidate.id }}">
+                                    <button type="submit" class="btn btn-sm btn-primary">Rattacher</button>
+                                </form>
+                                <form method="post" action="/mes-locations/message/proposition/rejet">
+                                    {{ csrf_field()|raw }}
+                                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                    <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                    <input type="hidden" name="message_id" value="{{ row.message.id }}">
+                                    <input type="hidden" name="candidate_id" value="{{ candidate.id }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-secondary">Écarter</button>
+                                </form>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endfor %}
+            <p class="form-text">
+                Écarter une proposition est définitif ; le message reste dans le courrier de l'unité
+                jusqu'au terme du délai de conservation.
+            </p>
+        {% endif %}
+
+        {% if messages is empty and message_propositions is empty %}
             {% include 'partials/empty_state.html.twig' with {
                 message: "Aucun message n'a encore été rattaché à cette réservation.",
                 compact: true,
@@ -38,7 +96,7 @@
             {% for message in messages %}
                 <div class="border rounded p-3 mb-3">
                     <div class="d-flex flex-wrap justify-content-between gap-2 mb-2">
-                        <div>
+                        <div class="min-w-0">
                             <strong>{{ message.displayFrom }}</strong>
                             <div class="form-text mb-0">
                                 {{ message.sentAt|datetime_fr }}
@@ -59,17 +117,12 @@
                         </div>
                     </div>
 
-                    <div class="fw-semibold mb-2">{{ message.subject }}</div>
+                    <div class="fw-semibold mb-2">{{ message.subject ?: 'Sans objet' }}</div>
 
-                    <div class="rental-message-body mb-3">
-                        {% if message.bodyHtml is not empty %}
-                            {# Already sanitised and stripped of remote images when it
-                               was stored (§7.9) — never at render time, so no future
-                               template has to remember. #}
-                            {{ message.bodyHtml|raw }}
-                        {% else %}
-                            <pre class="mb-0 text-body-secondary" style="white-space: pre-wrap;">{{ message.bodyText }}</pre>
-                        {% endif %}
+                    {# Folded: a booking's page is long already, and a thread of
+                       five replies expanded in monospace was most of it. #}
+                    <div class="mb-3">
+                        {% include '@inbound_mail/partials/message_body.html.twig' with { message: message, folded: true } only %}
                     </div>
 
                     {% if message.hasAttachments %}
@@ -80,13 +133,14 @@
                                     {% set document = message_documents[attachment.fileId] ?? null %}
                                     <li class="d-flex flex-wrap align-items-center gap-2 mb-1">
                                         <span>{{ attachment.filename }}</span>
+                                        <span class="text-body-secondary small">{{ attachment.sizeBytes|filesize }}</span>
                                         {% if document %}
                                             <span class="badge bg-body-tertiary border text-body-secondary">{{ document.type.label }}</span>
-                                            <a href="{{ file_url(attachment.fileId) }}"
-                                               class="btn btn-sm btn-outline-secondary">Ouvrir</a>
                                         {% else %}
                                             <span class="badge bg-body-tertiary border text-body-secondary">Non classé</span>
                                         {% endif %}
+                                        <a href="{{ file_url(attachment.fileId) }}"
+                                           class="btn btn-sm btn-outline-secondary">Ouvrir</a>
                                     </li>
                                 {% endfor %}
                             </ul>
@@ -99,7 +153,7 @@
 
                     <div class="d-flex flex-wrap gap-2">
                         <form method="post" action="/mes-locations/message/detacher"
-                              data-confirm="Détacher ce message ? Il sera supprimé, ainsi que ses pièces jointes non reclassées.">
+                              data-confirm="Détacher ce message ? Il retourne dans le courrier de l'unité ; ses pièces jointes non reclassées quittent la réservation, les documents déjà reclassés restent.">
                             {{ csrf_field()|raw }}
                             <input type="hidden" name="asset_id" value="{{ asset.id }}">
                             <input type="hidden" name="booking_id" value="{{ booking.id }}">

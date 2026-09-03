@@ -7,7 +7,7 @@ role_min: superadmin
 question: Comment brancher une boîte e-mail de l'unité sur le site ?
 question: Le site peut-il envoyer ou effacer des mails de la boîte ?
 paths: /config/courrier-entrant, /config/courrier-entrant/boites/nouvelle, /config/courrier-entrant/boites/*/modification
-related: courrier-portee, courrier-unite, gerer-les-locations
+related: courrier-portee, courrier-reponse, courrier-unite, gerer-les-locations
 ---
 
 Le courrier entrant relie une ou plusieurs boîtes e-mail de l'unité au
@@ -54,7 +54,9 @@ la même boîte.
 ## Ce qui se passe ensuite
 
 La relève tourne régulièrement en arrière-plan (un vrai cron chez
-l'hébergeur la rend ponctuelle). Son rythme se règle dans
+l'hébergeur la rend ponctuelle ; la page vous prévient quand aucune
+tâche planifiée n'est détectée, et la relève ne se fait alors qu'à
+l'occasion des visites). Son rythme se règle dans
 *Configuration > Réglages*, sous « Intervalle entre deux relèves du
 courrier » : quinze minutes par défaut, entre 5 minutes et 24 heures.
 Inutile de descendre au plus bas — plusieurs hébergeurs de messagerie
@@ -63,8 +65,8 @@ l'unité perd alors toutes ses relèves le temps du blocage. Chaque
 message relevé est proposé aux
 fonctions du site qui savent le reconnaître — une réponse de locataire
 rejoint sa réservation d'après la référence du sujet, la conversation
-ou l'expéditeur ; dans le doute, rien n'est rattaché plutôt que mal
-rattaché.
+ou l'expéditeur. Dans le doute, rien n'est rattaché d'office : le site
+fait une proposition, qu'une personne confirme ou écarte.
 
 La colonne « État » de la liste dit si chaque boîte fonctionne ;
 « Désactiver » suspend une boîte sans la supprimer, et supprimer une

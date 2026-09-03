@@ -1727,7 +1727,7 @@ The Courriel page's own test send proves one thing: PHPMailer handed the message
 
 **A failure per mailbox is not a failure of the run.** One address refusing while two go out is exactly the asymmetry the probe exists to reveal, so a send that throws is counted and the loop continues; « 3 boîtes, 2 messages partis » is a diagnosis on its own, and a different one from « 3 sur 3 » with nothing ever arriving.
 
-**What is read, and what is kept.** `Mail\SupportMessageConsumer` implements `Api\MessageRetentionPreference` (§8.49ter's sibling, roadmap IT-22) and answers `wantsRawHeaders() = true`, `wantsBody() = false`: the diagnosis is `Authentication-Results`, `Received-SPF`, `DKIM-Signature` and the chain of `Received` lines, and a message this receiver sent to itself has a body nobody needs to keep. It claims **only** a message whose subject carries a key it issued, which is the narrowest claim of any consumer — which is why it is registered *first* on the scheduled path, ahead of a camps mailbox that claims everything it is offered. `Service\MailAuthenticationResults` reports what the receiving MTA wrote down and re-checks nothing: `pass`, `fail`, `none`, `unverified` for a signature with no verdict, and `absent` for a header that is simply not there — a distinction a maintainer must not have to make themselves, since « non renseigné » read as « échec » sends somebody chasing a DNS record that is fine.
+**What is read, and what is kept.** `Mail\SupportMessageConsumer` implements `Api\MessageRetentionPreference` (§8.49ter's sibling, roadmap IT-22) and answers `wantsRawHeaders() = true`, `wantsBody() = false`: the diagnosis is `Authentication-Results`, `Received-SPF`, `DKIM-Signature` and the chain of `Received` lines, and a message this receiver sent to itself has a body nobody needs to keep. It claims **only** a message whose subject carries a key it issued, which is the narrowest claim of any consumer, and it attributes the message to the probe row of the address it was sent to (`CandidateMessage::$toEmails`), falling back to the first pending row only when the message names none — a run writes one message per box, and box B's copy landing on box A's row would be the opposite of the diagnosis. `Service\MailAuthenticationResults` reports what the receiving MTA wrote down and re-checks nothing: `pass`, `fail`, `none`, `unverified` for a signature with no verdict, and `absent` for a header that is simply not there — a distinction a maintainer must not have to make themselves, since « non renseigné » read as « échec » sends somebody chasing a DNS record that is fine.
 
 **A reading is not evidence, so the block it was read from is kept too.** `raw_headers_encrypted` holds the header block exactly as the receiving server wrote it, beside the parsed reading, and the ticket page shows it behind « En-têtes reçus ». « SPF non renseigné » is a claim about what a server wrote down, and the only way to tell a right reading from a wrong one is to look at what was actually written — which is precisely how the reading turned out to be right and the input turned out to be empty: `Client\ImapMailboxClient::toFetchedMessage()` never passed a header block at all, so `FetchedMessage::$rawHeaders` fell back to its `''` default for every message this site has ever received over IMAP, and every probe reported « SPF, DKIM et DMARC non renseignés » whatever the domain was doing. It was invisible from the tests because `Client\FakeMailboxClient` parses real MIME through `Mime\MimeMessageParser`, which fills the field — every test about headers exercised a path production does not take. The second half of the same bug: `MailAuthenticationResults` read only the FIRST `Authentication-Results` header, and each hop that checks anything prepends one of its own, so a verdict written two lines further down read as « non renseigné ».
 
@@ -1965,6 +1965,8 @@ What does protect the files is the ordinary mechanism: `File\RentalDocumentOwner
 
 **Ambiguity produces propositions now, where it used to produce silence.** Several bookings of one renter in range, or several stays of one contact, used to mean no association at all. That was right about not choosing — filing a message under whichever of two objects sorted first is worse than leaving it unattached, because the manager reading the wrong one has no way to know — and wrong about stopping there: the module knows something, it just does not know which. Bounded per message, because a renter with a standing booking every month would otherwise turn one email into a wall nobody reads, which is a different way of saying nothing.
 
+**Orienting is confirming a proposition or naming a target, and both live on `/courrier`.** A consumer that wants the chief to be able to file a message under one of its objects implements `Api\ReferenceDirectory`, an optional companion of the consumer contract in the same family as `MessageRetentionPreference`: `searchReferences()` answers « quel séjour, quelle réservation, quel compte ? » as a person would name them, and `referenceUrl()` says where each one lives. The screen offers « Rattacher à… » only towards modules that publish a directory, and accepts an association only towards a reference that module's own search returned — which is what stops a hand-crafted POST filing a message under an object that does not exist, without `inbound_mail` learning what a reference looks like. Every rattachement on the message page links to its object through the same directory. Camps, Locations and Finances all publish one; a consumer that does not is exactly what it was.
+
 **`/courrier` is the screen that makes the archive defensible, and it is ADMIN and nothing lower.** `Controller\InboundMailboxController` shows every message the unit received, associated or not; `Service\GeneralMailboxService` is the only unscoped read of stored mail in the codebase, it lives inside this module, and it is deliberately **not** on `Api\InboundMailInterface` — the absence of an unscoped read *there* is what stops a manager's access to one booking becoming a window onto the unit's whole mailbox (§7.11), and putting one on it "for the chief" would open it to every consumer. The third of the three counterweights is that exactly one role answers for the archive, which is this route's `role_min`; a manifest test pins it, because a route here at `intendant` would hand a section leader the parents' questions and the medical documents without anybody noticing. Nothing is declared `offline`: "readable offline" is opt-in per module, so a page listing every message the unit ever received is excluded by saying nothing — and a test says so, since it is easy to undo by accident the day somebody adds an `offline` section for another page.
 
 **Cursor pagination on `(sent_at, id)`, and no search on content.** `LIMIT n OFFSET 8000` makes MariaDB walk eight thousand rows to throw them away, so the page a chief opens least often is the one that gets slowest — on a table that grows without bound. The cursor is the *pair* rather than the timestamp alone because two messages routinely share a second (a mailing list delivering a batch), and a cursor on `sent_at` would then skip every message after the first of that second, permanently and invisibly. The filters are all metadata — mailbox, associated or not, automatic or not — and that is the whole of it: searching a subject or a body would mean either decrypting the table on every keystroke or keeping a plaintext index of everything anybody ever wrote to the unit, which is how an archive with a retention becomes an archive without one. `Service\InboundMailAttentionProvider` is what stops the retention quietly deleting unread mail: two aggregate counts, a link, and never a sender or a subject — the attention page is screenshotted and exported, and §7.9 makes no exception for a summary.
@@ -1979,11 +1981,23 @@ What does protect the files is the ordinary mechanism: `File\RentalDocumentOwner
 
 **The polling task is the one module task registered by hand** rather than auto-resolved from its manifest, because it needs the consumer registry and only a composition root can build one — as a lazy factory in `public/scheduler-bootstrap.php`, the single file both entry points call (§8.5), so the graph is only assembled when a sync task is actually due and the registration cannot exist under one trigger and not the other. `Tests\Modules\InboundMail\CompositionRootWiringTest` pins the factory's load-bearing facts, the camps consumer's last position included.
 
+**The site's own mail carries a signed reply address, and a bare « Répondre » names its object** (`Service\ReplyAddressService`, `LinkOrigin::REPLY_ADDRESS`). Every other rule reads something the correspondent wrote, and each fails on an ordinary day — a subject rewritten, the group's treasurer answering instead of the renter. What the site puts in the `Reply-To` of what it sends (`locations+rental.LOC-2027-0042.9f3a1b2c4d5e@unite.be`) comes back untouched: the gateway verifies the twelve-character keyed hash before any consumer is asked, hands the object over as `CandidateMessage::$addressedTo`, and the consumer only checks the object still exists. Signed over the **lowercase** form because the IMAP layer lowercases recipients, so the consumer canonicalises the reference's case itself. Minted through `InboundMailInterface::replyAddressFor()` — the box dedicated to the consumer, else the first enabled box it analyses whose account is an address, else nothing — behind a setting on by default (`inbound_mail_reply_addressing`), since a provider that rejects `+tag` addresses would bounce every reply; recognition ignores the setting, because mail sent while it was on keeps being answered for months. Consumers of it today: `Modules\Rental\Service\RentalBookingMailService`, on every mail about a booking.
+
+**A consumer that wants to hear of its own propositions says so** (`Api\PropositionListener`, the same optional-companion shape as `ReferenceDirectory`). `AnalysisResultApplier::applyAndReport()` reports the candidates that were actually NEW, and `Service\LinkedMessageNotifier` — the one owner of the callbacks on all three passes — calls `onProposed()` once per message and consumer with them, catching and journalling what the listener throws. That is what turns a proposition into a notification to the people who settle it (`rental.mail_proposition` to the asset's managers, `camps.mail_proposition` and `camps.stay_from_mail` to the stay's chiefs, `finance.mail_proposition` to the treasurers), each declared in its module's manifest, each carrying the object's name and never the sender or the subject. And what the attention page counts (§8.79): `countCandidatesFor()` feeds one provider per module, so a proposition nobody settles is visible at the unit's level and not only on the booking of a manager who is away.
+
+**The thread rule knows what the site sent, not only what it received** (`inbound_outbound_message_ids`). The ordinary first reply — « Re: votre demande », the reference gone from the subject, sent from the group's treasurer rather than the renter — answers a message the SITE wrote; looking only at inbound Message-IDs meant the thread rule recognised a reply to a reply and never the reply itself. A consumer records the ids of what it sends about an object (`InboundMailInterface::recordOutboundMessageId()`, called by `Modules\Rental\Service\RentalBookingMailService` on every booking mail), stored as a blind index — never the content, never an address — and `findReferenceByThread()` consults both tables. `LinkOrigin::IBAN` joined the origins for the same reason `PERIOD` did: an association a consumer makes on a fact in the text, labelled as such on every screen, and « pas certain » because a text can be wrong.
+
+**A person's decision is a signal; the module's own never is.** `onLinked()` receives the origin, and a consumer that wants to learn — an address the booking did not know, a correspondent the stay had no contact for — learns only from `LinkOrigin::MANUAL`: an automatic association re-teaches what the rules already knew, and a thread association may name anybody in the conversation. Having learned, the consumer re-runs `reanalyzeUnlinked()` over a bounded number of unattributed messages, so the second message from that address is filed by the click that filed the first. Failure there is swallowed: the association the person made is already written, and a re-run must not undo their click.
+
 ### 8.59bis An invoice arriving by email (`Modules\Finance\Mail`)
 
-**This consumer only ever proposes.** Never an association, on any path: a receipt is an accounting document, and a wrong one is worse than a missing one because it silently balances against the wrong account. What turns a proposition into a receipt is a treasurer confirming it, and nothing else.
+**This consumer associates in two cases, and proposes in every other.** A receipt is an accounting document, and a wrong one is worse than a missing one because it silently balances against the wrong account — so what turns a proposition into a receipt is a treasurer confirming it, unless two independent statements already agree or the operator has said the box is the treasury's. Concretely (`LinkOrigin::IBAN`): the message cites exactly one of the unit's IBANs **and** either the box is dedicated to this module, or the sender's own section owns that very account. Everything else — one IBAN on a shared box, a sender animating one staff whose account the text does not name — stays a proposition or the sender rule, and « Changer de compte » on the receipt corrects the worst outcome of the automatic path in one click.
+
+**The same bytes twice are one receipt.** `finance_attachments.content_hash` (sha256 of the bytes before the orientation fix, so the answer does not depend on the image library) lets `ReceiptService::store()` answer the invoice forwarded twice, or read from two watched boxes, with the receipt already filed — on the automated door only (`ExpenseReceiptInterface`, `reuseIdentical: true`): a person's second upload of the same file is theirs to explain, and silently answering it with their first would look like a lost file.
 
 **Two signals, both required.** An **attachment** of a type a receipt can be (PDF or image — a spreadsheet is a document and not a receipt), and **exactly one of the unit's own IBANs** in the message's text. The second is what says *which* account, and the module refuses to guess: zero matches is silence, and two matches is silence too, because an email quoting two of the unit's accounts is almost always a transfer between them and a transfer's receipt belongs to neither side. The IBAN is matched through its blind index, so nothing is decrypted to answer the question. A weak signal, and `describeEvidence()` says so out loud — the superadmin reads that sentence before opening a shared mailbox to this module, which is what publishing per-consumer evidence is for.
+
+**The treasury answers the propositions on the receipts page.** « Courrier à trier » lists, above the receipts, every message the consumer proposed towards one of the session's visible accounts — or towards the sorting pile, for a session that may sort it — and confirming there goes through `confirmCandidate()` scoped to exactly those references. A treasurer below ADMIN could not confirm anything before this block existed, and the help page that said they could was describing a screen that was not there.
 
 **A receipt is only ever filed by a person.** `onLinked()` files nothing unless `MessageLink::createdByUserAccountId` names one, and unless the composition root's resolver recognises that id as the CURRENT session: finance's account check is built from the actor, and inventing one would be this module granting itself an account it may not touch. On the scheduled path there is no actor and no file reader, deliberately — a synchronisation has nobody making a request. `onUnlinked()` does nothing at all: detaching the email a receipt arrived in is a statement about the mail, not about the books, and quietly deleting a receipt because somebody tidied a mailbox is the surprise §8.70 exists to prevent.
 
@@ -2000,6 +2014,10 @@ module knows how to read a mailbox and nothing else.
 **The matching order goes from certain to plausible and stops at the first
 answer:**
 
+0. **The signed reply address** the site's own mail carried (§8.58,
+   `LinkOrigin::REPLY_ADDRESS`) — verified by the gateway, checked here
+   only for a booking that still exists. Second to the reference below,
+   because the reference is what the subject says NOW.
 1. **A reference in the subject** (`[LOC-2027-0042]`) — the module put it
    there itself, so a reply carrying it back is as close to certain as
    automatic attachment gets. Bracketed beats bare, and the subject beats
@@ -2007,20 +2025,39 @@ answer:**
    references means no match**: a renter forwarding one booking's email
    while asking about another leaves both in the text.
 2. **The thread headers** — `In-Reply-To`/`References` naming a message
-   already attached. Resolved through `InboundMailInterface`, scoped to this
-   consumer, because `rental` cannot look inside the other module's storage.
-   The reference still wins when both point, since a thread can be hijacked
-   by replying to an old email about a different booking.
-3. **The sender's address, bounded by time** — the renter's own address
-   *and* a message falling between the request and some weeks after the
-   departure. Neither half works alone: without the address this attaches
-   anything, without the window it attaches next summer's enquiry to last
-   summer's stay.
+   already attached, **or a message the site itself sent about the
+   booking** (`RentalBookingMailService` records every outbound
+   Message-ID through `recordOutboundMessageId()`, §8.58). Resolved through
+   `InboundMailInterface`, scoped to this consumer, because `rental` cannot
+   look inside the other module's storage. The reference still wins when
+   both point, since a thread can be hijacked by replying to an old email
+   about a different booking.
+3. **The sender's address** — the renter's own, or one a manager taught the
+   booking by filing a message from it by hand (`rental_booking_emails`,
+   blind-indexed like the renter's). A renter with **exactly one booking**
+   is attached whatever the date: the window exists to tell two bookings
+   apart, and there is nothing to tell apart. With several, the message
+   must fall between the request and some weeks after the departure of
+   one of them, and a booking the unit refused, cancelled or let lapse
+   does not compete with the live one — left in, a group refused once and
+   booked again had every message turned into two propositions.
 
-**Ambiguity is answered with silence.** Two bookings matching the sender
-inside the window attaches nothing at all — a manager reading the wrong file
-has no way to know it is the wrong file, which makes a wrong attachment
-worse than none.
+**Ambiguity is answered with propositions, never with a choice.** Two
+live bookings matching the sender inside the window attach nothing — a
+manager reading the wrong file has no way to know it is the wrong file,
+which makes a wrong attachment worse than none — but each of them becomes a
+`MessageCandidate` (§8.58), bounded at `RentalMessageConsumer::MAX_PROPOSITIONS`,
+so the module says what it knows and leaves the choice to a person. **The
+model comes last, and only to order** (`Mail\BookingChoiceByModel`): with
+the connector present and a model on the cheap tier, the subject and body
+go to it with the shortlist, and its pick leads the list, marked `ai` and
+saying so in its explanation — the other bookings stay proposed, and
+nothing is associated on its word. Without a connector the list is what the
+rules made. **A manual filing teaches the booking the sender's address**
+(`onLinked()` on `LinkOrigin::MANUAL` only) and re-examines the mail
+nobody could attribute (`REANALYSIS_AFTER_DECISION`), so the treasurer of a
+group writing from their own address is filed by hand once, not on every
+message.
 
 **An attachment becomes a `Non classé`, internal document of the booking**,
 pointing at the very file `UploadHandler` stored rather than a copy. Never
@@ -2032,27 +2069,44 @@ the module produced from a template, and renaming one would break the
 versioning a signed v1 depends on.
 
 **Correcting the automatic rules is bounded by what the manager manages.**
-Detaching deletes the message *and the attachments nobody re-classified* —
-one already filed as a signed contract survives, an untouched `Non classé`
-goes with it. Moving is offered only to bookings of that manager's own
+Detaching removes the association and the `Non classé` documents nobody
+re-classified; the message itself falls back into the unit's general mail
+(§8.58) and a document already filed as a signed contract survives — it is
+the manager's, not the message's, and `onUnlinked()` takes back only what is
+still `Non classé`. Moving is offered only to bookings of that manager's own
 assets, and the target list is **built from their assets** rather than
 filtered from a global list, so the picker is never itself a window onto the
 unit's other bookings; a hand-crafted POST naming somebody else's booking
 gets the same "not accessible" as one naming a booking that does not exist.
-A moved message takes its documents with it, since `FileAccessGuard` resolves
-a rental file's readers through its document row.
+A moved message takes its documents with it — moved *before* the association
+changes hands, so the consumer's callbacks find nothing to take back and
+nothing to file twice, and a re-classified document keeps its type — since
+`FileAccessGuard` resolves a rental file's readers through its document row.
+The moved association is recorded as `manual`, naming the manager (D20).
 
-**There is no way to attach a message by hand**, anywhere. Attaching is what
-the rules do; a button that opened the mailbox would be a doorway onto
-everybody's correspondence, which is the whole thing the module's
-scoped API (`specifications.md` §23.5) exists to prevent.
+**Attaching by hand is confirming a proposition, or naming an object the
+requester may reach** (`InboundMailInterface::attach()`, `confirmCandidate()`),
+never browsing the mailbox: the scoped API (`specifications.md` §23.5) hands a
+consumer only the messages it recognised or proposed on, and a button that
+opened the whole box would be a doorway onto everybody's correspondence.
 
-**Which mailboxes feed the module is a rental setting, and a manager sees a
-name and a state.** Never a host, a port or an account: `listMailboxSummaries()`
-is the whole of what crosses that boundary. **Empty means every mailbox** —
-most units have one, and asking them to tick it before anything works would
-be a configuration step whose only sensible answer is "yes" and whose
-omission would look exactly like a broken sync.
+**Which mailboxes feed the module is the mailbox configuration's answer, and
+nothing of the module's own.** `rental` used to keep its own list of box ids
+next to the scope screen's per-box answers, and the two could disagree: a box
+ticked on the rental page that the superadmin had never opened to the module
+produced nothing, and nothing on either screen said why. The list is gone; the
+rental configuration page names the unit's boxes and their state — never a
+host, a port or an account, `listMailboxSummaries()` is the whole of what
+crosses that boundary — and points at the scope screen for the rest.
+
+**The manager answers the module's propositions on the booking itself.** The
+« Courrier » panel lists, ahead of the attached messages, every message the
+consumer proposed towards this booking (`findForTriage()` scoped to the one
+reference, `findCandidatesFor()`), with « Rattacher » and « Écarter » going
+through `confirmCandidate()` / `dismissCandidate()` scoped the same way. Until
+then a rental proposition could only ever be answered by the Chef d'Unité on
+`/courrier`, which is to say never. « Relancer l'analyse » sits on the same
+panel for the same reason it sits on the camps screen.
 
 **Without `inbound_mail` the booking page loses a tab and nothing else.**
 `RentalCommunicationService` takes the API as a nullable dependency and
@@ -2549,9 +2603,9 @@ Where the unit has camped, and every stay it made there. The product answers one
 
 **The mail consumer has two modes, and the mailbox decides which.** In a SHARED mailbox it claims narrowly — a reply in a known thread, or a known contact's address inside a window around their stay — because everything it takes is a message another module will never see, and a camps module claiming on subject keywords would quietly swallow the unit's mail. In a DEDICATED mailbox (declared on `/config/courrier-entrant`) it no longer claims anything it cannot attribute: the message is stored regardless (§8.58), and this module's users see the whole box because a dedicated box grants them `ReadMode::ALL` — the mailbox configuration says so, rather than a reserved `unsorted` reference standing in for it. Manual filing is `attach()`, an ordinary association: there is nothing to move the message OFF, and a message may legitimately belong to a stay and to something else at once. Ambiguity — several stays of one contact in range — produces one proposition per stay and no association, because filing it under whichever sorted first is worse than leaving it unattached.
 
-**Registration order is load-bearing.** `MessageConsumerRegistry` is first-claim-wins in registration order and a dedicated camps mailbox claims everything, so the camps consumer is registered LAST, after every other module's — `rental`'s own mailbox setting defaults to "all mailboxes", and registered earlier camps would silently swallow the mail rental was waiting for. The consumer is therefore BUILT in the camps wiring block and REGISTERED far below it; `Tests\Modules\Camps\Mail\ConsumerRegistrationOrderTest` pins both, because the failure is invisible: no error, no log, just a booking whose correspondence stops arriving.
+**Registration order is immaterial.** `MessageConsumerRegistry` asks every consumer the box is open to and applies every answer (§8.58); which module sees a dedicated camps box is the mailbox configuration's decision, not the position of a `register()` call. `Tests\Modules\Camps\Mail\ConsumerRegistrationOrderTest` now pins only what the web path builds the consumer with — that it can file a document and re-analyse — which is what actually failed silently.
 
-**Ambiguity is answered with silence.** Two stays matching one sender inside the window claim nothing — putting a farmer's e-mail on whichever of two stays sorted first is worse than leaving it where it was, because the chief reading the wrong stay has no way to know.
+**Two signals crossed before anybody is asked.** A farmer who hosts the unit every summer always has two stays in the sender window, and the period the message states is what a chief would read to tell them apart — so `fromSender()` intersects the sender's stays with `ExistingStayMatcher::matching()` on any box, shared included, and one stay in both lists is an association on the sender: the period only narrowed a list the sender had already drawn, which is why this is safe where reading the period alone on a shared box is not. **Ambiguity is answered with propositions.** Two stays still matching one sender, or two stays over the same days, claim nothing — putting a farmer's e-mail on whichever of two stays sorted first is worse than leaving it where it was, because the chief reading the wrong stay has no way to know — and each becomes a proposition the chief settles on `/chefs/camps/courrier`. **The model comes last, and only to order** (`Mail\StayChoiceByModel`, the same shape as rental's, §8.59): its pick leads the list marked `ai`, the others stay, nothing is associated on its word. **A cancelled stay takes part in none of the rules**: not the sender window, not the period, not the duplicate check before a stay is created. Left in, a stay cancelled and re-booked with the same farmer turned every one of their messages into two propositions for sixteen months. **A manual filing makes the sender a contact of the stay** (`onLinked()` on `LinkOrigin::MANUAL`, role « Correspondant », never overwriting a contact the chief typed) and re-examines the unattributed mail, so the farmer's spouse writing from their own address is filed by hand once.
 
 **A module asks the connector about the tier it is going to use.** `LlmConnectorInterface::isAvailable()` answers "is anything configured at all" and every AI feature in this module used it, while every call it makes is `LlmTier::CHEAP` — so an installation with a model on `capable` and none on `cheap` passed the check, the place sheet offered « Écrire le résumé maintenant », and `complete()` refused the tier before reaching a provider: no summary, and (until the connector started journaling its own refusals) nothing anywhere saying why. `Service\PlaceSummaryService`, `Service\DuplicatePlaceDetector` and `Mail\StayFromMailService` all ask `isTierAvailable(LlmTier::CHEAP)` now, which is the same question their `complete()` will ask.
 
@@ -2561,7 +2615,7 @@ Where the unit has camped, and every stay it made there. The product answers one
 
 **"Not written" is five different answers, and the page gives the right one** (`Service\SummaryOutcome`). `refresh()` used to return a `bool` and the place sheet turned every false into one sentence — "il n'y a pas assez à raconter, ou le connecteur IA n'est pas disponible" — led by the only cause a chief can act on and the one it almost never was. A chief who had just given four stars and written a comment was told their material was too thin. The outcome is now named (written, nothing to summarise, unavailable, provider refused, empty answer) and each case carries its own sentence, because the three failures are fixed by three different people: the one writing reviews, the administrator, and nobody at all.
 
-**Reading a message is patterns, not a model** (`Mail\MessageReader`). A date range and a single price, only when stated unambiguously: a lone date is far more often a meeting than a departure, and TWO amounts in one message means no reading at all — a quote naming a deposit and a total is precisely where guessing wrong is most expensive. The AI in this module is reserved for the three jobs a pattern genuinely cannot do: recognising that two place names are one field, writing a summary, and — when a message in a dedicated mailbox is about to become a stay — reading the VENUE's name out of its body. That last one replaced the `From:` display name, which put a farmer's own name into `camp_places.name`, a clear-text column justified by "a place is not a natural person". The model is told never to answer a person's name nor the sender's and to answer nothing when unsure, and whatever comes back still has to be long enough and not an address. **Without the connector the flow matches and never creates**: a message whose place resolves to nothing stays attached to nothing, where both the chef d'unité and this module's own users find it and a human validates a name before it enters the database. The sender's display name survives as a MATCHING hint only — recognising a farmer writes nothing anywhere, which is what makes it safe when naming a new place from it is not.
+**Reading a message is patterns, not a model** (`Mail\MessageReader`). A date range and a single price, only when stated unambiguously — « 1er », a weekday before the day, and a range with no year at all are read too, the last against the message's own date (`readDateRange($text, $sentAt)`: the next occurrence, so a farmer's « du 12 au 19 juillet » in September means next summer's, and with no reference date it is refused rather than pinned to the clock), and the quoted lines under « > » are stripped first, because they are the unit's own request and not the farmer's answer: a lone date is far more often a meeting than a departure, and TWO amounts in one message means no reading at all — a quote naming a deposit and a total is precisely where guessing wrong is most expensive. The AI in this module is reserved for the three jobs a pattern genuinely cannot do: recognising that two place names are one field, writing a summary, and — when a message in a dedicated mailbox is about to become a stay — reading the VENUE's name out of its body. That last one replaced the `From:` display name, which put a farmer's own name into `camp_places.name`, a clear-text column justified by "a place is not a natural person". The model is told never to answer a person's name nor the sender's and to answer nothing when unsure, and whatever comes back still has to be long enough and not an address. **Without the connector the flow matches and never creates**: a message whose place resolves to nothing stays attached to nothing, where both the chef d'unité and this module's own users find it and a human validates a name before it enters the database. The sender's display name survives as a MATCHING hint only — recognising a farmer writes nothing anywhere, which is what makes it safe when naming a new place from it is not.
 
 **Empty field → filled; filled field → never overwritten.** A chief typed a price because they read a contract, and a regex over an e-mail body does not get to disagree silently. The reading is parked in `camp_field_proposals` and shown inline next to the value it argues with, with Appliquer / Ignorer — never a separate "to validate" queue, which is a place people stop going to. One live proposal per field: a second reading replaces the first, because three cards disagreeing about one price is noise, not information. **Both outcomes are recorded**, including the refusal: six months later somebody asks why the page does not say what the mail says, and "a chief looked at it and said no" has to be written down. The proposal stores the reading twice — readable and machine — because Appliquer has to write a DATE and an INT, and re-parsing the display string would mean teaching the reader to read its own output.
 
@@ -2858,7 +2912,7 @@ The unit's **current state**, recalculated at every consultation, on a permanent
 
 **The hook is `Core\Attention\AttentionPointProvider`, and it is deliberately NOT `Core\Import\DeskImportListener`** (§8.46). That one runs inside the import transaction and a listener that throws rolls the import back — right for reconciling a module's derived state, catastrophic here. This one is called **at display time**, and `AttentionService` **catches** whatever a provider throws: the module is named on the page as unable to contribute, and every other provider still renders. The failure is shown, never hidden — a page that silently drops a contributor quietly stops warning about whatever that contributor watched. Nullable wiring in the composition root through an `$attentionProviders` registry, exactly like `$fileOwnershipCheckers` (§7.4): core seeds its own, each enabled module appends its own, and the service is built once every module block has run.
 
-**Only modules with something to say implement it**, and that is a convention rather than an oversight: `fees` (households whose encoded tariff no longer matches who lives there) and `leadership` (an intendant whose free registration window is running out — the rule, its constants and the countdown all live there, so putting it in `fees` would be the same reasoning in two places; the ONE ratio is deliberately **not** among them, and stays on the module's own Formations page where it is consulted). Twenty no-op implementations would be dead code that PHPStan and Sonar would flag, and — worse — a reviewer could no longer tell "this module has nothing to contribute" from "this is not done yet". The consistency is carried by documentation instead: a section of `docs/module-development.md`, and a point on `AGENTS.md`'s module checklist phrased as **a question to answer** rather than a file to create.
+**Only modules with something to say implement it**, and that is a convention rather than an oversight: `fees` (households whose encoded tariff no longer matches who lives there), `inbound_mail`, `rental`, `camps` and `finance` (what the mail left for a person to decide — unattributed messages, propositions nobody settled, stays « à confirmer », §8.58) and `leadership` (an intendant whose free registration window is running out — the rule, its constants and the countdown all live there, so putting it in `fees` would be the same reasoning in two places; the ONE ratio is deliberately **not** among them, and stays on the module's own Formations page where it is consulted). Twenty no-op implementations would be dead code that PHPStan and Sonar would flag, and — worse — a reviewer could no longer tell "this module has nothing to contribute" from "this is not done yet". The consistency is carried by documentation instead: a section of `docs/module-development.md`, and a point on `AGENTS.md`'s module checklist phrased as **a question to answer** rather than a file to create.
 
 
 ### 8.80 Members split in two, and merging them back (`Core\Member\Duplicate`)

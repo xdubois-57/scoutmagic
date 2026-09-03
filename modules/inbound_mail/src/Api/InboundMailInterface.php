@@ -187,9 +187,20 @@ interface InboundMailInterface
      * consumer's authorisation rules, which is exactly why the caller is
      * required to narrow the target list before offering it.
      *
+     * The association becomes a `manual` one naming `$userAccountId`: a
+     * move is a person deciding, and the target's page must not go on
+     * presenting their decision as the heuristic that first placed the
+     * message.
+     *
      * @return bool false when the message does not belong to $fromReference
      */
-    public function move(string $consumerId, string $fromReference, string $toReference, int $messageId): bool;
+    public function move(
+        string $consumerId,
+        string $fromReference,
+        string $toReference,
+        int $messageId,
+        ?int $userAccountId = null
+    ): bool;
 
     /**
      * Release everything held for a business object — used by a consumer's
@@ -274,6 +285,33 @@ interface InboundMailInterface
      * @param string[] $messageIds most specific first
      */
     public function findReferenceByThread(string $consumerId, int $mailboxId, array $messageIds): ?string;
+
+    /**
+     * Remember a Message-ID this consumer just SENT about one of its
+     * objects, so the reply to it lands on that object (§7.6, level 2).
+     *
+     * The ordinary first reply — « Re: votre réservation », the reference
+     * gone from the subject — answers a message the site wrote, and until
+     * this existed the thread rule could only recognise a reply to a
+     * reply. Only the id's blind index is kept: never the recipient, never
+     * the subject.
+     */
+    public function recordOutboundMessageId(string $consumerId, string $businessReference, string $messageId): void;
+
+    /**
+     * The address a consumer puts in the `Reply-To` of what it sends about
+     * one of its objects, so that a bare « Répondre » comes back naming
+     * that object (`CandidateMessage::$addressedTo`, §8.58). Signed by
+     * this site; null when the operator turned the feature off, or no box
+     * of this consumer can receive it — send without one then.
+     */
+    public function replyAddressFor(string $consumerId, string $businessReference): ?string;
+
+    /**
+     * How many messages carry a proposition of this consumer that nobody
+     * has settled — what a module's attention point counts.
+     */
+    public function countCandidatesFor(string $consumerId): int;
 
     /**
      * What a non-superadmin may know about the configured mailboxes: a name

@@ -2,7 +2,7 @@
   "id": "camps",
   "name": "Camps",
   "description": "Les lieux de camp de l'unité et les séjours qu'elle y a faits — passés et à venir : dates, sections, prix, contacts sur place, avis des staffs précédents. Un staff qui cherche un terrain lit ce que les staffs d'avant en ont pensé, au lieu de repartir de zéro.",
-  "version": "1.15.0",
+  "version": "1.16.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -596,6 +596,30 @@
       "id": "camps.review_due",
       "label": "Avis à donner sur un camp",
       "description": "Le lendemain de la fin d'un séjour, une invitation à laisser un avis pour les staffs suivants. Envoyée une seule fois, sans rappel.",
+      "group": "Camps",
+      "role_min": "chief",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "default_off"
+      }
+    },
+    {
+      "id": "camps.mail_proposition",
+      "label": "Message reçu à rattacher à un séjour",
+      "description": "Un e-mail reçu pourrait concerner un séjour de vos sections : le site n'a pas tranché et attend votre décision sur l'écran du courrier des camps.",
+      "group": "Camps",
+      "role_min": "chief",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "off"
+      }
+    },
+    {
+      "id": "camps.stay_from_mail",
+      "label": "Séjour créé depuis un message",
+      "description": "Le site a créé un séjour « à confirmer » d'après un e-mail reçu dans la boîte dédiée aux camps. À vérifier, puis à confirmer ou à supprimer.",
       "group": "Camps",
       "role_min": "chief",
       "channels": {

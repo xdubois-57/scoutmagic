@@ -41,8 +41,45 @@ class RentalBookingMailService
         private MailService $mailService,
         private EmailTemplateRenderer $emailTemplateRenderer,
         private SettingService $settingService,
-        private JournalService $journal
+        private JournalService $journal,
+        /**
+         * Where the Message-IDs this service mints are remembered, so a
+         * renter's reply threads onto their booking (§7.6). Null without
+         * `inbound_mail`, and nothing is remembered — which is exactly
+         * true on a site that collects no mail.
+         */
+        private ?\Modules\InboundMail\Api\InboundMailInterface $inboundMail = null
     ) {
+    }
+
+    /**
+     * A fresh Message-ID for a message about this booking, remembered so
+     * the reply to it is recognised.
+     */
+    /**
+     * The signed reply address of this booking (§8.58), so a bare
+     * « Répondre » comes back naming it — null without `inbound_mail`,
+     * when the operator turned it off, or when no box can receive it,
+     * and the mail then goes out with the site's ordinary sender.
+     */
+    private function replyAddressFor(RentalBooking $booking): ?string
+    {
+        return $this->inboundMail?->replyAddressFor(
+            \Modules\Rental\Mail\RentalMessageConsumer::CONSUMER_ID,
+            $booking->reference
+        );
+    }
+
+    private function messageIdFor(RentalBooking $booking): string
+    {
+        $messageId = $this->newMessageId();
+        $this->inboundMail?->recordOutboundMessageId(
+            \Modules\Rental\Mail\RentalMessageConsumer::CONSUMER_ID,
+            $booking->reference,
+            $messageId
+        );
+
+        return $messageId;
     }
 
     /**
@@ -60,7 +97,7 @@ class RentalBookingMailService
         RentalAsset $asset,
         string $trackingToken
     ): string {
-        $messageId = $this->newMessageId();
+        $messageId = $this->messageIdFor($booking);
         $trackingUrl = $this->trackingUrl($booking, $trackingToken);
 
         $email = $this->renderFor($booking, $asset, 'rental.acknowledgement', [
@@ -80,7 +117,7 @@ class RentalBookingMailService
             $email->subject,
             $email->bodyHtml,
             $email->bodyText,
-            null,
+            $this->replyAddressFor($booking),
             [],
             null,
             null,
@@ -158,11 +195,11 @@ class RentalBookingMailService
                 $email->subject,
                 $email->bodyHtml,
                 $email->bodyText,
-                null,
+                $this->replyAddressFor($booking),
                 [],
                 null,
                 null,
-                ['Message-ID' => $this->newMessageId()]
+                ['Message-ID' => $this->messageIdFor($booking)]
             );
         } catch (\Throwable) {
             // Not journaled with the address, which would put personal data
@@ -209,7 +246,7 @@ class RentalBookingMailService
         RentalAsset $asset,
         array $recipientEmails
     ): string {
-        $messageId = $this->newMessageId();
+        $messageId = $this->messageIdFor($booking);
         $context = [
             // The booking itself, not the module's front door. A manager
             // opening this mail on a phone was landing on a list and
@@ -236,7 +273,7 @@ class RentalBookingMailService
                 $email->subject,
                 $email->bodyHtml,
                 $email->bodyText,
-                null,
+                $this->replyAddressFor($booking),
                 [],
                 null,
                 null,
@@ -277,7 +314,7 @@ class RentalBookingMailService
         string $fileName,
         bool $isResend = false
     ): string {
-        $messageId = $this->newMessageId();
+        $messageId = $this->messageIdFor($booking);
 
         // The subject names the document and says whether this is a
         // resend, which again no fixed `default_subject` could state: the
@@ -293,7 +330,7 @@ class RentalBookingMailService
             $email->subject,
             $email->bodyHtml,
             $email->bodyText,
-            null,
+            $this->replyAddressFor($booking),
             [['path' => $absolutePath, 'name' => $fileName]],
             null,
             null,
@@ -350,11 +387,11 @@ class RentalBookingMailService
                 $email->subject,
                 $email->bodyHtml,
                 $email->bodyText,
-                null,
+                $this->replyAddressFor($booking),
                 [],
                 null,
                 null,
-                ['Message-ID' => $this->newMessageId()]
+                ['Message-ID' => $this->messageIdFor($booking)]
             );
         } catch (\Throwable) {
             // A reminder that could not be sent must not take the whole
@@ -406,11 +443,11 @@ class RentalBookingMailService
                 $email->subject,
                 $email->bodyHtml,
                 $email->bodyText,
-                null,
+                $this->replyAddressFor($booking),
                 [],
                 null,
                 null,
-                ['Message-ID' => $this->newMessageId()]
+                ['Message-ID' => $this->messageIdFor($booking)]
             );
         } catch (\Throwable) {
             $this->journal->log(

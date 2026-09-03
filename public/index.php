@@ -3133,12 +3133,25 @@ if ($isEnabled('inbound_mail')) {
         $inboundReadConsumers
     );
 
+    // Signed reply addresses (§8.58): what a consumer puts in the
+    // Reply-To of what it sends, and what the sync recognises coming
+    // back. One instance for both directions, so the box it mints for is
+    // the box it reads.
+    $inboundReplyAddresses = new \Modules\InboundMail\Service\ReplyAddressService(
+        $inboundMailboxRepository,
+        $encryptionService,
+        $inboundScopeService,
+        $settingService
+    );
+
     $inboundMailForOthers = new \Modules\InboundMail\Service\InboundMailService(
         $inboundMessageRepository,
         $inboundMailboxRepository,
         new \Core\File\FileRepository($pdo),
         $inboundReadConsumers,
-        $inboundScopeService
+        $inboundScopeService,
+        null,
+        $inboundReplyAddresses
     );
 
     // One-time reprise for installs that stored a message's consumer and
@@ -3234,6 +3247,35 @@ if ($isEnabled('inbound_mail')) {
         $inboundScopeService->repriseCampsDedicatedBoxes($settingService, $settingRepo);
     }
 
+    // « Rafraîchir maintenant » assembles a synchronisation graph, which
+    // is the one thing an ordinary page view must never do — so it goes
+    // in as a CLOSURE, resolved only when that button is actually pressed.
+    // Same reasoning as the sync task's own lazy factory in
+    // scheduler-bootstrap.php. One service for the two screens that offer
+    // the button: the superadmin's configuration page and the chief's
+    // courrier page share its lock.
+    $inboundManualRefresh = new \Modules\InboundMail\Service\ManualRefreshService(
+        static fn(): \Modules\InboundMail\Service\MailboxSyncService
+            => new \Modules\InboundMail\Service\MailboxSyncService(
+                $inboundMailboxRepository,
+                $inboundMessageRepository,
+                $inboundReadConsumers,
+                new \Modules\InboundMail\Service\MessageContentSanitizer(new \Core\Security\HtmlSanitizer()),
+                new \Modules\InboundMail\Service\AttachmentPolicy(),
+                new \Modules\InboundMail\Service\MailboxErrorFormatter(),
+                new \Modules\InboundMail\Service\MailboxClientFactory(),
+                new \Modules\InboundMail\Service\AnalysisResultApplier($inboundMessageRepository),
+                new \Core\File\UploadHandler(new \Core\File\FileRepository($pdo), $storagePath),
+                null,
+                new \Core\File\FileRepository($pdo),
+                $inboundScopeService,
+                null,
+                $inboundReplyAddresses
+            ),
+        $settingService,
+        $settingRepo
+    );
+
     $frontController->registerController(
         \Modules\InboundMail\Controller\InboundMailConfigController::class,
         new \Modules\InboundMail\Controller\InboundMailConfigController(
@@ -3248,30 +3290,8 @@ if ($isEnabled('inbound_mail')) {
             $journalService,
             $inboundScopeService,
             $inboundReadConsumers,
-            // « Rafraîchir maintenant » assembles a synchronisation graph,
-            // which is the one thing an ordinary page view must never do —
-            // so it goes in as a CLOSURE, resolved only when that button is
-            // actually pressed. Same reasoning as the sync task's own lazy
-            // factory in scheduler-bootstrap.php.
-            new \Modules\InboundMail\Service\ManualRefreshService(
-                static fn(): \Modules\InboundMail\Service\MailboxSyncService
-                    => new \Modules\InboundMail\Service\MailboxSyncService(
-                        $inboundMailboxRepository,
-                        $inboundMessageRepository,
-                        $inboundReadConsumers,
-                        new \Modules\InboundMail\Service\MessageContentSanitizer(new \Core\Security\HtmlSanitizer()),
-                        new \Modules\InboundMail\Service\AttachmentPolicy(),
-                        new \Modules\InboundMail\Service\MailboxErrorFormatter(),
-                        new \Modules\InboundMail\Service\MailboxClientFactory(),
-                        new \Modules\InboundMail\Service\AnalysisResultApplier($inboundMessageRepository),
-                        new \Core\File\UploadHandler(new \Core\File\FileRepository($pdo), $storagePath),
-                        null,
-                        new \Core\File\FileRepository($pdo),
-                        $inboundScopeService
-                    ),
-                $settingService,
-                $settingRepo
-            )
+            $inboundManualRefresh,
+            $settingService
         )
     );
 
@@ -3290,7 +3310,8 @@ if ($isEnabled('inbound_mail')) {
             ),
             $inboundMailForOthers,
             $inboundReadConsumers,
-            $journalService
+            $journalService,
+            $inboundManualRefresh
         )
     );
 
@@ -3512,9 +3533,24 @@ if ($isEnabled('finance')) {
                         $financeAccountRepo,
                         $effectiveScoutYear->id
                     ),
-                    new \Modules\Finance\Mail\ForwardedSenderExtractor()
+                    new \Modules\Finance\Mail\ForwardedSenderExtractor(),
+                    // The treasurers learn of a receipt waiting for them
+                    // from a notification, not from opening the page.
+                    new \Modules\Finance\Mail\FinanceMailNotifier(
+                        $notificationService,
+                        $pdo,
+                        $badgeRepository,
+                        $memberBadgeRepository,
+                        $userAccountRepo,
+                        $effectiveScoutYear->id
+                    )
                 )
         );
+
+        // « Des reçus attendent un trésorier » on the attention page (§8.79).
+        if ($inboundMailForOthers !== null) {
+            $attentionProviders[] = new \Modules\Finance\Service\FinanceAttentionProvider($inboundMailForOthers);
+        }
     }
 
     // A receipt's FILE follows its account's rule too (ARCHITECTURE.md
@@ -3574,7 +3610,10 @@ if ($isEnabled('finance')) {
         \Modules\Finance\Controller\ReceiptController::class,
         new \Modules\Finance\Controller\ReceiptController(
             $twig, $financeAttachmentRepo, $financeTransactionAttachmentRepo, $financeTransactionRepo, $financeService,
-            $financeReceiptService, $financeFirstReceiptResolver, $journalService
+            $financeReceiptService, $financeFirstReceiptResolver, $journalService,
+            // The mail this module proposed on, for the treasury to answer
+            // (§7.5): null without `inbound_mail`, and no block then.
+            $inboundMailForOthers
         )
     );
     $frontController->registerController(
@@ -4867,21 +4906,48 @@ if ($isEnabled('camps')) {
                         $campsCampRepo,
                         $campsMessageReader,
                         $journalService
+                    ),
+                    // « Rattacher à… » on the chief's screen: the same
+                    // search the camps mail screen's picker uses
+                    // (Api\ReferenceDirectory).
+                    new \Modules\Camps\Service\StaySearchService($campsCampRepo),
+                    // The model as a last resort between two stays — it
+                    // orders the propositions and never associates.
+                    new \Modules\Camps\Mail\StayChoiceByModel($llmConnectorForOthers ?? null),
+                    // The stay's chiefs learn of a proposition, or of a
+                    // stay created from a message, from a notification.
+                    new \Modules\Camps\Mail\CampsMailNotifier(
+                        $notificationService,
+                        new \Modules\Camps\Service\ReviewNotificationService(
+                            $campsCampRepo,
+                            $sectionService,
+                            $userAccountRepo,
+                            $encryptionService,
+                            $pdo,
+                            $notificationService
+                        )
                     )
                 )
         );
     }
 
+    // Propositions waiting and stays « à confirmer », on the attention
+    // page (§8.79). Without inbound_mail only the second point exists.
+    $attentionProviders[] = new \Modules\Camps\Service\CampsAttentionProvider(
+        $campsCampRepo,
+        $inboundMailForOthers ?? null
+    );
+
     $frontController->registerController(
         \Modules\Camps\Controller\CampsMailController::class,
         new \Modules\Camps\Controller\CampsMailController(
-            $twig, $campsCampRepo, $campsPlaceRepo, $inboundMailForOthers ?? null,
+            $twig, $campsCampRepo, $inboundMailForOthers ?? null,
             $campsProposalRepo, $campsFieldCompletion,
-            // « Rattacher à » : une recherche plutôt qu'une liste de tout
-            // l'historique de l'unité.
+            // « Rattacher à »: a search rather than a list of the unit's
+            // whole history.
             new \Modules\Camps\Service\StaySearchService($campsCampRepo),
-            // Et la première suggestion, avant la moindre frappe : le
-            // séjour dont ce message annonce lui-même les dates.
+            // And the first suggestion, before anything is typed: the stay
+            // whose dates the message itself announces.
             new \Modules\Camps\Mail\ExistingStayMatcher($campsCampRepo, $campsMessageReader)
         )
     );
@@ -5554,24 +5620,16 @@ if ($isEnabled('rental')) {
         $financeAccountForOthers
     );
 
-    // Built before the controllers rather than in the inbound-mail block
-    // further down, because the configuration page needs it — and it needs
-    // nothing but the setting service and the null-seeded API handle, so it
-    // is safe to build whether or not `inbound_mail` is enabled.
-    $rentalMailboxSelection = new \Modules\Rental\Mail\MailboxSelection(
-        $settingService,
-        $inboundMailForOthers
-    );
-
     $frontController->registerController(
         \Modules\Rental\Controller\RentalConfigController::class,
         new \Modules\Rental\Controller\RentalConfigController(
             $twig, $rentalAssetRepository, $rentalAssetService, $rentalManagerService,
             $scoutYearService, $settingService, $rentalPaymentService,
-            // Which of the unit's already-configured mailboxes this module
-            // listens to (§7.4). Never a host, an account or a password —
-            // this only stores ids.
-            $rentalMailboxSelection,
+            // The null-seeded API handle (§7.5): the page names the unit's
+            // boxes and their state, never a host, an account or a
+            // password. Which of them this module reads is the mailbox
+            // configuration's answer, not a rental setting.
+            $inboundMailForOthers,
             // Read-only here: flags the public assets nobody has priced yet,
             // so a chief learns it from this page rather than from a visitor.
             $rentalPricingService
@@ -5614,7 +5672,10 @@ if ($isEnabled('rental')) {
         $storagePath
     );
     $rentalBookingMailService = new \Modules\Rental\Service\RentalBookingMailService(
-        $mailService, $emailTemplateRenderer, $settingService, $journalService
+        $mailService, $emailTemplateRenderer, $settingService, $journalService,
+        // So the Message-IDs it mints are remembered and a renter's reply
+        // threads onto the booking (§7.6). Null without `inbound_mail`.
+        $inboundMailForOthers
     );
 
     // The asset paperwork register (§6.33). A reminder list, never a
@@ -5659,14 +5720,33 @@ if ($isEnabled('rental')) {
                     $rentalBookingRepository,
                     $inboundMailForOthers,
                     $rentalDocumentService,
-                    [],
                     \Modules\Rental\Mail\RentalMessageConsumer::DEFAULT_WINDOW_DAYS_AFTER,
                     new \Modules\Rental\Mail\BookingReferenceMatcher(),
                     $rentalAuthorizationService,
                     $rentalCurrentYearId,
-                    AuthSession::isAuthenticated() ? AuthSession::getEmail() : null
+                    AuthSession::isAuthenticated() ? AuthSession::getEmail() : null,
+                    // « Rattacher à… » on the chief's screen names a
+                    // booking by its asset (Api\ReferenceDirectory).
+                    $rentalAssetRepository,
+                    // The model as a last resort between two bookings of
+                    // one renter — it orders the propositions and never
+                    // associates (§8.59). Null without the connector.
+                    new \Modules\Rental\Mail\BookingChoiceByModel($llmConnectorForOthers ?? null),
+                    // The asset's managers learn of a proposition from a
+                    // notification, not from opening the booking.
+                    new \Modules\Rental\Mail\RentalMailNotifier(
+                        $notificationService,
+                        $rentalManagerRepository,
+                        $memberYearRepo,
+                        $userAccountRepo,
+                        $rentalAssetRepository
+                    )
                 )
         );
+
+        // « Du courrier attend une décision sur une réservation » on the
+        // attention page (§8.79).
+        $attentionProviders[] = new \Modules\Rental\Service\RentalAttentionProvider($inboundMailForOthers);
     }
 
     // The stay itself (§6.21–§6.23): meters, inventory, incidents and the

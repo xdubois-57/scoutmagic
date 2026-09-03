@@ -22,35 +22,38 @@ Ensuite, trois règles, dans cet ordre.
 
 ## 1. L'IBAN d'un de vos comptes est cité dans le message
 
-Le site vous **propose** ce compte. C'est un signal faible, et la
-proposition est là pour être confirmée ou écartée, pas pour être crue :
-rien n'est enregistré tant qu'un trésorier n'a pas confirmé.
+Sur une boîte **dédiée** aux finances, ou si l'expéditeur anime la section
+à laquelle ce compte appartient, le reçu est enregistré sur ce compte sans
+confirmation : deux indices indépendants disent la même chose. Le
+rattachement est affiché comme « IBAN du compte cité dans le message » ;
+« Changer de compte » corrige une erreur en un clic.
 
-Le site ne devine pas. Si le message cite deux de vos comptes, il ne
-propose rien : c'est presque toujours un virement interne, et le reçu d'un
-virement n'appartient par défaut à aucun des deux côtés.
+Sinon le site vous **propose** ce compte, en tête de la page Reçus, dans
+« Courrier à trier », et les trésoriers en sont avertis par la
+notification « Reçu arrivé par e-mail à confirmer ». Rien n'est
+enregistré tant qu'un trésorier n'a pas confirmé. « Rattacher » enregistre la pièce jointe
+comme reçu de ce compte, en votre nom ; « Écarter » est définitif.
+
+Si le message cite deux de vos comptes, il ne propose rien : c'est presque
+toujours un virement interne, dont le reçu n'appartient à aucun côté.
+
+Une même facture transmise deux fois ne fait qu'un reçu.
 
 ## 2. L'expéditeur anime un seul staff
 
-Un animateur photographie un ticket et l'envoie à l'adresse de la
-trésorerie. Le site reconnaît son adresse — celle du Desk comme une
-adresse secondaire qu'il a confirmée —, voit qu'il anime **un seul**
-staff, et classe le reçu sur le compte de ce staff. Directement, sans
-confirmation : vous demander de valider ce que les données de l'unité
-disent déjà serait vous déranger pour rien.
+Un animateur envoie la photo d'un ticket à l'adresse de la trésorerie. Le site reconnaît son adresse — celle du Desk comme une
+adresse secondaire confirmée —, voit qu'il anime **un seul** staff, et
+classe le reçu sur le compte de ce staff, sans confirmation.
 
 S'il anime deux staffs, ou si son staff n'a pas exactement un compte
 **actif** — un compte de section encore en brouillon ne compte pas —, le
 site ne choisit pas et passe à la règle suivante.
 
-Si le message a été **transféré**, le site regarde d'abord qui l'a
-transféré. Ce n'est que si cette personne ne correspond à personne qu'il
-cherche l'expéditeur d'origine écrit dans le corps du message.
+Sur un message **transféré**, le site regarde d'abord qui l'a transféré,
+puis, à défaut, l'expéditeur d'origine cité dans le corps.
 
-**À savoir :** une adresse d'expéditeur n'est pas vérifiable — n'importe
-qui peut en écrire une fausse, et une ligne « De : » dans un corps de
-message encore plus facilement. Ce qui se joue reste le classement d'un
-**document** : jamais un montant, jamais un mouvement, jamais un euro. Et
+**À savoir :** une adresse d'expéditeur se falsifie. Ce qui se joue reste
+le classement d'un **document**, jamais un montant ni un mouvement ; et
 une adresse inventée ne correspond à aucun membre, donc ne classe rien.
 
 ## 3. Rien ne le place
@@ -60,9 +63,8 @@ pour sa trésorerie et déclarée comme telle —, le reçu est quand même
 conservé, sans compte, dans « Compte inconnu » sur la page Reçus. C'est
 là que la trésorerie le trie.
 
-Sur l'adresse **publique** de l'unité, le site s'arrête là et ne garde
-rien : une photo dans le message d'un parent n'est pas un reçu, et en
-faire quelque chose à trier enterrerait les vrais en une semaine.
+Sur l'adresse **publique** de l'unité, le site ne garde rien : une photo
+dans le message d'un parent n'est pas un reçu.
 
 ## Détacher le message ne supprime pas le reçu
 

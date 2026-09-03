@@ -172,13 +172,17 @@ class MailProbeService
      * Attach an arriving message to the probe it answers.
      *
      * @param string $subject the message's subject, prefix and all
+     * @param list<string> $recipientAddresses every address the message
+     *   names, so the probe row of the box it actually reached is the one
+     *   that records it
      * @return bool whether it matched a probe still being waited for
      */
     public function claim(
         string $subject,
         ?string $rawHeaders,
         \DateTimeImmutable $receivedAt,
-        \DateTimeImmutable $now
+        \DateTimeImmutable $now,
+        array $recipientAddresses = []
     ): bool {
         $key = self::keyIn($subject);
         if ($key === null) {
@@ -190,10 +194,14 @@ class MailProbeService
             return false;
         }
 
-        // One message answers one address, and the first still-pending row
-        // of that key is it: a run writes one message per box, and the
-        // boxes are distinct.
-        $probe = $pending[0];
+        // One message answers one address — the one it was sent to. A run
+        // writes one message per box, so the row is the one whose address
+        // the message names; taking the first pending row instead wrote
+        // box B's headers onto box A's line whenever A's copy was the one
+        // that got lost, which is precisely the diagnosis this exists to
+        // give. A message naming none of them (an alias, a Bcc) falls
+        // back to the first, as before.
+        $probe = self::probeForRecipients($pending, $recipientAddresses);
         // The column is NOT NULL and this receiver wrote it itself, so an
         // unreadable value is a corrupted row rather than a missing one —
         // but the delay is the whole point of the probe, and reporting a
@@ -219,6 +227,31 @@ class MailProbeService
         );
 
         return true;
+    }
+
+    /**
+     * The pending row whose address the message was sent to, or the first
+     * one when the message names none of them.
+     *
+     * @param list<array<string, mixed>> $pending
+     * @param list<string> $recipientAddresses
+     * @return array<string, mixed>
+     */
+    private static function probeForRecipients(array $pending, array $recipientAddresses): array
+    {
+        $recipients = array_map(
+            static fn(string $address): string => strtolower(trim($address)),
+            $recipientAddresses
+        );
+
+        foreach ($pending as $probe) {
+            $address = $probe['mailbox_address'] ?? null;
+            if (is_string($address) && in_array(strtolower(trim($address)), $recipients, true)) {
+                return $probe;
+            }
+        }
+
+        return $pending[0];
     }
 
     /**

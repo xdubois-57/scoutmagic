@@ -1,0 +1,45 @@
+{#
+  A message's attachments, kept and not kept, the one way every screen
+  lists them.
+
+  A file that was NOT kept still gets a line saying why (§8.58): showing
+  one attachment fewer than the sender sent, with no explanation, is the
+  failure mode this replaces. The file is always still in the original
+  mailbox.
+
+  Parameters:
+    message       -- the Modules\InboundMail\Api\InboundMessage
+    downloadable  -- true to offer a download link on each kept file; the
+                     link goes through /files/{id}, which asks the
+                     consumers who may read it (§8.58), so a screen whose
+                     reader may not is told so there rather than here
+    compact       -- true for one line per file without the card list
+#}
+{% if message.hasAttachments or message.hasOmittedAttachments %}
+    <ul class="list-unstyled mb-0 inbound-attachments">
+        {% for attachment in message.attachments %}
+            <li class="d-flex flex-wrap align-items-center gap-2 py-1">
+                <i class="bi bi-paperclip text-body-secondary" aria-hidden="true"></i>
+                <span class="text-truncate">{{ attachment.filename }}</span>
+                <span class="text-body-secondary small">{{ attachment.sizeBytes|filesize }}</span>
+                {% if downloadable|default(false) %}
+                    {# Through the file-link partial: a bare link to a file
+                       strands the installed app (partials/file_link.html.twig). #}
+                    {% include 'partials/file_link.html.twig' with {
+                        href: file_url(attachment.fileId),
+                        label: 'Télécharger',
+                        classes: 'btn btn-sm btn-outline-secondary ms-auto',
+                        filename: attachment.filename|default(''),
+                    } only %}
+                {% endif %}
+            </li>
+        {% endfor %}
+        {% for omitted in message.omittedAttachments %}
+            <li class="d-flex flex-wrap align-items-center gap-2 py-1 text-warning-emphasis">
+                <i class="bi bi-paperclip" aria-hidden="true"></i>
+                <span class="text-truncate">{{ omitted.filename }}</span>
+                <span class="small">{{ omitted.sizeBytes|filesize }} — {{ omitted.explanation }}</span>
+            </li>
+        {% endfor %}
+    </ul>
+{% endif %}

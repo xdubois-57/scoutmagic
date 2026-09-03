@@ -135,21 +135,6 @@ class CompositionRootWiringTest extends TestCase
         $this->assertStringNotContainsString('$inboundReadConsumers->register(', $source);
     }
 
-    public function testTheCampsConsumerIsRegisteredLast(): void
-    {
-        // First-claim-wins in registration order, and a dedicated camps
-        // mailbox claims EVERYTHING it is offered: registered earlier, it
-        // would swallow the mail rental was waiting for.
-        $bootstrap = self::source('scheduler-bootstrap.php');
-
-        $rental = strpos($bootstrap, 'new \\Modules\\Rental\\Mail\\RentalMessageConsumer(');
-        $camps = strpos($bootstrap, 'new \\Modules\\Camps\\Mail\\CampsMessageConsumer(');
-
-        $this->assertIsInt($rental);
-        $this->assertIsInt($camps);
-        $this->assertLessThan($camps, $rental, 'The camps consumer must be registered after every other consumer.');
-    }
-
     public function testTheApiIsPublishedThroughANullSeededHandleLikeEveryOtherCrossModuleDependency(): void
     {
         // §7.5: a consumer takes it as a nullable constructor dependency

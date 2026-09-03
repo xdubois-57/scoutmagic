@@ -46,7 +46,20 @@ class AnalysisResultApplier
      */
     public function apply(int $messageId, array $resultsByConsumer): array
     {
+        return $this->applyAndReport($messageId, $resultsByConsumer)->links;
+    }
+
+    /**
+     * The same, also reporting the propositions that were actually new —
+     * the ones a consumer implementing `Api\PropositionListener` is told
+     * about, once each.
+     *
+     * @param array<string, AnalysisResult> $resultsByConsumer
+     */
+    public function applyAndReport(int $messageId, array $resultsByConsumer): AppliedAnalysis
+    {
         $created = [];
+        $proposed = [];
 
         foreach ($resultsByConsumer as $consumerId => $result) {
             foreach ($result->links as $link) {
@@ -76,10 +89,12 @@ class AnalysisResultApplier
             foreach ($result->candidates as $candidate) {
                 // Refuses to re-create a proposition somebody set aside —
                 // `dismissed_at` is final (A3/D10).
-                $this->messageRepository->addCandidate($messageId, $consumerId, $candidate);
+                if ($this->messageRepository->addCandidate($messageId, $consumerId, $candidate)) {
+                    $proposed[] = ['consumerId' => $consumerId, 'candidate' => $candidate];
+                }
             }
         }
 
-        return $created;
+        return new AppliedAnalysis($created, $proposed);
     }
 }

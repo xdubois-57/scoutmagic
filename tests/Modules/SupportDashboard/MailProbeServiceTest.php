@@ -211,6 +211,34 @@ class MailProbeServiceTest extends TestCase
         $this->assertCount(1, $results[0]['authentication']['relays']);
     }
 
+    public function testAProbeIsAttributedToTheAddressItWasSentTo(): void
+    {
+        // One key, two boxes, and only the second copy arrives. The first
+        // pending row used to take it, so box A read « reçue » with box
+        // B's headers while B stayed « jamais reçue » — the opposite of
+        // the diagnosis.
+        $service = $this->service(['a@scoutmagic.be', 'b@scoutmagic.be']);
+        $issued = $service->issueFor('unite-de-test', 'Bearer ' . $this->secret, true, $this->now());
+        $key = (string) $issued['correlation_key'];
+
+        $claimed = $service->claim(
+            '[Unité test] Sonde de diagnostic ' . $key,
+            "Received: from mx.example.be by mail.scoutmagic.be\r\n",
+            $this->now()->modify('+90 seconds'),
+            $this->now()->modify('+90 seconds'),
+            ['B@scoutmagic.be']
+        );
+
+        $this->assertTrue($claimed);
+
+        $byAddress = [];
+        foreach ($service->resultsFor($this->installationRowId()) as $result) {
+            $byAddress[$result['mailbox_address']] = $result['received_at'];
+        }
+        $this->assertNotNull($byAddress['b@scoutmagic.be']);
+        $this->assertNull($byAddress['a@scoutmagic.be']);
+    }
+
     /**
      * A reading is not evidence. « SPF non renseigné » is a claim about
      * what a server wrote down, and the only way to tell a right reading

@@ -83,6 +83,10 @@ class ExpenseReceiptService implements ExpenseReceiptInterface
             throw new FinanceException('Compte introuvable.');
         }
 
+        // The same bytes on the same account are one receipt: this door
+        // is walked through by modules, not by a person, and a module
+        // that hands the same document twice — the invoice forwarded
+        // again, read from two watched boxes — did not mean two.
         return $this->receiptService->upload(
             $content,
             $mimeType,
@@ -90,7 +94,8 @@ class ExpenseReceiptService implements ExpenseReceiptInterface
             $accountId,
             $suggestedAmount,
             $suggestedDate,
-            $uploadedBy
+            $uploadedBy,
+            true
         )->fileId;
     }
 
@@ -107,7 +112,7 @@ class ExpenseReceiptService implements ExpenseReceiptInterface
         // archived, and a receipt filed on one of those is filed where no
         // picker will ever offer to look.
         if ($accountId === null) {
-            return $this->receiptService->uploadUnattributed($content, $mimeType, $originalFilename, null)->fileId;
+            return $this->receiptService->uploadUnattributed($content, $mimeType, $originalFilename, null, true)->fileId;
         }
 
         $account = $this->accountRepository->findById($accountId);
@@ -123,7 +128,8 @@ class ExpenseReceiptService implements ExpenseReceiptInterface
             $account->id,
             null,
             null,
-            null
+            null,
+            true
         )->fileId;
     }
 

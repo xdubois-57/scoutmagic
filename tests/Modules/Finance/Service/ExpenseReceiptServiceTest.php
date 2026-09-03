@@ -312,4 +312,20 @@ class ExpenseReceiptServiceTest extends TestCase
         $this->assertSame(1, (int) $queued);
     }
 
+    /**
+     * The invoice forwarded twice, or read from two watched boxes, is
+     * one receipt: this door is walked through by modules, never by a
+     * person, and a module handing the same bytes again did not mean two.
+     */
+    public function testTheSameReceiptHandedTwiceIsFiledOnce(): void
+    {
+        $accountId = $this->activeAccount('Unité', Account::TYPE_BANK, null);
+
+        $first = $this->service->storeUnattendedReceipt(self::PDF, 'application/pdf', 'recu.pdf', $accountId);
+        $again = $this->service->storeUnattendedReceipt(self::PDF, 'application/pdf', 'recu (1).pdf', $accountId);
+
+        $this->assertSame($first, $again);
+        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM finance_attachments')->fetchColumn());
+    }
+
 }

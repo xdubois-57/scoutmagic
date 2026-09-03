@@ -18,7 +18,6 @@ use Core\Member\MemberDirectoryEntry;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Service\IntegerInput;
-use Modules\Rental\Mail\MailboxSelection;
 use Modules\Rental\Payment\PaymentSettings;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Service\RentalAssetService;
@@ -81,11 +80,12 @@ class RentalConfigController extends AbstractController
          */
         private ?RentalPaymentService $paymentService = null,
         /**
-         * Optional (§7.4): null without the `inbound_mail` module. Nothing
-         * in this controller ever reaches a mailbox — it only stores which
-         * of the already-configured ones this module listens to.
+         * Optional (§7.5): null without the `inbound_mail` module. Read for
+         * one thing — the name and state of the unit's boxes, so the page
+         * can say where the module's mail comes from. Which boxes this
+         * module reads is decided on the inbound-mail scope screen.
          */
-        private ?MailboxSelection $mailboxSelection = null,
+        private ?\Modules\InboundMail\Api\InboundMailInterface $inboundMail = null,
         /**
          * Read here for one thing only: flagging a public asset that has no
          * rate at all, so a chief learns it from this page rather than from
@@ -110,34 +110,6 @@ class RentalConfigController extends AbstractController
         $lastRun = (int) ($settingService->get('cron_last_run') ?: 0);
 
         return $lastRun > 0 && (time() - $lastRun) < 600;
-    }
-
-    /**
-     * POST /admin/locations/courrier — which mailboxes feed this module
-     * (§7.4).
-     *
-     * Storing ids and nothing else is the whole of it: a manager never sees
-     * or supplies a host, an account or a password here, and this action
-     * has no way to reach one.
-     *
-     * @param array<string, string> $params
-     */
-    public function saveMailboxes(Request $request, array $params): Response
-    {
-        if (($guard = $this->guardCsrf($request, '/admin/locations')) !== null) {
-            return $guard;
-        }
-
-        if ($this->mailboxSelection === null) {
-            return new Response('Not Found', 404);
-        }
-
-        $submitted = $request->getBody('mailbox_ids', []);
-        $this->mailboxSelection->save(is_array($submitted) ? $submitted : []);
-
-        FlashMessage::set('success', 'Boîtes surveillées enregistrées.');
-
-        return $this->redirect('/admin/locations#courrier');
     }
 
     /**
@@ -183,9 +155,8 @@ class RentalConfigController extends AbstractController
             // the section explains that instead of offering a picker with
             // nothing in it. A manager sees each box's name and state —
             // never its host, port or account (§7.4).
-            'inbound_mail_available' => $this->mailboxSelection?->isAvailable() ?? false,
-            'inbound_mailboxes' => $this->mailboxSelection?->availableMailboxes() ?? [],
-            'selected_mailbox_ids' => $this->mailboxSelection?->selectedIds() ?? [],
+            'inbound_mail_available' => $this->inboundMail !== null,
+            'inbound_mailboxes' => $this->inboundMail?->listMailboxSummaries() ?? [],
             // The cron warning (§6.29). Same signal and same 10-minute
             // window the push-notification page uses — a real crontab
             // typically runs every minute, and the generous window only
