@@ -70,7 +70,13 @@ final class StatisticsServiceFactory
             self::identityService($context),
             self::projectRoot($context),
             self::moduleManager($context),
-            $context->mailService
+            $context->mailService,
+            // The usage_stats module's aggregate, resolved the way the
+            // scheduled path resolves every cross-module capability
+            // (ARCHITECTURE.md §7.5 applied to the scheduler): null when
+            // the module is absent or disabled, which the report then
+            // states as a null field rather than as an empty list.
+            $context->getOptional(\Modules\UsageStats\Api\ModuleUsageInterface::class)
         );
     }
 

@@ -16,6 +16,7 @@ use Core\Member\UnitStaffSectionService;
 use Core\Module\ModuleManager;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\Service\DateInput;
+use Modules\UsageStats\Api\ModuleUsageInterface;
 
 /**
  * Builds the exact document an installation reports to the statistics
@@ -54,7 +55,14 @@ class StatisticsPayloadBuilder
         private InstallationIdentityService $identityService,
         private string $projectRoot,
         private ?ModuleManager $moduleManager = null,
-        private ?MailService $mailService = null
+        private ?MailService $mailService = null,
+        // The usage_stats module's published capability (ARCHITECTURE.md
+        // §7.5), consumed nullable like every other cross-boundary
+        // capability: the module disabled means `module_usage` is null in
+        // the report, which rule 1 above makes a different fact from an
+        // empty list. Trailing and defaulted so no existing call site of
+        // this constructor changes.
+        private ?ModuleUsageInterface $moduleUsage = null
     ) {
     }
 
@@ -80,8 +88,10 @@ class StatisticsPayloadBuilder
             'usage' => [
                 'active_members' => $this->collect(fn(): ?int => $this->activeMembers($publicScoutYearId)),
                 'active_sections' => $this->collect(fn(): ?int => $this->activeSections($publicScoutYearId)),
+                'active_accounts_30d' => $this->collect(fn(): int => $this->activeAccounts()),
             ],
             'modules' => $this->collect(fn(): ?array => $this->modules()),
+            'module_usage' => $this->collect(fn(): ?array => $this->moduleUsagePayload()),
             'installation' => [
                 'method' => $this->collect(fn(): ?string => $this->installationMethod()),
             ],
@@ -260,6 +270,36 @@ class StatisticsPayloadBuilder
     }
 
     /**
+     * Accounts that logged in over the last THIRTY DAYS — not « this
+     * month », and the difference is the whole reason the field is named
+     * for its window.
+     *
+     * The receiver keeps only the LATEST report of each installation, so a
+     * calendar-month count would say something different depending on which
+     * day of the month the report happened to be built: a unit last heard
+     * from on the 2nd would look deserted beside one last heard from on the
+     * 28th, and the column comparing them would be measuring the calendar.
+     * A sliding window is comparable across installations by construction.
+     *
+     * The unit's own screen answers « ce mois » instead, on purpose: a
+     * chief reads their own site against the month they are living in, and
+     * that figure never travels (ARCHITECTURE.md §8.93).
+     *
+     * `last_login_at` holds the LAST login only, so this counts accounts
+     * whose most recent visit falls in the window — for a window ending
+     * now, that is exactly « who came recently », which is the question.
+     */
+    private function activeAccounts(): int
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM user_accounts WHERE is_active = 1 AND last_login_at >= ?'
+        );
+        $stmt->execute([(new \DateTimeImmutable('-30 days'))->format('Y-m-d H:i:s')]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
      * Every module present on disk, with the version its manifest declares
      * and whether it is enabled. The version matters as much as the flag:
      * without it a module bug report says nothing about which schema is
@@ -285,6 +325,43 @@ class StatisticsPayloadBuilder
         usort($modules, static fn(array $a, array $b): int => strcmp($a['id'], $b['id']));
 
         return $modules;
+    }
+
+    /**
+     * How much each module was actually OPENED, over the window the
+     * capability declares — the one thing `modules` above cannot say.
+     *
+     * `modules` lists what is installed and switched on; this lists what
+     * anybody used. A module enabled everywhere and opened nowhere is a
+     * candidate for retirement, and it is the single observation no unit
+     * can make on its own (ARCHITECTURE.md §8.51bis).
+     *
+     * **Null when the module is absent or disabled**, per rule 1: « cette
+     * installation ne mesure pas » and « personne n'a ouvert ce module »
+     * are different facts, and a receiver that confounded them would drop
+     * a module people use.
+     *
+     * The aggregate only. The detail per page stays on the unit's own
+     * screens: the project's question is which modules serve, not how
+     * often one unit opened its calendar.
+     *
+     * @return ?array{window_months: int, modules: array<int, array{id: string, views: int}>}
+     */
+    private function moduleUsagePayload(): ?array
+    {
+        if ($this->moduleUsage === null) {
+            return null;
+        }
+
+        $modules = [];
+        foreach ($this->moduleUsage->aggregatedByModule() as $usage) {
+            $modules[] = ['id' => $usage->moduleId, 'views' => $usage->views];
+        }
+
+        return [
+            'window_months' => ModuleUsageInterface::WINDOW_MONTHS,
+            'modules' => $modules,
+        ];
     }
 
     /**

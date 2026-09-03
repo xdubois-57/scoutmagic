@@ -1,0 +1,165 @@
+{% extends 'base.html.twig' %}
+{% block title %}Fréquentation — {{ site_name }}{% endblock %}
+
+{% block content %}
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Fréquentation',
+        badge: overview.month_label,
+        subtitle: 'Le site sert-il, et à quoi ?',
+    } only %}
+
+    {% include '@usage_stats/partials/_nav.html.twig' %}
+    {% include '@usage_stats/partials/_month_picker.html.twig' %}
+
+    {# Les quatre tuiles. La première porte la réponse à « le site
+       sert-il ? » ; les trois autres la mettent en perspective. #}
+    {% include 'partials/stat_tiles.html.twig' with {
+        tiles: [
+            {
+                label: 'Comptes actifs ce mois',
+                value: overview.is_current_month ? overview.active_accounts : '—',
+                icon: 'bi-person-check',
+                tone: 'primary',
+            },
+            { label: 'Comptes existants', value: overview.total_accounts, icon: 'bi-people' },
+            {
+                label: 'Part des comptes actifs',
+                value: overview.adoption_percent is null ? '—' : overview.adoption_percent ~ ' %',
+                icon: 'bi-percent',
+                tone: 'success',
+            },
+            { label: 'Pages vues', value: overview.total_views, icon: 'bi-eye' },
+        ],
+        columns: 4,
+    } only %}
+
+    {# La limite est dite là où elle se lit, pas ailleurs : le site ne
+       garde que la DERNIÈRE connexion de chaque compte, donc « combien
+       de comptes se sont connectés en mars » n'est pas une question à
+       laquelle il peut répondre. Y répondre quand même donnerait le
+       nombre de gens qui ont cessé de venir en mars — l'inverse de ce
+       qu'un lecteur y lirait. Répondre pour tous les mois supposerait
+       d'enregistrer le compte de chaque visite, c'est-à-dire exactement
+       le suivi nominatif que ce module refuse. #}
+    {% if not overview.is_current_month %}
+        <div class="alert alert-secondary small d-flex gap-2">
+            <i class="bi bi-info-circle flex-shrink-0" aria-hidden="true"></i>
+            <div>
+                Les comptes actifs ne sont connus que pour le mois en cours : le site ne conserve
+                que la dernière connexion de chaque compte, jamais l'historique des connexions.
+                Les pages vues, elles, sont exactes pour {{ overview.month_label|lower }}.
+            </div>
+        </div>
+    {% endif %}
+
+    <section class="card mb-3">
+        <div class="card-body">
+            <h2 class="h6 d-flex align-items-center gap-2">
+                <i class="bi bi-bar-chart text-primary" aria-hidden="true"></i>
+                Pages vues par mois
+            </h2>
+
+            {% set _has_history = overview.curve|filter(m => m.views > 0)|length > 0 %}
+            {% if _has_history %}
+                {# Douze colonnes, une par mois, hauteur relative au pic.
+                   Un tableau serait plus juste sémantiquement mais
+                   illisible au doigt ; la liste porte donc le chiffre en
+                   attribut title ET en texte sous la barre pour les
+                   lecteurs d'écran. #}
+                <ul class="list-unstyled d-flex align-items-end gap-1 mb-2" style="height: 8rem;">
+                    {% for point in overview.curve %}
+                        <li class="flex-fill d-flex flex-column align-items-center justify-content-end h-100"
+                            style="min-width: 0;">
+                            <span class="w-100 rounded-top {{ point.is_last ? 'bg-primary' : 'bg-secondary-subtle' }}"
+                                  style="height: {{ point.height_percent }}%; min-height: 2px;"
+                                  aria-hidden="true"></span>
+                            <span class="text-body-secondary text-truncate w-100 text-center mt-1" style="font-size: 0.65rem;">
+                                {{ point.label }}
+                            </span>
+                            <span class="visually-hidden">{{ point.label }} : {{ point.views }} pages vues</span>
+                        </li>
+                    {% endfor %}
+                </ul>
+                <p class="small text-body-secondary mb-0">
+                    Un creux en juillet et en août est celui des camps : personne n'ouvre le site pendant
+                    que tout le monde est sous tente. Sans cette phrase, on y lit une chute de
+                    fréquentation là où il n'y a qu'un camp.
+                </p>
+            {% else %}
+                {% include 'partials/empty_state.html.twig' with {
+                    message: 'Aucune page comptée sur les douze derniers mois.',
+                    icon: 'bi-bar-chart',
+                    compact: true,
+                } only %}
+            {% endif %}
+        </div>
+    </section>
+
+    <div class="row g-3">
+        <div class="col-12 col-lg-6">
+            <section class="card h-100">
+                <div class="card-body">
+                    <h2 class="h6">Qui consulte</h2>
+                    <ul class="list-unstyled mb-0">
+                        {% for audience in overview.audiences %}
+                            <li class="{{ loop.last ? '' : 'mb-3' }}">
+                                <div class="d-flex justify-content-between gap-3">
+                                    <span>{{ audience.label }}</span>
+                                    <span class="fw-semibold">{{ audience.views }}</span>
+                                </div>
+                                <div class="progress mt-1" style="height: 0.4rem;"
+                                     role="progressbar" aria-label="{{ audience.label }}"
+                                     aria-valuenow="{{ audience.share_percent }}" aria-valuemin="0" aria-valuemax="100">
+                                    <div class="progress-bar" style="width: {{ audience.share_percent }}%;"></div>
+                                </div>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </section>
+        </div>
+
+        <div class="col-12 col-lg-6">
+            <section class="card h-100">
+                <div class="card-body">
+                    <h2 class="h6">Les cinq pages les plus ouvertes</h2>
+                    {% if overview.top_pages|length > 0 %}
+                        <ol class="mb-0 ps-3">
+                            {% for page in overview.top_pages %}
+                                <li class="d-flex justify-content-between gap-3 {{ loop.last ? '' : 'mb-1' }}">
+                                    <span class="text-truncate">{{ page.label }}</span>
+                                    <span class="fw-semibold flex-shrink-0">{{ page.views }}</span>
+                                </li>
+                            {% endfor %}
+                        </ol>
+                        <a href="/config/usage/pages?month={{ overview.month }}" class="small d-inline-block mt-2">
+                            Voir le détail par page
+                        </a>
+                    {% else %}
+                        {% include 'partials/empty_state.html.twig' with {
+                            message: 'Aucune page ouverte ce mois-ci.',
+                            icon: 'bi-file-earmark',
+                            compact: true,
+                        } only %}
+                    {% endif %}
+                </div>
+            </section>
+        </div>
+    </div>
+
+    {# Ce qui n'est PAS collecté, dit à l'écran plutôt que dans une
+       politique que personne n'ouvre. La phrase sur les cookies est la
+       plus importante des trois : un chef d'unité qui ne trouve aucune
+       catégorie « analytics » dans ses préférences de cookies se demande
+       légitimement ce qu'on lui cache. #}
+    <div class="alert alert-success small d-flex gap-2 mt-3 mb-0">
+        <i class="bi bi-shield-check flex-shrink-0" aria-hidden="true"></i>
+        <div>
+            <strong>Aucun suivi individuel.</strong> Le site compte des pages, pas des personnes :
+            ni adresse IP, ni navigateur, ni parcours nominatif. Aucun cookie n'est posé pour ces
+            mesures — c'est pourquoi elles n'apparaissent pas dans les préférences de cookies.
+            Le partage de ces chiffres avec l'équipe qui développe le logiciel se règle sur
+            <a href="/config/support">Configuration &gt; Support</a>.
+        </div>
+    </div>
+{% endblock %}

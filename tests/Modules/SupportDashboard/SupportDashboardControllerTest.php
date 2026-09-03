@@ -171,6 +171,40 @@ class SupportDashboardControllerTest extends TestCase
         $this->assertStringNotContainsString('<td class="d-none d-lg-table-cell">0</td>', $body);
     }
 
+    /**
+     * The adoption block renders, and it renders the honest branch: this
+     * installation's report carries no `module_usage` at all, so the page
+     * must say it cannot tell rather than draw a column of amber zeros
+     * (ARCHITECTURE.md §8.51bis).
+     */
+    public function testTheAdoptionBlockRefusesToReadSilenceAsZero(): void
+    {
+        // A second installation that DOES declare a module but reports no
+        // usage at all — the exact case the block must refuse to read as
+        // « personne ne s'en sert ».
+        $silent = $this->payload();
+        $silent['installation_id'] = 'eeeeffff00001111';
+        $silent['modules'] = [['id' => 'calendar', 'enabled' => true, 'version' => '1.2.0']];
+        (new SupportInstallationRepository($this->pdo))->register(
+            'eeeeffff00001111',
+            password_hash('another-secret', PASSWORD_DEFAULT),
+            (string) json_encode($silent),
+            StatisticsIntakeService::denormalize($silent)
+        );
+
+        AuthSession::login(1, 'superadmin@test.com', 'superadmin');
+
+        $body = $this->frontController('/support-dashboard', 'index')
+            ->handle(new Request('GET', '/support-dashboard', [], [], [], []))
+            ->getBody();
+
+        $this->assertStringContainsString('Adoption des modules', $body);
+        $this->assertStringContainsString('ne mesure sa fréquentation', $body);
+        // Not a single amber « 0 utilisés » badge: nothing was measured,
+        // so nothing is claimed.
+        $this->assertStringNotContainsString('0 utilisé', $body);
+    }
+
     public function testTheSecretNeverAppearsInAnyResponse(): void
     {
         AuthSession::login(1, 'superadmin@test.com', 'superadmin');

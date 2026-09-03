@@ -34,6 +34,22 @@ class FrontController
     private RbacGuard $rbacGuard;
     private bool $rbacBypass = false;
 
+    /**
+     * The route this front controller last matched, or null when the last
+     * request matched none (a 404, a probe for `/wp-login.php`).
+     *
+     * Exposed for what happens AFTER the response has been sent: the
+     * composition root's tail counts the page view (Modules\UsageStats,
+     * ARCHITECTURE.md §8.93) and needs the declared PATTERN — the thing
+     * that says « the page of a member » rather than « member 42 » — which
+     * only the router knows and nothing else on the request keeps.
+     *
+     * Deliberately the resolved route and nothing more: no request, no
+     * response, no timing. A getter that grew into a request log would be
+     * a second, quieter version of the journal.
+     */
+    private ?ResolvedRoute $lastResolvedRoute = null;
+
     public function __construct(
         private Router $router,
         private Environment $twig,
@@ -61,6 +77,14 @@ class FrontController
     public function registerController(string $className, AbstractController $instance): void
     {
         $this->controllerInstances[$className] = $instance;
+    }
+
+    /**
+     * The route the last handle() matched — see $lastResolvedRoute.
+     */
+    public function getLastResolvedRoute(): ?ResolvedRoute
+    {
+        return $this->lastResolvedRoute;
     }
 
     /**
@@ -92,6 +116,7 @@ class FrontController
         }
 
         $resolvedRoute = $this->router->resolve($request);
+        $this->lastResolvedRoute = $resolvedRoute;
 
         if ($resolvedRoute === null) {
             return $this->renderNotFound();

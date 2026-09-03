@@ -1749,30 +1749,6 @@ $ticketIdentityService = new \Core\Support\Ticket\TicketIdentityService(
     $journalService
 );
 
-$statisticsPayloadBuilder = new \Core\Statistics\StatisticsPayloadBuilder(
-    $settingService,
-    $pdo,
-    $installationIdentityService,
-    dirname(__DIR__),
-    $moduleManager,
-    $mailService
-);
-
-// The same sender the daily task builds from its TaskContext (Core\Statistics\
-// StatisticsServiceFactory), built here for the one thing that cannot wait for
-// a scheduler run: the "envoyer un rapport de test" button on Configuration >
-// Support. Constructing it opens nothing — no secret is read and no socket is
-// touched until sendTest() is actually called.
-$statisticsSender = new \Core\Statistics\StatisticsSender(
-    $settingService,
-    $statisticsPayloadBuilder,
-    $installationIdentityService,
-    new \Core\Statistics\StreamStatisticsTransport(),
-    $journalService,
-    $pdo,
-    \Core\Maintenance\VersionFile::read(dirname(__DIR__))
-);
-
 // The scheduler's whole wiring — ModuleManager, TaskContext (with the
 // optional cross-module capabilities handlers reach through
 // getOptional()), every core handler, the hand-registered module handler
@@ -2387,6 +2363,90 @@ $frontController->registerController(
 $frontController->registerController(
     \Core\Http\Controller\HelpController::class,
     new \Core\Http\Controller\HelpController($twig, $helpService, $helpPageLinkResolver)
+);
+
+// Fréquentation du site (ARCHITECTURE.md §8.93). This block sits here,
+// among the trunk's own wiring rather than down with the other modules,
+// for the same reason the LLM connector's does just below: a CORE
+// consumer built a few lines further down — Core\Statistics\
+// StatisticsPayloadBuilder — takes its published capability, and a
+// module block that ran after it would arrive too late. `$isEnabled` and
+// `$frontController` both exist by this point, which is what makes the
+// position possible at all.
+//
+// `$usageStatsRecorder` is seeded null above the block so the tail of this
+// file — which counts the page view once the response is gone — has a
+// variable to test rather than a second enablement check at a point where
+// every other per-module wiring is long done.
+$usageStatsRecorder = null;
+$usageStatsModuleUsageForOthers = null;
+if ($isEnabled('usage_stats')) {
+    $usageStatsPageViews = new \Modules\UsageStats\Repository\PageViewRepository($pdo);
+    $usageStatsRecorder = new \Modules\UsageStats\Service\PageViewRecorder($usageStatsPageViews);
+    // The module's ONE published capability (Api\ModuleUsageInterface):
+    // the per-module aggregate, never the detail per page.
+    $usageStatsModuleUsageForOthers = new \Modules\UsageStats\Service\ModuleUsageService($usageStatsPageViews);
+
+    $frontController->registerController(
+        \Modules\UsageStats\Controller\UsageStatsController::class,
+        new \Modules\UsageStats\Controller\UsageStatsController(
+            $twig,
+            new \Modules\UsageStats\Service\UsageStatsService(
+                $usageStatsPageViews,
+                new \Modules\UsageStats\Repository\AccountActivityRepository($pdo),
+                // Read-only, both of them: the module manager answers
+                // which modules exist and what they are called, the
+                // router answers what a page is called. Neither is asked
+                // to load, migrate or route anything here.
+                $moduleManager,
+                $router
+            )
+        )
+    );
+
+    // The retention task's FIRST occurrence has to be seeded here:
+    // declaring a handler in module.json only teaches SchedulerRunner how
+    // to run it, and a self-rescheduling task nobody ever queued
+    // reschedules itself never (the mistake §8.49 records for
+    // support_dashboard). Tests\Modules\UsageStats\ModuleSchedulingTest
+    // fails if this list drifts from module.json's `scheduled_tasks`.
+    foreach ([
+        \Modules\UsageStats\Task\PurgePageViewsHandler::TASK_KEY => \Modules\UsageStats\Task\PurgePageViewsHandler::REFERENCE,
+    ] as $usageTaskKey => $usageTaskReference) {
+        $schedulerService->rearm('usage_stats', $usageTaskKey, $usageTaskReference, new DateTimeImmutable());
+    }
+}
+
+
+// The usage report the installation sends to the project, and the same
+// document a support package carries — ONE builder, so the two can never
+// drift (Core\Support\Collector\StatisticsCollector's own invariant).
+// Built after the usage_stats block above because it consumes that
+// module's published aggregate; null there means the module is off, which
+// the report states as a null field rather than as an empty list.
+$statisticsPayloadBuilder = new \Core\Statistics\StatisticsPayloadBuilder(
+    $settingService,
+    $pdo,
+    $installationIdentityService,
+    dirname(__DIR__),
+    $moduleManager,
+    $mailService,
+    $usageStatsModuleUsageForOthers
+);
+
+// The same sender the daily task builds from its TaskContext (Core\Statistics\
+// StatisticsServiceFactory), built here for the one thing that cannot wait for
+// a scheduler run: the "envoyer un rapport de test" button on Configuration >
+// Support. Constructing it opens nothing — no secret is read and no socket is
+// touched until sendTest() is actually called.
+$statisticsSender = new \Core\Statistics\StatisticsSender(
+    $settingService,
+    $statisticsPayloadBuilder,
+    $installationIdentityService,
+    new \Core\Statistics\StreamStatisticsTransport(),
+    $journalService,
+    $pdo,
+    \Core\Maintenance\VersionFile::read(dirname(__DIR__))
 );
 
 // LLM connector — the module's ONE block: its config page, the connector
@@ -6229,6 +6289,33 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 // cleanup, LoginThrottler::purgeStale(), PdfThumbnailCache::purgeStale()).
 // Nothing was lost, and a visitor no longer pays for background work that a
 // per-minute crontab does on time. See ARCHITECTURE.md § 8.5.
+
+// Fréquentation (§8.93): one counter incremented for one page view, and
+// only for a page view — Modules\UsageStats\Service\PageViewPolicy drops
+// everything else before a connection is even used. Placed HERE, past
+// send() and session_write_close(), for the exact reason the poor man's
+// cron was removed from this spot: a visitor must not pay for it. The
+// route PATTERN is what is counted (`/members/{id}`, never `/members/42`),
+// which is why it comes from the resolved route rather than from the URL.
+//
+// `User-Agent` is READ to drop crawlers and never stored anywhere, and no
+// account id, member id, session or address reaches this call at all —
+// only a role, flattened to one of three audiences.
+if ($usageStatsRecorder !== null) {
+    $usageStatsRoute = $frontController->getLastResolvedRoute();
+    $usageStatsHeaders = array_change_key_case($response->getHeaders(), CASE_LOWER);
+
+    $usageStatsRecorder->record(
+        $request->getMethod(),
+        $usageStatsRoute?->path,
+        $usageStatsRoute === null ? null : $router->getModuleForPath($usageStatsRoute->path),
+        $response->getStatusCode(),
+        isset($usageStatsHeaders['content-type']) ? (string) $usageStatsHeaders['content-type'] : null,
+        $response->getBodyFilePath() !== null,
+        (string) $request->getServer('HTTP_USER_AGENT', ''),
+        \Core\Security\Role::fromString(\Core\Security\AuthSession::getRole())
+    );
+}
 
 // Debug timeline flush (?debug=1) — gated on an already-authenticated
 // admin session rather than a shared secret: the operator triggering this

@@ -31,6 +31,7 @@ Everything beyond the core site is a module (`modules/<id>/`, ARCHITECTURE.md §
 | `support_dashboard` | Tableau de bord support | §21.3 |
 | `test_tools` | Outils de test | §40 |
 | `trombinoscope` | Trombinoscope | §34 |
+| `usage_stats` | Fréquentation du site | §42 |
 
 Two of them never exist on a unit's installation: `test_tools` (reference and development installations only) and `support_dashboard` (the statistics receiver only). Both declare that in their manifest — see §21.3 and §40.
 
@@ -2123,3 +2124,212 @@ débarrasser des attestations découpées d'un fichier qui n'aurait jamais dû �
 La **génération** d'attestations par l'unité elle-même. Le site ne produit aucun document : il découpe
 un PDF qu'on lui fournit. Une attestation de présence après camp entre donc dans le périmètre si elle
 arrive sous forme de PDF groupé, pas si elle doit être composée par le site.
+
+
+## 42. Fréquentation du site (module usage_stats)
+
+Le module répond à deux questions, et à rien d'autre.
+
+**« Le site sert-il ? »** Combien de comptes se sont connectés ce mois-ci, rapporté au nombre de
+comptes existants. C'est la question d'un chef d'unité qui se demande s'il continue d'y investir du
+temps.
+
+**« Qu'est-ce qui sert ? »** Quelles pages et quels modules sont ouverts, et surtout lesquels ne le
+sont jamais. C'est ce qui permet de décider qu'on désactive un module que personne n'ouvre.
+
+### 42.1 Ce qu'il ne fait pas, et pourquoi
+
+**Aucun suivi nominatif.** L'ancien site tenait une table `STATS_PAGES` dont la clé primaire était
+`(PAGE, EMAIL, MONTH)` : on pouvait y lire que telle maman avait ouvert quatorze fois la page de son
+fils. Personne n'a besoin de cette réponse, et la détenir vaudrait une déclaration RGPD lourde pour
+une valeur nulle. Il conservait aussi les navigateurs dans `STATS_USER_AGENT` — même verdict.
+
+**Aucun cookie n'est posé**, et c'est le point qui allège tout le reste : le régime de consentement
+*analytics* se déclenche quand on écrit sur l'appareil du visiteur, ce qu'un comptage serveur non
+nominatif ne fait pas. Il n'y a donc pas de bandeau à modifier, pas de catégorie à activer, pas de
+refus à respecter — et le module ne déclare aucun cookie, ce qu'un test vérifie.
+
+**Ni adresses IP, ni navigateurs, ni parcours individuels, ni entonnoirs, ni temps réel.**
+
+### 42.2 Le modèle : un compteur par motif de route
+
+Une seule table, `usage_page_views`, et sa forme est toute la décision de conception : un compteur
+par **(mois, motif de route, public)**. Pas une ligne par visite, pas une ligne par visiteur, pas
+une ligne par URL.
+
+**Le motif de route, jamais l'URL.** `/members/{id}`, jamais `/members/42`. C'est ce qui agrège
+naturellement — une unité de 260 membres produit une ligne pour la page d'un animé, pas 260 — et
+c'est surtout ce qui garantit qu'aucun identifiant n'est conservé : il n'existe aucune colonne où un
+identifiant pourrait être écrit.
+
+La dimension « quel module » est gratuite : chaque route est déclarée par un module ou par le cœur,
+donc le même compteur s'agrège autrement sans seconde table. Le public est ramené à trois valeurs —
+anonyme, identifié, staff (intendant et au-dessus) — parce que ce sont les trois dont un lecteur
+fait quelque chose ; distinguer un intendant d'un chef ajouterait une colonne sur laquelle personne
+n'agirait.
+
+**L'adoption ne demande aucune donnée nouvelle.** `user_accounts.last_login_at` existe déjà :
+« 62 comptes connectés ce mois-ci » se calcule sans rien enregistrer de plus.
+
+### 42.3 Le coût, et comment il est tenu
+
+**Le comptage se fait après la réponse**, dans la queue de `public/index.php`, à l'endroit même d'où
+le *poor man's cron* a été retiré pour que « a visitor no longer pays for background work ». Un test
+vérifie que l'appel reste après `$response->send()` : au-dessus, la fonctionnalité réintroduirait
+exactement le coût que ce retrait avait supprimé.
+
+Trois précautions suffisent, et aucune table tampon n'est construite.
+
+**Ne compter que ce qui le mérite** : les réponses HTML en 200 sur des routes de page. Pas les
+appels JSON, pas les téléchargements de fichiers, pas les 404, pas les 403, pas les redirections,
+pas les POST. Cela élimine l'essentiel du volume sans rien perdre d'utile.
+
+**Écarter les robots avant d'écrire.** Une comparaison de chaîne sur l'en-tête `User-Agent` coûte
+quelques microsecondes et évite l'écriture entièrement. On **lit** cet en-tête pour décider, on ne le
+**stocke jamais** — c'est la différence avec l'ancien site. La liste est courte et assumée comme
+telle : un robot qui passe au travers gonfle le compteur d'une page, il ne fait jamais paraître le
+site inutilisé et il n'identifie personne.
+
+**Une seule écriture**, en `INSERT ... ON DUPLICATE KEY UPDATE` sur la clé unique. Quelques dizaines
+de lignes qu'on incrémente, pas une ligne par visite. La contention sur la ligne d'une page
+fréquentée est théorique à l'échelle d'une unité — deux requêtes sur la même page à la même seconde
+n'arrivent pratiquement jamais — et la parade (écrire en ajout puis replier par tâche planifiée)
+n'est délibérément pas construite : elle coûte une seconde table, une seconde tâche et une fenêtre
+pendant laquelle les chiffres sont faux, et ne se construit qu'au vu d'une mesure.
+
+Un échec d'écriture est silencieux : la réponse est déjà partie, il n'y a plus de page où afficher
+une erreur, et un compteur ne vaut pas une entrée de journal.
+
+### 42.4 Rétention
+
+**Trois années scoutes** : celle qui court et les deux précédentes. C'est la portée que les écrans
+savent dessiner, plus une année de marge, et la durée est écrite plutôt que laissée à
+« indéfiniment » par omission. La coupure est au 1er septembre, pas au 1er janvier : couper au
+milieu d'une saison supprimerait l'automne d'une année dont le printemps est encore à l'écran. Une
+tâche planifiée quotidienne s'en charge.
+
+### 42.5 Les trois écrans
+
+`Configuration > Fréquentation`, `role_min: superadmin` sur les trois routes — le même niveau que
+toutes les autres pages de ce menu. La sous-navigation est le nav rail partagé (jamais des chips :
+un chip se lit comme un filtre qu'on bascule, ce qui est faux pour une sous-navigation), et sa
+dernière entrée **quitte le module** vers `Configuration > Support`, où se règle la transmission —
+elle n'en est pas une copie.
+
+**Rien n'est mémorisé d'une visite à l'autre.** Le mois et le filtre par public vivent dans la
+chaîne de requête et nulle part ailleurs : la page ne s'ouvre jamais sur le filtre d'un autre
+lecteur, un lien vers « août 2026 » est un lien, et aucun cookie n'est posé — ce qui est aussi le
+sujet du module.
+
+**Vue d'ensemble.** Quatre tuiles — comptes actifs ce mois, comptes existants, la part que cela
+représente, pages vues — puis la courbe des douze derniers mois, la répartition par public, et les
+cinq pages les plus ouvertes.
+
+Une limite est dite à l'écran plutôt que tue : **l'adoption n'est connue que pour le mois en cours**.
+`user_accounts.last_login_at` ne garde que la dernière connexion, donc pour un mois passé la même
+requête compterait les comptes dont la dernière visite remonte à ce mois-là — c'est-à-dire les gens
+qui ont *cessé* de venir, l'inverse de ce qu'un lecteur y lirait. Répondre pour tous les mois
+supposerait d'enregistrer le compte de chaque visite, exactement le suivi nominatif que §42.1
+refuse. La courbe, elle, porte les **pages vues**, que la table connaît honnêtement sur trois ans.
+
+**Le creux de juillet et d'août est commenté** : c'est celui des camps, et sans cette phrase on lit
+une chute de fréquentation là où il n'y a qu'un camp.
+
+**Ce qui n'est pas collecté est dit à l'écran**, pas seulement dans une politique : ni adresse IP,
+ni navigateur, ni parcours nominatif, et aucun cookie posé. Cette dernière phrase est la plus utile
+des trois — un chef d'unité qui ne trouve aucune catégorie *analytics* dans ses préférences de
+cookies se demanderait sinon ce qu'on lui cache.
+
+**Modules.** Le classement par usage, la tendance par rapport au mois précédent, et surtout le bloc
+des **modules activés que personne n'a ouverts depuis douze mois** — le seul constat vraiment
+actionnable de tout l'écran, avec sa conséquence (ils encombrent les menus de tout le monde) et sa
+réassurance (les désactiver ne perd aucune donnée).
+
+Deux précisions décident si ce bloc est juste. **Les modules réservés au staff portent un badge**,
+déduit du `role_min` de leurs propres routes : sans lui, « Cotisations : trois personnes » se lit
+comme un échec d'adoption alors que trois est le nombre attendu. Et **un module sans page à lui** —
+qui ne publie que des points d'entrée d'API, ou qui travaille à travers les écrans d'un autre — est
+laissé hors de la liste plutôt qu'affiché comme inutilisé : il n'y a rien à y ouvrir, donc la mesure
+ne dit rien de lui.
+
+**Pages.** Le détail par motif de route, filtrable par public. **Le motif est affiché en clair** —
+`/members/{id}` — plutôt que documenté ailleurs : c'est la meilleure façon de montrer qu'aucun
+identifiant n'est conservé. Le nom lisible d'une page vient du libellé de fil d'Ariane que sa route
+déclare déjà ; une seconde table de noms français dériverait de la première.
+
+### 42.6 La transmission au projet
+
+**Presque tout existait déjà, et rien n'a été reconstruit.** `Configuration > Support` (§21.1) porte
+l'explication, l'avertissement, la bascule `statistics_enabled` et l'envoi de test ; le paquet de
+support verse déjà `statistics.json`. Cette itération n'ajoute qu'un champ au document que ces deux
+chemins partagent.
+
+**Un seul constructeur, deux chemins.** `Core\Statistics\StatisticsPayloadBuilder` prend l'agrégat
+par module comme dépendance facultative, et l'envoi quotidien comme le paquet de support en héritent
+d'un coup — ce qui préserve l'invariant que le collecteur documente : `statistics.json` est
+*exactement le même document que le rapport quotidien enverrait*. Un second collecteur aurait
+divergé à la première évolution.
+
+**Seul l'agrégat par module part.** La question utile au projet est « quels modules servent dans les
+unités », pas « combien de fois telle unité a ouvert son calendrier » : le champ porte un total par
+module sur douze mois, et l'interface publiée n'expose rien d'autre — une interface capable de
+répondre au détail finirait par en être priée.
+
+**Absent n'est pas zéro.** Module désactivé (ou pas installé) : le champ vaut `null`. Module activé
+que personne n'ouvre : il manque simplement de la liste, laquelle est présente. C'est la règle 1 du
+constructeur — *indisponible vaut `null`, jamais `0`* — et elle porte tout le §42.7 : confondre les
+deux ferait abandonner un module dont on se sert.
+
+**La version de schéma ne bouge pas.** Le receveur n'accepte qu'une liste fermée de versions ; en
+faire passer une nouvelle ferait rejeter en bloc le rapport de toute installation qui parle à un
+receveur pas encore mis à jour. Un champ ajouté est précisément le cas que le protocole prévoit :
+un champ inconnu est conservé tel quel et ignoré (§21.3).
+
+**L'opt-out empêche l'envoi automatique, et lui seul.** Il ne vide pas le paquet de support :
+quelqu'un qui demande de l'aide veut précisément qu'on voie ce qui tourne chez lui, et il déclenche
+la transmission lui-même en joignant l'archive. C'était déjà le comportement — le collecteur appelle
+le constructeur sans consulter le réglage — et c'est désormais écrit et tenu par un test, plutôt que
+de subsister par accident.
+
+**Le vocabulaire de la page Support est repris tel quel** : « Ce rapport n'est pas anonyme. Il
+contient l'adresse de ce site […] Il ne contient en revanche aucune donnée de membre. » C'est plus
+juste que « anonyme », qui serait faux, et aucun vocabulaire parallèle n'a été inventé. L'énumération
+de ce qui part y a été complétée, et la politique de confidentialité par défaut avec elle.
+
+### 42.7 Le tableau de bord de supervision (module support_dashboard)
+
+Côté instance réceptrice, et **cette page existait déjà** : quatorze routes, un nav rail, une
+dizaine de filtres, la répartition des versions et des builds, les tickets et leurs sondes, une page
+de détail par installation et un export. Cette itération y ajoute deux choses et ne touche à rien
+d'autre.
+
+**Un bloc « Adoption des modules »** : activé dans N installations, réellement ouvert dans N. C'est
+la seule chose que le tableau ne savait pas dire — il connaissait les modules *activés*, jamais ceux
+qui servent — et c'est le constat qu'aucune unité ne peut produire seule.
+
+**Trois compteurs par module, et le troisième tient le deuxième.** `activé` : combien
+d'installations l'ont allumé. `utilisé` : combien de celles-là rapportent au moins une ouverture.
+`ne mesure pas` : combien **ne peuvent pas répondre**, leur propre module « Fréquentation du site »
+étant éteint. Confondre le troisième avec « zéro ouverture » ferait lire « nous ne mesurons pas »
+comme « personne ne s'en sert » — la seule erreur, ici, qui ferait abandonner un module utilisé
+toutes les semaines. Quand aucune installation affichée ne mesure, le bloc le dit au lieu de
+dessiner une colonne de zéros orange : une page pleine de « 0 utilisés » est une affirmation, et
+elle serait fausse.
+
+**Calculé sur le jeu filtré**, comme les tuiles et les deux graphes : un bloc qui ignorerait le
+filtre contredirait le tableau juste en dessous, sur le même écran.
+
+**Les modules sont nommés par leur identifiant**, jamais par ce que les manifestes de *ce* receveur
+leur donnent comme nom — même règle que les catégories de ticket : l'identifiant est ce dont les
+deux côtés sont convenus, et un nom cherché localement serait faux précisément quand ça compte.
+
+**Une colonne « Comptes actifs (30 j) »** sur le bloc des installations existant. Le libellé porte sa
+fenêtre : le receveur ne conserve que le dernier rapport de chaque installation, donc un décompte
+par mois calendrier dirait autre chose selon le jour où il a été construit, et la colonne
+comparerait des calendriers. L'écran de l'unité répond « ce mois », lui, et ce chiffre-là ne voyage
+pas.
+
+**L'export gagne les deux colonnes correspondantes**, avec la même distinction : « Non renseigné »
+pour une installation qui ne mesure pas, une cellule **vide** pour une qui mesure et n'a rien
+ouvert. Les écrire pareil laisserait un lecteur trier la colonne et conclure que la moitié du parc
+ne se sert de rien.

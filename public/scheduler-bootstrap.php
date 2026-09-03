@@ -122,6 +122,21 @@ function scoutmagic_bootstrap_scheduler(
         )
     );
 
+    // The per-module usage aggregate the daily report carries
+    // (ARCHITECTURE.md §8.93). Registered here for the same reason as
+    // every other capability: Core\Statistics\StatisticsServiceFactory
+    // rebuilds the payload builder from a TaskContext, and reaching into
+    // the module's Service\ classes from core would bypass both the Api\
+    // contract and the enablement check this registry re-reads on every
+    // resolve.
+    $capabilities->register(
+        \Modules\UsageStats\Api\ModuleUsageInterface::class,
+        'usage_stats',
+        static fn (): object => new \Modules\UsageStats\Service\ModuleUsageService(
+            new \Modules\UsageStats\Repository\PageViewRepository($pdo)
+        )
+    );
+
     $capabilities->register(
         \Modules\InboundMail\Api\InboundMailInterface::class,
         'inbound_mail',

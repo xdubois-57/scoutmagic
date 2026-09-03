@@ -3150,6 +3150,36 @@ Two features that look like one, built in an order that is itself the design: an
 
 **The route sits at `identified`, the same role as the page it is downloaded from.** A visitor there already sees these names, photos and — when the module's setting allows it — the same contact details on screen; the point of the document is that they can produce it themselves, not that it discloses anything new. The setting is applied when the view models are BUILT rather than when they are drawn, so a hidden phone number is absent from the HTML, from the PDF and from its text layer, with nothing to recover. The route is not in `Core\Offline\OfflineWhitelist`: a generated file is not a page to cache.
 
+### 8.93 Fréquentation du site (`modules/usage_stats`)
+
+**One counter per (month, route PATTERN, audience), and no other shape was ever an option.** The site this replaces kept a `STATS_PAGES` table keyed `(PAGE, EMAIL, MONTH)`, from which one could read that a given parent had opened their child's page fourteen times. `usage_page_views` cannot answer that question because it has no column an identifier could be written into: what is counted is `/members/{id}`, never `/members/42`. That is also what makes the table aggregate naturally — a unit of 260 members produces one row for the member page rather than 260 — so the design decision that protects the visitor is the same one that keeps the table small.
+
+**The pattern comes from the router, not from the URL.** `Core\Http\ResolvedRoute` carries the declared `path` and `Core\Http\FrontController::getLastResolvedRoute()` exposes it after the response; nothing else on a request remembers the difference between « the page of a member » and « member 42 ». `Core\Http\Router::getModuleForPath()` is keyed on that same pattern, which is why « which module does this page belong to » costs nothing extra — every screen's per-module grouping is the same counter read differently.
+
+**The write happens after `$response->send()`**, in the tail of `public/index.php` — the exact spot the poor man's cron was removed from so that « a visitor no longer pays for background work » (§8.5). `Tests\Modules\UsageStats\ModuleWiringTest` fails if the call ever moves above it, because the mistake would be invisible: the feature would keep working and every page would get slower.
+
+**Three precautions, and no buffer table.** `Service\PageViewPolicy` refuses everything that is not a page — non-GET, non-200, non-HTML, a streamed file, an `/api/` route, an unmatched path — and then refuses crawlers on a substring match against `User-Agent`. That header is READ to decide and **never stored**; the old site's `STATS_USER_AGENT` is the thing this is deliberately not. What survives costs one `INSERT … ON DUPLICATE KEY UPDATE` against the unique key. The append-then-fold parade is real and is deliberately absent: contention on one row is theoretical at the scale of a unit, and that parade costs a second table, a second task and a window during which the figures are wrong. Build it against a measurement, never against an intuition.
+
+**No cookie, which is why there is no consent to respect.** The analytics consent regime is triggered by writing on the visitor's device; a non-nominative server-side count does not write anything there. The module declares an empty `cookies` section and a test pins it, so the day somebody adds one it is a decision rather than a detail — and the screens say so on-screen, since a chief who found no analytics entry in the cookie preferences would otherwise reasonably wonder what was hidden.
+
+**Retention is three scout years**, cut on 1 September (`Modules\UsageStats\Retention`, a daily self-rescheduling purge). Writing the duration down is the point: a table nobody purges is a table kept for ever, which is a retention decision made by omission.
+
+
+### 8.51bis Adoption des modules, on the receiver (`modules/support_dashboard`)
+
+**The dashboard has always known which modules are ENABLED, and never which ones serve.** A module switched on in every unit and opened in none is a candidate for retirement, and it is the single observation no unit can make on its own — which is the whole reason a per-module aggregate travels in the report at all (§8.93, §8.47).
+
+**Three counts per module, and the third is what keeps the second honest.** `enabled` is how many installations have it on. `used` is how many of those report at least one opening. `silent` is how many **cannot answer**, because their own `usage_stats` module is off. Folding `silent` into `used = 0` would turn « nous ne mesurons pas » into « personne ne s'en sert », which is the one mistake here that would retire a module people use every week. The absent-vs-zero rule the payload already lives by (§8.47's rule 1) is carried all the way to the screen: `module_usage` missing is **null**, a module missing from a present list is the zero. When nothing in the filtered set measures at all, the block says so instead of drawing a column of amber zeros — a page full of « 0 utilisés » is a claim, and it would be false.
+
+**Computed in PHP on the filtered set**, like the indicator cards and both charts, and read out of the stored payload rather than a new denormalised table. That is the design `SupportDashboardService` already documents — the population is a federation's units, the module list already lives in the JSON, and splitting filter and aggregate between SQL and PHP is how a table and its own counters end up disagreeing. A block that ignored the filter would contradict the table under it on the same screen.
+
+**Modules are named by their id, never by this receiver's own manifests.** The same rule `TicketCategory` already applies: the id is what both sides agreed on, and a name looked up locally would be wrong precisely when it matters — a unit running a module this receiver does not have, or has under a newer name.
+
+**The « Comptes actifs (30 j) » column carries its window in its label**, and the window is a sliding thirty days rather than a calendar month. The receiver keeps only the LATEST report of each installation, so a calendar-month count would say something different depending on which day of the month it happened to be built — a unit last heard from on the 2nd would look deserted beside one last heard from on the 28th, and the column comparing them would be measuring the calendar. The unit's own screen answers « ce mois » instead, on purpose, and that figure never travels.
+
+**Nothing else on this page changed**, and that was the constraint: `support_dashboard` was already fourteen routes, a nav rail, a dozen filters, the version and build distributions, the ticket queue and its probes, a per-installation detail dialog and an XLSX export. The receiver learned one field (`module_usage` joined `KNOWN_TOP_LEVEL_FIELDS`, so a sender carrying it is no longer warned about as « somebody is ahead of us »), gained one block and one column, and the export gained the two matching columns — with the same silence-versus-zero distinction, « Non renseigné » against an empty cell, because a reader sorting that column must not conclude that half the fleet uses nothing.
+
+
 ## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php

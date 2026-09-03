@@ -204,6 +204,89 @@
 </div>
 
 {# ---------------------------------------------------------------- #}
+{# Adoption des modules — le seul constat qu'aucune unité ne peut     #}
+{# produire seule : le tableau a toujours su quels modules sont       #}
+{# ACTIVÉS, jamais lesquels servent. Calculé sur le jeu FILTRÉ, comme #}
+{# les tuiles et les deux graphes : un bloc qui ignorerait le filtre  #}
+{# contredirait le tableau juste en dessous, sur le même écran.       #}
+{# ---------------------------------------------------------------- #}
+<div class="card mb-4">
+    <div class="card-body">
+        <h2 class="h6 mb-1">Adoption des modules</h2>
+        <p class="small text-body-secondary mb-3">
+            Activé dans N installations · réellement ouvert dans N.
+            {% if view.module_adoption.measuring_installations > 0 %}
+                {{ view.module_adoption.measuring_installations }} installation(s) mesurent leur fréquentation.
+            {% endif %}
+        </p>
+
+        {% if view.module_adoption.modules is empty %}
+            {% include 'partials/empty_state.html.twig' with {
+                message: "Aucun module activé parmi les installations affichées.",
+                compact: true,
+            } only %}
+        {% elseif view.module_adoption.measuring_installations == 0 %}
+            {# Le piège de ce bloc, refusé plutôt que dessiné : sans une
+               seule installation qui mesure, chaque ligne afficherait
+               « 0 utilisés » — et « personne ne s'en sert » se lirait là
+               où la vérité est « personne ne nous l'a dit ». #}
+            {% include 'partials/empty_state.html.twig' with {
+                message: "Aucune installation affichée ne mesure sa fréquentation : impossible de dire ce qui sert.",
+                icon: 'bi-question-circle',
+            } only %}
+        {% else %}
+            <ul class="list-group list-group-flush">
+                {% for module in view.module_adoption.modules %}
+                    <li class="list-group-item d-flex flex-wrap align-items-center gap-2 px-0">
+                        {# L'identifiant, jamais le nom que les manifestes
+                           de CE receveur lui donnent : c'est l'identifiant
+                           que les deux côtés se sont accordés, et le nom
+                           serait une supposition fausse précisément quand
+                           elle compte — une unité qui fait tourner un
+                           module absent d'ici, ou renommé depuis. Même
+                           raisonnement que TicketCategory. #}
+                        <span class="flex-grow-1 text-truncate font-monospace small">{{ module.id }}</span>
+
+                        <span class="small text-body-secondary flex-shrink-0">
+                            {{ module.enabled }} activé{{ module.enabled > 1 ? 's' : '' }}
+                        </span>
+
+                        {# « Zéro ouverture » et « ne participe pas » sont
+                           deux faits différents, et les confondre ferait
+                           abandonner un module utilisé. Le second n'est
+                           donc jamais compté dans le premier : il a sa
+                           propre mention. #}
+                        {% if module.measured == 0 %}
+                            <span class="badge text-bg-light border flex-shrink-0">Aucune mesure</span>
+                        {% else %}
+                            <span class="badge flex-shrink-0 {{ module.used == 0 ? 'text-bg-warning' : 'text-bg-success' }}">
+                                {{ module.used }} utilisé{{ module.used > 1 ? 's' : '' }}
+                                sur {{ module.measured }}
+                            </span>
+                        {% endif %}
+
+                        {% if module.silent > 0 %}
+                            <span class="small text-body-secondary flex-shrink-0">
+                                {{ module.silent }} ne mesure{{ module.silent > 1 ? 'nt' : '' }} pas
+                            </span>
+                        {% endif %}
+                    </li>
+                {% endfor %}
+            </ul>
+
+            {% if view.module_adoption.unused_ids is not empty %}
+                <div class="alert alert-warning small mt-3 mb-0">
+                    <strong>{{ view.module_adoption.unused_ids|join(', ') }}</strong>
+                    {{ view.module_adoption.unused_ids|length > 1 ? 'sont activés' : 'est activé' }}
+                    dans au moins une installation qui mesure sa fréquentation, et ouvert dans aucune.
+                    C'est le constat qu'aucune unité ne peut produire seule.
+                </div>
+            {% endif %}
+        {% endif %}
+    </div>
+</div>
+
+{# ---------------------------------------------------------------- #}
 {# Historique mensuel — exactement un graphe, et totalement           #}
 {# indépendant des filtres, de la recherche et du tri d'état courant. #}
 {# Son propre formulaire ne transporte que sa période, ce qui rend    #}
@@ -280,6 +363,16 @@
                         <th scope="col" class="d-none d-md-table-cell">Statut</th>
                         <th scope="col" class="d-none d-md-table-cell"><a href="/support-dashboard{{ filters.queryString({'sort': 'last_received', 'dir': filters.sort == 'last_received' and filters.descending ? 'asc' : null, 'page': null}) }}">Dernière réception</a></th>
                         <th scope="col" class="d-none d-lg-table-cell"><a href="/support-dashboard{{ filters.queryString({'sort': 'active_members', 'dir': filters.sort == 'active_members' and filters.descending ? 'asc' : null, 'page': null}) }}">Membres actifs</a></th>
+                        {# « Comptes actifs (30 j) » et non « ce mois » : le
+                           receveur ne garde que le DERNIER rapport de chaque
+                           installation, donc un décompte par mois calendrier
+                           dirait autre chose selon le jour où le rapport a
+                           été construit — une unité vue le 2 paraîtrait
+                           déserte à côté d'une unité vue le 28. La fenêtre
+                           glissante est comparable par construction, et le
+                           libellé porte la fenêtre pour qu'on ne la confonde
+                           pas avec le chiffre que l'unité lit chez elle. #}
+                        <th scope="col" class="d-none d-xl-table-cell">Comptes actifs (30 j)</th>
                         <th scope="col" class="d-none d-lg-table-cell">Installation</th>
                         <th scope="col" class="d-none d-lg-table-cell">Mise à jour auto.</th>
                         <th scope="col" class="d-none d-xxl-table-cell">Sections actives</th>
@@ -326,6 +419,7 @@
                             </td>
                             <td class="d-none d-md-table-cell">{{ display.value_or_missing(row.last_received_at) }}</td>
                             <td class="d-none d-lg-table-cell">{{ display.value_or_missing(row.active_members) }}</td>
+                            <td class="d-none d-xl-table-cell">{{ display.value_or_missing(row.active_accounts_30d) }}</td>
                             <td class="d-none d-lg-table-cell">{{ display.value_or_missing(row.installation_method) }}</td>
                             <td class="d-none d-lg-table-cell">
                                 {% if row.auto_update_key is null %}
@@ -345,7 +439,7 @@
                     {% else %}
                         {% include 'partials/empty_state.html.twig' with {
                             message: 'Aucune installation ne correspond aux critères.',
-                            colspan: 10,
+                            colspan: 11,
                         } only %}
                     {% endfor %}
                 </tbody>
