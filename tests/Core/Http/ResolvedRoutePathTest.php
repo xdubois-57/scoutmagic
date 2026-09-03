@@ -47,37 +47,30 @@ class ResolvedRoutePathTest extends TestCase
      * The pattern is also the key Router::getModuleForPath() is registered
      * under, which is what makes « which module does this page belong to »
      * a free dimension rather than a second lookup table.
+     *
+     * **Asserted through addRoute(), deliberately.** An earlier version of
+     * this test called `registerModuleRoutes()` — the manifest-shaped
+     * method two other suites also exercise, and that the application has
+     * never called once. It passed, and production filed every module page
+     * view under `core` for as long as it did. A test that reaches for the
+     * convenient entry point instead of the real one proves the entry
+     * point works, and nothing about the application.
      */
-    public function testThePatternIsWhatResolvesTheOwningModule(): void
+    public function testAModuleRouteRemembersItsModuleUnderItsPattern(): void
     {
         $router = new Router();
-        $router->registerModuleRoutes(new \Core\Module\ModuleManifest(
-            'calendar',
-            'Calendrier',
-            '1.0.0',
-            [[
-                'path' => '/calendar/event/{id}',
-                'method' => 'GET',
-                'controller' => 'X',
-                'action' => 'show',
-                'menu' => 'espace_animes',
-                'role_min' => 'identified',
-                'label' => '',
-                'menu_order' => 100,
-                'menu_order_explicit' => false,
-                'menu_icon' => null,
-                'menu_group' => null,
-                'breadcrumb' => null,
-            ]],
-            [],
-            [],
-            [],
-            []
-        ));
+        $router->addRoute('GET', '/calendar/event/{id}', 'X', 'show', 'identified', null, 'calendar');
+        $router->addRoute('GET', '/', 'X', 'home', 'public');
 
         $resolved = $router->resolve(new Request('GET', '/calendar/event/7', [], [], [], []));
-
         $this->assertNotNull($resolved);
         $this->assertSame('calendar', $router->getModuleForPath($resolved->path));
+
+        // A core route answers null, which is what the recorder turns into
+        // `core` — the distinction has to survive, or every page becomes a
+        // module page instead.
+        $home = $router->resolve(new Request('GET', '/', [], [], [], []));
+        $this->assertNotNull($home);
+        $this->assertNull($router->getModuleForPath($home->path));
     }
 }

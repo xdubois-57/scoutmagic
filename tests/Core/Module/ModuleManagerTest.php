@@ -186,6 +186,36 @@ class ModuleManagerTest extends TestCase
         $this->assertSame('Modules\\ValidModule\\Controller\\TestController', $resolved->controllerClass);
     }
 
+    /**
+     * A route the loader registered remembers which module registered it.
+     *
+     * This is the regression the whole `Router::$moduleRoutes` table exists
+     * for, and it went unasserted from the day the table was written:
+     * ownership used to be recorded only by `registerModuleRoutes()`, a
+     * manifest-shaped convenience two Router suites exercise and that this
+     * loader — the only thing that registers a module's routes in a running
+     * application — has never called. `getModuleForPath()` therefore
+     * answered null on every request, for every route, and no test noticed
+     * because none of them went through the loader. The first consumer
+     * (Modules\UsageStats) filed every module's page views under `core`.
+     *
+     * Asserting it HERE, past loadEnabledModules(), is the point: the same
+     * property tested one layer up passed throughout.
+     */
+    public function testAnEnabledModulesRoutesRememberWhichModuleRegisteredThem(): void
+    {
+        $this->registryRepo->upsert('valid_module', true, '1.0.0', null);
+
+        $this->manager->loadEnabledModules();
+
+        $this->assertSame('valid_module', $this->router->getModuleForPath('/test-module'));
+        $this->assertSame('valid_module', $this->router->getModuleForPath('/config/test-module'));
+        // A path nobody declared, and a core route, both stay null — the
+        // consumer turns null into « the application itself », so a route
+        // wrongly claimed by a module is as bad as one wrongly disowned.
+        $this->assertNull($this->router->getModuleForPath('/nonexistent'));
+    }
+
     public function testLoadEnabledModulesSkipsDisabledModules(): void
     {
         // Module is in registry but disabled

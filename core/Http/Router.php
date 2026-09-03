@@ -29,8 +29,12 @@ class Router
      *   Optional breadcrumb declaration for this route (see partials/breadcrumb_bar.html.twig) — null when the
      *   route doesn't declare one, which is valid: the breadcrumb simply stops at the home icon for that page.
      *   `ancestors` names real ancestor PAGES by their own route path; see ancestorTrailFor() below.
+     * @param ?string $moduleId the module declaring this route, or null when the application
+     *   itself declares it. Recorded HERE rather than by a second registration method, because
+     *   this is the one call every route in the application goes through — see
+     *   getModuleForPath() for what happened when it was not.
      */
-    public function addRoute(string $method, string $path, string $controllerClass, string $action, string $roleMin, ?array $breadcrumb = null): void
+    public function addRoute(string $method, string $path, string $controllerClass, string $action, string $roleMin, ?array $breadcrumb = null, ?string $moduleId = null): void
     {
         // Required, not defaulted. SECURITY.md §3 promises "a route without
         // role_min is rejected at load time", and ModuleManifest enforces
@@ -54,6 +58,10 @@ class Router
             'roleMin' => $roleMin,
             'breadcrumb' => $breadcrumb,
         ];
+
+        if ($moduleId !== null) {
+            $this->moduleRoutes[$path] = $moduleId;
+        }
     }
 
     /**
@@ -174,7 +182,21 @@ class Router
     }
 
     /**
-     * Check if a resolved route belongs to a module.
+     * The module that declared the route at exactly $path, or null for a
+     * route the application itself declares.
+     *
+     * Keyed on the DECLARED path — `/members/{id}`, never `/members/42` —
+     * so a resolved route answers it directly (see ResolvedRoute::$path).
+     *
+     * **This used to answer null for every route, always.** The table it
+     * reads was filled only by registerModuleRoutes() below, which two
+     * test suites exercised thoroughly and which the application never
+     * called: ModuleManager::loadModule() registers a module's routes with
+     * plain addRoute(). Nothing depended on the answer, so nothing said
+     * so — until Modules\UsageStats did, and filed every page view of
+     * every module under `core`. Ownership is now recorded by addRoute()
+     * itself, which is the one call every route in the application goes
+     * through.
      */
     public function getModuleForPath(string $path): ?string
     {
@@ -182,7 +204,14 @@ class Router
     }
 
     /**
-     * Register routes from a module manifest, marking them as module routes.
+     * Register routes from a module manifest, marking them as module
+     * routes.
+     *
+     * A convenience over addRoute() for a caller holding a whole manifest,
+     * and deliberately no more than that: it records ownership by passing
+     * the module id to addRoute() rather than writing to the table itself,
+     * so there is exactly one place that decides what "belongs to a
+     * module" means.
      *
      * @param \Core\Module\ModuleManifest $manifest
      */
@@ -195,9 +224,9 @@ class Router
                 $route['controller'],
                 $route['action'],
                 $route['role_min'],
-                $route['breadcrumb'] ?? null
+                $route['breadcrumb'] ?? null,
+                $manifest->id
             );
-            $this->moduleRoutes[$route['path']] = $manifest->id;
         }
     }
 

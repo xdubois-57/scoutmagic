@@ -685,7 +685,16 @@ class ModuleManager
                 $route['controller'],
                 $route['action'],
                 $route['role_min'],
-                $route['breadcrumb']
+                $route['breadcrumb'],
+                // Which module owns this route. Passed here, on the call
+                // this loop already makes, because this loop IS how every
+                // module route in the application gets registered — the
+                // manifest-shaped Router::registerModuleRoutes() exists
+                // but nothing has ever called it, so for as long as
+                // ownership was recorded only there, Router::
+                // getModuleForPath() answered null for every route on
+                // every request.
+                $manifest->id
             );
 
             // Register menu page if route has a label
