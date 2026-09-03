@@ -94,7 +94,6 @@
                 var button = document.createElement('button');
                 button.type = 'button';
                 button.className = 'list-group-item list-group-item-action text-start';
-                button.setAttribute('role', 'option');
 
                 var name = document.createElement('div');
                 name.textContent = row.label;

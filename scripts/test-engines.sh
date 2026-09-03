@@ -67,6 +67,7 @@ trap cleanup EXIT INT TERM
 
 free_port() {
     php -r '$s = stream_socket_server("tcp://127.0.0.1:0", $e, $m); $n = stream_socket_get_name($s, false); fclose($s); echo substr($n, strrpos($n, ":") + 1);'
+    return $?
 }
 
 # The one binary that can be either engine, so ask it which it is.
@@ -95,6 +96,8 @@ run_suite() {
     TEST_DB_HOST="${host}" TEST_DB_PORT="${port}" TEST_DB_NAME="${name}" \
     TEST_DB_USER="${user}" TEST_DB_PASSWORD="${password}" \
         vendor/bin/phpunit "$@"
+    # The suite's own status, explicitly: every caller branches on it.
+    return $?
 }
 
 MARIADB_STATUS="not run"

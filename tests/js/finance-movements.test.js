@@ -31,8 +31,8 @@ async function settle() {
 function buildDom() {
     document.body.innerHTML = `
         <div class="d-md-none d-flex flex-column gap-2 mb-3">
-            <div class="border rounded-3 p-3 movement-row bg-warning-subtle"
-                 role="button" tabindex="0"
+            <button type="button"
+                 class="border rounded-3 p-3 w-100 text-start movement-row bg-warning-subtle"
                  data-id="42"
                  data-date="2026-08-01"
                  data-label="VIREMENT SEPA BOULANGERIE"
@@ -47,7 +47,7 @@ function buildDom() {
                  data-counterparty-account=""
                  data-extra-details="">
                 <span class="badge text-bg-warning">À catégoriser</span>
-            </div>
+            </button>
         </div>
         <table class="table"><tbody>
             <tr data-id="43"
@@ -125,7 +125,7 @@ async function boot() {
     await import('../../public/assets/js/finance-movements.js');
 }
 
-const mobileCard = () => document.querySelector('div.movement-row');
+const mobileCard = () => document.querySelector('button.movement-row');
 const desktopRow = () => document.querySelector('tr.movement-row');
 const detail = (id) => document.getElementById(id);
 

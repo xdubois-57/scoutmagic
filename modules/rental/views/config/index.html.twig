@@ -56,23 +56,23 @@
 
         {% if selected_asset %}
             {% if selected_asset.isArchived %}
-                <div class="alert alert-warning" role="status">
+                <output class="alert alert-warning d-block">
                     Ce bien est archivé : il n'apparaît plus publiquement et n'accepte plus de nouvelle
                     réservation. Ses gestionnaires y gardent accès pour clôturer l'historique.
-                </div>
+                </output>
             {% endif %}
 
             {% if selected_asset.id in tariff_missing_ids %}
                 {# The setup gap a visitor meets first: public, but priced by
                    nobody. Every estimate answers « Tarif sur demande » until
                    somebody fills the tariff in the asset's own managed space. #}
-                <div class="alert alert-warning" role="status">
+                <output class="alert alert-warning d-block">
                     <strong>Ce bien est visible publiquement mais n'a encore aucun tarif.</strong>
                     Les visiteurs voient « Tarif sur demande » à la place d'une estimation. Le tarif
                     se règle par ses gestionnaires (ou par vous) dans
                     <a href="/mes-locations/{{ selected_asset.slug }}/reglages#tarification"
                        class="alert-link">les réglages du bien</a>.
-                </div>
+                </output>
             {% endif %}
 
             {# ── Section: général ─────────────────────────────────────── #}
@@ -228,13 +228,13 @@
                         {% endif %}
                     {% endfor %}
                     {% if inactive_managers is not empty %}
-                        <div class="alert alert-warning small" role="status">
+                        <output class="alert alert-warning small d-block">
                             {{ inactive_managers|length }} gestionnaire(s) n'apparaissent plus dans le
                             dernier import Desk et sont donc désactivés. Leur accès est suspendu, mais
                             l'attribution est conservée : elle se réactive d'elle-même s'ils
                             réapparaissent dans un import. Les retirer ci-dessous les supprime
                             définitivement.
-                        </div>
+                        </output>
                     {% endif %}
 
                     <form method="post" action="/admin/locations/managers" id="rental-managers-form"
@@ -496,7 +496,7 @@
 
         {# ── Rappels automatiques (§6.29) ─────────────────────────────── #}
         {% if not cron_detected %}
-            <div class="alert alert-warning" role="status">
+            <output class="alert alert-warning d-block">
                 <strong>Aucune tâche planifiée réelle n'a été détectée.</strong>
                 Les rappels automatiques (acompte non reçu, état des lieux à faire,
                 document de conformité expirant, informations pratiques au locataire…)
@@ -504,7 +504,7 @@
                 sur un hébergement mutualisé sans crontab, un rappel peut donc arriver
                 avec plusieurs heures de retard. Si votre hébergeur le permet, faites
                 appeler <code>public/cron.php</code> toutes les minutes.
-            </div>
+            </output>
         {% endif %}
 
         {# ── Section: courrier entrant (§7.5) ─────────────────────────── #}

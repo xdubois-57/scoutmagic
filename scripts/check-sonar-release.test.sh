@@ -143,19 +143,19 @@ echo "5. Only non-blocking findings (Quality Gate OK, no security/HIGH/BLOCKER) 
 write_default_fake_curl "${HEAD_SHA}" "OK" 0 0 0 0
 run_case "non-blocking findings only" 0
 
-echo "5b. Quality Gate ERROR, no per-condition detail -> BLOCK (fail closed)"
+echo "5b. Quality gate refused, with no per-condition detail -> BLOCK (fail closed)"
 write_default_fake_curl "${HEAD_SHA}" "ERROR" 0 0 0 0
 run_case "quality gate error" 1
 
-echo "5c. Quality Gate ERROR, only a coverage condition failing -> BLOCK (no carve-out)"
+echo "5c. Quality gate refused on coverage alone -> BLOCK (no carve-out)"
 write_default_fake_curl "${HEAD_SHA}" "ERROR" 0 0 0 0 '[{"status":"ERROR","metricKey":"new_coverage"}]'
 run_case "quality gate coverage-only error" 1
 
-echo "5d. Quality Gate ERROR, coverage AND a non-coverage condition failing -> BLOCK"
+echo "5d. Quality gate refused on coverage and something else -> BLOCK"
 write_default_fake_curl "${HEAD_SHA}" "ERROR" 0 0 0 0 '[{"status":"ERROR","metricKey":"new_coverage"},{"status":"ERROR","metricKey":"new_reliability_rating"}]'
 run_case "quality gate mixed error" 1
 
-echo "5e. Quality Gate ERROR, only a non-coverage condition failing -> BLOCK"
+echo "5e. Quality gate refused on something other than coverage -> BLOCK"
 write_default_fake_curl "${HEAD_SHA}" "ERROR" 0 0 0 0 '[{"status":"ERROR","metricKey":"new_reliability_rating"}]'
 run_case "quality gate non-coverage error" 1
 

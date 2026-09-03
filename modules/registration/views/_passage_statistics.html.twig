@@ -29,7 +29,7 @@
         } only %}
     {% else %}
         <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
-            <div class="btn-group btn-group-sm" role="group" aria-label="Portée des statistiques">
+            <fieldset class="btn-group btn-group-sm" aria-label="Portée des statistiques">
                 <input type="radio" class="btn-check" name="passage-stats-scope" id="passage-scope-projected"
                        value="projected" autocomplete="off" checked>
                 <label class="btn btn-outline-primary" for="passage-scope-projected">Effectif projeté</label>
@@ -37,7 +37,7 @@
                 <input type="radio" class="btn-check" name="passage-stats-scope" id="passage-scope-arrivals"
                        value="arrivals" autocomplete="off">
                 <label class="btn btn-outline-primary" for="passage-scope-arrivals">Arrivées seules</label>
-            </div>
+            </fieldset>
 
             {% if statistics.unassigned.projected > 0 %}
                 <span class="badge text-bg-warning">
@@ -93,9 +93,8 @@
 
                                                 {# Total, on a scale shared by this branch's sections so two
                                                    bars in one card are comparable to each other. #}
-                                                <div class="passage-stats-track rounded-pill mt-1"
-                                                     role="img"
-                                                     aria-label="{{ section.label }} : {{ counts.total }} personne{{ counts.total > 1 ? 's' : '' }}">
+                                                {# Décorative : le total est écrit juste au-dessus. #}
+                                                <div class="passage-stats-track rounded-pill mt-1" aria-hidden="true">
                                                     <div class="passage-stats-fill rounded-pill"
                                                          style="width: {{ branch.scopes[scope].max > 0 ? (counts.total / branch.scopes[scope].max * 100)|round : 0 }}%; background-color: {{ section.color }};"></div>
                                                 </div>
@@ -103,8 +102,8 @@
                                                 {% if counts.total > 0 %}
                                                     {# Gender, as a 100% bar WITH the plain numbers beside it:
                                                        a percentage alone hides that "50 %" can be one child. #}
-                                                    <div class="d-flex rounded overflow-hidden mt-1 passage-stats-gender" role="img"
-                                                         aria-label="Répartition par genre pour {{ section.label }} : {{ counts.male }} garçon{{ counts.male > 1 ? 's' : '' }}, {{ counts.female }} fille{{ counts.female > 1 ? 's' : '' }}, {{ counts.unknown }} non renseigné{{ counts.unknown > 1 ? 's' : '' }}">
+                                                    {# Décorative : « N G · N F » suit immédiatement, en toutes lettres. #}
+                                                    <div class="d-flex rounded overflow-hidden mt-1 passage-stats-gender" aria-hidden="true">
                                                         {% if counts.male > 0 %}<div class="bg-info" style="width: {{ (counts.male / counts.total * 100)|round }}%;"></div>{% endif %}
                                                         {% if counts.female > 0 %}<div class="bg-danger" style="width: {{ (counts.female / counts.total * 100)|round }}%;"></div>{% endif %}
                                                         {% if counts.unknown > 0 %}<div class="bg-secondary" style="width: {{ (counts.unknown / counts.total * 100)|round }}%;"></div>{% endif %}

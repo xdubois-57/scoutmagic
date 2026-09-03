@@ -46,12 +46,12 @@
                     <h2 class="h5 mb-3">{{ template.type.label }}</h2>
 
                     {% if template.unknown_keywords is not empty %}
-                        <div class="alert alert-warning" role="status">
+                        <output class="alert alert-warning d-block">
                             Mots-clés non reconnus, qui apparaîtront tels quels dans le document :
                             {% for keyword in template.unknown_keywords %}
                                 <code>{{ '{{ ' ~ keyword ~ ' }}' }}</code>{{ not loop.last ? ', ' : '' }}
                             {% endfor %}
-                        </div>
+                        </output>
                     {% endif %}
 
                     {% set standard = standard_templates[template.type.value]|default(null) %}

@@ -193,7 +193,7 @@ CREATE TABLE registration_secondary_emails (
 --          never feeds a waitlist, and gets no availability tier at all.
 --   0    — the slot is deliberately CLOSED to registrations, which is a
 --          real thing a chief may want to say and the only way to say it.
--- An empty box on /config/inscriptions stores NULL; a typed 0 stores 0.
+-- An empty box on /config/inscriptions stores NULL, and a typed 0 stores 0.
 -- The classic PHP trap is a NULL read as a number, silently becoming 0 and
 -- flipping an unconfigured branch to "complet" — which is why every read
 -- path stays `?int` all the way down to Service\SlotMath::

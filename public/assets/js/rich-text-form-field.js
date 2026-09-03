@@ -168,6 +168,9 @@ export function wireField(root) {
 
     surface.innerHTML = toEditorHtml(input.value, known);
     surface.setAttribute('contenteditable', 'true');
+    // Announced as an editable multi-line box only now that it is one.
+    surface.setAttribute('role', 'textbox');
+    surface.setAttribute('aria-multiline', 'true');
     surface.removeAttribute('aria-hidden');
 
     function sync() {

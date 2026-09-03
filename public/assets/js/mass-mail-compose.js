@@ -364,9 +364,13 @@
         if (!data || !data.success) return '';
         if (data.count === 0) return 'Cette liste ne désigne actuellement personne. ';
 
-        const noun = data.kind === 'rows'
-            ? (data.count > 1 ? 'lignes du fichier' : 'ligne du fichier')
-            : (data.count > 1 ? 'personnes' : 'personne');
+        const plural = data.count > 1;
+        let noun;
+        if (data.kind === 'rows') {
+            noun = plural ? 'lignes du fichier' : 'ligne du fichier';
+        } else {
+            noun = plural ? 'personnes' : 'personne';
+        }
 
         return 'Cet email partira à ' + data.count + ' ' + noun + '. ';
     }

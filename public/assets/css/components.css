@@ -679,9 +679,6 @@
         width: 34px;
         font-size: 0.95rem;
     }
-    .groups-js .groups-reactions-open .groups-reaction-picker {
-        flex: 0 0 auto;
-    }
     /* The tally is what yields, because it is the part that can: it
        takes whatever is left and scrolls sideways inside itself if a
        message collected more kinds of reaction than fit. Nothing is
@@ -692,6 +689,7 @@
         overflow-x: auto;
     }
     .groups-js .groups-reactions-open .groups-reaction-picker {
+        flex: 0 0 auto;
         max-width: 22rem;
         opacity: 1;
         visibility: visible;

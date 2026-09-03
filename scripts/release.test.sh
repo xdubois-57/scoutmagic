@@ -25,8 +25,18 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RELEASE_SH="${REPO_ROOT}/scripts/release.sh"
 FAILURES=0
 
-ok()   { echo "  ok   — $1"; }
-fail() { echo "  FAIL — $1" >&2; FAILURES=$((FAILURES + 1)); }
+ok() {
+    local message="$1"
+    echo "  ok   — ${message}"
+    return 0
+}
+
+fail() {
+    local message="$1"
+    echo "  FAIL — ${message}" >&2
+    FAILURES=$((FAILURES + 1))
+    return 0
+}
 
 # ---------------------------------------------------------------
 # 1. Version arithmetic
@@ -99,9 +109,25 @@ GATE_KEYS=(); GATE_LABELS=(); GATE_PIDS=(); GATE_EXIT=()
 # copied into it — a reimplementation here would pin nothing.
 eval "$(sed -n '/^run_fast_gate() {/,/^}/p' "${RELEASE_SH}")"
 
-passing_gate() { echo "verified" > "${GATE_REPORT_FILE}"; }
-refusing_gate() { echo "the reason nobody should have to guess" >&2; exit 1; }
-errexit_gate() { false; echo "reached" > "${GATE_REPORT_FILE}"; }
+passing_gate() {
+    echo "verified" > "${GATE_REPORT_FILE}"
+    return 0
+}
+
+# `return 1`, not `exit 1`: run_fast_gate runs a gate as `( set +e; "$func"; exit $? )`,
+# so the two are the same refusal — and a return is what a real gate does.
+refusing_gate() {
+    echo "the reason nobody should have to guess" >&2
+    return 1
+}
+
+# The point of this one: under `set +e` a failing command does NOT end the
+# function, so the line after it still runs and the gate still succeeds.
+errexit_gate() {
+    false
+    echo "reached" > "${GATE_REPORT_FILE}"
+    return 0
+}
 
 if ( run_fast_gate p "Pass" passing_gate ) > /dev/null 2>&1; then
     ok "a passing gate lets the release continue"

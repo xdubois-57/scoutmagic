@@ -31,7 +31,7 @@
                 <button type="button" class="btn btn-outline-secondary" id="passage-reset"
                         data-endpoint="/passage/reinitialiser">Réinitialiser</button>
             </form>
-            <span class="form-text mb-0" id="passage-optimize-feedback" role="status" aria-live="polite"></span>
+            <output class="form-text mb-0" id="passage-optimize-feedback" aria-live="polite"></output>
         </div>
 
         <div class="modal fade" id="passage-optimize-dialog" tabindex="-1" aria-labelledby="passage-optimize-title" aria-hidden="true">
@@ -89,7 +89,7 @@
            family's words to an external provider is a transmission and
            nobody should start one blind. #}
         {% if ai_available %}
-            <div class="alert alert-info d-flex flex-wrap gap-2 align-items-center" role="status">
+            <output class="alert alert-info d-flex flex-wrap gap-2 align-items-center">
                 <span class="me-auto small">
                     <i class="bi bi-robot" aria-hidden="true"></i>
                     Une relecture par IA peut signaler un souhait exprimé dans un commentaire libre plutôt que dans
@@ -99,8 +99,8 @@
                         data-endpoint="/passage/relire-commentaires" {{ ai_pending == 0 ? 'disabled' : '' }}>
                     Relire {{ ai_pending }} commentaire{{ ai_pending > 1 ? 's' : '' }}
                 </button>
-                <span class="form-text w-100 mb-0" id="passage-ai-review-feedback" role="status" aria-live="polite"></span>
-            </div>
+                <output class="form-text w-100 mb-0" id="passage-ai-review-feedback" aria-live="polite"></output>
+            </output>
         {% endif %}
 
         <div class="card mb-4">
@@ -155,7 +155,7 @@
                                             </select>
                                             <button type="button" class="btn btn-sm btn-outline-primary passage-save text-nowrap flex-shrink-0">Enregistrer</button>
                                         </div>
-                                        <div class="form-text passage-feedback" role="status" aria-live="polite"></div>
+                                        <output class="form-text passage-feedback d-block" aria-live="polite"></output>
                                     </td>
                                 </tr>
                                 {% if planning_requests[r.id]|default(null) and planning_requests[r.id].wishes is not empty %}
@@ -246,7 +246,7 @@
                                             {% if member.destination_options is empty %}
                                                 <div class="form-text">Aucune section configurée pour la branche d'arrivée.</div>
                                             {% endif %}
-                                            <div class="form-text passage-feedback" role="status" aria-live="polite"></div>
+                                            <output class="form-text passage-feedback d-block" aria-live="polite"></output>
                                         </td>
                                     </tr>
                                     <tr class="passage-planning-row">

@@ -1772,16 +1772,36 @@ function bootstrap_handle_step_request(string $docRoot, string $stateFile): void
 
     try {
         switch ($step) {
-            case 1: $state = bootstrap_step_preflight($docRoot, $state); break;
-            case 2: $state = bootstrap_step_resolve($docRoot, $state); break;
-            case 3: $state = bootstrap_step_download($docRoot, $state); break;
-            case 4: $state = bootstrap_step_extract($docRoot, $state); break;
-            case 5: $state = bootstrap_step_verify_artifact($docRoot, $state); break;
-            case 6: $state = bootstrap_step_install($docRoot, $state); break;
-            case 7: $state = bootstrap_step_storage($docRoot, $state); break;
-            case 8: $state = bootstrap_step_finalize($docRoot, $state); break;
-            case 9: $state = bootstrap_step_gate_prepare($docRoot, $state); break;
-            case 10: $state = bootstrap_step_token($docRoot, $state); break;
+            case 1:
+                $state = bootstrap_step_preflight($docRoot, $state);
+                break;
+            case 2:
+                $state = bootstrap_step_resolve($docRoot, $state);
+                break;
+            case 3:
+                $state = bootstrap_step_download($docRoot, $state);
+                break;
+            case 4:
+                $state = bootstrap_step_extract($docRoot, $state);
+                break;
+            case 5:
+                $state = bootstrap_step_verify_artifact($docRoot, $state);
+                break;
+            case 6:
+                $state = bootstrap_step_install($docRoot, $state);
+                break;
+            case 7:
+                $state = bootstrap_step_storage($docRoot, $state);
+                break;
+            case 8:
+                $state = bootstrap_step_finalize($docRoot, $state);
+                break;
+            case 9:
+                $state = bootstrap_step_gate_prepare($docRoot, $state);
+                break;
+            case 10:
+                $state = bootstrap_step_token($docRoot, $state);
+                break;
             case 11:
                 $state = bootstrap_step_cleanup($docRoot, $state);
                 bootstrap_release_lock($lockFile);

@@ -290,7 +290,7 @@
     {% endif %}
 
     {% if email.status in ['sending', 'sent'] %}
-        <div class="border-top pt-3 mb-4" role="status">
+        <output class="border-top pt-3 mb-4 d-block">
             <div class="form-label d-block">Progression de l'envoi</div>
             {% set total = counts.total > 0 ? counts.total : 1 %}
             <div class="progress mb-2" style="height: 1.25rem;">
@@ -301,7 +301,7 @@
             <p class="small text-body-secondary mb-0">
                 {{ counts.sent }} envoyés · {{ counts.error }} erreurs · {{ counts.pending }} en attente — {{ counts.total }} au total
             </p>
-        </div>
+        </output>
     {% endif %}
 
     <div class="d-flex flex-column flex-sm-row flex-wrap gap-2">

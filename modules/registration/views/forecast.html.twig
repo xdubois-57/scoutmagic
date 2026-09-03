@@ -147,15 +147,17 @@
 
                     {# Répartition par année de parcours — one segmented bar #}
                     {% set max_year = section.total_years_in_branch %}
-                    <div class="d-flex align-items-center gap-1 mb-3" style="height: 30px;" role="img"
-                         aria-label="Répartition par année de parcours pour {{ section.label }}">
+                    {# Pas un role="img" : celui-ci masquait aux lecteurs d'écran les
+                       nombres écrits dans les segments. Chaque segment se nomme. #}
+                    <div class="d-flex align-items-center gap-1 mb-3" style="height: 30px;">
                         {% for y in 1..max_year %}
                             {% set count = section.year_segments[y]|default(0) %}
                             {% set width = section.total > 0 ? (count / section.total * 100) : 0 %}
                             {% if count > 0 %}
                                 <span class="d-flex align-items-center justify-content-center text-white fw-semibold small rounded"
                                       style="flex-grow: {{ count }}; min-width: 1.75rem; height: 100%; background-color: {{ section.color }}; opacity: {{ 0.55 + (0.45 * y / max_year) }};"
-                                      title="{{ y }}e année — {{ count }}">
+                                      title="{{ y }}e année — {{ count }}"
+                                      aria-label="{{ y }}e année : {{ count }}">
                                     {{ count }}
                                 </span>
                             {% endif %}
@@ -169,8 +171,9 @@
                     {% if section.gender.total > 0 %}
                         {% set male_pct = (section.gender.male / section.gender.total * 100)|round %}
                         {% set female_pct = (section.gender.female / section.gender.total * 100)|round %}
-                        <div class="d-flex rounded overflow-hidden small" style="height: 24px;" role="img"
-                             aria-label="Équilibre filles/garçons pour {{ section.label }}">
+                        {# Les pourcentages sont écrits dans la barre : un role="img"
+                           les remplacerait par un libellé qui en dit moins. #}
+                        <div class="d-flex rounded overflow-hidden small" style="height: 24px;">
                             {% if section.gender.male > 0 %}
                                 <div class="d-flex align-items-center justify-content-center text-white bg-info"
                                      style="width: {{ male_pct }}%;">{{ male_pct }}% G</div>

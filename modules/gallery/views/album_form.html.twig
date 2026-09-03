@@ -17,7 +17,7 @@
                 {% if not album %}
                     <div class="mb-3">
                         <div class="form-label small fw-semibold">Type d'album</div>
-                        <div class="btn-group w-100" role="group">
+                        <fieldset class="btn-group w-100">
                             {% if allow_local %}
                                 <input type="radio" class="btn-check" name="type" id="type-local" value="local" autocomplete="off" checked>
                                 <label class="btn btn-outline-primary" for="type-local"><i class="bi bi-images" aria-hidden="true"></i> Photos / vidéos</label>
@@ -26,7 +26,7 @@
                                 <input type="radio" class="btn-check" name="type" id="type-external" value="external" autocomplete="off" {{ allow_local ? '' : 'checked' }}>
                                 <label class="btn btn-outline-primary" for="type-external"><i class="bi bi-box-arrow-up-right" aria-hidden="true"></i> Lien externe</label>
                             {% endif %}
-                        </div>
+                        </fieldset>
                     </div>
 
                     {# The link comes first for an external album — it's the one thing the chief actually has in
@@ -175,12 +175,12 @@
                         {% endif %}
                     {% endblock %}
                 {% endembed %}
-                <div id="gallery-upload-progress" class="mt-3 d-none" role="status">
+                <output id="gallery-upload-progress" class="mt-3 d-none d-block">
                     <div class="progress" style="height:0.5rem;">
                         <div id="gallery-upload-progress-bar" class="progress-bar" style="width:0%;"></div>
                     </div>
                     <p class="small text-body-secondary mb-0 mt-1" id="gallery-upload-progress-label">0 / 0</p>
-                </div>
+                </output>
             </div>
         </div>
 

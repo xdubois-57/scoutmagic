@@ -56,7 +56,7 @@
             return ALLOWED_SCHEMES.indexOf(scheme[1].toLowerCase()) === -1 ? null : url;
         }
         // Site-relative and same-page links are already hrefs.
-        if (url.charAt(0) === '/' || url.charAt(0) === '#') {
+        if (url.startsWith('/') || url.startsWith('#')) {
             return url;
         }
         // The label class excludes '.', so the domain groups cannot

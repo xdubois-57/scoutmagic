@@ -30,19 +30,11 @@
     var submitBtn = /** @type {HTMLButtonElement} */ (document.getElementById('full-backup-submit'));
     var progressEl = document.getElementById('full-backup-progress');
     var errorEl = document.getElementById('full-backup-error');
-    /** @type {{stop: () => void}|null} */
-    var pollHandle = null;
-
-    function stopPolling() {
-        if (pollHandle) {
-            pollHandle.stop();
-            pollHandle = null;
-        }
-    }
+    var polling = window.ScoutMagicApi.pollSlot();
 
     /** @param {string} message */
     function showError(message) {
-        stopPolling();
+        polling.stop();
         submitBtn.disabled = false;
         progressEl.classList.add('d-none');
         errorEl.textContent = message;
@@ -51,7 +43,7 @@
 
     /** @param {string|number} backupId */
     function pollStatus(backupId) {
-        pollHandle = window.ScoutMagicApi.poll(function () {
+        polling.start(window.ScoutMagicApi.poll(function () {
             return window.ScoutMagicApi.getJson('/api/maintenance/backup-status/' + backupId).then(function (res) {
                 if (!res.data) {
                     // Transient network hiccup — keep polling, the next
@@ -69,7 +61,7 @@
                 // pending / in_progress: keep polling.
                 return undefined;
             });
-        }, { intervalMs: 3000 });
+        }, { intervalMs: 3000 }));
     }
 
     form.addEventListener('submit', function (e) {
@@ -117,8 +109,7 @@
         // that can run for minutes, and each poll now drives a slice of it
         // server-side, so the spinner alone would hide real progress.
         var detailEl = progressEl ? progressEl.querySelector('[data-role="migration-detail"]') : null;
-        /** @type {{stop: () => void}|null} */
-        var pollHandle = null;
+        var polling = window.ScoutMagicApi.pollSlot();
 
         /** @param {unknown} fraction */
         function showMigrationProgress(fraction) {
@@ -133,16 +124,9 @@
             detailEl.textContent = ' Migration du schéma : ' + percent + ' %.';
         }
 
-        function stopPolling() {
-            if (pollHandle) {
-                pollHandle.stop();
-                pollHandle = null;
-            }
-        }
-
         /** @param {string} message */
         function showError(message) {
-            stopPolling();
+            polling.stop();
             if (submitBtn) submitBtn.disabled = false;
             if (progressEl) progressEl.classList.add('d-none');
             if (errorEl) {
@@ -153,7 +137,7 @@
 
         /** @param {string|number} historyId */
         function pollStatus(historyId) {
-            pollHandle = window.ScoutMagicApi.poll(function () {
+            polling.start(window.ScoutMagicApi.poll(function () {
                 return window.ScoutMagicApi.getJson('/api/maintenance/update-status/' + historyId).then(function (res) {
                     // A 200 that is not JSON, at this URL, means one thing:
                     // the schema migration is running, and public/index.php
@@ -169,7 +153,7 @@
                     // be confused with one, and the reload ends this poller
                     // rather than looping it.)
                     if (res.data === null && res.status === 200) {
-                        stopPolling();
+                        polling.stop();
                         window.location.reload();
                         return false;
                     }
@@ -189,7 +173,7 @@
                     showMigrationProgress(res.data.status === 'migrating' ? res.data.migration_progress : null);
                     return undefined;
                 });
-            }, { intervalMs: 3000 });
+            }, { intervalMs: 3000 }));
         }
 
         form.addEventListener('submit', function (e) {
@@ -561,7 +545,7 @@
     }
 
     // --- Restaurer un backup ---
-    var restoreUpdate = wireKeywordGate('restore-backup-keyword', 'RESTAURER');
+    wireKeywordGate('restore-backup-keyword', 'RESTAURER');
     var sourceServerRadio = document.getElementById('restore-source-server');
     var sourceUploadRadio = /** @type {HTMLInputElement} */ (document.getElementById('restore-source-upload'));
     var serverPicker = document.getElementById('restore-server-picker');

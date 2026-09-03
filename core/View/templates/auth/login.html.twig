@@ -68,7 +68,7 @@
                     <p>Un lien de connexion a été envoyé à <strong id="sent-email"></strong>.<br>
                        Cliquez dessus pour vous connecter — même depuis un autre appareil.</p>
                     {# Live region: the pending → expired switch is announced to screen readers. #}
-                    <div class="my-3" role="status" aria-live="polite">
+                    <output class="my-3 d-block" aria-live="polite">
                         <div id="waiting-pending">
                             <div class="spinner-border spinner-border-sm text-primary" aria-hidden="true"></div>
                             <span class="text-body-secondary small ms-2">En attente de confirmation…</span>
@@ -76,7 +76,7 @@
                         <div id="waiting-expired" class="text-warning small d-none">
                             Ce lien a expiré — demandez-en un nouveau.
                         </div>
-                    </div>
+                    </output>
                     {# Identical copy for every address — never reveals whether an account exists (anti-enumeration). #}
                     <div class="border-top pt-3 mt-3 text-start small">
                         <p class="fw-semibold mb-2">Vous n'avez rien reçu ?</p>
@@ -155,7 +155,7 @@
                     <label class="form-label small" for="forgot-password-email">Adresse email du compte</label>
                     <input type="email" class="form-control form-control-sm mb-2" id="forgot-password-email" placeholder="nom@exemple.be">
                     <button type="button" class="btn btn-sm btn-outline-primary w-100" id="forgot-password-submit-btn">Recevoir un lien de réinitialisation</button>
-                    <div id="forgot-password-message" class="small mt-2 d-none" role="status"></div>
+                    <output id="forgot-password-message" class="small mt-2 d-none d-block"></output>
                 </div>
             </div>
         </div>
@@ -184,9 +184,9 @@
 
                 <button type="button" class="btn btn-primary w-100" id="passkey-login-btn">Utiliser ma clé</button>
                 <div id="passkey-error" class="text-danger small mt-2 d-none" role="alert"></div>
-                <div id="passkey-unsupported" class="text-warning small mt-2 d-none" role="status">
+                <output id="passkey-unsupported" class="text-warning small mt-2 d-none d-block">
                     Votre navigateur ne supporte pas les clés numériques.
-                </div>
+                </output>
             </div>
         </div>
     </div>

@@ -85,9 +85,7 @@
             }
         });
         if (tagName === 'img' && !el.hasAttribute('src')) {
-            if (el.parentNode) {
-                el.parentNode.removeChild(el);
-            }
+            el.remove();
             return;
         }
         if (tagName === 'a' && el.getAttribute('target') === '_blank') {
@@ -102,21 +100,21 @@
             if (child.nodeType === Node.ELEMENT_NODE) {
                 var tagName = child.tagName.toLowerCase();
                 if (HTML_SANITIZER_STRIP_WITH_CONTENT.indexOf(tagName) !== -1) {
-                    parent.removeChild(child);
+                    child.remove();
                 } else if (!Object.prototype.hasOwnProperty.call(HTML_SANITIZER_ALLOWED_TAGS, tagName)) {
                     // Not in the allowlist: drop the tag but keep its text/inline content.
                     var firstMoved = child.firstChild;
                     while (child.firstChild) {
                         parent.insertBefore(child.firstChild, child);
                     }
-                    parent.removeChild(child);
+                    child.remove();
                     next = firstMoved || next;
                 } else {
                     sanitizeHtmlAttributes(child, tagName);
                     sanitizeHtmlChildren(child);
                 }
             } else if (child.nodeType === Node.COMMENT_NODE) {
-                parent.removeChild(child);
+                child.remove();
             }
             child = next;
         }
@@ -711,7 +709,7 @@
         }
 
         function fieldIcon(type) {
-            var found = FIELD_TYPES.filter(function (t) { return t.type === type; })[0];
+            var found = FIELD_TYPES.find(function (t) { return t.type === type; });
             return found ? found.icon : 'bi-question';
         }
 
@@ -858,7 +856,8 @@
             var label = document.createElement('span');
             label.className = 'flex-grow-1';
             var isNonInput = NON_INPUT_TYPES.indexOf(field.field_type) !== -1;
-            var labelText = field.field_type === 'confirmation' ? 'Bloc de confirmation' : (field.field_type === 'text' ? 'Bloc de texte' : (field.label || 'Sans libellé'));
+            var BLOCK_LABELS = { confirmation: 'Bloc de confirmation', text: 'Bloc de texte' };
+            var labelText = BLOCK_LABELS[field.field_type] || field.label || 'Sans libellé';
             // field.label is admin-entered free text (not HTML-sanitized server-side,
             // since it's meant to stay plain text) — built with textContent/DOM nodes
             // rather than innerHTML so it can never be reinterpreted as markup.

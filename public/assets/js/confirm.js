@@ -218,6 +218,20 @@
     }
 
     /**
+     * Escape is a dismissal like any other. One function for the whole
+     * module: only one dialog is ever open, and `settle()` removes this
+     * listener by the reference it stored.
+     *
+     * @param {KeyboardEvent} e
+     * @returns {void}
+     */
+    function onKeydown(e) {
+        if (e.key === 'Escape') {
+            dismiss();
+        }
+    }
+
+    /**
      * Opens the dialog and returns the promise for its answer.
      *
      * Opening a second dialog while one is on screen dismisses the first —
@@ -240,12 +254,6 @@
         var input = opts.input;
 
         return new Promise(function (resolve) {
-            function onKeydown(e) {
-                if (e.key === 'Escape') {
-                    dismiss();
-                }
-            }
-
             function takeFocus() {
                 if (field === null) {
                     // Never the destructive button.
