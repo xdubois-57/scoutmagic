@@ -635,6 +635,70 @@ class CampsMessageConsumerTest extends TestCase
         $this->assertSame(LinkOrigin::PERIOD, $result->links[0]->origin);
     }
 
+    public function testTheChiefsAreToldOfAStayCreatedFromAMessage(): void
+    {
+        $stayFromMail = $this->createMock(\Modules\Camps\Mail\StayFromMailService::class);
+        $stayFromMail->method('isAutomatic')->willReturn(true);
+        $stayFromMail->method('createFrom')->willReturn($this->campId);
+        $notifier = $this->createMock(\Modules\Camps\Mail\CampsMailNotifier::class);
+        $notifier->expects($this->once())->method('stayCreated')->with(
+            $this->callback(fn(Camp $camp): bool => $camp->id === $this->campId),
+            $this->callback(static fn(string $label): bool => str_contains($label, 'juillet 2026'))
+        );
+
+        $consumer = new CampsMessageConsumer(
+            $this->camps, $this->pdo, $this->encryption,
+            $this->dedicatedTo(self::DEDICATED_MAILBOX), null, null, $stayFromMail,
+            notifier: $notifier
+        );
+
+        $consumer->analyzeStored($this->unattachedMessage(self::DEDICATED_MAILBOX));
+    }
+
+    public function testNoStayCreatedMeansNobodyIsTold(): void
+    {
+        $stayFromMail = $this->createMock(\Modules\Camps\Mail\StayFromMailService::class);
+        $stayFromMail->method('isAutomatic')->willReturn(true);
+        $stayFromMail->method('createFrom')->willReturn(null);
+        $notifier = $this->createMock(\Modules\Camps\Mail\CampsMailNotifier::class);
+        $notifier->expects($this->never())->method('stayCreated');
+
+        $consumer = new CampsMessageConsumer(
+            $this->camps, $this->pdo, $this->encryption,
+            $this->dedicatedTo(self::DEDICATED_MAILBOX), null, null, $stayFromMail,
+            notifier: $notifier
+        );
+
+        $this->assertTrue($consumer->analyzeStored($this->unattachedMessage(self::DEDICATED_MAILBOX))->isEmpty());
+    }
+
+    public function testAPropositionTellsTheChiefsWhichStays(): void
+    {
+        $second = $this->camps->create(
+            1, Camp::STAY_GRAND_CAMP, '2026-07-20', '2026-07-27', null,
+            Camp::STATUS_CONFIRMED, null, null, null, null, []
+        );
+        $notifier = $this->createMock(\Modules\Camps\Mail\CampsMailNotifier::class);
+        $notifier->expects($this->once())->method('proposed')->with(
+            $this->callback(fn(array $camps): bool
+                => array_map(static fn(Camp $c) => $c->id, $camps) === [$this->campId, $second]),
+            $this->callback(fn(array $labels): bool
+                => str_contains($labels[$this->campId] ?? '', '12–19 juillet 2026') && isset($labels[$second]))
+        );
+
+        $consumer = new CampsMessageConsumer(
+            $this->camps, $this->pdo, $this->encryption, null, notifier: $notifier
+        );
+        $consumer->onProposed(
+            $this->unattachedMessage(self::SHARED_MAILBOX),
+            [
+                new \Modules\InboundMail\Api\MessageCandidate('camp-' . $this->campId, 'a', 'sender_window', 'x'),
+                new \Modules\InboundMail\Api\MessageCandidate('camp-' . $second, 'b', 'sender_window', 'x'),
+                new \Modules\InboundMail\Api\MessageCandidate('camp-99999', 'c', 'sender_window', 'x'),
+            ]
+        );
+    }
+
     public function testAMessageOnASharedBoxIsNeverTurnedIntoAStay(): void
     {
         // On the unit's public address a supplier's quotation would become

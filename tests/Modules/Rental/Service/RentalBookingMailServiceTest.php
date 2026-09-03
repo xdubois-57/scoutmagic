@@ -73,6 +73,73 @@ final class RentalBookingMailServiceTest extends TestCase
         );
     }
 
+    // ── The signed reply address (§8.58) ────────────────────────────────
+
+    public function testEveryMailAboutABookingCarriesItsSignedReplyAddress(): void
+    {
+        $replyTos = [];
+        $mail = $this->createMock(MailService::class);
+        $mail->method('send')->willReturnCallback(
+            static function (string $to, string $subject, string $html, string $text, ?string $replyTo) use (&$replyTos): void {
+                $replyTos[] = $replyTo;
+            }
+        );
+        $inboundMail = new class implements \Modules\InboundMail\Api\InboundMailInterface {
+            use \Tests\Modules\InboundMail\InertInboundMail;
+
+            public function replyAddressFor(string $consumerId, string $businessReference): ?string
+            {
+                return 'locations+' . $consumerId . '.' . $businessReference . '.9f3a1b2c4d5e@unite.be';
+            }
+        };
+        $settings = $this->createMock(SettingService::class);
+        $settings->method('get')->willReturnCallback(
+            static fn (string $key): ?string => match ($key) {
+                'site_name' => 'Unité Test',
+                'base_url' => 'https://unite.test',
+                default => null,
+            }
+        );
+        $service = new RentalBookingMailService(
+            $mail,
+            EmailTemplateRendererFactory::shippedOnlyForModule($this->twig, 'rental'),
+            $settings,
+            $this->createMock(JournalService::class),
+            $inboundMail
+        );
+
+        $service->sendAcknowledgement($this->booking(), $this->asset(), str_repeat('a', 64));
+        $service->sendPracticalInfo($this->booking(), $this->asset());
+
+        $this->assertSame(
+            ['locations+rental.LOC-2027-0042.9f3a1b2c4d5e@unite.be', 'locations+rental.LOC-2027-0042.9f3a1b2c4d5e@unite.be'],
+            $replyTos
+        );
+    }
+
+    public function testWithoutAnAddressToMintTheMailGoesOutWithNoReplyTo(): void
+    {
+        $replyTos = [];
+        $mail = $this->createMock(MailService::class);
+        $mail->method('send')->willReturnCallback(
+            static function (string $to, string $subject, string $html, string $text, ?string $replyTo) use (&$replyTos): void {
+                $replyTos[] = $replyTo;
+            }
+        );
+        $settings = $this->createMock(SettingService::class);
+        $settings->method('get')->willReturn(null);
+        $service = new RentalBookingMailService(
+            $mail,
+            EmailTemplateRendererFactory::shippedOnlyForModule($this->twig, 'rental'),
+            $settings,
+            $this->createMock(JournalService::class)
+        );
+
+        $service->sendAcknowledgement($this->booking(), $this->asset(), str_repeat('a', 64));
+
+        $this->assertSame([null], $replyTos);
+    }
+
     private function recordingMailService(bool $succeeds = true): MailService
     {
         $mock = $this->createMock(MailService::class);

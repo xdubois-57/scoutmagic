@@ -3133,12 +3133,25 @@ if ($isEnabled('inbound_mail')) {
         $inboundReadConsumers
     );
 
+    // Signed reply addresses (§8.58): what a consumer puts in the
+    // Reply-To of what it sends, and what the sync recognises coming
+    // back. One instance for both directions, so the box it mints for is
+    // the box it reads.
+    $inboundReplyAddresses = new \Modules\InboundMail\Service\ReplyAddressService(
+        $inboundMailboxRepository,
+        $encryptionService,
+        $inboundScopeService,
+        $settingService
+    );
+
     $inboundMailForOthers = new \Modules\InboundMail\Service\InboundMailService(
         $inboundMessageRepository,
         $inboundMailboxRepository,
         new \Core\File\FileRepository($pdo),
         $inboundReadConsumers,
-        $inboundScopeService
+        $inboundScopeService,
+        null,
+        $inboundReplyAddresses
     );
 
     // One-time reprise for installs that stored a message's consumer and
@@ -3255,7 +3268,9 @@ if ($isEnabled('inbound_mail')) {
                 new \Core\File\UploadHandler(new \Core\File\FileRepository($pdo), $storagePath),
                 null,
                 new \Core\File\FileRepository($pdo),
-                $inboundScopeService
+                $inboundScopeService,
+                null,
+                $inboundReplyAddresses
             ),
         $settingService,
         $settingRepo
@@ -3518,9 +3533,24 @@ if ($isEnabled('finance')) {
                         $financeAccountRepo,
                         $effectiveScoutYear->id
                     ),
-                    new \Modules\Finance\Mail\ForwardedSenderExtractor()
+                    new \Modules\Finance\Mail\ForwardedSenderExtractor(),
+                    // The treasurers learn of a receipt waiting for them
+                    // from a notification, not from opening the page.
+                    new \Modules\Finance\Mail\FinanceMailNotifier(
+                        $notificationService,
+                        $pdo,
+                        $badgeRepository,
+                        $memberBadgeRepository,
+                        $userAccountRepo,
+                        $effectiveScoutYear->id
+                    )
                 )
         );
+
+        // « Des reçus attendent un trésorier » on the attention page (§8.79).
+        if ($inboundMailForOthers !== null) {
+            $attentionProviders[] = new \Modules\Finance\Service\FinanceAttentionProvider($inboundMailForOthers);
+        }
     }
 
     // A receipt's FILE follows its account's rule too (ARCHITECTURE.md
@@ -4875,10 +4905,30 @@ if ($isEnabled('camps')) {
                     new \Modules\Camps\Service\StaySearchService($campsCampRepo),
                     // The model as a last resort between two stays — it
                     // orders the propositions and never associates.
-                    new \Modules\Camps\Mail\StayChoiceByModel($llmConnectorForOthers ?? null)
+                    new \Modules\Camps\Mail\StayChoiceByModel($llmConnectorForOthers ?? null),
+                    // The stay's chiefs learn of a proposition, or of a
+                    // stay created from a message, from a notification.
+                    new \Modules\Camps\Mail\CampsMailNotifier(
+                        $notificationService,
+                        new \Modules\Camps\Service\ReviewNotificationService(
+                            $campsCampRepo,
+                            $sectionService,
+                            $userAccountRepo,
+                            $encryptionService,
+                            $pdo,
+                            $notificationService
+                        )
+                    )
                 )
         );
     }
+
+    // Propositions waiting and stays « à confirmer », on the attention
+    // page (§8.79). Without inbound_mail only the second point exists.
+    $attentionProviders[] = new \Modules\Camps\Service\CampsAttentionProvider(
+        $campsCampRepo,
+        $inboundMailForOthers ?? null
+    );
 
     $frontController->registerController(
         \Modules\Camps\Controller\CampsMailController::class,
@@ -5673,9 +5723,22 @@ if ($isEnabled('rental')) {
                     // The model as a last resort between two bookings of
                     // one renter — it orders the propositions and never
                     // associates (§8.59). Null without the connector.
-                    new \Modules\Rental\Mail\BookingChoiceByModel($llmConnectorForOthers ?? null)
+                    new \Modules\Rental\Mail\BookingChoiceByModel($llmConnectorForOthers ?? null),
+                    // The asset's managers learn of a proposition from a
+                    // notification, not from opening the booking.
+                    new \Modules\Rental\Mail\RentalMailNotifier(
+                        $notificationService,
+                        $rentalManagerRepository,
+                        $memberYearRepo,
+                        $userAccountRepo,
+                        $rentalAssetRepository
+                    )
                 )
         );
+
+        // « Du courrier attend une décision sur une réservation » on the
+        // attention page (§8.79).
+        $attentionProviders[] = new \Modules\Rental\Service\RentalAttentionProvider($inboundMailForOthers);
     }
 
     // The stay itself (§6.21–§6.23): meters, inventory, incidents and the

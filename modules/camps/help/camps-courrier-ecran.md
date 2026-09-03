@@ -45,9 +45,12 @@ chef qui lit le mauvais séjour n'a aucun moyen de s'en apercevoir.
 ## Quand le site hésite
 
 Plusieurs propositions sous un message veulent dire que plusieurs
-séjours correspondent et que le site n'en choisit aucun. Si l'unité a
-activé le connecteur IA, le modèle suggère lequel afficher en premier,
-et la proposition le dit ; il ne rattache jamais rien lui-même.
+séjours correspondent et que le site n'en choisit aucun. Les chefs des
+sections concernées en sont avertis par la notification « Message reçu
+à rattacher à un séjour » ; un séjour créé depuis un message est
+annoncé par « Séjour créé depuis un message ». Si l'unité a activé le
+connecteur IA, le modèle suggère lequel afficher en premier, et la
+proposition le dit ; il ne rattache jamais rien lui-même.
 
 Rattacher vous-même un message venu d'une adresse que le séjour ne
 connaissait pas en fait un contact du séjour, noté « Correspondant » :

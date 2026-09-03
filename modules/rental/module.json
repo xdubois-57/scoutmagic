@@ -2,7 +2,7 @@
   "id": "rental",
   "name": "Locations",
   "description": "Location des biens de l'unité : locaux, terrains, tentes, remorques, matériel. Calendrier de disponibilité public, demandes en ligne et suivi des réservations.",
-  "version": "1.19.0",
+  "version": "1.20.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -973,6 +973,18 @@
       "id": "rental.compliance_expiring",
       "label": "Document de conformité expirant",
       "description": "Une entrée du registre de conformité d'un bien expire bientôt, ou a expiré.",
+      "group": "Locations",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "off"
+      }
+    },
+    {
+      "id": "rental.mail_proposition",
+      "label": "Message reçu à rattacher à une réservation",
+      "description": "Un e-mail reçu pourrait concerner une réservation d'un bien que vous gérez : le site n'a pas tranché et attend votre décision sur la réservation.",
       "group": "Locations",
       "role_min": "identified",
       "channels": {

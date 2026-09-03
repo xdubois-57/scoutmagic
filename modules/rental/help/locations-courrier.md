@@ -8,7 +8,7 @@ question: Où voir les e-mails d'un locataire sur sa réservation ?
 question: Que faire d'une proposition de rattachement sur une réservation ?
 question: Que devient un message quand je le détache d'une réservation ?
 paths: /mes-locations/*/reservations/*
-related: gerer-les-locations, courrier-entrant, courrier-unite
+related: gerer-les-locations, courrier-entrant, courrier-reponse, courrier-unite
 ---
 
 Si l'unité relève ses e-mails depuis ScoutMagic, le panneau « Courrier »
@@ -22,16 +22,19 @@ incertain » mérite un coup d'œil : le site a pu se tromper.
 Un locataire qui n'a qu'une réservation chez l'unité voit tous ses
 messages y arriver, quelle que soit leur date. S'il en a plusieurs, le
 message doit tomber dans la période de l'une d'elles ; une demande
-refusée, annulée ou expirée ne compte pas. La réponse au premier e-mail
-que l'unité lui envoie est reconnue même sans référence dans l'objet.
+refusée, annulée ou expirée ne compte pas. Une réponse à un e-mail du
+site est reconnue même sans référence dans l'objet, grâce à l'adresse
+de réponse signée qu'il porte — voir « L'adresse de réponse signée ».
 
 ## Les propositions
 
 Quand le site hésite entre plusieurs réservations du même locataire, il
 ne choisit pas : il vous fait une **proposition**, en tête du panneau,
-avec le message et sa raison. Si l'unité a activé le connecteur IA, le
-modèle peut suggérer laquelle afficher en premier — il ne rattache
-jamais rien lui-même. « Rattacher » la confirme et rattache le
+avec le message et sa raison, et les gestionnaires du bien en sont
+avertis par la notification « Message reçu à rattacher à une
+réservation ». Si l'unité a activé le connecteur IA, le modèle peut
+suggérer laquelle afficher en premier — il ne rattache jamais rien
+lui-même. « Rattacher » la confirme et rattache le
 message à la réservation ; « Écarter » la retire définitivement. Un
 message écarté reste dans le courrier de l'unité jusqu'au terme du
 délai de conservation.

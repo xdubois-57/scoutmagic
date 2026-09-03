@@ -299,6 +299,21 @@ interface InboundMailInterface
     public function recordOutboundMessageId(string $consumerId, string $businessReference, string $messageId): void;
 
     /**
+     * The address a consumer puts in the `Reply-To` of what it sends about
+     * one of its objects, so that a bare « Répondre » comes back naming
+     * that object (`CandidateMessage::$addressedTo`, §8.58). Signed by
+     * this site; null when the operator turned the feature off, or no box
+     * of this consumer can receive it — send without one then.
+     */
+    public function replyAddressFor(string $consumerId, string $businessReference): ?string;
+
+    /**
+     * How many messages carry a proposition of this consumer that nobody
+     * has settled — what a module's attention point counts.
+     */
+    public function countCandidatesFor(string $consumerId): int;
+
+    /**
      * What a non-superadmin may know about the configured mailboxes: a name
      * and whether it is working (§7.4). Never the host, the port or the
      * account — a manager choosing which box their module listens to needs

@@ -56,6 +56,20 @@ class RentalBookingMailService
      * A fresh Message-ID for a message about this booking, remembered so
      * the reply to it is recognised.
      */
+    /**
+     * The signed reply address of this booking (§8.58), so a bare
+     * « Répondre » comes back naming it — null without `inbound_mail`,
+     * when the operator turned it off, or when no box can receive it,
+     * and the mail then goes out with the site's ordinary sender.
+     */
+    private function replyAddressFor(RentalBooking $booking): ?string
+    {
+        return $this->inboundMail?->replyAddressFor(
+            \Modules\Rental\Mail\RentalMessageConsumer::CONSUMER_ID,
+            $booking->reference
+        );
+    }
+
     private function messageIdFor(RentalBooking $booking): string
     {
         $messageId = $this->newMessageId();
@@ -103,7 +117,7 @@ class RentalBookingMailService
             $email->subject,
             $email->bodyHtml,
             $email->bodyText,
-            null,
+            $this->replyAddressFor($booking),
             [],
             null,
             null,
@@ -181,7 +195,7 @@ class RentalBookingMailService
                 $email->subject,
                 $email->bodyHtml,
                 $email->bodyText,
-                null,
+                $this->replyAddressFor($booking),
                 [],
                 null,
                 null,
@@ -259,7 +273,7 @@ class RentalBookingMailService
                 $email->subject,
                 $email->bodyHtml,
                 $email->bodyText,
-                null,
+                $this->replyAddressFor($booking),
                 [],
                 null,
                 null,
@@ -316,7 +330,7 @@ class RentalBookingMailService
             $email->subject,
             $email->bodyHtml,
             $email->bodyText,
-            null,
+            $this->replyAddressFor($booking),
             [['path' => $absolutePath, 'name' => $fileName]],
             null,
             null,
@@ -373,7 +387,7 @@ class RentalBookingMailService
                 $email->subject,
                 $email->bodyHtml,
                 $email->bodyText,
-                null,
+                $this->replyAddressFor($booking),
                 [],
                 null,
                 null,
@@ -429,7 +443,7 @@ class RentalBookingMailService
                 $email->subject,
                 $email->bodyHtml,
                 $email->bodyText,
-                null,
+                $this->replyAddressFor($booking),
                 [],
                 null,
                 null,

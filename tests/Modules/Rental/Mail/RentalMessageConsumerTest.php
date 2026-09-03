@@ -69,6 +69,7 @@ class RentalMessageConsumerTest extends TestCase
     private InboundMailService $inboundMail;
     private MessageConsumerRegistry $registry;
     private FakeMailboxClient $client;
+    private \Modules\InboundMail\Service\ReplyAddressService $replyAddresses;
     private MailboxSyncService $syncService;
     private RentalCommunicationService $communicationService;
     private int $mailboxId;
@@ -151,7 +152,17 @@ class RentalMessageConsumerTest extends TestCase
             new MailboxErrorFormatter(),
             $factory,
             new \Modules\InboundMail\Service\AnalysisResultApplier($this->messageRepository),
-            new UploadHandler($fileRepository, $this->storagePath)
+            new UploadHandler($fileRepository, $this->storagePath),
+            null,
+            null,
+            null,
+            null,
+            // The signed reply addresses the site mints (§8.58), read off
+            // the recipients before the consumer is asked.
+            $this->replyAddresses = new \Modules\InboundMail\Service\ReplyAddressService(
+                $this->mailboxRepository,
+                $this->encryption
+            )
         );
 
         $this->communicationService = new RentalCommunicationService(
@@ -302,6 +313,68 @@ class RentalMessageConsumerTest extends TestCase
         $this->sync();
 
         $this->assertSame(0, $this->countRentalAssociations(), 'The message is kept; rental just does not claim it.');
+    }
+
+    // ── Level 0: the signed reply address (§8.58) ───────────────────────
+
+    public function testAReplyToTheSignedAddressLandsOnTheBookingWhoeverWrites(): void
+    {
+        // The group's treasurer presses « Répondre » on the acknowledgement
+        // the renter forwarded them: no reference in the subject, an
+        // unknown sender, no thread the site knows — only the address the
+        // site itself put in the Reply-To.
+        $booking = $this->createBooking();
+        $address = $this->replyAddresses->addressFor(RentalMessageConsumer::CONSUMER_ID, $booking->reference);
+        $this->assertNotNull($address);
+
+        $this->deliver(10, 'Re: Votre demande', from: 'tresorier@groupe.example', extraHeaders: ['To' => $address]);
+        $this->sync();
+
+        $messages = $this->communicationService->timeline($booking);
+        $this->assertCount(1, $messages);
+        $this->assertSame(LinkOrigin::REPLY_ADDRESS, $messages[0]->linkOrigin);
+    }
+
+    public function testAForgedSignatureIsAnOrdinaryAddress(): void
+    {
+        $this->createBooking();
+
+        $this->deliver(
+            10,
+            'Re: Votre demande',
+            from: 'inconnu@example.be',
+            extraHeaders: ['To' => 'locations+rental.LOC-2027-0042.000000000000@unite.be']
+        );
+        $this->sync();
+
+        $this->assertSame(0, $this->countRentalAssociations(), 'The message is kept; rental just does not claim it.');
+    }
+
+    public function testAnAddressNamingABookingThatNoLongerExistsAttachesNothing(): void
+    {
+        $address = $this->replyAddresses->addressFor(RentalMessageConsumer::CONSUMER_ID, 'LOC-2020-0001');
+        $this->assertNotNull($address);
+
+        $this->deliver(10, 'Re: Votre demande', from: 'jeanne@example.be', extraHeaders: ['To' => $address]);
+        $this->sync();
+
+        $this->assertSame(0, $this->countRentalAssociations());
+    }
+
+    public function testTheSignedAddressStillYieldsToAnExplicitReference(): void
+    {
+        // Both are certain; the reference is what the subject says NOW,
+        // and a renter answering an old mail about a different booking
+        // will have typed the one they mean.
+        $first = $this->createBooking('LOC-2027-0042');
+        $second = $this->createBooking('LOC-2027-0043');
+        $address = $this->replyAddresses->addressFor(RentalMessageConsumer::CONSUMER_ID, $first->reference);
+
+        $this->deliver(10, 'Re: [LOC-2027-0043] dates', extraHeaders: ['To' => (string) $address]);
+        $this->sync();
+
+        $this->assertCount(1, $this->communicationService->timeline($first));
+        $this->assertCount(0, $this->communicationService->timeline($second));
     }
 
     // ── Level 2: the thread (§7.6) ──────────────────────────────────────
@@ -712,13 +785,63 @@ class RentalMessageConsumerTest extends TestCase
         $this->assertSame([], $result->candidates);
     }
 
-    private function plainConsumer(?\Modules\Rental\Mail\BookingChoiceByModel $modelChoice = null): RentalMessageConsumer
-    {
+    private function plainConsumer(
+        ?\Modules\Rental\Mail\BookingChoiceByModel $modelChoice = null,
+        ?\Modules\Rental\Mail\RentalMailNotifier $notifier = null
+    ): RentalMessageConsumer {
         return new RentalMessageConsumer(
             $this->bookingRepository,
             $this->inboundMail,
             $this->documentService,
-            modelChoice: $modelChoice
+            assetRepository: $this->assetRepository,
+            modelChoice: $modelChoice,
+            notifier: $notifier
+        );
+    }
+
+    // ── The managers are told of a proposition (Api\PropositionListener) ──
+
+    public function testAPropositionTellsTheManagersWhichBookingsAndWhere(): void
+    {
+        $first = $this->createBooking('LOC-2027-0042');
+        $this->createBooking('LOC-2027-0051', arrival: '2027-07-20', departure: '2027-07-23');
+        $notifier = $this->createMock(\Modules\Rental\Mail\RentalMailNotifier::class);
+        $notifier->expects($this->once())->method('proposed')->with(
+            $this->callback(static fn(array $bookings): bool
+                => array_map(static fn(RentalBooking $b) => $b->reference, $bookings) === ['LOC-2027-0042', 'LOC-2027-0051']),
+            $this->callback(static fn(array $labels): bool
+                => str_contains($labels['LOC-2027-0042'] ?? '', '01/07/2027')),
+            $this->callback(static fn(array $urls): bool
+                => str_contains($urls['LOC-2027-0042'] ?? '', '/local-saint-georges/'))
+        );
+
+        $consumer = $this->plainConsumer(notifier: $notifier);
+        $consumer->onProposed(
+            $this->storedUnattached(),
+            array_map(
+                static fn(string $ref) => new \Modules\InboundMail\Api\MessageCandidate($ref, $ref, 'sender_window', 'parce que'),
+                ['LOC-2027-0042', 'LOC-2027-0051', 'LOC-2027-0042']
+            )
+        );
+        unset($first);
+    }
+
+    public function testAPropositionNamingNoBookingTellsNobody(): void
+    {
+        $notifier = $this->createMock(\Modules\Rental\Mail\RentalMailNotifier::class);
+        $notifier->expects($this->once())->method('proposed')->with([], [], []);
+
+        $this->plainConsumer(notifier: $notifier)->onProposed(
+            $this->storedUnattached(),
+            [new \Modules\InboundMail\Api\MessageCandidate('LOC-2020-0001', 'x', 'sender_window', 'parce que')]
+        );
+    }
+
+    private function storedUnattached(): \Modules\InboundMail\Api\InboundMessage
+    {
+        return new \Modules\InboundMail\Api\InboundMessage(
+            1, $this->mailboxId, '', '', LinkOrigin::SENDER, 'Bonjour', 'jeanne@example.be', null,
+            'a@b', null, new \DateTimeImmutable('2027-07-02 09:30:00'), '', ''
         );
     }
 

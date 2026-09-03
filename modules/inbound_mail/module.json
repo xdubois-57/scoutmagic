@@ -2,7 +2,7 @@
   "id": "inbound_mail",
   "name": "Courrier entrant",
   "description": "Passerelle de courrier entrant en lecture seule : connecte une ou plusieurs boîtes IMAP, détecte les nouveaux messages et les met à disposition des autres modules. Ne modifie jamais la boîte distante.",
-  "version": "1.11.0",
+  "version": "1.12.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -256,6 +256,13 @@
       "validation_regex": "^([5-9]|[1-9]\\d|[1-9]\\d{2}|1[0-3]\\d{2}|14[0-3]\\d|1440)$",
       "label": "Intervalle entre deux relèves du courrier (minutes)",
       "description": "Délai entre la fin d'une relève et le début de la suivante. Entre 5 minutes et 24 heures (1440 minutes) ; 15 par défaut. Descendre trop bas n'accélère rien et se retourne contre vous : plusieurs hébergeurs de messagerie ralentissent ou bloquent temporairement un client qui se reconnecte sans arrêt. Sans vraie tâche planifiée sur votre hébergement, la relève ne tourne qu'à l'occasion d'une visite du site, et ce réglage devient un minimum plutôt qu'un rythme. Un changement s'applique dès la prochaine visite : une relève déjà programmée trop loin est avancée."
+    },
+    {
+      "key": "inbound_mail_reply_addressing",
+      "default_value": "1",
+      "type": "boolean",
+      "label": "Adresse de réponse signée sur les e-mails envoyés",
+      "description": "Les e-mails que le site envoie au sujet d'un dossier (une réservation, par exemple) portent une adresse de réponse de la forme locations+rental.LOC-2027-0042.9f3a1b2c4d5e@votre-unite.be : la réponse, même sans référence dans le sujet et même envoyée par quelqu'un d'autre, est rattachée au bon dossier dès son arrivée. Requiert une boîte relevée par le site dont le compte est une adresse e-mail, et un fournisseur qui accepte les adresses « +étiquette » (Gmail, Outlook, Infomaniak, OVH et la plupart des autres). Désactivez si vos réponses reviennent en erreur : les autres règles de rattachement restent en place."
     },
     {
       "key": "inbound_mail_storage_quota_mb",

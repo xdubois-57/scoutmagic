@@ -77,10 +77,18 @@ enum LinkOrigin: string
      */
     case MANUAL = 'manual';
 
+    /**
+     * The message answered a mail the site sent, at the signed reply
+     * address that mail carried (`Service\ReplyAddressService`). Minted
+     * by this site and verified by it: as certain as the reference.
+     */
+    case REPLY_ADDRESS = 'reply_address';
+
     public function label(): string
     {
         return match ($this) {
             self::REFERENCE => 'Référence dans le sujet',
+            self::REPLY_ADDRESS => 'Adresse de réponse signée',
             self::THREAD => 'Réponse dans la conversation',
             self::SENDER => 'Adresse de l\'expéditeur',
             self::PERIOD => 'Période annoncée dans le message',
@@ -99,6 +107,6 @@ enum LinkOrigin: string
      */
     public function isCertain(): bool
     {
-        return $this === self::REFERENCE || $this === self::THREAD || $this === self::MANUAL;
+        return $this === self::REFERENCE || $this === self::REPLY_ADDRESS || $this === self::THREAD || $this === self::MANUAL;
     }
 }

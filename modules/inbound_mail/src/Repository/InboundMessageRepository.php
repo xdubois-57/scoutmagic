@@ -495,6 +495,22 @@ class InboundMessageRepository
      * Whether a message still carries a proposition nobody has set aside —
      * what keeps it out of the retention purge.
      */
+    /**
+     * How many messages still carry an unsettled proposition of this
+     * consumer. Confirming and dismissing both settle one, and so does an
+     * association on the same object (`dismissCandidatesSettledBy()`).
+     */
+    public function countMessagesWithActiveCandidatesFor(string $consumerId): int
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(DISTINCT message_id) FROM inbound_message_candidates
+              WHERE consumer_id = ? AND dismissed_at IS NULL'
+        );
+        $stmt->execute([$consumerId]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
     public function hasActiveCandidates(int $messageId): bool
     {
         $stmt = $this->pdo->prepare(

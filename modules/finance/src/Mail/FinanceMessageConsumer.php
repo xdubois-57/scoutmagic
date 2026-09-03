@@ -76,7 +76,7 @@ use Modules\InboundMail\Api\ReferenceSuggestion;
  * this account". A consumer that needed finance to change would have been
  * a consumer built at the wrong layer.
  */
-class FinanceMessageConsumer implements MessageConsumerInterface, ReferenceDirectory
+class FinanceMessageConsumer implements MessageConsumerInterface, ReferenceDirectory, \Modules\InboundMail\Api\PropositionListener
 {
     public const CONSUMER_ID = 'finance';
 
@@ -158,8 +158,37 @@ class FinanceMessageConsumer implements MessageConsumerInterface, ReferenceDirec
          * means a forwarded message is judged on its real `From:`, which
          * is the trustworthy half of the signal anyway.
          */
-        private ?ForwardedSenderExtractor $forwardedSender = null
+        private ?ForwardedSenderExtractor $forwardedSender = null,
+        /**
+         * Who tells the treasurers that a receipt waits for them
+         * (`Mail\FinanceMailNotifier`). Null: nobody is told, and the
+         * proposition still waits in « Courrier à trier ».
+         */
+        private ?FinanceMailNotifier $notifier = null
     ) {
+    }
+
+    /**
+     * A receipt proposed towards accounts of this module: the treasurers
+     * are told (`Api\PropositionListener`).
+     *
+     * @param \Modules\InboundMail\Api\MessageCandidate[] $candidates
+     */
+    public function onProposed(InboundMessage $message, array $candidates): void
+    {
+        if ($this->notifier === null) {
+            return;
+        }
+
+        $labels = [];
+        foreach ($candidates as $candidate) {
+            $label = $this->describeReference($candidate->businessReference);
+            if ($label !== null && !in_array($label, $labels, true)) {
+                $labels[] = $label;
+            }
+        }
+
+        $this->notifier->proposed($labels);
     }
 
     public function consumerId(): string

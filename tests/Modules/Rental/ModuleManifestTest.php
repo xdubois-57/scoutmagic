@@ -45,7 +45,7 @@ class ModuleManifestTest extends TestCase
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.19.0', $this->manifest->version);
+        $this->assertSame('1.20.0', $this->manifest->version);
     }
 
     /**

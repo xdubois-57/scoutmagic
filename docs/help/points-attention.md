@@ -35,8 +35,11 @@ faire, et — quand il y en a une — pour quand. Les points avec une échéance
 remontent en haut de la liste.
 
 Le libellé au-dessus de chaque point indique d'où vient l'information :
-« Cœur » pour le site lui-même, « Cotisations » ou « Encadrement » pour
-les modules qui contribuent.
+« Cœur » pour le site lui-même, « Cotisations », « Encadrement »,
+« Courrier entrant », « Locations », « Camps » ou « Finances » pour les
+modules qui contribuent. Le courrier y compte ce qui attend une décision
+humaine : les messages que personne n'a rattachés, les propositions que
+personne n'a tranchées, les séjours « à confirmer ».
 
 ## Ce qu'elle n'est pas
 

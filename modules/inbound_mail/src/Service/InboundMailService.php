@@ -59,9 +59,25 @@ class InboundMailService implements InboundMailInterface
          * Where a consumer that throws during a re-run goes. Null writes
          * nothing, which is what a caller that only reads wants.
          */
-        private ?AnalysisJournal $analysisJournal = null
+        private ?AnalysisJournal $analysisJournal = null,
+        /**
+         * Signed reply addresses (§8.58). Null on a caller that never
+         * built one: nothing is minted, and nothing is recognised on
+         * re-analysis — the arrival pass has its own.
+         */
+        private ?ReplyAddressService $replyAddresses = null
     ) {
         $this->consumerRegistry?->setAnalysisJournal($analysisJournal);
+    }
+
+    public function replyAddressFor(string $consumerId, string $businessReference): ?string
+    {
+        return $this->replyAddresses?->addressFor($consumerId, $businessReference);
+    }
+
+    public function countCandidatesFor(string $consumerId): int
+    {
+        return $this->messageRepository->countMessagesWithActiveCandidatesFor($consumerId);
     }
 
     /**
@@ -626,11 +642,12 @@ class InboundMailService implements InboundMailInterface
             // what says so: this is the caller's module re-reading its own
             // mail, not a request that every module have another look.
             $results = $this->consumerRegistry->analyzeAll(
-                self::candidateFrom($message, $mailboxes[$message->mailboxId]),
+                $this->candidateFrom($message, $mailboxes[$message->mailboxId]),
                 [$consumer]
             );
 
-            $notifier->notify($message->id, $applier->apply($message->id, $results));
+            $applied = $applier->applyAndReport($message->id, $results);
+            $notifier->notify($message->id, $applied->links, $applied->candidates);
 
             foreach ($results as $result) {
                 $linked += count($result->links);
@@ -682,7 +699,7 @@ class InboundMailService implements InboundMailInterface
      * of somebody else's Message-IDs, for a case one more click already
      * covers.
      */
-    private static function candidateFrom(InboundMessage $message, ?string $dedicatedTo): CandidateMessage
+    private function candidateFrom(InboundMessage $message, ?string $dedicatedTo): CandidateMessage
     {
         return new CandidateMessage(
             mailboxId: $message->mailboxId,
@@ -707,7 +724,8 @@ class InboundMailService implements InboundMailInterface
                 $message->attachments
             ),
             rawHeaders: $message->rawHeaders,
-            mailboxDedicatedTo: $dedicatedTo
+            mailboxDedicatedTo: $dedicatedTo,
+            addressedTo: $this->replyAddresses?->resolve($message->toEmails)
         );
     }
 }

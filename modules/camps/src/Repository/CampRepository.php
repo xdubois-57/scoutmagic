@@ -323,6 +323,14 @@ class CampRepository
         return $stmt->fetchColumn() !== false;
     }
 
+    public function countByStatus(string $status): int
+    {
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM camp_camps WHERE status = ?');
+        $stmt->execute([$status]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
     public function countByPlace(int $placeId): int
     {
         $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM camp_camps WHERE place_id = ?');

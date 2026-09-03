@@ -72,7 +72,7 @@ use Modules\InboundMail\Api\ReferenceSuggestion;
  * stay has no way to know. Saying « c'est l'un de ces deux, choisissez »
  * is the honest middle the module used to lack.
  */
-class CampsMessageConsumer implements MessageConsumerInterface, ReferenceDirectory
+class CampsMessageConsumer implements MessageConsumerInterface, ReferenceDirectory, \Modules\InboundMail\Api\PropositionListener
 {
     public const CONSUMER_ID = 'camps';
 
@@ -128,8 +128,41 @@ class CampsMessageConsumer implements MessageConsumerInterface, ReferenceDirecto
          * (`Mail\StayChoiceByModel`). Null, or no model on the cheap
          * tier, leaves the propositions exactly as the rules made them.
          */
-        private ?StayChoiceByModel $modelChoice = null
+        private ?StayChoiceByModel $modelChoice = null,
+        /**
+         * Who tells the stay's chiefs that a message waits for their
+         * decision, or that a stay was just created from one
+         * (`Mail\CampsMailNotifier`). Null: nobody is told.
+         */
+        private ?CampsMailNotifier $notifier = null
     ) {
+    }
+
+    /**
+     * A message proposed towards stays of this module: their chiefs are
+     * told (`Api\PropositionListener`).
+     *
+     * @param \Modules\InboundMail\Api\MessageCandidate[] $candidates
+     */
+    public function onProposed(InboundMessage $message, array $candidates): void
+    {
+        if ($this->notifier === null) {
+            return;
+        }
+
+        $camps = [];
+        $labels = [];
+        foreach ($candidates as $candidate) {
+            $campId = self::campIdFromReference($candidate->businessReference);
+            $camp = $campId === null ? null : $this->camps->findById($campId);
+            if ($camp === null || isset($labels[$camp->id])) {
+                continue;
+            }
+            $camps[] = $camp;
+            $labels[$camp->id] = $this->labelFor($camp);
+        }
+
+        $this->notifier->proposed($camps, $labels);
     }
 
     // ── Api\ReferenceDirectory: the stays as a chief names them ────────
@@ -559,13 +592,21 @@ class CampsMessageConsumer implements MessageConsumerInterface, ReferenceDirecto
         }
 
         $campId = $this->stayFromMail->createFrom($message);
+        if ($campId === null) {
+            return AnalysisResult::nothing();
+        }
+
+        // The chiefs learn of a stay they did not create from the site,
+        // not from finding it on the list a week later.
+        $created = $this->camps->findById($campId);
+        if ($created !== null) {
+            $this->notifier?->stayCreated($created, $this->labelFor($created));
+        }
 
         // PERIOD, not SENDER: the stay exists because of the dates read in
         // the message's content, and the origin a chief reads next to it
         // has to be the reason it is actually there.
-        return $campId === null
-            ? AnalysisResult::nothing()
-            : AnalysisResult::linkedTo(self::CONSUMER_ID, self::referenceFor($campId), LinkOrigin::PERIOD);
+        return AnalysisResult::linkedTo(self::CONSUMER_ID, self::referenceFor($campId), LinkOrigin::PERIOD);
     }
 
     /**

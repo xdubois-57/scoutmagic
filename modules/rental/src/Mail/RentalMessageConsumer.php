@@ -56,7 +56,7 @@ use Modules\Rental\Service\RentalDocumentService;
  * **A cancelled or archived booking still matches.** The correspondence
  * about why a stay fell through belongs on that stay.
  */
-class RentalMessageConsumer implements MessageConsumerInterface, ReferenceDirectory
+class RentalMessageConsumer implements MessageConsumerInterface, ReferenceDirectory, \Modules\InboundMail\Api\PropositionListener
 {
     public const CONSUMER_ID = 'rental';
 
@@ -107,8 +107,45 @@ class RentalMessageConsumer implements MessageConsumerInterface, ReferenceDirect
          * cheap tier, leaves the propositions exactly as the rules made
          * them.
          */
-        private ?BookingChoiceByModel $modelChoice = null
+        private ?BookingChoiceByModel $modelChoice = null,
+        /**
+         * Who tells the asset's managers that a message waits for their
+         * decision (`Mail\RentalMailNotifier`). Null: nobody is told, and
+         * the proposition still waits on the booking's page.
+         */
+        private ?RentalMailNotifier $notifier = null
     ) {
+    }
+
+    /**
+     * A message proposed towards bookings of this module: the managers
+     * of each booking's asset are told (`Api\PropositionListener`).
+     *
+     * @param \Modules\InboundMail\Api\MessageCandidate[] $candidates
+     */
+    public function onProposed(InboundMessage $message, array $candidates): void
+    {
+        if ($this->notifier === null) {
+            return;
+        }
+
+        $bookings = [];
+        $labels = [];
+        $urls = [];
+        foreach ($candidates as $candidate) {
+            $booking = $this->bookingRepository->findByReference($candidate->businessReference);
+            if ($booking === null || isset($labels[$booking->reference])) {
+                continue;
+            }
+            $bookings[] = $booking;
+            $labels[$booking->reference] = $this->labelFor($booking);
+            $url = $this->referenceUrl($booking->reference);
+            if ($url !== null) {
+                $urls[$booking->reference] = $url;
+            }
+        }
+
+        $this->notifier->proposed($bookings, $labels, $urls);
     }
 
     // ── Api\ReferenceDirectory: the bookings as a person names them ────
@@ -200,6 +237,17 @@ class RentalMessageConsumer implements MessageConsumerInterface, ReferenceDirect
         // module's own list of box ids, which used to be checked here,
         // said something the operator's answer could contradict without
         // anything on either screen explaining why nothing arrived.
+        // Level 0: the message answers a mail the site sent, at the signed
+        // reply address that mail carried (§8.58). Minted and verified by
+        // the gateway; only the booking's existence is checked here.
+        // Upper-cased because that is what a booking reference IS
+        // (`LOC-2027-0042`) and the mail layer lowercases recipients.
+        $addressed = $message->addressedReferenceFor(self::CONSUMER_ID);
+        $addressed = $addressed === null ? null : strtoupper($addressed);
+        if ($addressed !== null && $this->bookingRepository->findByReference($addressed) !== null) {
+            return AnalysisResult::linkedTo(self::CONSUMER_ID, $addressed, LinkOrigin::REPLY_ADDRESS);
+        }
+
         $reference = $this->referenceMatcher->match($message->subject, $message->bodyText);
         if ($reference !== null && $this->bookingRepository->findByReference($reference) !== null) {
             return AnalysisResult::linkedTo(self::CONSUMER_ID, $reference, LinkOrigin::REFERENCE);

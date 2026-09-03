@@ -57,6 +57,16 @@ trait InertInboundMail
         return false;
     }
 
+    public function replyAddressFor(string $consumerId, string $businessReference): ?string
+    {
+        return null;
+    }
+
+    public function countCandidatesFor(string $consumerId): int
+    {
+        return 0;
+    }
+
     public function recordOutboundMessageId(string $consumerId, string $businessReference, string $messageId): void
     {
     }

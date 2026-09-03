@@ -25,12 +25,13 @@ Ensuite, trois règles, dans cet ordre.
 Sur une boîte **dédiée** aux finances, ou si l'expéditeur anime la section
 à laquelle ce compte appartient, le reçu est enregistré sur ce compte sans
 confirmation : deux indices indépendants disent la même chose. Le
-rattachement est affiché comme « IBAN du compte cité dans le message », et
-« Changer de compte » sur le reçu corrige une erreur en un clic.
+rattachement est affiché comme « IBAN du compte cité dans le message » ;
+« Changer de compte » corrige une erreur en un clic.
 
 Sinon le site vous **propose** ce compte, en tête de la page Reçus, dans
-« Courrier à trier ». C'est un signal faible : rien n'est enregistré tant
-qu'un trésorier n'a pas confirmé. « Rattacher » enregistre la pièce jointe
+« Courrier à trier », et les trésoriers en sont avertis par la
+notification « Reçu arrivé par e-mail à confirmer ». Rien n'est
+enregistré tant qu'un trésorier n'a pas confirmé. « Rattacher » enregistre la pièce jointe
 comme reçu de ce compte, en votre nom ; « Écarter » est définitif.
 
 Si le message cite deux de vos comptes, il ne propose rien : c'est presque
@@ -40,8 +41,7 @@ Une même facture transmise deux fois ne fait qu'un reçu.
 
 ## 2. L'expéditeur anime un seul staff
 
-Un animateur photographie un ticket et l'envoie à l'adresse de la
-trésorerie. Le site reconnaît son adresse — celle du Desk comme une
+Un animateur envoie la photo d'un ticket à l'adresse de la trésorerie. Le site reconnaît son adresse — celle du Desk comme une
 adresse secondaire confirmée —, voit qu'il anime **un seul** staff, et
 classe le reçu sur le compte de ce staff, sans confirmation.
 

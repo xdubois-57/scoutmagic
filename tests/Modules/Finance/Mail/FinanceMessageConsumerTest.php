@@ -116,6 +116,19 @@ class FinanceMessageConsumerTest extends TestCase
         $this->assertSame(LinkOrigin::IBAN, $result->links[0]->origin);
     }
 
+    public function testAPropositionTellsTheTreasurersWhichAccounts(): void
+    {
+        $notifier = $this->createMock(\Modules\Finance\Mail\FinanceMailNotifier::class);
+        $notifier->expects($this->once())->method('proposed')->with(['Compte courant', 'compte inconnu']);
+
+        $consumer = $this->consumer(notifier: $notifier);
+        $consumer->onProposed($this->storedMessage(), [
+            new \Modules\InboundMail\Api\MessageCandidate(FinanceMessageConsumer::referenceFor($this->accountId), 'a', 'iban_in_body', 'x'),
+            new \Modules\InboundMail\Api\MessageCandidate(FinanceMessageConsumer::REFERENCE_UNKNOWN, 'b', 'attachment', 'x'),
+            new \Modules\InboundMail\Api\MessageCandidate(FinanceMessageConsumer::referenceFor($this->accountId), 'a', 'iban_in_body', 'x'),
+        ]);
+    }
+
     public function testAnIbanWithNoAttachmentIsNothingToFile(): void
     {
         $result = $this->consumer()->analyze($this->message(
@@ -797,7 +810,8 @@ class FinanceMessageConsumerTest extends TestCase
         ?int $actorFor = null,
         ?\Closure $readFile = null,
         ?\Modules\Finance\Api\ExpenseReceiptInterface $receipts = null,
-        bool $withSenderStaff = false
+        bool $withSenderStaff = false,
+        ?\Modules\Finance\Mail\FinanceMailNotifier $notifier = null
     ): FinanceMessageConsumer {
         $receipts ??= new RecordingExpenseReceipts($filed);
 
@@ -819,7 +833,8 @@ class FinanceMessageConsumerTest extends TestCase
                     : null,
             $readFile ?? static fn(int $fileId): ?string => 'des octets',
             $withSenderStaff ? $this->senderStaffResolver() : null,
-            $withSenderStaff ? new \Modules\Finance\Mail\ForwardedSenderExtractor() : null
+            $withSenderStaff ? new \Modules\Finance\Mail\ForwardedSenderExtractor() : null,
+            $notifier
         );
     }
 

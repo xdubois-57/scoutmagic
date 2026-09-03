@@ -139,7 +139,8 @@ class AnalyzeStoredMessagesHandler implements TaskHandlerInterface
             }
 
             $results = $this->consumerRegistry?->analyzeAllStored($stored, $allowedByMailbox[$stored->mailboxId]) ?? [];
-            $notifier->notify($messageId, $applier->apply($messageId, $results));
+            $applied = $applier->applyAndReport($messageId, $results);
+            $notifier->notify($messageId, $applied->links, $applied->candidates);
 
             foreach ($results as $result) {
                 $linked += count($result->links);
