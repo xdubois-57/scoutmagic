@@ -75,7 +75,7 @@ export function chipElement(keyword) {
     const chip = document.createElement('span');
     chip.className = 'doc-keyword';
     chip.setAttribute('contenteditable', 'false');
-    chip.setAttribute('data-keyword', keyword.replace(/["&<>]/g, ''));
+    chip.dataset.keyword = keyword.replace(/["&<>]/g, '');
     chip.textContent = '{{ ' + keyword + ' }}';
 
     return chip;

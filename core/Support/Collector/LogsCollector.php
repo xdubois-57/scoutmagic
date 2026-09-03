@@ -377,11 +377,8 @@ class LogsCollector implements SupportCollectorInterface
     {
         $patterns = [
             // [Wed Aug 20 03:00:00.000000 2026] — Apache error log
-            '/^\[([A-Za-z]{3} [A-Za-z]{3} +\d{1,2} \d{2}:\d{2}:\d{2})(?:\.\d+)? (\d{4})\]/' => static fn(
-                array $m
-            ): string => $m[1]
-                . ' '
-                . $m[2],
+            '/^\[([A-Za-z]{3} [A-Za-z]{3} +\d{1,2} \d{2}:\d{2}:\d{2})(?:\.\d+)? (\d{4})\]/' =>
+                static fn(array $m): string => $m[1] . ' ' . $m[2],
             // [20-Aug-2026 03:00:00 UTC] — PHP error log
             '/^\[(\d{2}-[A-Za-z]{3}-\d{4} \d{2}:\d{2}:\d{2}(?: [A-Za-z\/_+\-0-9]+)?)\]/' => static fn(
                 array $m

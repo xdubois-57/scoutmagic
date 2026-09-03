@@ -562,9 +562,13 @@ class ForecastService
                     ? $this->encryption->decrypt($source['gender_encrypted'], 'member_years.gender')
                     : null
             );
+            $encryptedBirthDate = $source['birth_date_encrypted'] ?? null;
             $birthYear = $source !== null
-                ? MemberYearService::extractBirthYear($source['birth_date_encrypted'] !== null ? $this->encryption->decrypt($source['birth_date_encrypted'],
-                    'member_years.birth_date') : null)
+                ? MemberYearService::extractBirthYear(
+                    $encryptedBirthDate !== null
+                        ? $this->encryption->decrypt($encryptedBirthDate, 'member_years.birth_date')
+                        : null
+                )
                 : null;
             $row['birth_year'] = $birthYear;
             $row['year_in_branch'] = $source !== null
