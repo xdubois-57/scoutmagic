@@ -332,6 +332,9 @@ final class UxConventionsTest extends TestCase
         // The probes of one ticket's installation as a text file, headers
         // and all — a download beside the diagnostic archive, never a
         // page (Modules\SupportDashboard\Service\MailProbeReport).
+        // The composed dossier and the probes report are both
+        // downloads, never pages.
+        '/support-dashboard/tickets/{id}/dossier',
         '/support-dashboard/tickets/{id}/sondes',
         // Dialog-body fragment fetched on click (views/partials/
         // detail.html.twig does not extend base) — never a full page.

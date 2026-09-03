@@ -2,7 +2,7 @@
   "id": "support_dashboard",
   "name": "Tableau de bord support",
   "description": "Réception et consultation des rapports d'utilisation envoyés par les installations ScoutMagic.",
-  "version": "1.11.0",
+  "version": "1.12.0",
   "enabled_by_default": false,
   "visible_when": ["statistics_receiver"],
   "routes": [
@@ -73,6 +73,15 @@
       "role_min": "superadmin",
       "label": "",
       "breadcrumb": { "label": "Ticket", "parents": ["Configuration"] }
+    },
+    {
+      "path": "/support-dashboard/tickets/{id}/dossier",
+      "method": "GET",
+      "controller": "Modules\\SupportDashboard\\Controller\\SupportTicketController",
+      "action": "dossier",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
     },
     {
       "path": "/support-dashboard/tickets/{id}/sondes",

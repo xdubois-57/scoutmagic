@@ -4532,6 +4532,14 @@ if ($isEnabled('support_dashboard')) {
                 new \Modules\SupportDashboard\Repository\SupportTicketAnalysisRepository($pdo, $encryptionService),
                 $journalService,
                 $llmConnectorForOthers
+            ),
+            // Tout ce que ce receveur sait d'une installation, en un seul
+            // zip : le ticket, les deux lectures des statistiques, les
+            // sondes e-mail et l'archive transmise, placée entière et
+            // jamais recomposée.
+            new \Modules\SupportDashboard\Service\TicketDossierBuilder(
+                new \Modules\SupportDashboard\Repository\SupportInstallationRepository($pdo),
+                $storedFileReader
             )
         )
     );

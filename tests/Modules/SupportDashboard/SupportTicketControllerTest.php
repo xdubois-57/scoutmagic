@@ -299,7 +299,14 @@ class SupportTicketControllerTest extends TestCase
                     $journal,
                     null
                 )
-                : null
+                : null,
+            // The dossier the ticket page offers. Built with no file
+            // reader: the receiver's own knowledge is what these tests
+            // are about, and an uploaded archive is covered by
+            // TicketDossierBuilderTest.
+            new \Modules\SupportDashboard\Service\TicketDossierBuilder(
+                new \Modules\SupportDashboard\Repository\SupportInstallationRepository($this->pdo)
+            )
         );
 
         $frontController = new FrontController($router, $this->twig, new AppConfig($configFile));
@@ -307,4 +314,57 @@ class SupportTicketControllerTest extends TestCase
 
         return $frontController;
     }
+
+    // ── Le dossier complet, depuis la page du ticket ────────────────────
+
+    /**
+     * One download holding everything this receiver knows.
+     *
+     * The complaint: the probes were a second download and the two
+     * readings of the statistics were on the screen and nowhere else, so
+     * the one file a maintainer takes away had a third of the story.
+     */
+    public function testTheDossierRouteAnswersWithAZipNamedAfterTheTicket(): void
+    {
+        AuthSession::login(1, 'superadmin@test.com', 'superadmin');
+
+        $response = $this->frontController('/support-dashboard/tickets/{id}/dossier', 'dossier')
+            ->handle(new Request('GET', '/support-dashboard/tickets/' . $this->ticketId . '/dossier', [], [], [], []));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('application/zip', $response->getHeaders()['Content-Type'] ?? null);
+        $this->assertStringContainsString(
+            'dossier-support-',
+            (string) ($response->getHeaders()['Content-Disposition'] ?? '')
+        );
+        // A real zip, not an error page with a zip content type.
+        $this->assertStringStartsWith("PK\x03\x04", $response->getBody());
+    }
+
+    public function testTheDossierIsOfferedOnThePageAndSaysWhatItHolds(): void
+    {
+        AuthSession::login(1, 'superadmin@test.com', 'superadmin');
+
+        $body = $this->frontController('/support-dashboard/tickets/{id}', 'detail')
+            ->handle(new Request('GET', '/support-dashboard/tickets/' . $this->ticketId, [], [], [], []))
+            ->getBody();
+
+        $this->assertStringContainsString(
+            '/support-dashboard/tickets/' . $this->ticketId . '/dossier',
+            $body
+        );
+        $this->assertStringContainsString('sondes e-mail', $body);
+        $this->assertStringContainsString('statistiques au moment du ticket', $body);
+    }
+
+    public function testAnUnknownTicketHasNoDossier(): void
+    {
+        AuthSession::login(1, 'superadmin@test.com', 'superadmin');
+
+        $response = $this->frontController('/support-dashboard/tickets/{id}/dossier', 'dossier')
+            ->handle(new Request('GET', '/support-dashboard/tickets/999999/dossier', [], [], [], []));
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
 }

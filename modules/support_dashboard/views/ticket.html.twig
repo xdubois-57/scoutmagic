@@ -134,25 +134,52 @@
 
 <div class="card mb-3">
     <div class="card-body">
-        <h2 class="h5 mb-3">Archive de diagnostic</h2>
+        <h2 class="h5 mb-3">Dossier de support</h2>
 
-        {% if ticket.archive_file_id %}
+        {# Le dossier complet d'abord, et il est proposé MÊME sans archive :
+           les sondes et les deux lectures des statistiques survivent à la
+           rétention de l'archive, et ce sont elles qui répondent à
+           « quelle version avaient-ils quand ça a cassé ». L'archive brute
+           reste offerte à côté, pour qui veut la pièce telle qu'elle a été
+           transmise plutôt que le dossier qui la contient. #}
+        {% if dossier_available %}
             <p class="small mb-2">
-                {% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Transmise' } only %}
-                {% if ticket.archive_received_at %}— reçue le {{ ticket.archive_received_at }}{% endif %}
+                Tout ce que ce receveur sait de cette installation, en un seul fichier :
+                le ticket, les statistiques au moment du ticket et les dernières reçues,
+                les sondes e-mail avec leurs en-têtes, et l'archive transmise telle quelle.
             </p>
+            <div class="d-flex flex-wrap gap-2">
+                <a class="btn btn-primary" href="/support-dashboard/tickets/{{ ticket.id }}/dossier">
+                    <i class="bi bi-file-earmark-zip" aria-hidden="true"></i>
+                    Télécharger le dossier complet
+                </a>
+                {% if ticket.archive_file_id %}
+                    <a class="btn btn-outline-secondary" href="/files/{{ ticket.archive_file_id }}">
+                        L'archive transmise seule
+                    </a>
+                {% endif %}
+            </div>
+        {% elseif ticket.archive_file_id %}
             <a class="btn btn-outline-primary" href="/files/{{ ticket.archive_file_id }}">
                 Télécharger l'archive
             </a>
-            <p class="small text-body-secondary mb-0 mt-2">
-                Supprimée automatiquement 90 jours après la clôture, et au plus tard un an après la
-                réception du ticket. Le ticket et sa note de résolution, eux, sont conservés deux ans.
-            </p>
-        {% else %}
-            <p class="small text-body-secondary mb-0">
-                Aucune archive : l'administrateur n'en a pas transmis, ou sa rétention l'a déjà supprimée.
-            </p>
         {% endif %}
+
+        <p class="small mb-0 mt-3">
+            {% if ticket.archive_file_id %}
+                {% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Archive transmise' } only %}
+                {% if ticket.archive_received_at %}— reçue le {{ ticket.archive_received_at }}{% endif %}
+            {% else %}
+                <span class="text-body-secondary">
+                    Aucune archive transmise par l'administrateur, ou sa rétention l'a déjà supprimée.
+                </span>
+            {% endif %}
+        </p>
+        <p class="small text-body-secondary mb-0 mt-2">
+            L'archive est supprimée automatiquement 90 jours après la clôture, et au plus tard un an
+            après la réception du ticket. Le ticket et sa note de résolution, eux, sont conservés
+            deux ans.
+        </p>
     </div>
 </div>
 
