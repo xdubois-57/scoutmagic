@@ -11,7 +11,6 @@ namespace Core\Support\Ticket;
 use Core\Config\SettingService;
 use Core\Journal\JournalService;
 use Core\Mail\MailService;
-use Core\Service\DateInput;
 use Core\Statistics\StatisticsTransportInterface;
 
 /**
@@ -49,12 +48,6 @@ class MailProbeSender
     /** The key of that run, so the page can name what to look for. */
     public const LAST_KEY_SETTING = 'support_last_mail_probe_key';
 
-    /**
-     * One run an hour, matching what the receiver enforces. Held here as
-     * well so a second press answers immediately and honestly rather
-     * than travelling to be refused.
-     */
-    public const RATE_LIMIT_WINDOW_MINUTES = 60;
 
     /** No identity could be provisioned — `secrets.enc` is unavailable. */
     public const FAILURE_NO_IDENTITY = 'no_identity';
@@ -64,7 +57,15 @@ class MailProbeSender
     public const FAILURE_MALFORMED_ANSWER = 'malformed_answer';
     /** It answered that it synchronises no mailbox at all. */
     public const FAILURE_NO_MAILBOX = 'no_mailbox';
-    /** A run was asked for less than an hour ago, here or there. */
+    /**
+     * The receiver refused because a run was asked for too recently.
+     *
+     * **Nothing on this side produces it any more.** Both halves of the
+     * hourly limit are gone — see `send()` — and this is kept for the one
+     * case that survives it: a receiver still running a version from
+     * before the change, which answers `rate_limited` and whose answer
+     * this side must still read rather than call malformed.
+     */
     public const FAILURE_RATE_LIMITED = 'rate_limited';
     /** Every address refused — the local mail configuration is the suspect. */
     public const FAILURE_MAIL_REFUSED = 'mail_refused';
@@ -81,10 +82,11 @@ class MailProbeSender
 
     public function send(\DateTimeImmutable $now): MailProbeResult
     {
-        if ($this->rateLimitedUntil($now) !== null) {
-            return $this->refuse(self::FAILURE_RATE_LIMITED);
-        }
-
+        // **No local hour to wait out.** This used to refuse a second run
+        // inside an hour before travelling, matching what the receiver
+        // enforced. Both are gone: a ticket now always carries a probe,
+        // and the case the probe exists for — « mes e-mails ne partent
+        // pas » — is exactly the one where somebody presses twice.
         $guard = $this->identityService->firstFailingGuard();
         if ($guard !== null) {
             return $this->refuse($guard);
@@ -196,26 +198,6 @@ class MailProbeSender
         }
 
         return MailProbeResult::sent($key, count($addresses), $delivered);
-    }
-
-    /**
-     * The instant before which a new run is refused, or null when one may
-     * be asked for now.
-     */
-    public function rateLimitedUntil(\DateTimeImmutable $now): ?\DateTimeImmutable
-    {
-        // Through DateInput, not the raw constructor: an empty setting
-        // would otherwise read as *now* and lock the button for an hour
-        // on an installation that has never sent a probe, and a corrupted
-        // one would 500 the whole Support page (SECURITY.md § 35).
-        $lastSent = DateInput::fromStorage($this->settingService->get(self::LAST_SENT_AT_SETTING));
-        if ($lastSent === null) {
-            return null;
-        }
-
-        $until = $lastSent->modify('+' . self::RATE_LIMIT_WINDOW_MINUTES . ' minutes');
-
-        return $until > $now ? $until : null;
     }
 
     /**

@@ -575,6 +575,13 @@ class SupportController extends AbstractController
     /**
      * Sends the diagnostic mail probe that goes with a ticket.
      *
+     * **Always, now.** There used to be an hourly limit on both sides, and
+     * a ticket reported within an hour of a previous probe simply carried
+     * none — which is the case the probe exists for: somebody writes
+     * « mes e-mails ne partent pas » precisely because they have been
+     * pressing send. A report whose evidence was dropped to save one
+     * message is a report the maintainer cannot answer.
+     *
      * Silent on the two ordinary non-events — no probe sender wired, and a
      * receiver that synchronises no mailbox — because neither is something
      * the person who just reported a bug has to act on.
@@ -592,8 +599,10 @@ class SupportController extends AbstractController
 
         return match ($probe->failureReason) {
             MailProbeSender::FAILURE_NO_MAILBOX => '',
+            // Only a receiver still running a version from before the
+            // limit was lifted can answer this now.
             MailProbeSender::FAILURE_RATE_LIMITED =>
-                "Aucun e-mail de test : il y en a déjà eu un il y a moins d'une heure.",
+                "Aucun e-mail de test : le serveur de support en a déjà reçu un très récemment.",
             MailProbeSender::FAILURE_MAIL_REFUSED =>
                 "L'e-mail de test n'est pas parti : votre serveur de messagerie l'a refusé — c'est déjà un diagnostic.",
             default => "L'e-mail de test n'a pas pu partir.",

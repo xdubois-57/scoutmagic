@@ -27,6 +27,8 @@ use Core\Statistics\StatisticsPayloadBuilder;
 use Core\Statistics\StatisticsSender;
 use Core\Support\Ticket\ArchiveTransportInterface;
 use Core\Support\Ticket\SupportArchiveSender;
+use Core\Support\Ticket\MailProbeResult;
+use Core\Support\Ticket\MailProbeSender;
 use Core\Support\Ticket\SupportTicketSender;
 use Core\Support\Ticket\TicketIdentityService;
 use Core\Statistics\StatisticsTransportInterface;
@@ -64,6 +66,46 @@ final class SupportRecordingTransport implements StatisticsTransportInterface
         $this->calls[] = ['url' => $url, 'body' => $jsonBody, 'token' => $bearerToken];
 
         return $this->response ?? StatisticsTransportResponse::response(200, '');
+    }
+}
+
+/**
+ * A probe sender that records instead of posting and mailing.
+ *
+ * `Core\Support\Ticket\MailProbeSender` is a class, not an interface, so
+ * the seam is a subclass: what these tests assert is that a ticket ALWAYS
+ * asks for a probe, never how one travels — `Tests\Core\Support\Ticket\
+ * MailProbeSenderTest` owns that half, with a real MailService and a
+ * capturing transport.
+ *
+ * The parent constructor is deliberately not called: nothing here reads a
+ * parent property, and building an identity service and a mailer to
+ * count calls would be building the very thing this double exists to
+ * avoid. Declared here for the same PSR-4 reason as the transports above.
+ */
+final class RecordingProbeSender extends MailProbeSender
+{
+    public int $calls = 0;
+
+    public function __construct()
+    {
+    }
+
+    public function send(\DateTimeImmutable $now): MailProbeResult
+    {
+        $this->calls++;
+
+        return MailProbeResult::sent('SMP-TESTKEY01', 1, 1);
+    }
+
+    /**
+     * Overridden for the same reason the constructor is skipped: the real
+     * one reads a setting service this double never built, and the page
+     * asks for it on every render.
+     */
+    public function lastRun(): ?array
+    {
+        return null;
     }
 }
 
@@ -387,6 +429,8 @@ class SupportControllerTest extends TestCase
         $this->assertStringNotContainsString('name="ticket_description"', $body);
     }
 
+    private RecordingProbeSender $probeSender;
+
     private function respondWith(int $status, string $body): SupportRecordingTransport
     {
         $transport = new SupportRecordingTransport(StatisticsTransportResponse::response($status, $body));
@@ -416,7 +460,15 @@ class SupportControllerTest extends TestCase
                 '1.0.33'
             ),
             new SupportTicketSender($this->settings, $ticketIdentity, $transport, $journalService, '1.0.33'),
-            $ticketIdentity
+            $ticketIdentity,
+            null,
+            [],
+            null,
+            // A probe sender that records rather than posting and mailing:
+            // what these tests are about is that a ticket ALWAYS asks for
+            // one, never how a probe travels (Core\Support\Ticket\
+            // MailProbeSenderTest covers that).
+            $this->probeSender = new RecordingProbeSender()
         );
 
         return $transport;
@@ -449,6 +501,59 @@ class SupportControllerTest extends TestCase
             'no probe box' => [['probe_acknowledged' => '']],
             'neither box' => [['archive_acknowledged' => '', 'probe_acknowledged' => '']],
         ];
+    }
+
+    /**
+     * Every accepted ticket carries a probe. Every one, every time.
+     *
+     * There used to be an hourly limit on both sides of the wire, and its
+     * cost fell exactly where the probe is most needed: somebody writes
+     * « mes e-mails ne partent pas » BECAUSE they have been pressing
+     * send, and the probe that would answer them was refused for being
+     * the second one that afternoon. A report whose evidence was dropped
+     * to save one message is a report the maintainer cannot answer.
+     */
+    public function testEveryTicketSendsAProbeIncludingTwoInARow(): void
+    {
+        $this->issueCsrfToken();
+        $this->ticketTransport = $this->respondWith(200, (string) json_encode([
+            'status' => 'accepted',
+            'ticket_reference' => 'SUP-7KQ4F2',
+        ]));
+
+        $this->sendTicket();
+        $this->sendTicket();
+
+        $this->assertSame(2, $this->probeSender->calls, 'a ticket must always carry a probe');
+    }
+
+    public function testTheTicketConfirmationNamesTheProbeThatWentWithIt(): void
+    {
+        // The key is what a maintainer looks for in the mailboxes, and
+        // what the person who reported the bug can quote back.
+        $this->issueCsrfToken();
+        $this->ticketTransport = $this->respondWith(200, (string) json_encode([
+            'status' => 'accepted',
+            'ticket_reference' => 'SUP-7KQ4F2',
+        ]));
+
+        $this->sendTicket();
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertIsArray($flash);
+        $this->assertStringContainsString('SMP-TESTKEY01', (string) $flash['message']);
+    }
+
+    public function testARefusedTicketSendsNoProbe(): void
+    {
+        // The probe goes WITH a report. No report, nothing to attach it
+        // to — and nothing to send.
+        $this->issueCsrfToken();
+        $this->ticketTransport = $this->respondWith(200, (string) json_encode(['status' => 'refused']));
+
+        $this->sendTicket();
+
+        $this->assertSame(0, $this->probeSender->calls);
     }
 
     /**
