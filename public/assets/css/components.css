@@ -1177,12 +1177,20 @@
    le désaligne de celui d'à côté. C'est exactement le défaut signalé sur
    « Non imputés », où le champ Créance et le champ Montant ne se
    trouvaient plus sur la même ligne.
+
+   Le sélecteur de séjour du courrier de camps
+   (modules/camps/views/partials/stay_picker.html.twig) obéit à la même
+   règle et la partage ici plutôt que d'en écrire une deuxième copie : ce
+   sont deux noms pour une seule mise en page, et deux copies dériveraient
+   à la première retouche.
    --------------------------------------------------------------------- */
-.receivable-picker {
+.receivable-picker,
+.stay-picker {
     position: relative;
 }
 
-.receivable-picker__results {
+.receivable-picker__results,
+.stay-picker__results {
     position: absolute;
     top: 100%;
     left: 0;

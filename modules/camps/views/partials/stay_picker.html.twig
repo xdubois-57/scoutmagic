@@ -1,0 +1,60 @@
+{#
+  « Rattacher à », answered by typing a place or a month.
+
+  The control this replaces was a `<select>` holding the CROSS PRODUCT of
+  every visible place and every stay it ever hosted — two hundred lines on
+  a unit in its tenth year, in an order nobody can predict, to find the
+  camp whose contract is on the screen. The same shape the finance module
+  already uses for « quelle créance ? » and « quel mouvement ? »: type,
+  wait a beat, ask the server, click a result.
+
+  **The `<select>` is still here, and that is deliberate.** It is what the
+  form submits when JavaScript does not run, and the script REMOVES it on
+  upgrade so the two controls can never both post a `camp_id`. It no
+  longer holds everything either: it holds the same ranked shortlist the
+  search box opens on — the stay this message's own dates name first, then
+  what is still to come — which is the answer far more often than not.
+
+  Parameters:
+    message_id     -- the message being attached; makes every id unique
+    options        -- the shortlist, as partials/form_field.html.twig wants it
+    preferred_ids  -- stays this message's dates name, best first
+    searchable     -- false when no search service was built: the select
+                      stays and no search box is offered
+#}
+<div class="stay-picker" data-stay-picker
+     data-preferred="{{ preferred_ids|join(',') }}">
+    <div data-stay-picker-fallback>
+        {% include 'partials/form_field.html.twig' with {
+            field_id: 'camp-' ~ message_id,
+            field_name: 'camp_id',
+            label: 'Rattacher à',
+            type: 'select', size: 'sm',
+            options: options,
+            wrapper_class: 'mb-0',
+        } only %}
+    </div>
+
+    {% if searchable %}
+        {# Hidden until the script takes over: a search box that cannot
+           search is worse than a list. #}
+        <div class="d-none" data-stay-picker-search>
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'camp-search-' ~ message_id,
+                label: 'Rattacher à',
+                size: 'sm',
+                wrapper_class: 'mb-0',
+                placeholder: 'Lieu, mois, année…',
+                autocomplete: 'off',
+            } only %}
+
+            {# What the form actually posts. Disabled so it stays out of
+               the request until the script has enabled it — until then the
+               `<select>` above is the one control that answers. #}
+            <input type="hidden" name="camp_id" value="" disabled data-stay-picker-value>
+
+            <div class="stay-picker__results list-group d-none" data-stay-picker-results
+                 role="listbox" aria-label="Séjours proposés"></div>
+        </div>
+    {% endif %}
+</div>

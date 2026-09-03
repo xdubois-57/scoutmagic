@@ -19,7 +19,9 @@ use Modules\Camps\Repository\FieldProposalRepository;
 use Modules\Camps\Repository\Camp;
 use Modules\Camps\Repository\CampRepository;
 use Modules\Camps\Repository\PlaceRepository;
+use Modules\Camps\Mail\ExistingStayMatcher;
 use Modules\Camps\Service\CampLabels;
+use Modules\Camps\Service\StaySearchService;
 use Modules\InboundMail\Api\InboundMailInterface;
 use Twig\Environment;
 
@@ -65,7 +67,20 @@ class CampsMailController extends AbstractController
         private PlaceRepository $places,
         private ?InboundMailInterface $inboundMail = null,
         private ?FieldProposalRepository $proposals = null,
-        private ?MailFieldCompletionService $fieldCompletion = null
+        private ?MailFieldCompletionService $fieldCompletion = null,
+        /**
+         * « Quel séjour ? » (`Service\StaySearchService`). Null keeps the
+         * short list this screen renders and gives up the search box: a
+         * caller that did not build it gets the control it always had.
+         */
+        private ?StaySearchService $staySearch = null,
+        /**
+         * What the message itself says about its dates
+         * (`Mail\ExistingStayMatcher`), so the picker opens on the stay
+         * before anybody types. Optional in the same way and for the same
+         * reason as everything else here.
+         */
+        private ?ExistingStayMatcher $existingStay = null
     ) {
     }
 
@@ -79,7 +94,7 @@ class CampsMailController extends AbstractController
 
         return $this->render('@camps/unsorted_mail.html.twig', [
             'messages' => self::filtered($all, $status),
-            'camp_options' => $this->campOptions(),
+            'can_search_stays' => $this->staySearch !== null,
             'has_inbound_mail' => $this->inboundMail !== null && $this->inboundMail->isCollecting(),
             'status' => $status,
             'counts' => [
@@ -442,6 +457,12 @@ class CampsMailController extends AbstractController
                 // into another's audience.
                 'links' => $message->linksFor(CampsMessageConsumer::CONSUMER_ID),
                 'candidates' => $candidates[$message->id] ?? [],
+                // Its own shortlist, because the stay its own dates name
+                // belongs at the top of ITS list and nowhere else. One
+                // query for the lot — `Service\StaySearchService` reads
+                // the stays once and ranks them per message.
+                'preferred_stay_ids' => $preferred = $this->preferredStayIds($message),
+                'camp_options' => $this->campOptions($preferred),
             ];
         }
 
@@ -449,27 +470,112 @@ class CampsMailController extends AbstractController
     }
 
     /**
-     * Every stay, most recent first — the picker for "rattacher à un
-     * camp". Deliberately not filtered to upcoming ones: a message about
-     * a camp two summers ago is exactly the kind of thing that ends up
-     * unsorted.
+     * How many stays the `<select>` behind the search box holds.
      *
+     * That control is the answer when JavaScript does not run, and it is
+     * NOT the old one: it used to hold the cross product of every visible
+     * place and every stay it ever hosted — two hundred lines on a unit in
+     * its tenth year, built with one query per place. This is the same
+     * ranked shortlist the search box opens on, which is the right answer
+     * far more often than it is not.
+     */
+    private const PICKER_OPTIONS = 20;
+
+    /**
+     * The stays this particular message is likely to be about.
+     *
+     * The same reading the automatic pass uses (`Mail\ExistingStayMatcher`)
+     * — the period the message announces — so the line a chief lands on is
+     * the line ScoutMagic would have chosen if it had been sure. It is a
+     * suggestion here and nothing more: this screen exists precisely for
+     * the messages where nobody was sure.
+     *
+     * Only the subject and the body, never the attachments: this runs
+     * while a page is being rendered, and opening a hundred files to sort
+     * a hundred suggestions is not something a chief should wait for.
+     *
+     * @return int[]
+     */
+    private function preferredStayIds(\Modules\InboundMail\Api\InboundMessage $message): array
+    {
+        if ($this->existingStay === null) {
+            return [];
+        }
+
+        return array_map(
+            static fn(Camp $camp): int => $camp->id,
+            $this->existingStay->matching(trim($message->subject . "\n" . $message->bodyText))
+        );
+    }
+
+    /**
+     * The shortlist for one message, as `partials/form_field.html.twig`
+     * wants it.
+     *
+     * @param int[] $preferredIds
      * @return array<int, array{value: string, label: string, selected: bool}>
      */
-    private function campOptions(): array
+    private function campOptions(array $preferredIds): array
     {
         $options = [['value' => '', 'label' => 'Choisir un séjour…', 'selected' => true]];
-        foreach ($this->places->findAllVisible() as $place) {
-            foreach ($this->camps->findByPlace($place->id) as $camp) {
-                $options[] = [
-                    'value' => (string) $camp->id,
-                    'label' => $place->name . ' — '
-                        . CampLabels::dateRange($camp->startDate, $camp->endDate, $camp->yearOnly),
-                    'selected' => false,
-                ];
-            }
+        foreach ($this->staySearch?->search('', $preferredIds, self::PICKER_OPTIONS) ?? [] as $stay) {
+            $options[] = [
+                'value' => (string) $stay['id'],
+                'label' => $stay['label'],
+                'selected' => false,
+            ];
         }
 
         return $options;
+    }
+
+    /**
+     * GET /chefs/camps/courrier/sejours — « quel séjour ? », answered as
+     * the chief types.
+     *
+     * Read-only and bounded, like every other search endpoint here: it
+     * answers with at most `StaySearchService::LIMIT` stays of the unit,
+     * named the way the screens name them. There is nothing here a chief
+     * may not already read on /chefs/camps — this route only spares them
+     * the trip.
+     *
+     * @param array<string, string> $params
+     */
+    public function searchStays(Request $request, array $params): Response
+    {
+        if ($this->staySearch === null) {
+            return $this->json(['success' => true, 'stays' => []]);
+        }
+
+        return $this->json([
+            'success' => true,
+            'stays' => $this->staySearch->search(
+                (string) $request->getQuery('q', ''),
+                self::idList((string) $request->getQuery('preferred', ''))
+            ),
+        ]);
+    }
+
+    /**
+     * `"12,45"` as `[12, 45]`, and anything else as nothing.
+     *
+     * These ids come from the page's own markup, so they are a hint about
+     * ORDER and never an authorisation: every id the answer names was
+     * going to be readable by this caller anyway, and one that matches no
+     * stay simply ranks nothing.
+     *
+     * @return int[]
+     */
+    private static function idList(string $raw): array
+    {
+        $ids = [];
+        foreach (explode(',', $raw) as $part) {
+            $part = trim($part);
+            if ($part !== '' && ctype_digit($part)) {
+                $ids[] = (int) $part;
+            }
+        }
+
+        return $ids;
     }
 }

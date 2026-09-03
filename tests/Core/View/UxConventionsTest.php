@@ -215,6 +215,10 @@ final class UxConventionsTest extends TestCase
         '/calendar/feed/personal/{token}.ics',
         '/calendar/feed/unit/{token}.ics',
         '/calendar/feed/{token}.ics',
+        // JSON for the « Rattacher à » stay picker on the camps mail
+        // screen — the twin of /finance/reconciliation/creances below,
+        // never a page.
+        '/chefs/camps/courrier/sejours',
         // XLSX download of a campaign's lines — the file the filter
         // on screen selected, never a page.
         '/finance/campaigns/{id}/export',

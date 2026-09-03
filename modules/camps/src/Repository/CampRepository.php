@@ -68,6 +68,52 @@ class CampRepository
     }
 
     /**
+     * Every stay of every visible place, with the name of that place,
+     * newest first — in ONE query.
+     *
+     * What « Rattacher à » on the camps mail screen needs, and what it
+     * used to build by calling `findByPlace()` once per place: one query
+     * per place, every page view, to render a `<select>` holding the whole
+     * history of the unit. This returns the same set in one round trip and
+     * carries the place name so the caller does not have to look it up
+     * again either.
+     *
+     * Archived places are left out, as they are on every other screen: a
+     * place a chief archived is one they said they were done with, and
+     * proposing its stays first is proposing the answer they retired.
+     *
+     * Sections are not read. This feeds a picker, which names a stay by
+     * its place and its dates; loading the sections of every stay of every
+     * year to render a label that never shows them would be the same
+     * excess in a different place.
+     *
+     * @return list<array{camp: Camp, place_name: string}>
+     */
+    public function findAllWithPlaceName(): array
+    {
+        $stmt = $this->pdo->query(
+            'SELECT c.*, p.name AS place_name
+               FROM camp_camps c
+               JOIN camp_places p ON p.id = c.place_id
+              WHERE p.is_archived = 0
+              ORDER BY COALESCE(c.end_date, CONCAT(c.year_only, \'-12-31\')) DESC, c.id DESC'
+        );
+        if ($stmt === false) {
+            return [];
+        }
+
+        $rows = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $rows[] = [
+                'camp' => $this->hydrate($row, []),
+                'place_name' => (string) $row['place_name'],
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
      * Every stay running exactly from one day to another, newest first.
      *
      * The other axis again, and the one a message asks about: a booking

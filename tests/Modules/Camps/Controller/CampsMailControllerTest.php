@@ -108,13 +108,16 @@ class CampsMailControllerTest extends TestCase
         );
 
         $root = dirname(__DIR__, 4);
+        $this->camps = $camps;
         $this->controller = new CampsMailController(
             TwigFactory::create($root . '/core/View/templates', false, ['camps' => $root . '/modules/camps/views']),
             $camps,
             $places,
             $this->inbound,
             $this->proposals,
-            $this->fieldCompletion
+            $this->fieldCompletion,
+            new \Modules\Camps\Service\StaySearchService($camps),
+            new \Modules\Camps\Mail\ExistingStayMatcher($camps, new \Modules\Camps\Mail\MessageReader())
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -127,6 +130,8 @@ class CampsMailControllerTest extends TestCase
     {
         AuthSession::logout();
     }
+
+    private CampRepository $camps;
 
     private function screen(string $status = ''): string
     {
@@ -509,6 +514,175 @@ class CampsMailControllerTest extends TestCase
             $params
         );
     }
+
+    // ── « Rattacher à » : une recherche, pas tout l'historique ───────────
+
+    /**
+     * The screen no longer renders the unit's whole history in a
+     * `<select>`.
+     *
+     * It used to render the CROSS PRODUCT of every visible place and every
+     * stay it ever hosted — two hundred lines on a unit in its tenth year,
+     * built with one query per place. What is left is a ranked shortlist
+     * that works without JavaScript, plus a search box that reaches
+     * everything.
+     */
+    public function testTheAttachControlOffersASearchAndNotTheWholeHistory(): void
+    {
+        $html = $this->screen();
+
+        $this->assertStringContainsString('data-stay-picker', $html);
+        $this->assertStringContainsString('data-stay-picker-results', $html);
+        // The `<select>` is still there: it is what posts when JavaScript
+        // does not run, and the script removes it on upgrade.
+        $this->assertStringContainsString('name="camp_id"', $html);
+    }
+
+    public function testTheShortlistIsBoundedHoweverManyStaysTheUnitHas(): void
+    {
+        for ($i = 1; $i <= 40; $i++) {
+            $this->camps->create(
+                1,
+                \Modules\Camps\Repository\Camp::STAY_OTHER,
+                sprintf('2019-%02d-01', $i % 12 + 1),
+                sprintf('2019-%02d-02', $i % 12 + 1),
+                null,
+                \Modules\Camps\Repository\Camp::STATUS_CONFIRMED,
+                null, null, null, null, []
+            );
+        }
+
+        // One `<option>` per stay plus the empty « Choisir un séjour… ».
+        // The exact cap is the controller's business; what must hold is
+        // that forty-one stays do not become forty-one options.
+        $this->assertLessThan(30, substr_count($this->screen(), '<option'));
+    }
+
+    /**
+     * The first suggestion, before a single keystroke: the stay whose
+     * dates the message itself announces.
+     *
+     * The same reading the automatic pass uses — so the line a chief lands
+     * on is the line ScoutMagic would have chosen if it had been sure.
+     */
+    public function testThePickerCarriesTheStayTheMessagesOwnDatesName(): void
+    {
+        // The suite's own message already announces the stay's dates —
+        // « du 12 au 19 juillet 2028 » — which is the ordinary shape of a
+        // booking confirmation and the case this exists for.
+        $this->inbound->setMessages([$this->messageSaying('Séjour du 12 au 19 juillet 2028')]);
+
+        $this->assertStringContainsString(
+            'data-preferred="' . $this->campId . '"',
+            $this->screen()
+        );
+    }
+
+    public function testAMessageAnnouncingNothingCarriesNoPreference(): void
+    {
+        // A lone date is not a range and `Mail\MessageReader` refuses it,
+        // so there is nothing to prefer — and the picker must open on the
+        // ordinary shortlist rather than on a guess.
+        $this->inbound->setMessages([
+            $this->messageSaying('Merci de votre réponse du 12 juillet 2028.'),
+        ]);
+
+        $this->assertStringContainsString('data-preferred=""', $this->screen());
+    }
+
+    // ── The endpoint behind the search box ──────────────────────────────
+
+    public function testTheSearchEndpointAnswersWithTheStaysThatMatch(): void
+    {
+        $body = $this->searchStays(['q' => 'mozet']);
+
+        $this->assertTrue($body['success']);
+        $this->assertSame($this->campId, $body['stays'][0]['id']);
+        $this->assertStringContainsString('Domaine de Mozet', $body['stays'][0]['label']);
+    }
+
+    public function testTheSearchEndpointRanksThePreferredStayFirstAndSaysWhy(): void
+    {
+        $second = $this->camps->create(
+            1,
+            \Modules\Camps\Repository\Camp::STAY_GRAND_CAMP,
+            '2029-07-12',
+            '2029-07-19',
+            null,
+            \Modules\Camps\Repository\Camp::STATUS_CONFIRMED,
+            null, null, null, null, []
+        );
+
+        $body = $this->searchStays(['q' => '', 'preferred' => (string) $second]);
+
+        $this->assertSame($second, $body['stays'][0]['id']);
+        $this->assertSame(
+            \Modules\Camps\Service\StaySearchService::REASON_PREFERRED,
+            $body['stays'][0]['reason']
+        );
+    }
+
+    public function testTheSearchEndpointIgnoresAnythingThatIsNotAnId(): void
+    {
+        // These ids come from the page's own markup and are a hint about
+        // ORDER, never an authorisation — but a query string is a query
+        // string, and rubbish in it must rank nothing rather than reach
+        // the database as itself.
+        $body = $this->searchStays(['q' => '', 'preferred' => "1 OR 1=1,,abc, {$this->campId} "]);
+
+        $this->assertTrue($body['success']);
+        $this->assertSame($this->campId, $body['stays'][0]['id']);
+    }
+
+    public function testTheSearchEndpointAnswersNothingRatherThanFailingWithoutTheService(): void
+    {
+        $root = dirname(__DIR__, 4);
+        $bare = new CampsMailController(
+            TwigFactory::create($root . '/core/View/templates', false, ['camps' => $root . '/modules/camps/views']),
+            $this->camps,
+            new PlaceRepository($this->pdo),
+            $this->inbound
+        );
+
+        $response = $bare->searchStays(new Request('GET', '/chefs/camps/courrier/sejours', [], [], [], []), []);
+
+        $this->assertSame([], json_decode($response->getBody(), true)['stays']);
+    }
+
+    /**
+     * @param array<string, string> $query
+     * @return array<string, mixed>
+     */
+    private function searchStays(array $query): array
+    {
+        $response = $this->controller->searchStays(
+            new Request('GET', '/chefs/camps/courrier/sejours', $query, [], [], []),
+            []
+        );
+
+        return json_decode($response->getBody(), true);
+    }
+
+    /** The same message the suite starts from, saying something else. */
+    private function messageSaying(string $body): InboundMessage
+    {
+        return new InboundMessage(
+            id: 42,
+            mailboxId: 2,
+            consumerId: '',
+            businessReference: '',
+            linkOrigin: LinkOrigin::SENDER,
+            subject: 'Confirmation de réservation',
+            fromEmail: 'info@mozet.be',
+            fromName: 'Domaine de Mozet',
+            messageId: '<abc@mail>',
+            inReplyTo: null,
+            sentAt: new \DateTimeImmutable('2027-11-02 09:00:00'),
+            bodyText: $body,
+            bodyHtml: ''
+        );
+    }
+
 }
 
 /**

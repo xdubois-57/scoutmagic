@@ -4868,7 +4868,13 @@ if ($isEnabled('camps')) {
         \Modules\Camps\Controller\CampsMailController::class,
         new \Modules\Camps\Controller\CampsMailController(
             $twig, $campsCampRepo, $campsPlaceRepo, $inboundMailForOthers ?? null,
-            $campsProposalRepo, $campsFieldCompletion
+            $campsProposalRepo, $campsFieldCompletion,
+            // « Rattacher à » : une recherche plutôt qu'une liste de tout
+            // l'historique de l'unité.
+            new \Modules\Camps\Service\StaySearchService($campsCampRepo),
+            // Et la première suggestion, avant la moindre frappe : le
+            // séjour dont ce message annonce lui-même les dates.
+            new \Modules\Camps\Mail\ExistingStayMatcher($campsCampRepo, $campsMessageReader)
         )
     );
     $galleryDelegatedAlbumAccessCheckers[] = new \Modules\Camps\Service\CampAlbumAccessChecker();
