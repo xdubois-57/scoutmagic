@@ -1,19 +1,25 @@
 {#
   « Rattacher à », answered by typing a place or a month.
 
-  The control this replaces was a `<select>` holding the CROSS PRODUCT of
+  The control this replaces was a « select » holding the CROSS PRODUCT of
   every visible place and every stay it ever hosted — two hundred lines on
   a unit in its tenth year, in an order nobody can predict, to find the
   camp whose contract is on the screen. The same shape the finance module
   already uses for « quelle créance ? » and « quel mouvement ? »: type,
   wait a beat, ask the server, click a result.
 
-  **The `<select>` is still here, and that is deliberate.** It is what the
+  **The « select » is still here, and that is deliberate.** It is what the
   form submits when JavaScript does not run, and the script REMOVES it on
   upgrade so the two controls can never both post a `camp_id`. It no
   longer holds everything either: it holds the same ranked shortlist the
   search box opens on — the stay this message's own dates name first, then
   what is still to come — which is the answer far more often than not.
+
+  A note on the word « select » above: a Twig comment is not a comment to
+  anything that lexes this file as HTML. Writing the tag in angle brackets
+  here made SonarQube read a real, label-less form control inside the
+  comment and fail the reliability gate on it — so the tag is spelled out
+  in words on purpose, and putting the brackets back would break the build.
 
   Parameters:
     message_id     -- the message being attached; makes every id unique
@@ -50,7 +56,7 @@
 
             {# What the form actually posts. Disabled so it stays out of
                the request until the script has enabled it — until then the
-               `<select>` above is the one control that answers. #}
+               « select » above is the one control that answers. #}
             <input type="hidden" name="camp_id" value="" disabled data-stay-picker-value>
 
             <div class="stay-picker__results list-group d-none" data-stay-picker-results

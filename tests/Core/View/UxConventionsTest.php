@@ -42,6 +42,64 @@ final class UxConventionsTest extends TestCase
     private const INLINE_HANDLER_ALLOWLIST = [];
 
     /**
+     * A Twig comment is not a comment to anything that lexes the file as
+     * HTML — and SonarQube's HTML analyser does exactly that.
+     *
+     * The failure this rule exists for: a partial explained itself with
+     * « the `<select>` above is the one control that answers », written
+     * with real angle brackets inside a `{# … #}`. The analyser read a
+     * genuine, label-less form control there, rated it a reliability bug,
+     * and failed the quality gate on a sentence. Nothing in PHPUnit,
+     * PHPStan or the browser could see it: the template renders perfectly,
+     * and the comment is invisible in the output.
+     *
+     * Narrow on purpose — `select`, `input` and `textarea` are the tags
+     * that trip SonarHTML's InputWithoutLabelCheck. A `<button>` or an
+     * `<a>` spelled out in a comment is untidy and harmless, and widening
+     * this to every tag would turn a build-breaking trap into a style
+     * argument over two dozen files. Write the word instead of the tag.
+     *
+     * @var array<string, int> template path (repo-relative) => count
+     */
+    private const HTML_CONTROL_IN_TWIG_COMMENT_ALLOWLIST = [
+        'modules/finance/views/_nav.html.twig' => 1,
+        'modules/groups/views/partials/poll.html.twig' => 1,
+    ];
+
+    public function testNoTwigCommentSpellsAFormControlAsARealTag(): void
+    {
+        // The RAW file, deliberately — `templateSource()` strips comments
+        // precisely so the other rules do not count documentation as a
+        // violation, and this is the one rule whose subject IS the
+        // comment.
+        $found = [];
+        foreach (self::templates() as $path) {
+            $source = (string) file_get_contents(self::repoRoot() . '/' . $path);
+            $count = 0;
+            if (preg_match_all('/\{#.*?#\}/s', $source, $comments) > 0) {
+                foreach ($comments[0] as $comment) {
+                    $count += preg_match_all('/<\s*(?:select|input|textarea)\b/i', $comment);
+                }
+            }
+            if ($count > 0) {
+                $found[$path] = $count;
+            }
+        }
+
+        ksort($found);
+        $expected = self::HTML_CONTROL_IN_TWIG_COMMENT_ALLOWLIST;
+        ksort($expected);
+
+        $this->assertSame(
+            $expected,
+            $found,
+            'A Twig comment spells a form control as a real tag: HTML analysers read it as markup '
+            . '(SonarQube rates it a label-less control and fails the quality gate). Write the word, '
+            . 'not the tag — and remove a template from the allowlist once it is fixed.'
+        );
+    }
+
+    /**
      * design.md §7.5 — `data-confirm` works ONLY on the `<form>` element:
      * the delegated handler listens on `submit` and reads
      * `e.target.closest('form[data-confirm]')`. On a button (or anything
