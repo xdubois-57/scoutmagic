@@ -13,7 +13,17 @@
         {% set attachment = row.attachment %}
         <div class="col-12 col-md-4" data-receipt-id="{{ attachment.id }}">
             <div class="border rounded-3 p-3 h-100 d-flex flex-column gap-2">
-                <a href="/files/{{ attachment.fileId }}" target="_blank" rel="noopener">
+                {# Ouvre la visionneuse intégrée (partials/file_viewer.html.twig)
+                   plutôt que de naviguer : dans l'application installée, une
+                   navigation vers une image remplace la fenêtre et il n'y a
+                   plus rien pour revenir. Le href reste, pour le cas sans
+                   JavaScript — FileController répond alors « attachment » à
+                   une navigation, ce qui télécharge sans bouger la page. #}
+                <a href="/files/{{ attachment.fileId }}"
+                   data-file-viewer="/files/{{ attachment.fileId }}"
+                   data-file-name="{{ attachment.originalFilename }}"
+                   data-file-image="{{ attachment.mimeType starts with 'image/' ? '1' : '0' }}"
+                   download="{{ attachment.originalFilename }}" target="_blank" rel="noopener">
                     {% if attachment.mimeType starts with 'image/' %}
                         <img src="/files/{{ attachment.fileId }}" alt="{{ attachment.originalFilename }}" class="img-fluid rounded" style="max-height:160px;object-fit:cover;width:100%;">
                     {% elseif attachment.mimeType == 'application/pdf' %}

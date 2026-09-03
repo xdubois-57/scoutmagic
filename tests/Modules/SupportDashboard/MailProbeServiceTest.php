@@ -95,10 +95,21 @@ class MailProbeServiceTest extends TestCase
     }
 
     /**
-     * A button that writes to N mailboxes is an amplifier: one run an
-     * hour, counted from this receiver's own clock.
+     * The reversal, pinned on the receiving side.
+     *
+     * This receiver held each installation to one run an hour, and the
+     * cost of that was the case the probe exists for: a unit reports
+     * « mes e-mails ne partent pas » and the probe that would answer them
+     * is refused for being the second one that afternoon. A ticket now
+     * always carries a probe, so a limit that silently drops the evidence
+     * attached to a bug report buys one message and loses the diagnosis.
+     *
+     * The bearer identity is what remains as a guard, and it is the one
+     * that matters: this route answers with this receiver's own mailbox
+     * addresses, and a caller has to prove which installation it is
+     * before it hears any of them.
      */
-    public function testASecondRunWithinTheHourIsRefusedWithoutWritingARow(): void
+    public function testASecondRunMinutesLaterIsIssuedToo(): void
     {
         $service = $this->service(['support@scoutmagic.be']);
         $service->issueFor('unite-de-test', 'Bearer ' . $this->secret, true, $this->now());
@@ -107,11 +118,28 @@ class MailProbeServiceTest extends TestCase
             'unite-de-test',
             'Bearer ' . $this->secret,
             true,
-            $this->now()->modify('+30 minutes')
+            $this->now()->modify('+2 minutes')
         );
 
-        $this->assertSame(['status' => MailProbeService::STATUS_RATE_LIMITED], $answer);
-        $this->assertSame(1, $this->probeCount());
+        $this->assertSame(MailProbeService::STATUS_ISSUED, $answer['status']);
+        // A second key, and a second row: two runs, not one repeated.
+        $this->assertSame(2, $this->probeCount());
+    }
+
+    /**
+     * And an unauthenticated caller is still refused, whatever the
+     * cadence: removing the hourly cap removed a limit, not the identity
+     * check that stands between a stranger and this receiver's mailbox
+     * addresses.
+     */
+    public function testTheIdentityCheckSurvivesTheRemovalOfTheCap(): void
+    {
+        $service = $this->service(['support@scoutmagic.be']);
+
+        $answer = $service->issueFor('unite-de-test', 'Bearer mauvais-secret', true, $this->now());
+
+        $this->assertSame(['status' => MailProbeService::STATUS_REJECTED], $answer);
+        $this->assertSame(0, $this->probeCount());
     }
 
     /**

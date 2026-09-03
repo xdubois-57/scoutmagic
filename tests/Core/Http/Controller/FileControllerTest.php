@@ -397,4 +397,110 @@ class FileControllerTest extends TestCase
 
         $this->assertSame(404, $response->getStatusCode());
     }
+
+    // ── L'application installée ne doit jamais pouvoir être piégée ──────
+
+    /**
+     * An image fetched by an `<img>` still renders in place.
+     *
+     * The whole reason the rule below is written on `Sec-Fetch-Dest`
+     * rather than on the mime type: a thumbnail, an avatar and a logo are
+     * all `<img src="/files/…">`, and answering `attachment` to those
+     * would replace every picture on the site with a download.
+     */
+    public function testAnImageFetchedByAnImgTagStaysInline(): void
+    {
+        $id = $this->seedImage();
+
+        $response = $this->controller->serve(
+            new Request('GET', "/files/{$id}", [], [], [], ['HTTP_SEC_FETCH_DEST' => 'image']),
+            ['id' => (string) $id]
+        );
+
+        $this->assertSame('inline', $response->getHeaders()['Content-Disposition'] ?? null);
+    }
+
+    /**
+     * The bug, and the guard that ends it.
+     *
+     * The manifest declares `display: standalone` with `scope: /`, so the
+     * installed app's window has no address bar and no back button and
+     * every URL of this site stays inside it. An image answered `inline`
+     * to a NAVIGATION therefore replaces the application, and on iOS
+     * nothing is left to press: « aucun moyen de revenir sauf tuer
+     * l'application ».
+     *
+     * A download does not move the window. Answering `attachment` to a
+     * navigation is what makes the app impossible to strand — whatever
+     * template wrote the link, today or tomorrow.
+     */
+    public function testAnImageOpenedAsANavigationIsDownloadedRatherThanShownInPlace(): void
+    {
+        $id = $this->seedImage();
+
+        $response = $this->controller->serve(
+            new Request('GET', "/files/{$id}", [], [], [], ['HTTP_SEC_FETCH_DEST' => 'document']),
+            ['id' => (string) $id]
+        );
+
+        $this->assertStringStartsWith(
+            'attachment;',
+            (string) ($response->getHeaders()['Content-Disposition'] ?? ''),
+            'a navigation to an image is answered inline: in the installed app that replaces the '
+            . 'window and leaves no way back'
+        );
+        $this->assertStringContainsString('photo.png', (string) $response->getHeaders()['Content-Disposition']);
+    }
+
+    /**
+     * A browser too old to send the header keeps what it always had.
+     *
+     * Safari sends `Sec-Fetch-Dest` from 16.4, and the ones before it are
+     * covered by the `download` attribute the templates now carry
+     * (tests/Core/View/UxConventionsTest). Silently downgrading every
+     * `<img>` on those browsers to a download would be trading a rare
+     * failure for a constant one.
+     */
+    public function testWithoutTheHeaderAnImageBehavesExactlyAsBefore(): void
+    {
+        $id = $this->seedImage();
+
+        $response = $this->controller->serve(
+            new Request('GET', "/files/{$id}", [], [], [], []),
+            ['id' => (string) $id]
+        );
+
+        $this->assertSame('inline', $response->getHeaders()['Content-Disposition'] ?? null);
+    }
+
+    public function testANonImageIsAnAttachmentWhicheverWayItWasAskedFor(): void
+    {
+        mkdir($this->storagePath, 0755, true);
+        file_put_contents($this->storagePath . '/doc.pdf', 'content');
+        $stmt = $this->pdo->prepare('INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min) VALUES (?, ?, ?, ?, ?)');
+        $stmt->execute(['doc.pdf', 'contrat.pdf', 'application/pdf', 7, 'public']);
+        $id = (int) $this->pdo->lastInsertId();
+
+        foreach (['document', 'image', ''] as $dest) {
+            $response = $this->controller->serve(
+                new Request('GET', "/files/{$id}", [], [], [], $dest === '' ? [] : ['HTTP_SEC_FETCH_DEST' => $dest]),
+                ['id' => (string) $id]
+            );
+
+            $this->assertStringStartsWith(
+                'attachment;',
+                (string) ($response->getHeaders()['Content-Disposition'] ?? '')
+            );
+        }
+    }
+
+    private function seedImage(): int
+    {
+        mkdir($this->storagePath, 0755, true);
+        file_put_contents($this->storagePath . '/photo.png', 'not really a png');
+        $stmt = $this->pdo->prepare('INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min) VALUES (?, ?, ?, ?, ?)');
+        $stmt->execute(['photo.png', 'photo.png', 'image/png', 16, 'public']);
+
+        return (int) $this->pdo->lastInsertId();
+    }
 }

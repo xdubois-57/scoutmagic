@@ -877,24 +877,23 @@
     min-width: 17.5rem;
 }
 
-/* Prose kept in a <pre> so it renders exactly as it was typed — a ticket
-   description, a resolution note, the AI's grouped summary. Unlike the
-   raw JSON above, these WRAP rather than scroll: a sentence somebody
-   wrote is read left to right, and a horizontal scrollbar under a
-   paragraph is a paragraph nobody finishes. Without this a single long
-   line pushes the whole page sideways at 375px, which is what it did. */
-.support-ticket-description {
-    max-height: 30rem;
-    overflow-y: auto;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-}
+/* Prose, not code — a ticket description, a resolution note, the AI's
+   grouped summary. All three are ordinary text blocks whose line breaks
+   live in the MARKUP (Twig's `nl2br`), never in a `white-space` property.
 
-/* The cross-ticket analysis is rendered HTML, not a <pre>: `pre-wrap`
-   here would turn every newline BETWEEN elements into visible blank
-   space, which is what it did while this shared the rule above. Its
-   headings are capped small on purpose — they sit inside a card whose
-   own <h2> must stay the loudest thing in it. */
+   That distinction is the whole point of this rule and it was learned the
+   hard way. These used to be `pre` elements relying on `white-space:
+   pre-wrap` from this very file — which base.html.twig deliberately does
+   not load, so each page has to ask for it. A page that renders without
+   the stylesheet then shows somebody's sentence on ONE line and pushes
+   the whole layout sideways, which is exactly what was reported. A text
+   block wraps by itself; what is left here is a cap on height and a
+   promise that a pasted URL cannot widen the card.
+
+   `pre-wrap` must NOT come back: with the breaks already in the markup it
+   would double every one of them, and on the analysis (rendered HTML) it
+   would turn the newlines BETWEEN elements into visible blank space. */
+.support-ticket-description,
 .support-analysis {
     max-height: 30rem;
     overflow-y: auto;
@@ -1201,4 +1200,41 @@
     max-height: 16rem;
     overflow-y: auto;
     box-shadow: var(--bs-box-shadow, 0 .5rem 1rem rgba(0, 0, 0, .15));
+}
+
+/* ---------------------------------------------------------------------
+   La visionneuse de fichiers (assets/js/file-viewer.js).
+
+   Elle existe parce que l'application installée n'a ni barre d'adresse ni
+   bouton retour : une navigation vers un fichier remplace la fenêtre et il
+   ne reste rien à presser. Regarder une photo se fait donc ICI, avec un
+   bouton Fermer.
+
+   Le recouvrement est construit en JavaScript au premier usage, d'où ces
+   règles plutôt que des styles en ligne : un balisage rendu sur chaque
+   page pour n'être presque jamais ouvert est du poids mort, et la page
+   publique de suivi d'une location a prouvé qu'il n'était pas seulement
+   mort — elle affirme n'offrir aucun téléchargement, et un recouvrement
+   portant « download » lui faisait manquer sa propre règle.
+   --------------------------------------------------------------------- */
+.file-viewer {
+    position: fixed;
+    inset: 0;
+    /* Au-dessus des modales de Bootstrap (1050), comme la visionneuse de
+       la galerie (1080) dont ceci reprend le comportement. */
+    z-index: 1080;
+    background: rgba(0, 0, 0, .92);
+}
+
+/* Le fond ferme au clic ; ce qu'il contient, non. Les pointeurs sont donc
+   désactivés sur l'étage et rendus au contenu. */
+.file-viewer__stage {
+    pointer-events: none;
+}
+
+.file-viewer__content {
+    pointer-events: auto;
+    max-width: 100%;
+    max-height: 85vh;
+    object-fit: contain;
 }

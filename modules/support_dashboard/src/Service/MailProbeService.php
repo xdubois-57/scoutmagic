@@ -40,15 +40,21 @@ class MailProbeService
     /** Long enough for a slow relay chain, short enough to mean something. */
     public const VALIDITY_HOURS = 48;
 
-    /** At most one probe run per installation per hour: a button that sends to N boxes is an amplifier. */
-    public const RATE_LIMIT_WINDOW_MINUTES = 60;
-
     /** The caller could not prove it is the installation it claims to be. */
     public const STATUS_REJECTED = 'rejected';
     /** This receiver synchronises no mailbox at all — a complete answer. */
     public const STATUS_UNAVAILABLE = 'unavailable';
-    /** A run was issued to this installation less than an hour ago. */
+
+    /**
+     * **No longer issued, and kept for the older senders that still read
+     * it.** This receiver held each installation to one probe run an
+     * hour; the limit is gone, on purpose (see `issueFor()`). An
+     * installation running a version from before the change still has a
+     * branch for this answer, and removing the constant would only mean
+     * spelling the string somewhere else.
+     */
     public const STATUS_RATE_LIMITED = 'rate_limited';
+
     /** A key and its addresses travel back. */
     public const STATUS_ISSUED = 'issued';
 
@@ -62,8 +68,18 @@ class MailProbeService
 
     /**
      * The whole receiver side of `POST /api/support/mail-probes`:
-     * authenticate the caller, hold it to one run an hour, and hand back
-     * a key with the addresses to write to.
+     * authenticate the caller and hand back a key with the addresses to
+     * write to.
+     *
+     * **No rate limit, deliberately.** There used to be one run an hour
+     * per installation, and its cost was the case the probe exists for: a
+     * unit reports « mes e-mails ne partent pas », and the probe that
+     * would answer it is refused because one went out earlier that
+     * afternoon. A ticket now always carries a probe, and a limit that
+     * silently drops the evidence attached to a bug report is worse than
+     * the mail it saves. What remains as a guard is the bearer identity —
+     * a caller has to prove which installation it is before this route
+     * answers anything at all.
      *
      * **Authenticated, and it has to be.** The answer is a list of this
      * receiver's own mailbox addresses; an open route here would hand
@@ -95,16 +111,7 @@ class MailProbeService
             return ['status' => self::STATUS_REJECTED];
         }
 
-        $numericId = (int) $installation['id'];
-
-        $lastIssued = $this->probes->lastIssuedAt($numericId);
-        if ($lastIssued !== null
-            && $lastIssued->modify('+' . self::RATE_LIMIT_WINDOW_MINUTES . ' minutes') > $now
-        ) {
-            return ['status' => self::STATUS_RATE_LIMITED];
-        }
-
-        $issued = $this->issue($numericId, $now);
+        $issued = $this->issue((int) $installation['id'], $now);
         if ($issued === null) {
             return ['status' => self::STATUS_UNAVAILABLE, 'addresses' => []];
         }

@@ -14,7 +14,9 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Modules\SupportDashboard\Service\MailProbeReport;
 use Modules\SupportDashboard\Service\SupportTicketService;
+use Modules\SupportDashboard\Service\TicketAnalysisOutcome;
 use Modules\SupportDashboard\Service\TicketAnalysisService;
+use Modules\SupportDashboard\Service\TicketDossierBuilder;
 use Modules\SupportDashboard\Service\TicketListFilters;
 use Twig\Environment;
 
@@ -41,7 +43,14 @@ class SupportTicketController extends AbstractController
          * does not render and the rest of the page is untouched
          * (ARCHITECTURE.md §7.5).
          */
-        private ?TicketAnalysisService $analysisService = null
+        private ?TicketAnalysisService $analysisService = null,
+        /**
+         * Everything this receiver knows about one installation, in one
+         * zip (`Service\TicketDossierBuilder`). Null keeps the raw
+         * archive download and offers no dossier — the shape a caller that
+         * built no file reader actually has.
+         */
+        private ?TicketDossierBuilder $dossier = null
     ) {
     }
 
@@ -85,6 +94,7 @@ class SupportTicketController extends AbstractController
             // WITH the ticket, and what it has reported since.
             'statistics_comparison' => SupportTicketService::statisticsComparison($ticket),
             'statistics_drifted' => SupportTicketService::statisticsDrifted($ticket),
+            'dossier_available' => $this->dossier !== null,
             // The queue is a real ancestor PAGE, not a menu label, so it
             // travels as a breadcrumb_trail: a `parents` entry naming it
             // would render as inert grey text (design.md §7.3).
@@ -129,6 +139,54 @@ class SupportTicketController extends AbstractController
                 'attachment; filename="sondes-' . preg_replace('/[^A-Za-z0-9_-]/', '', (string) ($ticket['reference'] ?? 'ticket')) . '.txt"'
             )
             ->setHeader('Content-Length', (string) strlen($report));
+    }
+
+    /**
+     * `GET /support-dashboard/tickets/{id}/dossier` — one zip holding
+     * everything this receiver knows about the installation.
+     *
+     * The archive the instance uploaded goes in whole, under its own
+     * name; beside it go the ticket, the installation's reported facts,
+     * the usage report frozen with the ticket, the last one received
+     * since, the two compared, and the e-mail probes with their headers.
+     *
+     * **It composes, it never rewrites.** The uploaded archive was built
+     * and encrypted on the other side of the wire; adding to it would
+     * mean altering somebody else's evidence, and an archive partly
+     * written by its recipient is no longer the thing anybody was relying
+     * on. See `Service\TicketDossierBuilder`.
+     *
+     * Nothing here is newly readable: every part is already on this page,
+     * for this same superadmin. What changes is the number of places they
+     * have to go to get it.
+     *
+     * @param array<string, string> $params
+     */
+    public function dossier(Request $request, array $params): Response
+    {
+        $ticket = $this->ticketService->detail((int) ($params['id'] ?? 0));
+        if ($ticket === null || $this->dossier === null) {
+            return new Response('', 404);
+        }
+
+        try {
+            $bytes = $this->dossier->build($ticket, new \DateTimeImmutable());
+        } catch (\RuntimeException) {
+            // A zip that could not be written is a server problem, not a
+            // ticket problem: say so on the page rather than handing the
+            // browser a broken download.
+            FlashMessage::set('error', "Le dossier de support n'a pas pu être composé.");
+
+            return $this->redirect('/support-dashboard/tickets/' . (int) ($params['id'] ?? 0));
+        }
+
+        return (new Response($bytes))
+            ->setHeader('Content-Type', 'application/zip')
+            ->setHeader(
+                'Content-Disposition',
+                'attachment; filename="' . TicketDossierBuilder::filename($ticket) . '"'
+            )
+            ->setHeader('Content-Length', (string) strlen($bytes));
     }
 
     /**
@@ -193,20 +251,24 @@ class SupportTicketController extends AbstractController
             return $guard;
         }
 
-        if ($this->analysisService === null || !$this->analysisService->isAvailable()) {
-            // A POST naming a feature the page never offered: refused
-            // rather than redirected, and it is the same answer whether
-            // the module is absent or has no active provider.
-            FlashMessage::set('error', "L'analyse transversale n'est pas disponible sur cette installation.");
+        // Every answer here is a named outcome that says its own subject
+        // (`Service\TicketAnalysisOutcome`). It used to be a bare
+        // true/false, and « le fournisseur n'a rien renvoyé
+        // d'exploitable » was shown even when no provider had been
+        // contacted at all — a sentence blaming a third party for a
+        // request nobody made.
+        //
+        // A flash lives until some page renders it, so the answer to a
+        // request nobody waited for lands on whatever page comes next.
+        // That is how this one turned up on « Maintenance », where
+        // « L'analyse n'a pas abouti » reads as the update having failed.
+        // Naming the subject in the sentence is what makes a misplaced
+        // message merely misplaced.
+        $outcome = $this->analysisService === null
+            ? TicketAnalysisOutcome::UNAVAILABLE
+            : $this->analysisService->run(new \DateTimeImmutable());
 
-            return $this->redirect('/support-dashboard/tickets');
-        }
-
-        if ($this->analysisService->run(new \DateTimeImmutable())) {
-            FlashMessage::set('success', 'Analyse transversale mise à jour.');
-        } else {
-            FlashMessage::set('error', "L'analyse n'a pas abouti : le fournisseur n'a rien renvoyé d'exploitable.");
-        }
+        FlashMessage::set($outcome->flashType(), $outcome->message());
 
         return $this->redirect('/support-dashboard/tickets');
     }

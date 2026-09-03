@@ -52,7 +52,8 @@
                                     <a href="/admin/fees/factures/{{ row.invoice.id }}" class="font-monospace">{{ row.invoice.documentNumber }}</a>
                                     {% if row.invoice.financeFileId %}
                                         <a href="/files/{{ row.invoice.financeFileId }}"
-                                           class="ms-1 text-body-secondary" title="Le PDF conservé dans Finances">
+                                           class="ms-1 text-body-secondary" title="Le PDF conservé dans Finances"
+                                           download target="_blank" rel="noopener">
                                             <i class="bi bi-paperclip" aria-hidden="true"></i>
                                             <span class="visually-hidden">Voir le PDF conservé</span>
                                         </a>

@@ -97,10 +97,19 @@
                                     <pre class="border rounded p-2 bg-body-tertiary small mt-1 mb-0 support-raw-json"><code>{{ probe.raw_headers }}</code></pre>
                                 </details>
                             {% else %}
+                                {# Dire quoi faire, pas seulement ce qui manque. Le
+                                   receveur n'a pas toujours gardé les en-têtes : une
+                                   sonde émise avant cette version n'en a aucun, et
+                                   rien ne peut les reconstituer après coup. Le
+                                   constat sans la suite laissait le lecteur devant
+                                   une ligne qu'il ne pouvait ni expliquer ni
+                                   corriger. #}
                                 <span class="fst-italic">
                                     Aucun en-tête conservé pour cette sonde : elle est arrivée avant que
                                     ce receveur ne les garde, ou la boîte n'en a transmis aucun — ce qui
                                     est déjà l'explication de trois verdicts « non renseigné ».
+                                    Ils ne peuvent pas être retrouvés après coup :
+                                    <strong>émettez une nouvelle sonde</strong> pour en obtenir.
                                 </span>
                             {% endif %}
                         </td>

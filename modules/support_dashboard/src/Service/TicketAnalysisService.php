@@ -90,17 +90,28 @@ class TicketAnalysisService
     /**
      * Run one analysis and store it.
      *
-     * @return bool whether a result was produced and stored
+     * **It says which of the four non-results it was**
+     * (`Service\TicketAnalysisOutcome`). It used to answer a bare
+     * `false`, and the screen turned every one of them into « le
+     * fournisseur n'a rien renvoyé d'exploitable » — including the case
+     * where nothing was sent to any provider because there was nothing to
+     * analyse. A maintainer reading that had been told something untrue
+     * about a third party, and had no way to find out.
      */
-    public function run(\DateTimeImmutable $now): bool
+    public function run(\DateTimeImmutable $now): TicketAnalysisOutcome
     {
         if (!$this->isAvailable()) {
-            return false;
+            return TicketAnalysisOutcome::UNAVAILABLE;
         }
 
         $tickets = $this->analysable();
         if ($tickets === []) {
-            return false;
+            // Nothing left this installation, and the journal says so:
+            // « j'ai demandé une analyse et rien ne s'est passé » had
+            // three possible causes and only one of them was written down.
+            $this->journalOutcome(TicketAnalysisOutcome::NO_TICKETS, 0);
+
+            return TicketAnalysisOutcome::NO_TICKETS;
         }
 
         \assert($this->llmConnector !== null);
@@ -124,20 +135,20 @@ class TicketAnalysisService
             // absence of a summary. The exception's message is not kept:
             // it can quote the request, and the request carries what
             // people wrote.
-            $this->journal->log(
-                'support_dashboard',
-                'support_ticket_analysis_failed',
-                'warning',
-                "L'analyse transversale des tickets n'a pas abouti",
-                ['tickets' => count($tickets)]
-            );
+            $this->journalOutcome(TicketAnalysisOutcome::PROVIDER_FAILED, count($tickets));
 
-            return false;
+            return TicketAnalysisOutcome::PROVIDER_FAILED;
         }
 
         $result = trim($response->content);
         if ($result === '') {
-            return false;
+            // The transmission DID happen — the descriptions left this
+            // installation and the answer was empty. That is a different
+            // fact from « rien n'a été envoyé », and the only one of the
+            // two that the old message described correctly.
+            $this->journalOutcome(TicketAnalysisOutcome::EMPTY_ANSWER, count($tickets));
+
+            return TicketAnalysisOutcome::EMPTY_ANSWER;
         }
 
         $this->analyses->store($result, count($tickets), $now);
@@ -145,15 +156,32 @@ class TicketAnalysisService
         // Counts, never a word of a description: the entry says a
         // transmission happened and how big it was, which is what a
         // journal is for here.
+        $this->journalOutcome(TicketAnalysisOutcome::STORED, count($tickets));
+
+        return TicketAnalysisOutcome::STORED;
+    }
+
+    /**
+     * One entry per outcome, in the words of the outcome itself.
+     *
+     * Counts, never a word of a description (§7.9): a journal entry says
+     * that a transmission happened and how big it was, and travels in the
+     * diagnostic archive where a ticket's text has no business being.
+     */
+    private function journalOutcome(TicketAnalysisOutcome $outcome, int $ticketCount): void
+    {
+        $type = $outcome->journalEventType();
+        if ($type === null) {
+            return;
+        }
+
         $this->journal->log(
             'support_dashboard',
-            'support_ticket_analysis_run',
-            'info',
-            'Analyse transversale des tickets de support envoyée au fournisseur IA',
-            ['tickets' => count($tickets)]
+            $type,
+            $outcome->isSuccess() ? 'info' : 'warning',
+            $outcome->message(),
+            ['tickets' => $ticketCount, 'outcome' => $outcome->value]
         );
-
-        return true;
     }
 
     /**

@@ -23,9 +23,14 @@
                 <span class="text-truncate">{{ attachment.filename }}</span>
                 <span class="text-body-secondary small">{{ attachment.sizeBytes|filesize }}</span>
                 {% if downloadable|default(false) %}
-                    <a href="{{ file_url(attachment.fileId) }}" class="btn btn-sm btn-outline-secondary ms-auto">
-                        Télécharger
-                    </a>
+                    {# Through the file-link partial: a bare link to a file
+                       strands the installed app (partials/file_link.html.twig). #}
+                    {% include 'partials/file_link.html.twig' with {
+                        href: file_url(attachment.fileId),
+                        label: 'Télécharger',
+                        classes: 'btn btn-sm btn-outline-secondary ms-auto',
+                        filename: attachment.filename|default(''),
+                    } only %}
                 {% endif %}
             </li>
         {% endfor %}

@@ -581,9 +581,12 @@
                                     </td>
                                     <td class="text-end">
                                         {% if backup.status == 'completed' and backup.fileId %}
-                                            <a href="/files/{{ backup.fileId }}" class="btn btn-sm btn-outline-secondary">
-                                                <i class="bi bi-download" aria-hidden="true"></i> Télécharger
-                                            </a>
+                                            {% include 'partials/file_link.html.twig' with {
+                                                href: '/files/' ~ backup.fileId,
+                                                label: 'Télécharger',
+                                                classes: 'btn btn-sm btn-outline-secondary',
+                                                icon: 'download',
+                                            } only %}
                                         {% endif %}
                                     </td>
                                 </tr>

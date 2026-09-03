@@ -82,8 +82,33 @@ class FileController extends AbstractController
             );
         }
 
+        // **An image is inline for an `<img>`, and never for a navigation.**
+        //
+        // The bug this answers is only visible in the installed app. The
+        // manifest declares `display: standalone` with `scope: /`
+        // (Controller\PwaController), so the window has no address bar and
+        // no back button, and every URL of this site stays inside it. A
+        // link to a file is a NAVIGATION: the window leaves the
+        // application and lands on the file, and on iOS there is then
+        // nothing left to press. « Aucun moyen de revenir sauf tuer
+        // l'application » — reported exactly like that.
+        //
+        // `Sec-Fetch-Dest` is what tells the two apart, and no caller has
+        // to remember anything: `document` is the browser saying « this is
+        // a top-level navigation », `image` that an `<img>` is fetching it.
+        // A download does not move the window, so answering `attachment`
+        // to a navigation is what makes the app impossible to strand —
+        // whatever template linked it, today or tomorrow.
+        //
+        // Safari sends this header from 16.4; older ones are covered by
+        // the `download` attribute the shared link partial emits
+        // (partials/file_link.html.twig). Two independent guards, because
+        // this failure mode ends with the user force-quitting the app.
         $isImage = str_starts_with($file->mimeType, 'image/');
-        $disposition = $isImage ? 'inline' : 'attachment; filename="' . addslashes($file->originalName) . '"';
+        $isNavigation = $request->getServer('HTTP_SEC_FETCH_DEST') === 'document';
+        $disposition = $isImage && !$isNavigation
+            ? 'inline'
+            : 'attachment; filename="' . addslashes($file->originalName) . '"';
 
         $cacheControl = $file->roleMin === 'public'
             ? 'public, max-age=86400'

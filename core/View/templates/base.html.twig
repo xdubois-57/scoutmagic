@@ -186,6 +186,21 @@
        like nav.js above: the breadcrumb bar itself is CSS-hidden except in
        installed-PWA mode, but costs nothing to include either way. #}
     <script src="{{ asset('/assets/js/breadcrumb.js') }}"></script>
+    {# La visionneuse de fichiers ET son filet (assets/js/file-viewer.js).
+       Chargé inconditionnellement, et c'est le filet qui l'exige : dans
+       l'application installée, un lien vers un fichier qu'aucun gabarit
+       n'a décoré fait quitter la fenêtre sans retour possible — c'est
+       exactement ce qui a été signalé. Un seul attribut oublié, n'importe
+       où, suffit ; le filet couvre donc toutes les pages plutôt que
+       celles qui pensent en avoir besoin.
+
+       Le recouvrement lui-même n'est PAS rendu ici : le script le
+       construit au premier clic qui en a besoin. Un balisage mort sur
+       chaque page n'est jamais seulement mort — la page publique de suivi
+       d'une location affirme n'offrir aucun téléchargement, et un
+       recouvrement portant « download » lui faisait manquer sa propre
+       règle sans rien offrir. #}
+    <script src="{{ asset('/assets/js/file-viewer.js') }}" defer></script>
     {# partials/select_bar.html.twig's JS — mode:multi toggling plus
        closing an open panel on an outside click/Escape. mode:single
        needs none of it (its rows are plain <a href>). Loads
