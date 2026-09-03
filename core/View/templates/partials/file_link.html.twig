@@ -1,0 +1,42 @@
+{#
+  Un lien vers un fichier qui ne peut pas emprisonner l'application
+  installée.
+
+  **Le défaut, et pourquoi il ne se voit que dans la PWA.** Le manifeste
+  déclare « display: standalone » avec « scope: / » : la fenêtre n'a ni
+  barre d'adresse ni bouton retour, et toutes les URL du site y restent.
+  Un clic sur un fichier est une NAVIGATION — la fenêtre quitte
+  l'application et va sur le fichier. Sur iOS il ne reste alors plus rien
+  à presser : « aucun moyen de revenir sauf tuer l'application ».
+
+  Deux attributs suffisent, et c'est pourquoi ce partial existe plutôt
+  qu'une consigne :
+
+    download                  le navigateur ENREGISTRE au lieu de naviguer.
+                              La fenêtre ne bouge pas. Sur iOS depuis la 13.
+    target/rel                le filet des navigateurs qui ignorent
+                              « download » : le fichier s'ouvre ailleurs,
+                              l'application reste intacte derrière.
+
+  Sur dix liens vers /files/… écrits à la main, quatre portaient
+  « target=_blank » et six non. Personne n'avait tort : il n'existait
+  aucune convention à suivre. Il y en a une, et
+  tests/Core/View/UxConventionsTest.php refuse d'en laisser repartir une
+  autre.
+
+  Paramètres :
+    href      l'URL du fichier
+    label     le texte du lien
+    classes   classes CSS (défaut : aucune)
+    icon      nom d'icône Bootstrap, sans le préfixe « bi- » (optionnel)
+    filename  nom de sauvegarde proposé (optionnel)
+    title     attribut title (optionnel)
+#}
+<a href="{{ href }}"
+   class="{{ classes|default('') }}"
+   {% if title is defined and title %}title="{{ title }}"{% endif %}
+   download{% if filename is defined and filename %}="{{ filename }}"{% endif %}
+   target="_blank" rel="noopener">
+    {%- if icon is defined and icon %}<i class="bi bi-{{ icon }}" aria-hidden="true"></i> {% endif -%}
+    {{ label }}
+</a>

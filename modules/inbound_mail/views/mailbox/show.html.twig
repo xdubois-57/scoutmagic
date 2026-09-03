@@ -50,7 +50,12 @@
                     {{ attachment.filename }}
                     <span class="text-body-secondary small">· {{ (attachment.sizeBytes / 1024)|round }} Ko</span>
                 </span>
-                <a href="/files/{{ attachment.fileId }}" class="btn btn-sm btn-outline-secondary">Télécharger</a>
+                {% include 'partials/file_link.html.twig' with {
+                    href: '/files/' ~ attachment.fileId,
+                    label: 'Télécharger',
+                    classes: 'btn btn-sm btn-outline-secondary',
+                    filename: attachment.filename|default(''),
+                } only %}
             </li>
         {% endfor %}
         {% for omitted in message.omittedAttachments %}

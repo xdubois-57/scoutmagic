@@ -1201,3 +1201,40 @@
     overflow-y: auto;
     box-shadow: var(--bs-box-shadow, 0 .5rem 1rem rgba(0, 0, 0, .15));
 }
+
+/* ---------------------------------------------------------------------
+   La visionneuse de fichiers (assets/js/file-viewer.js).
+
+   Elle existe parce que l'application installée n'a ni barre d'adresse ni
+   bouton retour : une navigation vers un fichier remplace la fenêtre et il
+   ne reste rien à presser. Regarder une photo se fait donc ICI, avec un
+   bouton Fermer.
+
+   Le recouvrement est construit en JavaScript au premier usage, d'où ces
+   règles plutôt que des styles en ligne : un balisage rendu sur chaque
+   page pour n'être presque jamais ouvert est du poids mort, et la page
+   publique de suivi d'une location a prouvé qu'il n'était pas seulement
+   mort — elle affirme n'offrir aucun téléchargement, et un recouvrement
+   portant « download » lui faisait manquer sa propre règle.
+   --------------------------------------------------------------------- */
+.file-viewer {
+    position: fixed;
+    inset: 0;
+    /* Au-dessus des modales de Bootstrap (1050), comme la visionneuse de
+       la galerie (1080) dont ceci reprend le comportement. */
+    z-index: 1080;
+    background: rgba(0, 0, 0, .92);
+}
+
+/* Le fond ferme au clic ; ce qu'il contient, non. Les pointeurs sont donc
+   désactivés sur l'étage et rendus au contenu. */
+.file-viewer__stage {
+    pointer-events: none;
+}
+
+.file-viewer__content {
+    pointer-events: auto;
+    max-width: 100%;
+    max-height: 85vh;
+    object-fit: contain;
+}

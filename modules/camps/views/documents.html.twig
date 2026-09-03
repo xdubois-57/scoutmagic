@@ -16,7 +16,13 @@
             <div class="list-group mb-4">
                 {% for document in documents %}
                     <div class="list-group-item d-flex justify-content-between align-items-center gap-3 flex-wrap">
-                        <a href="/files/{{ document.fileId }}" class="text-decoration-none min-w-0 text-break">
+                        {# download + target : dans l'application installée, une
+                           navigation vers un fichier quitte la fenêtre sans retour
+                           possible (partials/file_link.html.twig). Écrit à la main
+                           plutôt qu'inclus, parce que ce lien enveloppe un titre et
+                           un badge que le partial ne saurait pas rendre. #}
+                        <a href="/files/{{ document.fileId }}" class="text-decoration-none min-w-0 text-break"
+                           download="{{ document.title }}" target="_blank" rel="noopener">
                             <i class="bi bi-file-earmark-text me-2" aria-hidden="true"></i>{{ document.title }}
                             {% if document.source == 'email' %}
                                 <span class="badge text-bg-info ms-2">Reçu par e-mail</span>

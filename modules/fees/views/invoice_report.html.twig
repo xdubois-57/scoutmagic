@@ -34,7 +34,8 @@
             </div>
             <div class="ms-auto d-flex gap-2">
                 {% if invoice.financeFileId %}
-                    <a href="/files/{{ invoice.financeFileId }}" class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener">
+                    <a href="/files/{{ invoice.financeFileId }}" class="btn btn-sm btn-outline-secondary"
+                       download target="_blank" rel="noopener">
                         <i class="bi bi-file-earmark-pdf" aria-hidden="true"></i> Le PDF
                     </a>
                 {% endif %}

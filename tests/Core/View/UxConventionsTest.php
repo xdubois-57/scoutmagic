@@ -42,6 +42,69 @@ final class UxConventionsTest extends TestCase
     private const INLINE_HANDLER_ALLOWLIST = [];
 
     /**
+     * A link to a file must never be able to strand the installed app.
+     *
+     * The manifest declares `display: standalone` with `scope: /`
+     * (`Http\Controller\PwaController::manifest()`): the window has no
+     * address bar and no back button, and every URL of this site stays
+     * inside it. A link to a file is a NAVIGATION — the window leaves the
+     * application and lands on the file, and on iOS nothing is left to
+     * press. « Aucun moyen de revenir sauf tuer l\'application », reported
+     * exactly like that.
+     *
+     * `download` is what stops it: the browser saves the file and the
+     * window does not move. `data-file-viewer` is the other allowed
+     * answer — the file opens in the in-app viewer, which has a Fermer
+     * button (`partials/file_viewer.html.twig`).
+     *
+     * When this rule landed, four of the ten `/files/…` links carried
+     * `target="_blank"` and six carried nothing. Nobody was wrong: there
+     * was no convention to follow. There is one now —
+     * `partials/file_link.html.twig` writes it — and this is what keeps
+     * the next one from being written without it.
+     *
+     * @var array<string, int> template path (repo-relative) => count
+     */
+    private const UNSAFE_FILE_LINK_ALLOWLIST = [];
+
+    public function testEveryFileLinkDownloadsOrOpensInTheInAppViewer(): void
+    {
+        $found = [];
+        foreach (self::templates() as $path) {
+            $source = self::templateSource($path);
+            $count = 0;
+            // The whole <a …> tag, however many lines it spans: these
+            // attributes are regularly written under the href.
+            if (preg_match_all('/<a\b[^>]*?>/s', $source, $tags) > 0) {
+                foreach ($tags[0] as $tag) {
+                    if (!str_contains($tag, 'href="/files/')) {
+                        continue;
+                    }
+                    if (str_contains($tag, 'download') || str_contains($tag, 'data-file-viewer')) {
+                        continue;
+                    }
+                    $count++;
+                }
+            }
+            if ($count > 0) {
+                $found[$path] = $count;
+            }
+        }
+
+        ksort($found);
+        $expected = self::UNSAFE_FILE_LINK_ALLOWLIST;
+        ksort($expected);
+
+        $this->assertSame(
+            $expected,
+            $found,
+            'A link to /files/ carries neither `download` nor `data-file-viewer`: in the installed '
+            . 'app that navigation replaces the window and leaves no way back (design.md §7, '
+            . 'partials/file_link.html.twig).'
+        );
+    }
+
+    /**
      * A Twig comment is not a comment to anything that lexes the file as
      * HTML — and SonarQube's HTML analyser does exactly that.
      *

@@ -154,15 +154,19 @@
                     Télécharger le dossier complet
                 </a>
                 {% if ticket.archive_file_id %}
-                    <a class="btn btn-outline-secondary" href="/files/{{ ticket.archive_file_id }}">
-                        L'archive transmise seule
-                    </a>
+                    {% include 'partials/file_link.html.twig' with {
+                        href: '/files/' ~ ticket.archive_file_id,
+                        label: "L'archive transmise seule",
+                        classes: 'btn btn-outline-secondary',
+                    } only %}
                 {% endif %}
             </div>
         {% elseif ticket.archive_file_id %}
-            <a class="btn btn-outline-primary" href="/files/{{ ticket.archive_file_id }}">
-                Télécharger l'archive
-            </a>
+            {% include 'partials/file_link.html.twig' with {
+                href: '/files/' ~ ticket.archive_file_id,
+                label: "Télécharger l'archive",
+                classes: 'btn btn-outline-primary',
+            } only %}
         {% endif %}
 
         <p class="small mb-0 mt-3">

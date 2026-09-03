@@ -138,6 +138,12 @@ const APP_SHELL_BASE_URLS = [
     '/assets/js/editable.js',
     '/assets/js/cookie-consent.js',
     '/assets/js/breadcrumb.js',
+    // Le filet des liens de fichiers (assets/js/file-viewer.js). Hors
+    // ligne il compte autant : un lien vers un fichier que personne n'a
+    // décoré fait quitter la fenêtre de l'application installée, et c'est
+    // hors ligne — un chef dans un pré sans réseau — que cette
+    // application est le plus souvent la seule ouverte.
+    '/assets/js/file-viewer.js',
     '/assets/js/select-bar.js',
     '/assets/js/nav-rail.js',
     '/assets/js/audit-timeline.js',
