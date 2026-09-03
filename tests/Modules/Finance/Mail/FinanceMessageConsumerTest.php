@@ -245,6 +245,23 @@ class FinanceMessageConsumerTest extends TestCase
      * `inbound_mail` cannot do better on its own: it does not know what
      * `account-12` is, and by §7.6 it never will.
      */
+    public function testTheDirectoryOffersTheActiveAccountsAndThePile(): void
+    {
+        $consumer = $this->consumer();
+
+        $found = $consumer->searchReferences('courant');
+        $this->assertCount(1, $found);
+        $this->assertSame(FinanceMessageConsumer::referenceFor($this->accountId), $found[0]->businessReference);
+        $this->assertSame('Compte courant', $found[0]->label);
+
+        $pile = $consumer->searchReferences('inconnu');
+        $this->assertSame(FinanceMessageConsumer::REFERENCE_UNKNOWN, $pile[0]->businessReference);
+
+        $this->assertSame('/finance/receipts?account_id=' . $this->accountId, $consumer->referenceUrl(FinanceMessageConsumer::referenceFor($this->accountId)));
+        $this->assertSame('/finance/receipts?account_id=unassigned', $consumer->referenceUrl(FinanceMessageConsumer::REFERENCE_UNKNOWN));
+        $this->assertNull($consumer->referenceUrl('account-999'));
+    }
+
     public function testTheSortingPileIsNamedInFrench(): void
     {
         $this->assertSame('compte inconnu', $this->consumer()->describeReference(FinanceMessageConsumer::REFERENCE_UNKNOWN));

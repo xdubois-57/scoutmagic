@@ -41,8 +41,10 @@ déchiffrer toute la table à chaque frappe, soit de garder en clair un
 index de tout ce que l'on vous a jamais écrit — c'est ainsi qu'une
 archive avec une durée de vie devient une archive sans.
 
-- **Associations** — « Sans association » est l'affichage par défaut,
+- **Rattachements** — « Sans rattachement » est l'affichage par défaut,
   parce que c'est la pile sur laquelle vous avez quelque chose à faire.
+  « Avec proposition à confirmer » isole ce qu'un module attend de vous ;
+  un bandeau en haut de page le rappelle tant qu'il en reste.
 - **Boîte** — quand plusieurs boîtes sont raccordées.
 - **Courrier automatique** — lettres d'information, réponses
   automatiques, rapports de non-remise, indésirables. Ils sont
@@ -51,6 +53,10 @@ archive avec une durée de vie devient une archive sans.
   que supprimés : un rapport de non-remise est précisément la façon
   dont vous apprenez qu'un de vos envois n'est jamais arrivé.
 
+« Relever le courrier maintenant » relève les boîtes tout de suite, sans
+attendre le prochain passage automatique — utile quand vous attendez une
+réponse précise. Un seul relevé à la fois.
+
 Ce que l'on fait ensuite d'un message — confirmer une proposition,
-retirer une association, comprendre une pièce jointe non conservée — est
-décrit dans « Orienter un message ».
+rattacher à la main, détacher, comprendre une pièce jointe non
+conservée — est décrit dans « Orienter un message ».

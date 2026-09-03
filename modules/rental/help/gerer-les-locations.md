@@ -8,7 +8,7 @@ question: Comment traiter une demande de location reçue ?
 question: Comment envoyer le contrat de location au locataire ?
 question: Comment savoir si un locataire a payé son acompte ?
 paths: /mes-locations, /mes-locations/*, /mes-locations/*/calendrier, /mes-locations/*/gabarits, /mes-locations/*/reservations, /mes-locations/*/reservations/*, /mes-locations/*/reservations/*/sejour, /mes-locations/*/reservations/*/document/*
-related: locations, config-locations, courrier-entrant, locations-reglages, locations-conformite
+related: locations, locations-courrier, config-locations, courrier-entrant, locations-reglages, locations-conformite
 ---
 
 « Mes locations » est l'espace des gestionnaires : les personnes
@@ -56,6 +56,12 @@ gabarit du bien ; chaque génération crée une nouvelle version, sans
 écraser la précédente — une version signée reste intacte. « Envoyer »
 l'expédie au locataire : celui-ci ne télécharge jamais rien depuis le
 site.
+
+## Le courrier reçu
+
+Les e-mails que le site rattache à la réservation, les propositions à
+confirmer et ce que « Détacher » fait exactement sont décrits dans
+« Le courrier d'une réservation ».
 
 ## Le séjour
 

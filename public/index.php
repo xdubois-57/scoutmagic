@@ -3234,6 +3234,33 @@ if ($isEnabled('inbound_mail')) {
         $inboundScopeService->repriseCampsDedicatedBoxes($settingService, $settingRepo);
     }
 
+    // « Rafraîchir maintenant » assembles a synchronisation graph, which
+    // is the one thing an ordinary page view must never do — so it goes
+    // in as a CLOSURE, resolved only when that button is actually pressed.
+    // Same reasoning as the sync task's own lazy factory in
+    // scheduler-bootstrap.php. One service for the two screens that offer
+    // the button: the superadmin's configuration page and the chief's
+    // courrier page share its lock.
+    $inboundManualRefresh = new \Modules\InboundMail\Service\ManualRefreshService(
+        static fn(): \Modules\InboundMail\Service\MailboxSyncService
+            => new \Modules\InboundMail\Service\MailboxSyncService(
+                $inboundMailboxRepository,
+                $inboundMessageRepository,
+                $inboundReadConsumers,
+                new \Modules\InboundMail\Service\MessageContentSanitizer(new \Core\Security\HtmlSanitizer()),
+                new \Modules\InboundMail\Service\AttachmentPolicy(),
+                new \Modules\InboundMail\Service\MailboxErrorFormatter(),
+                new \Modules\InboundMail\Service\MailboxClientFactory(),
+                new \Modules\InboundMail\Service\AnalysisResultApplier($inboundMessageRepository),
+                new \Core\File\UploadHandler(new \Core\File\FileRepository($pdo), $storagePath),
+                null,
+                new \Core\File\FileRepository($pdo),
+                $inboundScopeService
+            ),
+        $settingService,
+        $settingRepo
+    );
+
     $frontController->registerController(
         \Modules\InboundMail\Controller\InboundMailConfigController::class,
         new \Modules\InboundMail\Controller\InboundMailConfigController(
@@ -3248,30 +3275,8 @@ if ($isEnabled('inbound_mail')) {
             $journalService,
             $inboundScopeService,
             $inboundReadConsumers,
-            // « Rafraîchir maintenant » assembles a synchronisation graph,
-            // which is the one thing an ordinary page view must never do —
-            // so it goes in as a CLOSURE, resolved only when that button is
-            // actually pressed. Same reasoning as the sync task's own lazy
-            // factory in scheduler-bootstrap.php.
-            new \Modules\InboundMail\Service\ManualRefreshService(
-                static fn(): \Modules\InboundMail\Service\MailboxSyncService
-                    => new \Modules\InboundMail\Service\MailboxSyncService(
-                        $inboundMailboxRepository,
-                        $inboundMessageRepository,
-                        $inboundReadConsumers,
-                        new \Modules\InboundMail\Service\MessageContentSanitizer(new \Core\Security\HtmlSanitizer()),
-                        new \Modules\InboundMail\Service\AttachmentPolicy(),
-                        new \Modules\InboundMail\Service\MailboxErrorFormatter(),
-                        new \Modules\InboundMail\Service\MailboxClientFactory(),
-                        new \Modules\InboundMail\Service\AnalysisResultApplier($inboundMessageRepository),
-                        new \Core\File\UploadHandler(new \Core\File\FileRepository($pdo), $storagePath),
-                        null,
-                        new \Core\File\FileRepository($pdo),
-                        $inboundScopeService
-                    ),
-                $settingService,
-                $settingRepo
-            )
+            $inboundManualRefresh,
+            $settingService
         )
     );
 
@@ -3290,7 +3295,8 @@ if ($isEnabled('inbound_mail')) {
             ),
             $inboundMailForOthers,
             $inboundReadConsumers,
-            $journalService
+            $journalService,
+            $inboundManualRefresh
         )
     );
 
@@ -3574,7 +3580,10 @@ if ($isEnabled('finance')) {
         \Modules\Finance\Controller\ReceiptController::class,
         new \Modules\Finance\Controller\ReceiptController(
             $twig, $financeAttachmentRepo, $financeTransactionAttachmentRepo, $financeTransactionRepo, $financeService,
-            $financeReceiptService, $financeFirstReceiptResolver, $journalService
+            $financeReceiptService, $financeFirstReceiptResolver, $journalService,
+            // The mail this module proposed on, for the treasury to answer
+            // (§7.5): null without `inbound_mail`, and no block then.
+            $inboundMailForOthers
         )
     );
     $frontController->registerController(
@@ -4859,7 +4868,11 @@ if ($isEnabled('camps')) {
                         $campsCampRepo,
                         $campsMessageReader,
                         $journalService
-                    )
+                    ),
+                    // « Rattacher à… » on the chief's screen: the same
+                    // search the camps mail screen's picker uses
+                    // (Api\ReferenceDirectory).
+                    new \Modules\Camps\Service\StaySearchService($campsCampRepo)
                 )
         );
     }
@@ -5546,24 +5559,16 @@ if ($isEnabled('rental')) {
         $financeAccountForOthers
     );
 
-    // Built before the controllers rather than in the inbound-mail block
-    // further down, because the configuration page needs it — and it needs
-    // nothing but the setting service and the null-seeded API handle, so it
-    // is safe to build whether or not `inbound_mail` is enabled.
-    $rentalMailboxSelection = new \Modules\Rental\Mail\MailboxSelection(
-        $settingService,
-        $inboundMailForOthers
-    );
-
     $frontController->registerController(
         \Modules\Rental\Controller\RentalConfigController::class,
         new \Modules\Rental\Controller\RentalConfigController(
             $twig, $rentalAssetRepository, $rentalAssetService, $rentalManagerService,
             $scoutYearService, $settingService, $rentalPaymentService,
-            // Which of the unit's already-configured mailboxes this module
-            // listens to (§7.4). Never a host, an account or a password —
-            // this only stores ids.
-            $rentalMailboxSelection,
+            // The null-seeded API handle (§7.5): the page names the unit's
+            // boxes and their state, never a host, an account or a
+            // password. Which of them this module reads is the mailbox
+            // configuration's answer, not a rental setting.
+            $inboundMailForOthers,
             // Read-only here: flags the public assets nobody has priced yet,
             // so a chief learns it from this page rather than from a visitor.
             $rentalPricingService
@@ -5651,12 +5656,14 @@ if ($isEnabled('rental')) {
                     $rentalBookingRepository,
                     $inboundMailForOthers,
                     $rentalDocumentService,
-                    [],
                     \Modules\Rental\Mail\RentalMessageConsumer::DEFAULT_WINDOW_DAYS_AFTER,
                     new \Modules\Rental\Mail\BookingReferenceMatcher(),
                     $rentalAuthorizationService,
                     $rentalCurrentYearId,
-                    AuthSession::isAuthenticated() ? AuthSession::getEmail() : null
+                    AuthSession::isAuthenticated() ? AuthSession::getEmail() : null,
+                    // « Rattacher à… » on the chief's screen names a
+                    // booking by its asset (Api\ReferenceDirectory).
+                    $rentalAssetRepository
                 )
         );
     }

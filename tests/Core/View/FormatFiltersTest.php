@@ -105,6 +105,17 @@ final class FormatFiltersTest extends TestCase
         $this->assertSame('5 juillet 2026', $this->render('v|french_date', ['v' => '2026-07-05']));
     }
 
+    public function testFilesizeReadsLikeAPerson(): void
+    {
+        // « 13867 Ko » and « 0 Ko » for a three-hundred-byte PDF were what
+        // the templates printed before this filter.
+        $this->assertSame('0 Ko', $this->render('0|filesize'));
+        $this->assertSame('< 1 Ko', $this->render('300|filesize|raw'));
+        $this->assertSame('12 Ko', $this->render('12288|filesize'));
+        $this->assertSame('13,5 Mo', $this->render('14155776|filesize'));
+        $this->assertSame('2,0 Go', $this->render('2147483648|filesize'));
+    }
+
     public function testMoneyRendersBelgianFrenchAmounts(): void
     {
         $this->assertSame('1 234,56 €', $this->render('1234.56|money'));

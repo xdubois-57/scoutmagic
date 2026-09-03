@@ -538,6 +538,24 @@ class TwigFactory
             return number_format(((int) $cents) / 100, 2, ',', ' ') . ' €';
         }));
 
+        // A file size as a person reads it — « < 1 Ko », « 12 Ko »,
+        // « 13,9 Mo » — where templates used to print « 13867 Ko » and
+        // « 0 Ko » for a three-hundred-byte PDF.
+        $environment->addFilter(new TwigFilter('filesize', function ($bytes): string {
+            $bytes = max(0, (int) $bytes);
+            if ($bytes < 1024) {
+                return $bytes === 0 ? '0 Ko' : '< 1 Ko';
+            }
+            if ($bytes < 1024 * 1024) {
+                return (string) (int) round($bytes / 1024) . ' Ko';
+            }
+            if ($bytes < 1024 * 1024 * 1024) {
+                return number_format($bytes / (1024 * 1024), 1, ',', ' ') . ' Mo';
+            }
+
+            return number_format($bytes / (1024 * 1024 * 1024), 1, ',', ' ') . ' Go';
+        }));
+
         // Register markdown filter — renders release/commit notes (see
         // Core\View\MarkdownRenderer) as safe HTML instead of raw Markdown
         // syntax.

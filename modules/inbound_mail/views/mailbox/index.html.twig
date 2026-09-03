@@ -3,20 +3,20 @@
 {% block title %}Courrier — {{ site_name }}{% endblock %}
 
 {% block content %}
-{% include 'partials/page_header.html.twig' with { title: 'Courrier entrant' } only %}
+{% include 'partials/page_header.html.twig' with { title: 'Courrier' } only %}
 
 <p class="text-body-secondary">
-    Le courrier reçu dans les boîtes synchronisées. Associer un message ne le retire pas de la boîte
+    Le courrier reçu dans les boîtes synchronisées. Rattacher un message ne le retire pas de la boîte
     d'origine.
     {#
       « Tout le courrier » is what this said, and the page opens on
-      « Sans association » — so it promised everything and showed a
+      « Sans rattachement » — so it promised everything and showed a
       subset. A reader concluded, reasonably, that every message they had
       was unattached; the counts on the filter below are what makes the
       subset visible AS a subset.
     #}
     {% if filter_association == 'none' and association_counts.some > 0 %}
-        <strong>Cette page s'ouvre sur les messages sans association</strong> :
+        <strong>Cette page s'ouvre sur les messages sans rattachement</strong> :
         {{ association_counts.some }} message{{ association_counts.some > 1 ? 's' : '' }}
         déjà rattaché{{ association_counts.some > 1 ? 's' : '' }}
         {{ association_counts.some > 1 ? 'sont' : 'est' }} masqué{{ association_counts.some > 1 ? 's' : '' }}
@@ -24,15 +24,26 @@
     {% endif %}
 </p>
 
+{% if association_counts.proposed > 0 and filter_association != 'proposed' %}
+    <div class="alert alert-warning py-2">
+        {{ association_counts.proposed }} message{{ association_counts.proposed > 1 ? 's' : '' }}
+        {{ association_counts.proposed > 1 ? 'attendent' : 'attend' }} votre décision :
+        <a href="/courrier?association=proposed&boite={{ filter_mailbox }}{{ include_bulk ? '&automatique=1' : '' }}" class="alert-link">
+            voir les propositions
+        </a>.
+    </div>
+{% endif %}
+
 {# ── Filters. Metadata only — there is deliberately no search on the
      content of a message (D16). ────────────────────────────────────── #}
 <form method="get" action="/courrier" class="row g-2 align-items-end mb-3">
     <div class="col-sm-auto">
-        <label for="filter-association" class="form-label">Associations</label>
+        <label for="filter-association" class="form-label">Rattachements</label>
         <select name="association" id="filter-association" class="form-select form-select-sm">
-            <option value="none" {{ filter_association == 'none' ? 'selected' : '' }}>Sans association ({{ association_counts.none }})</option>
-            <option value="some" {{ filter_association == 'some' ? 'selected' : '' }}>Avec association ({{ association_counts.some }})</option>
-            <option value="all" {{ filter_association == 'all' ? 'selected' : '' }}>Toutes les associations ({{ association_counts.all }})</option>
+            <option value="none" {{ filter_association == 'none' ? 'selected' : '' }}>Sans rattachement ({{ association_counts.none }})</option>
+            <option value="proposed" {{ filter_association == 'proposed' ? 'selected' : '' }}>Avec proposition à confirmer ({{ association_counts.proposed }})</option>
+            <option value="some" {{ filter_association == 'some' ? 'selected' : '' }}>Rattachés ({{ association_counts.some }})</option>
+            <option value="all" {{ filter_association == 'all' ? 'selected' : '' }}>Tous ({{ association_counts.all }})</option>
         </select>
     </div>
     <div class="col-sm-auto">
@@ -48,12 +59,27 @@
     <div class="col-sm-auto">
         <button type="submit" class="btn btn-sm btn-outline-primary">Filtrer</button>
     </div>
+    {% if can_refresh %}
+        <div class="col-sm-auto ms-sm-auto">
+            {# A form of its own, POSTed: a chief waiting for a reply should
+               not have to find the superadmin's configuration page to
+               relève the boxes now. Same service, same lock. #}
+            <button type="submit" form="courrier-refresh" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-arrow-clockwise" aria-hidden="true"></i> Relever le courrier maintenant
+            </button>
+        </div>
+    {% endif %}
 </form>
+{% if can_refresh %}
+    <form method="post" action="/courrier/rafraichir" id="courrier-refresh" class="d-none">
+        {{ csrf_field()|raw }}
+    </form>
+{% endif %}
 
 {% if messages is empty %}
     {% include 'partials/empty_state.html.twig' with {
         message: association_counts.all > 0
-            ? "Aucun message ne correspond à ce filtre. Les autres sont sous « Toutes les associations »."
+            ? "Aucun message ne correspond à ce filtre. Les autres sont sous « Tous »."
             : "Aucun message reçu pour le moment.",
         compact: true
     } only %}
@@ -69,7 +95,7 @@
                             <span class="badge text-bg-light">automatique</span>
                         {% endif %}
                     </div>
-                    <div class="fw-medium text-truncate">{{ message.subject }}</div>
+                    <div class="fw-medium text-truncate">{{ message.subject ?: 'Sans objet' }}</div>
                     <div class="small text-body-secondary">
                         {{ mailboxes[message.mailboxId]|default('boîte inconnue') }}
                         {% if message.hasAttachments %}
@@ -86,13 +112,13 @@
                     <div class="mt-1 d-flex flex-wrap gap-1">
                         {% set own_candidates = candidates[message.id]|default([]) %}
                         {#
-                          Not under « Sans association » : there, every row
+                          Not under « Sans rattachement » : there, every row
                           is unattached by construction, and a badge on all
                           of them says nothing about the message while
                           reading like a claim about the whole mailbox.
                         #}
                         {% if filter_association != 'none' and message.links is empty and own_candidates is empty %}
-                            <span class="badge text-bg-light">Aucune association</span>
+                            <span class="badge text-bg-light">Aucun rattachement</span>
                         {% endif %}
                         {% for link in message.links %}
                             <span class="badge text-bg-success">
@@ -134,7 +160,7 @@
 {% endif %}
 
 <p class="mt-4 small text-body-secondary">
-    Les messages sans association ni proposition sont supprimés automatiquement au terme du délai de
+    Les messages sans rattachement ni proposition sont supprimés automatiquement au terme du délai de
     conservation configuré.
 </p>
 {% endblock %}

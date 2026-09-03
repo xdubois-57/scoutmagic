@@ -51,6 +51,7 @@ class ReceiptControllerTest extends TestCase
     private TransactionRepository $transactionRepository;
     private string $storagePath;
     private int $accountId;
+    private TriageMail $triageMail;
 
     protected function setUp(): void
     {
@@ -95,6 +96,7 @@ class ReceiptControllerTest extends TestCase
         $moduleViews = dirname(__DIR__, 4) . '/modules/finance/views';
         $loader = new FilesystemLoader($templateDir);
         $loader->addPath($moduleViews, 'finance');
+        $loader->addPath(dirname(__DIR__, 4) . '/modules/inbound_mail/views', 'inbound_mail');
         $twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
         // asset() is what base.html.twig references every static file through
         // (Core\View\TwigFactory); the bare path is enough for a test render.
@@ -104,6 +106,7 @@ class ReceiptControllerTest extends TestCase
         $twig->addFilter(new \Twig\TwigFilter('date_fr', fn($d) => $d === null || $d === '' ? '' : ($d instanceof \DateTimeInterface ? $d : new \DateTimeImmutable((string) $d))->format('d/m/Y')));
         $twig->addFilter(new \Twig\TwigFilter('datetime_fr', fn($d) => $d === null || $d === '' ? '' : ($d instanceof \DateTimeInterface ? $d : new \DateTimeImmutable((string) $d))->format('d/m/Y à H:i')));
         $twig->addFilter(new \Twig\TwigFilter('money', fn($a) => $a === null || $a === '' ? '' : number_format((float) $a, 2, ',', ' ') . ' €'));
+        $twig->addFilter(new \Twig\TwigFilter('filesize', fn($b) => ((int) $b) . ' o'));
         $twig->addFilter(new \Twig\TwigFilter('money_cents', fn($c) => $c === null || $c === '' ? '' : number_format(((int) $c) / 100, 2, ',', ' ') . ' €'));
         $twig->addGlobal('site_name', 'Test');
         $twig->addGlobal('is_authenticated', true);
@@ -118,11 +121,13 @@ class ReceiptControllerTest extends TestCase
         $twig->addFunction(new TwigFunction('csrf_token', fn() => 'test'));
         $twig->addFunction(new TwigFunction('file_url', fn() => ''));
 
+        $this->triageMail = new TriageMail();
         $this->controller = new ReceiptController(
             $twig, $this->attachmentRepository, $this->transactionAttachmentRepository, $this->transactionRepository, $financeService,
             $receiptService,
             new \Modules\Finance\Service\FirstReceiptResolver($this->transactionAttachmentRepository, $this->attachmentRepository),
-            $journalService
+            $journalService,
+            $this->triageMail
         );
 
         $this->accountId = $this->accountRepository->create('Compte', Account::TYPE_BANK, null, null, null, 'intendant');
@@ -834,5 +839,126 @@ class ReceiptControllerTest extends TestCase
         $response = $this->controller->delete($this->jsonRequest('DELETE', '/finance/receipts/' . $attachment->id, ['_csrf_token' => $token]), ['id' => (string) $attachment->id]);
 
         $this->assertSame(403, $response->getStatusCode());
+    }
+    // ── « Courrier à trier » (§8.59bis) ─────────────────────────────────
+
+    public function testThePropositionsOfTheSessionsAccountsAreOfferedAboveTheReceipts(): void
+    {
+        $reference = \Modules\Finance\Mail\FinanceMessageConsumer::referenceFor($this->accountId);
+        $this->triageMail->messages = [$this->mailedInvoice(31)];
+        $this->triageMail->candidates = [31 => [new \Modules\InboundMail\Api\MessageCandidate(
+            $reference, 'Compte', 'iban_in_body', "Le message cite l'IBAN de ce compte.", 0, 5, 'finance'
+        )]];
+
+        $html = $this->controller->list(new Request('GET', '/finance/receipts', ['account_id' => (string) $this->accountId], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Courrier à trier (1)', $html);
+        $this->assertStringContainsString('Facture Trakks', $html);
+        $this->assertStringContainsString('/finance/receipts/courrier/31/confirmation', $html);
+        // The accounts this session may see, and the sorting pile it may
+        // sort (these fixtures run as the system caller) — nothing else.
+        $this->assertSame(
+            [$reference, \Modules\Finance\Mail\FinanceMessageConsumer::REFERENCE_UNKNOWN],
+            $this->triageMail->askedReferences
+        );
+    }
+
+    public function testConfirmingAPropositionGoesThroughTheScopedApiAsThisPerson(): void
+    {
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+
+        $response = $this->controller->confirmMailProposition(
+            new Request('POST', '/finance/receipts/courrier/31/confirmation', [], ['candidate_id' => '5', '_csrf_token' => $token], [], []),
+            ['id' => '31']
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            [
+                'finance',
+                [
+                    \Modules\Finance\Mail\FinanceMessageConsumer::referenceFor($this->accountId),
+                    \Modules\Finance\Mail\FinanceMessageConsumer::REFERENCE_UNKNOWN,
+                ],
+                31,
+                5,
+                1,
+            ],
+            $this->triageMail->confirmed
+        );
+    }
+
+    public function testWithoutAnyPropositionTheReceiptsPageSaysNothingAboutMail(): void
+    {
+        $html = $this->controller->list(new Request('GET', '/finance/receipts', ['account_id' => (string) $this->accountId], [], [], []), [])->getBody();
+
+        $this->assertStringNotContainsString('Courrier à trier', $html);
+    }
+
+    private function mailedInvoice(int $id): \Modules\InboundMail\Api\InboundMessage
+    {
+        return new \Modules\InboundMail\Api\InboundMessage(
+            id: $id,
+            mailboxId: 1,
+            consumerId: '',
+            businessReference: '',
+            linkOrigin: \Modules\InboundMail\Api\LinkOrigin::MANUAL,
+            subject: 'Facture Trakks',
+            fromEmail: 'compta@trakks.be',
+            fromName: 'Trakks',
+            messageId: 'x@y',
+            inReplyTo: null,
+            sentAt: new \DateTimeImmutable('2027-07-12 09:30:00'),
+            bodyText: 'Veuillez trouver la facture ci-jointe.',
+            bodyHtml: ''
+        );
+    }
+}
+
+/**
+ * An `inbound_mail` that hands the receipts page what the test put in it,
+ * and records what the page asked.
+ *
+ * @internal
+ */
+final class TriageMail implements \Modules\InboundMail\Api\InboundMailInterface
+{
+    use \Tests\Modules\InboundMail\InertInboundMail;
+
+    /** @var \Modules\InboundMail\Api\InboundMessage[] */
+    public array $messages = [];
+
+    /** @var array<int, \Modules\InboundMail\Api\MessageCandidate[]> */
+    public array $candidates = [];
+
+    /** @var string[] */
+    public array $askedReferences = [];
+
+    /** @var array<int, mixed> */
+    public array $confirmed = [];
+
+    public function findForTriage(string $consumerId, array $ownReferences, int $limit = 50): array
+    {
+        $this->askedReferences = $ownReferences;
+
+        return $this->messages;
+    }
+
+    public function findCandidatesFor(string $consumerId, array $messageIds): array
+    {
+        return $this->candidates;
+    }
+
+    public function confirmCandidate(
+        string $consumerId,
+        array $ownReferences,
+        int $messageId,
+        int $candidateId,
+        ?int $userAccountId = null
+    ): bool {
+        $this->confirmed = [$consumerId, $ownReferences, $messageId, $candidateId, $userAccountId];
+
+        return true;
     }
 }

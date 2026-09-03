@@ -87,14 +87,28 @@ class CampsMailController extends AbstractController
      */
     public function unsorted(Request $request, array $params): Response
     {
-        $all = $this->messages();
+        $everything = $this->messages();
         $status = self::status((string) $request->getQuery('statut', ''));
+        $includeBulk = (string) $request->getQuery('automatique', '') === '1';
+
+        // Automatic mail — newsletters, bounces, acknowledgements — is out
+        // of the work list unless asked for, exactly as it is on the
+        // chief's `/courrier`: a newsletter under « À trier » is not a
+        // decision anybody has to make.
+        $all = $includeBulk
+            ? $everything
+            : array_values(array_filter($everything, static fn(array $row): bool => !$row['message']->isBulk));
 
         return $this->render('@camps/unsorted_mail.html.twig', [
             'messages' => self::filtered($all, $status),
             'can_search_stays' => $this->staySearch !== null,
             'has_inbound_mail' => $this->inboundMail !== null && $this->inboundMail->isCollecting(),
             'status' => $status,
+            'include_bulk' => $includeBulk,
+            'bulk_count' => count($everything) - count(array_filter(
+                $everything,
+                static fn(array $row): bool => !$row['message']->isBulk
+            )),
             'counts' => [
                 self::STATUS_UNLINKED => count(self::filtered($all, self::STATUS_UNLINKED)),
                 self::STATUS_LINKED => count(self::filtered($all, self::STATUS_LINKED)),
@@ -434,11 +448,21 @@ class CampsMailController extends AbstractController
             array_map(static fn($message) => $message->id, $messages)
         );
 
+        // The stays as a chief names them, once for the page: « Rattaché —
+        // camp-51 » told nobody anything, and the label the picker already
+        // shows is the one the badge should carry.
+        $labels = [];
+        foreach ($this->camps->findAllWithPlaceName() as $row) {
+            $labels[CampsMessageConsumer::referenceFor($row['camp']->id)]
+                = StaySearchService::labelFor($row['camp'], $row['place_name']);
+        }
+
         $rows = [];
         foreach ($messages as $message) {
             $body = trim($message->bodyText);
             $rows[] = [
                 'message' => $message,
+                'labels' => $labels,
                 'excerpt' => mb_substr($body, 0, self::EXCERPT_LENGTH),
                 // Whether the excerpt actually cut something off, so the
                 // screen can promise "there is more" only when there is.

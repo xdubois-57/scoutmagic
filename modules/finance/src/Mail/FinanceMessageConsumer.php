@@ -25,6 +25,8 @@ use Modules\InboundMail\Api\LinkOrigin;
 use Modules\InboundMail\Api\MessageCandidate;
 use Modules\InboundMail\Api\MessageConsumerInterface;
 use Modules\InboundMail\Api\MessageLink;
+use Modules\InboundMail\Api\ReferenceDirectory;
+use Modules\InboundMail\Api\ReferenceSuggestion;
 
 /**
  * An invoice arriving by email, offered as a receipt on the account it
@@ -74,7 +76,7 @@ use Modules\InboundMail\Api\MessageLink;
  * this account". A consumer that needed finance to change would have been
  * a consumer built at the wrong layer.
  */
-class FinanceMessageConsumer implements MessageConsumerInterface
+class FinanceMessageConsumer implements MessageConsumerInterface, ReferenceDirectory
 {
     public const CONSUMER_ID = 'finance';
 
@@ -168,6 +170,58 @@ class FinanceMessageConsumer implements MessageConsumerInterface
     public function displayName(): string
     {
         return 'Finances';
+    }
+
+    // ── Api\ReferenceDirectory: the accounts as a treasurer names them ──
+
+    /**
+     * @return ReferenceSuggestion[]
+     */
+    public function searchReferences(string $query, int $limit = 10): array
+    {
+        $needle = \Core\Service\TextNormalizerService::fold(trim($query));
+        if ($needle === '') {
+            return [];
+        }
+
+        $suggestions = [];
+        foreach ($this->accounts->findAllOrdered() as $account) {
+            if ($account->status !== Account::STATUS_ACTIVE) {
+                continue;
+            }
+
+            $isExact = self::referenceFor($account->id) === trim($query);
+            if ($isExact || str_contains(\Core\Service\TextNormalizerService::fold($account->name), $needle)) {
+                $suggestion = new ReferenceSuggestion(self::referenceFor($account->id), $account->name, 'Compte');
+                $isExact ? array_unshift($suggestions, $suggestion) : $suggestions[] = $suggestion;
+            }
+        }
+
+        // The sorting pile is a place too: « je ne sais pas quel compte »
+        // is an answer a chief may give, and it is where the treasury
+        // sorts.
+        if (trim($query) === self::REFERENCE_UNKNOWN || str_contains('compte inconnu', $needle)) {
+            $suggestions[] = new ReferenceSuggestion(
+                self::REFERENCE_UNKNOWN,
+                'Compte inconnu',
+                'La pile que la trésorerie trie'
+            );
+        }
+
+        return array_slice($suggestions, 0, max(1, $limit));
+    }
+
+    public function referenceUrl(string $businessReference): ?string
+    {
+        if ($businessReference === self::REFERENCE_UNKNOWN) {
+            return '/finance/receipts?account_id=unassigned';
+        }
+
+        $accountId = self::accountIdFromReference($businessReference);
+
+        return $accountId !== null && $this->accounts->findById($accountId) !== null
+            ? '/finance/receipts?account_id=' . $accountId
+            : null;
     }
 
     public static function referenceFor(int $accountId): string

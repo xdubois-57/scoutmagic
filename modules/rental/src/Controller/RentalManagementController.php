@@ -222,7 +222,7 @@ class RentalManagementController extends AbstractController
     {
         $asset = $this->manageableAsset($params);
         if ($asset === null) {
-            return new Response('Not Found', 404);
+            return $this->notFound();
         }
 
         $pricingSettings = $this->pricingService->loadSettings($asset->id);
@@ -303,7 +303,7 @@ class RentalManagementController extends AbstractController
     {
         $asset = $this->manageableAsset($params);
         if ($asset === null || $this->complianceService === null) {
-            return new Response('Not Found', 404);
+            return $this->notFound();
         }
 
         return $this->render('@rental/management/compliance.html.twig', [
@@ -402,7 +402,7 @@ class RentalManagementController extends AbstractController
 
         $asset = $this->manageableAssetById((int) $request->getBody('asset_id', 0));
         if ($asset === null || $this->complianceService === null) {
-            return new Response('Not Found', 404);
+            return $this->notFound();
         }
 
         try {
@@ -540,7 +540,7 @@ class RentalManagementController extends AbstractController
     {
         $asset = $this->manageableAsset($params);
         if ($asset === null) {
-            return new Response('Not Found', 404);
+            return $this->notFound();
         }
 
         $now = new \DateTimeImmutable();
@@ -584,7 +584,7 @@ class RentalManagementController extends AbstractController
     {
         $asset = $this->manageableAsset($params);
         if ($asset === null) {
-            return new Response('Not Found', 404);
+            return $this->notFound();
         }
 
         $filter = (string) $request->getQuery('statut', '');
@@ -679,12 +679,12 @@ class RentalManagementController extends AbstractController
     {
         $asset = $this->manageableAsset($params);
         if ($asset === null) {
-            return new Response('Not Found', 404);
+            return $this->notFound();
         }
 
         $booking = $this->bookingOfAsset($asset, (int) ($params['id'] ?? 0));
         if ($booking === null) {
-            return new Response('Not Found', 404);
+            return $this->notFound();
         }
 
         $now = new \DateTimeImmutable();
@@ -743,6 +743,7 @@ class RentalManagementController extends AbstractController
             // that can only ever be empty is noise on a busy page.
             'communications_available' => $this->communicationService?->isAvailable() ?? false,
             'messages' => $this->communicationService?->timeline($booking) ?? [],
+            'message_propositions' => $this->communicationService?->propositions($booking) ?? [],
             'message_documents' => $this->communicationService?->documentsByFileId($booking) ?? [],
             'move_targets' => $this->communicationService?->moveTargets(
                 $booking,
@@ -855,6 +856,88 @@ class RentalManagementController extends AbstractController
     }
 
     /**
+     * POST /mes-locations/message/proposition/confirmation — a manager
+     * says yes to what the module suspected about their booking.
+     *
+     * @param array<string, string> $params
+     */
+    public function confirmMessageProposition(Request $request, array $params): Response
+    {
+        return $this->decideMessageProposition($request, true);
+    }
+
+    /**
+     * POST /mes-locations/message/proposition/rejet
+     *
+     * @param array<string, string> $params
+     */
+    public function dismissMessageProposition(Request $request, array $params): Response
+    {
+        return $this->decideMessageProposition($request, false);
+    }
+
+    private function decideMessageProposition(Request $request, bool $confirm): Response
+    {
+        return $this->bookingAction($request, function (RentalBooking $booking) use ($request, $confirm): void {
+            if ($this->communicationService === null) {
+                throw new RentalException("Le courrier entrant n'est pas disponible.");
+            }
+
+            $messageId = (int) $request->getBody('message_id', 0);
+            $candidateId = (int) $request->getBody('candidate_id', 0);
+
+            $done = $confirm
+                ? $this->communicationService->confirmProposition(
+                    $booking,
+                    $messageId,
+                    $candidateId,
+                    AuthSession::getUserAccountId()
+                )
+                : $this->communicationService->dismissProposition($booking, $messageId, $candidateId);
+
+            if (!$done) {
+                throw new RentalException("Cette proposition n'existe plus.");
+            }
+
+            FlashMessage::set('success', $confirm ? 'Message rattaché à la réservation.' : 'Proposition écartée.');
+        });
+    }
+
+    /**
+     * POST /mes-locations/message/relancer — offer the unattributed mail
+     * to this module again, with what the site knows today.
+     *
+     * @param array<string, string> $params
+     */
+    public function reanalyzeMail(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function (): void {
+            if ($this->communicationService === null) {
+                throw new RentalException("Le courrier entrant n'est pas disponible.");
+            }
+
+            $report = $this->communicationService->reanalyze();
+            $found = [];
+            if ($report['linked'] > 0) {
+                $found[] = $report['linked'] . ' rattachement' . ($report['linked'] > 1 ? 's' : '');
+            }
+            if ($report['proposed'] > 0) {
+                $found[] = $report['proposed'] . ' proposition' . ($report['proposed'] > 1 ? 's' : '');
+            }
+
+            FlashMessage::set('success', $report['examined'] === 0
+                ? 'Aucun message en attente : tout ce qui est conservé est déjà rattaché.'
+                : sprintf(
+                    '%d message%s réexaminé%s : %s.',
+                    $report['examined'],
+                    $report['examined'] > 1 ? 's' : '',
+                    $report['examined'] > 1 ? 's' : '',
+                    $found === [] ? 'rien de neuf pour l\'instant' : implode(' et ', $found)
+                ));
+        });
+    }
+
+    /**
      * POST /mes-locations/document-reclasser — say what a document actually
      * is (§6.24, §7.8).
      *
@@ -898,13 +981,13 @@ class RentalManagementController extends AbstractController
     {
         $asset = $this->manageableAsset($params);
         if ($asset === null || $this->documentService === null) {
-            return new Response('Not Found', 404);
+            return $this->notFound();
         }
 
         $booking = $this->bookingOfAsset($asset, (int) ($params['id'] ?? 0));
         $type = DocumentType::tryFrom((string) ($params['type'] ?? ''));
         if ($booking === null || $type === null || !$type->isGenerated()) {
-            return new Response('Not Found', 404);
+            return $this->notFound();
         }
 
         $body = $this->documentService->bookingText($booking, $asset, $type);
@@ -1212,7 +1295,7 @@ class RentalManagementController extends AbstractController
     {
         $asset = $this->manageableAsset($params);
         if ($asset === null) {
-            return new Response('Not Found', 404);
+            return $this->notFound();
         }
 
         $today = new \DateTimeImmutable('today');
@@ -1289,7 +1372,7 @@ class RentalManagementController extends AbstractController
     {
         $asset = $this->manageableAsset($params);
         if ($asset === null || $this->documentService === null) {
-            return new Response('Not Found', 404);
+            return $this->notFound();
         }
 
         $templates = [];
@@ -1449,7 +1532,7 @@ class RentalManagementController extends AbstractController
 
         $asset = $this->manageableAssetById((int) $request->getBody('asset_id', 0));
         if ($asset === null || $this->stayService === null) {
-            return new Response('Not Found', 404);
+            return $this->notFound();
         }
 
         try {
@@ -1475,7 +1558,7 @@ class RentalManagementController extends AbstractController
 
         $asset = $this->manageableAssetById((int) $request->getBody('asset_id', 0));
         if ($asset === null || $this->calendarDirectory === null) {
-            return new Response('Not Found', 404);
+            return $this->notFound();
         }
 
         // Several, not one: a hall is very often both the unit's business
@@ -1532,12 +1615,12 @@ class RentalManagementController extends AbstractController
 
         $asset = $this->manageableAssetById((int) $request->getBody('asset_id', 0));
         if ($asset === null || $this->documentService === null) {
-            return new Response('Not Found', 404);
+            return $this->notFound();
         }
 
         $type = DocumentType::tryFrom((string) $request->getBody('document_type', ''));
         if ($type === null || !$type->isGenerated()) {
-            return new Response('Not Found', 404);
+            return $this->notFound();
         }
 
         $unknown = $this->documentService->saveTemplate(
@@ -1591,12 +1674,12 @@ class RentalManagementController extends AbstractController
     {
         $asset = $this->manageableAsset($params);
         if ($asset === null || $this->stayService === null) {
-            return new Response('Not Found', 404);
+            return $this->notFound();
         }
 
         $booking = $this->bookingOfAsset($asset, (int) ($params['id'] ?? 0));
         if ($booking === null) {
-            return new Response('Not Found', 404);
+            return $this->notFound();
         }
 
         // The count from the last settlement if one exists, else what was
@@ -2056,7 +2139,7 @@ class RentalManagementController extends AbstractController
 
         $asset = $this->manageableAssetById((int) $request->getBody('asset_id', 0));
         if ($asset === null) {
-            return new Response('Not Found', 404);
+            return $this->notFound();
         }
 
         try {
@@ -2106,7 +2189,7 @@ class RentalManagementController extends AbstractController
 
         $asset = $this->manageableAssetById((int) $request->getBody('asset_id', 0));
         if ($asset === null) {
-            return new Response('Not Found', 404);
+            return $this->notFound();
         }
 
         try {
@@ -2212,12 +2295,12 @@ class RentalManagementController extends AbstractController
 
         $asset = $this->manageableAssetById((int) $request->getBody('asset_id', 0));
         if ($asset === null) {
-            return new Response('Not Found', 404);
+            return $this->notFound();
         }
 
         $booking = $this->bookingOfAsset($asset, (int) $request->getBody('booking_id', 0));
         if ($booking === null) {
-            return new Response('Not Found', 404);
+            return $this->notFound();
         }
 
         try {
@@ -2290,12 +2373,12 @@ class RentalManagementController extends AbstractController
 
         $asset = $this->manageableAssetById((int) $request->getBody('asset_id', 0));
         if ($asset === null || $this->stayService === null) {
-            return new Response('Not Found', 404);
+            return $this->notFound();
         }
 
         $booking = $this->bookingOfAsset($asset, (int) $request->getBody('booking_id', 0));
         if ($booking === null) {
-            return new Response('Not Found', 404);
+            return $this->notFound();
         }
 
         try {

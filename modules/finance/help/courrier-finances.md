@@ -22,22 +22,20 @@ Ensuite, trois règles, dans cet ordre.
 
 ## 1. L'IBAN d'un de vos comptes est cité dans le message
 
-Le site vous **propose** ce compte. C'est un signal faible, et la
-proposition est là pour être confirmée ou écartée, pas pour être crue :
-rien n'est enregistré tant qu'un trésorier n'a pas confirmé.
+Le site vous **propose** ce compte, en tête de la page Reçus, dans
+« Courrier à trier ». C'est un signal faible : rien n'est enregistré tant
+qu'un trésorier n'a pas confirmé. « Rattacher » enregistre la pièce jointe
+comme reçu de ce compte, en votre nom ; « Écarter » est définitif.
 
-Le site ne devine pas. Si le message cite deux de vos comptes, il ne
-propose rien : c'est presque toujours un virement interne, et le reçu d'un
-virement n'appartient par défaut à aucun des deux côtés.
+Si le message cite deux de vos comptes, il ne propose rien : c'est presque
+toujours un virement interne, dont le reçu n'appartient à aucun côté.
 
 ## 2. L'expéditeur anime un seul staff
 
 Un animateur photographie un ticket et l'envoie à l'adresse de la
 trésorerie. Le site reconnaît son adresse — celle du Desk comme une
-adresse secondaire qu'il a confirmée —, voit qu'il anime **un seul**
-staff, et classe le reçu sur le compte de ce staff. Directement, sans
-confirmation : vous demander de valider ce que les données de l'unité
-disent déjà serait vous déranger pour rien.
+adresse secondaire confirmée —, voit qu'il anime **un seul** staff, et
+classe le reçu sur le compte de ce staff, sans confirmation.
 
 S'il anime deux staffs, ou si son staff n'a pas exactement un compte
 **actif** — un compte de section encore en brouillon ne compte pas —, le

@@ -82,7 +82,7 @@ class CampsAttachmentControllerTest extends TestCase
             \Core\View\TwigFactory::create(
                 $root . '/core/View/templates',
                 false,
-                ['camps' => $root . '/modules/camps/views']
+                ['camps' => $root . '/modules/camps/views', 'inbound_mail' => $root . '/modules/inbound_mail/views']
             ),
             $camps,
             $places,

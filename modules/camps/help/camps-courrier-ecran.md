@@ -18,7 +18,17 @@ Il montre trois choses, et rien d'autre :
 - sur une boîte dédiée, **tout le reste** de cette boîte.
 
 Chaque message se lit **en entier** : on ne décide pas du sort d'un
-courrier dont on n'a vu que les premières lignes.
+courrier dont on n'a vu que les premières lignes. Ses pièces jointes
+s'ouvrent depuis la carte, avant même de décider.
+
+Sous chaque message, une proposition se confirme d'un « Rattacher » ;
+pour un séjour que le site n'a pas proposé, « Rattacher à un autre
+séjour » ouvre une recherche — un lieu, un mois, une année — et
+« Créer un camp depuis ce message » ouvre le formulaire pré-rempli.
+
+Le courrier automatique — lettres d'information, réponses automatiques,
+rapports de non-remise — est masqué par défaut ; « Afficher le courrier
+automatique » le fait revenir.
 
 « Retirer » enlève le rattachement à un séjour ; le message ne disparaît
 pas pour autant — il reste dans le courrier de l'unité, que le chef

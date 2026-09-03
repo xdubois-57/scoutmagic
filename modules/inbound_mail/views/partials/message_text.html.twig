@@ -1,0 +1,19 @@
+{#
+  The text itself — HTML when there is one, the plain body otherwise, and
+  a sentence when there is neither. Used only through message_body.html.twig.
+#}
+{% if message.bodyHtml is not empty %}
+    {{ message.bodyHtml|raw }}
+{% elseif message.bodyText|trim is not empty %}
+    <div class="text-break" style="white-space: pre-line">{{ message.bodyText }}</div>
+{% else %}
+    {# A photo sent from a phone: the whole message was the image, and
+       images are never rendered here. Saying so is the point — an empty
+       card looks like a message that failed to arrive. #}
+    <p class="mb-0 text-body-secondary fst-italic">
+        Ce message ne contient aucun texte.
+        {%- if message.hasAttachments %} Son contenu est dans la pièce jointe.{% endif %}
+        Les images placées dans le corps d'un message ne sont jamais affichées : les charger
+        préviendrait l'expéditeur que vous avez ouvert son message.
+    </p>
+{% endif %}

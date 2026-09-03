@@ -89,7 +89,7 @@ class CampsRbacTest extends TestCase
         );
 
         $root = dirname(__DIR__, 4);
-        $twig = TwigFactory::create($root . '/core/View/templates', false, ['camps' => $root . '/modules/camps/views']);
+        $twig = TwigFactory::create($root . '/core/View/templates', false, ['camps' => $root . '/modules/camps/views', 'inbound_mail' => $root . '/modules/inbound_mail/views']);
         $twig->addGlobal('site_name', 'Test Unit');
         $twig->addGlobal('is_authenticated', true);
         $twig->addGlobal('current_user_role', 'chief');

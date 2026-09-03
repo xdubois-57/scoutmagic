@@ -504,7 +504,6 @@ class RentalMessageConsumerTest extends TestCase
             $this->bookingRepository,
             $this->inboundMail,
             $this->documentService,
-            [],
             30,
             new \Modules\Rental\Mail\BookingReferenceMatcher(),
             $email === null ? null : $this->authorizationService,
@@ -608,62 +607,6 @@ class RentalMessageConsumerTest extends TestCase
             bodyText: '',
             bodyHtml: ''
         );
-    }
-
-    public function testAModuleListeningToAnotherMailboxClaimsNothing(): void
-    {
-        $this->registry = new MessageConsumerRegistry();
-        $consumer = new RentalMessageConsumer(
-            $this->bookingRepository,
-            $this->inboundMail,
-            $this->createStub(\Modules\Rental\Service\RentalDocumentService::class),
-            [$this->mailboxId + 99]
-        );
-
-        $this->createBooking();
-        $result = $consumer->analyze(new \Modules\InboundMail\Api\CandidateMessage(
-            mailboxId: $this->mailboxId,
-            subject: '[LOC-2027-0042]',
-            fromEmail: 'jeanne@example.be',
-            fromName: null,
-            messageId: 'a@b',
-            inReplyTo: null,
-            references: [],
-            toEmails: [],
-            sentAt: new \DateTimeImmutable('2027-07-12 09:30:00'),
-            bodyText: '',
-            bodyHtml: ''
-        ));
-
-        $this->assertSame([], $result->links);
-    }
-
-    public function testAnEmptySelectionMeansEveryMailbox(): void
-    {
-        $consumer = new RentalMessageConsumer(
-            $this->bookingRepository,
-            $this->inboundMail,
-            $this->createStub(\Modules\Rental\Service\RentalDocumentService::class),
-            []
-        );
-
-        $this->createBooking();
-        $result = $consumer->analyze(new \Modules\InboundMail\Api\CandidateMessage(
-            mailboxId: 12345,
-            subject: '[LOC-2027-0042]',
-            fromEmail: 'jeanne@example.be',
-            fromName: null,
-            messageId: 'a@b',
-            inReplyTo: null,
-            references: [],
-            toEmails: [],
-            sentAt: new \DateTimeImmutable('2027-07-12 09:30:00'),
-            bodyText: '',
-            bodyHtml: ''
-        ));
-
-        $this->assertCount(1, $result->links);
-        $this->assertSame('LOC-2027-0042', $result->links[0]->businessReference);
     }
 
     // ── Attachments become documents (§7.8) ─────────────────────────────
@@ -1248,6 +1191,85 @@ class RentalMessageConsumerTest extends TestCase
 
         // And the booking page reads the truth: a person moved it.
         $this->assertSame(LinkOrigin::MANUAL, $this->communicationService->timeline($to)[0]->linkOrigin);
+    }
+
+    // ── The manager answers the module's propositions ───────────────────
+
+    public function testAnAmbiguousSenderIsProposedOnEachBookingAndAnsweredOnOne(): void
+    {
+        // Two bookings of one renter inside the window: no association,
+        // one proposition on each. The manager of the first says yes
+        // there — and the second stops asking, since the question is
+        // answered.
+        $first = $this->createBooking('LOC-2027-0042');
+        $second = $this->createBooking('LOC-2027-0043', arrival: '2027-07-10', departure: '2027-07-12');
+        $this->deliver(10, 'Une question');
+        $this->sync();
+
+        $rows = $this->communicationService->propositions($first);
+        $this->assertCount(1, $rows);
+        $this->assertSame('LOC-2027-0042', $rows[0]['candidates'][0]->businessReference);
+        $this->assertCount(1, $this->communicationService->propositions($second));
+
+        $message = $rows[0]['message'];
+        $this->assertTrue(
+            $this->communicationService->confirmProposition($first, $message->id, $rows[0]['candidates'][0]->id, 7)
+        );
+
+        $timeline = $this->communicationService->timeline($first);
+        $this->assertCount(1, $timeline);
+        $this->assertSame(LinkOrigin::MANUAL, $timeline[0]->linkOrigin);
+        $this->assertSame([], $this->communicationService->propositions($first));
+        $this->assertSame([], $this->communicationService->propositions($second), 'the sibling proposition is settled too');
+    }
+
+    public function testAPropositionTowardsAnotherBookingCannotBeConfirmedFromThisOne(): void
+    {
+        $first = $this->createBooking('LOC-2027-0042');
+        $second = $this->createBooking('LOC-2027-0043', arrival: '2027-07-10', departure: '2027-07-12');
+        $this->deliver(10, 'Une question');
+        $this->sync();
+
+        $rows = $this->communicationService->propositions($second);
+        $candidate = $rows[0]['candidates'][0];
+
+        // The screen of the FIRST booking posting the SECOND's proposition.
+        $this->assertFalse(
+            $this->communicationService->confirmProposition($first, $rows[0]['message']->id, $candidate->id, 7)
+        );
+        $this->assertSame([], $this->communicationService->timeline($first));
+    }
+
+    // ── The directory the chief's screen files through ──────────────────
+
+    public function testTheDirectoryNamesABookingByItsRenterAndAsset(): void
+    {
+        $booking = $this->createBooking();
+        $consumer = new RentalMessageConsumer(
+            $this->bookingRepository,
+            $this->inboundMail,
+            $this->documentService,
+            RentalMessageConsumer::DEFAULT_WINDOW_DAYS_AFTER,
+            new \Modules\Rental\Mail\BookingReferenceMatcher(),
+            null,
+            null,
+            null,
+            $this->assetRepository
+        );
+
+        $found = $consumer->searchReferences('jeanne');
+        $this->assertCount(1, $found);
+        $this->assertSame('LOC-2027-0042', $found[0]->businessReference);
+        $this->assertStringContainsString('Jeanne Martin', $found[0]->label);
+        $this->assertStringContainsString('Local Saint-Georges', (string) $found[0]->detail);
+
+        $this->assertSame('LOC-2027-0042', $consumer->searchReferences('loc-2027-0042')[0]->businessReference);
+        $this->assertSame([], $consumer->searchReferences('personne'));
+        $this->assertSame(
+            '/mes-locations/local-saint-georges/reservations/' . $booking->id,
+            $consumer->referenceUrl('LOC-2027-0042')
+        );
+        $this->assertNull($consumer->referenceUrl('LOC-1999-0001'));
     }
 
     // ── Degrading without the module (§7.5) ─────────────────────────────

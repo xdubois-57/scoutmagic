@@ -1248,6 +1248,13 @@ class InboundMessageRepository
                                      WHERE c.message_id = m.id AND c.dismissed_at IS NULL)';
         } elseif ($association === 'some') {
             $where[] = 'EXISTS (SELECT 1 FROM inbound_message_links l WHERE l.message_id = m.id)';
+        } elseif ($association === 'proposed') {
+            // « Avec proposition » is the pile somebody is being asked
+            // about: a standing proposition, whatever else the message
+            // carries. Without this filter the chief had to open each
+            // message to find out whether a module was waiting on them.
+            $where[] = 'EXISTS (SELECT 1 FROM inbound_message_candidates c
+                                 WHERE c.message_id = m.id AND c.dismissed_at IS NULL)';
         }
 
         if (($filters['include_bulk'] ?? false) !== true) {

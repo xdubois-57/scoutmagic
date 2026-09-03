@@ -21,6 +21,7 @@ use Modules\InboundMail\Service\InboundMailService;
 use Modules\InboundMail\Service\MessageConsumerRegistry;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Tests\Modules\InboundMail\FakeDirectoryConsumer;
 use Tests\Modules\InboundMail\FakeMessageConsumer;
 use Tests\Modules\InboundMail\InboundMailTestHelper;
 use Twig\Environment;
@@ -127,7 +128,7 @@ class InboundMailboxControllerTest extends TestCase
 
         $body = $this->controller->index($this->get('/courrier'), [])->getBody();
 
-        $this->assertStringContainsString('sans association', mb_strtolower(html_entity_decode($body)));
+        $this->assertStringContainsString('sans rattachement', mb_strtolower(html_entity_decode($body)));
         $this->assertStringContainsString('masqué', html_entity_decode($body));
     }
 
@@ -139,9 +140,9 @@ class InboundMailboxControllerTest extends TestCase
 
         $body = html_entity_decode($this->controller->index($this->get('/courrier'), [])->getBody());
 
-        $this->assertStringContainsString('Sans association (1)', $body);
-        $this->assertStringContainsString('Avec association (1)', $body);
-        $this->assertStringContainsString('Toutes les associations (2)', $body);
+        $this->assertStringContainsString('Sans rattachement (1)', $body);
+        $this->assertStringContainsString('Rattachés (1)', $body);
+        $this->assertStringContainsString('Tous (2)', $body);
     }
 
     public function testTheCountsFollowTheMailboxTheReaderChose(): void
@@ -166,7 +167,7 @@ class InboundMailboxControllerTest extends TestCase
             $this->controller->index($this->get('/courrier?boite=' . $other), [])->getBody()
         );
 
-        $this->assertStringContainsString('Toutes les associations (0)', $body);
+        $this->assertStringContainsString('Tous (0)', $body);
     }
 
     public function testNoRowIsLabelledUnattachedOnAScreenThatShowsOnlyThose(): void
@@ -177,7 +178,7 @@ class InboundMailboxControllerTest extends TestCase
 
         $body = $this->controller->index($this->get('/courrier'), [])->getBody();
 
-        $this->assertStringNotContainsString('Aucune association', $body);
+        $this->assertStringNotContainsString('Aucun rattachement', $body);
     }
 
     public function testTheBadgeComesBackWhereItMeansSomething(): void
@@ -188,7 +189,7 @@ class InboundMailboxControllerTest extends TestCase
 
         $body = $this->controller->index($this->get('/courrier?association=all'), [])->getBody();
 
-        $this->assertStringContainsString('Aucune association', $body);
+        $this->assertStringContainsString('Aucun rattachement', $body);
         $this->assertStringContainsString('LOC-1', $body);
     }
 
@@ -421,13 +422,153 @@ class InboundMailboxControllerTest extends TestCase
     /**
      * @param array<string, string> $body
      */
-    private function post(string $action, int $messageId, array $body): \Core\Http\Response
+    // ── « Rattacher à… » (Api\ReferenceDirectory) ────────────────────────
+
+    public function testTheChiefFilesAMessageUnderATargetTheModuleOffers(): void
     {
+        $camps = new FakeDirectoryConsumer('camps', ['camp-1' => 'Ferme du Bois-Joli — juillet 2027']);
+        $controller = $this->controllerWith($camps);
+        $id = $this->store('m@x');
+
+        $response = $this->post('attach', $id, [
+            'consumer_id' => 'camps',
+            'business_reference' => 'camp-1',
+        ], $controller);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $links = $this->messages->findLinksForMessage($id);
+        $this->assertCount(1, $links);
+        $this->assertSame('camp-1', $links[0]->businessReference);
+        $this->assertSame(LinkOrigin::MANUAL, $links[0]->origin);
+        $this->assertSame(7, $links[0]->createdByUserAccountId, 'a manual association names its author');
+        $this->assertCount(1, $camps->linked, 'the module is told, so it can file the attachments');
+    }
+
+    public function testATargetTheModuleNeverOfferedIsRefused(): void
+    {
+        // A hand-crafted POST naming an object that does not exist must
+        // not create an association — and this screen cannot know what a
+        // reference looks like, so the module's own search is the check.
+        $controller = $this->controllerWith(new FakeDirectoryConsumer('camps', ['camp-1' => 'Ferme']));
+        $id = $this->store('m@x');
+
+        $this->post('attach', $id, ['consumer_id' => 'camps', 'business_reference' => 'camp-99'], $controller);
+
+        $this->assertSame([], $this->messages->findLinksForMessage($id));
+    }
+
+    public function testAModuleWithoutADirectoryCannotBeFiledUnderByHand(): void
+    {
+        // The default registry holds a consumer with no directory: the
+        // gesture is not offered towards it, and a POST is refused.
+        $id = $this->store('m@x');
+
+        $this->post('attach', $id, ['consumer_id' => 'rental', 'business_reference' => 'LOC-1']);
+
+        $this->assertSame([], $this->messages->findLinksForMessage($id));
+        $this->assertStringNotContainsString('Rattacher à…', $this->show($id));
+    }
+
+    public function testTheMessagePageOffersTheGestureAndLinksEachObject(): void
+    {
+        $controller = $this->controllerWith(new FakeDirectoryConsumer('camps', ['camp-1' => 'Ferme du Bois-Joli']));
+        $id = $this->store('m@x');
+        $this->messages->addLink($id, 'camps', 'camp-1', LinkOrigin::REFERENCE);
+
+        $html = $controller->show(new Request('GET', '/courrier/' . $id, [], [], [], []), ['id' => (string) $id])->getBody();
+
+        $this->assertStringContainsString('Rattacher à…', $html);
+        $this->assertStringContainsString('href="/objets/camp-1"', $html, 'the association leads to its object');
+    }
+
+    public function testTheTargetSearchAnswersFromTheModulesOwnDirectory(): void
+    {
+        $controller = $this->controllerWith(new FakeDirectoryConsumer('camps', ['camp-1' => 'Ferme du Bois-Joli']));
+
+        $response = $controller->searchTargets(
+            new Request('GET', '/courrier/cibles', ['module' => 'camps', 'q' => 'bois'], [], [], []),
+            []
+        );
+
+        $payload = json_decode($response->getBody(), true);
+        $this->assertTrue($payload['success']);
+        $this->assertSame('camp-1', $payload['targets'][0]['reference']);
+        $this->assertSame('Ferme du Bois-Joli', $payload['targets'][0]['label']);
+    }
+
+    public function testTheTargetSearchIsEmptyForAModuleWithoutADirectory(): void
+    {
+        $response = $this->controller->searchTargets(
+            new Request('GET', '/courrier/cibles', ['module' => 'rental', 'q' => 'x'], [], [], []),
+            []
+        );
+
+        $this->assertSame([], json_decode($response->getBody(), true)['targets']);
+    }
+
+    // ── « Avec proposition à confirmer » ────────────────────────────────
+
+    public function testTheProposedFilterShowsOnlyWhatAwaitsADecision(): void
+    {
+        $waiting = $this->store('a@x');
+        $this->addCandidate($waiting);
+        $quiet = $this->store('b@x');
+
+        $html = $this->controller->index(
+            new Request('GET', '/courrier', ['association' => 'proposed'], [], [], []),
+            []
+        )->getBody();
+
+        $this->assertStringContainsString('Avec proposition à confirmer (1)', $html);
+        $this->assertStringContainsString('href="/courrier/' . $waiting . '"', $html);
+        $this->assertStringNotContainsString('href="/courrier/' . $quiet . '"', $html);
+    }
+
+    public function testTheListSaysHowManyPropositionsWaitWhateverTheFilter(): void
+    {
+        $waiting = $this->store('a@x');
+        $this->addCandidate($waiting);
+
+        $html = $this->controller->index(new Request('GET', '/courrier', [], [], [], []), [])->getBody();
+
+        $this->assertMatchesRegularExpression('/1 message\s+attend votre décision/u', html_entity_decode($html));
+        $this->assertStringContainsString('association=proposed', $html);
+    }
+
+    private function controllerWith(FakeMessageConsumer ...$consumers): InboundMailboxController
+    {
+        $registry = new MessageConsumerRegistry();
+        foreach ($consumers as $consumer) {
+            $registry->register($consumer);
+        }
+
+        return new InboundMailboxController(
+            $this->twig(),
+            new GeneralMailboxService($this->messages, $this->mailboxes, $registry),
+            new InboundMailService($this->messages, $this->mailboxes, new FileRepository($this->pdo), $registry),
+            $registry,
+            new JournalService(new JournalRepository($this->pdo))
+        );
+    }
+
+    private function show(int $messageId): string
+    {
+        return $this->controller
+            ->show(new Request('GET', '/courrier/' . $messageId, [], [], [], []), ['id' => (string) $messageId])
+            ->getBody();
+    }
+
+    private function post(
+        string $action,
+        int $messageId,
+        array $body,
+        ?InboundMailboxController $controller = null
+    ): \Core\Http\Response {
         $token = bin2hex(random_bytes(32));
         $_SESSION['_csrf_token'] = $token;
         $body['_csrf_token'] = $token;
 
-        return $this->controller->{$action}(
+        return ($controller ?? $this->controller)->{$action}(
             new Request('POST', '/courrier/' . $messageId, [], $body, [], []),
             ['id' => (string) $messageId]
         );
@@ -480,6 +621,7 @@ class InboundMailboxControllerTest extends TestCase
         $twig->addFunction(new TwigFunction('csrf_token', static fn(): string => 'test'));
         $twig->addFunction(new TwigFunction('get_flash', static fn() => null));
         $twig->addFunction(new TwigFunction('file_url', static fn(): string => ''));
+        $twig->addFilter(new \Twig\TwigFilter('filesize', static fn(mixed $bytes): string => ((int) $bytes) . ' o'));
         $twig->addFilter(new \Twig\TwigFilter('datetime_fr', static function (mixed $value): string {
             if ($value === null || $value === '') {
                 return '';

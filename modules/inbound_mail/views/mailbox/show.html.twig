@@ -3,7 +3,7 @@
 {% block title %}{{ message.subject }} — Courrier — {{ site_name }}{% endblock %}
 
 {% block content %}
-{% include 'partials/page_header.html.twig' with { title: message.subject } only %}
+{% include 'partials/page_header.html.twig' with { title: message.subject ?: 'Sans objet' } only %}
 
 <p class="text-body-secondary">
     {{ message.displayFrom }} · {{ message.sentAt|datetime_fr }} ·
@@ -19,59 +19,34 @@
 
 <div class="card mb-4">
     <div class="card-body">
-        {# Sanitised on the way in and stored sanitised (§7.9) — the
-           sender's original HTML was never written anywhere. Remote images
-           are removed rather than proxied: a 1×1 image in a stranger's
-           email is a read receipt. #}
-        {% if message.bodyHtml %}
-            {{ message.bodyHtml|raw }}
-        {% elseif message.bodyText|trim %}
-            <div class="text-break" style="white-space: pre-line">{{ message.bodyText }}</div>
-        {% else %}
-            {# A photo sent from a phone: the whole message was the image,
-               and images are never rendered here. Saying so is the point —
-               an empty card looks like a message that failed to arrive. #}
-            <p class="mb-0 text-body-secondary fst-italic">
-                Ce message ne contient aucun texte.
-                {%- if message.hasAttachments %} Son contenu est dans la pièce jointe ci-dessous.{% endif %}
-                Les images placées dans le corps d'un message ne sont jamais affichées : les charger
-                préviendrait l'expéditeur que vous avez ouvert son message.
-            </p>
-        {% endif %}
+        {% include '@inbound_mail/partials/message_body.html.twig' with { message: message } only %}
     </div>
 </div>
 
 {% if message.hasAttachments or message.hasOmittedAttachments %}
     <h2 class="h6">Pièces jointes</h2>
-    <ul class="list-group mb-4">
-        {% for attachment in message.attachments %}
-            <li class="list-group-item d-flex justify-content-between align-items-center gap-3">
-                <span class="text-truncate">
-                    {{ attachment.filename }}
-                    <span class="text-body-secondary small">· {{ (attachment.sizeBytes / 1024)|round }} Ko</span>
-                </span>
-                <a href="/files/{{ attachment.fileId }}" class="btn btn-sm btn-outline-secondary">Télécharger</a>
-            </li>
-        {% endfor %}
-        {% for omitted in message.omittedAttachments %}
-            <li class="list-group-item list-group-item-warning">
-                <span class="fw-medium">{{ omitted.filename }}</span>
-                <span class="small">· {{ (omitted.sizeBytes / 1024)|round }} Ko — {{ omitted.explanation }}</span>
-            </li>
-        {% endfor %}
-    </ul>
+    <div class="card mb-4"><div class="card-body py-2">
+        {% include '@inbound_mail/partials/attachments.html.twig' with { message: message, downloadable: true } only %}
+    </div></div>
 {% endif %}
 
-<h2 class="h6">Associations</h2>
+<h2 class="h6">Rattachements</h2>
 {% if message.links is empty %}
-    <p class="text-body-secondary">Ce message n'est associé à rien.</p>
+    <p class="text-body-secondary">Ce message n'est rattaché à rien.</p>
 {% else %}
     <ul class="list-group mb-2">
         {% for link in message.links %}
+            {% set label = reference_labels[link.consumerId][link.businessReference]|default(link.businessReference) %}
+            {% set url = reference_urls[link.consumerId][link.businessReference]|default(null) %}
             <li class="list-group-item d-flex flex-wrap justify-content-between align-items-center gap-2">
                 <div>
                     <div>
-                        {{ consumer_names[link.consumerId]|default(link.consumerId) }} — {{ reference_labels[link.consumerId][link.businessReference]|default(link.businessReference) }}
+                        {{ consumer_names[link.consumerId]|default(link.consumerId) }} —
+                        {% if url %}
+                            <a href="{{ url }}">{{ label }}</a>
+                        {% else %}
+                            {{ label }}
+                        {% endif %}
                         {% if link.attachmentId > 0 %}
                             <span class="text-body-secondary small">(une pièce jointe seulement)</span>
                         {% endif %}
@@ -81,17 +56,17 @@
                     </div>
                 </div>
                 <form method="post" action="/courrier/{{ message.id }}/association/retrait"
-                      data-confirm="Retirer cette association ? Le message reste dans le courrier de l'unité.">
+                      data-confirm="Détacher ce message ? Il reste dans le courrier de l'unité.">
                     {{ csrf_field()|raw }}
                     <input type="hidden" name="consumer_id" value="{{ link.consumerId }}">
                     <input type="hidden" name="business_reference" value="{{ link.businessReference }}">
-                    <button type="submit" class="btn btn-sm btn-outline-danger">Retirer</button>
+                    <button type="submit" class="btn btn-sm btn-outline-danger">Détacher</button>
                 </form>
             </li>
         {% endfor %}
     </ul>
     <p class="small text-body-secondary">
-        Retirer une association ne supprime ni le message ni les autres associations.
+        Détacher ne supprime ni le message ni ses autres rattachements.
     </p>
 {% endif %}
 
@@ -115,7 +90,7 @@
                         <form method="post" action="/courrier/{{ message.id }}/proposition/confirmation">
                             {{ csrf_field()|raw }}
                             <input type="hidden" name="candidate_id" value="{{ candidate.id }}">
-                            <button type="submit" class="btn btn-sm btn-primary">Associer</button>
+                            <button type="submit" class="btn btn-sm btn-primary">Rattacher</button>
                         </form>
                         <form method="post" action="/courrier/{{ message.id }}/proposition/rejet">
                             {{ csrf_field()|raw }}
@@ -134,8 +109,53 @@
         </p>
     {% endif %}
     <p class="small text-body-secondary">
-        Écarter une proposition est définitif, et ne conserve pas le message : un message qu'aucune
-        association ne rattache est supprimé au terme du délai de conservation.
+        Écarter une proposition est définitif, et ne conserve pas le message : un message que rien
+        ne rattache est supprimé au terme du délai de conservation.
     </p>
 {% endif %}
+
+{% if directories is not empty %}
+    {# « Rattacher à… » — the gesture this screen existed for and did not
+       offer: a message nobody recognised could be read and left to the
+       retention, and that was all. The targets come from each module's
+       own directory (Api\ReferenceDirectory), so this page knows nothing
+       about what a stay or a booking is. #}
+    <h2 class="h6 mt-4">Rattacher à…</h2>
+    <form method="post" action="/courrier/{{ message.id }}/association" class="card" data-inbound-attach>
+        <div class="card-body">
+            {{ csrf_field()|raw }}
+            <div class="row g-2 align-items-end">
+                <div class="col-12 col-sm-4">
+                    <label for="attach-module" class="form-label">Module</label>
+                    <select name="consumer_id" id="attach-module" class="form-select form-select-sm" data-attach-module>
+                        {% for id, name in directories %}
+                            <option value="{{ id }}">{{ name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-12 col-sm-6 position-relative">
+                    <label for="attach-reference" class="form-label">Cible</label>
+                    <input type="text" name="business_reference" id="attach-reference"
+                           class="form-control form-control-sm" autocomplete="off" required
+                           placeholder="Lieu, nom, référence, mois…" data-attach-reference>
+                    <div class="list-group position-absolute w-100 shadow-sm d-none" style="z-index: 5"
+                         data-attach-results role="listbox" aria-label="Cibles proposées"></div>
+                </div>
+                <div class="col-12 col-sm-2">
+                    <button type="submit" class="btn btn-sm btn-primary w-100">Rattacher</button>
+                </div>
+            </div>
+            <div class="form-text d-none" data-attach-chosen></div>
+            <div class="form-text">
+                Tapez ce que vous diriez à voix haute — un lieu et un mois, le nom d'un locataire,
+                une référence — et choisissez dans la liste. Rattacher n'enlève rien : un message
+                peut appartenir à un séjour et à une facture à la fois.
+            </div>
+        </div>
+    </form>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+    <script src="{{ asset('/assets/js/inbound-mail-attach.js') }}" defer></script>
 {% endblock %}

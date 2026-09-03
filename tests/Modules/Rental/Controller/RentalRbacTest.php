@@ -135,7 +135,7 @@ class RentalRbacTest extends TestCase
         $this->twig = TwigFactory::create(
             dirname(__DIR__, 4) . '/core/View/templates',
             false,
-            ['rental' => dirname(__DIR__, 4) . '/modules/rental/views']
+            ['rental' => dirname(__DIR__, 4) . '/modules/rental/views', 'inbound_mail' => dirname(__DIR__, 4) . '/modules/inbound_mail/views']
         );
         $this->twig->addGlobal('site_name', 'Unité Test');
         $this->twig->addGlobal('is_authenticated', true);

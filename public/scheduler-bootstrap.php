@@ -342,8 +342,7 @@ function scoutmagic_bootstrap_scheduler(
                             $settingService,
                             $journalService,
                             $storagePath
-                        ),
-                        (new \Modules\Rental\Mail\MailboxSelection($settingService, $inboundMail))->selectedIds()
+                        )
                     ));
                 }
 

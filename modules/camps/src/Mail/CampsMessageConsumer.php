@@ -23,6 +23,8 @@ use Modules\InboundMail\Api\LinkOrigin;
 use Modules\InboundMail\Api\MessageCandidate;
 use Modules\InboundMail\Api\MessageConsumerInterface;
 use Modules\InboundMail\Api\MessageLink;
+use Modules\InboundMail\Api\ReferenceDirectory;
+use Modules\InboundMail\Api\ReferenceSuggestion;
 
 /**
  * Which stay an incoming message belongs to (§7.6).
@@ -70,7 +72,7 @@ use Modules\InboundMail\Api\MessageLink;
  * stay has no way to know. Saying « c'est l'un de ces deux, choisissez »
  * is the honest middle the module used to lack.
  */
-class CampsMessageConsumer implements MessageConsumerInterface
+class CampsMessageConsumer implements MessageConsumerInterface, ReferenceDirectory
 {
     public const CONSUMER_ID = 'camps';
 
@@ -114,8 +116,56 @@ class CampsMessageConsumer implements MessageConsumerInterface
          * caller that builds none of them still gets the two
          * identifications this consumer has always had.
          */
-        private ?ExistingStayMatcher $existingStay = null
+        private ?ExistingStayMatcher $existingStay = null,
+        /**
+         * « Quel séjour ? » for the chief's screen (`Api\ReferenceDirectory`)
+         * — the same search the camps mail screen's own picker uses. Null
+         * on the scheduled path, where nobody searches.
+         */
+        private ?\Modules\Camps\Service\StaySearchService $staySearch = null
     ) {
+    }
+
+    // ── Api\ReferenceDirectory: the stays as a chief names them ────────
+
+    /**
+     * @return ReferenceSuggestion[]
+     */
+    public function searchReferences(string $query, int $limit = 10): array
+    {
+        if ($this->staySearch === null) {
+            return [];
+        }
+
+        $suggestions = [];
+        foreach ($this->staySearch->search($query, [], $limit) as $row) {
+            $suggestions[] = new ReferenceSuggestion(
+                self::referenceFor($row['id']),
+                $row['label'],
+                $row['detail'] !== '' ? $row['detail'] : null
+            );
+        }
+
+        // An exact reference typed in full is offered as itself, which is
+        // what the chief's screen requires before it files anything.
+        $campId = self::campIdFromReference(trim($query));
+        if ($campId !== null && $this->camps->findById($campId) !== null) {
+            array_unshift($suggestions, new ReferenceSuggestion(
+                self::referenceFor($campId),
+                $this->describeReference(self::referenceFor($campId)) ?? self::referenceFor($campId)
+            ));
+        }
+
+        return array_slice($suggestions, 0, max(1, $limit));
+    }
+
+    public function referenceUrl(string $businessReference): ?string
+    {
+        $campId = self::campIdFromReference($businessReference);
+
+        return $campId !== null && $this->camps->findById($campId) !== null
+            ? '/chefs/camps/sejours/' . $campId
+            : null;
     }
 
     public function consumerId(): string
@@ -475,11 +525,23 @@ class CampsMessageConsumer implements MessageConsumerInterface
 
     public function describeReference(string $businessReference): ?string
     {
-        // Not named yet: this module's reference is a slug like every
-        // other, and naming it means a repository lookup this class does
-        // not do today. Null keeps the screen exactly as it is rather than
-        // guessing.
-        return null;
+        // « camp-51 » on a green badge told a Chef d'Unité nothing, and
+        // was not even in their language. The stay as every camps screen
+        // names it: its place, then its type and dates.
+        $campId = self::campIdFromReference($businessReference);
+        $camp = $campId === null ? null : $this->camps->findById($campId);
+        if ($camp === null) {
+            return null;
+        }
+
+        $stmt = $this->pdo->prepare('SELECT name FROM camp_places WHERE id = ?');
+        $stmt->execute([$camp->placeId]);
+        $placeName = $stmt->fetchColumn();
+
+        return \Modules\Camps\Service\StaySearchService::labelFor(
+            $camp,
+            is_string($placeName) ? $placeName : ''
+        );
     }
 
     /**

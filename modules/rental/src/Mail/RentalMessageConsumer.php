@@ -18,6 +18,9 @@ use Modules\InboundMail\Api\LinkOrigin;
 use Modules\InboundMail\Api\MessageCandidate;
 use Modules\InboundMail\Api\MessageConsumerInterface;
 use Modules\InboundMail\Api\MessageLink;
+use Modules\InboundMail\Api\ReferenceDirectory;
+use Modules\InboundMail\Api\ReferenceSuggestion;
+use Core\Service\TextNormalizerService;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Document\DocumentType;
 use Modules\Rental\Document\RentalDocument;
@@ -52,7 +55,7 @@ use Modules\Rental\Service\RentalDocumentService;
  * **A cancelled or archived booking still matches.** The correspondence
  * about why a stay fell through belongs on that stay.
  */
-class RentalMessageConsumer implements MessageConsumerInterface
+class RentalMessageConsumer implements MessageConsumerInterface, ReferenceDirectory
 {
     public const CONSUMER_ID = 'rental';
 
@@ -77,15 +80,6 @@ class RentalMessageConsumer implements MessageConsumerInterface
         private RentalBookingRepository $bookingRepository,
         private InboundMailInterface $inboundMail,
         private RentalDocumentService $documentService,
-        /**
-         * The mailboxes this module listens to, by id. **Empty means every
-         * mailbox**, which is the right default for a unit with one box:
-         * asking them to tick it before anything works would be a
-         * configuration step whose only possible answer is "yes".
-         *
-         * @var int[]
-         */
-        private array $mailboxIds = [],
         private int $windowDaysAfter = self::DEFAULT_WINDOW_DAYS_AFTER,
         private BookingReferenceMatcher $referenceMatcher = new BookingReferenceMatcher(),
         /**
@@ -98,8 +92,86 @@ class RentalMessageConsumer implements MessageConsumerInterface
          */
         private ?RentalAuthorizationService $authorizationService = null,
         private ?int $scoutYearId = null,
-        private ?string $requesterEmail = null
+        private ?string $requesterEmail = null,
+        /**
+         * The unit's assets, for « Rattacher à… » on the chief's screen
+         * (`Api\ReferenceDirectory`): a booking is named by its asset and
+         * reached through its asset's slug. Null on the scheduled path,
+         * where nobody searches.
+         */
+        private ?\Modules\Rental\Repository\RentalAssetRepository $assetRepository = null
     ) {
+    }
+
+    // ── Api\ReferenceDirectory: the bookings as a person names them ────
+
+    /**
+     * @return ReferenceSuggestion[]
+     */
+    public function searchReferences(string $query, int $limit = 10): array
+    {
+        $query = trim($query);
+        if ($query === '' || $this->assetRepository === null) {
+            return [];
+        }
+
+        $assetNames = [];
+        foreach ($this->assetRepository->findAll() as $asset) {
+            $assetNames[$asset->id] = $asset->name;
+        }
+
+        $terms = array_values(array_filter(explode(' ', TextNormalizerService::fold($query))));
+        $exact = strtoupper($query);
+        $suggestions = [];
+
+        foreach ($this->bookingRepository->findAllForAssets(array_keys($assetNames)) as $booking) {
+            $assetName = $assetNames[$booking->assetId] ?? '';
+            $haystack = TextNormalizerService::fold(implode(' ', [
+                $booking->reference,
+                $booking->renterName,
+                (string) $booking->renterOrganisation,
+                $assetName,
+                $booking->arrivalDate,
+                $booking->departureDate,
+            ]));
+
+            $isExact = $booking->reference === $exact;
+            if (!$isExact) {
+                foreach ($terms as $term) {
+                    if (!str_contains($haystack, $term)) {
+                        continue 2;
+                    }
+                }
+            }
+
+            $suggestion = new ReferenceSuggestion(
+                $booking->reference,
+                $booking->reference . ' — ' . $booking->renterName,
+                trim($assetName . ' · du ' . $booking->arrivalDate . ' au ' . $booking->departureDate
+                    . ' · ' . $booking->status->label())
+            );
+
+            // An exact reference leads, whatever else matched.
+            if ($isExact) {
+                array_unshift($suggestions, $suggestion);
+            } else {
+                $suggestions[] = $suggestion;
+            }
+        }
+
+        return array_slice($suggestions, 0, max(1, $limit));
+    }
+
+    public function referenceUrl(string $businessReference): ?string
+    {
+        $booking = $this->bookingRepository->findByReference($businessReference);
+        if ($booking === null) {
+            return null;
+        }
+
+        $asset = $this->assetRepository?->findById($booking->assetId);
+
+        return $asset === null ? null : '/mes-locations/' . $asset->slug . '/reservations/' . $booking->id;
     }
 
     public function consumerId(): string
@@ -114,10 +186,12 @@ class RentalMessageConsumer implements MessageConsumerInterface
 
     public function analyze(CandidateMessage $message): AnalysisResult
     {
-        if (!$this->listensTo($message->mailboxId)) {
-            return AnalysisResult::nothing();
-        }
-
+        // Which boxes this module reads is the mailbox configuration's
+        // answer (§8.58, `Service\MailboxScopeService`): a consumer is
+        // only ever handed the messages of a box it was opened to. The
+        // module's own list of box ids, which used to be checked here,
+        // said something the operator's answer could contradict without
+        // anything on either screen explaining why nothing arrived.
         $reference = $this->referenceMatcher->match($message->subject, $message->bodyText);
         if ($reference !== null && $this->bookingRepository->findByReference($reference) !== null) {
             return AnalysisResult::linkedTo(self::CONSUMER_ID, $reference, LinkOrigin::REFERENCE);
@@ -390,29 +464,6 @@ class RentalMessageConsumer implements MessageConsumerInterface
             $this->scoutYearId,
             $booking->assetId
         );
-    }
-
-    /**
-     * @param int[] $mailboxIds
-     */
-    public function withMailboxes(array $mailboxIds): self
-    {
-        return new self(
-            $this->bookingRepository,
-            $this->inboundMail,
-            $this->documentService,
-            $mailboxIds,
-            $this->windowDaysAfter,
-            $this->referenceMatcher,
-            $this->authorizationService,
-            $this->scoutYearId,
-            $this->requesterEmail
-        );
-    }
-
-    private function listensTo(int $mailboxId): bool
-    {
-        return $this->mailboxIds === [] || in_array($mailboxId, $this->mailboxIds, true);
     }
 
     /**

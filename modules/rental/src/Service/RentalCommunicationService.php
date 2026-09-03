@@ -164,6 +164,96 @@ class RentalCommunicationService
     }
 
     /**
+     * What the module proposes about this booking and has not yet been
+     * told: the messages carrying a standing proposition towards it.
+     *
+     * The other half of §7.6's contract, which the booking page did not
+     * show: the consumer produced propositions on an ambiguous sender and
+     * nobody but the Chef d'Unité could ever see them. A proposition only
+     * exists to be confirmed or dismissed by somebody who knows, and the
+     * manager of the booking is that somebody.
+     *
+     * @return list<array{message: \Modules\InboundMail\Api\InboundMessage, candidates: \Modules\InboundMail\Api\MessageCandidate[]}>
+     */
+    public function propositions(RentalBooking $booking): array
+    {
+        if ($this->inboundMail === null) {
+            return [];
+        }
+
+        $consumerId = \Modules\Rental\Mail\RentalMessageConsumer::CONSUMER_ID;
+        $messages = $this->inboundMail->findForTriage($consumerId, [$booking->reference]);
+        if ($messages === []) {
+            return [];
+        }
+
+        $byMessage = $this->inboundMail->findCandidatesFor(
+            $consumerId,
+            array_map(static fn($message) => $message->id, $messages)
+        );
+
+        $rows = [];
+        foreach ($messages as $message) {
+            $candidates = array_values(array_filter(
+                $byMessage[$message->id] ?? [],
+                static fn($candidate): bool => $candidate->businessReference === $booking->reference
+            ));
+            if ($candidates !== []) {
+                $rows[] = ['message' => $message, 'candidates' => $candidates];
+            }
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Confirm a proposition towards this booking, as this manager.
+     *
+     * Scoped by the API itself: a proposition whose target is not this
+     * booking is refused, whatever the screen posted.
+     */
+    public function confirmProposition(RentalBooking $booking, int $messageId, int $candidateId, ?int $userAccountId): bool
+    {
+        if ($this->inboundMail === null) {
+            return false;
+        }
+
+        return $this->inboundMail->confirmCandidate(
+            \Modules\Rental\Mail\RentalMessageConsumer::CONSUMER_ID,
+            [$booking->reference],
+            $messageId,
+            $candidateId,
+            $userAccountId
+        );
+    }
+
+    public function dismissProposition(RentalBooking $booking, int $messageId, int $candidateId): bool
+    {
+        if ($this->inboundMail === null) {
+            return false;
+        }
+
+        return $this->inboundMail->dismissCandidate(
+            \Modules\Rental\Mail\RentalMessageConsumer::CONSUMER_ID,
+            [$booking->reference],
+            $messageId,
+            $candidateId
+        );
+    }
+
+    /**
+     * « Relancer l'analyse » — offer every unattributed message to this
+     * module again, with what the site knows today.
+     *
+     * @return array{examined: int, linked: int, proposed: int}
+     */
+    public function reanalyze(): array
+    {
+        return $this->inboundMail?->reanalyzeUnlinked(\Modules\Rental\Mail\RentalMessageConsumer::CONSUMER_ID)
+            ?? ['examined' => 0, 'linked' => 0, 'proposed' => 0];
+    }
+
+    /**
      * Move a message to another booking — **only one of the assets this
      * manager actually manages** (§7.7).
      *

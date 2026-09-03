@@ -52,6 +52,56 @@
         {% endif %}
     {% endif %}
 
+    {% if mail_propositions|default([]) is not empty %}
+        {# The treasury's own triage. A proposition made on a mailed invoice
+           existed to be confirmed by a treasurer, and until this block only
+           the Chef d'Unité could see it. #}
+        <div class="card border-warning mb-4" id="courrier-a-trier">
+            <div class="card-body">
+                <h2 class="h6 mb-2">Courrier à trier ({{ mail_propositions|length }})</h2>
+                <p class="text-body-secondary small">
+                    Des messages reçus portent une pièce jointe qui pourrait être un reçu d'un de vos
+                    comptes. Rattacher enregistre la pièce jointe comme reçu de ce compte, en votre nom ;
+                    écarter est définitif.
+                </p>
+                {% for row in mail_propositions %}
+                    <div class="border rounded p-3 mb-2">
+                        <div class="d-flex flex-wrap justify-content-between gap-2">
+                            <strong class="min-w-0 text-truncate">{{ row.message.displayFrom }}</strong>
+                            <span class="small text-body-secondary">{{ row.message.sentAt|datetime_fr }}</span>
+                        </div>
+                        <div class="fw-semibold my-1">{{ row.message.subject ?: 'Sans objet' }}</div>
+                        {% include '@inbound_mail/partials/message_body.html.twig' with { message: row.message, folded: true } only %}
+                        {% if row.message.hasAttachments or row.message.hasOmittedAttachments %}
+                            <div class="mt-2">
+                                {% include '@inbound_mail/partials/attachments.html.twig' with { message: row.message } only %}
+                            </div>
+                        {% endif %}
+                        {% for candidate in row.candidates %}
+                            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-2">
+                                <div class="small">
+                                    <strong>{{ candidate.label }}</strong> — {{ candidate.explanation }}
+                                </div>
+                                <div class="d-flex gap-2">
+                                    <form method="post" action="/finance/receipts/courrier/{{ row.message.id }}/confirmation">
+                                        {{ csrf_field()|raw }}
+                                        <input type="hidden" name="candidate_id" value="{{ candidate.id }}">
+                                        <button type="submit" class="btn btn-sm btn-primary">Rattacher</button>
+                                    </form>
+                                    <form method="post" action="/finance/receipts/courrier/{{ row.message.id }}/rejet">
+                                        {{ csrf_field()|raw }}
+                                        <input type="hidden" name="candidate_id" value="{{ candidate.id }}">
+                                        <button type="submit" class="btn btn-sm btn-outline-secondary">Écarter</button>
+                                    </form>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    {% endif %}
+
     {% if no_accounts %}
         {% include 'partials/empty_state.html.twig' with {
             message: 'Aucun compte visible pour votre rôle.',

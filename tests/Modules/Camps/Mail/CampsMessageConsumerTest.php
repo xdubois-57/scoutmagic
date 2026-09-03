@@ -273,6 +273,37 @@ class CampsMessageConsumerTest extends TestCase
         );
     }
 
+    public function testAReferenceIsNamedTheWayThePickerNamesTheStay(): void
+    {
+        // « Camps — camp-51 » on a green badge told a Chef d'Unité nothing.
+        $consumer = new CampsMessageConsumer($this->camps, $this->pdo, $this->encryption);
+
+        $label = $consumer->describeReference('camp-' . $this->campId);
+
+        $this->assertNotNull($label);
+        $this->assertStringContainsString('Domaine de Mozet', $label);
+        $this->assertNull($consumer->describeReference('camp-999'));
+        $this->assertNull($consumer->describeReference('LOC-2027-0042'));
+    }
+
+    public function testTheDirectoryFindsAStayByItsPlaceAndSaysWhereItLives(): void
+    {
+        $consumer = new CampsMessageConsumer(
+            $this->camps, $this->pdo, $this->encryption,
+            null, null, null, null, null,
+            new \Modules\Camps\Service\StaySearchService($this->camps)
+        );
+
+        $found = $consumer->searchReferences('mozet');
+        $this->assertSame('camp-' . $this->campId, $found[0]->businessReference);
+        $this->assertStringContainsString('Domaine de Mozet', $found[0]->label);
+
+        // Typed in full, the reference is offered as itself.
+        $this->assertSame('camp-' . $this->campId, $consumer->searchReferences('camp-' . $this->campId)[0]->businessReference);
+        $this->assertSame('/chefs/camps/sejours/' . $this->campId, $consumer->referenceUrl('camp-' . $this->campId));
+        $this->assertNull($consumer->referenceUrl('camp-999'));
+    }
+
     public function testOnlyAStayReferenceReadsBackAsAStay(): void
     {
         $this->assertSame('camp-42', CampsMessageConsumer::referenceFor(42));

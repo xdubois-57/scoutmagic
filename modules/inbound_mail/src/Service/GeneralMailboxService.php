@@ -89,12 +89,12 @@ class GeneralMailboxService
      * three, which is a different lie from the one it exists to end.
      *
      * @param array{mailbox_id?: ?int, association?: string, include_bulk?: bool} $filters
-     * @return array{none: int, some: int, all: int}
+     * @return array{none: int, proposed: int, some: int, all: int}
      */
     public function counts(array $filters): array
     {
         $counts = [];
-        foreach (['none', 'some', 'all'] as $association) {
+        foreach (['none', 'proposed', 'some', 'all'] as $association) {
             $counts[$association] = $this->messages->countPage(
                 ['association' => $association] + $filters
             );

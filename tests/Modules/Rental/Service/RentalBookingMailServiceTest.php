@@ -53,7 +53,7 @@ final class RentalBookingMailServiceTest extends TestCase
         $this->twig = TwigFactory::create(
             dirname(__DIR__, 4) . '/core/View/templates',
             false,
-            ['rental' => dirname(__DIR__, 4) . '/modules/rental/views']
+            ['rental' => dirname(__DIR__, 4) . '/modules/rental/views', 'inbound_mail' => dirname(__DIR__, 4) . '/modules/inbound_mail/views']
         );
 
         $settings = $this->createMock(SettingService::class);

@@ -110,7 +110,7 @@ class CampsMailControllerTest extends TestCase
         $root = dirname(__DIR__, 4);
         $this->camps = $camps;
         $this->controller = new CampsMailController(
-            TwigFactory::create($root . '/core/View/templates', false, ['camps' => $root . '/modules/camps/views']),
+            TwigFactory::create($root . '/core/View/templates', false, ['camps' => $root . '/modules/camps/views', 'inbound_mail' => $root . '/modules/inbound_mail/views']),
             $camps,
             $this->inbound,
             $this->proposals,
@@ -260,7 +260,9 @@ class CampsMailControllerTest extends TestCase
 
         $this->assertStringContainsString('text-truncate', $html);
         $this->assertStringContainsString('class="d-none camps-message-body"', $html);
-        $this->assertStringNotContainsString('<details', $html);
+        // The body itself is never behind a fold of its own: the dialog is
+        // the one place it opens.
+        $this->assertStringNotContainsString('<details class="inbound-message"', $html);
     }
 
     public function testThePageCarriesExactlyOneDialogHoweverManyMessages(): void
@@ -637,7 +639,7 @@ class CampsMailControllerTest extends TestCase
     {
         $root = dirname(__DIR__, 4);
         $bare = new CampsMailController(
-            TwigFactory::create($root . '/core/View/templates', false, ['camps' => $root . '/modules/camps/views']),
+            TwigFactory::create($root . '/core/View/templates', false, ['camps' => $root . '/modules/camps/views', 'inbound_mail' => $root . '/modules/inbound_mail/views']),
             $this->camps,
             $this->inbound
         );

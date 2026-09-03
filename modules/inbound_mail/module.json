@@ -23,6 +23,24 @@
       }
     },
     {
+      "path": "/courrier/rafraichir",
+      "method": "POST",
+      "controller": "Modules\\InboundMail\\Controller\\InboundMailboxController",
+      "action": "refreshNow",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/courrier/cibles",
+      "method": "GET",
+      "controller": "Modules\\InboundMail\\Controller\\InboundMailboxController",
+      "action": "searchTargets",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
       "path": "/courrier/{id}",
       "method": "GET",
       "controller": "Modules\\InboundMail\\Controller\\InboundMailboxController",
@@ -42,6 +60,15 @@
           }
         ]
       }
+    },
+    {
+      "path": "/courrier/{id}/association",
+      "method": "POST",
+      "controller": "Modules\\InboundMail\\Controller\\InboundMailboxController",
+      "action": "attach",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
     },
     {
       "path": "/courrier/{id}/proposition/confirmation",

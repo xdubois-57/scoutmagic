@@ -32,12 +32,25 @@
     </div>
 </div>
 
+{% if not cron_detected %}
+    {# The same signal the rental and push-notification pages read:
+       `cron_last_run` is stamped only by public/cron.php. Without a real
+       cron the relève only happens on page views, and a unit that does
+       not know that reads the delay as a broken box. #}
+    <div class="alert alert-info">
+        <strong>Aucune tâche planifiée détectée.</strong> Le courrier n'est relevé qu'à l'occasion
+        d'une visite du site : sans crontab chez l'hébergeur, une réponse peut n'apparaître que
+        plusieurs heures après son arrivée. Si votre hébergeur le permet, faites appeler
+        <code>public/cron.php</code> toutes les minutes.
+    </div>
+{% endif %}
+
 {# ── Configured mailboxes ───────────────────────────────────────────── #}
 <div class="card mb-4">
     <div class="card-body">
-        <div class="d-flex justify-content-between align-items-center mb-3">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
             <h2 class="h6 mb-0">Boîtes configurées</h2>
-            <div class="d-flex gap-2">
+            <div class="d-flex flex-wrap gap-2">
                 {% if can_refresh %}
                     <form method="post" action="/config/courrier-entrant/rafraichir" class="d-inline">
                         {{ csrf_field()|raw }}
@@ -55,108 +68,101 @@
         {% if mailboxes is empty %}
             {% include 'partials/empty_state.html.twig' with { message: "Aucune boîte n'est configurée pour l'instant.", compact: true } only %}
         {% else %}
-            <div class="table-responsive">
-                <table class="table table-sm align-middle">
-                    <thead>
-                        <tr>
-                            <th>Nom</th>
-                            <th>Ce que les modules en font</th>
-                            <th>État</th>
-                            <th>Dernière synchro</th>
-                            <th class="text-end">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for mailbox in mailboxes %}
-                            <tr>
-                                <td>
+            {# One block per box rather than a table: on a phone the table
+               clipped its state, its last relève and every action out of
+               reach, which is exactly what a superadmin opens this page
+               on a phone to check. #}
+            <div class="list-group list-group-flush">
+                {% for mailbox in mailboxes %}
+                    <div class="list-group-item px-0">
+                        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+                            <div class="min-w-0">
+                                <div class="fw-semibold">
                                     {{ mailbox.name }}
+                                    <span class="badge text-bg-light">{{ mailbox.purpose.label }}</span>
                                     {% if not mailbox.isEnabled %}
                                         {% include 'partials/status_badge.html.twig' with { status: 'inactive', label: 'désactivée' } only %}
                                     {% endif %}
-                                    <span class="badge text-bg-light">{{ mailbox.purpose.label }}</span>
-                                    <div class="form-text">
-                                        {{ mailbox.username }}
-                                    </div>
-                                    <div class="form-text">
-                                        {{ mailbox.host }}:{{ mailbox.port }} ({{ mailbox.encryption }})
-                                    </div>
-                                </td>
-                                <td>
-                                    {% set summary = scope_summaries[mailbox.id]|default([]) %}
-                                    {% if summary is empty %}
-                                        <span class="text-body-secondary small">
-                                            Aucun module — le courrier est conservé mais rien ne le classe.
-                                        </span>
-                                    {% else %}
-                                        {% for entry in summary %}
-                                            <span class="badge {{ entry.read.value == 'all' ? 'text-bg-warning' : 'text-bg-secondary' }} me-1">
-                                                {{ entry.name }} · {{ entry.read.pillLabel }}
-                                            </span>
-                                        {% endfor %}
-                                    {% endif %}
-                                    <div class="form-text">
-                                        {{ stored_counts[mailbox.id]|default(0) }} message(s) conservé(s)
-                                    </div>
-                                </td>
-                                <td>
-                                    {% include 'partials/status_badge.html.twig' with {
-                                        status: { 'never': 'neutral', 'ok': 'success', 'error': 'error' }[mailbox.syncState.value],
-                                        label: mailbox.syncState.label,
-                                    } only %}
-                                    {% if mailbox.lastError %}
-                                        <div class="form-text text-danger">{{ mailbox.lastError }}</div>
-                                    {% endif %}
-                                </td>
-                                <td>
+                                </div>
+                                <div class="form-text mb-0">
+                                    {{ mailbox.username }} · {{ mailbox.host }}:{{ mailbox.port }} ({{ mailbox.encryption }})
+                                </div>
+                            </div>
+                            <div class="text-sm-end">
+                                {% include 'partials/status_badge.html.twig' with {
+                                    status: { 'never': 'neutral', 'ok': 'success', 'error': 'error' }[mailbox.syncState.value],
+                                    label: mailbox.syncState.label,
+                                } only %}
+                                <div class="form-text mb-0">
                                     {% if mailbox.lastSyncedAt %}
-                                        {{ mailbox.lastSyncedAt|datetime_fr }}
+                                        dernière relève {{ mailbox.lastSyncedAt|datetime_fr }}
                                     {% else %}
-                                        —
+                                        jamais relevée
                                     {% endif %}
-                                </td>
-                                <td class="text-end">
-                                    <form method="post"
-                                          action="/config/courrier-entrant/boites/{{ mailbox.id }}/test"
-                                          class="d-inline">
-                                        {{ csrf_field()|raw }}
-                                        <button type="submit" class="btn btn-sm btn-outline-secondary" title="Tester la connexion" aria-label="Tester la connexion">
-                                            <i class="bi bi-plug" aria-hidden="true"></i>
-                                        </button>
-                                    </form>
-                                    <a href="/config/courrier-entrant/boites/{{ mailbox.id }}/portee" class="btn btn-sm btn-outline-primary" title="Configurer la portée" aria-label="Configurer la portée">
-                                        <i class="bi bi-sliders" aria-hidden="true"></i>
-                                    </a>
-                                    <a href="/config/courrier-entrant/boites/{{ mailbox.id }}/modification" class="btn btn-sm btn-outline-secondary" title="Modifier la connexion" aria-label="Modifier la connexion">
-                                        <i class="bi bi-pencil" aria-hidden="true"></i>
-                                    </a>
-                                    <form method="post"
-                                          action="/config/courrier-entrant/boites/{{ mailbox.id }}/activation"
-                                          class="d-inline">
-                                        {{ csrf_field()|raw }}
-                                        {% if not mailbox.isEnabled %}
-                                            <input type="hidden" name="enable" value="1">
-                                        {% endif %}
-                                        <button type="submit" class="btn btn-sm btn-outline-secondary"
-                                                title="{{ mailbox.isEnabled ? 'Désactiver' : 'Réactiver' }}"
-                                                aria-label="{{ mailbox.isEnabled ? 'Désactiver' : 'Réactiver' }}">
-                                            <i class="bi {{ mailbox.isEnabled ? 'bi-pause-circle' : 'bi-play-circle' }}" aria-hidden="true"></i>
-                                        </button>
-                                    </form>
-                                    <form method="post"
-                                          action="/config/courrier-entrant/boites/{{ mailbox.id }}/suppression"
-                                          data-confirm="Supprimer cette boîte ? Les messages déjà rattachés à un dossier sont conservés."
-                                          class="d-inline">
-                                        {{ csrf_field()|raw }}
-                                        <button type="submit" class="btn btn-sm btn-outline-danger" title="Supprimer" aria-label="Supprimer">
-                                            <i class="bi bi-trash" aria-hidden="true"></i>
-                                        </button>
-                                    </form>
-                                </td>
-                            </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+                                </div>
+                            </div>
+                        </div>
+                        {% if mailbox.lastError %}
+                            <div class="form-text text-danger">{{ mailbox.lastError }}</div>
+                        {% endif %}
+
+                        <div class="mt-2 d-flex flex-wrap align-items-center gap-1">
+                            {% set summary = scope_summaries[mailbox.id]|default([]) %}
+                            {% if summary is empty %}
+                                <span class="text-body-secondary small">
+                                    Aucun module — le courrier est conservé mais rien ne le classe.
+                                </span>
+                            {% else %}
+                                {% for entry in summary %}
+                                    <span class="badge {{ entry.read.value == 'all' ? 'text-bg-warning' : 'text-bg-secondary' }}">
+                                        {{ entry.name }} · {{ entry.read.pillLabel }}
+                                    </span>
+                                {% endfor %}
+                            {% endif %}
+                            <span class="form-text mb-0 ms-1">
+                                {{ stored_counts[mailbox.id]|default(0) }} message(s) conservé(s)
+                            </span>
+                        </div>
+
+                        <div class="mt-2 d-flex flex-wrap gap-1">
+                            <form method="post"
+                                  action="/config/courrier-entrant/boites/{{ mailbox.id }}/test"
+                                  class="d-inline">
+                                {{ csrf_field()|raw }}
+                                <button type="submit" class="btn btn-sm btn-outline-secondary">
+                                    <i class="bi bi-plug" aria-hidden="true"></i> Tester la connexion
+                                </button>
+                            </form>
+                            <a href="/config/courrier-entrant/boites/{{ mailbox.id }}/portee" class="btn btn-sm btn-outline-primary">
+                                <i class="bi bi-sliders" aria-hidden="true"></i> Portée
+                            </a>
+                            <a href="/config/courrier-entrant/boites/{{ mailbox.id }}/modification" class="btn btn-sm btn-outline-secondary">
+                                <i class="bi bi-pencil" aria-hidden="true"></i> Modifier
+                            </a>
+                            <form method="post"
+                                  action="/config/courrier-entrant/boites/{{ mailbox.id }}/activation"
+                                  class="d-inline">
+                                {{ csrf_field()|raw }}
+                                {% if not mailbox.isEnabled %}
+                                    <input type="hidden" name="enable" value="1">
+                                {% endif %}
+                                <button type="submit" class="btn btn-sm btn-outline-secondary">
+                                    <i class="bi {{ mailbox.isEnabled ? 'bi-pause-circle' : 'bi-play-circle' }}" aria-hidden="true"></i>
+                                    {{ mailbox.isEnabled ? 'Désactiver' : 'Réactiver' }}
+                                </button>
+                            </form>
+                            <form method="post"
+                                  action="/config/courrier-entrant/boites/{{ mailbox.id }}/suppression"
+                                  data-confirm="Supprimer cette boîte ? Les messages déjà rattachés à un dossier sont conservés."
+                                  class="d-inline">
+                                {{ csrf_field()|raw }}
+                                <button type="submit" class="btn btn-sm btn-outline-danger">
+                                    <i class="bi bi-trash" aria-hidden="true"></i> Supprimer
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                {% endfor %}
             </div>
         {% endif %}
     </div>

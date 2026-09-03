@@ -54,7 +54,9 @@ la même boîte.
 ## Ce qui se passe ensuite
 
 La relève tourne régulièrement en arrière-plan (un vrai cron chez
-l'hébergeur la rend ponctuelle). Son rythme se règle dans
+l'hébergeur la rend ponctuelle ; la page vous prévient quand aucune
+tâche planifiée n'est détectée, et la relève ne se fait alors qu'à
+l'occasion des visites). Son rythme se règle dans
 *Configuration > Réglages*, sous « Intervalle entre deux relèves du
 courrier » : quinze minutes par défaut, entre 5 minutes et 24 heures.
 Inutile de descendre au plus bas — plusieurs hébergeurs de messagerie

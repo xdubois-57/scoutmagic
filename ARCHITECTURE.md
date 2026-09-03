@@ -1963,6 +1963,8 @@ What does protect the files is the ordinary mechanism: `File\RentalDocumentOwner
 
 **Ambiguity produces propositions now, where it used to produce silence.** Several bookings of one renter in range, or several stays of one contact, used to mean no association at all. That was right about not choosing — filing a message under whichever of two objects sorted first is worse than leaving it unattached, because the manager reading the wrong one has no way to know — and wrong about stopping there: the module knows something, it just does not know which. Bounded per message, because a renter with a standing booking every month would otherwise turn one email into a wall nobody reads, which is a different way of saying nothing.
 
+**Orienting is confirming a proposition or naming a target, and both live on `/courrier`.** A consumer that wants the chief to be able to file a message under one of its objects implements `Api\ReferenceDirectory`, an optional companion of the consumer contract in the same family as `MessageRetentionPreference`: `searchReferences()` answers « quel séjour, quelle réservation, quel compte ? » as a person would name them, and `referenceUrl()` says where each one lives. The screen offers « Rattacher à… » only towards modules that publish a directory, and accepts an association only towards a reference that module's own search returned — which is what stops a hand-crafted POST filing a message under an object that does not exist, without `inbound_mail` learning what a reference looks like. Every rattachement on the message page links to its object through the same directory. Camps, Locations and Finances all publish one; a consumer that does not is exactly what it was.
+
 **`/courrier` is the screen that makes the archive defensible, and it is ADMIN and nothing lower.** `Controller\InboundMailboxController` shows every message the unit received, associated or not; `Service\GeneralMailboxService` is the only unscoped read of stored mail in the codebase, it lives inside this module, and it is deliberately **not** on `Api\InboundMailInterface` — the absence of an unscoped read *there* is what stops a manager's access to one booking becoming a window onto the unit's whole mailbox (§7.11), and putting one on it "for the chief" would open it to every consumer. The third of the three counterweights is that exactly one role answers for the archive, which is this route's `role_min`; a manifest test pins it, because a route here at `intendant` would hand a section leader the parents' questions and the medical documents without anybody noticing. Nothing is declared `offline`: "readable offline" is opt-in per module, so a page listing every message the unit ever received is excluded by saying nothing — and a test says so, since it is easy to undo by accident the day somebody adds an `offline` section for another page.
 
 **Cursor pagination on `(sent_at, id)`, and no search on content.** `LIMIT n OFFSET 8000` makes MariaDB walk eight thousand rows to throw them away, so the page a chief opens least often is the one that gets slowest — on a table that grows without bound. The cursor is the *pair* rather than the timestamp alone because two messages routinely share a second (a mailing list delivering a batch), and a cursor on `sent_at` would then skip every message after the first of that second, permanently and invisibly. The filters are all metadata — mailbox, associated or not, automatic or not — and that is the whole of it: searching a subject or a body would mean either decrypting the table on every keystroke or keeping a plaintext index of everything anybody ever wrote to the unit, which is how an archive with a retention becomes an archive without one. `Service\InboundMailAttentionProvider` is what stops the retention quietly deleting unread mail: two aggregate counts, a link, and never a sender or a subject — the attention page is screenshotted and exported, and §7.9 makes no exception for a summary.
@@ -1982,6 +1984,8 @@ What does protect the files is the ordinary mechanism: `File\RentalDocumentOwner
 **This consumer only ever proposes.** Never an association, on any path: a receipt is an accounting document, and a wrong one is worse than a missing one because it silently balances against the wrong account. What turns a proposition into a receipt is a treasurer confirming it, and nothing else.
 
 **Two signals, both required.** An **attachment** of a type a receipt can be (PDF or image — a spreadsheet is a document and not a receipt), and **exactly one of the unit's own IBANs** in the message's text. The second is what says *which* account, and the module refuses to guess: zero matches is silence, and two matches is silence too, because an email quoting two of the unit's accounts is almost always a transfer between them and a transfer's receipt belongs to neither side. The IBAN is matched through its blind index, so nothing is decrypted to answer the question. A weak signal, and `describeEvidence()` says so out loud — the superadmin reads that sentence before opening a shared mailbox to this module, which is what publishing per-consumer evidence is for.
+
+**The treasury answers the propositions on the receipts page.** « Courrier à trier » lists, above the receipts, every message the consumer proposed towards one of the session's visible accounts — or towards the sorting pile, for a session that may sort it — and confirming there goes through `confirmCandidate()` scoped to exactly those references. A treasurer below ADMIN could not confirm anything before this block existed, and the help page that said they could was describing a screen that was not there.
 
 **A receipt is only ever filed by a person.** `onLinked()` files nothing unless `MessageLink::createdByUserAccountId` names one, and unless the composition root's resolver recognises that id as the CURRENT session: finance's account check is built from the actor, and inventing one would be this module granting itself an account it may not touch. On the scheduled path there is no actor and no file reader, deliberately — a synchronisation has nobody making a request. `onUnlinked()` does nothing at all: detaching the email a receipt arrived in is a statement about the mail, not about the books, and quietly deleting a receipt because somebody tidied a mailbox is the surprise §8.70 exists to prevent.
 
@@ -2053,12 +2057,23 @@ never browsing the mailbox: the scoped API (`specifications.md` §23.5) hands a
 consumer only the messages it recognised or proposed on, and a button that
 opened the whole box would be a doorway onto everybody's correspondence.
 
-**Which mailboxes feed the module is a rental setting, and a manager sees a
-name and a state.** Never a host, a port or an account: `listMailboxSummaries()`
-is the whole of what crosses that boundary. **Empty means every mailbox** —
-most units have one, and asking them to tick it before anything works would
-be a configuration step whose only sensible answer is "yes" and whose
-omission would look exactly like a broken sync.
+**Which mailboxes feed the module is the mailbox configuration's answer, and
+nothing of the module's own.** `rental` used to keep its own list of box ids
+next to the scope screen's per-box answers, and the two could disagree: a box
+ticked on the rental page that the superadmin had never opened to the module
+produced nothing, and nothing on either screen said why. The list is gone; the
+rental configuration page names the unit's boxes and their state — never a
+host, a port or an account, `listMailboxSummaries()` is the whole of what
+crosses that boundary — and points at the scope screen for the rest.
+
+**The manager answers the module's propositions on the booking itself.** The
+« Courrier » panel lists, ahead of the attached messages, every message the
+consumer proposed towards this booking (`findForTriage()` scoped to the one
+reference, `findCandidatesFor()`), with « Rattacher » and « Écarter » going
+through `confirmCandidate()` / `dismissCandidate()` scoped the same way. Until
+then a rental proposition could only ever be answered by the Chef d'Unité on
+`/courrier`, which is to say never. « Relancer l'analyse » sits on the same
+panel for the same reason it sits on the camps screen.
 
 **Without `inbound_mail` the booking page loses a tab and nothing else.**
 `RentalCommunicationService` takes the API as a nullable dependency and
