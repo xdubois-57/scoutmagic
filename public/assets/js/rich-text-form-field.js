@@ -61,7 +61,7 @@ export function keywordOf(node) {
 }
 
 /**
- * The HTML a chip is rendered as.
+ * The element a chip is rendered as.
  *
  * `contenteditable="false"` is the load-bearing attribute: it is what makes
  * the browser treat the whole chip as one character. The visible text is
@@ -69,28 +69,102 @@ export function keywordOf(node) {
  * substitute.
  *
  * @param {string} keyword
- * @returns {string}
+ * @returns {HTMLElement}
  */
-export function chipHtml(keyword) {
-    return '<span class="doc-keyword" contenteditable="false" data-keyword="'
-        + keyword.replace(/["&<>]/g, '') + '">{{ ' + keyword + ' }}</span>';
+export function chipElement(keyword) {
+    const chip = document.createElement('span');
+    chip.className = 'doc-keyword';
+    chip.setAttribute('contenteditable', 'false');
+    chip.setAttribute('data-keyword', keyword.replace(/["&<>]/g, ''));
+    chip.textContent = '{{ ' + keyword + ' }}';
+
+    return chip;
 }
 
 /**
- * Stored source (with `{{ keyword }}` in it) → editor HTML (with chips).
+ * The same chip, as the HTML string `execCommand('insertHTML')` needs.
+ *
+ * Built from the element rather than concatenated, so the visible text is
+ * escaped by the DOM and never by hand.
+ *
+ * @param {string} keyword
+ * @returns {string}
+ */
+export function chipHtml(keyword) {
+    return chipElement(keyword).outerHTML;
+}
+
+/**
+ * Turn every `{{ keyword }}` a text node carries into a chip, in place.
+ *
+ * @param {Text} text
+ * @param {string[]} knownKeywords
+ * @returns {void}
+ */
+function chipifyTextNode(text, knownKeywords) {
+    const source = text.nodeValue || '';
+    const pattern = /\{\{\s*([a-z0-9_]+)\s*\}\}/g;
+    const chipped = document.createDocumentFragment();
+    let cut = 0;
+    let match = pattern.exec(source);
+
+    while (match !== null) {
+        if (knownKeywords.indexOf(match[1]) !== -1) {
+            if (match.index > cut) {
+                chipped.appendChild(document.createTextNode(source.slice(cut, match.index)));
+            }
+            chipped.appendChild(chipElement(match[1]));
+            cut = match.index + match[0].length;
+        }
+        match = pattern.exec(source);
+    }
+
+    if (cut === 0) {
+        return;
+    }
+
+    if (cut < source.length) {
+        chipped.appendChild(document.createTextNode(source.slice(cut)));
+    }
+
+    text.replaceWith(chipped);
+}
+
+/**
+ * Stored source (with `{{ keyword }}` in it) → editor content (with chips),
+ * rewriting the element's TEXT and never re-parsing its markup.
+ *
+ * Going through the DOM rather than through an HTML string is what keeps
+ * the author's own text out of the parser: the server has already rendered
+ * this value into the surface, and reading it back out as markup to write
+ * it in again would reinterpret whatever it contains a second time, for no
+ * gain.
  *
  * Only the closed list is turned into a chip. Something that LOOKS like a
  * placeholder but is not on the list stays plain text on purpose: it is a
  * mistake the author has to see and fix, and dressing it up as a chip would
  * hide it.
  *
- * @param {string} html
+ * @param {HTMLElement} root
  * @param {string[]} knownKeywords
- * @returns {string}
+ * @returns {void}
  */
-export function toEditorHtml(html, knownKeywords) {
-    return String(html).replace(/\{\{\s*([a-z0-9_]+)\s*\}\}/g, function (match, keyword) {
-        return knownKeywords.indexOf(keyword) === -1 ? match : chipHtml(keyword);
+export function chipify(root, knownKeywords) {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    /** @type {Text[]} */
+    const texts = [];
+
+    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+        const parent = (/** @type {Text} */ (node)).parentElement;
+        // A chip's own text reads as a placeholder; walking into one would
+        // nest a second chip inside the first on every re-wire.
+        if (parent && !parent.closest('[data-keyword]')) {
+            texts.push(/** @type {Text} */ (node));
+        }
+    }
+
+    texts.forEach(function (text) {
+        chipifyTextNode(text, knownKeywords);
     });
 }
 
@@ -166,7 +240,9 @@ export function wireField(root) {
         known = [];
     }
 
-    surface.innerHTML = toEditorHtml(input.value, known);
+    // The surface already holds the value: the server rendered it there.
+    // All that is missing is the chips.
+    chipify(surface, known);
     surface.setAttribute('contenteditable', 'true');
     // Announced as an editable multi-line box only now that it is one.
     surface.setAttribute('role', 'textbox');
