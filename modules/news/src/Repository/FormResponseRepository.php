@@ -111,7 +111,8 @@ class FormResponseRepository
         ?int $receivableId
     ): int {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO news_form_responses (form_id, user_account_id, member_year_id, contact_email, contact_email_blind_index, structured_communication, receivable_id, submitted_at)
+            'INSERT INTO news_form_responses (form_id, user_account_id, member_year_id, contact_email, '
+                . 'contact_email_blind_index, structured_communication, receivable_id, submitted_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([

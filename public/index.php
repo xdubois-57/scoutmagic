@@ -361,7 +361,8 @@ if (!$notificationsV2Migrated) {
     $preMigrationPdo->exec('TRUNCATE TABLE notifications');
     $preMigrationPdo->exec('TRUNCATE TABLE push_subscriptions');
     $preMigrationPdo->prepare(
-        'INSERT INTO settings (module_id, setting_key, setting_value, default_value, setting_type, label, description, editable, sort_order)
+        'INSERT INTO settings (module_id, setting_key, setting_value, default_value, setting_type, label, '
+            . 'description, editable, sort_order)
          VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?)'
     )->execute([
         'notifications_v2_migrated', '1', '0', 'boolean',

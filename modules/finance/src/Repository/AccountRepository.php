@@ -60,7 +60,8 @@ class AccountRepository
         bool $isDefault = false
     ): int {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO finance_accounts (name, account_type, section_id, iban, iban_blind_index, holder_name, role_min_view, is_default)
+            'INSERT INTO finance_accounts (name, account_type, section_id, iban, iban_blind_index, holder_name, '
+                . 'role_min_view, is_default)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
@@ -100,7 +101,8 @@ class AccountRepository
     ): void {
         $stmt = $this->pdo->prepare(
             'UPDATE finance_accounts
-             SET name = ?, account_type = ?, section_id = ?, iban = ?, iban_blind_index = ?, holder_name = ?, role_min_view = ?
+             SET name = ?, account_type = ?, section_id = ?, iban = ?, iban_blind_index = ?, holder_name = ?, '
+                . 'role_min_view = ?
              WHERE id = ?'
         );
         $stmt->execute([

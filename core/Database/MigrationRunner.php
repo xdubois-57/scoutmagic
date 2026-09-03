@@ -726,7 +726,8 @@ class MigrationRunner
             }
 
             $insertStmt = $pdo->prepare(
-                'INSERT INTO settings (module_id, setting_key, setting_value, default_value, setting_type, label, description, editable, sort_order)
+                'INSERT INTO settings (module_id, setting_key, setting_value, default_value, setting_type, label, '
+                    . 'description, editable, sort_order)
                  VALUES (NULL, ?, ?, ?, \'text\', ?, ?, 0, 999)'
             );
             $insertStmt->execute([$key, $value, $value, $label, $description]);

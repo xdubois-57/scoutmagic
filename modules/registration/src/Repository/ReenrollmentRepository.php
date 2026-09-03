@@ -65,7 +65,8 @@ class ReenrollmentRepository
         if ($existingId === null) {
             $stmt = $this->pdo->prepare(
                 'INSERT INTO registration_reenrollments
-                    (member_id, scout_year_id, decision, preferred_section_id, family_comment_encrypted, answered_at, answered_by_user_account_id)
+                    (member_id, scout_year_id, decision, preferred_section_id, family_comment_encrypted, answered_at, '
+                    . 'answered_by_user_account_id)
                  VALUES (?, ?, ?, ?, ?, ?, ?)'
             );
             $stmt->execute([$memberId, $scoutYearId, $decision, $preferredSectionId, $comment, $now,
@@ -86,7 +87,8 @@ class ReenrollmentRepository
         }
 
         $insert = $this->pdo->prepare(
-            'INSERT INTO registration_friend_wishes (reenrollment_id, position, raw_name_encrypted, matched_member_id, match_state)
+            'INSERT INTO registration_friend_wishes (reenrollment_id, position, raw_name_encrypted, '
+                . 'matched_member_id, match_state)
              VALUES (?, ?, ?, ?, ?)'
         );
         $position = 0;
@@ -244,7 +246,8 @@ class ReenrollmentRepository
         $delete->execute([$registrationRequestId]);
 
         $insert = $this->pdo->prepare(
-            'INSERT INTO registration_request_friend_wishes (registration_request_id, position, raw_name_encrypted, matched_member_id, match_state)
+            'INSERT INTO registration_request_friend_wishes (registration_request_id, position, raw_name_encrypted, '
+                . 'matched_member_id, match_state)
              VALUES (?, ?, ?, ?, ?)'
         );
         $position = 0;

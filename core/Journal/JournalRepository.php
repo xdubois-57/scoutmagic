@@ -25,7 +25,8 @@ class JournalRepository
     ): void {
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
         $stmt = $this->pdo->prepare(
-            'INSERT INTO event_log (logged_at, user_account_id, ip_address, category, event_type, level, description, context)
+            'INSERT INTO event_log (logged_at, user_account_id, ip_address, category, event_type, level, description, '
+                . 'context)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
         );
 

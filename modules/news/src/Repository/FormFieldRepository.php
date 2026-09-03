@@ -45,7 +45,8 @@ class FormFieldRepository
         ?string $confirmationText
     ): int {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO news_form_fields (form_id, sort_order, field_type, label, is_required, options_source, options_manual, capacity_max, price_per_unit, confirmation_text)
+            'INSERT INTO news_form_fields (form_id, sort_order, field_type, label, is_required, options_source, '
+                . 'options_manual, capacity_max, price_per_unit, confirmation_text)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([

@@ -33,7 +33,8 @@ class CampaignRowRepository
     public function create(int $campaignId, int $memberId, int $amountCents, int $sourceLine, array $mergeData): int
     {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO finance_campaign_rows (campaign_id, member_id, amount_cents, source_line, merge_data, created_at)
+            'INSERT INTO finance_campaign_rows (campaign_id, member_id, amount_cents, source_line, merge_data, '
+                . 'created_at)
              VALUES (?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([

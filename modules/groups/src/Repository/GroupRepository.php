@@ -20,7 +20,8 @@ class GroupRepository
     {
         $now = Timestamps::now();
         $stmt = $this->pdo->prepare(
-            'INSERT INTO discussion_groups (name, scout_year_id, section_id, last_activity_at, created_by_member_id, created_at, updated_at)
+            'INSERT INTO discussion_groups (name, scout_year_id, section_id, last_activity_at, created_by_member_id, '
+                . 'created_at, updated_at)
              VALUES (?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([$name, $scoutYearId, $sectionId, $now, $createdByMemberId, $now, $now]);

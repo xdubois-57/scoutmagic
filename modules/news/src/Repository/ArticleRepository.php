@@ -151,7 +151,8 @@ class ArticleRepository
     ): int {
         $now = date('Y-m-d H:i:s');
         $stmt = $this->pdo->prepare(
-            'INSERT INTO news_articles (title, summary, image_file_id, visibility, is_indexed, seo_keywords, seo_stop_date, created_by, created_at, updated_at)
+            'INSERT INTO news_articles (title, summary, image_file_id, visibility, is_indexed, seo_keywords, '
+                . 'seo_stop_date, created_by, created_at, updated_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([$title, $summary, $imageFileId, $visibility, $isIndexed ? 1 : 0, $seoKeywords, $seoStopDate,

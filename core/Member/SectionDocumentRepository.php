@@ -130,7 +130,8 @@ class SectionDocumentRepository
         $sortOrder = $this->nextSortOrder($sectionId, $scoutYearId);
 
         $stmt = $this->pdo->prepare(
-            'INSERT INTO section_documents (section_id, scout_year_id, file_id, title, description, sort_order, compression_status, size_before_bytes, created_by)
+            'INSERT INTO section_documents (section_id, scout_year_id, file_id, title, description, sort_order, '
+                . 'compression_status, size_before_bytes, created_by)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([$sectionId, $scoutYearId, $fileId, $title, $description, $sortOrder,

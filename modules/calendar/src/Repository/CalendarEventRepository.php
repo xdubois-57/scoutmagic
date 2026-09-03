@@ -185,7 +185,8 @@ class CalendarEventRepository
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO calendar_events
-                (calendar_id, title, start_date, end_date, start_time, end_time, location, description, created_by, auto_create_retro)
+                (calendar_id, title, start_date, end_date, start_time, end_time, location, description, created_by, '
+                . 'auto_create_retro)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([$calendarId, $title, $startDate, $endDate, $startTime, $endTime, $location, $description,
@@ -215,7 +216,8 @@ class CalendarEventRepository
         $stmt = $this->pdo->prepare(
             'UPDATE calendar_events
              SET calendar_id = ?, title = ?, start_date = ?, end_date = ?, start_time = ?, end_time = ?,
-                 location = ?, description = ?, auto_create_retro = ?, sequence = sequence + 1, updated_at = CURRENT_TIMESTAMP
+                 location = ?, description = ?, auto_create_retro = ?, sequence = sequence + 1, '
+                . 'updated_at = CURRENT_TIMESTAMP
              WHERE id = ?'
         );
         $stmt->execute([$calendarId, $title, $startDate, $endDate, $startTime, $endTime, $location, $description,

@@ -183,7 +183,8 @@ class RentalStayRepository
 
         $stmt = $this->pdo->prepare(
             'INSERT INTO rental_meter_readings
-                (booking_id, meter_id, phase, value_milli, read_at, file_id, comment, recorded_by_member_id, created_at)
+                (booking_id, meter_id, phase, value_milli, read_at, file_id, comment, recorded_by_member_id, '
+                . 'created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
@@ -389,7 +390,8 @@ class RentalStayRepository
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO rental_incidents
-                (booking_id, description_encrypted, proposed_amount_cents, decision, file_id, created_by_member_id, created_at)
+                (booking_id, description_encrypted, proposed_amount_cents, decision, file_id, created_by_member_id, '
+                . 'created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([

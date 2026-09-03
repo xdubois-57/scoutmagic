@@ -85,7 +85,8 @@ class StorageLocationRepository
 
         $stmt = $this->pdo->prepare(
             'INSERT INTO gallery_storage_locations
-                (type, label, is_default, subdir, s3_provider, s3_endpoint, s3_region, s3_bucket, s3_access_key, s3_public_url, secret_key_encrypted, created_at)
+                (type, label, is_default, subdir, s3_provider, s3_endpoint, s3_region, s3_bucket, s3_access_key, '
+                . 's3_public_url, secret_key_encrypted, created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
@@ -157,7 +158,8 @@ class StorageLocationRepository
         if ($secretKey !== null && $secretKey !== '') {
             $stmt = $this->pdo->prepare(
                 'UPDATE gallery_storage_locations
-                 SET label = ?, subdir = ?, s3_provider = ?, s3_endpoint = ?, s3_region = ?, s3_bucket = ?, s3_access_key = ?, s3_public_url = ?, secret_key_encrypted = ?
+                 SET label = ?, subdir = ?, s3_provider = ?, s3_endpoint = ?, s3_region = ?, s3_bucket = ?, '
+                    . 's3_access_key = ?, s3_public_url = ?, secret_key_encrypted = ?
                  WHERE id = ?'
             );
             $stmt->execute([
@@ -169,7 +171,8 @@ class StorageLocationRepository
 
         $stmt = $this->pdo->prepare(
             'UPDATE gallery_storage_locations
-             SET label = ?, subdir = ?, s3_provider = ?, s3_endpoint = ?, s3_region = ?, s3_bucket = ?, s3_access_key = ?, s3_public_url = ?
+             SET label = ?, subdir = ?, s3_provider = ?, s3_endpoint = ?, s3_region = ?, s3_bucket = ?, '
+                . 's3_access_key = ?, s3_public_url = ?
              WHERE id = ?'
         );
         $stmt->execute([

@@ -63,7 +63,8 @@ class MediaRepository
         ?string $originalFilename
     ): int {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO gallery_media (album_id, media_type, file_id, processing_status, sort_order, original_filename, created_at)
+            'INSERT INTO gallery_media (album_id, media_type, file_id, processing_status, sort_order, '
+                . 'original_filename, created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([$albumId, $mediaType, $fileId, Media::STATUS_PENDING, $sortOrder, $originalFilename,

@@ -38,7 +38,8 @@ class GroupMemberRepository
         }
 
         $stmt = $this->pdo->prepare(
-            'INSERT INTO discussion_group_members (group_id, member_id, is_moderator, moderator_user_account_id, invited_by_member_id, created_at)
+            'INSERT INTO discussion_group_members (group_id, member_id, is_moderator, moderator_user_account_id, '
+                . 'invited_by_member_id, created_at)
              VALUES (?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([

@@ -66,7 +66,8 @@ class PushSubscriptionRepository
     ): int
     {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO push_subscriptions (user_account_id, endpoint, endpoint_blind_index, auth_key, p256dh_key, device_label)
+            'INSERT INTO push_subscriptions (user_account_id, endpoint, endpoint_blind_index, auth_key, p256dh_key, '
+                . 'device_label)
              VALUES (?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([

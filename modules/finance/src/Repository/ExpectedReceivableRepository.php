@@ -68,7 +68,8 @@ class ExpectedReceivableRepository
         ?int $memberId = null
     ): int {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO finance_expected_receivables (source_module, source_reference_id, account_id, amount_due_cents, communication, label_encrypted, member_id)
+            'INSERT INTO finance_expected_receivables (source_module, source_reference_id, account_id, '
+                . 'amount_due_cents, communication, label_encrypted, member_id)
              VALUES (?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([

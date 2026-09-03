@@ -66,7 +66,8 @@ class RosterSnapshotRepository
 
         $stmt = $this->pdo->prepare(
             'INSERT INTO fees_roster_snapshot_members
-                 (snapshot_id, member_id, fee_category_id, section_id, function_role, function_id, formation_level, leaving)
+                 (snapshot_id, member_id, fee_category_id, section_id, function_role, function_id, formation_level, '
+                . 'leaving)
              SELECT ?, my.member_id, my.fee_category_id, mf.section_id, f.role, f.id, my.formation_level, my.leaving
              FROM member_years my
              LEFT JOIN member_functions mf ON mf.id = (

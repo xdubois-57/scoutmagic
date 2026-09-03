@@ -58,7 +58,8 @@ class SettingRepository
         int $sortOrder
     ): void {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO settings (module_id, setting_key, setting_value, default_value, setting_type, label, description, validation_regex, select_options, editable, sort_order)
+            'INSERT INTO settings (module_id, setting_key, setting_value, default_value, setting_type, label, '
+                . 'description, validation_regex, select_options, editable, sort_order)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([

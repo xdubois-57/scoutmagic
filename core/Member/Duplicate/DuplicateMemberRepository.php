@@ -113,7 +113,8 @@ class DuplicateMemberRepository
     public function recordCandidate(int $keptMemberId, int $duplicateMemberId, bool $sameAddress): int
     {
         $stmt = $this->pdo->prepare(
-            "INSERT INTO member_duplicate_candidates (kept_member_id, duplicate_member_id, same_address, status, detected_at)
+            "INSERT INTO member_duplicate_candidates (kept_member_id, duplicate_member_id, same_address, status, "
+                . "detected_at)
              VALUES (?, ?, ?, 'pending', ?)"
         );
         $stmt->execute([$keptMemberId, $duplicateMemberId, $sameAddress ? 1 : 0, date('Y-m-d H:i:s')]);

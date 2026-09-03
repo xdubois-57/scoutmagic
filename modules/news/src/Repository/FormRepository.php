@@ -45,7 +45,9 @@ class FormRepository
         ?string $eventLocation = null
     ): int {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO news_forms (news_article_id, access, response_limit, opens_at, closes_at, is_force_closed, response_role_min, daily_digest_enabled, finance_account_id, issues_ticket, event_date, event_location)
+            'INSERT INTO news_forms (news_article_id, access, response_limit, opens_at, closes_at, is_force_closed, '
+                . 'response_role_min, daily_digest_enabled, finance_account_id, issues_ticket, event_date, '
+                . 'event_location)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([

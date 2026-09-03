@@ -129,7 +129,8 @@ class RentalPricingRepository
         int $sortOrder = 0
     ): int {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO rental_price_periods (asset_id, label, start_date, end_date, recurs_yearly, sort_order, created_at)
+            'INSERT INTO rental_price_periods (asset_id, label, start_date, end_date, recurs_yearly, sort_order, '
+                . 'created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([

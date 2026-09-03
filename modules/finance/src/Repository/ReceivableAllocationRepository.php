@@ -121,7 +121,8 @@ class ReceivableAllocationRepository
         ?int $createdBy
     ): int {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO finance_receivable_allocations (transaction_id, receivable_id, amount_cents, source, created_by, created_at)
+            'INSERT INTO finance_receivable_allocations (transaction_id, receivable_id, amount_cents, source, '
+                . 'created_by, created_at)
              VALUES (?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([

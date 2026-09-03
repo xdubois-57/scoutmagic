@@ -24,7 +24,8 @@ class SchedulerRepository
     ): int {
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
         $stmt = $this->pdo->prepare(
-            'INSERT INTO scheduled_actions (module_id, task_key, run_at, payload, reference, requested_by_user_account_id, created_at)
+            'INSERT INTO scheduled_actions (module_id, task_key, run_at, payload, reference, '
+                . 'requested_by_user_account_id, created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([$moduleId, $taskKey, $runAt, $payload, $reference, $requestedByUserAccountId, $now]);

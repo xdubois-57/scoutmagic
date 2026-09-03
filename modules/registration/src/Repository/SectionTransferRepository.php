@@ -127,7 +127,8 @@ class SectionTransferRepository
         }
 
         $stmt = $this->pdo->prepare(
-            'INSERT INTO registration_section_transfers (member_id, target_scout_year_id, destination_section_id, updated_at)
+            'INSERT INTO registration_section_transfers (member_id, target_scout_year_id, destination_section_id, '
+                . 'updated_at)
              VALUES (?, ?, ?, ?)'
         );
         $stmt->execute([$memberId, $targetScoutYearId, $destinationSectionId, $now]);

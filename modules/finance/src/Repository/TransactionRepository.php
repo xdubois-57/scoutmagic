@@ -371,7 +371,9 @@ class TransactionRepository
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO finance_transactions
-                (account_id, fiscal_year_id, bank_reference, transaction_date, label, amount, category_id, category_source, comment, counterparty_name, counterparty_account, extra_details, source, imported_at)
+                (account_id, fiscal_year_id, bank_reference, transaction_date, label, amount, category_id, '
+                . 'category_source, comment, counterparty_name, counterparty_account, extra_details, source, '
+                . 'imported_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([

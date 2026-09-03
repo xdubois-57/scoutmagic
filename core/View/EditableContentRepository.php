@@ -68,7 +68,8 @@ class EditableContentRepository
         } else {
             $now = self::now();
             $stmt = $this->pdo->prepare(
-                'INSERT INTO editable_contents (content_key, content_type, content_value, module_id, modified_at, modified_by)
+                'INSERT INTO editable_contents (content_key, content_type, content_value, module_id, modified_at, '
+                    . 'modified_by)
                  VALUES (?, ?, ?, ?, ?, ?)'
             );
             $stmt->execute([$key, $type, $value, $moduleId, $now, $modifiedBy]);

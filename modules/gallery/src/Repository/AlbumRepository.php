@@ -162,7 +162,8 @@ class AlbumRepository
         ?int $ownerId = null
     ): int {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO gallery_albums (type, title, subtitle, album_date, section_id, scout_year_id, external_url, storage_location_id, created_by, created_at, owner_type, owner_id)
+            'INSERT INTO gallery_albums (type, title, subtitle, album_date, section_id, scout_year_id, external_url, '
+                . 'storage_location_id, created_by, created_at, owner_type, owner_id)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([$type, $title, $subtitle, $albumDate, $sectionId, $scoutYearId, $externalUrl,

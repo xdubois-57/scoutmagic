@@ -49,7 +49,8 @@ class RecipientRepository
     ): int
     {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO mass_mail_recipients (email_id, member_id, scout_year_id, email_address_encrypted, member_email_id, audience_row_id, status, error_message)
+            'INSERT INTO mass_mail_recipients (email_id, member_id, scout_year_id, email_address_encrypted, '
+                . 'member_email_id, audience_row_id, status, error_message)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([

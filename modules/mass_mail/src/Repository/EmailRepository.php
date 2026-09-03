@@ -79,7 +79,8 @@ class EmailRepository
     ): void {
         $stmt = $this->pdo->prepare(
             'UPDATE mass_mail_emails
-             SET subject = ?, body_html = ?, section_id = ?, list_type = ?, list_id = ?, list_section_id = ?, audience_id = ?,
+             SET subject = ?, body_html = ?, section_id = ?, list_type = ?, list_id = ?, list_section_id = ?, '
+                . 'audience_id = ?,
                  updated_at = CURRENT_TIMESTAMP
              WHERE id = ?'
         );

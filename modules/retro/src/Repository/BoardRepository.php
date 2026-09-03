@@ -48,7 +48,8 @@ class BoardRepository
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO retro_boards (
-                title, board_date, calendar_event_id, token_encrypted, token_blind_index, short_code, listed, vote_mode, vote_budget,
+                title, board_date, calendar_event_id, token_encrypted, token_blind_index, short_code, listed, '
+                . 'vote_mode, vote_budget,
                 votes_visible, anti_duplicate_mode, max_comment_length, auto_close_delay, auto_close_at, created_by,
                 close_notify_enabled, close_notify_email, link_visibility
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
@@ -187,7 +188,8 @@ class BoardRepository
         $stmt = $this->pdo->prepare(
             'UPDATE retro_boards SET
                 title = ?, board_date = ?, calendar_event_id = ?, listed = ?, vote_mode = ?, vote_budget = ?,
-                votes_visible = ?, anti_duplicate_mode = ?, max_comment_length = ?, auto_close_delay = ?, auto_close_at = ?,
+                votes_visible = ?, anti_duplicate_mode = ?, max_comment_length = ?, auto_close_delay = ?, '
+                . 'auto_close_at = ?,
                 close_notify_enabled = ?, close_notify_email = ?, link_visibility = ?
              WHERE id = ?'
         );

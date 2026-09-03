@@ -70,7 +70,8 @@ class AttachmentRepository
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO finance_attachments
-                (account_id, file_id, mime_type, original_filename, suggested_amount, suggested_date, suggested_source, parent_attachment_id, uploaded_by, content_hash)
+                (account_id, file_id, mime_type, original_filename, suggested_amount, suggested_date, '
+                . 'suggested_source, parent_attachment_id, uploaded_by, content_hash)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([

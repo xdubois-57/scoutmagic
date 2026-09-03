@@ -72,7 +72,8 @@ class StatementImportRepository
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO finance_statement_imports
-                (account_id, bank_code, original_filename, lines_total, lines_new, lines_duplicate, imported_by, imported_at)
+                (account_id, bank_code, original_filename, lines_total, lines_new, lines_duplicate, imported_by, '
+                . 'imported_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([

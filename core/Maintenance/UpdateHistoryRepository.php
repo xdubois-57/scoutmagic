@@ -56,7 +56,8 @@ class UpdateHistoryRepository
     {
         $now = self::now();
         $stmt = $this->pdo->prepare(
-            'INSERT INTO update_history (version_from, version_to, dependencies_changed, requested_by, started_at, progress_at)
+            'INSERT INTO update_history (version_from, version_to, dependencies_changed, requested_by, started_at, '
+                . 'progress_at)
              VALUES (?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
@@ -245,7 +246,8 @@ class UpdateHistoryRepository
         $stmt = $this->pdo->prepare(
             "UPDATE update_history
              SET status = 'failed',
-                 error_message = 'Mise à jour abandonnée : une nouvelle mise à jour a démarré avant que celle-ci ne se termine.',
+                 error_message = 'Mise à jour abandonnée : une nouvelle mise à jour a démarré avant que celle-ci ne "
+                . "se termine.',
                  completed_at = ?
              WHERE id != ? AND status IN ('backing_up', 'downloading', 'installing', 'migrating')"
         );
