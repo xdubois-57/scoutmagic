@@ -157,6 +157,78 @@ class SupportTicketControllerTest extends TestCase
         $this->assertStringContainsString('118', $body);
     }
 
+    /**
+     * A ticket description is PROSE, and the page must read it as prose
+     * whatever else fails to load.
+     *
+     * The complaint: « la description est entièrement sur une ligne et
+     * donc illisible avec un long scrolling horizontal ». It was a `pre`
+     * element, and a `pre` wraps only when a stylesheet tells it to — the
+     * one that did is components.css, which base.html.twig deliberately
+     * does not load, so every page has to ask for it. Nothing in this
+     * suite could see that: the markup was valid, the sentence was there,
+     * and the page was unreadable.
+     *
+     * So the guarantee moved into the markup itself. The line breaks are
+     * `<br>` tags rather than a `white-space` property, and the wrapping
+     * of a pasted URL comes from Bootstrap's `text-break`, which
+     * base.html.twig loads unconditionally.
+     */
+    public function testTheDescriptionReadsAsProseAndNotAsACodeBlock(): void
+    {
+        AuthSession::login(1, 'superadmin@test.com', 'superadmin');
+
+        $body = $this->frontController('/support-dashboard/tickets/{id}', 'detail')
+            ->handle(new Request('GET', '/support-dashboard/tickets/' . $this->ticketId, [], [], [], []))
+            ->getBody();
+
+        $this->assertStringNotContainsString(
+            '<pre class="border rounded p-3 bg-body-tertiary small mb-0',
+            $body,
+            'the description is back in a <pre>: it then wraps only if components.css loads, and '
+            . 'a page that renders without it shows the whole sentence on one line'
+        );
+        $this->assertMatchesRegularExpression(
+            '/<div class="[^"]*text-break[^"]*support-ticket-description"/',
+            $body,
+            'the description block lost text-break — a pasted URL would widen the card again, and '
+            . 'that utility is the only one here that does not depend on an optional stylesheet'
+        );
+    }
+
+    /**
+     * The breaks somebody typed survive as markup.
+     *
+     * `nl2br` escapes before it inserts anything, so this also pins that a
+     * description is never rendered as markup: what a stranger wrote in a
+     * support form reaches this page as text, always.
+     */
+    public function testTheLineBreaksSomebodyTypedAreKeptAndTheirMarkupIsNot(): void
+    {
+        AuthSession::login(1, 'superadmin@test.com', 'superadmin');
+
+        $reference = $this->tickets->create(
+            (int) $this->pdo->query('SELECT id FROM support_installations LIMIT 1')->fetchColumn(),
+            TicketCategory::of('desk_import'),
+            "Première ligne.\nSeconde ligne.\n\n<b>pas du balisage</b>",
+            'chef@unite.be',
+            '1.0.33',
+            '8.4.0'
+        );
+        $id = (int) $this->tickets->findByReference($reference)['id'];
+
+        $body = $this->frontController('/support-dashboard/tickets/{id}', 'detail')
+            ->handle(new Request('GET', '/support-dashboard/tickets/' . $id, [], [], [], []))
+            ->getBody();
+
+        $this->assertStringContainsString('Première ligne.<br />', $body);
+        $this->assertStringContainsString('Seconde ligne.', $body);
+        // Escaped first, then broken into lines: the sender's angle
+        // brackets are text on this page and can never be anything else.
+        $this->assertStringNotContainsString('<b>pas du balisage</b>', $body);
+        $this->assertStringContainsString('&lt;b&gt;pas du balisage&lt;/b&gt;', $body);
+    }
+
     public function testAnUnknownTicketIs404AndNotAnEmptyPage(): void
     {
         AuthSession::login(1, 'superadmin@test.com', 'superadmin');

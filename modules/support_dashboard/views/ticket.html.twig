@@ -1,10 +1,13 @@
 {% extends 'base.html.twig' %}
 {% block title %}Ticket {{ ticket.reference }} — {{ site_name }}{% endblock %}
 
-{# Les blocs <pre> de cette page (description, note, analyse, JSON brut)
-   sont mis en forme dans components.css, que base.html.twig ne charge
-   délibérément pas. Sans ce lien, une seule ligne longue pousse toute la
-   page de côté à 375px. #}
+{# Le JSON brut de cette page reste un bloc de code qui défile : c'est du
+   code, on le lit en colonnes. La description et la note de résolution,
+   elles, sont de la PROSE et ne sont plus des blocs de code — voir plus
+   bas pourquoi ce n'est pas un détail de goût.
+
+   components.css met en forme le JSON brut et l'analyse ; base.html.twig
+   ne le charge délibérément pas, d'où ce lien. #}
 {% block stylesheets %}
 <link rel="stylesheet" href="{{ asset('/assets/css/components.css') }}">
 {% endblock %}
@@ -41,8 +44,23 @@
 
         <h2 class="h6 mt-2">Description</h2>
         {# Le texte tel qu'il a été écrit, échappé par Twig et jamais rendu
-           comme du balisage : c'est la phrase de quelqu'un, pas un gabarit. #}
-        <pre class="border rounded p-3 bg-body-tertiary small mb-0 support-ticket-description">{{ ticket.description }}</pre>
+           comme du balisage : c'est la phrase de quelqu'un, pas un gabarit.
+
+           **Ce n'était pas un bloc de code, et ça n'aurait pas dû en être
+           un.** Un « pre » ne revient à la ligne QUE si une feuille de
+           style le lui dit, et celle qui le disait n'est pas chargée par
+           défaut : le jour où ce lien manque — cache, déploiement, 404 —
+           la phrase de quelqu'un s'affiche sur une seule ligne et pousse
+           toute la page de côté. C'est ce qui a été signalé.
+
+           Un bloc de texte ordinaire revient à la ligne tout seul, et
+           « nl2br » met les retours dans le BALISAGE plutôt que dans une
+           propriété CSS. Reste le cas d'une URL collée, qu'aucun bloc ne
+           coupe de lui-même : « text-break » s'en charge, et il vient de
+           Bootstrap, que base.html.twig charge TOUJOURS. Rien de ce qui
+           rend cette description lisible ne dépend donc plus d'une
+           feuille de style facultative. #}
+        <div class="border rounded p-3 bg-body-tertiary small mb-0 text-break support-ticket-description">{{ ticket.description|nl2br }}</div>
     </div>
 </div>
 
@@ -162,7 +180,7 @@
 
         {% if ticket.status == 'closed' %}
             {% if ticket.resolution_note %}
-                <pre class="border rounded p-3 bg-body-tertiary small mb-3 support-ticket-description">{{ ticket.resolution_note }}</pre>
+                <div class="border rounded p-3 bg-body-tertiary small mb-3 text-break support-ticket-description">{{ ticket.resolution_note|nl2br }}</div>
             {% else %}
                 <p class="small text-body-secondary mb-3">Clôturé sans note de résolution.</p>
             {% endif %}
@@ -186,7 +204,7 @@
                    récit de ce qui avait été fait, et c'est précisément
                    quand un ticket revient qu'elle vaut d'être relue. #}
                 <p class="small text-body-secondary mb-1">Note de la clôture précédente, conservée :</p>
-                <pre class="border rounded p-3 bg-body-tertiary small mb-3 support-ticket-description">{{ ticket.resolution_note }}</pre>
+                <div class="border rounded p-3 bg-body-tertiary small mb-3 text-break support-ticket-description">{{ ticket.resolution_note|nl2br }}</div>
             {% endif %}
             {# Le ticket est à sens unique : il n'y a pas de fil, et rien ne
                remonte vers l'instance. Cette note est donc le seul endroit
