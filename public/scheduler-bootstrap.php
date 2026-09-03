@@ -342,6 +342,12 @@ function scoutmagic_bootstrap_scheduler(
                             $settingService,
                             $journalService,
                             $storagePath
+                        ),
+                        // The model as a last resort between two bookings
+                        // of one renter (§8.59): orders the propositions,
+                        // never associates. Null without the connector.
+                        modelChoice: new \Modules\Rental\Mail\BookingChoiceByModel(
+                            $context->getOptional(\Modules\LlmConnector\Api\LlmConnectorInterface::class)
                         )
                     ));
                 }
@@ -526,7 +532,10 @@ function scoutmagic_bootstrap_scheduler(
                             $campsCampRepo,
                             $campsMessageReader,
                             $journalService
-                        )
+                        ),
+                        // The model as a last resort between two stays:
+                        // orders the propositions, never associates.
+                        modelChoice: new \Modules\Camps\Mail\StayChoiceByModel($llm)
                     ));
                 }
 

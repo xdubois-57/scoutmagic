@@ -524,6 +524,11 @@ class InboundMailService implements InboundMailInterface
         return $found === null ? null : $found['reference'];
     }
 
+    public function recordOutboundMessageId(string $consumerId, string $businessReference, string $messageId): void
+    {
+        $this->messageRepository->recordOutboundMessageId($consumerId, $businessReference, $messageId);
+    }
+
     /**
      * @return array<int, array{name: string, state: string, is_enabled: bool}>
      */

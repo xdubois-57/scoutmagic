@@ -261,7 +261,22 @@ class FinanceMessageConsumer implements MessageConsumerInterface, ReferenceDirec
         // is a statement about a person, and a person can be wrong about
         // which account an expense belongs to in a way an IBAN cannot.
         $account = $this->theOneAccountNamed(self::readableText($message));
+        $staffAccount = $this->accountOfTheSendersStaff($message);
+
         if ($account !== null) {
+            // An association rather than a proposition in two cases, and
+            // only those: the box is the treasury's own — the operator has
+            // said everything arriving here is this module's business,
+            // and the worst outcome is a receipt on the wrong account,
+            // which « Changer de compte » corrects — or the sender's own
+            // section says the same account the IBAN does, two independent
+            // statements agreeing.
+            if ($message->mailboxIsDedicatedTo(self::CONSUMER_ID)
+                || ($staffAccount !== null && $staffAccount->id === $account->id)
+            ) {
+                return AnalysisResult::linkedTo(self::CONSUMER_ID, self::referenceFor($account->id), LinkOrigin::IBAN);
+            }
+
             return AnalysisResult::proposing(new MessageCandidate(
                 businessReference: self::referenceFor($account->id),
                 label: $account->name,
@@ -271,7 +286,6 @@ class FinanceMessageConsumer implements MessageConsumerInterface, ReferenceDirec
             ));
         }
 
-        $staffAccount = $this->accountOfTheSendersStaff($message);
         if ($staffAccount !== null) {
             return AnalysisResult::linkedTo(self::CONSUMER_ID, self::referenceFor($staffAccount->id), LinkOrigin::SENDER);
         }

@@ -767,6 +767,8 @@ class InboundMessageRepository
                 continue;
             }
 
+            $index = $this->messageIdIndex($candidate);
+
             $stmt = $this->pdo->prepare(
                 'SELECT l.business_reference, l.consumer_id
                    FROM inbound_messages m
@@ -774,7 +776,27 @@ class InboundMessageRepository
                   WHERE m.mailbox_id = ? AND l.consumer_id = ? AND m.message_id_blind_index = ?
                   LIMIT 1'
             );
-            $stmt->execute([$mailboxId, $consumerId, $this->messageIdIndex($candidate)]);
+            $stmt->execute([$mailboxId, $consumerId, $index]);
+            $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+            if (is_array($row)) {
+                return [
+                    'reference' => (string) $row['business_reference'],
+                    'consumer_id' => (string) $row['consumer_id'],
+                ];
+            }
+
+            // A message the SITE sent about the object: the ordinary
+            // first reply — « Re: votre réservation » with the reference
+            // gone from the subject — answers one of these, and knowing
+            // only the inbound ids meant the thread rule recognised a
+            // reply to a reply and never the reply itself.
+            $stmt = $this->pdo->prepare(
+                'SELECT business_reference, consumer_id FROM inbound_outbound_message_ids
+                  WHERE consumer_id = ? AND message_id_blind_index = ?
+                  LIMIT 1'
+            );
+            $stmt->execute([$consumerId, $index]);
             $row = $stmt->fetch(\PDO::FETCH_ASSOC);
 
             if (is_array($row)) {
@@ -786,6 +808,29 @@ class InboundMessageRepository
         }
 
         return null;
+    }
+
+    /**
+     * Remember a Message-ID the site sent about a business object, so the
+     * reply to it threads onto that object. Idempotent per (consumer, id).
+     */
+    public function recordOutboundMessageId(string $consumerId, string $businessReference, string $messageId): void
+    {
+        if (trim($messageId, "<> \t") === '') {
+            return;
+        }
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO inbound_outbound_message_ids (consumer_id, business_reference, message_id_blind_index)
+             VALUES (?, ?, ?)'
+        );
+
+        try {
+            $stmt->execute([$consumerId, $businessReference, $this->messageIdIndex($messageId)]);
+        } catch (\PDOException) {
+            // The unique index: the same id recorded twice is the state
+            // the caller asked for.
+        }
     }
 
     // ── Deletion ────────────────────────────────────────────────────────

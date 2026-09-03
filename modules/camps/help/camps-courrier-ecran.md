@@ -41,3 +41,15 @@ Quand plusieurs séjours correspondent au même expéditeur, le site
 **n'en choisit aucun** : il vous propose les deux. Mettre le message sur
 le mauvais séjour serait pire que de ne pas le rattacher, parce que le
 chef qui lit le mauvais séjour n'a aucun moyen de s'en apercevoir.
+
+## Quand le site hésite
+
+Plusieurs propositions sous un message veulent dire que plusieurs
+séjours correspondent et que le site n'en choisit aucun. Si l'unité a
+activé le connecteur IA, le modèle suggère lequel afficher en premier,
+et la proposition le dit ; il ne rattache jamais rien lui-même.
+
+Rattacher vous-même un message venu d'une adresse que le séjour ne
+connaissait pas en fait un contact du séjour, noté « Correspondant » :
+les messages suivants de cette adresse s'y rattachent seuls, et ceux
+déjà en attente sont réexaminés aussitôt.

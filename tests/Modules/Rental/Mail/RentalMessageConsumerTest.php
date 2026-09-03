@@ -369,13 +369,39 @@ class RentalMessageConsumerTest extends TestCase
         $this->assertSame(LinkOrigin::SENDER, $messages[0]->linkOrigin);
     }
 
-    public function testTheSameAddressOutsideTheWindowAttachesNothing(): void
+    public function testTheOnlyBookingOfARenterIsAttachedWhateverTheDate(): void
     {
-        // Next year's enquiry from the same group must not land on last
-        // year's booking.
+        // The window exists to tell two bookings of one renter apart. A
+        // renter who has exactly one has nothing to tell apart: their
+        // question three months after the stay is about that stay.
+        $booking = $this->createBooking(
+            arrival: '2027-03-01',
+            departure: '2027-03-04',
+            receivedAt: new \DateTimeImmutable('2027-01-01 10:00:00')
+        );
+        $this->deliver(10, 'Une question tardive', from: 'jeanne@example.be');
+
+        $this->sync();
+
+        $messages = $this->communicationService->timeline($booking);
+        $this->assertCount(1, $messages);
+        $this->assertSame(LinkOrigin::SENDER, $messages[0]->linkOrigin);
+    }
+
+    public function testTheSameAddressOutsideTheWindowOfEitherBookingAttachesNothing(): void
+    {
+        // Next year's enquiry from a group that has booked twice before
+        // must not land on either of last year's bookings.
         $this->createBooking(
+            'LOC-2025-0001',
             arrival: '2025-07-01',
             departure: '2025-07-04',
+            receivedAt: new \DateTimeImmutable('2025-01-01 10:00:00')
+        );
+        $this->createBooking(
+            'LOC-2025-0002',
+            arrival: '2025-08-01',
+            departure: '2025-08-04',
             receivedAt: new \DateTimeImmutable('2025-01-01 10:00:00')
         );
         $this->deliver(10, 'Une question', from: 'jeanne@example.be');
@@ -385,14 +411,117 @@ class RentalMessageConsumerTest extends TestCase
         $this->assertSame(0, $this->countRentalAssociations(), 'The message is kept; rental just does not claim it.');
     }
 
-    public function testAMessageSentBeforeTheRequestWasEvenMadeAttachesNothing(): void
+    public function testAMessageSentBeforeEitherRequestWasEvenMadeAttachesNothing(): void
     {
-        $this->createBooking(receivedAt: new \DateTimeImmutable('2027-07-20 10:00:00'));
+        $this->createBooking('LOC-2027-0042', receivedAt: new \DateTimeImmutable('2027-07-20 10:00:00'));
+        $this->createBooking('LOC-2027-0043', receivedAt: new \DateTimeImmutable('2027-07-21 10:00:00'));
         $this->deliver(10, 'Une question', from: 'jeanne@example.be');
 
         $this->sync();
 
         $this->assertSame(0, $this->countRentalAssociations(), 'The message is kept; rental just does not claim it.');
+    }
+
+    public function testACancelledBookingDoesNotCompeteWithTheLiveOne(): void
+    {
+        // A group whose first request was refused and who booked again
+        // used to have every message turned into two propositions. The
+        // dead one is out of the rule.
+        $live = $this->createBooking('LOC-2027-0042', 'jeanne@example.be');
+        $cancelled = $this->createBooking('LOC-2027-0043', 'jeanne@example.be', arrival: '2027-08-01', departure: '2027-08-04');
+        $this->bookingRepository->setStatus($cancelled->id, BookingStatus::CANCELLED, new \DateTimeImmutable('2027-02-01'));
+
+        $this->deliver(10, 'Une question sans référence', from: 'jeanne@example.be');
+        $this->sync();
+
+        $messages = $this->communicationService->timeline($live);
+        $this->assertCount(1, $messages);
+        $this->assertSame(LinkOrigin::SENDER, $messages[0]->linkOrigin);
+        $this->assertSame(1, $this->countRentalAssociations());
+    }
+
+    public function testAReplyToTheSitesOwnMailLandsOnTheBooking(): void
+    {
+        // The ordinary first reply: the renter answers the acknowledgement
+        // the site sent, from another address, with the reference gone
+        // from the subject. Nothing inbound names the booking — only the
+        // Message-ID the site remembered when it wrote.
+        $booking = $this->createBooking();
+        $this->inboundMail->recordOutboundMessageId(
+            RentalMessageConsumer::CONSUMER_ID,
+            $booking->reference,
+            '<site-42@unite.be>'
+        );
+
+        $this->deliver(
+            10,
+            'Re: Votre demande',
+            from: 'tresorier@groupe.example',
+            messageId: 'reply@groupe.example',
+            extraHeaders: ['In-Reply-To' => '<site-42@unite.be>']
+        );
+        $this->sync();
+
+        $messages = $this->communicationService->timeline($booking);
+        $this->assertCount(1, $messages);
+        $this->assertSame(LinkOrigin::THREAD, $messages[0]->linkOrigin);
+    }
+
+    public function testAManualAssociationTeachesTheBookingTheSendersAddress(): void
+    {
+        // The group's treasurer writes from their own address. The first
+        // message is the manager's to file; the second is not, because the
+        // booking now knows that address too.
+        $booking = $this->createBooking();
+        $this->deliver(10, 'Question sur la caution', from: 'tresorier@groupe.example', messageId: 'one@groupe.example');
+        $this->sync();
+        $this->assertSame(0, $this->countRentalAssociations());
+
+        $stored = $this->storedMessageIds();
+        $this->assertCount(1, $stored);
+        $this->assertTrue($this->inboundMail->attach(RentalMessageConsumer::CONSUMER_ID, $booking->reference, $stored[0], 7));
+
+        $this->deliver(11, 'Encore une question', from: 'tresorier@groupe.example', messageId: 'two@groupe.example');
+        $this->sync();
+
+        $messages = $this->communicationService->timeline($booking);
+        $this->assertCount(2, $messages);
+        $this->assertSame(LinkOrigin::SENDER, $messages[1]->linkOrigin);
+    }
+
+    public function testTheOtherMessagesOfThatAddressFollowWithoutAnotherClick(): void
+    {
+        // Two messages from the treasurer already waiting. Filing one by
+        // hand re-examines the rest with what the booking just learned,
+        // so the manager does not file the same address twice.
+        $booking = $this->createBooking();
+        $this->deliver(10, 'Question sur la caution', from: 'tresorier@groupe.example', messageId: 'one@groupe.example');
+        $this->deliver(11, 'Question sur les clés', from: 'tresorier@groupe.example', messageId: 'two@groupe.example');
+        $this->sync();
+        $this->assertSame(0, $this->countRentalAssociations());
+
+        $stored = $this->storedMessageIds();
+        $this->assertCount(2, $stored);
+        $this->inboundMail->attach(RentalMessageConsumer::CONSUMER_ID, $booking->reference, $stored[0], 7);
+
+        $this->assertCount(2, $this->communicationService->timeline($booking));
+    }
+
+    public function testAnAutomaticAssociationTeachesNothing(): void
+    {
+        // Only a person's decision is worth learning from: an address the
+        // rules attached on their own is already known, and an address
+        // the thread rule attached may be anybody in the conversation.
+        $booking = $this->createBooking();
+        $this->deliver(10, 'Re: [LOC-2027-0042]', from: 'quelquun@ailleurs.example');
+        $this->sync();
+        $this->assertSame(1, $this->countRentalAssociations());
+
+        $this->assertSame(
+            [$booking->id],
+            array_map(static fn(RentalBooking $b) => $b->id, $this->bookingRepository->findByRenterEmail('jeanne@example.be'))
+        );
+        $this->assertSame([], $this->bookingRepository->findByRenterEmail('quelquun@ailleurs.example'));
     }
 
     public function testTwoBookingsInTheWindowUnderOneAddressAttachNothing(): void
@@ -583,13 +712,79 @@ class RentalMessageConsumerTest extends TestCase
         $this->assertSame([], $result->candidates);
     }
 
-    private function plainConsumer(): RentalMessageConsumer
+    private function plainConsumer(?\Modules\Rental\Mail\BookingChoiceByModel $modelChoice = null): RentalMessageConsumer
     {
         return new RentalMessageConsumer(
             $this->bookingRepository,
             $this->inboundMail,
-            $this->documentService
+            $this->documentService,
+            modelChoice: $modelChoice
         );
+    }
+
+    // ── The model, last, and only to order (§8.59) ──────────────────────
+
+    public function testTheModelsPickLeadsThePropositionsAndAssociatesNothing(): void
+    {
+        $this->createBooking(reference: 'LOC-2027-0042');
+        $this->createBooking(reference: 'LOC-2027-0051', arrival: '2027-07-20', departure: '2027-07-23');
+        $llm = new \Tests\Modules\InboundMail\ScriptedLlm('LOC-2027-0051');
+
+        $result = $this->plainConsumer(new \Modules\Rental\Mail\BookingChoiceByModel($llm))
+            ->analyze($this->senderMessage('Nos dates de fin juillet'));
+
+        $this->assertSame([], $result->links, 'the model never associates');
+        $this->assertSame(
+            ['LOC-2027-0051', 'LOC-2027-0042'],
+            array_map(static fn($c) => $c->businessReference, $result->candidates),
+            'its pick leads, the other stays'
+        );
+        $this->assertSame('ai', $result->candidates[0]->evidenceType);
+        $this->assertStringContainsString('Le modèle suggère', $result->candidates[0]->explanation);
+        $this->assertSame('sender_window', $result->candidates[1]->evidenceType);
+        $this->assertSame(1, $llm->calls);
+        $this->assertStringContainsString('LOC-2027-0042', $llm->lastRequest?->prompt ?? '');
+    }
+
+    public function testAnAnswerNamingNoOfferedBookingChangesNothing(): void
+    {
+        $this->createBooking(reference: 'LOC-2027-0042');
+        $this->createBooking(reference: 'LOC-2027-0051', arrival: '2027-07-20', departure: '2027-07-23');
+        $llm = new \Tests\Modules\InboundMail\ScriptedLlm('LOC-2027-9999');
+
+        $result = $this->plainConsumer(new \Modules\Rental\Mail\BookingChoiceByModel($llm))
+            ->analyze($this->senderMessage('Nos dates'));
+
+        $this->assertSame(
+            ['LOC-2027-0042', 'LOC-2027-0051'],
+            array_map(static fn($c) => $c->businessReference, $result->candidates)
+        );
+        $this->assertSame(['sender_window', 'sender_window'], array_map(static fn($c) => $c->evidenceType, $result->candidates));
+    }
+
+    public function testTheModelIsNotAskedWhenTheRulesAlreadyDecided(): void
+    {
+        $this->createBooking(reference: 'LOC-2027-0042');
+        $llm = new \Tests\Modules\InboundMail\ScriptedLlm('LOC-2027-0042');
+
+        $result = $this->plainConsumer(new \Modules\Rental\Mail\BookingChoiceByModel($llm))
+            ->analyze($this->senderMessage());
+
+        $this->assertCount(1, $result->links);
+        $this->assertSame(0, $llm->calls);
+    }
+
+    public function testWithoutAModelOnTheCheapTierTheListIsWhatTheRulesMade(): void
+    {
+        $this->createBooking(reference: 'LOC-2027-0042');
+        $this->createBooking(reference: 'LOC-2027-0051', arrival: '2027-07-20', departure: '2027-07-23');
+        $llm = new \Tests\Modules\InboundMail\ScriptedLlm('LOC-2027-0051', available: false);
+
+        $result = $this->plainConsumer(new \Modules\Rental\Mail\BookingChoiceByModel($llm))
+            ->analyze($this->senderMessage('Nos dates'));
+
+        $this->assertSame(0, $llm->calls);
+        $this->assertSame(['sender_window', 'sender_window'], array_map(static fn($c) => $c->evidenceType, $result->candidates));
     }
 
     private function senderMessage(string $subject = 'Bonjour'): \Modules\InboundMail\Api\CandidateMessage
@@ -1311,6 +1506,15 @@ class RentalMessageConsumerTest extends TestCase
     private function countStoredMessages(): int
     {
         return (int) $this->pdo->query('SELECT COUNT(*) FROM inbound_messages')->fetchColumn();
+    }
+
+    /** @return int[] in the order they were stored */
+    private function storedMessageIds(): array
+    {
+        return array_map(
+            'intval',
+            $this->pdo->query('SELECT id FROM inbound_messages ORDER BY id')->fetchAll(\PDO::FETCH_COLUMN)
+        );
     }
 
     /**

@@ -78,6 +78,44 @@ class FinanceMessageConsumerTest extends TestCase
         $this->assertStringContainsString('signal faible', $result->candidates[0]->explanation);
     }
 
+    public function testTheIbanOnTheTreasurysOwnBoxIsAnAssociation(): void
+    {
+        // The operator said everything arriving here is this module's
+        // business; the IBAN says which account. Asking a treasurer to
+        // confirm both is asking for the sake of asking, and the worst
+        // outcome — the wrong account — is one click to correct.
+        $result = $this->consumer()->analyze($this->message(
+            'Facture de la fédération',
+            'Merci de virer sur le compte BE92 0015 1175 7023.',
+            [$this->pdfAttachment()],
+            dedicatedTo: FinanceMessageConsumer::CONSUMER_ID
+        ));
+
+        $this->assertSame([], $result->candidates);
+        $this->assertCount(1, $result->links);
+        $this->assertSame(FinanceMessageConsumer::referenceFor($this->accountId), $result->links[0]->businessReference);
+        $this->assertSame(LinkOrigin::IBAN, $result->links[0]->origin);
+    }
+
+    public function testTheIbanAndTheSendersStaffAgreeingIsAnAssociation(): void
+    {
+        // Two independent statements naming the same account: the money's
+        // own, in the text, and the person's, from the unit's membership.
+        $accountId = $this->animateurOfOneStaff('anna@example.be', iban: 'BE71096123456769');
+
+        $result = $this->consumerWithSenderStaff()->analyze($this->message(
+            'Facture',
+            'À payer sur BE71 0961 2345 6769.',
+            [$this->pdfAttachment()],
+            fromEmail: 'anna@example.be'
+        ));
+
+        $this->assertSame([], $result->candidates);
+        $this->assertCount(1, $result->links);
+        $this->assertSame(FinanceMessageConsumer::referenceFor($accountId), $result->links[0]->businessReference);
+        $this->assertSame(LinkOrigin::IBAN, $result->links[0]->origin);
+    }
+
     public function testAnIbanWithNoAttachmentIsNothingToFile(): void
     {
         $result = $this->consumer()->analyze($this->message(
@@ -818,7 +856,7 @@ class FinanceMessageConsumerTest extends TestCase
      *
      * @return int the id of that section's account
      */
-    private function animateurOfOneStaff(string $email, string $accountName = 'Louveteaux'): int
+    private function animateurOfOneStaff(string $email, string $accountName = 'Louveteaux', ?string $iban = null): int
     {
         static $nextId = 0;
         $nextId++;
@@ -837,7 +875,7 @@ class FinanceMessageConsumerTest extends TestCase
         $stmt = $this->pdo->prepare('INSERT INTO member_functions (member_year_id, function_id, section_id) VALUES (?, 1, ?)');
         $stmt->execute([$memberYearId, $sectionId]);
 
-        $accountId = $this->accounts->create($accountName, Account::TYPE_BANK, $sectionId, null, null, 'intendant');
+        $accountId = $this->accounts->create($accountName, Account::TYPE_BANK, $sectionId, $iban, null, 'intendant');
         $this->accounts->updateStatus($accountId, Account::STATUS_ACTIVE);
 
         return $accountId;

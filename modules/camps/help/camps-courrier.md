@@ -25,11 +25,10 @@ deux choses :
   proche du séjour concerné.
 
 Rien d'autre. **Jamais** sur un mot dans l'objet, jamais sur un nom de
-lieu. Et si deux séjours correspondent au même expéditeur, le message
-n'est rattaché à aucun : le mettre sur le mauvais serait pire, car
-personne ne pourrait s'en apercevoir. Chacun des deux devient une
-proposition, que vous confirmez ou écartez sur l'écran du courrier.
-Un séjour annulé ne compte jamais.
+lieu. Si deux séjours correspondent au même expéditeur, les dates que
+le message annonce départagent ; sinon le message n'est rattaché à
+aucun, et chacun devient une proposition à confirmer ou écarter sur
+l'écran du courrier. Un séjour annulé ne compte jamais.
 
 ## Une boîte dédiée
 

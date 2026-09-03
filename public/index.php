@@ -4872,7 +4872,10 @@ if ($isEnabled('camps')) {
                     // « Rattacher à… » on the chief's screen: the same
                     // search the camps mail screen's picker uses
                     // (Api\ReferenceDirectory).
-                    new \Modules\Camps\Service\StaySearchService($campsCampRepo)
+                    new \Modules\Camps\Service\StaySearchService($campsCampRepo),
+                    // The model as a last resort between two stays — it
+                    // orders the propositions and never associates.
+                    new \Modules\Camps\Mail\StayChoiceByModel($llmConnectorForOthers ?? null)
                 )
         );
     }
@@ -5611,7 +5614,10 @@ if ($isEnabled('rental')) {
         $storagePath
     );
     $rentalBookingMailService = new \Modules\Rental\Service\RentalBookingMailService(
-        $mailService, $emailTemplateRenderer, $settingService, $journalService
+        $mailService, $emailTemplateRenderer, $settingService, $journalService,
+        // So the Message-IDs it mints are remembered and a renter's reply
+        // threads onto the booking (§7.6). Null without `inbound_mail`.
+        $inboundMailForOthers
     );
 
     // The asset paperwork register (§6.33). A reminder list, never a
@@ -5663,7 +5669,11 @@ if ($isEnabled('rental')) {
                     AuthSession::isAuthenticated() ? AuthSession::getEmail() : null,
                     // « Rattacher à… » on the chief's screen names a
                     // booking by its asset (Api\ReferenceDirectory).
-                    $rentalAssetRepository
+                    $rentalAssetRepository,
+                    // The model as a last resort between two bookings of
+                    // one renter — it orders the propositions and never
+                    // associates (§8.59). Null without the connector.
+                    new \Modules\Rental\Mail\BookingChoiceByModel($llmConnectorForOthers ?? null)
                 )
         );
     }

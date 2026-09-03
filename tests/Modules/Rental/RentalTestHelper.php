@@ -375,6 +375,16 @@ class RentalTestHelper
         )');
 
         self::createComplianceTables($pdo);
+
+        $pdo->exec('CREATE TABLE rental_booking_emails (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            booking_id INTEGER NOT NULL,
+            email_encrypted BLOB NOT NULL,
+            email_blind_index TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (booking_id, email_blind_index),
+            FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
+        )');
     }
 
     /**

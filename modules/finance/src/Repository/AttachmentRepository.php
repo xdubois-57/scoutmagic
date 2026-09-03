@@ -18,6 +18,25 @@ class AttachmentRepository
     ) {
     }
 
+    /**
+     * A live receipt holding exactly these bytes, on this account (or on
+     * the sorting pile when $accountId is null) — the one that stops the
+     * same invoice being filed twice.
+     */
+    public function findActiveByContentHash(?int $accountId, string $contentHash): ?Attachment
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT id FROM finance_attachments
+              WHERE content_hash = ? AND status = ?
+                AND ((? IS NULL AND account_id IS NULL) OR account_id = ?)
+              ORDER BY id ASC LIMIT 1'
+        );
+        $stmt->execute([$contentHash, Attachment::STATUS_ACTIVE, $accountId, $accountId]);
+        $id = $stmt->fetchColumn();
+
+        return $id === false ? null : $this->findById((int) $id);
+    }
+
     public function findById(int $id): ?Attachment
     {
         $stmt = $this->pdo->prepare('SELECT * FROM finance_attachments WHERE id = ?');
@@ -45,15 +64,17 @@ class AttachmentRepository
         ?string $suggestedDate,
         ?int $parentAttachmentId,
         ?int $uploadedBy,
-        ?string $suggestedSource = null
+        ?string $suggestedSource = null,
+        ?string $contentHash = null
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO finance_attachments
-                (account_id, file_id, mime_type, original_filename, suggested_amount, suggested_date, suggested_source, parent_attachment_id, uploaded_by)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                (account_id, file_id, mime_type, original_filename, suggested_amount, suggested_date, suggested_source, parent_attachment_id, uploaded_by, content_hash)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
-            $accountId, $fileId, $mimeType, $originalFilename, $suggestedAmount, $suggestedDate, $suggestedSource, $parentAttachmentId, $uploadedBy,
+            $accountId, $fileId, $mimeType, $originalFilename, $suggestedAmount, $suggestedDate,
+            $suggestedSource, $parentAttachmentId, $uploadedBy, $contentHash,
         ]);
         return (int) $this->pdo->lastInsertId();
     }

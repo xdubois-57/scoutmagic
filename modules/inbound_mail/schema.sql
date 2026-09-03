@@ -263,7 +263,8 @@ CREATE TABLE IF NOT EXISTS inbound_message_links (
     -- would make idx_link_unique inoperative and let the same association
     -- be created twice.
     attachment_id INT UNSIGNED NOT NULL DEFAULT 0,
-    -- 'reference' | 'thread' | 'sender' | 'ai' | 'manual'. Shown to the
+    -- 'reference' | 'thread' | 'sender' | 'period' | 'iban' | 'ai' |
+    -- 'attachment' | 'manual'. Shown to the
     -- reader: an association made on a sender address is a weaker claim
     -- than one made on an explicit reference, and saying so is the honest
     -- interface.
@@ -349,4 +350,26 @@ CREATE TABLE IF NOT EXISTS inbound_message_attachments (
     INDEX idx_attachment_message (message_id),
     INDEX idx_attachment_hash (content_hash),
     CONSTRAINT fk_attachment_message FOREIGN KEY (message_id) REFERENCES inbound_messages(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- The Message-IDs the site itself sent, per business object, so a reply
+-- to one of them threads onto the object with certainty (§7.6, level 2).
+--
+-- A consumer that writes to a renter mints a Message-ID and records it
+-- here; when the renter answers with « Re: votre réservation » and no
+-- reference in the subject, In-Reply-To names this id and the message
+-- lands on the booking. Until this table existed the thread rule could
+-- only recognise a reply to a reply, because only INBOUND ids were known.
+--
+-- The id is stored as its blind index only: a hash cannot be turned
+-- back into the id, and the lookup is an equality anyway. Never the
+-- recipient, never the subject.
+CREATE TABLE IF NOT EXISTS inbound_outbound_message_ids (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    consumer_id VARCHAR(50) NOT NULL,
+    business_reference VARCHAR(100) NOT NULL,
+    message_id_blind_index VARCHAR(64) NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE INDEX idx_outbound_consumer_message (consumer_id, message_id_blind_index),
+    INDEX idx_outbound_reference (consumer_id, business_reference)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

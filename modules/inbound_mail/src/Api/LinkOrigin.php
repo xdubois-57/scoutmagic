@@ -45,6 +45,15 @@ enum LinkOrigin: string
      */
     case PERIOD = 'period';
 
+    /**
+     * The message names the IBAN of exactly one of the unit's accounts, on
+     * a box the unit declared to be its treasury's — or the IBAN and the
+     * sender's own section agree. Two independent statements about the
+     * money, which is what makes it an association rather than a
+     * proposition; still not certain, and the interface says so.
+     */
+    case IBAN = 'iban';
+
     /** A model's suggestion, used only where 1-3 failed or were ambiguous. */
     case AI = 'ai';
 
@@ -75,6 +84,7 @@ enum LinkOrigin: string
             self::THREAD => 'Réponse dans la conversation',
             self::SENDER => 'Adresse de l\'expéditeur',
             self::PERIOD => 'Période annoncée dans le message',
+            self::IBAN => 'IBAN du compte cité dans le message',
             self::AI => 'Suggestion automatique',
             self::ATTACHMENT => 'Pièce jointe, destinataire inconnu',
             self::MANUAL => 'Association manuelle',

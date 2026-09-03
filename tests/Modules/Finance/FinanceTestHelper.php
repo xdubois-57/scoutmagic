@@ -120,6 +120,7 @@ class FinanceTestHelper
             parent_attachment_id INTEGER,
             uploaded_by INTEGER,
             uploaded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            content_hash TEXT,
             FOREIGN KEY (account_id) REFERENCES finance_accounts(id),
             FOREIGN KEY (file_id) REFERENCES files(id),
             FOREIGN KEY (parent_attachment_id) REFERENCES finance_attachments(id)

@@ -1006,7 +1006,7 @@ class CampsMessageConsumerTest extends TestCase
         return new \Modules\Camps\Mail\ExistingStayMatcher($this->camps, new \Modules\Camps\Mail\MessageReader());
     }
 
-    private function consumerWithMatcher(): CampsMessageConsumer
+    private function consumerWithMatcher(?\Modules\Camps\Mail\StayChoiceByModel $modelChoice = null): CampsMessageConsumer
     {
         return new CampsMessageConsumer(
             $this->camps,
@@ -1016,7 +1016,192 @@ class CampsMessageConsumerTest extends TestCase
             null,
             null,
             null,
-            $this->matcher()
+            $this->matcher(),
+            null,
+            $modelChoice
+        );
+    }
+
+    // ── Two signals crossed: the sender's stays, narrowed by the period ──
+
+    public function testThePeriodInTheMessageTellsTwoStaysOfOneContactApart(): void
+    {
+        // The farmer who hosts the unit every summer: two stays in the
+        // window under one address, and the dates in the message are
+        // what a chief would read to tell them apart. So does the module.
+        $second = $this->camps->create(
+            1, Camp::STAY_GRAND_CAMP, '2026-07-20', '2026-07-27', null,
+            Camp::STATUS_CONFIRMED, null, null, null, null, []
+        );
+        $this->contacts->create($this->campId, null, null, 'lambert@example.org', null, null);
+        $this->contacts->create($second, null, null, 'lambert@example.org', null, null);
+
+        $result = $this->consumerWithMatcher()->analyze(
+            $this->message('lambert@example.org', 'Confirmation du 20 au 27 juillet 2026')
+        );
+
+        $this->assertSame([], $result->candidates);
+        $this->assertCount(1, $result->links);
+        $this->assertSame('camp-' . $second, $result->links[0]->businessReference);
+        $this->assertSame(LinkOrigin::SENDER, $result->links[0]->origin);
+    }
+
+    public function testAPeriodMatchingNeitherOfTheSendersStaysLeavesBothProposed(): void
+    {
+        $second = $this->camps->create(
+            1, Camp::STAY_GRAND_CAMP, '2026-07-20', '2026-07-27', null,
+            Camp::STATUS_CONFIRMED, null, null, null, null, []
+        );
+        $this->contacts->create($this->campId, null, null, 'lambert@example.org', null, null);
+        $this->contacts->create($second, null, null, 'lambert@example.org', null, null);
+
+        $result = $this->consumerWithMatcher()->analyze(
+            $this->message('lambert@example.org', 'Vos dates du 1 au 8 août 2026 ?')
+        );
+
+        $this->assertSame([], $result->links);
+        $this->assertCount(2, $result->candidates);
+    }
+
+    public function testAPeriodNamingAStrangersStayDoesNotOverrideTheSender(): void
+    {
+        // The period narrows the sender's list; it never adds to it. A
+        // farmer mentioning dates that happen to be another stay's is
+        // still writing about one of their own.
+        $second = $this->camps->create(
+            1, Camp::STAY_GRAND_CAMP, '2026-07-20', '2026-07-27', null,
+            Camp::STATUS_CONFIRMED, null, null, null, null, []
+        );
+        $other = $this->camps->create(
+            1, Camp::STAY_SHORT_CAMP, '2026-06-06', '2026-06-07', null,
+            Camp::STATUS_CONFIRMED, null, null, null, null, []
+        );
+        $this->contacts->create($this->campId, null, null, 'lambert@example.org', null, null);
+        $this->contacts->create($second, null, null, 'lambert@example.org', null, null);
+
+        $result = $this->consumerWithMatcher()->analyze(
+            $this->message('lambert@example.org', 'Le week-end du 6 au 7 juin 2026')
+        );
+
+        $this->assertSame([], $result->links);
+        $this->assertNotContains(
+            'camp-' . $other,
+            array_map(static fn($c) => $c->businessReference, $result->candidates)
+        );
+    }
+
+    // ── The model, last, and only to order (§8.59) ───────────────────────
+
+    public function testTheModelsPickLeadsThePropositionsAndAssociatesNothing(): void
+    {
+        $second = $this->camps->create(
+            1, Camp::STAY_GRAND_CAMP, '2026-07-20', '2026-07-27', null,
+            Camp::STATUS_CONFIRMED, null, null, null, null, []
+        );
+        $this->contacts->create($this->campId, null, null, 'lambert@example.org', null, null);
+        $this->contacts->create($second, null, null, 'lambert@example.org', null, null);
+        $llm = new \Tests\Modules\InboundMail\ScriptedLlm('camp-' . $second);
+
+        $result = $this->consumerWithMatcher(new \Modules\Camps\Mail\StayChoiceByModel($llm))->analyze(
+            $this->message('lambert@example.org', 'Le pré pour la fin juillet')
+        );
+
+        $this->assertSame([], $result->links, 'the model never associates');
+        $this->assertSame(
+            ['camp-' . $second, 'camp-' . $this->campId],
+            array_map(static fn($c) => $c->businessReference, $result->candidates)
+        );
+        $this->assertSame('ai', $result->candidates[0]->evidenceType);
+        $this->assertStringContainsString('Le modèle suggère', $result->candidates[0]->explanation);
+        $this->assertSame('sender_window', $result->candidates[1]->evidenceType);
+        $this->assertSame(1, $llm->calls);
+    }
+
+    public function testTheModelIsNotAskedWhenThePeriodAlreadyDecided(): void
+    {
+        $second = $this->camps->create(
+            1, Camp::STAY_GRAND_CAMP, '2026-07-20', '2026-07-27', null,
+            Camp::STATUS_CONFIRMED, null, null, null, null, []
+        );
+        $this->contacts->create($this->campId, null, null, 'lambert@example.org', null, null);
+        $this->contacts->create($second, null, null, 'lambert@example.org', null, null);
+        $llm = new \Tests\Modules\InboundMail\ScriptedLlm('camp-' . $this->campId);
+
+        $result = $this->consumerWithMatcher(new \Modules\Camps\Mail\StayChoiceByModel($llm))->analyze(
+            $this->message('lambert@example.org', 'Confirmation du 20 au 27 juillet 2026')
+        );
+
+        $this->assertCount(1, $result->links);
+        $this->assertSame(0, $llm->calls);
+    }
+
+    // ── onLinked(): a person's decision teaches the stay ─────────────────
+
+    public function testAManualAssociationMakesTheSenderAContactOfTheStay(): void
+    {
+        // The farmer's spouse writes from their own address. Filing that
+        // message by hand is the chief saying « cette adresse, c'est ce
+        // séjour » — said once, remembered for the next message.
+        $consumer = $this->consumer();
+        $message = $this->messageFrom('epouse@example.org', 'Marie Lambert', LinkOrigin::MANUAL);
+
+        $consumer->onLinked($message, new MessageLink(
+            CampsMessageConsumer::CONSUMER_ID,
+            'camp-' . $this->campId,
+            LinkOrigin::MANUAL
+        ));
+
+        $contacts = $this->contacts->findByCamp($this->campId);
+        $this->assertCount(1, $contacts);
+        $this->assertSame('epouse@example.org', $contacts[0]->email);
+        $this->assertSame('Marie Lambert', $contacts[0]->name);
+        $this->assertSame('Correspondant', $contacts[0]->roleLabel);
+
+        $this->assertCount(1, $consumer->analyze($this->message('epouse@example.org'))->links);
+    }
+
+    public function testAKnownAddressIsNotAddedTwice(): void
+    {
+        $this->contacts->create($this->campId, 'M. Lambert', 'Fermier', 'lambert@example.org', null, null);
+
+        $this->consumer()->onLinked(
+            $this->messageFrom('Lambert@Example.org', null, LinkOrigin::MANUAL),
+            new MessageLink(CampsMessageConsumer::CONSUMER_ID, 'camp-' . $this->campId, LinkOrigin::MANUAL)
+        );
+
+        $contacts = $this->contacts->findByCamp($this->campId);
+        $this->assertCount(1, $contacts);
+        $this->assertSame('Fermier', $contacts[0]->roleLabel, 'the contact the chief typed is left alone');
+    }
+
+    public function testAnAutomaticAssociationTeachesNothing(): void
+    {
+        $this->consumer()->onLinked(
+            $this->messageFrom('quelquun@example.org', null, LinkOrigin::THREAD),
+            new MessageLink(CampsMessageConsumer::CONSUMER_ID, 'camp-' . $this->campId, LinkOrigin::THREAD)
+        );
+
+        $this->assertSame([], $this->contacts->findByCamp($this->campId));
+    }
+
+    private function messageFrom(string $from, ?string $name, LinkOrigin $origin): \Modules\InboundMail\Api\InboundMessage
+    {
+        return new \Modules\InboundMail\Api\InboundMessage(
+            1,
+            self::SHARED_MAILBOX,
+            CampsMessageConsumer::CONSUMER_ID,
+            'camp-' . $this->campId,
+            $origin,
+            'Bonjour',
+            $from,
+            $name,
+            '<msg@mail>',
+            null,
+            new \DateTimeImmutable('2026-06-01'),
+            'Corps',
+            '',
+            [],
+            []
         );
     }
 

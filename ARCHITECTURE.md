@@ -1979,9 +1979,15 @@ What does protect the files is the ordinary mechanism: `File\RentalDocumentOwner
 
 **The polling task is the one module task registered by hand** rather than auto-resolved from its manifest, because it needs the consumer registry and only a composition root can build one — as a lazy factory in `public/scheduler-bootstrap.php`, the single file both entry points call (§8.5), so the graph is only assembled when a sync task is actually due and the registration cannot exist under one trigger and not the other. `Tests\Modules\InboundMail\CompositionRootWiringTest` pins the factory's load-bearing facts, the camps consumer's last position included.
 
+**The thread rule knows what the site sent, not only what it received** (`inbound_outbound_message_ids`). The ordinary first reply — « Re: votre demande », the reference gone from the subject, sent from the group's treasurer rather than the renter — answers a message the SITE wrote; looking only at inbound Message-IDs meant the thread rule recognised a reply to a reply and never the reply itself. A consumer records the ids of what it sends about an object (`InboundMailInterface::recordOutboundMessageId()`, called by `Modules\Rental\Service\RentalBookingMailService` on every booking mail), stored as a blind index — never the content, never an address — and `findReferenceByThread()` consults both tables. `LinkOrigin::IBAN` joined the origins for the same reason `PERIOD` did: an association a consumer makes on a fact in the text, labelled as such on every screen, and « pas certain » because a text can be wrong.
+
+**A person's decision is a signal; the module's own never is.** `onLinked()` receives the origin, and a consumer that wants to learn — an address the booking did not know, a correspondent the stay had no contact for — learns only from `LinkOrigin::MANUAL`: an automatic association re-teaches what the rules already knew, and a thread association may name anybody in the conversation. Having learned, the consumer re-runs `reanalyzeUnlinked()` over a bounded number of unattributed messages, so the second message from that address is filed by the click that filed the first. Failure there is swallowed: the association the person made is already written, and a re-run must not undo their click.
+
 ### 8.59bis An invoice arriving by email (`Modules\Finance\Mail`)
 
-**This consumer only ever proposes.** Never an association, on any path: a receipt is an accounting document, and a wrong one is worse than a missing one because it silently balances against the wrong account. What turns a proposition into a receipt is a treasurer confirming it, and nothing else.
+**This consumer associates in two cases, and proposes in every other.** A receipt is an accounting document, and a wrong one is worse than a missing one because it silently balances against the wrong account — so what turns a proposition into a receipt is a treasurer confirming it, unless two independent statements already agree or the operator has said the box is the treasury's. Concretely (`LinkOrigin::IBAN`): the message cites exactly one of the unit's IBANs **and** either the box is dedicated to this module, or the sender's own section owns that very account. Everything else — one IBAN on a shared box, a sender animating one staff whose account the text does not name — stays a proposition or the sender rule, and « Changer de compte » on the receipt corrects the worst outcome of the automatic path in one click.
+
+**The same bytes twice are one receipt.** `finance_attachments.content_hash` (sha256 of the bytes before the orientation fix, so the answer does not depend on the image library) lets `ReceiptService::store()` answer the invoice forwarded twice, or read from two watched boxes, with the receipt already filed — on the automated door only (`ExpenseReceiptInterface`, `reuseIdentical: true`): a person's second upload of the same file is theirs to explain, and silently answering it with their first would look like a lost file.
 
 **Two signals, both required.** An **attachment** of a type a receipt can be (PDF or image — a spreadsheet is a document and not a receipt), and **exactly one of the unit's own IBANs** in the message's text. The second is what says *which* account, and the module refuses to guess: zero matches is silence, and two matches is silence too, because an email quoting two of the unit's accounts is almost always a transfer between them and a transfer's receipt belongs to neither side. The IBAN is matched through its blind index, so nothing is decrypted to answer the question. A weak signal, and `describeEvidence()` says so out loud — the superadmin reads that sentence before opening a shared mailbox to this module, which is what publishing per-consumer evidence is for.
 
@@ -2009,22 +2015,39 @@ answer:**
    references means no match**: a renter forwarding one booking's email
    while asking about another leaves both in the text.
 2. **The thread headers** — `In-Reply-To`/`References` naming a message
-   already attached. Resolved through `InboundMailInterface`, scoped to this
-   consumer, because `rental` cannot look inside the other module's storage.
-   The reference still wins when both point, since a thread can be hijacked
-   by replying to an old email about a different booking.
-3. **The sender's address, bounded by time** — the renter's own address
-   *and* a message falling between the request and some weeks after the
-   departure. Neither half works alone: without the address this attaches
-   anything, without the window it attaches next summer's enquiry to last
-   summer's stay.
+   already attached, **or a message the site itself sent about the
+   booking** (`RentalBookingMailService` records every outbound
+   Message-ID through `recordOutboundMessageId()`, §8.58). Resolved through
+   `InboundMailInterface`, scoped to this consumer, because `rental` cannot
+   look inside the other module's storage. The reference still wins when
+   both point, since a thread can be hijacked by replying to an old email
+   about a different booking.
+3. **The sender's address** — the renter's own, or one a manager taught the
+   booking by filing a message from it by hand (`rental_booking_emails`,
+   blind-indexed like the renter's). A renter with **exactly one booking**
+   is attached whatever the date: the window exists to tell two bookings
+   apart, and there is nothing to tell apart. With several, the message
+   must fall between the request and some weeks after the departure of
+   one of them, and a booking the unit refused, cancelled or let lapse
+   does not compete with the live one — left in, a group refused once and
+   booked again had every message turned into two propositions.
 
 **Ambiguity is answered with propositions, never with a choice.** Two
-bookings matching the sender inside the window attach nothing — a manager
-reading the wrong file has no way to know it is the wrong file, which makes
-a wrong attachment worse than none — but each of them becomes a
+live bookings matching the sender inside the window attach nothing — a
+manager reading the wrong file has no way to know it is the wrong file,
+which makes a wrong attachment worse than none — but each of them becomes a
 `MessageCandidate` (§8.58), bounded at `RentalMessageConsumer::MAX_PROPOSITIONS`,
-so the module says what it knows and leaves the choice to a person.
+so the module says what it knows and leaves the choice to a person. **The
+model comes last, and only to order** (`Mail\BookingChoiceByModel`): with
+the connector present and a model on the cheap tier, the subject and body
+go to it with the shortlist, and its pick leads the list, marked `ai` and
+saying so in its explanation — the other bookings stay proposed, and
+nothing is associated on its word. Without a connector the list is what the
+rules made. **A manual filing teaches the booking the sender's address**
+(`onLinked()` on `LinkOrigin::MANUAL` only) and re-examines the mail
+nobody could attribute (`REANALYSIS_AFTER_DECISION`), so the treasurer of a
+group writing from their own address is filed by hand once, not on every
+message.
 
 **An attachment becomes a `Non classé`, internal document of the booking**,
 pointing at the very file `UploadHandler` stored rather than a copy. Never
@@ -2572,7 +2595,7 @@ Where the unit has camped, and every stay it made there. The product answers one
 
 **Registration order is immaterial.** `MessageConsumerRegistry` asks every consumer the box is open to and applies every answer (§8.58); which module sees a dedicated camps box is the mailbox configuration's decision, not the position of a `register()` call. `Tests\Modules\Camps\Mail\ConsumerRegistrationOrderTest` now pins only what the web path builds the consumer with — that it can file a document and re-analyse — which is what actually failed silently.
 
-**Ambiguity is answered with propositions.** Two stays matching one sender inside the window, or two stays over the same days, claim nothing — putting a farmer's e-mail on whichever of two stays sorted first is worse than leaving it where it was, because the chief reading the wrong stay has no way to know — and each becomes a proposition the chief settles on `/chefs/camps/courrier`. **A cancelled stay takes part in none of the rules**: not the sender window, not the period, not the duplicate check before a stay is created. Left in, a stay cancelled and re-booked with the same farmer turned every one of their messages into two propositions for sixteen months.
+**Two signals crossed before anybody is asked.** A farmer who hosts the unit every summer always has two stays in the sender window, and the period the message states is what a chief would read to tell them apart — so `fromSender()` intersects the sender's stays with `ExistingStayMatcher::matching()` on any box, shared included, and one stay in both lists is an association on the sender: the period only narrowed a list the sender had already drawn, which is why this is safe where reading the period alone on a shared box is not. **Ambiguity is answered with propositions.** Two stays still matching one sender, or two stays over the same days, claim nothing — putting a farmer's e-mail on whichever of two stays sorted first is worse than leaving it where it was, because the chief reading the wrong stay has no way to know — and each becomes a proposition the chief settles on `/chefs/camps/courrier`. **The model comes last, and only to order** (`Mail\StayChoiceByModel`, the same shape as rental's, §8.59): its pick leads the list marked `ai`, the others stay, nothing is associated on its word. **A cancelled stay takes part in none of the rules**: not the sender window, not the period, not the duplicate check before a stay is created. Left in, a stay cancelled and re-booked with the same farmer turned every one of their messages into two propositions for sixteen months. **A manual filing makes the sender a contact of the stay** (`onLinked()` on `LinkOrigin::MANUAL`, role « Correspondant », never overwriting a contact the chief typed) and re-examines the unattributed mail, so the farmer's spouse writing from their own address is filed by hand once.
 
 **A module asks the connector about the tier it is going to use.** `LlmConnectorInterface::isAvailable()` answers "is anything configured at all" and every AI feature in this module used it, while every call it makes is `LlmTier::CHEAP` — so an installation with a model on `capable` and none on `cheap` passed the check, the place sheet offered « Écrire le résumé maintenant », and `complete()` refused the tier before reaching a provider: no summary, and (until the connector started journaling its own refusals) nothing anywhere saying why. `Service\PlaceSummaryService`, `Service\DuplicatePlaceDetector` and `Mail\StayFromMailService` all ask `isTierAvailable(LlmTier::CHEAP)` now, which is the same question their `complete()` will ask.
 
@@ -2582,7 +2605,7 @@ Where the unit has camped, and every stay it made there. The product answers one
 
 **"Not written" is five different answers, and the page gives the right one** (`Service\SummaryOutcome`). `refresh()` used to return a `bool` and the place sheet turned every false into one sentence — "il n'y a pas assez à raconter, ou le connecteur IA n'est pas disponible" — led by the only cause a chief can act on and the one it almost never was. A chief who had just given four stars and written a comment was told their material was too thin. The outcome is now named (written, nothing to summarise, unavailable, provider refused, empty answer) and each case carries its own sentence, because the three failures are fixed by three different people: the one writing reviews, the administrator, and nobody at all.
 
-**Reading a message is patterns, not a model** (`Mail\MessageReader`). A date range and a single price, only when stated unambiguously: a lone date is far more often a meeting than a departure, and TWO amounts in one message means no reading at all — a quote naming a deposit and a total is precisely where guessing wrong is most expensive. The AI in this module is reserved for the three jobs a pattern genuinely cannot do: recognising that two place names are one field, writing a summary, and — when a message in a dedicated mailbox is about to become a stay — reading the VENUE's name out of its body. That last one replaced the `From:` display name, which put a farmer's own name into `camp_places.name`, a clear-text column justified by "a place is not a natural person". The model is told never to answer a person's name nor the sender's and to answer nothing when unsure, and whatever comes back still has to be long enough and not an address. **Without the connector the flow matches and never creates**: a message whose place resolves to nothing stays attached to nothing, where both the chef d'unité and this module's own users find it and a human validates a name before it enters the database. The sender's display name survives as a MATCHING hint only — recognising a farmer writes nothing anywhere, which is what makes it safe when naming a new place from it is not.
+**Reading a message is patterns, not a model** (`Mail\MessageReader`). A date range and a single price, only when stated unambiguously — « 1er », a weekday before the day, and a range with no year at all are read too, the last against the message's own date (`readDateRange($text, $sentAt)`: the next occurrence, so a farmer's « du 12 au 19 juillet » in September means next summer's, and with no reference date it is refused rather than pinned to the clock), and the quoted lines under « > » are stripped first, because they are the unit's own request and not the farmer's answer: a lone date is far more often a meeting than a departure, and TWO amounts in one message means no reading at all — a quote naming a deposit and a total is precisely where guessing wrong is most expensive. The AI in this module is reserved for the three jobs a pattern genuinely cannot do: recognising that two place names are one field, writing a summary, and — when a message in a dedicated mailbox is about to become a stay — reading the VENUE's name out of its body. That last one replaced the `From:` display name, which put a farmer's own name into `camp_places.name`, a clear-text column justified by "a place is not a natural person". The model is told never to answer a person's name nor the sender's and to answer nothing when unsure, and whatever comes back still has to be long enough and not an address. **Without the connector the flow matches and never creates**: a message whose place resolves to nothing stays attached to nothing, where both the chef d'unité and this module's own users find it and a human validates a name before it enters the database. The sender's display name survives as a MATCHING hint only — recognising a farmer writes nothing anywhere, which is what makes it safe when naming a new place from it is not.
 
 **Empty field → filled; filled field → never overwritten.** A chief typed a price because they read a contract, and a regex over an e-mail body does not get to disagree silently. The reading is parked in `camp_field_proposals` and shown inline next to the value it argues with, with Appliquer / Ignorer — never a separate "to validate" queue, which is a place people stop going to. One live proposal per field: a second reading replaces the first, because three cards disagreeing about one price is noise, not information. **Both outcomes are recorded**, including the refusal: six months later somebody asks why the page does not say what the mail says, and "a chief looked at it and said no" has to be written down. The proposal stores the reading twice — readable and machine — because Appliquer has to write a DATE and an INT, and re-parsing the display string would mean teaching the reader to read its own output.
 

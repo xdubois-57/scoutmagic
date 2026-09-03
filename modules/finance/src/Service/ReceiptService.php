@@ -136,6 +136,12 @@ class ReceiptService
     }
 
     /**
+     * `$reuseIdentical` answers the same bytes already filed on this
+     * account with THAT receipt instead of a second row. Wanted on the
+     * unattended paths — the invoice forwarded twice, or read from two
+     * watched boxes, is one receipt — and off for a person's upload,
+     * whose repeated gesture is theirs to explain.
+     *
      * @throws FinanceException on an unsupported MIME type or an unknown account
      */
     public function upload(
@@ -145,14 +151,15 @@ class ReceiptService
         int $accountId,
         ?float $suggestedAmount,
         ?string $suggestedDate,
-        ?int $uploadedBy
+        ?int $uploadedBy,
+        bool $reuseIdentical = false
     ): Attachment {
         $account = $this->accountRepository->findById($accountId);
         if ($account === null) {
             throw new FinanceException('Compte introuvable.');
         }
 
-        return $this->store($account, $content, $mimeType, $originalFilename, $suggestedAmount, $suggestedDate, $uploadedBy);
+        return $this->store($account, $content, $mimeType, $originalFilename, $suggestedAmount, $suggestedDate, $uploadedBy, $reuseIdentical);
     }
 
     /**
@@ -182,9 +189,10 @@ class ReceiptService
         string $content,
         string $mimeType,
         string $originalFilename,
-        ?int $uploadedBy
+        ?int $uploadedBy,
+        bool $reuseIdentical = false
     ): Attachment {
-        return $this->store(null, $content, $mimeType, $originalFilename, null, null, $uploadedBy);
+        return $this->store(null, $content, $mimeType, $originalFilename, null, null, $uploadedBy, $reuseIdentical);
     }
 
     /**
@@ -199,9 +207,21 @@ class ReceiptService
         string $originalFilename,
         ?float $suggestedAmount,
         ?string $suggestedDate,
-        ?int $uploadedBy
+        ?int $uploadedBy,
+        bool $reuseIdentical
     ): Attachment {
         $this->assertMimeTypeAllowed($mimeType);
+
+        // Hashed before the orientation fix, so the answer does not depend
+        // on the image library that rewrote the file.
+        $contentHash = hash('sha256', $content);
+        if ($reuseIdentical) {
+            $existing = $this->attachmentRepository->findActiveByContentHash($account?->id, $contentHash);
+            if ($existing !== null) {
+                return $existing;
+            }
+        }
+
         $content = $this->correctOrientation($content, $mimeType);
 
         // role_min stays the floor and is still checked first; the owner
@@ -225,7 +245,8 @@ class ReceiptService
 
         $suggestedSource = ($suggestedAmount !== null || $suggestedDate !== null) ? Attachment::SUGGESTED_SOURCE_MANUAL : null;
         $id = $this->attachmentRepository->create(
-            $account?->id, $fileId, $mimeType, $originalFilename, $suggestedAmount, $suggestedDate, null, $uploadedBy, $suggestedSource
+            $account?->id, $fileId, $mimeType, $originalFilename, $suggestedAmount, $suggestedDate, null, $uploadedBy, $suggestedSource,
+            $contentHash
         );
 
         $attachment = $this->attachmentRepository->findById($id);

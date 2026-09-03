@@ -632,6 +632,26 @@ CREATE TABLE IF NOT EXISTS rental_blocks (
 -- booking is, in practice, a comment about the people making it ("le
 -- groupe de Mme Martin a laissé la cuisine sale"), so it carries the same
 -- protection as the renter's own fields rather than a weaker one.
+-- The other addresses a booking's correspondence turned out to come from.
+--
+-- A renter writes from work, their partner answers from home, the group's
+-- secretary takes over: the booking knows one address and the sender rule
+-- (§7.6, level 3) only that one. Each time a manager files such a message
+-- by hand, the sender's address is remembered here, so the next one from
+-- it is recognised without anybody's help. Encrypted like the renter's own
+-- address, matched through the same blind index, and erased with the
+-- booking.
+CREATE TABLE IF NOT EXISTS rental_booking_emails (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    booking_id INT UNSIGNED NOT NULL,
+    email_encrypted BLOB NOT NULL,
+    email_blind_index VARCHAR(64) NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE INDEX idx_rental_booking_emails_unique (booking_id, email_blind_index),
+    INDEX idx_rental_booking_emails_blind (email_blind_index),
+    CONSTRAINT fk_rental_booking_emails_booking FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS rental_booking_comments (
     id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     booking_id INT UNSIGNED NOT NULL,

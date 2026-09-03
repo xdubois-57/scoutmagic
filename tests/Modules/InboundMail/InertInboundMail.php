@@ -57,6 +57,10 @@ trait InertInboundMail
         return false;
     }
 
+    public function recordOutboundMessageId(string $consumerId, string $businessReference, string $messageId): void
+    {
+    }
+
     public function purgeReference(string $consumerId, string $businessReference): int
     {
         return 0;

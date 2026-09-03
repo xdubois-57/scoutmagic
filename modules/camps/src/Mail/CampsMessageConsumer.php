@@ -122,7 +122,13 @@ class CampsMessageConsumer implements MessageConsumerInterface, ReferenceDirecto
          * — the same search the camps mail screen's own picker uses. Null
          * on the scheduled path, where nobody searches.
          */
-        private ?\Modules\Camps\Service\StaySearchService $staySearch = null
+        private ?\Modules\Camps\Service\StaySearchService $staySearch = null,
+        /**
+         * The model as a last resort between several stays
+         * (`Mail\StayChoiceByModel`). Null, or no model on the cheap
+         * tier, leaves the propositions exactly as the rules made them.
+         */
+        private ?StayChoiceByModel $modelChoice = null
     ) {
     }
 
@@ -249,9 +255,9 @@ class CampsMessageConsumer implements MessageConsumerInterface, ReferenceDirecto
             return AnalysisResult::nothing();
         }
 
-        return $this->resultForPeriod(
-            $this->existingStay->matching(trim($message->subject . "\n" . $message->bodyText))
-        );
+        $text = trim($message->subject . "\n" . $message->bodyText);
+
+        return $this->resultForPeriod($this->existingStay->matching($text, $message->sentAt), $text);
     }
 
     /**
@@ -261,7 +267,7 @@ class CampsMessageConsumer implements MessageConsumerInterface, ReferenceDirecto
      *
      * @param Camp[] $camps
      */
-    private function resultForPeriod(array $camps): AnalysisResult
+    private function resultForPeriod(array $camps, string $text = ''): AnalysisResult
     {
         if (count($camps) === 1) {
             return AnalysisResult::linkedTo(
@@ -275,13 +281,17 @@ class CampsMessageConsumer implements MessageConsumerInterface, ReferenceDirecto
             return AnalysisResult::nothing();
         }
 
+        $shortlist = array_slice($camps, 0, self::MAX_PROPOSITIONS);
+        $picked = $this->modelPick($text, $shortlist);
         $candidates = [];
-        foreach (array_slice($camps, 0, self::MAX_PROPOSITIONS) as $camp) {
+        foreach (self::pickFirst($shortlist, $picked) as $camp) {
+            $isPick = $camp->id === $picked;
             $candidates[] = new MessageCandidate(
                 businessReference: self::referenceFor($camp->id),
                 label: $this->labelFor($camp),
-                evidenceType: 'period',
-                explanation: 'Le message annonce exactement les dates de ce séjour. '
+                evidenceType: $isPick ? 'ai' : 'period',
+                explanation: ($isPick ? 'Le modèle suggère ce séjour d\'après le contenu du message. ' : '')
+                    . 'Le message annonce exactement les dates de ce séjour. '
                     . count($camps) . ' séjours couvrent cette période : '
                     . 'ScoutMagic n\'en choisit aucun.'
             );
@@ -289,6 +299,47 @@ class CampsMessageConsumer implements MessageConsumerInterface, ReferenceDirecto
 
         return new AnalysisResult([], $candidates);
     }
+
+    /**
+     * What a chief's decision teaches the module, and what it does with it
+     * at once.
+     *
+     * The sender becomes a contact of the stay — the farmer's spouse, the
+     * commune's clerk — so the next message from that address is
+     * recognised on its own. And the unattributed mail is offered to this
+     * module again straight away: the rest of the thread, and every
+     * earlier message from that address, just became attributable.
+     * Bounded, and only ever inside a request — a manual association
+     * never happens during a synchronisation.
+     */
+    private function learnFrom(InboundMessage $message, MessageLink $link): void
+    {
+        $campId = self::campIdFromReference($link->businessReference);
+        $email = trim(mb_strtolower($message->fromEmail));
+        if ($campId !== null && $email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL) !== false) {
+            $contacts = new \Modules\Camps\Repository\ContactRepository($this->pdo, $this->encryption);
+            $known = false;
+            foreach ($contacts->findByCamp($campId) as $contact) {
+                if (mb_strtolower(trim((string) $contact->email)) === $email) {
+                    $known = true;
+                    break;
+                }
+            }
+            if (!$known) {
+                $contacts->create($campId, $message->fromName, 'Correspondant', $email, null, null);
+            }
+        }
+
+        try {
+            $this->inboundMail?->reanalyzeUnlinked(self::CONSUMER_ID, self::REANALYSIS_AFTER_DECISION);
+        } catch (\Throwable) {
+            // The association a person just made is already written; a
+            // re-run that fails must not undo their click.
+        }
+    }
+
+    /** How many unattributed messages one manual decision re-examines. */
+    public const REANALYSIS_AFTER_DECISION = 50;
 
     /**
      * @return int[] the stays this sender could plausibly be writing about
@@ -329,6 +380,22 @@ class CampsMessageConsumer implements MessageConsumerInterface, ReferenceDirecto
     {
         $inWindow = $this->campIdsForSender($message);
 
+        // Two signals crossed before anybody is asked: a farmer who hosts
+        // the unit every year always has two stays in the window, and
+        // the period the message states is what tells them apart. One
+        // stay in both lists is an association, on the sender — the
+        // period only narrowed a list the sender had already drawn.
+        if (count($inWindow) > 1 && $this->existingStay !== null) {
+            $byPeriod = array_map(
+                static fn(Camp $camp): int => $camp->id,
+                $this->existingStay->matching($message->subject . "\n" . $message->bodyText, $message->sentAt)
+            );
+            $both = array_values(array_intersect($inWindow, $byPeriod));
+            if (count($both) === 1) {
+                $inWindow = $both;
+            }
+        }
+
         if (count($inWindow) === 1) {
             return AnalysisResult::linkedTo(
                 self::CONSUMER_ID,
@@ -346,24 +413,67 @@ class CampsMessageConsumer implements MessageConsumerInterface, ReferenceDirecto
             return AnalysisResult::nothing();
         }
 
-        $candidates = [];
+        $camps = [];
         foreach (array_slice($inWindow, 0, self::MAX_PROPOSITIONS) as $campId) {
             $camp = $this->camps->findById($campId);
-            if ($camp === null) {
-                continue;
+            if ($camp !== null) {
+                $camps[] = $camp;
             }
+        }
 
+        $picked = $this->modelPick($message->subject . "\n" . $message->bodyText, $camps);
+        $candidates = [];
+        foreach (self::pickFirst($camps, $picked) as $camp) {
+            $isPick = $camp->id === $picked;
             $candidates[] = new MessageCandidate(
-                businessReference: self::referenceFor($campId),
+                businessReference: self::referenceFor($camp->id),
                 label: $this->labelFor($camp),
-                evidenceType: 'sender_window',
-                explanation: 'L\'expéditeur est un contact de ce séjour, et le message est arrivé '
+                evidenceType: $isPick ? 'ai' : 'sender_window',
+                explanation: ($isPick ? 'Le modèle suggère ce séjour d\'après le contenu du message. ' : '')
+                    . 'L\'expéditeur est un contact de ce séjour, et le message est arrivé '
                     . 'dans sa période. ' . count($inWindow) . ' séjours de ce contact correspondent : '
                     . 'ScoutMagic n\'en choisit aucun.'
             );
         }
 
         return new AnalysisResult([], $candidates);
+    }
+
+    /**
+     * The model's pick among several stays, or null — it orders a list of
+     * propositions and never associates (§8.67).
+     *
+     * @param Camp[] $camps
+     */
+    private function modelPick(string $text, array $camps): ?int
+    {
+        if ($this->modelChoice === null || count($camps) < 2) {
+            return null;
+        }
+
+        $options = [];
+        foreach ($camps as $camp) {
+            $options[self::referenceFor($camp->id)] = $this->labelFor($camp);
+        }
+
+        $choice = $this->modelChoice->choose($text, $options);
+
+        return $choice === null ? null : self::campIdFromReference($choice);
+    }
+
+    /**
+     * @param Camp[] $camps
+     * @return Camp[]
+     */
+    private static function pickFirst(array $camps, ?int $picked): array
+    {
+        if ($picked === null) {
+            return $camps;
+        }
+
+        usort($camps, static fn(Camp $a, Camp $b): int => ($a->id === $picked ? 0 : 1) <=> ($b->id === $picked ? 0 : 1));
+
+        return $camps;
     }
 
     /**
@@ -485,7 +595,7 @@ class CampsMessageConsumer implements MessageConsumerInterface, ReferenceDirecto
         // leaving the installation.
         $service = $this->stayFromMail;
         $text = trim($message->subject . "\n" . $message->bodyText);
-        $camps = $this->existingStay->matching($text);
+        $camps = $this->existingStay->matching($text, $message->sentAt);
 
         // Only when they said nothing is the contract worth opening: a
         // booking often arrives as a PDF under a covering note that states
@@ -493,7 +603,7 @@ class CampsMessageConsumer implements MessageConsumerInterface, ReferenceDirecto
         // written down.
         if ($camps === [] && $service !== null) {
             $text = $service->fullTextOf($message);
-            $camps = $this->existingStay->matching($text);
+            $camps = $this->existingStay->matching($text, $message->sentAt);
         }
 
         if (count($camps) > 1 && $service !== null) {
@@ -503,7 +613,7 @@ class CampsMessageConsumer implements MessageConsumerInterface, ReferenceDirecto
             );
         }
 
-        $result = $this->resultForPeriod($camps);
+        $result = $this->resultForPeriod($camps, $text);
         if ($result->links !== []) {
             $this->existingStay->journalMatch(
                 $message->id,
@@ -600,6 +710,10 @@ class CampsMessageConsumer implements MessageConsumerInterface, ReferenceDirecto
      */
     public function onLinked(InboundMessage $message, MessageLink $link): void
     {
+        if ($link->origin === LinkOrigin::MANUAL) {
+            $this->learnFrom($message, $link);
+        }
+
         $campId = self::campIdFromReference($link->businessReference);
         if ($campId === null) {
             // Not one of this module's references. Automatic stay creation

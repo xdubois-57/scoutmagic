@@ -287,6 +287,18 @@ interface InboundMailInterface
     public function findReferenceByThread(string $consumerId, int $mailboxId, array $messageIds): ?string;
 
     /**
+     * Remember a Message-ID this consumer just SENT about one of its
+     * objects, so the reply to it lands on that object (§7.6, level 2).
+     *
+     * The ordinary first reply — « Re: votre réservation », the reference
+     * gone from the subject — answers a message the site wrote, and until
+     * this existed the thread rule could only recognise a reply to a
+     * reply. Only the id's blind index is kept: never the recipient, never
+     * the subject.
+     */
+    public function recordOutboundMessageId(string $consumerId, string $businessReference, string $messageId): void;
+
+    /**
      * What a non-superadmin may know about the configured mailboxes: a name
      * and whether it is working (§7.4). Never the host, the port or the
      * account — a manager choosing which box their module listens to needs

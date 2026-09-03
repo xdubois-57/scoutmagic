@@ -268,6 +268,11 @@ CREATE TABLE IF NOT EXISTS finance_attachments (
     parent_attachment_id INT UNSIGNED NULL,
     uploaded_by INT UNSIGNED NULL,
     uploaded_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- SHA-256 of the bytes as received, so the same invoice forwarded a
+    -- second time — a new Message-ID, a second watched box — is one
+    -- receipt and not two. NULL on receipts stored before this existed.
+    content_hash CHAR(64) NULL,
+    INDEX idx_fatt_content_hash (content_hash),
     -- (account_id, status, uploaded_at): the receipts list and the
     -- dashboard's pending counts filter on account + status and order by
     -- uploaded_at on every load — none of the three was indexed.
