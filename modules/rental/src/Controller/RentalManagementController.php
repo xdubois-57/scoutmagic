@@ -760,11 +760,11 @@ class RentalManagementController extends AbstractController
      * POST /mes-locations/message/detacher — take a message off this
      * booking (§7.7).
      *
-     * There is no queue for it to fall into, so it is deleted, along with
-     * the attachments nobody re-classified. Said on the button rather than
-     * hidden: a manager who detaches by mistake gets the message back only
-     * if the next synchronisation still finds it on the server and still
-     * matches it.
+     * The message is not destroyed: it falls back into the unit's general
+     * mail, where the Chef d'Unité can re-orient it and where the module's
+     * retention removes it if nobody ever does (§8.58). What leaves the
+     * booking with it is the attachments nobody re-classified; a document
+     * a manager already filed as something stays theirs.
      *
      * @param array<string, string> $params
      */
@@ -842,7 +842,8 @@ class RentalManagementController extends AbstractController
                 (int) $request->getBody('target_booking_id', 0),
                 AuthSession::getEmail(),
                 $this->scoutYearId(),
-                $this->actorMemberId()
+                $this->actorMemberId(),
+                AuthSession::getUserAccountId()
             );
 
             if (!$moved) {

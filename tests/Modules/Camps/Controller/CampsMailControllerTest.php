@@ -112,7 +112,6 @@ class CampsMailControllerTest extends TestCase
         $this->controller = new CampsMailController(
             TwigFactory::create($root . '/core/View/templates', false, ['camps' => $root . '/modules/camps/views']),
             $camps,
-            $places,
             $this->inbound,
             $this->proposals,
             $this->fieldCompletion,
@@ -640,7 +639,6 @@ class CampsMailControllerTest extends TestCase
         $bare = new CampsMailController(
             TwigFactory::create($root . '/core/View/templates', false, ['camps' => $root . '/modules/camps/views']),
             $this->camps,
-            new PlaceRepository($this->pdo),
             $this->inbound
         );
 
@@ -790,7 +788,13 @@ class RecordingInboundMail implements InboundMailInterface
         return true;
     }
 
-    public function move(string $consumerId, string $fromReference, string $toReference, int $messageId): bool
+    public function move(
+        string $consumerId,
+        string $fromReference,
+        string $toReference,
+        int $messageId,
+        ?int $userAccountId = null
+    ): bool
     {
         $this->moves[] = [$consumerId, $fromReference, $toReference, $messageId];
 

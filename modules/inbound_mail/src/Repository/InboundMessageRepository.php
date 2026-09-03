@@ -196,7 +196,48 @@ class InboundMessageRepository
             return false;
         }
 
+        // An association settles this consumer's question about the
+        // message, so its own propositions on it are set aside in the same
+        // movement. Without this a proposition survived the very decision
+        // it was asking for: the screen kept asking « est-ce LOC-42 ? »
+        // about a message somebody had just filed under LOC-42 by hand,
+        // and the standing proposition kept the message out of the
+        // retention purge for ever.
+        $this->dismissCandidatesSettledBy($messageId, $consumerId, $attachmentId, new \DateTimeImmutable());
+
         return true;
+    }
+
+    /**
+     * Set aside every proposition of one consumer that a new association
+     * has just answered.
+     *
+     * A whole-message association (attachment 0) answers all of that
+     * consumer's propositions on the message — they were alternatives to
+     * one question. An attachment-level one answers only the propositions
+     * about that attachment.
+     *
+     * @return int how many propositions were set aside
+     */
+    public function dismissCandidatesSettledBy(
+        int $messageId,
+        string $consumerId,
+        int $attachmentId,
+        \DateTimeImmutable $now
+    ): int {
+        $sql = 'UPDATE inbound_message_candidates SET dismissed_at = ?
+                 WHERE message_id = ? AND consumer_id = ? AND dismissed_at IS NULL';
+        $params = [$now->format('Y-m-d H:i:s'), $messageId, $consumerId];
+
+        if ($attachmentId !== 0) {
+            $sql .= ' AND attachment_id = ?';
+            $params[] = $attachmentId;
+        }
+
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+
+        return $stmt->rowCount();
     }
 
     public function hasLink(
@@ -296,7 +337,8 @@ class InboundMessageRepository
         int $messageId,
         string $consumerId,
         string $fromReference,
-        string $toReference
+        string $toReference,
+        ?int $userAccountId = null
     ): bool {
         if (!$this->hasLink($messageId, $consumerId, $fromReference)) {
             return false;
@@ -308,11 +350,24 @@ class InboundMessageRepository
             return true;
         }
 
+        // The origin becomes `manual` with the reference: a move is a
+        // person deciding where the message belongs, and a booking page
+        // that kept reading « adresse de l'expéditeur — rattachement
+        // incertain » after a manager moved it there presented their
+        // decision as the machine's guess (D20).
         $stmt = $this->pdo->prepare(
-            'UPDATE inbound_message_links SET business_reference = ?
+            'UPDATE inbound_message_links
+                SET business_reference = ?, link_origin = ?, created_by_user_account_id = ?
               WHERE message_id = ? AND consumer_id = ? AND business_reference = ?'
         );
-        $stmt->execute([$toReference, $messageId, $consumerId, $fromReference]);
+        $stmt->execute([
+            $toReference,
+            LinkOrigin::MANUAL->value,
+            $userAccountId,
+            $messageId,
+            $consumerId,
+            $fromReference,
+        ]);
 
         return $stmt->rowCount() > 0;
     }

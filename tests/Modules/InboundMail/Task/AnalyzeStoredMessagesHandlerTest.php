@@ -15,7 +15,9 @@ use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
 use Modules\InboundMail\Api\AnalysisResult;
 use Modules\InboundMail\Api\LinkOrigin;
+use Modules\InboundMail\Api\MailboxScope;
 use Modules\InboundMail\Api\MessageLink;
+use Modules\InboundMail\Api\ReadMode;
 use Modules\InboundMail\Mailbox\ProviderType;
 use Modules\InboundMail\Repository\InboundMailboxRepository;
 use Modules\InboundMail\Repository\InboundMessageRepository;
@@ -60,6 +62,40 @@ class AnalyzeStoredMessagesHandlerTest extends TestCase
             'secret',
             ['INBOX'],
             true
+        );
+
+        // The box is open to the two consumers these tests register — the
+        // deferred pass narrows the question to what the box allows, as
+        // the arrival pass does, and a consumer with no row is never asked.
+        $mailboxes->saveScope($this->mailboxId, new MailboxScope('rental', true, ReadMode::NONE));
+        $mailboxes->saveScope($this->mailboxId, new MailboxScope('camps', true, ReadMode::NONE));
+    }
+
+    public function testAConsumerTheBoxIsNotOpenToIsNeverHandedTheStoredMessage(): void
+    {
+        // IT-05 held on arrival and not here: every registered consumer
+        // got the stored content of every message, on a box whose
+        // operator had answered « n'analyse pas » for it.
+        $messageId = $this->storeMessage('scoped@mail');
+        $asked = false;
+        $consumer = new FakeMessageConsumer(
+            'finance',
+            null,
+            function () use (&$asked): AnalysisResult {
+                $asked = true;
+
+                return new AnalysisResult([new MessageLink('finance', 'account-1', LinkOrigin::AI)]);
+            }
+        );
+
+        $this->runPass($consumer);
+
+        $this->assertFalse($asked, 'a consumer the box was never opened to must not see its mail');
+        $this->assertSame([], $this->messages->findLinksForMessage($messageId));
+        $this->assertSame(
+            [],
+            $this->messages->findMessagesAwaitingStoredAnalysis(10),
+            'the message is still marked as having been through the pass'
         );
     }
 

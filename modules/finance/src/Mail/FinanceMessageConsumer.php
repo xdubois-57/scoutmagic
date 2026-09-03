@@ -206,7 +206,7 @@ class FinanceMessageConsumer implements MessageConsumerInterface
         // MONEY, made inside the document's own covering text; the sender
         // is a statement about a person, and a person can be wrong about
         // which account an expense belongs to in a way an IBAN cannot.
-        $account = $this->theOneAccountNamed($message->subject . "\n" . $message->bodyText);
+        $account = $this->theOneAccountNamed(self::readableText($message));
         if ($account !== null) {
             return AnalysisResult::proposing(new MessageCandidate(
                 businessReference: self::referenceFor($account->id),
@@ -495,6 +495,28 @@ class FinanceMessageConsumer implements MessageConsumerInterface
     }
 
     /**
+     * The subject, the text body and the text of the HTML body.
+     *
+     * The HTML part too, because a message written on a phone or in
+     * Outlook often has no text part worth the name — and the IBAN a
+     * supplier pastes into it was invisible to a search of `bodyText`
+     * alone, while the very same class already fell back to the HTML to
+     * find a forwarded sender.
+     */
+    private static function readableText(CandidateMessage $message): string
+    {
+        $html = $message->bodyHtml === ''
+            ? ''
+            : html_entity_decode(
+                strip_tags(preg_replace('/<[^>]+>/', ' ', $message->bodyHtml) ?? ''),
+                ENT_QUOTES | ENT_HTML5,
+                'UTF-8'
+            );
+
+        return $message->subject . "\n" . $message->bodyText . "\n" . $html;
+    }
+
+    /**
      * Every IBAN-shaped run in the text, normalised.
      *
      * A pattern rather than a parser: what comes back is checked against
@@ -505,20 +527,46 @@ class FinanceMessageConsumer implements MessageConsumerInterface
      */
     private function ibansIn(string $text): array
     {
+        // What a bank site or a `&nbsp;` in HTML puts between the groups
+        // — a no-break space, a narrow one, a figure space — and the
+        // hyphen some people type instead: all read as the plain space
+        // the pattern below expects. Before this, `BE68 5390 0754 7034`
+        // copied from a banking site gave zero matches.
+        $text = preg_replace('/[\x{00A0}\x{202F}\x{2007}]/u', ' ', $text) ?? $text;
+        $text = preg_replace('/(?<=[A-Za-z0-9])-(?=[A-Za-z0-9]{2,4}\b)/', ' ', $text) ?? $text;
+
         // Single spaces only, and never a newline: a character class that
         // included `\s` would run past the end of the IBAN and swallow the
         // start of the next line, turning a perfectly good match into an
         // invalid one. Groups of two to four are how an IBAN is written
         // when it is written for a human to read.
-        if (preg_match_all('/\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]{2,4}){2,8}\b/i', $text, $matches) === false) {
-            return [];
-        }
-
+        $pattern = '/\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]{2,4}){2,8}\b/i';
         $ibans = [];
-        foreach ($matches[0] as $raw) {
-            $normalized = IbanNormalizer::normalize($raw);
-            if (IbanNormalizer::isValidFullIban($normalized)) {
-                $ibans[$normalized] = $normalized;
+        $offset = 0;
+
+        while (preg_match($pattern, $text, $match, PREG_OFFSET_CAPTURE, $offset) === 1) {
+            [$raw, $at] = $match[0];
+            $offset = $at + strlen($raw);
+
+            // The greedy run swallows whatever short token follows on the
+            // same line — « … 7034 BIC », or the « vers » between two
+            // accounts in « de BE92 … vers BE71 … » — so the trailing
+            // groups are dropped one at a time until what is left is a
+            // valid IBAN, and the scan resumes right after it rather than
+            // after everything the run swallowed.
+            $groups = preg_split('/ /', trim($raw)) ?: [];
+            while ($groups !== []) {
+                $candidate = implode(' ', $groups);
+                $normalized = IbanNormalizer::normalize($candidate);
+                if (IbanNormalizer::isValidFullIban($normalized)) {
+                    $ibans[$normalized] = $normalized;
+                    $offset = $at + strlen($candidate);
+                    break;
+                }
+                if (!IbanNormalizer::looksLikeFullIban($normalized)) {
+                    break;
+                }
+                array_pop($groups);
             }
         }
 

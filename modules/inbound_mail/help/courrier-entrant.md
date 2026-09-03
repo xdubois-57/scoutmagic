@@ -63,8 +63,8 @@ l'unité perd alors toutes ses relèves le temps du blocage. Chaque
 message relevé est proposé aux
 fonctions du site qui savent le reconnaître — une réponse de locataire
 rejoint sa réservation d'après la référence du sujet, la conversation
-ou l'expéditeur ; dans le doute, rien n'est rattaché plutôt que mal
-rattaché.
+ou l'expéditeur. Dans le doute, rien n'est rattaché d'office : le site
+fait une proposition, qu'une personne confirme ou écarte.
 
 La colonne « État » de la liste dit si chaque boîte fonctionne ;
 « Désactiver » suspend une boîte sans la supprimer, et supprimer une

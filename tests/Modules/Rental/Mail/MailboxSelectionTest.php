@@ -89,7 +89,13 @@ class MailboxSelectionTest extends TestCase
                 return false;
             }
 
-            public function move(string $consumerId, string $fromReference, string $toReference, int $messageId): bool
+            public function move(
+        string $consumerId,
+        string $fromReference,
+        string $toReference,
+        int $messageId,
+        ?int $userAccountId = null
+    ): bool
             {
                 return false;
             }

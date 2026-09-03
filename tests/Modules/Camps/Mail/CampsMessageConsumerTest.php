@@ -110,6 +110,35 @@ class CampsMessageConsumerTest extends TestCase
         $this->assertNull($this->consumer()->claim($this->message('lambert@example.org')));
     }
 
+    public function testACancelledStayDoesNotCompeteForItsContactsMessage(): void
+    {
+        // A stay cancelled and re-booked with the same farmer used to turn
+        // every one of their messages into two propositions for sixteen
+        // months. The cancelled one is out of the rule.
+        $cancelled = $this->camps->create(
+            1, Camp::STAY_GRAND_CAMP, '2026-08-01', '2026-08-08', null,
+            Camp::STATUS_CANCELLED, null, null, null, null, []
+        );
+        $this->contacts->create($this->campId, null, null, 'lambert@example.org', null, null);
+        $this->contacts->create($cancelled, null, null, 'lambert@example.org', null, null);
+
+        $result = $this->consumer()->analyze($this->message('lambert@example.org'));
+
+        $this->assertSame([], $result->candidates);
+        $this->assertSame('camp-' . $this->campId, $result->links[0]->businessReference);
+    }
+
+    public function testACancelledStayIsNeverMatchedByItsPeriod(): void
+    {
+        $this->pdo->exec("UPDATE camp_camps SET status = 'cancelled' WHERE id = " . $this->campId);
+
+        $this->assertTrue(
+            $this->consumerWithMatcher()
+                ->analyze($this->periodMessage('Du 12 au 19 juillet 2026', self::DEDICATED_MAILBOX))
+                ->isEmpty()
+        );
+    }
+
     public function testAReplyInAKnownThreadIsClaimed(): void
     {
         $inbound = $this->createStub(InboundMailInterface::class);
@@ -569,6 +598,10 @@ class CampsMessageConsumerTest extends TestCase
         $result = $consumer->analyzeStored($this->unattachedMessage(self::DEDICATED_MAILBOX));
 
         $this->assertSame('camp-' . $this->campId, $result->links[0]->businessReference);
+        // The stay exists because of the dates read in the content, and
+        // that is what the chief reads next to the association — not
+        // « adresse de l'expéditeur », which played no part.
+        $this->assertSame(LinkOrigin::PERIOD, $result->links[0]->origin);
     }
 
     public function testAMessageOnASharedBoxIsNeverTurnedIntoAStay(): void

@@ -280,7 +280,19 @@ class RentalMessageConsumer implements MessageConsumerInterface
             return;
         }
 
+        // Idempotent per file: a message moved onto a booking whose
+        // documents were moved there first, or confirmed twice, must not
+        // file the same attachment twice.
+        $alreadyFiled = [];
+        foreach ($this->documentService->forBooking($booking->id) as $document) {
+            $alreadyFiled[$document->fileId] = true;
+        }
+
         foreach ($message->attachments as $attachment) {
+            if (isset($alreadyFiled[$attachment->fileId])) {
+                continue;
+            }
+
             // Registered as email-sourced: the row points at the message's
             // OWN file id, not at a copy, so deleting the document later
             // must leave the bytes — and the message's attachment — alone
@@ -306,6 +318,16 @@ class RentalMessageConsumer implements MessageConsumerInterface
      * bytes are never touched — a document sourced from an email points at
      * the message's own file (§8.59), and `delete()` already knows it does
      * not own them.
+     *
+     * **Only what is still `Non classé`.** A document a manager has since
+     * re-classified — the signed contract, the invoice — is theirs, not the
+     * message's: they read the file and said what it is, and the message
+     * leaving the booking must not take that decision with it. Deleting
+     * every email-sourced row regardless of type was a real data loss: the
+     * communication service kept the re-classified file and handed it to
+     * the booking, and this callback then removed the document row it
+     * had just been asked to keep, leaving an orphaned file nothing
+     * listed.
      */
     public function onUnlinked(InboundMessage $message, MessageLink $link): void
     {
@@ -325,6 +347,7 @@ class RentalMessageConsumer implements MessageConsumerInterface
 
         foreach ($this->documentService->forBooking($booking->id) as $document) {
             if ($document->source === RentalDocument::SOURCE_EMAIL
+                && $document->type === DocumentType::UNSORTED
                 && in_array($document->fileId, $fileIds, true)
             ) {
                 $this->documentService->delete($document);

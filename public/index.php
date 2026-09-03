@@ -4867,13 +4867,13 @@ if ($isEnabled('camps')) {
     $frontController->registerController(
         \Modules\Camps\Controller\CampsMailController::class,
         new \Modules\Camps\Controller\CampsMailController(
-            $twig, $campsCampRepo, $campsPlaceRepo, $inboundMailForOthers ?? null,
+            $twig, $campsCampRepo, $inboundMailForOthers ?? null,
             $campsProposalRepo, $campsFieldCompletion,
-            // « Rattacher à » : une recherche plutôt qu'une liste de tout
-            // l'historique de l'unité.
+            // « Rattacher à »: a search rather than a list of the unit's
+            // whole history.
             new \Modules\Camps\Service\StaySearchService($campsCampRepo),
-            // Et la première suggestion, avant la moindre frappe : le
-            // séjour dont ce message annonce lui-même les dates.
+            // And the first suggestion, before anything is typed: the stay
+            // whose dates the message itself announces.
             new \Modules\Camps\Mail\ExistingStayMatcher($campsCampRepo, $campsMessageReader)
         )
     );

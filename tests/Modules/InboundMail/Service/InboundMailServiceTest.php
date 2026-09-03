@@ -245,6 +245,22 @@ class InboundMailServiceTest extends TestCase
         $this->assertCount(1, $this->service->findForReference('rental', 'LOC-2027-0043'));
     }
 
+    public function testAMovedMessageIsAHumanDecisionAndSaysByWhom(): void
+    {
+        // D20: the booking a manager moved a message onto must not go on
+        // reading « adresse de l'expéditeur — rattachement incertain »
+        // about a decision that manager just made.
+        $id = $this->storeMessage(reference: 'LOC-2027-0042');
+        $this->pdo->exec("UPDATE inbound_message_links SET link_origin = 'sender'");
+
+        $this->assertTrue($this->service->move('rental', 'LOC-2027-0042', 'LOC-2027-0043', $id, 7));
+
+        $links = $this->messageRepository->findLinksForMessage($id);
+        $this->assertCount(1, $links);
+        $this->assertSame(LinkOrigin::MANUAL, $links[0]->origin);
+        $this->assertSame(7, $links[0]->createdByUserAccountId);
+    }
+
     public function testMovingRequiresTheMessageToBeWhereTheCallerSaysItIs(): void
     {
         $id = $this->storeMessage(reference: 'LOC-2027-0042');

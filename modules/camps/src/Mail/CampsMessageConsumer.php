@@ -262,7 +262,12 @@ class CampsMessageConsumer implements MessageConsumerInterface
         $inWindow = [];
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
             $camp = $this->camps->findById((int) $row['camp_id']);
-            if ($camp !== null && $this->isInWindow($camp, $message->sentAt)) {
+            // A cancelled stay is out of every rule. Left in, a stay
+            // cancelled and re-booked with the same farmer turned every
+            // one of their messages into two propositions for sixteen
+            // months, and a cancelled stay could even win a message
+            // outright.
+            if ($camp !== null && !$camp->isCancelled() && $this->isInWindow($camp, $message->sentAt)) {
                 $inWindow[] = (int) $row['camp_id'];
             }
         }
@@ -395,9 +400,12 @@ class CampsMessageConsumer implements MessageConsumerInterface
 
         $campId = $this->stayFromMail->createFrom($message);
 
+        // PERIOD, not SENDER: the stay exists because of the dates read in
+        // the message's content, and the origin a chief reads next to it
+        // has to be the reason it is actually there.
         return $campId === null
             ? AnalysisResult::nothing()
-            : AnalysisResult::linkedTo(self::CONSUMER_ID, self::referenceFor($campId), LinkOrigin::SENDER);
+            : AnalysisResult::linkedTo(self::CONSUMER_ID, self::referenceFor($campId), LinkOrigin::PERIOD);
     }
 
     /**

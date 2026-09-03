@@ -306,12 +306,10 @@ function scoutmagic_bootstrap_scheduler(
                 $auditService = new \Core\Audit\AuditService(new \Core\Audit\AuditRepository($pdo, $encryptionService));
                 $fileRepository = new \Core\File\FileRepository($pdo);
 
-                // Registered FIRST, and deliberately: it claims only a
-                // message whose subject carries a key this receiver
-                // itself issued, which is the narrowest claim of the
-                // lot, and a probe landing in a shared box must not be
-                // swallowed by a consumer with a wider appetite
-                // (roadmap IT-27).
+                // Claims only a message whose subject carries a key this
+                // receiver itself issued — the narrowest claim of the lot
+                // (roadmap IT-27). Order is immaterial: every consumer
+                // the box is open to is asked, and every answer applied.
                 if (in_array('support_dashboard', $enabledModuleIds, true)) {
                     $registry->register(new \Modules\SupportDashboard\Mail\SupportMessageConsumer(
                         new \Modules\SupportDashboard\Service\MailProbeService(
@@ -461,12 +459,9 @@ function scoutmagic_bootstrap_scheduler(
                     ));
                 }
 
-                // The camps consumer is registered LAST, and that ordering
-                // is load-bearing: MessageConsumerRegistry is
-                // first-claim-wins in registration order, and a dedicated
-                // camps mailbox claims EVERYTHING it is offered.
-                // Registered earlier, it would swallow the mail another
-                // module was waiting for.
+                // Order is immaterial here too (§8.58): a dedicated camps
+                // box is open to camps alone by configuration, and on a
+                // shared box every consumer the operator allowed is asked.
                 if ($inboundMail !== null && in_array('camps', $enabledModuleIds, true)) {
                     $llm = $context->getOptional(\Modules\LlmConnector\Api\LlmConnectorInterface::class);
                     $campsPlaceRepo = new \Modules\Camps\Repository\PlaceRepository($pdo);

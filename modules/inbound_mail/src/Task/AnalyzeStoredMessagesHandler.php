@@ -12,11 +12,12 @@ use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
-use Core\Security\EncryptionService;
+use Modules\InboundMail\Repository\InboundMailboxRepository;
 use Modules\InboundMail\Repository\InboundMessageRepository;
 use Modules\InboundMail\Service\AnalysisJournal;
 use Modules\InboundMail\Service\AnalysisResultApplier;
 use Modules\InboundMail\Service\LinkedMessageNotifier;
+use Modules\InboundMail\Service\MailboxScopeService;
 use Modules\InboundMail\Service\MessageConsumerRegistry;
 
 /**
@@ -77,7 +78,10 @@ class AnalyzeStoredMessagesHandler implements TaskHandlerInterface
         $pdo = $context->connection->getPdo();
 
         if ($this->consumerRegistry !== null && $this->consumerRegistry->hasConsumers()) {
-            $this->analyzeBatch(new InboundMessageRepository($pdo, $context->encryption), $context->encryption);
+            $this->analyzeBatch(
+                new InboundMessageRepository($pdo, $context->encryption),
+                new InboundMailboxRepository($pdo, $context->encryption)
+            );
         }
 
         // Unconditionally, and NOT through bootstrap(): SchedulerRunner
@@ -88,9 +92,16 @@ class AnalyzeStoredMessagesHandler implements TaskHandlerInterface
             ->rearmAfter('inbound_mail', self::TASK_KEY, self::REFERENCE, self::INTERVAL_SECONDS);
     }
 
-    private function analyzeBatch(InboundMessageRepository $messages, EncryptionService $encryption): void
+    private function analyzeBatch(InboundMessageRepository $messages, InboundMailboxRepository $mailboxes): void
     {
         $applier = new AnalysisResultApplier($messages);
+        // The same narrowing the arrival pass applies (IT-05), and it was
+        // missing here: every registered consumer was handed the stored
+        // content of every message, including on a box whose operator had
+        // said « n'analyse pas » for that module. Resolved once per box,
+        // not once per message.
+        $scopes = new MailboxScopeService($mailboxes, $this->consumerRegistry ?? new MessageConsumerRegistry());
+        $allowedByMailbox = [];
         // The half this pass was missing. `apply()` writes the rows and
         // reports which associations are new; somebody then has to tell
         // the consumer, and only the arrival pass did. So a stay created
@@ -121,7 +132,13 @@ class AnalyzeStoredMessagesHandler implements TaskHandlerInterface
             }
 
             $examined++;
-            $results = $this->consumerRegistry?->analyzeAllStored($stored) ?? [];
+            if (!array_key_exists($stored->mailboxId, $allowedByMailbox)) {
+                $mailbox = $mailboxes->findById($stored->mailboxId);
+                // A box deleted since the message arrived is open to nobody.
+                $allowedByMailbox[$stored->mailboxId] = $mailbox === null ? [] : $scopes->analyzingConsumers($mailbox);
+            }
+
+            $results = $this->consumerRegistry?->analyzeAllStored($stored, $allowedByMailbox[$stored->mailboxId]) ?? [];
             $notifier->notify($messageId, $applier->apply($messageId, $results));
 
             foreach ($results as $result) {

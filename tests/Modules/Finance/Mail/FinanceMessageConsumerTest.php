@@ -115,6 +115,61 @@ class FinanceMessageConsumerTest extends TestCase
         $this->assertTrue($result->isEmpty());
     }
 
+    public function testTheIbanIsFoundThroughTheNoBreakSpacesABankSitePastes(): void
+    {
+        $result = $this->consumer()->analyze($this->message(
+            'Facture',
+            "Virement sur BE92\u{00A0}0015\u{00A0}1175\u{00A0}7023 merci.",
+            [$this->pdfAttachment()]
+        ));
+
+        $this->assertCount(1, $result->candidates);
+    }
+
+    public function testTheIbanIsFoundWhenTypedWithHyphens(): void
+    {
+        $result = $this->consumer()->analyze($this->message(
+            'Facture',
+            'Virement sur BE92-0015-1175-7023 merci.',
+            [$this->pdfAttachment()]
+        ));
+
+        $this->assertCount(1, $result->candidates);
+    }
+
+    public function testTheIbanIsFoundWhenTheBicFollowsOnTheSameLine(): void
+    {
+        $result = $this->consumer()->analyze($this->message(
+            'Facture',
+            'IBAN BE92 0015 1175 7023 BIC GEBABEBB',
+            [$this->pdfAttachment()]
+        ));
+
+        $this->assertCount(1, $result->candidates);
+    }
+
+    public function testTheIbanIsFoundInAnHtmlOnlyMessage(): void
+    {
+        // A phone or Outlook message often has no text part worth the
+        // name; the IBAN a supplier pasted into the HTML was invisible.
+        $result = $this->consumer()->analyze(new CandidateMessage(
+            mailboxId: 1,
+            subject: 'Facture',
+            fromEmail: 'fournisseur@example.be',
+            fromName: null,
+            messageId: 'a@b',
+            inReplyTo: null,
+            references: [],
+            toEmails: [],
+            sentAt: new \DateTimeImmutable('2027-07-12 09:30:00'),
+            bodyText: '',
+            bodyHtml: '<p>Virement sur <b>BE92&nbsp;0015&nbsp;1175&nbsp;7023</b></p>',
+            attachments: [$this->pdfAttachment()]
+        ));
+
+        $this->assertCount(1, $result->candidates);
+    }
+
     public function testTheIbanIsFoundInTheSubjectToo(): void
     {
         $result = $this->consumer()->analyze($this->message(

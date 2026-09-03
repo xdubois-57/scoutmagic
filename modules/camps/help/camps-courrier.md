@@ -27,7 +27,9 @@ deux choses :
 Rien d'autre. **Jamais** sur un mot dans l'objet, jamais sur un nom de
 lieu. Et si deux séjours correspondent au même expéditeur, le message
 n'est rattaché à aucun : le mettre sur le mauvais serait pire, car
-personne ne pourrait s'en apercevoir.
+personne ne pourrait s'en apercevoir. Chacun des deux devient une
+proposition, que vous confirmez ou écartez sur l'écran du courrier.
+Un séjour annulé ne compte jamais.
 
 ## Une boîte dédiée
 
@@ -36,6 +38,13 @@ camps@votre-unite.be. Un superadministrateur la déclare dédiée aux camps
 dans la configuration du courrier entrant ; à partir de là, aucun autre
 module ne la lit, et **tout** son contenu apparaît sur cet écran, rattaché
 ou non.
+
+Sur une boîte dédiée, le site lit aussi **les dates que le message
+annonce** — *du 12 au 19 juillet 2026* dans l'objet, le corps ou une
+pièce jointe. Un seul séjour couvre exactement ces dates : le message y
+est rattaché, avec la mention « Période annoncée dans le message ».
+Plusieurs séjours les couvrent : une proposition par séjour, et aucun
+choisi.
 
 Ce que l'écran « Courrier des camps » montre, et ce que « Retirer »
 veut dire, sont décrits dans « L'écran du courrier des camps ».

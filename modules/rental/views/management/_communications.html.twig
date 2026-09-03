@@ -99,7 +99,7 @@
 
                     <div class="d-flex flex-wrap gap-2">
                         <form method="post" action="/mes-locations/message/detacher"
-                              data-confirm="Détacher ce message ? Il sera supprimé, ainsi que ses pièces jointes non reclassées.">
+                              data-confirm="Détacher ce message ? Il retourne dans le courrier de l'unité ; ses pièces jointes non reclassées quittent la réservation, les documents déjà reclassés restent.">
                             {{ csrf_field()|raw }}
                             <input type="hidden" name="asset_id" value="{{ asset.id }}">
                             <input type="hidden" name="booking_id" value="{{ booking.id }}">

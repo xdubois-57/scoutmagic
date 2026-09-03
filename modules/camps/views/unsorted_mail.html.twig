@@ -92,20 +92,18 @@
                             </div>
 
                             {% if row.has_body %}
-                                {# Une ligne, pas un paragraphe. L'extrait
-                                   faisait 220 caractères — de quoi occuper trois
-                                   lignes par message et transformer une liste de
-                                   décisions en mur de texte. Il tient maintenant
-                                   sur une ligne tronquée, et le message entier
-                                   s'ouvre dans un dialogue.
+                                {# One line, not a paragraph. The excerpt used to
+                                   run to 220 characters — three lines per message,
+                                   turning a list of decisions into a wall of text.
+                                   It now fits one truncated line, and the whole
+                                   message opens in a dialog.
 
-                                   Le corps est rendu ICI, caché, et déplacé dans
-                                   le dialogue à l'ouverture : aucune chaîne HTML
-                                   ne transite par un attribut ni par innerHTML.
-                                   Il est déjà assaini et débarrassé des images
-                                   distantes au stockage (§8.58) ; ce n'est pas
-                                   une raison de le refaire passer par une seconde
-                                   analyse dans le navigateur. #}
+                                   The body is rendered HERE, hidden, and MOVED
+                                   into the dialog on opening: no HTML string
+                                   travels through an attribute or innerHTML. It
+                                   was sanitised and stripped of remote images when
+                                   stored (§8.58); that is no reason to run it
+                                   through a second parse in the browser. #}
                                 <div class="small text-body-secondary text-truncate mt-2">{{ row.excerpt }}</div>
                                 <button type="button" class="btn btn-link btn-sm p-0 mt-1"
                                         data-camps-message-open="camps-message-body-{{ row.message.id }}"
@@ -129,9 +127,9 @@
                                 </div>
                             {% endif %}
 
-                            {# Ce que CE module en a fait, et rien d'autre : les
-                               rattachements d'un autre module ne regardent pas
-                               cet écran. #}
+                            {# What THIS module made of it and nothing else:
+                               another module's associations are not this
+                               screen's business. #}
                             {% if row.links is not empty %}
                                 <div class="mt-2 d-flex flex-wrap gap-1">
                                     {% for link in row.links %}
@@ -191,9 +189,9 @@
                                     <button type="submit" class="btn btn-primary btn-sm">Rattacher</button>
                                 </form>
 
-                                {# Le message ne correspond à aucun séjour connu :
-                                   en créer un depuis ce qu'il dit, plutôt que de
-                                   retaper des dates qu'on a sous les yeux. #}
+                                {# The message matches no known stay: create one
+                                   from what it says rather than retype dates that
+                                   are right there. #}
                                 <a class="btn btn-outline-secondary btn-sm"
                                    href="/chefs/camps/nouveau?message={{ row.message.id }}">
                                     <i class="bi bi-plus-lg" aria-hidden="true"></i>
@@ -224,9 +222,9 @@
         </p>
     </div>
 
-    {# UN dialogue pour toute la page, rempli à l'ouverture en DÉPLAÇANT le
-       corps déjà rendu. Un dialogue par message tiendrait cent corps de
-       messages dans le DOM d'un écran qui en montre les titres. #}
+    {# ONE dialog for the whole page, filled on opening by MOVING the body
+       already rendered. A dialog per message would keep a hundred message
+       bodies in the DOM of a screen that shows their titles. #}
     {% embed 'partials/modal.html.twig' with { id: 'camps-message-modal', title: 'Message', scrollable: true, size: 'lg' } only %}
         {% block body %}
             <div id="camps-message-modal-body" class="camps-message-body"></div>

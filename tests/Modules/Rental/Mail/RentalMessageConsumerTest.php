@@ -101,11 +101,17 @@ class RentalMessageConsumerTest extends TestCase
             $this->managerRepository
         );
 
+        // With the registry, as the composition root wires it: without
+        // it `onLinked()`/`onUnlinked()` never fire on detach and move,
+        // and a test of « the re-classified contract survives » proved
+        // nothing about the path a manager actually takes.
+        $this->registry = new MessageConsumerRegistry();
         $fileRepository = new FileRepository($this->pdo);
         $this->inboundMail = new InboundMailService(
             $this->messageRepository,
             $this->mailboxRepository,
-            $fileRepository
+            $fileRepository,
+            $this->registry
         );
 
         $journal = new JournalService(new JournalRepository($this->pdo));
@@ -123,7 +129,6 @@ class RentalMessageConsumerTest extends TestCase
             sys_get_temp_dir()
         );
 
-        $this->registry = new MessageConsumerRegistry();
         $this->registry->register(new RentalMessageConsumer(
             $this->bookingRepository,
             $this->inboundMail,
@@ -1216,6 +1221,33 @@ class RentalMessageConsumerTest extends TestCase
 
         $this->assertSame([], $this->documentRepository->findForBooking($from->id));
         $this->assertCount(1, $this->documentRepository->findForBooking($to->id));
+    }
+
+    public function testAMovedMessageKeepsTheDocumentAManagerAlreadyReclassified(): void
+    {
+        // The signed contract stays a signed contract on the booking the
+        // message now belongs to. It used to be deleted by the consumer's
+        // own `onUnlinked()` and re-created as « Non classé » on the
+        // target — every move silently undid a manager's filing.
+        $this->addManager('chef@unite.be');
+        $from = $this->createBooking('LOC-2027-0042');
+        $to = $this->createBooking('LOC-2027-0043');
+        $this->deliverWithPdf(10, 'Re: [LOC-2027-0042]');
+        $this->sync();
+
+        $document = $this->documentRepository->findForBooking($from->id)[0];
+        $this->documentRepository->updateType($document->id, DocumentType::SIGNED_CONTRACT);
+
+        $message = $this->communicationService->timeline($from)[0];
+        $this->communicationService->move($from, $message->id, $to->id, 'chef@unite.be', $this->scoutYearId, null, 7);
+
+        $this->assertSame([], $this->documentRepository->findForBooking($from->id));
+        $moved = $this->documentRepository->findForBooking($to->id);
+        $this->assertCount(1, $moved);
+        $this->assertSame(DocumentType::SIGNED_CONTRACT, $moved[0]->type);
+
+        // And the booking page reads the truth: a person moved it.
+        $this->assertSame(LinkOrigin::MANUAL, $this->communicationService->timeline($to)[0]->linkOrigin);
     }
 
     // ── Degrading without the module (§7.5) ─────────────────────────────

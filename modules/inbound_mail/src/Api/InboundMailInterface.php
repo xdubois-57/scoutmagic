@@ -187,9 +187,20 @@ interface InboundMailInterface
      * consumer's authorisation rules, which is exactly why the caller is
      * required to narrow the target list before offering it.
      *
+     * The association becomes a `manual` one naming `$userAccountId`: a
+     * move is a person deciding, and the target's page must not go on
+     * presenting their decision as the heuristic that first placed the
+     * message.
+     *
      * @return bool false when the message does not belong to $fromReference
      */
-    public function move(string $consumerId, string $fromReference, string $toReference, int $messageId): bool;
+    public function move(
+        string $consumerId,
+        string $fromReference,
+        string $toReference,
+        int $messageId,
+        ?int $userAccountId = null
+    ): bool;
 
     /**
      * Release everything held for a business object — used by a consumer's

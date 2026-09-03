@@ -159,7 +159,7 @@ class CampsRbacTest extends TestCase
         );
         $this->configController = new CampsConfigController($twig, $settings);
         $this->mailController = new \Modules\Camps\Controller\CampsMailController(
-            $twig, $camps, $places
+            $twig, $camps
         );
 
         if (session_status() === PHP_SESSION_NONE) {

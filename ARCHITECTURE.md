@@ -1725,7 +1725,7 @@ The Courriel page's own test send proves one thing: PHPMailer handed the message
 
 **A failure per mailbox is not a failure of the run.** One address refusing while two go out is exactly the asymmetry the probe exists to reveal, so a send that throws is counted and the loop continues; « 3 boîtes, 2 messages partis » is a diagnosis on its own, and a different one from « 3 sur 3 » with nothing ever arriving.
 
-**What is read, and what is kept.** `Mail\SupportMessageConsumer` implements `Api\MessageRetentionPreference` (§8.49ter's sibling, roadmap IT-22) and answers `wantsRawHeaders() = true`, `wantsBody() = false`: the diagnosis is `Authentication-Results`, `Received-SPF`, `DKIM-Signature` and the chain of `Received` lines, and a message this receiver sent to itself has a body nobody needs to keep. It claims **only** a message whose subject carries a key it issued, which is the narrowest claim of any consumer — which is why it is registered *first* on the scheduled path, ahead of a camps mailbox that claims everything it is offered. `Service\MailAuthenticationResults` reports what the receiving MTA wrote down and re-checks nothing: `pass`, `fail`, `none`, `unverified` for a signature with no verdict, and `absent` for a header that is simply not there — a distinction a maintainer must not have to make themselves, since « non renseigné » read as « échec » sends somebody chasing a DNS record that is fine.
+**What is read, and what is kept.** `Mail\SupportMessageConsumer` implements `Api\MessageRetentionPreference` (§8.49ter's sibling, roadmap IT-22) and answers `wantsRawHeaders() = true`, `wantsBody() = false`: the diagnosis is `Authentication-Results`, `Received-SPF`, `DKIM-Signature` and the chain of `Received` lines, and a message this receiver sent to itself has a body nobody needs to keep. It claims **only** a message whose subject carries a key it issued, which is the narrowest claim of any consumer, and it attributes the message to the probe row of the address it was sent to (`CandidateMessage::$toEmails`), falling back to the first pending row only when the message names none — a run writes one message per box, and box B's copy landing on box A's row would be the opposite of the diagnosis. `Service\MailAuthenticationResults` reports what the receiving MTA wrote down and re-checks nothing: `pass`, `fail`, `none`, `unverified` for a signature with no verdict, and `absent` for a header that is simply not there — a distinction a maintainer must not have to make themselves, since « non renseigné » read as « échec » sends somebody chasing a DNS record that is fine.
 
 **A reading is not evidence, so the block it was read from is kept too.** `raw_headers_encrypted` holds the header block exactly as the receiving server wrote it, beside the parsed reading, and the ticket page shows it behind « En-têtes reçus ». « SPF non renseigné » is a claim about what a server wrote down, and the only way to tell a right reading from a wrong one is to look at what was actually written — which is precisely how the reading turned out to be right and the input turned out to be empty: `Client\ImapMailboxClient::toFetchedMessage()` never passed a header block at all, so `FetchedMessage::$rawHeaders` fell back to its `''` default for every message this site has ever received over IMAP, and every probe reported « SPF, DKIM et DMARC non renseignés » whatever the domain was doing. It was invisible from the tests because `Client\FakeMailboxClient` parses real MIME through `Mime\MimeMessageParser`, which fills the field — every test about headers exercised a path production does not take. The second half of the same bug: `MailAuthenticationResults` read only the FIRST `Authentication-Results` header, and each hop that checks anything prepends one of its own, so a verdict written two lines further down read as « non renseigné ».
 
@@ -2015,10 +2015,12 @@ answer:**
    anything, without the window it attaches next summer's enquiry to last
    summer's stay.
 
-**Ambiguity is answered with silence.** Two bookings matching the sender
-inside the window attaches nothing at all — a manager reading the wrong file
-has no way to know it is the wrong file, which makes a wrong attachment
-worse than none.
+**Ambiguity is answered with propositions, never with a choice.** Two
+bookings matching the sender inside the window attach nothing — a manager
+reading the wrong file has no way to know it is the wrong file, which makes
+a wrong attachment worse than none — but each of them becomes a
+`MessageCandidate` (§8.58), bounded at `RentalMessageConsumer::MAX_PROPOSITIONS`,
+so the module says what it knows and leaves the choice to a person.
 
 **An attachment becomes a `Non classé`, internal document of the booking**,
 pointing at the very file `UploadHandler` stored rather than a copy. Never
@@ -2030,20 +2032,26 @@ the module produced from a template, and renaming one would break the
 versioning a signed v1 depends on.
 
 **Correcting the automatic rules is bounded by what the manager manages.**
-Detaching deletes the message *and the attachments nobody re-classified* —
-one already filed as a signed contract survives, an untouched `Non classé`
-goes with it. Moving is offered only to bookings of that manager's own
+Detaching removes the association and the `Non classé` documents nobody
+re-classified; the message itself falls back into the unit's general mail
+(§8.58) and a document already filed as a signed contract survives — it is
+the manager's, not the message's, and `onUnlinked()` takes back only what is
+still `Non classé`. Moving is offered only to bookings of that manager's own
 assets, and the target list is **built from their assets** rather than
 filtered from a global list, so the picker is never itself a window onto the
 unit's other bookings; a hand-crafted POST naming somebody else's booking
 gets the same "not accessible" as one naming a booking that does not exist.
-A moved message takes its documents with it, since `FileAccessGuard` resolves
-a rental file's readers through its document row.
+A moved message takes its documents with it — moved *before* the association
+changes hands, so the consumer's callbacks find nothing to take back and
+nothing to file twice, and a re-classified document keeps its type — since
+`FileAccessGuard` resolves a rental file's readers through its document row.
+The moved association is recorded as `manual`, naming the manager (D20).
 
-**There is no way to attach a message by hand**, anywhere. Attaching is what
-the rules do; a button that opened the mailbox would be a doorway onto
-everybody's correspondence, which is the whole thing the module's
-scoped API (`specifications.md` §23.5) exists to prevent.
+**Attaching by hand is confirming a proposition, or naming an object the
+requester may reach** (`InboundMailInterface::attach()`, `confirmCandidate()`),
+never browsing the mailbox: the scoped API (`specifications.md` §23.5) hands a
+consumer only the messages it recognised or proposed on, and a button that
+opened the whole box would be a doorway onto everybody's correspondence.
 
 **Which mailboxes feed the module is a rental setting, and a manager sees a
 name and a state.** Never a host, a port or an account: `listMailboxSummaries()`
@@ -2547,9 +2555,9 @@ Where the unit has camped, and every stay it made there. The product answers one
 
 **The mail consumer has two modes, and the mailbox decides which.** In a SHARED mailbox it claims narrowly — a reply in a known thread, or a known contact's address inside a window around their stay — because everything it takes is a message another module will never see, and a camps module claiming on subject keywords would quietly swallow the unit's mail. In a DEDICATED mailbox (declared on `/config/courrier-entrant`) it no longer claims anything it cannot attribute: the message is stored regardless (§8.58), and this module's users see the whole box because a dedicated box grants them `ReadMode::ALL` — the mailbox configuration says so, rather than a reserved `unsorted` reference standing in for it. Manual filing is `attach()`, an ordinary association: there is nothing to move the message OFF, and a message may legitimately belong to a stay and to something else at once. Ambiguity — several stays of one contact in range — produces one proposition per stay and no association, because filing it under whichever sorted first is worse than leaving it unattached.
 
-**Registration order is load-bearing.** `MessageConsumerRegistry` is first-claim-wins in registration order and a dedicated camps mailbox claims everything, so the camps consumer is registered LAST, after every other module's — `rental`'s own mailbox setting defaults to "all mailboxes", and registered earlier camps would silently swallow the mail rental was waiting for. The consumer is therefore BUILT in the camps wiring block and REGISTERED far below it; `Tests\Modules\Camps\Mail\ConsumerRegistrationOrderTest` pins both, because the failure is invisible: no error, no log, just a booking whose correspondence stops arriving.
+**Registration order is immaterial.** `MessageConsumerRegistry` asks every consumer the box is open to and applies every answer (§8.58); which module sees a dedicated camps box is the mailbox configuration's decision, not the position of a `register()` call. `Tests\Modules\Camps\Mail\ConsumerRegistrationOrderTest` now pins only what the web path builds the consumer with — that it can file a document and re-analyse — which is what actually failed silently.
 
-**Ambiguity is answered with silence.** Two stays matching one sender inside the window claim nothing — putting a farmer's e-mail on whichever of two stays sorted first is worse than leaving it where it was, because the chief reading the wrong stay has no way to know.
+**Ambiguity is answered with propositions.** Two stays matching one sender inside the window, or two stays over the same days, claim nothing — putting a farmer's e-mail on whichever of two stays sorted first is worse than leaving it where it was, because the chief reading the wrong stay has no way to know — and each becomes a proposition the chief settles on `/chefs/camps/courrier`. **A cancelled stay takes part in none of the rules**: not the sender window, not the period, not the duplicate check before a stay is created. Left in, a stay cancelled and re-booked with the same farmer turned every one of their messages into two propositions for sixteen months.
 
 **A module asks the connector about the tier it is going to use.** `LlmConnectorInterface::isAvailable()` answers "is anything configured at all" and every AI feature in this module used it, while every call it makes is `LlmTier::CHEAP` — so an installation with a model on `capable` and none on `cheap` passed the check, the place sheet offered « Écrire le résumé maintenant », and `complete()` refused the tier before reaching a provider: no summary, and (until the connector started journaling its own refusals) nothing anywhere saying why. `Service\PlaceSummaryService`, `Service\DuplicatePlaceDetector` and `Mail\StayFromMailService` all ask `isTierAvailable(LlmTier::CHEAP)` now, which is the same question their `complete()` will ask.
 

@@ -130,14 +130,36 @@ class CampRepository
      */
     public function findByDateRange(string $startDate, string $endDate): array
     {
+        // Never a cancelled stay: a message stating the days of a stay the
+        // unit called off is about whatever replaced it, and a cancelled
+        // stay must not compete with — or win over — the live one.
         $stmt = $this->pdo->prepare(
             'SELECT c.* FROM camp_camps c
-              WHERE c.start_date = ? AND c.end_date = ?
+              WHERE c.start_date = ? AND c.end_date = ? AND c.status <> ?
               ORDER BY c.id DESC'
         );
-        $stmt->execute([$startDate, $endDate]);
+        $stmt->execute([$startDate, $endDate, Camp::STATUS_CANCELLED]);
 
         return $this->hydrateAll($stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * The id of every stay, whatever its place or status — what a screen
+     * scoping `inbound_mail` reads needs, and nothing more.
+     *
+     * One query, where the callers used to ask for every visible place and
+     * then for every stay of each: a query per place on every camps list
+     * view. Archived places are included on purpose here — a message filed
+     * under a stay at a place a chief has since archived must stay
+     * reachable, or its propositions can never be answered.
+     *
+     * @return int[]
+     */
+    public function findAllIds(): array
+    {
+        $stmt = $this->pdo->query('SELECT id FROM camp_camps ORDER BY id ASC');
+
+        return $stmt === false ? [] : array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
     }
 
     /**

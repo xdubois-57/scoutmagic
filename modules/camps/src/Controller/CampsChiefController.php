@@ -932,9 +932,14 @@ class CampsChiefController extends AbstractController
             return null;
         }
 
+        // The same bound as the screen that offered the button: read with
+        // the API's default of fifty, « Créer un camp depuis ce message »
+        // silently opened an empty form for every message the screen
+        // listed beyond the fiftieth.
         foreach ($this->inboundMail->findForTriage(
             CampsMessageConsumer::CONSUMER_ID,
-            $this->stayReferences()
+            $this->stayReferences(),
+            CampsMailController::MAX_MESSAGES
         ) as $message) {
             if ($message->id === $messageId) {
                 return $message;
@@ -949,14 +954,10 @@ class CampsChiefController extends AbstractController
      */
     private function stayReferences(): array
     {
-        $references = [];
-        foreach ($this->places->findAllVisible() as $place) {
-            foreach ($this->camps->findByPlace($place->id) as $camp) {
-                $references[] = CampsMessageConsumer::referenceFor($camp->id);
-            }
-        }
-
-        return $references;
+        return array_map(
+            static fn(int $campId): string => CampsMessageConsumer::referenceFor($campId),
+            $this->camps->findAllIds()
+        );
     }
 
     /**
@@ -998,7 +999,11 @@ class CampsChiefController extends AbstractController
         $references = $this->stayReferences();
         $waiting = 0;
 
-        foreach ($this->inboundMail->findForTriage(CampsMessageConsumer::CONSUMER_ID, $references) as $message) {
+        foreach ($this->inboundMail->findForTriage(
+            CampsMessageConsumer::CONSUMER_ID,
+            $references,
+            CampsMailController::MAX_MESSAGES
+        ) as $message) {
             if ($message->linksFor(CampsMessageConsumer::CONSUMER_ID) === []) {
                 $waiting++;
             }

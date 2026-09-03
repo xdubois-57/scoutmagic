@@ -351,8 +351,8 @@
             </p>
             <div class="d-flex flex-column gap-2">
                 {% for message in messages %}
-                    {# Un <details> natif plutôt qu'un dépliage maison : il
-                       s'ouvre au clavier, s'imprime ouvert et ne demande aucun
+                    {# A native <details> rather than a home-made toggle: it
+                       opens from the keyboard, prints open and needs no
                        script. #}
                     <details class="border rounded p-3">
                         <summary class="d-flex flex-wrap justify-content-between gap-2">
@@ -365,8 +365,8 @@
 
                         <div class="mt-3 camps-message-body">
                             {% if message.bodyHtml is not empty %}
-                                {# Déjà assaini et débarrassé des images distantes au
-                                   stockage (§8.58), jamais au rendu. #}
+                                {# Sanitised and stripped of remote images when
+                                   stored (§8.58), never at render time. #}
                                 {{ message.bodyHtml|raw }}
                             {% else %}
                                 <pre class="mb-0 text-body-secondary" style="white-space: pre-wrap;">{{ message.bodyText }}</pre>

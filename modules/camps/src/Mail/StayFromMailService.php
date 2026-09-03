@@ -507,7 +507,7 @@ class StayFromMailService
     private function existingStayId(int $placeId, string $start, string $end): ?int
     {
         foreach ($this->camps->findByPlace($placeId) as $camp) {
-            if ($camp->startDate === $start && $camp->endDate === $end) {
+            if (!$camp->isCancelled() && $camp->startDate === $start && $camp->endDate === $end) {
                 return $camp->id;
             }
         }

@@ -112,7 +112,7 @@ class ConsumerLifecycleTest extends TestCase
 
         $id = $this->storeMessage('a@example.be');
 
-        $this->assertTrue($this->service->link('rental', 'LOC-1', $id, 42));
+        $this->assertTrue($this->service->attach('rental', 'LOC-1', $id, 42));
         $this->assertTrue($this->messages->hasLink($id, 'rental', 'LOC-1'));
     }
 
@@ -122,7 +122,7 @@ class ConsumerLifecycleTest extends TestCase
     {
         $id = $this->storeMessage('a@example.be');
 
-        $this->assertTrue($this->service->link('rental', 'LOC-1', $id, 42));
+        $this->assertTrue($this->service->attach('rental', 'LOC-1', $id, 42));
 
         $links = $this->messages->findLinksForMessage($id);
         $this->assertCount(1, $links);
@@ -134,9 +134,9 @@ class ConsumerLifecycleTest extends TestCase
     {
         $id = $this->storeMessage('a@example.be');
 
-        $this->assertTrue($this->service->link('rental', 'LOC-1', $id, 42));
+        $this->assertTrue($this->service->attach('rental', 'LOC-1', $id, 42));
         // The second person clicks. One association, and no error.
-        $this->assertFalse($this->service->link('rental', 'LOC-1', $id, 99));
+        $this->assertFalse($this->service->attach('rental', 'LOC-1', $id, 99));
 
         $this->assertSame(1, $this->messages->countLinks($id));
         $this->assertSame(42, $this->messages->findLinksForMessage($id)[0]->createdByUserAccountId);

@@ -108,7 +108,9 @@ class InboundMailService implements InboundMailInterface
             $this->notifyLinked($stored, new MessageLink(
                 $consumerId,
                 $businessReference,
-                LinkOrigin::MANUAL
+                LinkOrigin::MANUAL,
+                0,
+                $userAccountId
             ));
         }
 
@@ -176,11 +178,15 @@ class InboundMailService implements InboundMailInterface
             $messageId
         );
         if ($stored !== null) {
+            // The author travels with the link. Finance files a receipt
+            // « only ever by a person », and the person was being dropped
+            // right here — the row named them, the callback did not.
             $this->notifyLinked($stored, new MessageLink(
                 $consumerId,
                 $candidate->businessReference,
                 LinkOrigin::MANUAL,
-                $candidate->attachmentId
+                $candidate->attachmentId,
+                $userAccountId
             ));
         }
 
@@ -302,15 +308,26 @@ class InboundMailService implements InboundMailInterface
         return true;
     }
 
-    public function move(string $consumerId, string $fromReference, string $toReference, int $messageId): bool
-    {
+    public function move(
+        string $consumerId,
+        string $fromReference,
+        string $toReference,
+        int $messageId,
+        ?int $userAccountId = null
+    ): bool {
         if ($fromReference === $toReference) {
             return false;
         }
 
         $before = $this->messageRepository->findOneForReference($consumerId, $fromReference, $messageId);
 
-        if (!$this->messageRepository->moveToReference($messageId, $consumerId, $fromReference, $toReference)) {
+        if (!$this->messageRepository->moveToReference(
+            $messageId,
+            $consumerId,
+            $fromReference,
+            $toReference,
+            $userAccountId
+        )) {
             return false;
         }
 
@@ -324,47 +341,9 @@ class InboundMailService implements InboundMailInterface
 
         $after = $this->messageRepository->findOneForReference($consumerId, $toReference, $messageId);
         if ($after !== null) {
-            $this->notifyLinked($after, new MessageLink($consumerId, $toReference, LinkOrigin::MANUAL));
-        }
-
-        return true;
-    }
-
-    /**
-     * Associate a message with a business object by hand.
-     *
-     * The origin is always `manual` and the author is always named: a
-     * screen that says "association manuelle" without being able to say by
-     * whom helps nobody settle a disputed filing (D20).
-     *
-     * Idempotent, like every other association: two people orienting the
-     * same message towards the same object produce one, and the second is
-     * simply told nothing new happened.
-     */
-    public function link(
-        string $consumerId,
-        string $businessReference,
-        int $messageId,
-        ?int $createdByUserAccountId
-    ): bool {
-        $created = $this->messageRepository->addLink(
-            $messageId,
-            $consumerId,
-            $businessReference,
-            LinkOrigin::MANUAL,
-            0,
-            $createdByUserAccountId
-        );
-
-        if (!$created) {
-            return false;
-        }
-
-        $stored = $this->messageRepository->findOneForReference($consumerId, $businessReference, $messageId);
-        if ($stored !== null) {
             $this->notifyLinked(
-                $stored,
-                new MessageLink($consumerId, $businessReference, LinkOrigin::MANUAL, 0, $createdByUserAccountId)
+                $after,
+                new MessageLink($consumerId, $toReference, LinkOrigin::MANUAL, 0, $userAccountId)
             );
         }
 

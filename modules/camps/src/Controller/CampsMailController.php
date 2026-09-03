@@ -18,7 +18,6 @@ use Modules\Camps\Mail\MailFieldCompletionService;
 use Modules\Camps\Repository\FieldProposalRepository;
 use Modules\Camps\Repository\Camp;
 use Modules\Camps\Repository\CampRepository;
-use Modules\Camps\Repository\PlaceRepository;
 use Modules\Camps\Mail\ExistingStayMatcher;
 use Modules\Camps\Service\CampLabels;
 use Modules\Camps\Service\StaySearchService;
@@ -59,12 +58,11 @@ class CampsMailController extends AbstractController
      * them is a page nobody waits for. The Chef d'Unité's own screen
      * (`/courrier`) is the one with pagination; this one is a work list.
      */
-    private const MAX_MESSAGES = 100;
+    public const MAX_MESSAGES = 100;
 
     public function __construct(
         protected Environment $twig,
         private CampRepository $camps,
-        private PlaceRepository $places,
         private ?InboundMailInterface $inboundMail = null,
         private ?FieldProposalRepository $proposals = null,
         private ?MailFieldCompletionService $fieldCompletion = null,
@@ -295,14 +293,10 @@ class CampsMailController extends AbstractController
      */
     private function stayReferences(): array
     {
-        $references = [];
-        foreach ($this->places->findAllVisible() as $place) {
-            foreach ($this->camps->findByPlace($place->id) as $camp) {
-                $references[] = CampsMessageConsumer::referenceFor($camp->id);
-            }
-        }
-
-        return $references;
+        return array_map(
+            static fn(int $campId): string => CampsMessageConsumer::referenceFor($campId),
+            $this->camps->findAllIds()
+        );
     }
 
     /**

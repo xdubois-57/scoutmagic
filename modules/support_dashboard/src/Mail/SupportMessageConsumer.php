@@ -69,7 +69,8 @@ class SupportMessageConsumer implements MessageConsumerInterface, MessageRetenti
             $message->subject,
             $message->rawHeaders,
             $message->sentAt,
-            new \DateTimeImmutable()
+            new \DateTimeImmutable(),
+            $message->toEmails
         );
 
         if (!$claimed) {

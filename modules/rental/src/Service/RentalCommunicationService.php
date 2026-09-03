@@ -175,7 +175,8 @@ class RentalCommunicationService
         int $targetBookingId,
         ?string $actorEmail,
         int $scoutYearId,
-        ?int $actorMemberId = null
+        ?int $actorMemberId = null,
+        ?int $actorUserAccountId = null
     ): bool {
         if ($this->inboundMail === null) {
             return false;
@@ -188,27 +189,49 @@ class RentalCommunicationService
             throw new RentalException("Cette réservation n'est pas accessible.");
         }
 
+        $message = $this->inboundMail->findOneForReference(
+            \Modules\Rental\Mail\RentalMessageConsumer::CONSUMER_ID,
+            $booking->reference,
+            $messageId
+        );
+        if ($message === null) {
+            return false;
+        }
+
+        // The documents move FIRST, re-classified ones included. The
+        // consumer's own callbacks then find nothing left to take back on
+        // the old booking, and nothing to file twice on the new one — a
+        // signed contract keeps being a signed contract on the booking it
+        // now belongs to, instead of being deleted and re-created as
+        // « Non classé ».
+        $movedDocumentIds = $this->moveAttachedDocuments($booking, $target, $message);
+
         $moved = $this->inboundMail->move(
             \Modules\Rental\Mail\RentalMessageConsumer::CONSUMER_ID,
             $booking->reference,
             $target->reference,
-            $messageId
+            $messageId,
+            $actorUserAccountId
         );
 
-        if ($moved) {
-            $this->moveAttachedDocuments($booking, $target, $messageId);
+        if (!$moved) {
+            foreach ($movedDocumentIds as $documentId) {
+                $this->documentRepository->moveToBooking($documentId, $booking->id);
+            }
 
-            $this->journal->log(
-                'rental',
-                'rental_message_moved',
-                'info',
-                'Message déplacé de ' . $booking->reference . ' vers ' . $target->reference,
-                ['booking_id' => $booking->id, 'target_booking_id' => $target->id, 'message_id' => $messageId],
-                $actorMemberId
-            );
+            return false;
         }
 
-        return $moved;
+        $this->journal->log(
+            'rental',
+            'rental_message_moved',
+            'info',
+            'Message déplacé de ' . $booking->reference . ' vers ' . $target->reference,
+            ['booking_id' => $booking->id, 'target_booking_id' => $target->id, 'message_id' => $messageId],
+            $actorMemberId
+        );
+
+        return true;
     }
 
     /**
@@ -243,27 +266,28 @@ class RentalCommunicationService
      * the manager who moved the message has no way to move the file after
      * the fact.
      */
-    private function moveAttachedDocuments(RentalBooking $from, RentalBooking $to, int $messageId): void
-    {
-        $message = $this->inboundMail?->findOneForReference(
-            \Modules\Rental\Mail\RentalMessageConsumer::CONSUMER_ID,
-            $to->reference,
-            $messageId
-        );
-        if ($message === null) {
-            return;
-        }
-
+    /**
+     * @return int[] the ids of the documents that changed booking
+     */
+    private function moveAttachedDocuments(
+        RentalBooking $from,
+        RentalBooking $to,
+        \Modules\InboundMail\Api\InboundMessage $message
+    ): array {
         $fileIds = array_map(static fn($attachment) => $attachment->fileId, $message->attachments);
         if ($fileIds === []) {
-            return;
+            return [];
         }
 
+        $moved = [];
         foreach ($this->documentRepository->findForBooking($from->id) as $document) {
             if (in_array($document->fileId, $fileIds, true)) {
                 $this->documentRepository->moveToBooking($document->id, $to->id);
+                $moved[] = $document->id;
             }
         }
+
+        return $moved;
     }
 
     /**

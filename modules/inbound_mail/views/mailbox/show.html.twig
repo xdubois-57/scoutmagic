@@ -77,7 +77,7 @@
                         {% endif %}
                     </div>
                     <div class="small text-body-secondary">
-                        association {{ link.origin.label|lower }}
+                        {{ link.origin.label }}{% if not link.origin.isCertain %} · rattachement incertain{% endif %}
                     </div>
                 </div>
                 <form method="post" action="/courrier/{{ message.id }}/association/retrait"
