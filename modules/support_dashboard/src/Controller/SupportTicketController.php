@@ -14,6 +14,7 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Modules\SupportDashboard\Service\MailProbeReport;
 use Modules\SupportDashboard\Service\SupportTicketService;
+use Modules\SupportDashboard\Service\TicketAnalysisOutcome;
 use Modules\SupportDashboard\Service\TicketAnalysisService;
 use Modules\SupportDashboard\Service\TicketListFilters;
 use Twig\Environment;
@@ -193,20 +194,24 @@ class SupportTicketController extends AbstractController
             return $guard;
         }
 
-        if ($this->analysisService === null || !$this->analysisService->isAvailable()) {
-            // A POST naming a feature the page never offered: refused
-            // rather than redirected, and it is the same answer whether
-            // the module is absent or has no active provider.
-            FlashMessage::set('error', "L'analyse transversale n'est pas disponible sur cette installation.");
+        // Every answer here is a named outcome that says its own subject
+        // (`Service\TicketAnalysisOutcome`). It used to be a bare
+        // true/false, and « le fournisseur n'a rien renvoyé
+        // d'exploitable » was shown even when no provider had been
+        // contacted at all — a sentence blaming a third party for a
+        // request nobody made.
+        //
+        // A flash lives until some page renders it, so the answer to a
+        // request nobody waited for lands on whatever page comes next.
+        // That is how this one turned up on « Maintenance », where
+        // « L'analyse n'a pas abouti » reads as the update having failed.
+        // Naming the subject in the sentence is what makes a misplaced
+        // message merely misplaced.
+        $outcome = $this->analysisService === null
+            ? TicketAnalysisOutcome::UNAVAILABLE
+            : $this->analysisService->run(new \DateTimeImmutable());
 
-            return $this->redirect('/support-dashboard/tickets');
-        }
-
-        if ($this->analysisService->run(new \DateTimeImmutable())) {
-            FlashMessage::set('success', 'Analyse transversale mise à jour.');
-        } else {
-            FlashMessage::set('error', "L'analyse n'a pas abouti : le fournisseur n'a rien renvoyé d'exploitable.");
-        }
+        FlashMessage::set($outcome->flashType(), $outcome->message());
 
         return $this->redirect('/support-dashboard/tickets');
     }
