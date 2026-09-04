@@ -205,7 +205,8 @@ class SupportController extends AbstractController
             // the next archive will carry.
             'measurement_available' => $this->measurementWindow !== null,
             'measurement_open' => $this->measurementWindow?->isOpen() ?? false,
-            'measurement_expires_at' => $this->measurementWindow?->expiresAt()?->setTimezone(AppClock::zone())->format('H:i') ?? '',
+            'measurement_expires_at' => $this->measurementWindow?->expiresAt()
+                ?->setTimezone(AppClock::zone())->format('H:i') ?? '',
             'measurement_requests' => $this->measurementWindow?->recordedRequests() ?? 0,
             'measurement_minutes' => MeasurementWindow::DEFAULT_MINUTES,
             'measurement_cap' => MeasurementWindow::MAX_REQUESTS,
@@ -243,7 +244,8 @@ class SupportController extends AbstractController
         FlashMessage::set(
             'success',
             'Mesure en cours jusqu\'à ' . $expiresAt->setTimezone(AppClock::zone())->format('H:i')
-                . ' : parcourez les pages qui vous paraissent lentes, puis revenez ici générer un paquet de support et envoyer un ticket.'
+                . ' : parcourez les pages qui vous paraissent lentes, puis revenez ici générer un paquet de support'
+                . ' et envoyer un ticket.'
         );
 
         return $this->redirect('/config/support');
@@ -266,7 +268,8 @@ class SupportController extends AbstractController
                 'core',
                 'measurement_window_closed',
                 'info',
-                'Fenêtre de mesure des performances fermée, ' . $this->measurementWindow->recordedRequests() . ' requête(s) enregistrée(s)',
+                'Fenêtre de mesure des performances fermée, ' . $this->measurementWindow->recordedRequests()
+                    . ' requête(s) enregistrée(s)',
                 ['requests' => $this->measurementWindow->recordedRequests()],
                 AuthSession::getUserAccountId()
             );

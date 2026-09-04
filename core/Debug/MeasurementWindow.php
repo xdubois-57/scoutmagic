@@ -77,10 +77,11 @@ final class MeasurementWindow
         }
         // The content is for a reader (the Support page, the collector);
         // the modification time is for the request-time check.
-        file_put_contents($this->flagPath, (string) json_encode([
+        $content = (string) json_encode([
             'opened_at' => $now->getTimestamp(),
             'expires_at' => $expiresAt->getTimestamp(),
-        ]), LOCK_EX);
+        ]);
+        file_put_contents($this->flagPath, $content, LOCK_EX);
         touch($this->flagPath, $expiresAt->getTimestamp());
         @unlink($this->counterPath());
         clearstatcache(true, $this->flagPath);

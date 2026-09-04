@@ -6648,7 +6648,8 @@ if (\Core\Debug\RequestTimeline::isActive() && (
         'core',
         'debug_request_timeline',
         'info',
-        'Chronologie détaillée de requête (' . (\Core\Debug\RequestTimeline::wasRequested() ? '?debug=1' : 'fenêtre de mesure') . ') : '
+        'Chronologie détaillée de requête ('
+            . (\Core\Debug\RequestTimeline::wasRequested() ? '?debug=1' : 'fenêtre de mesure') . ') : '
             . $request->getMethod() . ' ' . $request->getPath(),
         [
             'method' => $request->getMethod(),

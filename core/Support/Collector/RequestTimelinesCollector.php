@@ -29,6 +29,10 @@ use Core\Support\SupportCollectorInterface;
  * (`event_type = 'debug_request_timeline'`). The path is the only thing
  * about a page that is kept; never a query string, never any content.
  * A window that recorded nothing is said, not left as an empty file.
+ *
+ * @phpstan-type PathStats array{count: int, totals: list<float>, sql: list<int>, segments: array<string, list<float>>}
+ * @phpstan-type Segment array{label: string, ms: float, sql: int, sql_ms: float, at_ms: float, sql_at: int,
+ *     mem_mb: string}
  */
 class RequestTimelinesCollector implements SupportCollectorInterface
 {
@@ -50,7 +54,7 @@ class RequestTimelinesCollector implements SupportCollectorInterface
         $stmt->execute([$cutoff]);
 
         $rows = [];
-        /** @var array<string, array{count: int, totals: list<float>, sql: list<int>, segments: array<string, list<float>>}> $byPath */
+        /** @var array<string, PathStats> $byPath */
         $byPath = [];
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $entry) {
             $decoded = json_decode((string) ($entry['context'] ?? ''), true);
@@ -74,7 +78,8 @@ class RequestTimelinesCollector implements SupportCollectorInterface
                 $rows[] = [
                     $loggedAt, $method, $path, $role,
                     self::ms($totalMs), $totalSql,
-                    $segment['label'], self::ms($segment['ms']), $segment['sql'], self::ms($segment['sql_ms']), $segment['mem_mb'],
+                    $segment['label'], self::ms($segment['ms']), $segment['sql'],
+                    self::ms($segment['sql_ms']), $segment['mem_mb'],
                 ];
             }
 
@@ -94,12 +99,14 @@ class RequestTimelinesCollector implements SupportCollectorInterface
             return;
         }
 
-        $context->addFileFromContent('request-timelines.csv', self::csv(array_merge(
-            [['horodatage', 'methode', 'chemin', 'role', 'total_ms', 'total_sql', 'segment', 'segment_ms', 'segment_sql', 'segment_sql_ms', 'memoire_mo']],
-            $rows
-        )));
+        $header = [
+            'horodatage', 'methode', 'chemin', 'role', 'total_ms', 'total_sql',
+            'segment', 'segment_ms', 'segment_sql', 'segment_sql_ms', 'memoire_mo',
+        ];
+        $context->addFileFromContent('request-timelines.csv', self::csv(array_merge([$header], $rows)));
         $context->addFileFromContent('request-timelines-resume.txt', self::summary($byPath));
-        $context->addNote(count($byPath) . ' chemin(s) mesuré(s), ' . array_sum(array_column($byPath, 'count')) . ' requête(s)');
+        $requests = array_sum(array_column($byPath, 'count'));
+        $context->addNote(count($byPath) . ' chemin(s) mesuré(s), ' . $requests . ' requête(s)');
     }
 
     /**
@@ -107,7 +114,7 @@ class RequestTimelinesCollector implements SupportCollectorInterface
      * the SQL counters existed have no `sql` keys and count as zero.
      *
      * @param array<int, mixed> $timeline
-     * @return list<array{label: string, ms: float, sql: int, sql_ms: float, at_ms: float, sql_at: int, mem_mb: string}>
+     * @return list<Segment>
      */
     private static function segments(array $timeline): array
     {
@@ -138,14 +145,18 @@ class RequestTimelinesCollector implements SupportCollectorInterface
     }
 
     /**
-     * @param array<string, array{count: int, totals: list<float>, sql: list<int>, segments: array<string, list<float>>}> $byPath
+     * @param array<string, PathStats> $byPath
      */
     private static function summary(array $byPath): string
     {
-        uasort($byPath, static fn(array $a, array $b): int => self::median($b['totals']) <=> self::median($a['totals']));
+        uasort(
+            $byPath,
+            static fn(array $a, array $b): int => self::median($b['totals']) <=> self::median($a['totals'])
+        );
 
         $lines = [
-            'Chronologies de requêtes enregistrées pendant une fenêtre de mesure (' . self::WINDOW_HOURS . ' dernières heures).',
+            'Chronologies de requêtes enregistrées pendant une fenêtre de mesure ('
+                . self::WINDOW_HOURS . ' dernières heures).',
             'Temps serveur uniquement : le réseau, le service worker et le rendu ne sont pas mesurés.',
             '',
         ];
@@ -160,7 +171,8 @@ class RequestTimelinesCollector implements SupportCollectorInterface
                 }
             }
             $lines[] = sprintf(
-                '%s — %d requête(s), médiane %s ms, maximum %s ms, %d instruction(s) SQL en médiane, segment le plus lourd : %s (%s ms)',
+                '%s — %d requête(s), médiane %s ms, maximum %s ms, %d instruction(s) SQL en médiane,'
+                    . ' segment le plus lourd : %s (%s ms)',
                 $key,
                 $stats['count'],
                 self::ms(self::median($stats['totals'])),

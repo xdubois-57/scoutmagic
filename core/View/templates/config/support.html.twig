@@ -91,10 +91,10 @@
         </p>
 
         {% if measurement_open %}
-            <div class="alert alert-info small" role="status">
+            <output class="alert alert-info small d-block">
                 Mesure en cours jusqu'à {{ measurement_expires_at }} — {{ measurement_requests }} requête(s)
                 enregistrée(s) sur {{ measurement_cap }} au maximum.
-            </div>
+            </output>
             <form method="post" action="/config/support/measure/stop"
                   data-confirm="Arrêter la mesure maintenant ? Ce qui a déjà été enregistré est conservé."
                   data-confirm-label="Arrêter">
