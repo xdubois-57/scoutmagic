@@ -466,10 +466,26 @@
         if (icon) icon.className = busy ? 'spinner-border spinner-border-sm' : 'bi bi-magic';
     }
 
+    /**
+     * Enable or disable one AI button, unless it is mid-request.
+     *
+     * NOT `btn?.dataset.busy !== '1'`: optional chaining yields undefined
+     * for an absent button, and `undefined !== '1'` is TRUE, so the guard
+     * would fall through and dereference null. `X && X.y` is only
+     * interchangeable with `X?.y` when the result is TESTED for truth —
+     * never in front of a comparison that undefined satisfies.
+     */
+    function setAiButtonEnabled(btn, enabled) {
+        if (!btn || btn.dataset.busy === '1') {
+            return;
+        }
+        btn.disabled = !enabled;
+    }
+
     function updateAiButtonsState() {
         var enabled = hasTitleOrContent();
-        if (aiSummaryBtn?.dataset.busy !== '1') aiSummaryBtn.disabled = !enabled;
-        if (aiKeywordsBtn?.dataset.busy !== '1') aiKeywordsBtn.disabled = !enabled;
+        setAiButtonEnabled(aiSummaryBtn, enabled);
+        setAiButtonEnabled(aiKeywordsBtn, enabled);
     }
 
     var titleInputEl = document.querySelector('input[name="title"]');
