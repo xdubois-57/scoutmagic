@@ -58,6 +58,7 @@ import { expect, test } from '@playwright/test';
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { loginAsAdmin } from '../support/admin-login.js';
 import { moduleToggle, toggleModule } from '../support/modules.js';
+import { waitForServerResponse } from '../support/response.js';
 
 const GALLERY = 'Galerie photos et vidéos';
 const GROUPS = 'Groupes de discussion';
@@ -109,7 +110,7 @@ test('a hard dependency is refused both ways, and an optional one degrades and c
     // response is awaited first: asserting any earlier would read an
     // empty screen every time, whatever the server answered.
     await Promise.all([
-        page.waitForResponse((response) => response.url().includes('/config/modules/toggle')),
+        waitForServerResponse(page, (response) => response.url().includes('/config/modules/toggle')),
         moduleToggle(page, GALLERY).uncheck(),
     ]);
 

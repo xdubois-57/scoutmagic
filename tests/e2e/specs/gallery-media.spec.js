@@ -32,6 +32,7 @@ import { loginAsAdmin, loginAsMember } from '../support/admin-login.js';
 import { noisePngBuffer, pngBuffer } from '../support/png.js';
 import { runScheduler } from '../support/scheduler.js';
 import { scaled } from '../support/timeouts.js';
+import { waitForServerResponse } from '../support/response.js';
 
 const ALBUM_TITLE = `Camp d'été E2E ${Date.now()}`;
 
@@ -134,7 +135,7 @@ test('a chief uploads plain and chunked, reorders by drag, and a member browses 
         throw new Error('the third tile has no box — the grid did not render');
     }
 
-    const reorderSaved = page.waitForResponse((response) => response.url().includes('/media/reorder'));
+    const reorderSaved = waitForServerResponse(page, (response) => response.url().includes('/media/reorder'));
     await items.first().dragTo(dropTarget, {
         targetPosition: { x: targetBox.width * 0.9, y: targetBox.height / 2 },
     });

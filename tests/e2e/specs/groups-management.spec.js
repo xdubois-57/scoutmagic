@@ -55,6 +55,7 @@ import { autoConfirm } from '../support/confirm-dialog.js';
 import { loginAsAdmin, loginAsMember } from '../support/admin-login.js';
 // Shared with specs/groups-discussion.spec.js — see support/groups.js.
 import { openComposer, openCreateGroupForm, waitForGroupsJsReady } from '../support/groups.js';
+import { waitForServerResponse } from '../support/response.js';
 
 // Unique per run, so a re-run against a database that somehow survived
 // still matches its own group rather than an older one by name.
@@ -90,7 +91,7 @@ function memberRow(page, name) {
  */
 async function submitAndReload(page, control, route) {
     await Promise.all([
-        page.waitForResponse((response) =>
+        waitForServerResponse(page, (response) =>
             response.url().includes(route) && response.request().method() === 'POST'),
         control.click(),
     ]);
@@ -264,7 +265,7 @@ test('a moderator opens a group, invites somebody, promotes, closes, reopens and
         const pinDialog = page.locator('#groups-detail-modal');
         await expect(pinDialog.getByText('Pendant combien de temps ?')).toBeVisible();
         await Promise.all([
-            page.waitForResponse((response) =>
+            waitForServerResponse(page, (response) =>
                 response.url().includes('/pin') && response.request().method() === 'POST'),
             pinDialog.getByRole('button', { name: '1 semaine' }).click(),
         ]);
