@@ -209,8 +209,14 @@
         if (isWhitelisted(path) || !canShowDialog()) {
             return;
         }
+        var href = sameOriginUrl(link.getAttribute('href'));
+        if (href === null) {
+            // "/" is also how a protocol-relative "//elsewhere/…" starts;
+            // that one is the browser's to refuse or follow, never a URL
+            // this script hands to location.assign() itself.
+            return;
+        }
         event.preventDefault();
-        var href = /** @type {HTMLAnchorElement} */ (link).href;
         probeConnectivity().then(function (reachable) {
             if (reachable) {
                 window.location.assign(href);
@@ -219,6 +225,30 @@
             }
         });
     }, true);
+
+    /**
+     * The one URL this script ever navigates to on its own, validated at
+     * the sink: resolved against the page, and accepted only when it stays
+     * on this origin over http(s). A relative path always does; anything
+     * else (another host, another scheme) is not this script's to open.
+     *
+     * @param {string|null} attribute the link's href attribute as written
+     * @returns {string|null} the resolved URL, or null when it may not be used
+     */
+    function sameOriginUrl(attribute) {
+        if (!attribute) {
+            return null;
+        }
+        try {
+            var resolved = new URL(attribute, window.location.href);
+            if ((resolved.protocol !== 'http:' && resolved.protocol !== 'https:') || resolved.origin !== window.location.origin) {
+                return null;
+            }
+            return resolved.href;
+        } catch (e) {
+            return null;
+        }
+    }
 
     /**
      * Is the server actually reachable right now? One HEAD, never cached,

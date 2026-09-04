@@ -304,6 +304,26 @@ describe('offline-nav.js: click interception (layer 1a — links)', () => {
         vi.unstubAllGlobals();
     });
 
+    it('never navigates to another origin on its own: a protocol-relative "//host/…" href is left to the browser', async () => {
+        buildConfig(CORE_WHITELIST);
+        buildDialog();
+        const link = buildLink('//evil.example/finance');
+        setOnline(false);
+        const probe = vi.fn(() => Promise.resolve({ ok: true }));
+        window.fetch = probe;
+        const assign = vi.fn();
+        vi.stubGlobal('location', { ...window.location, assign });
+        await boot();
+
+        const evt = new MouseEvent('click', { bubbles: true, cancelable: true });
+        link.dispatchEvent(evt);
+        expect(evt.defaultPrevented).toBe(false);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(assign).not.toHaveBeenCalled();
+        expect(probe).not.toHaveBeenCalled();
+        vi.unstubAllGlobals();
+    });
+
     it('never cancels a click it could not explain — no dialog markup, or no Bootstrap yet', async () => {
         buildConfig(CORE_WHITELIST);
         const link = buildLink('/finance');
@@ -405,15 +425,22 @@ describe('offline-nav.js: submit interception (layer 1b — forms, unconditional
     ])('blocks submission the same way whether the current page ($path) is whitelisted or not', async ({ path }) => {
         buildConfig(CORE_WHITELIST);
         buildDialog();
+        // Put back afterwards: a later test resolving a link against
+        // location.href would otherwise see '' and never navigate.
+        const originalLocation = Object.getOwnPropertyDescriptor(window, 'location');
         Object.defineProperty(window, 'location', { configurable: true, value: { pathname: path, href: '' } });
-        const form = buildForm();
-        form.setAttribute('action', path);
-        setOnline(false);
-        await boot();
+        try {
+            const form = buildForm();
+            form.setAttribute('action', path);
+            setOnline(false);
+            await boot();
 
-        const evt = new Event('submit', { bubbles: true, cancelable: true });
-        form.dispatchEvent(evt);
-        expect(evt.defaultPrevented).toBe(true);
+            const evt = new Event('submit', { bubbles: true, cancelable: true });
+            form.dispatchEvent(evt);
+            expect(evt.defaultPrevented).toBe(true);
+        } finally {
+            Object.defineProperty(window, 'location', originalLocation);
+        }
     });
 });
 
