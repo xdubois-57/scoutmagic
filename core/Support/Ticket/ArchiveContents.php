@@ -36,6 +36,8 @@ final class ArchiveContents
         'configuration_parameters' => "Les paramètres de configuration du site, secrets retirés.",
         'event_journal' => "Un résumé du journal des évènements des dernières 48 h, qui contient des identifiants "
             . "internes.",
+        'request_timelines' => "Les chronologies de requêtes enregistrées pendant une fenêtre de mesure : le chemin de "
+            . "chaque page servie et le temps passé dans chaque étape, jamais le contenu des pages.",
         'scheduled_tasks' => "L'état des tâches planifiées du site.",
         'update_history' => 'Quelle version tournait à quel moment, et le résultat de chaque mise à jour.',
         'phpinfo' => "La configuration détaillée de PHP sur votre hébergement (sans les variables d'environnement).",

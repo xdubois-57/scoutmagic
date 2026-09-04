@@ -85,4 +85,24 @@ class RequestTimelineTest extends TestCase
         $this->assertSame(2, $after['sql'] - $before['sql'], 'the delta between two checkpoints is the segment\'s own statement count');
         $this->assertGreaterThanOrEqual($before['sql_ms'], $after['sql_ms']);
     }
+
+    public function testActivateRecordsWithoutTheDebugQueryParam(): void
+    {
+        $this->assertFalse(RequestTimeline::wasRequested());
+
+        RequestTimeline::activate();
+        RequestTimeline::mark('inside_a_measurement_window');
+
+        $this->assertTrue(RequestTimeline::isActive());
+        $this->assertFalse(RequestTimeline::wasRequested(), 'a window is not an explicit request');
+        $this->assertSame('inside_a_measurement_window', RequestTimeline::getEntries()[0]['label']);
+    }
+
+    public function testAnExplicitRequestIsToldApartFromAWindow(): void
+    {
+        $_GET['debug'] = '1';
+
+        $this->assertTrue(RequestTimeline::wasRequested());
+        $this->assertTrue(RequestTimeline::isActive());
+    }
 }
