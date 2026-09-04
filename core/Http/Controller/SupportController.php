@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Core\Http\Controller;
 
 use Core\Config\AppClock;
+use Core\Debug\MeasurementWindow;
 use Core\Config\SettingService;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
@@ -90,7 +91,12 @@ class SupportController extends AbstractController
          * The diagnostic mail probes (roadmap IT-27). Null when nothing
          * wired one — the section then does not render, like the rest.
          */
-        private ?MailProbeSender $probeSender = null
+        private ?MailProbeSender $probeSender = null,
+        /**
+         * The measurement window (Core\Debug\MeasurementWindow). Null when
+         * nothing wired one — the card then does not render.
+         */
+        private ?MeasurementWindow $measurementWindow = null
     ) {
     }
 
@@ -192,7 +198,82 @@ class SupportController extends AbstractController
             // the support will be looking for. There is no probe button
             // any more: a probe goes with a ticket and only with one.
             'probe_last_run' => $this->probeSender?->lastRun(),
+            // The measurement window: whether one can be opened, whether one
+            // is open and until when (on the application clock, as a time
+            // of day — it closes within the hour), and how many requests
+            // the current or last one recorded, so the page can say what
+            // the next archive will carry.
+            'measurement_available' => $this->measurementWindow !== null,
+            'measurement_open' => $this->measurementWindow?->isOpen() ?? false,
+            'measurement_expires_at' => $this->measurementWindow?->expiresAt()?->setTimezone(AppClock::zone())->format('H:i') ?? '',
+            'measurement_requests' => $this->measurementWindow?->recordedRequests() ?? 0,
+            'measurement_minutes' => MeasurementWindow::DEFAULT_MINUTES,
+            'measurement_cap' => MeasurementWindow::MAX_REQUESTS,
         ]);
+    }
+
+    /**
+     * POST /config/support/measure — opens the measurement window for
+     * MeasurementWindow::DEFAULT_MINUTES (docs/chantiers/CHANTIER-performance.md
+     * §6). A plain form with data-confirm: the page has to say, before
+     * anything is recorded, that every request of every account will be.
+     *
+     * @param array<string, string> $params
+     */
+    public function startMeasurement(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, '/config/support')) !== null) {
+            return $guard;
+        }
+        if ($this->measurementWindow === null) {
+            FlashMessage::set('error', "La mesure n'est pas disponible sur cette installation.");
+
+            return $this->redirect('/config/support');
+        }
+
+        $expiresAt = $this->measurementWindow->open(MeasurementWindow::DEFAULT_MINUTES);
+        $this->journalService->log(
+            'core',
+            'measurement_window_opened',
+            'info',
+            'Fenêtre de mesure des performances ouverte pour ' . MeasurementWindow::DEFAULT_MINUTES . ' minutes',
+            ['expires_at' => $expiresAt->format(\DateTimeInterface::ATOM)],
+            AuthSession::getUserAccountId()
+        );
+        FlashMessage::set(
+            'success',
+            'Mesure en cours jusqu\'à ' . $expiresAt->setTimezone(AppClock::zone())->format('H:i')
+                . ' : parcourez les pages qui vous paraissent lentes, puis revenez ici générer un paquet de support et envoyer un ticket.'
+        );
+
+        return $this->redirect('/config/support');
+    }
+
+    /**
+     * POST /config/support/measure/stop — closes it early. What was
+     * recorded stays in the journal and goes into the next archive.
+     *
+     * @param array<string, string> $params
+     */
+    public function stopMeasurement(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, '/config/support')) !== null) {
+            return $guard;
+        }
+        if ($this->measurementWindow !== null && $this->measurementWindow->isOpen()) {
+            $this->measurementWindow->close();
+            $this->journalService->log(
+                'core',
+                'measurement_window_closed',
+                'info',
+                'Fenêtre de mesure des performances fermée, ' . $this->measurementWindow->recordedRequests() . ' requête(s) enregistrée(s)',
+                ['requests' => $this->measurementWindow->recordedRequests()],
+                AuthSession::getUserAccountId()
+            );
+        }
+        FlashMessage::set('success', 'Mesure arrêtée.');
+
+        return $this->redirect('/config/support');
     }
 
     /**

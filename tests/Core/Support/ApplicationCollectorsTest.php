@@ -11,6 +11,7 @@ use Core\Scheduler\CoreTaskHandlers;
 use Core\Support\Collector\ConfigurationParametersCollector;
 use Core\Support\Collector\DatabaseStructureCollector;
 use Core\Support\Collector\EventJournalCollector;
+use Core\Support\Collector\RequestTimelinesCollector;
 use Core\Support\Collector\OpcacheCollector;
 use Core\Support\Collector\ScheduledTasksCollector;
 use Core\Support\Collector\UpdateHistoryCollector;
@@ -563,6 +564,103 @@ class ApplicationCollectorsTest extends TestCase
         $this->pdo->prepare(
             'INSERT INTO update_history (version_from, version_to, status, started_at, completed_at, error_message) VALUES (?, ?, ?, ?, ?, ?)'
         )->execute([$from, $to, $status, $startedAt, $completedAt, $error]);
+    }
+
+    /**
+     * A `debug_request_timeline` row as public/index.php writes it: the
+     * cumulative checkpoints of one request.
+     *
+     * @param array<int, array{label: string, t_ms: float, sql: int, sql_ms: float}> $timeline
+     */
+    private function insertTimelineEntry(string $relativeTime, string $path, array $timeline, string $role = 'chief'): void
+    {
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO event_log (logged_at, user_account_id, ip_address, category, event_type, level, description, context) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            (new \DateTimeImmutable($relativeTime))->format('Y-m-d H:i:s'),
+            null,
+            '192.0.2.10',
+            'core',
+            'debug_request_timeline',
+            'info',
+            'Chronologie détaillée de requête (fenêtre de mesure) : GET ' . $path,
+            json_encode(['method' => 'GET', 'path' => $path, 'role' => $role, 'timeline' => array_map(
+                static fn(array $entry): array => $entry + ['mem_mb' => 4.0],
+                $timeline
+            )]),
+        ]);
+    }
+
+    // --- request-timelines.csv ---
+
+    public function testAWindowThatRecordedNothingIsSaidNotShippedEmpty(): void
+    {
+        $this->insertJournalEntry('-1 hour', 'login_success');
+
+        $result = $this->runCollector(new RequestTimelinesCollector());
+
+        $this->assertSame('no_measurement_recorded', $result['unavailable']);
+        $this->assertSame([], $result['entries']);
+    }
+
+    public function testEverySegmentOfARecordedRequestIsOneLineWithItsOwnDeltas(): void
+    {
+        $this->insertTimelineEntry('-10 minutes', '/chefs/staffs', [
+            ['label' => 'request_parsed', 't_ms' => 1.0, 'sql' => 0, 'sql_ms' => 0.0],
+            ['label' => 'services_ready', 't_ms' => 21.0, 'sql' => 30, 'sql_ms' => 8.0],
+            ['label' => 'controller_dispatch_done', 't_ms' => 145.5, 'sql' => 53, 'sql_ms' => 30.5],
+        ]);
+
+        $result = $this->runCollector(new RequestTimelinesCollector());
+        $csv = $result['entries']['request-timelines.csv'];
+        $lines = array_values(array_filter(explode("\n", $csv)));
+
+        $this->assertSame('horodatage;methode;chemin;role;total_ms;total_sql;segment;segment_ms;segment_sql;segment_sql_ms;memoire_mo', $lines[0]);
+        $this->assertCount(3, $lines, 'a header and one line per segment between two checkpoints');
+        $this->assertStringContainsString(';GET;/chefs/staffs;chief;145.5;53;services_ready;20.0;30;8.0;4', $lines[1]);
+        $this->assertStringContainsString(';GET;/chefs/staffs;chief;145.5;53;controller_dispatch_done;124.5;23;22.5;4', $lines[2]);
+    }
+
+    public function testTheSummaryNamesTheSlowestPathFirstAndItsHeaviestSegment(): void
+    {
+        $fast = [
+            ['label' => 'request_parsed', 't_ms' => 1.0, 'sql' => 0, 'sql_ms' => 0.0],
+            ['label' => 'services_ready', 't_ms' => 20.0, 'sql' => 30, 'sql_ms' => 8.0],
+            ['label' => 'controller_dispatch_done', 't_ms' => 30.0, 'sql' => 35, 'sql_ms' => 9.0],
+        ];
+        $slow = [
+            ['label' => 'request_parsed', 't_ms' => 1.0, 'sql' => 0, 'sql_ms' => 0.0],
+            ['label' => 'services_ready', 't_ms' => 20.0, 'sql' => 30, 'sql_ms' => 8.0],
+            ['label' => 'controller_dispatch_done', 't_ms' => 160.0, 'sql' => 53, 'sql_ms' => 30.0],
+        ];
+        $this->insertTimelineEntry('-3 minutes', '/', $fast);
+        $this->insertTimelineEntry('-2 minutes', '/chefs/staffs', $slow);
+        $this->insertTimelineEntry('-1 minute', '/chefs/staffs', $slow);
+
+        $result = $this->runCollector(new RequestTimelinesCollector());
+        $summary = $result['entries']['request-timelines-resume.txt'];
+        $lines = array_values(array_filter(explode("\n", $summary), static fn(string $l): bool => str_contains($l, ' — ')));
+
+        $this->assertStringStartsWith('GET /chefs/staffs — 2 requête(s), médiane 160.0 ms, maximum 160.0 ms, 53 instruction(s) SQL en médiane, segment le plus lourd : controller_dispatch_done (140.0 ms)', $lines[0]);
+        $this->assertStringStartsWith('GET / — 1 requête(s), médiane 30.0 ms', $lines[1]);
+        $this->assertStringContainsString('Temps serveur uniquement', $summary);
+        $this->assertContains('2 chemin(s) mesuré(s), 3 requête(s)', $result['notes']);
+    }
+
+    public function testTimelinesOlderThanTheJournalWindowAreLeftOut(): void
+    {
+        $timeline = [
+            ['label' => 'request_parsed', 't_ms' => 1.0, 'sql' => 0, 'sql_ms' => 0.0],
+            ['label' => 'services_ready', 't_ms' => 20.0, 'sql' => 30, 'sql_ms' => 8.0],
+        ];
+        $this->insertTimelineEntry('-49 hours', '/vieux', $timeline);
+        $this->insertTimelineEntry('-1 hour', '/recent', $timeline);
+
+        $csv = $this->runCollector(new RequestTimelinesCollector())['entries']['request-timelines.csv'];
+
+        $this->assertStringContainsString('/recent', $csv);
+        $this->assertStringNotContainsString('/vieux', $csv);
     }
 
     private function insertJournalEntry(string $relativeTime, string $eventType): void

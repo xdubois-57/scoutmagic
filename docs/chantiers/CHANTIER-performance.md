@@ -474,15 +474,17 @@ sauvegarde a déjà tourné, ils passent en 22 s. Ce n'est pas lié au chantier.
 
 ## 6. Suite envisagée : une fenêtre de mesure depuis la page Support
 
-Idée retenue le 4 septembre 2026, pas encore implémentée. Le superadmin
-ouvre, depuis Configuration > Support et après confirmation, une fenêtre
-de mesure de quelques minutes ; pendant ce temps chaque requête journalise
-sa chronologie comme le fait `?debug=1` ; il envoie ensuite un ticket dont
-l'archive contient les mesures. Ce qui existe déjà couvre l'essentiel :
-`RequestTimeline` écrit dans `event_log`, et `EventJournalCollector`
-embarque les 48 dernières heures du journal dans l'archive.
+Idée retenue le 4 septembre 2026, **implémentée le même jour**
+(`Core\Debug\MeasurementWindow`, `Core\Support\Collector\RequestTimelinesCollector`,
+`ARCHITECTURE.md` §8.48ter). Le superadmin ouvre, depuis Configuration >
+Support et après confirmation, une fenêtre de mesure de cinq minutes ;
+pendant ce temps chaque requête journalise sa chronologie comme le fait
+`?debug=1` ; il envoie ensuite un ticket dont l'archive contient les
+mesures. Ce qui existait déjà couvrait l'essentiel : `RequestTimeline`
+écrit dans `event_log`, et `EventJournalCollector` embarque les 48
+dernières heures du journal dans l'archive.
 
-À faire, dans cet ordre :
+Ce qui a été fait, dans cet ordre (les cinq points ci-dessous) :
 
 1. **Activation par une date de fin**, jamais par un drapeau : un réglage
    ou un fichier témoin `storage/cache/measure_until` dont la date
@@ -510,7 +512,8 @@ du plancher de 28 ms. Un `filemtime()` sur un fichier témoin absent coûte
 **2 µs**. Les deux approches sont donc sans effet mesurable ; celle du
 fichier témoin garde en plus la propriété actuelle, « aucun travail quand
 le mode est fermé », et se lit avant que les réglages ne soient
-disponibles. C'est celle à retenir.
+disponibles. C'est celle qui a été retenue : `storage/temp/measure_until`,
+dont la date de modification est l'expiration.
 
 ### Limite : on ne mesure que le serveur
 
@@ -522,7 +525,7 @@ application installée, « second appui » sur le menu) étaient entièrement
 côté client ; une fenêtre de mesure serveur les aurait montrés comme des
 pages à 50 ms.
 
-Second temps, à faire quand le besoin se présentera : pendant la fenêtre,
+Second temps, **pas fait**, à faire quand le besoin se présentera : pendant la fenêtre,
 la page envoie un petit beacon (`navigator.sendBeacon`) vers une route
 dédiée avec les métriques de navigation du navigateur
 (`PerformanceNavigationTiming` : temps jusqu'au premier octet, réponse

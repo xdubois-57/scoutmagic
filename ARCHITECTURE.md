@@ -1620,6 +1620,19 @@ The instance's half of §8.49ter, on Configuration > Support, `superadmin` like 
 
 **The category list is the receiver's**, published in every answer of the ticket endpoint and remembered here — including on a refusal, which is exactly when it has most to say. `TicketCategories::shipped()` is what an installation offers before it has ever heard one: a form that could not be filled until a previous ticket had been sent could not be used to send the first one. One malformed entry discredits the whole stored list, because a picker half-built from a corrupted setting is worse than the shipped one.
 
+### 8.48ter Measuring a slow site from the Support page (`Core\Debug\MeasurementWindow`)
+
+« Le site est lent » is the ticket a maintainer can do the least with: which page, for whom, and which of the forty steps of a request. `RequestTimeline` (`core/Debug/`, lot 0 of `docs/chantiers/CHANTIER-performance.md`) answers all three, but only for a request that carries `?debug=1` — an administrator's URL trick, never a chef's ordinary tap. The measurement window turns it on for **every request of every account** for a few minutes, so the person who sees the slowness measures it on the pages they see it on, and ships the result with the ticket.
+
+**The window is a flag file, and its modification time is its expiry.** `Core\Debug\MeasurementWindow::isOpen()` is one `filemtime()` on `storage/temp/measure_until` — 2 µs when the file is absent, which is the ordinary case — asked at the very top of `public/index.php`, before the database is connected and before the settings exist, because the requests worth measuring are the ones slow to get that far. It is deliberately not a setting: a setting is readable only once the settings service is built, and a setting somebody forgets to switch back stays on. A file whose time has passed is simply closed; nothing has to run for that to happen, so a window nobody stopped cannot outlive its five minutes (`DEFAULT_MINUTES`; `open()` clamps to `MAX_MINUTES`, fifteen). When it is open, `RequestTimeline::activate()` records the request exactly as `?debug=1` would; the clock still starts at the request's own start.
+
+**Every request, whoever sent it, and capped.** At the end of the request `index.php` journals the timeline (`debug_request_timeline`, with the method, the path, the role and the checkpoints — the path only, never the query string) either because an admin asked for it explicitly with `?debug=1`, as before, or because the window is open and `recordRequest()` still accepted one: a second file counts the recorded requests one byte each and refuses past `MAX_REQUESTS` (500), so a busy site during a window does not write thousands of journal rows. The window is re-checked there rather than remembered from the top of the file, so a request that started inside it and ended after its close is still one of its requests, and the cap is what stops it, not the clock. Anonymous requests are recorded too — the public pages can be slow as well — with `role: public` and no account. `RequestTimeline::wasRequested()` tells the two triggers apart: only the explicit one also writes the early `debug_request_hit` entry that survives a request the execution-time limit kills.
+
+**Opened from Configuration > Support (`superadmin`), behind a confirmation.** `SupportController::startMeasurement()` (`POST /config/support/measure`) is a plain form with `data-confirm`, because the page has to say, before anything is recorded, that every page served for the next five minutes will be journaled for every account; `stopMeasurement()` closes it early and keeps the count. Both are journaled (`measurement_window_opened` / `measurement_window_closed`). The card shows the window's state — until when, on the application clock, and how many requests it recorded of the cap — and, once closed, reminds the administrator to generate a **new** support package before sending the ticket: the archive is what carries the measurements, and the one generated yesterday does not have them.
+
+**The archive gets two readable files, not journal rows.** `Core\Support\Collector\RequestTimelinesCollector` (`request_timelines`, described on the consent screen like every other collector — `ArchiveContents`) reads the `debug_request_timeline` rows of the same 48-hour window the journal export uses and writes `request-timelines.csv`, one line per **segment** of every recorded request (the time and the SQL statements between two consecutive checkpoints, which is how an N+1 or a heavy module block is read off a timeline rather than off the code), and `request-timelines-resume.txt`, one line per path, slowest first: count, median and worst total, median statement count, and the segment that costs the most. A window that recorded nothing is reported as `no_measurement_recorded`, not shipped as an empty file.
+
+**What it cannot see, said on the page and in the summary.** The timeline measures the server, between the first line of `index.php` and the last byte of the response. It sees nothing of the network, the service worker, the offline pre-download or the rendering — and the two symptoms that started the performance chantier (a slow installed app, a menu tap that seemed to do nothing) were entirely on that side. A ticket measured through this window and showing 50 ms pages is therefore not proof that all is well; `docs/chantiers/CHANTIER-performance.md` §6 describes the client-side beacon that would complete it.
 ### 8.49 Statistics receiver module (`modules/support_dashboard`)
 
 The other end of §8.47: one ScoutMagic installation acts as the receiver, collects every other installation's daily report, and shows them on a dashboard. The working name "GLOBAL STATISTICS" appears nowhere — the module is `support_dashboard`, "Tableau de bord support".
@@ -3353,10 +3366,12 @@ core/
   Image/         ImageDimensionGuard — the pixel-count ceiling every decode passes (SECURITY.md §25)
   System/        ExecutableLocator, ShellExecutor
   Debug/         RequestTimeline — opt-in `?debug=1` per-request timing/memory checkpoints, each
-                 stamped with the running SQL statement count (one per module block of index.php).
-                 Server time only: it sees nothing of the network, the service worker or the
-                 rendering (docs/chantiers/CHANTIER-performance.md §6 for the client-side beacon
-                 that would complete it)
+                 stamped with the running SQL statement count (one per module block of index.php);
+                 MeasurementWindow — the flag file that turns it on for every request for a few
+                 minutes, from Configuration > Support (§8.48ter). Server time only: it sees nothing
+                 of the network, the service worker or the rendering
+                 (docs/chantiers/CHANTIER-performance.md §6 for the client-side beacon that would
+                 complete it)
   Exception/     UserFacingException/UserFacingMessage — the marker that says a caught
                  exception's message may be shown to the visitor verbatim
   Service/       Cross-cutting helpers (e.g. TextNormalizerService, DeskDateParser)

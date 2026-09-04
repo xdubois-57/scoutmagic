@@ -194,6 +194,18 @@ $secretManager = new SecretManager(
 $dkimManager = new DkimManager(__DIR__ . '/../storage/keys');
 $schemaPath = __DIR__ . '/../schema/core.sql';
 
+// A measurement window opened from Configuration > Support records the
+// timeline of every request while it lasts (Core\Debug\MeasurementWindow).
+// One stat on an absent file when there is none — checked here, before
+// the database and the settings exist, because the window is about the
+// requests that are slow to get that far.
+$measurementWindow = new \Core\Debug\MeasurementWindow(
+    \Core\Debug\MeasurementWindow::flagPathIn(__DIR__ . '/../storage')
+);
+if ($measurementWindow->isOpen()) {
+    \Core\Debug\RequestTimeline::activate();
+}
+
 // Create the request early to check the path
 $request = Request::fromGlobals();
 \Core\Debug\RequestTimeline::mark('request_parsed', ['path' => $request->getPath()]);
@@ -958,7 +970,7 @@ $auditAccessResolver = new \Core\Audit\AuditAccessResolver();
 // deferred to the end-of-request summary, specifically so a debug run
 // against /admin/journal itself shows up on the very page load that
 // triggered it, rather than only becoming visible on a second reload.
-if (\Core\Debug\RequestTimeline::isActive() && \Core\Security\AuthSession::isAuthenticated()
+if (\Core\Debug\RequestTimeline::wasRequested() && \Core\Security\AuthSession::isAuthenticated()
     && in_array(\Core\Security\AuthSession::getRole(), ['admin', 'superadmin'], true)
 ) {
     \Core\Debug\RequestTimeline::mark('debug_active_confirmed');
@@ -2178,6 +2190,8 @@ $router->addRoute('POST', '/config/settings/logo-notify-ios', SettingsController
 // Support (Core\Statistics, Core\Support — ARCHITECTURE.md §8.47/§8.48)
 $router->addRoute('GET', '/config/support', SupportController::class, 'index', 'superadmin', ['label' => 'Support', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
 $router->addRoute('POST', '/config/support/statistics', SupportController::class, 'saveStatistics', 'superadmin');
+$router->addRoute('POST', '/config/support/measure', SupportController::class, 'startMeasurement', 'superadmin');
+$router->addRoute('POST', '/config/support/measure/stop', SupportController::class, 'stopMeasurement', 'superadmin');
 $router->addRoute('POST', '/config/support/statistics/test', SupportController::class, 'sendTestStatistics', 'superadmin');
 $router->addRoute('POST', '/config/support/package', SupportController::class, 'generatePackage', 'superadmin');
 // One support ticket, sent now (roadmap IT-25). Same floor as the rest of
@@ -2865,7 +2879,10 @@ $frontController->registerController(SupportController::class, new SupportContro
         $mailService,
         $journalService,
         \Core\Maintenance\VersionFile::read(dirname(__DIR__))
-    )
+    ),
+    // The measurement window (docs/chantiers/CHANTIER-performance.md §6):
+    // the same instance the top of this file asked whether to record.
+    $measurementWindow
 ));
 $frontController->registerController(ScheduledActionsController::class,
     new ScheduledActionsController($twig, $schedulerRepo));
@@ -6617,17 +6634,26 @@ if ($usageStatsRecorder !== null) {
 // URL param anyone could replay) would make this a standing, unauthenticated
 // way to force extra journal writes on every request. Written last, so a
 // slow request shows up in the same timeline in full.
-if (\Core\Debug\RequestTimeline::isActive() && \Core\Security\AuthSession::isAuthenticated()
-    && in_array(\Core\Security\AuthSession::getRole(), ['admin', 'superadmin'], true)
-) {
+// Inside a measurement window every request is recorded, whoever sent it
+// and up to the window's cap; outside one, only an admin's explicit
+// ?debug=1. The window is re-checked here rather than remembered from
+// the top of the file: a request that started inside it and ends after
+// its close is still one of its requests, and the cap is what stops it.
+if (\Core\Debug\RequestTimeline::isActive() && (
+    (\Core\Debug\RequestTimeline::wasRequested() && \Core\Security\AuthSession::isAuthenticated()
+        && in_array(\Core\Security\AuthSession::getRole(), ['admin', 'superadmin'], true))
+    || (!\Core\Debug\RequestTimeline::wasRequested() && $measurementWindow->recordRequest())
+)) {
     $journalService->log(
         'core',
         'debug_request_timeline',
         'info',
-        'Chronologie détaillée de requête (?debug=1) : ' . $request->getMethod() . ' ' . $request->getPath(),
+        'Chronologie détaillée de requête (' . (\Core\Debug\RequestTimeline::wasRequested() ? '?debug=1' : 'fenêtre de mesure') . ') : '
+            . $request->getMethod() . ' ' . $request->getPath(),
         [
             'method' => $request->getMethod(),
             'path' => $request->getPath(),
+            'role' => \Core\Security\AuthSession::getRole(),
             'timeline' => \Core\Debug\RequestTimeline::getEntries(),
         ],
         \Core\Security\AuthSession::getUserAccountId()

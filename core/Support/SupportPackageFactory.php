@@ -24,6 +24,7 @@ use Core\Support\Collector\FilesystemCollector;
 use Core\Support\Collector\LogsCollector;
 use Core\Support\Collector\OpcacheCollector;
 use Core\Support\Collector\PhpInfoCollector;
+use Core\Support\Collector\RequestTimelinesCollector;
 use Core\Support\Collector\ScheduledTasksCollector;
 use Core\Support\Collector\StatisticsCollector;
 use Core\Support\Collector\UpdateHistoryCollector;
@@ -68,6 +69,7 @@ final class SupportPackageFactory
             new DatabaseStructureCollector(),
             new ConfigurationParametersCollector(),
             new EventJournalCollector(),
+            new RequestTimelinesCollector(),
             new ScheduledTasksCollector(StatisticsServiceFactory::moduleManager($context)),
             new UpdateHistoryCollector(),
             new PhpInfoCollector(),
@@ -101,6 +103,7 @@ final class SupportPackageFactory
             'database_structure',
             'configuration_parameters',
             'event_journal',
+            'request_timelines',
             'scheduled_tasks',
             'update_history',
             'phpinfo',

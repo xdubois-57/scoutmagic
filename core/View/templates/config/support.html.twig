@@ -76,6 +76,48 @@
 </div>
 
 {% if ticket_available %}
+{% if measurement_available %}
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h5 mb-3">Mesurer une lenteur</h2>
+
+        <p class="small text-body-secondary">
+            Pendant {{ measurement_minutes }} minutes, chaque page servie par le site enregistre dans le journal le
+            temps passé dans chacune de ses étapes et le nombre de requêtes à la base de données — pour tous les
+            comptes, pas seulement le vôtre. Parcourez les pages qui vous paraissent lentes, puis générez un nouveau
+            paquet de support et joignez-le à un ticket : l'archive contient ces mesures. Seul le chemin des pages
+            est enregistré, jamais leur contenu ni leurs paramètres. La mesure s'arrête d'elle-même et ne concerne
+            que le serveur : le réseau et l'appareil du visiteur ne sont pas mesurés.
+        </p>
+
+        {% if measurement_open %}
+            <div class="alert alert-info small" role="status">
+                Mesure en cours jusqu'à {{ measurement_expires_at }} — {{ measurement_requests }} requête(s)
+                enregistrée(s) sur {{ measurement_cap }} au maximum.
+            </div>
+            <form method="post" action="/config/support/measure/stop"
+                  data-confirm="Arrêter la mesure maintenant ? Ce qui a déjà été enregistré est conservé."
+                  data-confirm-label="Arrêter">
+                {{ csrf_field()|raw }}
+                <button type="submit" class="btn btn-outline-secondary">Arrêter la mesure</button>
+            </form>
+        {% else %}
+            {% if measurement_requests > 0 %}
+                <p class="small">
+                    La dernière mesure a enregistré {{ measurement_requests }} requête(s). Générez un nouveau paquet
+                    de support avant d'envoyer le ticket : c'est lui qui les emporte.
+                </p>
+            {% endif %}
+            <form method="post" action="/config/support/measure"
+                  data-confirm="Activer la mesure pendant {{ measurement_minutes }} minutes ? Chaque page servie pendant ce temps sera enregistrée dans le journal, pour tous les comptes."
+                  data-confirm-label="Mesurer">
+                {{ csrf_field()|raw }}
+                <button type="submit" class="btn btn-outline-primary">Mesurer pendant {{ measurement_minutes }} minutes</button>
+            </form>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
 <div class="card mb-3">
     <div class="card-body">
         <h2 class="h5 mb-3">Contacter le support</h2>

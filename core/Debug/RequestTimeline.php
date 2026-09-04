@@ -12,10 +12,11 @@ use Core\Database\QueryCounter;
 
 /**
  * Opt-in, per-request timing/memory checkpoints for diagnosing slow page
- * loads in production — activated by `?debug=1` on any URL, but only ever
- * written to the event journal for an authenticated admin (gated by the
- * caller, not this class, since role resolution happens well after this
- * needs to start recording). A plain static accumulator rather than an
+ * loads in production — activated by `?debug=1` on any URL, or for every
+ * request while a Core\Debug\MeasurementWindow is open, but only ever
+ * written to the event journal for an authenticated admin or inside that
+ * window (gated by the caller, not this class, since role resolution
+ * happens well after this needs to start recording). A plain static accumulator rather than an
  * injected service: the thing being measured is the whole request,
  * starting before most services exist, and ending past the point normal
  * request-scoped objects are still in scope for public/index.php to hand
@@ -43,11 +44,35 @@ final class RequestTimeline
     public static function isActive(): bool
     {
         if (self::$active === null) {
-            self::$active = isset($_GET['debug']);
+            self::$active = self::wasRequested();
             self::$start = $_SERVER['REQUEST_TIME_FLOAT'] ?? microtime(true);
         }
 
         return self::$active;
+    }
+
+    /**
+     * Whether THIS request asked for its timeline with `?debug=1` — as
+     * opposed to being recorded because a measurement window is open
+     * (Core\Debug\MeasurementWindow). The two are journaled differently:
+     * only the explicit request also gets the early `debug_request_hit`
+     * entry, and only an admin's explicit request is journaled outside a
+     * window.
+     */
+    public static function wasRequested(): bool
+    {
+        return isset($_GET['debug']);
+    }
+
+    /**
+     * Records this request whatever its query string: what a measurement
+     * window does to every request while it is open. Called before the
+     * first mark(); the clock still starts at the request's own start.
+     */
+    public static function activate(): void
+    {
+        self::isActive();
+        self::$active = true;
     }
 
     /**
