@@ -17,21 +17,21 @@
     {% include '@groups/partials/search_form.html.twig' %}
 
     {% if too_short %}
-        <p class="text-body-secondary" role="status">
+        <output class="text-body-secondary d-block">
             Saisissez au moins {{ min_length }} caractères pour lancer une recherche.
-        </p>
+        </output>
     {% elseif not has_searched %}
-        <p class="text-body-secondary" role="status">
+        <output class="text-body-secondary d-block">
             Recherchez un mot dans les messages et les réponses de ce groupe.
-        </p>
+        </output>
     {% elseif results is empty %}
-        <p class="text-body-secondary" role="status">
+        <output class="text-body-secondary d-block">
             Aucun message ne contient « {{ query }} ».
-        </p>
+        </output>
     {% else %}
-        <p class="text-body-secondary small" role="status">
+        <output class="text-body-secondary small d-block">
             {{ results|length }} message{{ results|length > 1 ? 's' : '' }} contenant « {{ query }} »{% if results|length >= result_limit %}, les plus récents{% endif %}.
-        </p>
+        </output>
         {#
           The feed's own card, unchanged. `post_permission` is deliberately
           not passed: a result is something to read and then open in the

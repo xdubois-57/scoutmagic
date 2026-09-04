@@ -103,7 +103,7 @@
         <h2 class="h5 mb-0">Règles de catégorisation</h2>
         <div class="d-flex flex-wrap align-items-center gap-2">
             <span class="text-body-secondary small d-none" id="run-rules-status">
-                <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                <output class="spinner-border spinner-border-sm" aria-hidden="true"></output>
                 Exécution en arrière-plan…
             </span>
             <button type="button" class="btn btn-sm btn-outline-secondary" id="run-rules-btn">Exécuter les règles</button>
@@ -114,7 +114,7 @@
     {# The last background run's summary — filled by finance-categories.js
        when a run completes and left on the page so the numbers can be
        re-read (a transient alert() used to carry them and vanish). #}
-    <div class="alert alert-info small d-none" id="run-rules-result" role="status"></div>
+    <output class="alert alert-info small d-none d-block" id="run-rules-result"></output>
     <p class="text-body-secondary small mb-2">
         Les règles sont évaluées dans l'ordre ci-dessous (glisser-déposer pour réordonner) ; la première qui
         correspond entièrement détermine la catégorie.

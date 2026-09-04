@@ -44,7 +44,16 @@ class MemberStatsRepository
     }
 
     /**
-     * @return array<int, array{branch_label: string, branch_sort_order: int, birth_date: ?string, gender: ?string, scout_year_offset: int}>
+     * @return array<
+     *     int,
+     *     array{
+     *         branch_label: string,
+     *         branch_sort_order: int,
+     *         birth_date: ?string,
+     *         gender: ?string,
+     *         scout_year_offset: int
+     *     }
+     * >
      */
     public function getMemberBranchData(int $scoutYearId): array
     {

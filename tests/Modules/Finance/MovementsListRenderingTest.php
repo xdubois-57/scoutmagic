@@ -12,13 +12,13 @@ use PHPUnit\Framework\TestCase;
  *
  * Regression coverage for the inert mobile cards: the page renders the
  * movements twice (desktop <tr class="movement-row">, mobile card
- * <div class="movement-row">), but the inline script used to bind click
- * handlers via querySelectorAll('tr.movement-row') — table rows only.
- * The mobile cards showed a pointer cursor and did nothing, so a phone
- * user could not categorize or comment a movement. The fix is a single
- * delegated listener resolving e.target.closest('.movement-row'), which
- * covers both views, plus role="button"/tabindex="0" on the card so it
- * is reachable and activable from the keyboard.
+ * <button class="movement-row">), but the inline script used to bind
+ * click handlers via querySelectorAll('tr.movement-row') — table rows
+ * only. The mobile cards showed a pointer cursor and did nothing, so a
+ * phone user could not categorize or comment a movement. The fix is a
+ * single delegated listener resolving e.target.closest('.movement-row'),
+ * which covers both views, and a card that is a real <button> so it is
+ * reachable and activable from the keyboard with nothing added.
  */
 class MovementsListRenderingTest extends TestCase
 {
@@ -85,7 +85,7 @@ class MovementsListRenderingTest extends TestCase
 
         // Mobile card variant.
         $this->assertMatchesRegularExpression(
-            '/<div class="[^"]*\bmovement-row\b[^"]*"/',
+            '/<button[^>]*class="[^"]*\bmovement-row\b[^"]*"/s',
             $html
         );
         // Desktop table row variant.
@@ -99,10 +99,14 @@ class MovementsListRenderingTest extends TestCase
     {
         $html = $this->render();
 
+        // A real <button>, not a div wearing role="button" and a tabindex:
+        // focus, Enter and Space then come with the element (Sonar
+        // Web:S6819).
         $this->assertMatchesRegularExpression(
-            '/<div class="[^"]*\bmovement-row\b[^"]*"\s+role="button" tabindex="0"/',
+            '/<button type="button"\s+class="[^"]*\bmovement-row\b[^"]*"/s',
             $html
         );
+        $this->assertStringNotContainsString('role="button"', $html);
         // The pointer affordance lives on the class now, not on an inline style.
         $this->assertStringNotContainsString('style="cursor:pointer', $html);
         $this->assertStringNotContainsString('style="cursor: pointer', $html);
@@ -126,6 +130,6 @@ class MovementsListRenderingTest extends TestCase
         $this->assertMatchesRegularExpression('~<script src="/assets/js/finance-movements\.js\?v=[^"]+" defer></script>~', $html);
         // And that both views still carry the class the delegation resolves.
         $this->assertMatchesRegularExpression('~<tr[^>]*class="[^"]*\bmovement-row\b~', $html);
-        $this->assertMatchesRegularExpression('~<div[^>]*class="[^"]*\bmovement-row\b~', $html);
+        $this->assertMatchesRegularExpression('~<button[^>]*class="[^"]*\bmovement-row\b~s', $html);
     }
 }

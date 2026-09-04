@@ -122,7 +122,12 @@ class AttestationPdfReader
     /**
      * @param list<list<string>> $pages
      */
-    private function readOne(array $pages, int $firstPage, int $lastPage, MemberNameDirectory $directory): ReadAttestation
+    private function readOne(
+        array $pages,
+        int $firstPage,
+        int $lastPage,
+        MemberNameDirectory $directory
+    ): ReadAttestation
     {
         $fallback = null;
 

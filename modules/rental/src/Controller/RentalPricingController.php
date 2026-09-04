@@ -320,7 +320,8 @@ class RentalPricingController extends AbstractController
      */
     private function guarded(Request $request, array $params, string $anchor, callable $operation): Response
     {
-        if (($guard = $this->guardCsrf($request, '/mes-locations/' . rawurlencode((string) ($params['slug'] ?? '')) . '/reglages#' . $anchor)) !== null) {
+        if (($guard = $this->guardCsrf($request,
+            '/mes-locations/' . rawurlencode((string) ($params['slug'] ?? '')) . '/reglages#' . $anchor)) !== null) {
             return $guard;
         }
 

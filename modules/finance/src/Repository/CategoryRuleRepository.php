@@ -29,7 +29,8 @@ class CategoryRuleRepository
      */
     public function findActiveOrderedByPriority(): array
     {
-        $stmt = $this->pdo->query('SELECT * FROM finance_category_rules WHERE is_active = 1 ORDER BY priority ASC, id ASC');
+        $stmt = $this->pdo->query('SELECT * FROM finance_category_rules WHERE is_active = 1 ORDER BY priority ASC, id '
+            . 'ASC');
         $rows = $stmt !== false ? $stmt->fetchAll(\PDO::FETCH_ASSOC) : [];
         return array_map([$this, 'hydrate'], $rows);
     }
@@ -52,9 +53,11 @@ class CategoryRuleRepository
         bool $isDefault = false
     ): int {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO finance_category_rules (category_id, priority, keyword_pattern, counterparty_account_pattern, amount_range, is_system, is_default) VALUES (?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO finance_category_rules (category_id, priority, keyword_pattern, '
+                . 'counterparty_account_pattern, amount_range, is_system, is_default) VALUES (?, ?, ?, ?, ?, ?, ?)'
         );
-        $stmt->execute([$categoryId, $priority, $keywordPattern, $counterpartyAccountPattern, $amountRange, $isSystem ? 1 : 0, $isDefault ? 1 : 0]);
+        $stmt->execute([$categoryId, $priority, $keywordPattern, $counterpartyAccountPattern, $amountRange,
+            $isSystem ? 1 : 0, $isDefault ? 1 : 0]);
         return (int) $this->pdo->lastInsertId();
     }
 
@@ -66,7 +69,8 @@ class CategoryRuleRepository
         ?string $amountRange
     ): void {
         $stmt = $this->pdo->prepare(
-            'UPDATE finance_category_rules SET category_id = ?, keyword_pattern = ?, counterparty_account_pattern = ?, amount_range = ? WHERE id = ?'
+            'UPDATE finance_category_rules SET category_id = ?, keyword_pattern = ?, counterparty_account_pattern = '
+                . '?, amount_range = ? WHERE id = ?'
         );
         $stmt->execute([$categoryId, $keywordPattern, $counterpartyAccountPattern, $amountRange, $id]);
     }
@@ -103,7 +107,8 @@ class CategoryRuleRepository
      */
     public function findSystemRuleForCategory(int $categoryId): ?CategoryRule
     {
-        $stmt = $this->pdo->prepare('SELECT * FROM finance_category_rules WHERE category_id = ? AND is_system = 1 LIMIT 1');
+        $stmt = $this->pdo->prepare('SELECT * FROM finance_category_rules WHERE category_id = ? AND is_system = 1 '
+            . 'LIMIT 1');
         $stmt->execute([$categoryId]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
         return $row !== false ? $this->hydrate($row) : null;
@@ -145,7 +150,9 @@ class CategoryRuleRepository
             categoryId: (int) $row['category_id'],
             priority: (int) $row['priority'],
             keywordPattern: $row['keyword_pattern'] !== null ? (string) $row['keyword_pattern'] : null,
-            counterpartyAccountPattern: $row['counterparty_account_pattern'] !== null ? (string) $row['counterparty_account_pattern'] : null,
+            counterpartyAccountPattern: $row['counterparty_account_pattern'] !== null
+                ? (string) $row['counterparty_account_pattern']
+                : null,
             amountRange: $row['amount_range'] !== null ? (string) $row['amount_range'] : null,
             isActive: (bool) $row['is_active'],
             isSystem: (bool) $row['is_system'],

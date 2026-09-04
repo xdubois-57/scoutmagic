@@ -57,6 +57,12 @@ interface Window {
             resumeOnVisible?: boolean;
             onExpire?: () => void;
         }) => { stop: () => void };
+        // Holds at most one running poll() and stops it idempotently.
+        pollSlot: () => {
+            start: (handle: { stop: () => void }) => void;
+            stop: () => void;
+            isRunning: () => boolean;
+        };
     };
     // public/assets/js/theme.js — the light/dark/auto color-scheme
     // toolbox, loaded by base.html.twig on every page (design.md §7.8).

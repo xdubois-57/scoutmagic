@@ -50,7 +50,8 @@ class JournalController extends AbstractController
             $userAccountId = $account !== null ? $account->id : -1;
         }
 
-        $entries = $this->journalRepository->search($category, $level, $search, $dateFrom, $dateTo, $ip, $userAccountId, $perPage, $offset);
+        $entries = $this->journalRepository->search($category, $level, $search, $dateFrom, $dateTo, $ip, $userAccountId,
+            $perPage, $offset);
         $total = $this->journalRepository->count($category, $level, $search, $dateFrom, $dateTo, $ip, $userAccountId);
         $categories = $this->journalRepository->getDistinctCategories();
         $totalPages = max(1, (int) ceil($total / $perPage));

@@ -202,7 +202,15 @@ class LeadershipController extends AbstractController
      * Everything all four pages need, read once: the effective scout year,
      * the staff rows, the mapping-aware resolver, and today.
      *
-     * @return array{scout_year_id: int, scout_year_label: string, previous_scout_year_id: ?int, staff: list<\Modules\Leadership\Value\StaffFunctionRow>, resolver: FormationLevelResolver, today: \DateTimeImmutable, last_import_at: ?string}
+     * @return array{
+     *     scout_year_id: int,
+     *     scout_year_label: string,
+     *     previous_scout_year_id: ?int,
+     *     staff: list<\Modules\Leadership\Value\StaffFunctionRow>,
+     *     resolver: FormationLevelResolver,
+     *     today: \DateTimeImmutable,
+     *     last_import_at: ?string
+     * }
      */
     private function context(): array
     {

@@ -116,7 +116,8 @@ class GroupNotificationService
 
         $this->send(
             self::TYPE_REPLY_RECEIVED,
-            fn(): array => $this->recipientsForAuthorOf($post, $group, $reply->authorUserAccountId, $effectiveScoutYearId),
+            fn(): array => $this->recipientsForAuthorOf($post, $group, $reply->authorUserAccountId,
+                $effectiveScoutYearId),
             [
                 'title' => 'Réponse à votre message — ' . $group->name,
                 // The REPLY's text, and only if the reply itself is
@@ -137,7 +138,12 @@ class GroupNotificationService
      * No excerpt, ever — a reaction has no content of its own to show, and
      * quoting the post back to the person who wrote it adds nothing.
      */
-    public function reactionOnPost(DiscussionGroup $group, Post $post, int $actorUserAccountId, int $effectiveScoutYearId): void
+    public function reactionOnPost(
+        DiscussionGroup $group,
+        Post $post,
+        int $actorUserAccountId,
+        int $effectiveScoutYearId
+    ): void
     {
         if ($actorUserAccountId === $post->authorUserAccountId) {
             return;
@@ -226,7 +232,12 @@ class GroupNotificationService
             function () use ($memberIds, $group, $actorUserAccountId, $effectiveScoutYearId): array {
                 $recipients = [];
                 foreach ($memberIds as $memberId) {
-                    foreach ($this->recipientsForMember($memberId, $group, $actorUserAccountId, $effectiveScoutYearId) as $recipient) {
+                    foreach ($this->recipientsForMember(
+                        $memberId,
+                        $group,
+                        $actorUserAccountId,
+                        $effectiveScoutYearId
+                    ) as $recipient) {
                         $recipients[] = $recipient;
                     }
                 }
@@ -264,7 +275,8 @@ class GroupNotificationService
         ?int $reporterAccountId,
         ?ReportedAuthor $author = null
     ): void {
-        $escalated = $author !== null && $this->recipientResolver->isExplicitModeratorAccount($group, $author->userAccountId);
+        $escalated = $author !== null && $this->recipientResolver->isExplicitModeratorAccount($group,
+            $author->userAccountId);
 
         $this->send(
             self::TYPE_ITEM_REPORTED,

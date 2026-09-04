@@ -45,7 +45,8 @@ class LinkRepository
         ?string $fetchedAt
     ): int {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO camp_links (camp_id, url, title, description, image_file_id, site_name, fetched_at, created_at)
+            'INSERT INTO camp_links (camp_id, url, title, description, image_file_id, site_name, fetched_at, '
+                . 'created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([

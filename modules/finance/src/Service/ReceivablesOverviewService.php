@@ -79,9 +79,31 @@ class ReceivablesOverviewService
      *         instance_label: string,
      *         amount_due: int,
      *         amount_received: int,
-     *         receivables: array<int, array{id: int, source_reference_id: int, label: ?string, communication: string, amount_due: int, amount_received: int, status: string}>
+     *         receivables: array<
+     *             int,
+     *             array{
+     *                 id: int,
+     *                 source_reference_id: int,
+     *                 label: ?string,
+     *                 communication: string,
+     *                 amount_due: int,
+     *                 amount_received: int,
+     *                 status: string
+     *             }
+     *         >
      *     }>,
-     *     receivables: array<int, array{id: int, source_reference_id: int, label: ?string, communication: string, amount_due: int, amount_received: int, status: string}>
+     *     receivables: array<
+     *         int,
+     *         array{
+     *             id: int,
+     *             source_reference_id: int,
+     *             label: ?string,
+     *             communication: string,
+     *             amount_due: int,
+     *             amount_received: int,
+     *             status: string
+     *         }
+     *     >
      * }>
      */
     public function buildOverview(Role $viewerRole): array

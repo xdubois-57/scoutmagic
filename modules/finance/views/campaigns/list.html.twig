@@ -54,9 +54,9 @@
                         </div>
                         <span class="fw-semibold flex-shrink-0">{{ summary.percent }} %</span>
                     </div>
-                    <div class="progress mt-2" style="height: 6px;" role="progressbar"
-                         aria-label="Progression des paiements" aria-valuenow="{{ summary.percent }}"
-                         aria-valuemin="0" aria-valuemax="100">
+                    {# Décoratif : la valeur est écrite en toutes lettres juste à côté,
+                       et une barre qui la répète ne fait que la faire lire deux fois. #}
+                    <div aria-hidden="true" class="progress mt-2" style="height: 6px;">
                         <div class="progress-bar {{ summary.percent >= 100 ? 'bg-success' : '' }}" style="width: {{ summary.percent }}%"></div>
                     </div>
                 </a>

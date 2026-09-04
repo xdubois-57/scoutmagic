@@ -82,7 +82,8 @@ class ConfigAccountController extends AbstractController
                         !empty($data['holder_name']) ? (string) $data['holder_name'] : null,
                         (string) ($data['role_min_view'] ?? 'intendant')
                     );
-                    $this->journalService->log('finance', 'account_created', 'info', "Compte « {$account->name} » créé", ['account_id' => $account->id], AuthSession::getUserAccountId());
+                    $this->journalService->log('finance', 'account_created', 'info', "Compte « {$account->name} » créé",
+                        ['account_id' => $account->id], AuthSession::getUserAccountId());
                     return $this->json(['success' => true, 'account_id' => $account->id]);
 
                 case 'update':
@@ -97,19 +98,23 @@ class ConfigAccountController extends AbstractController
                         (string) ($data['role_min_view'] ?? 'intendant')
                     );
                     $this->syncReceiptFilesRoleMin($account->id, $account->roleMinView);
-                    $this->journalService->log('finance', 'account_updated', 'info', "Compte « {$account->name} » modifié", ['account_id' => $account->id], AuthSession::getUserAccountId());
+                    $this->journalService->log('finance', 'account_updated', 'info',
+                        "Compte « {$account->name} » modifié", ['account_id' => $account->id],
+                        AuthSession::getUserAccountId());
                     return $this->json(['success' => true]);
 
                 case 'activate':
                     $id = (int) ($data['id'] ?? 0);
                     $this->financeService->setAccountActive($id, true);
-                    $this->journalService->log('finance', 'account_activated', 'info', 'Compte activé', ['account_id' => $id], AuthSession::getUserAccountId());
+                    $this->journalService->log('finance', 'account_activated', 'info', 'Compte activé',
+                        ['account_id' => $id], AuthSession::getUserAccountId());
                     return $this->json(['success' => true]);
 
                 case 'deactivate':
                     $id = (int) ($data['id'] ?? 0);
                     $this->financeService->setAccountActive($id, false);
-                    $this->journalService->log('finance', 'account_deactivated', 'info', 'Compte désactivé', ['account_id' => $id], AuthSession::getUserAccountId());
+                    $this->journalService->log('finance', 'account_deactivated', 'info', 'Compte désactivé',
+                        ['account_id' => $id], AuthSession::getUserAccountId());
                     return $this->json(['success' => true]);
 
                 default:

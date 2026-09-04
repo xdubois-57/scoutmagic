@@ -61,7 +61,8 @@ class FinanceService
         'Locaux' => "Frais liés aux locaux de l'unité (loyer, entretien, charges, assurance du bâtiment).",
         'Subsides' => 'Subsides et subventions reçus (commune, fédération, autres organismes).',
         'Cotisations' => 'Cotisations annuelles payées par les membres.',
-        "Temps d'Unité (TU)" => "Dépenses et recettes du Temps d'Unité (TU), un weekend annuel de formation des animateurs vécu en unité.",
+        "Temps d'Unité (TU)" => "Dépenses et recettes du Temps d'Unité (TU), un weekend annuel de formation des "
+            . "animateurs vécu en unité.",
     ];
 
     /**
@@ -298,7 +299,9 @@ class FinanceService
             // finds them by name and seeds rules for them, exactly once.
             $this->seedDefaultCategoryRules();
 
-            $this->settingService->register(self::SEEDED_SETTING_KEY, '0', 'boolean', 'Catégories par défaut initialisées', 'Indicateur interne — ne pas modifier.', 'finance', null, null, false);
+            $this->settingService->register(self::SEEDED_SETTING_KEY, '0', 'boolean',
+                'Catégories par défaut initialisées', 'Indicateur interne — ne pas modifier.', 'finance', null, null,
+                false);
             $this->settingService->setInternal(self::SEEDED_SETTING_KEY, '1', 'finance');
         }
 
@@ -362,7 +365,8 @@ class FinanceService
             fn(CategoryRule $rule) => !$rule->isSystem
         ));
 
-        usort($nonSystemRules, fn(CategoryRule $a, CategoryRule $b) => ($b->isDefault ? 1 : 0) <=> ($a->isDefault ? 1 : 0));
+        usort($nonSystemRules,
+            fn(CategoryRule $a, CategoryRule $b) => ($b->isDefault ? 1 : 0) <=> ($a->isDefault ? 1 : 0));
 
         $this->categoryRuleRepository->reorder(array_map(fn(CategoryRule $rule) => $rule->id, $nonSystemRules));
     }
@@ -381,7 +385,8 @@ class FinanceService
      */
     public function resetDefaultCategories(): void
     {
-        $existingNames = array_map(fn(Category $category) => $category->name, $this->categoryRepository->findAllOrdered());
+        $existingNames = array_map(fn(Category $category) => $category->name,
+            $this->categoryRepository->findAllOrdered());
 
         $recreatedNames = [];
         foreach (self::DEFAULT_CATEGORY_DESCRIPTIONS as $name => $description) {
@@ -420,7 +425,8 @@ class FinanceService
 
             foreach ($patterns as $pattern) {
                 $priority = count($this->categoryRuleRepository->findAllOrderedByPriority());
-                $this->categoryRuleRepository->create($category->id, $priority, $pattern, null, null, isSystem: false, isDefault: true);
+                $this->categoryRuleRepository->create($category->id, $priority, $pattern, null, null, isSystem: false,
+                    isDefault: true);
             }
         }
     }
@@ -537,7 +543,8 @@ class FinanceService
             throw new FinanceException('Compte introuvable.');
         }
         if ($active && $account->status === Account::STATUS_DRAFT) {
-            throw new FinanceException("Ce compte n'a pas encore d'IBAN et de titulaire — il ne peut pas être activé manuellement.");
+            throw new FinanceException("Ce compte n'a pas encore d'IBAN et de titulaire — il ne peut pas être activé "
+                . "manuellement.");
         }
         $this->accountRepository->updateStatus($id, $active ? Account::STATUS_ACTIVE : Account::STATUS_INACTIVE);
         $updated = $this->accountRepository->findById($id);
@@ -691,7 +698,8 @@ class FinanceService
             throw new FinanceException('Catégorie introuvable.');
         }
         if ($this->transactionRepository->countByCategoryId($id) > 0) {
-            throw new FinanceException("Cette catégorie est utilisée par des mouvements et ne peut pas être supprimée. Désactivez-la plutôt.");
+            throw new FinanceException("Cette catégorie est utilisée par des mouvements et ne peut pas être "
+                . "supprimée. Désactivez-la plutôt.");
         }
         $this->categoryRuleRepository->deleteAllForCategory($id);
         $this->categoryRepository->delete($id);
@@ -794,8 +802,14 @@ class FinanceService
      * a single "Autres" bucket per side, per the dashboard's net-category
      * pie spec (top 4 + top 4 + up to 2 "autres" slices, never more).
      *
-     * @param array<int, array{category_id: ?int, category_name: ?string, income: float, expense: float, total: float}> $categorySummary
-     * @return array{positive: array<int, array{label: string, net: float}>, negative: array<int, array{label: string, net: float}>}
+     * @param array<
+     *     int,
+     *     array{category_id: ?int, category_name: ?string, income: float, expense: float, total: float}
+     * > $categorySummary
+     * @return array{
+     *     positive: array<int, array{label: string, net: float}>,
+     *     negative: array<int, array{label: string, net: float}>
+     * }
      */
     public function buildNetCategoryBreakdown(array $categorySummary): array
     {

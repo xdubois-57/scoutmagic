@@ -205,7 +205,10 @@ class MergeRenderer
             $byLower[mb_strtolower(trim($column))] = $value;
         }
 
-        return (string) preg_replace_callback(self::TOKEN_PATTERN, function (array $matches) use ($byLower, $escapeHtml): string {
+        return (string) preg_replace_callback(self::TOKEN_PATTERN, function (array $matches) use (
+            $byLower,
+            $escapeHtml
+        ): string {
             $key = mb_strtolower(trim($matches[1]));
             if (!array_key_exists($key, $byLower)) {
                 return $matches[0];

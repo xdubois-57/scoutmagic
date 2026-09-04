@@ -113,10 +113,18 @@
             return '';
         }
         const win = 2;
-        const pageButton = (p, extra, label) => '<li class="page-item ' + (extra || '') + '">'
-            + '<button type="button" class="page-link" data-page="' + p + '"'
-            + (label ? ' aria-label="' + label.text + '"' : (p === data.page ? ' aria-current="page"' : ''))
-            + '>' + (label ? '<i class="bi ' + label.icon + '" aria-hidden="true"></i>' : p) + '</button></li>';
+        const pageButton = (p, extra, label) => {
+            let name = '';
+            if (label) {
+                name = ' aria-label="' + label.text + '"';
+            } else if (p === data.page) {
+                name = ' aria-current="page"';
+            }
+
+            return '<li class="page-item ' + (extra || '') + '">'
+                + '<button type="button" class="page-link" data-page="' + p + '"' + name
+                + '>' + (label ? '<i class="bi ' + label.icon + '" aria-hidden="true"></i>' : p) + '</button></li>';
+        };
 
         let items = pageButton(data.page - 1, data.page <= 1 ? 'disabled' : '', { text: 'Précédent', icon: 'bi-chevron-left' });
         for (let p = 1; p <= data.total_pages; p++) {

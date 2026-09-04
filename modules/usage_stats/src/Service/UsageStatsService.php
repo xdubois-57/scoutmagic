@@ -179,7 +179,14 @@ class UsageStatsService
      * @return array{
      *     month: string,
      *     month_label: string,
-     *     used: list<array{id: string, name: string, views: int, width_percent: int, staff_only: bool, trend_percent: ?int}>,
+     *     used: list<array{
+     *         id: string,
+     *         name: string,
+     *         views: int,
+     *         width_percent: int,
+     *         staff_only: bool,
+     *         trend_percent: ?int
+     *     }>,
      *     unused: list<array{id: string, name: string}>,
      *     unused_window_months: int
      * }
@@ -204,7 +211,10 @@ class UsageStatsService
                 'trend_percent' => $this->trend($previousMonth[$moduleId] ?? 0, $views),
             ];
         }
-        usort($used, static fn(array $a, array $b): int => $b['views'] <=> $a['views'] ?: strcmp($a['name'], $b['name']));
+        usort(
+            $used,
+            static fn(array $a, array $b): int => $b['views'] <=> $a['views'] ?: strcmp($a['name'], $b['name'])
+        );
 
         return [
             'month' => $month,

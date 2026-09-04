@@ -31,7 +31,8 @@ class TransactionRepository
      */
     public function findByAccountId(int $accountId): array
     {
-        $stmt = $this->pdo->prepare('SELECT * FROM finance_transactions WHERE account_id = ? ORDER BY transaction_date ASC, id ASC');
+        $stmt = $this->pdo->prepare('SELECT * FROM finance_transactions WHERE account_id = ? ORDER BY '
+            . 'transaction_date ASC, id ASC');
         $stmt->execute([$accountId]);
         return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
@@ -46,7 +47,8 @@ class TransactionRepository
             return [];
         }
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
-        $stmt = $this->pdo->prepare("SELECT * FROM finance_transactions WHERE id IN ({$placeholders}) ORDER BY transaction_date DESC, id DESC");
+        $stmt = $this->pdo->prepare("SELECT * FROM finance_transactions WHERE id IN ({$placeholders}) ORDER BY "
+            . "transaction_date DESC, id DESC");
         $stmt->execute(array_values($ids));
         return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
@@ -61,7 +63,8 @@ class TransactionRepository
     public function findByAccountAfterDate(int $accountId, string $afterDate): array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT * FROM finance_transactions WHERE account_id = ? AND transaction_date > ? ORDER BY transaction_date ASC, id ASC'
+            'SELECT * FROM finance_transactions WHERE account_id = ? AND transaction_date > ? ORDER BY '
+                . 'transaction_date ASC, id ASC'
         );
         $stmt->execute([$accountId, $afterDate]);
         return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
@@ -277,7 +280,8 @@ class TransactionRepository
     public function countUncategorized(int $accountId, int $fiscalYearId): int
     {
         $stmt = $this->pdo->prepare(
-            'SELECT COUNT(*) FROM finance_transactions WHERE account_id = ? AND fiscal_year_id = ? AND category_id IS NULL'
+            'SELECT COUNT(*) FROM finance_transactions WHERE account_id = ? AND fiscal_year_id = ? AND category_id IS '
+                . 'NULL'
         );
         $stmt->execute([$accountId, $fiscalYearId]);
         return (int) $stmt->fetchColumn();
@@ -298,7 +302,8 @@ class TransactionRepository
      */
     public function clearCategory(int $categoryId): void
     {
-        $stmt = $this->pdo->prepare('UPDATE finance_transactions SET category_id = NULL, category_source = NULL WHERE category_id = ?');
+        $stmt = $this->pdo->prepare('UPDATE finance_transactions SET category_id = NULL, category_source = NULL WHERE '
+            . 'category_id = ?');
         $stmt->execute([$categoryId]);
     }
 
@@ -336,7 +341,8 @@ class TransactionRepository
     public function countGroupedByCategory(): array
     {
         $stmt = $this->pdo->query(
-            'SELECT category_id, COUNT(*) AS c FROM finance_transactions WHERE category_id IS NOT NULL GROUP BY category_id'
+            'SELECT category_id, COUNT(*) AS c FROM finance_transactions WHERE category_id IS NOT NULL GROUP BY '
+                . 'category_id'
         );
         $rows = $stmt !== false ? $stmt->fetchAll(\PDO::FETCH_ASSOC) : [];
 
@@ -365,7 +371,9 @@ class TransactionRepository
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO finance_transactions
-                (account_id, fiscal_year_id, bank_reference, transaction_date, label, amount, category_id, category_source, comment, counterparty_name, counterparty_account, extra_details, source, imported_at)
+                (account_id, fiscal_year_id, bank_reference, transaction_date, label, amount, category_id, '
+                . 'category_source, comment, counterparty_name, counterparty_account, extra_details, source, '
+                . 'imported_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
@@ -378,9 +386,15 @@ class TransactionRepository
             $categoryId,
             $categoryId !== null ? $categorySource : null,
             $comment !== null ? $this->encryption->encrypt($comment, 'finance_transactions.comment') : null,
-            $counterpartyName !== null ? $this->encryption->encrypt($counterpartyName, 'finance_transactions.counterparty_name') : null,
-            $counterpartyAccount !== null ? $this->encryption->encrypt($counterpartyAccount, 'finance_transactions.counterparty_account') : null,
-            $extraDetails !== null ? $this->encryption->encrypt($extraDetails, 'finance_transactions.extra_details') : null,
+            $counterpartyName !== null
+                ? $this->encryption->encrypt($counterpartyName, 'finance_transactions.counterparty_name')
+                : null,
+            $counterpartyAccount !== null
+                ? $this->encryption->encrypt($counterpartyAccount, 'finance_transactions.counterparty_account')
+                : null,
+            $extraDetails !== null
+                ? $this->encryption->encrypt($extraDetails, 'finance_transactions.extra_details')
+                : null,
             $source,
             $importedAt,
         ]);
@@ -446,7 +460,8 @@ class TransactionRepository
     public function updateEditableFields(int $id, ?int $categoryId, ?string $comment, int $fiscalYearId): void
     {
         $stmt = $this->pdo->prepare(
-            'UPDATE finance_transactions SET category_id = ?, category_source = ?, comment = ?, fiscal_year_id = ? WHERE id = ?'
+            'UPDATE finance_transactions SET category_id = ?, category_source = ?, comment = ?, fiscal_year_id = ? '
+                . 'WHERE id = ?'
         );
         $stmt->execute([
             $categoryId,
@@ -466,7 +481,8 @@ class TransactionRepository
      */
     public function setCategoryId(int $id, ?int $categoryId): void
     {
-        $stmt = $this->pdo->prepare('UPDATE finance_transactions SET category_id = ?, category_source = ? WHERE id = ?');
+        $stmt = $this->pdo->prepare('UPDATE finance_transactions SET category_id = ?, category_source = ? WHERE id = '
+            . '?');
         $stmt->execute([$categoryId, $categoryId !== null ? Transaction::CATEGORY_SOURCE_AUTO : null, $id]);
     }
 
@@ -480,7 +496,8 @@ class TransactionRepository
      */
     public function findAllUncategorized(): array
     {
-        $stmt = $this->pdo->query('SELECT * FROM finance_transactions WHERE category_id IS NULL ORDER BY transaction_date ASC, id ASC');
+        $stmt = $this->pdo->query('SELECT * FROM finance_transactions WHERE category_id IS NULL ORDER BY '
+            . 'transaction_date ASC, id ASC');
         $rows = $stmt !== false ? $stmt->fetchAll(\PDO::FETCH_ASSOC) : [];
         return array_map([$this, 'hydrate'], $rows);
     }
@@ -555,12 +572,20 @@ class TransactionRepository
             label: $this->encryption->decrypt($row['label'], 'finance_transactions.label'),
             amount: (float) $row['amount'],
             categoryId: $row['category_id'] !== null ? (int) $row['category_id'] : null,
-            comment: $row['comment'] !== null ? $this->decryptOrLegacyPlaintext((string) $row['comment'], 'finance_transactions.comment') : null,
+            comment: $row['comment'] !== null
+                ? $this->decryptOrLegacyPlaintext((string) $row['comment'], 'finance_transactions.comment')
+                : null,
             source: (string) $row['source'],
             importedAt: $row['imported_at'] !== null ? (string) $row['imported_at'] : null,
-            counterpartyName: $row['counterparty_name'] !== null ? $this->encryption->decrypt($row['counterparty_name'], 'finance_transactions.counterparty_name') : null,
-            counterpartyAccount: $row['counterparty_account'] !== null ? $this->encryption->decrypt($row['counterparty_account'], 'finance_transactions.counterparty_account') : null,
-            extraDetails: $row['extra_details'] !== null ? $this->encryption->decrypt($row['extra_details'], 'finance_transactions.extra_details') : null,
+            counterpartyName: $row['counterparty_name'] !== null
+                ? $this->encryption->decrypt($row['counterparty_name'], 'finance_transactions.counterparty_name')
+                : null,
+            counterpartyAccount: $row['counterparty_account'] !== null
+                ? $this->encryption->decrypt($row['counterparty_account'], 'finance_transactions.counterparty_account')
+                : null,
+            extraDetails: $row['extra_details'] !== null
+                ? $this->encryption->decrypt($row['extra_details'], 'finance_transactions.extra_details')
+                : null,
             categorySource: $row['category_source'] !== null ? (string) $row['category_source'] : null
         );
     }

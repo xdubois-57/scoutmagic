@@ -59,7 +59,12 @@ class GroupFeedService
     ) {
     }
 
-    public function page(DiscussionGroup $group, GroupSessionContext $context, bool $canModerate, ?string $cursor = null): FeedPage
+    public function page(
+        DiscussionGroup $group,
+        GroupSessionContext $context,
+        bool $canModerate,
+        ?string $cursor = null
+    ): FeedPage
     {
         $isFirstPage = $cursor === null;
 
@@ -115,7 +120,12 @@ class GroupFeedService
      * @param Post[] $posts
      * @return array<string, mixed> the $page array decorate() expects
      */
-    private function resolveFor(DiscussionGroup $group, array $posts, GroupSessionContext $context, bool $canModerate): array
+    private function resolveFor(
+        DiscussionGroup $group,
+        array $posts,
+        GroupSessionContext $context,
+        bool $canModerate
+    ): array
     {
         $scoutYearId = $group->scoutYearId ?? $context->effectiveScoutYearId;
         $labels = $this->authorResolver->resolve($posts, $scoutYearId);
@@ -151,7 +161,12 @@ class GroupFeedService
         $lastReadAt = $this->readStateService?->lastReadAt($group, $context);
         $newReplyCounts = $lastReadAt === null || $postIds === []
             ? []
-            : $this->replyRepository->countNewerForPosts($postIds, $lastReadAt, $context->linkedMemberIds, $canModerate);
+            : $this->replyRepository->countNewerForPosts(
+                $postIds,
+                $lastReadAt,
+                $context->linkedMemberIds,
+                $canModerate
+            );
         $polls = $this->pollService?->forPosts($postIds, $context->userAccountId, $context->linkedMemberIds) ?? [];
         $events = $this->eventService?->summariesFor(
             array_map(fn(Post $p) => $p->calendarEventId, $posts),
@@ -200,7 +215,12 @@ class GroupFeedService
      *
      * @return array<int, array<string, mixed>> decorated rows, at most RESULT_LIMIT
      */
-    public function search(DiscussionGroup $group, GroupSessionContext $context, bool $canModerate, string $pattern): array
+    public function search(
+        DiscussionGroup $group,
+        GroupSessionContext $context,
+        bool $canModerate,
+        string $pattern
+    ): array
     {
         $matched = $this->postRepository->search($group->id, $pattern, self::RESULT_LIMIT, $canModerate);
 
@@ -268,7 +288,12 @@ class GroupFeedService
      *
      * @return array<string, mixed>
      */
-    public function rowForNewPost(DiscussionGroup $group, Post $post, GroupSessionContext $context, bool $canModerate): array
+    public function rowForNewPost(
+        DiscussionGroup $group,
+        Post $post,
+        GroupSessionContext $context,
+        bool $canModerate
+    ): array
     {
         $mediaById = $this->postMediaService->albumMediaById($group);
 
@@ -290,7 +315,11 @@ class GroupFeedService
             // A poll created alongside this very post: fetched, not
             // assumed empty, because Controller\PostController::create()
             // attaches it before rendering the fragment groups.js inserts.
-            'polls' => $this->pollService?->forPosts([$post->id], $context->userAccountId, $context->linkedMemberIds) ?? [],
+            'polls' => $this->pollService?->forPosts(
+                [$post->id],
+                $context->userAccountId,
+                $context->linkedMemberIds
+            ) ?? [],
         ];
 
         return $this->decorate($post, $page, $context, $canModerate);

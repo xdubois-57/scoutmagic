@@ -88,7 +88,11 @@ final class BookingMilestones
                 || $booking->status === BookingStatus::CLOSED,
             // A refused, cancelled or expired booking is never going to be
             // confirmed; showing the box at all would suggest otherwise.
-            !in_array($booking->status, [BookingStatus::REFUSED, BookingStatus::CANCELLED, BookingStatus::EXPIRED], true)
+            !in_array(
+                $booking->status,
+                [BookingStatus::REFUSED, BookingStatus::CANCELLED, BookingStatus::EXPIRED],
+                true
+            )
         );
 
         $milestones[] = self::extra($extras, self::BALANCE_RECEIVED, 'Solde reçu', $details);

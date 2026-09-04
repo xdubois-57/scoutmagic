@@ -70,7 +70,13 @@ class TrombinoscopeController extends AbstractController
         $allSections = $this->sectionService->getAllWithBranches();
 
         $pickerSections = [
-            ['id' => self::ALL_SECTIONS_ID, 'desk_code' => '__all__', 'name' => 'Toutes', 'branch_name' => '', 'color' => null],
+            [
+                'id' => self::ALL_SECTIONS_ID,
+                'desk_code' => '__all__',
+                'name' => 'Toutes',
+                'branch_name' => '',
+                'color' => null
+            ],
         ];
         foreach ($allSections as $section) {
             $section['color'] = SectionService::colorForSection($section);
@@ -154,7 +160,8 @@ class TrombinoscopeController extends AbstractController
 
         return (new Response($pdf))
             ->setHeader('Content-Type', 'application/pdf')
-            ->setHeader('Content-Disposition', 'attachment; filename="' . $this->pdfService->fileName($effectiveYear->label) . '"')
+            ->setHeader('Content-Disposition',
+                'attachment; filename="' . $this->pdfService->fileName($effectiveYear->label) . '"')
             ->setHeader('Content-Length', (string) strlen($pdf));
     }
 }

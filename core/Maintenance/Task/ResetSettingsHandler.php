@@ -36,7 +36,8 @@ class ResetSettingsHandler implements TaskHandlerInterface
      */
     public function handle(array $payload, TaskContext $context): void
     {
-        $requestedBy = isset($payload['requested_by_user_account_id']) && $payload['requested_by_user_account_id'] !== null
+        $requestedBy = isset($payload['requested_by_user_account_id'])
+            && $payload['requested_by_user_account_id'] !== null
             ? (int) $payload['requested_by_user_account_id']
             : null;
 
@@ -115,7 +116,11 @@ class ResetSettingsHandler implements TaskHandlerInterface
      * Deletes (file + row) every backup beyond the KEEP_BACKUPS most recent
      * — same purge as the other background Maintenance tasks.
      */
-    private function purgeBeyondLimit(BackupRepository $backupRepository, FileRepository $fileRepository, string $storagePath): void
+    private function purgeBeyondLimit(
+        BackupRepository $backupRepository,
+        FileRepository $fileRepository,
+        string $storagePath
+    ): void
     {
         foreach ($backupRepository->findBeyond(self::KEEP_BACKUPS) as $old) {
             foreach ([$old->fileId, $old->dbDumpFileId] as $fileId) {

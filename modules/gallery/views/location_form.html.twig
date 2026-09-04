@@ -38,14 +38,14 @@
 
                     <div class="col-12">
                         <div class="form-label small">Type de stockage</div>
-                        <div class="btn-group w-100" role="group">
+                        <fieldset class="btn-group w-100">
                             <input type="radio" class="btn-check" name="type" id="storage-local" value="local" autocomplete="off"
                                    {{ location and location.type == 's3' ? '' : 'checked' }} {{ location ? 'disabled' : '' }}>
                             <label class="btn btn-outline-primary" for="storage-local"><i class="bi bi-hdd" aria-hidden="true"></i> Stockage local</label>
                             <input type="radio" class="btn-check" name="type" id="storage-s3" value="s3" autocomplete="off"
                                    {{ location and location.type == 's3' ? 'checked' : '' }} {{ location ? 'disabled' : '' }}>
                             <label class="btn btn-outline-primary" for="storage-s3"><i class="bi bi-cloud" aria-hidden="true"></i> Stockage objet (S3)</label>
-                        </div>
+                        </fieldset>
                         {% if location %}
                             {# Disabled radios don't submit their value — resend it as a hidden field so the type is preserved. #}
                             <input type="hidden" name="type" value="{{ location.type }}">

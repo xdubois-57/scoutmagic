@@ -33,7 +33,8 @@ class CampaignRepository
         ?int $createdBy
     ): int {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO finance_campaigns (label, scout_year_id, account_id, status, source_file_id, source_filename, merge_columns, created_by, created_at)
+            'INSERT INTO finance_campaigns (label, scout_year_id, account_id, status, source_file_id, '
+                . 'source_filename, merge_columns, created_by, created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
@@ -115,7 +116,8 @@ class CampaignRepository
      */
     public function forgetSourceFile(int $id): void
     {
-        $stmt = $this->pdo->prepare('UPDATE finance_campaigns SET source_file_id = NULL, merge_columns = NULL WHERE id = ?');
+        $stmt = $this->pdo->prepare('UPDATE finance_campaigns SET source_file_id = NULL, merge_columns = NULL WHERE '
+            . 'id = ?');
         $stmt->execute([$id]);
     }
 

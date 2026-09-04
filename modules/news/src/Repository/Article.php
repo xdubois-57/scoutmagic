@@ -69,7 +69,8 @@ final class Article
      */
     public function isEffectivelyIndexed(?\DateTimeImmutable $now = null): bool
     {
-        if (!$this->isIndexed || in_array($this->visibility, [self::VISIBILITY_DIRECT_LINK, self::VISIBILITY_IDENTIFIED], true)) {
+        if (!$this->isIndexed || in_array($this->visibility,
+            [self::VISIBILITY_DIRECT_LINK, self::VISIBILITY_IDENTIFIED], true)) {
             return false;
         }
 

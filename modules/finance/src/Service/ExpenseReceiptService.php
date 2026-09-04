@@ -112,7 +112,13 @@ class ExpenseReceiptService implements ExpenseReceiptInterface
         // archived, and a receipt filed on one of those is filed where no
         // picker will ever offer to look.
         if ($accountId === null) {
-            return $this->receiptService->uploadUnattributed($content, $mimeType, $originalFilename, null, true)->fileId;
+            return $this->receiptService->uploadUnattributed(
+                $content,
+                $mimeType,
+                $originalFilename,
+                null,
+                true
+            )->fileId;
         }
 
         $account = $this->accountRepository->findById($accountId);

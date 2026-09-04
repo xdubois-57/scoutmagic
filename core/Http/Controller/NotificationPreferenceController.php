@@ -133,12 +133,22 @@ class NotificationPreferenceController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
         }
 
-        $start = isset($data['quiet_hours_start']) && $data['quiet_hours_start'] !== '' ? (string) $data['quiet_hours_start'] : null;
-        $end = isset($data['quiet_hours_end']) && $data['quiet_hours_end'] !== '' ? (string) $data['quiet_hours_end'] : null;
+        $start = isset($data['quiet_hours_start']) && $data['quiet_hours_start'] !== ''
+            ? (string) $data['quiet_hours_start']
+            : null;
+        $end = isset($data['quiet_hours_end']) && $data['quiet_hours_end'] !== ''
+            ? (string) $data['quiet_hours_end']
+            : null;
         if (($start === null) !== ($end === null)) {
-            return $this->json(['success' => false, 'error' => 'Les deux heures doivent être définies, ou aucune.'], 400);
+            return $this->json(
+                ['success' => false, 'error' => 'Les deux heures doivent être définies, ou aucune.'],
+                400
+            );
         }
-        if ($start !== null && (!preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $start) || !preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $end))) {
+        if ($start !== null && (!preg_match(
+            '/^([01]\d|2[0-3]):[0-5]\d$/',
+            $start
+        ) || !preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $end))) {
             return $this->json(['success' => false, 'error' => 'Format d\'heure invalide.'], 400);
         }
 

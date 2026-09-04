@@ -51,7 +51,19 @@ class SectionStaffAuthorizationService
     }
 
     /**
-     * @return array<int, array{id: int, desk_code: string, name: ?string, email: ?string, age_branch_id: int, branch_name: string, branch_sort_order: int, color: ?string}>
+     * @return array<
+     *     int,
+     *     array{
+     *         id: int,
+     *         desk_code: string,
+     *         name: ?string,
+     *         email: ?string,
+     *         age_branch_id: int,
+     *         branch_name: string,
+     *         branch_sort_order: int,
+     *         color: ?string
+     *     }
+     * >
      */
     public function getStaffedSections(string $email, string $accountRole, int $scoutYearId): array
     {
@@ -91,7 +103,8 @@ class SectionStaffAuthorizationService
                AND mf.section_id IS NOT NULL'
         );
         $stmt->execute([$blindIndex, ...$memberIds, $scoutYearId]);
-        $sectionIds = array_map(static fn(array $row): int => (int) $row['section_id'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+        $sectionIds = array_map(static fn(array $row): int => (int) $row['section_id'],
+            $stmt->fetchAll(\PDO::FETCH_ASSOC));
 
         $sections = [];
         foreach ($sectionIds as $sectionId) {

@@ -64,7 +64,8 @@ class ExtractReceiptDataHandler implements TaskHandlerInterface
         'type' => 'object',
         'properties' => [
             'amount' => ['type' => 'number'],
-            'date' => ['type' => 'string', 'description' => 'Date au format ISO 8601 AAAA-MM-JJ, par exemple 2026-10-27.'],
+            'date' => ['type' => 'string', 'description' => 'Date au format ISO 8601 AAAA-MM-JJ, par exemple '
+                . '2026-10-27.'],
             'merchant' => ['type' => 'string'],
             'description' => [
                 'type' => 'string',
@@ -108,7 +109,8 @@ class ExtractReceiptDataHandler implements TaskHandlerInterface
             return;
         }
 
-        $fileStorage = new EncryptedFileStorageService(new FileRepository($pdo), $context->encryption, $context->storagePath);
+        $fileStorage = new EncryptedFileStorageService(new FileRepository($pdo), $context->encryption,
+            $context->storagePath);
 
         try {
             $content = $fileStorage->retrieve($attachment->fileId);
@@ -123,7 +125,8 @@ class ExtractReceiptDataHandler implements TaskHandlerInterface
 
         $parsed = null;
         if ($request === null) {
-            $this->logFailure($context, $attachmentId, "PDF sans texte exploitable et impossible à convertir en image pour l'analyse.");
+            $this->logFailure($context, $attachmentId,
+                "PDF sans texte exploitable et impossible à convertir en image pour l'analyse.");
         } else {
             try {
                 $parsed = $llmConnector->complete($request)->parsed;
@@ -136,11 +139,15 @@ class ExtractReceiptDataHandler implements TaskHandlerInterface
         }
 
         $amount = isset($parsed['amount']) && is_numeric($parsed['amount']) ? (float) $parsed['amount'] : null;
-        $date = isset($parsed['date']) && is_string($parsed['date']) ? ReceiptDateNormalizer::normalize($parsed['date']) : null;
+        $date = isset($parsed['date']) && is_string($parsed['date'])
+            ? ReceiptDateNormalizer::normalize($parsed['date'])
+            : null;
         $merchant = isset($parsed['merchant']) && is_string($parsed['merchant']) && trim($parsed['merchant']) !== ''
             ? mb_substr(trim($parsed['merchant']), 0, 255)
             : null;
-        $description = isset($parsed['description']) && is_string($parsed['description']) && trim($parsed['description']) !== ''
+        $description = isset($parsed['description'])
+            && is_string($parsed['description'])
+            && trim($parsed['description']) !== ''
             ? mb_substr(trim($parsed['description']), 0, 500)
             : null;
         if ($description !== null && $merchant !== null) {
@@ -224,7 +231,8 @@ class ExtractReceiptDataHandler implements TaskHandlerInterface
             return new LlmRequest(
                 tier: LlmTier::CHEAP,
                 prompt: self::PROMPT . $this->filenameHint($originalFilename)
-                    . "\n\nVoici le texte extrait du document :\n\n" . mb_substr($text, 0, self::MAX_EXTRACTED_TEXT_CHARS),
+                    . "\n\nVoici le texte extrait du document :\n\n" . mb_substr($text, 0,
+                        self::MAX_EXTRACTED_TEXT_CHARS),
                 responseSchema: self::RESPONSE_SCHEMA
             );
         }

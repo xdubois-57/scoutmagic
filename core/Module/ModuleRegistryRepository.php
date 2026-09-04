@@ -15,7 +15,18 @@ class ModuleRegistryRepository
     }
 
     /**
-     * @return array<int, array{id: int, module_id: string, enabled: bool, installed_version: string, sort_order: int, enabled_at: ?string, enabled_by: ?int}>
+     * @return array<
+     *     int,
+     *     array{
+     *         id: int,
+     *         module_id: string,
+     *         enabled: bool,
+     *         installed_version: string,
+     *         sort_order: int,
+     *         enabled_at: ?string,
+     *         enabled_by: ?int
+     *     }
+     * >
      */
     public function findAll(): array
     {
@@ -26,7 +37,15 @@ class ModuleRegistryRepository
     }
 
     /**
-     * @return array{id: int, module_id: string, enabled: bool, installed_version: string, sort_order: int, enabled_at: ?string, enabled_by: ?int}|null
+     * @return array{
+     *     id: int,
+     *     module_id: string,
+     *     enabled: bool,
+     *     installed_version: string,
+     *     sort_order: int,
+     *     enabled_at: ?string,
+     *     enabled_by: ?int
+     * }|null
      */
     public function findByModuleId(string $moduleId): ?array
     {
@@ -50,15 +69,19 @@ class ModuleRegistryRepository
 
         if ($existing === null) {
             $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
-            $nextOrder = (int) $this->pdo->query('SELECT COALESCE(MAX(sort_order), -1) + 1 FROM module_registry')->fetchColumn();
+            $nextOrder = (int) $this->pdo->query(
+                'SELECT COALESCE(MAX(sort_order), -1) + 1 FROM module_registry'
+            )->fetchColumn();
             $stmt = $this->pdo->prepare(
-                'INSERT INTO module_registry (module_id, enabled, installed_version, sort_order, enabled_at, enabled_by) VALUES (?, ?, ?, ?, ?, ?)'
+                'INSERT INTO module_registry (module_id, enabled, installed_version, sort_order, enabled_at, '
+                    . 'enabled_by) VALUES (?, ?, ?, ?, ?, ?)'
             );
             $stmt->execute([$moduleId, $enabled ? 1 : 0, $version, $nextOrder, $enabled ? $now : null, $userId]);
         } else {
             $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
             $stmt = $this->pdo->prepare(
-                'UPDATE module_registry SET enabled = ?, installed_version = ?, enabled_at = ?, enabled_by = ? WHERE module_id = ?'
+                'UPDATE module_registry SET enabled = ?, installed_version = ?, enabled_at = ?, enabled_by = ? WHERE '
+                    . 'module_id = ?'
             );
             $stmt->execute([$enabled ? 1 : 0, $version, $enabled ? $now : null, $userId, $moduleId]);
         }
@@ -91,7 +114,15 @@ class ModuleRegistryRepository
 
     /**
      * @param array<string, mixed> $row
-     * @return array{id: int, module_id: string, enabled: bool, installed_version: string, sort_order: int, enabled_at: ?string, enabled_by: ?int}
+     * @return array{
+     *     id: int,
+     *     module_id: string,
+     *     enabled: bool,
+     *     installed_version: string,
+     *     sort_order: int,
+     *     enabled_at: ?string,
+     *     enabled_by: ?int
+     * }
      */
     private function hydrate(array $row): array
     {

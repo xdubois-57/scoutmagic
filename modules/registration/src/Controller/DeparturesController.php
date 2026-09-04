@@ -56,7 +56,8 @@ class DeparturesController extends AbstractController
         $email = AuthSession::getEmail() ?? '';
         $effectiveYear = $this->publicYear();
 
-        $staffedSections = $this->sectionStaffAuthorizationService->getStaffedSections($email, AuthSession::getRole(), $effectiveYear->id);
+        $staffedSections = $this->sectionStaffAuthorizationService->getStaffedSections($email, AuthSession::getRole(),
+            $effectiveYear->id);
 
         if ($staffedSections === []) {
             return $this->render('@registration/departures.html.twig', [
@@ -64,7 +65,12 @@ class DeparturesController extends AbstractController
                 'selected_section' => null,
                 'rows' => [],
                 'scout_year_label' => $effectiveYear->label,
-                'reenrollment' => ['visible' => false, 'divergences' => 0, 'unanswered' => 0, 'target_year_label' => null],
+                'reenrollment' => [
+                    'visible' => false,
+                    'divergences' => 0,
+                    'unanswered' => 0,
+                    'target_year_label' => null
+                ],
                 'csrf_token' => CsrfGuard::generateToken(),
             ]);
         }
@@ -76,7 +82,10 @@ class DeparturesController extends AbstractController
         $memberYearService = new MemberYearService();
 
         $rows = [];
-        foreach ($this->sectionService->getSectionAnimes((int) $selectedSection['id'], $effectiveYear->id) as $profile) {
+        foreach ($this->sectionService->getSectionAnimes(
+            (int) $selectedSection['id'],
+            $effectiveYear->id
+        ) as $profile) {
             $status = $this->departureService->getStatus($profile->memberYearId);
             $birthYear = MemberYearService::extractBirthYear($profile->birthDate);
             $effectiveAge = $memberYearService->getEffectiveAge($birthYear, $profile->scoutYearOffset, $referenceYear);
@@ -172,9 +181,18 @@ class DeparturesController extends AbstractController
      * than hydrating every animé of every staffed section to compare one
      * integer: this runs on every per-field auto-save.
      */
-    private function accountStaffsMemberYear(string $email, string $accountRole, int $scoutYearId, int $memberYearId): bool
+    private function accountStaffsMemberYear(
+        string $email,
+        string $accountRole,
+        int $scoutYearId,
+        int $memberYearId
+    ): bool
     {
-        foreach ($this->sectionStaffAuthorizationService->getStaffedSections($email, $accountRole, $scoutYearId) as $section) {
+        foreach ($this->sectionStaffAuthorizationService->getStaffedSections(
+            $email,
+            $accountRole,
+            $scoutYearId
+        ) as $section) {
             $animeIds = $this->sectionService->getSectionAnimeMemberYearIds((int) $section['id'], $scoutYearId);
             if (in_array($memberYearId, $animeIds, true)) {
                 return true;
@@ -207,8 +225,29 @@ class DeparturesController extends AbstractController
     }
 
     /**
-     * @param array<int, array{id: int, desk_code: string, name: ?string, email: ?string, age_branch_id: int, branch_name: string, branch_sort_order: int, color: ?string}> $staffedSections
-     * @return array{id: int, desk_code: string, name: ?string, email: ?string, age_branch_id: int, branch_name: string, branch_sort_order: int, color: ?string}
+     * @param array<
+     *     int,
+     *     array{
+     *         id: int,
+     *         desk_code: string,
+     *         name: ?string,
+     *         email: ?string,
+     *         age_branch_id: int,
+     *         branch_name: string,
+     *         branch_sort_order: int,
+     *         color: ?string
+     *     }
+     * > $staffedSections
+     * @return array{
+     *     id: int,
+     *     desk_code: string,
+     *     name: ?string,
+     *     email: ?string,
+     *     age_branch_id: int,
+     *     branch_name: string,
+     *     branch_sort_order: int,
+     *     color: ?string
+     * }
      */
     private function resolveSelectedSection(array $staffedSections, int $requestedSectionId): array
     {

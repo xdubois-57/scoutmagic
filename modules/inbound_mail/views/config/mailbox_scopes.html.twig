@@ -112,7 +112,7 @@
                         <div class="fw-semibold small mb-2">
                             Qui peut lire ce courrier depuis {{ consumer.displayName }} ?
                         </div>
-                        <div class="btn-group" role="group"
+                        <fieldset class="btn-group"
                              aria-label="Qui peut lire ce courrier depuis {{ consumer.displayName }}">
                             {% for mode in read_modes %}
                                 <input type="radio" class="btn-check"
@@ -124,7 +124,7 @@
                                 <label class="btn btn-sm {{ mode.value == 'all' ? 'btn-outline-warning' : 'btn-outline-primary' }}"
                                        for="read-{{ consumer.consumerId }}-{{ mode.value }}">{{ mode.label }}</label>
                             {% endfor %}
-                        </div>
+                        </fieldset>
 
                         <p class="form-text mt-2">
                             <strong>Personne</strong> — {{ consumer.displayName }} classe le courrier

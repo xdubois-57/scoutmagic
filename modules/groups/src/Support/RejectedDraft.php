@@ -53,7 +53,9 @@ class RejectedDraft
 
         return [
             'body' => $draft['body'],
-            'suggestion' => isset($draft['suggestion']) && is_string($draft['suggestion']) ? $draft['suggestion'] : null,
+            'suggestion' => isset($draft['suggestion']) && is_string($draft['suggestion'])
+                ? $draft['suggestion']
+                : null,
             'post_id' => isset($draft['post_id']) && is_int($draft['post_id']) ? $draft['post_id'] : null,
         ];
     }

@@ -215,7 +215,7 @@
             <div class="card-body">
                 <h2 class="h5 mb-2">Prix</h2>
                 {% if booking.status.value == 'confirmed' %}
-                    <div class="alert alert-warning" role="status">
+                    <output class="alert alert-warning d-block">
                         <strong>Cette réservation est confirmée.</strong> Modifier le prix maintenant :
                         <ul class="mb-0">
                             <li>le contrat sera à régénérer en nouvelle version ;</li>
@@ -224,7 +224,7 @@
                             <li>les paiements déjà reçus ne sont pas touchés — seul le solde change,
                                 et un trop-perçu est possible si le nouveau total passe sous le montant encaissé.</li>
                         </ul>
-                    </div>
+                    </output>
                 {% endif %}
 
                 <div class="table-responsive">

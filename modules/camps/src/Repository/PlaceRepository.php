@@ -209,7 +209,8 @@ class PlaceRepository
     public function recordGeocoding(int $id, ?float $latitude, ?float $longitude, \DateTimeImmutable $at): void
     {
         $stmt = $this->pdo->prepare(
-            'UPDATE camp_places SET latitude = ?, longitude = ?, geocoded_at = ? WHERE id = ? AND coordinates_are_manual = 0'
+            'UPDATE camp_places SET latitude = ?, longitude = ?, geocoded_at = ? WHERE id = ? AND '
+                . 'coordinates_are_manual = 0'
         );
         $stmt->execute([$latitude, $longitude, $at->format('Y-m-d H:i:s'), $id]);
     }
@@ -243,7 +244,8 @@ class PlaceRepository
     public function setManualCoordinates(int $id, ?float $latitude, ?float $longitude): void
     {
         $stmt = $this->pdo->prepare(
-            'UPDATE camp_places SET latitude = ?, longitude = ?, coordinates_are_manual = 1, updated_at = ? WHERE id = ?'
+            'UPDATE camp_places SET latitude = ?, longitude = ?, coordinates_are_manual = 1, updated_at = ? WHERE id '
+                . '= ?'
         );
         $stmt->execute([$latitude, $longitude, date('Y-m-d H:i:s'), $id]);
     }
@@ -257,7 +259,8 @@ class PlaceRepository
     public function copyCoordinates(int $id, float $latitude, float $longitude, bool $manual): void
     {
         $stmt = $this->pdo->prepare(
-            'UPDATE camp_places SET latitude = ?, longitude = ?, coordinates_are_manual = ?, updated_at = ? WHERE id = ?'
+            'UPDATE camp_places SET latitude = ?, longitude = ?, coordinates_are_manual = ?, updated_at = ? WHERE id '
+                . '= ?'
         );
         $stmt->execute([$latitude, $longitude, $manual ? 1 : 0, date('Y-m-d H:i:s'), $id]);
     }
@@ -284,7 +287,8 @@ class PlaceRepository
     public function clearSummary(int $id): void
     {
         $stmt = $this->pdo->prepare(
-            'UPDATE camp_places SET ai_summary = NULL, ai_summary_generated_at = NULL, ai_summary_is_stale = 0 WHERE id = ?'
+            'UPDATE camp_places SET ai_summary = NULL, ai_summary_generated_at = NULL, ai_summary_is_stale = 0 WHERE '
+                . 'id = ?'
         );
         $stmt->execute([$id]);
     }

@@ -21,7 +21,8 @@ class SchemaIntrospector
      */
     public function getTables(): array
     {
-        $stmt = $this->pdo->query("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME");
+        $stmt = $this->pdo->query("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() "
+            . "AND TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME");
 
         if ($stmt === false) {
             return [];

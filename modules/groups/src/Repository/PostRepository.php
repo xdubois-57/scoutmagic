@@ -34,7 +34,8 @@ class PostRepository
     {
         $stmt = $this->pdo->prepare(
             'INSERT INTO discussion_group_posts
-                (group_id, author_user_account_id, author_member_id, body, is_pinned, edited_at, last_activity_at, created_at)
+                (group_id, author_user_account_id, author_member_id, body, is_pinned, edited_at, last_activity_at, '
+                . 'created_at)
              VALUES (?, ?, ?, ?, 0, NULL, ?, ?)'
         );
         // last_activity_at is seeded with the creation time, never left to

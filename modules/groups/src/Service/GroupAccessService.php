@@ -82,7 +82,8 @@ class GroupAccessService
         if ($group->postingPolicy === DiscussionGroup::POSTING_MODERATORS && !$this->canModerate($group, $context)) {
             return PostPermission::deny(
                 PostPermission::REASON_MODERATORS_ONLY,
-                'Dans ce groupe, seuls les modérateurs publient des messages. Vous pouvez commenter, réagir et répondre aux sondages.'
+                'Dans ce groupe, seuls les modérateurs publient des messages. Vous pouvez commenter, réagir et '
+                    . 'répondre aux sondages.'
             );
         }
 
@@ -269,7 +270,10 @@ class GroupAccessService
         ];
     }
 
-    private function explicitRowFor(DiscussionGroup $group, GroupSessionContext $context): ?\Modules\Groups\Repository\GroupMember
+    private function explicitRowFor(
+        DiscussionGroup $group,
+        GroupSessionContext $context
+    ): ?\Modules\Groups\Repository\GroupMember
     {
         foreach ($context->linkedMemberIds as $memberId) {
             $row = $this->memberRepository->find($group->id, $memberId);

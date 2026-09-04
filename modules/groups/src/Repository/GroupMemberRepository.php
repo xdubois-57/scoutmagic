@@ -38,7 +38,8 @@ class GroupMemberRepository
         }
 
         $stmt = $this->pdo->prepare(
-            'INSERT INTO discussion_group_members (group_id, member_id, is_moderator, moderator_user_account_id, invited_by_member_id, created_at)
+            'INSERT INTO discussion_group_members (group_id, member_id, is_moderator, moderator_user_account_id, '
+                . 'invited_by_member_id, created_at)
              VALUES (?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
@@ -65,7 +66,8 @@ class GroupMemberRepository
      */
     public function findByGroup(int $groupId): array
     {
-        $stmt = $this->pdo->prepare('SELECT * FROM discussion_group_members WHERE group_id = ? ORDER BY is_moderator DESC, id');
+        $stmt = $this->pdo->prepare('SELECT * FROM discussion_group_members WHERE group_id = ? ORDER BY is_moderator '
+            . 'DESC, id');
         $stmt->execute([$groupId]);
 
         return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));

@@ -58,7 +58,10 @@ class ShortUrlRepository
         return new ShortUrl(
             id: (int) $row['id'],
             code: (string) $row['code'],
-            targetUrl: $this->encryption->decrypt((string) $row['target_url_encrypted'], self::TARGET_ENCRYPTION_CONTEXT),
+            targetUrl: $this->encryption->decrypt(
+                (string) $row['target_url_encrypted'],
+                self::TARGET_ENCRYPTION_CONTEXT
+            ),
             createdAt: (string) $row['created_at'],
             createdBy: $row['created_by'] !== null ? (int) $row['created_by'] : null
         );

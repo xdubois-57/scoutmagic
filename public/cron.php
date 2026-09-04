@@ -229,8 +229,12 @@ if (VapidKeyPairFactory::isValid(
     (string) ($secrets['vapid_public_key'] ?? ''),
     (string) ($secrets['vapid_private_key'] ?? '')
 )) {
-    $vapidSubjectEmail = (string) ($settingService->get('contact_email') ?: $settingService->get('mail_from_address') ?: '');
-    $vapidSubject = $vapidSubjectEmail !== '' ? 'mailto:' . $vapidSubjectEmail : (string) ($settingService->get('base_url') ?: 'https://localhost');
+    $vapidSubjectEmail = (string) (
+        $settingService->get('contact_email') ?: $settingService->get('mail_from_address') ?: ''
+    );
+    $vapidSubject = $vapidSubjectEmail !== ''
+        ? 'mailto:' . $vapidSubjectEmail
+        : (string) ($settingService->get('base_url') ?: 'https://localhost');
     $webPush = new WebPush(['VAPID' => [
         'subject' => $vapidSubject,
         'publicKey' => (string) $secrets['vapid_public_key'],

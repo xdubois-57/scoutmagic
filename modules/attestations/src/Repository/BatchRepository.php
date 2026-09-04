@@ -132,7 +132,8 @@ class BatchRepository
     public function markDistributionStarted(int $batchId): void
     {
         $stmt = $this->connection->getPdo()->prepare(
-            'UPDATE attestation_batches SET distribution_started_at = ? WHERE id = ? AND distribution_started_at IS NULL'
+            'UPDATE attestation_batches SET distribution_started_at = ? WHERE id = ? AND distribution_started_at IS '
+                . 'NULL'
         );
         $stmt->execute([AppClock::now()->format('Y-m-d H:i:s'), $batchId]);
     }

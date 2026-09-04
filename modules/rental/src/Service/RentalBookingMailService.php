@@ -550,7 +550,12 @@ class RentalBookingMailService
      *
      * @param array<string, mixed> $context
      */
-    private function renderFor(RentalBooking $booking, RentalAsset $asset, string $templateId, array $context): RenderedEmail
+    private function renderFor(
+        RentalBooking $booking,
+        RentalAsset $asset,
+        string $templateId,
+        array $context
+    ): RenderedEmail
     {
         $email = $this->emailTemplateRenderer->render($templateId, $context + [
             'reference' => $booking->reference,

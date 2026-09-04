@@ -23,19 +23,22 @@ class TransactionAttachmentRepository
 
     public function associate(int $transactionId, int $attachmentId): void
     {
-        $stmt = $this->pdo->prepare('SELECT 1 FROM finance_transaction_attachments WHERE transaction_id = ? AND attachment_id = ?');
+        $stmt = $this->pdo->prepare('SELECT 1 FROM finance_transaction_attachments WHERE transaction_id = ? AND '
+            . 'attachment_id = ?');
         $stmt->execute([$transactionId, $attachmentId]);
         if ($stmt->fetchColumn() !== false) {
             return;
         }
 
-        $stmt = $this->pdo->prepare('INSERT INTO finance_transaction_attachments (transaction_id, attachment_id) VALUES (?, ?)');
+        $stmt = $this->pdo->prepare('INSERT INTO finance_transaction_attachments (transaction_id, attachment_id) '
+            . 'VALUES (?, ?)');
         $stmt->execute([$transactionId, $attachmentId]);
     }
 
     public function dissociate(int $transactionId, int $attachmentId): void
     {
-        $stmt = $this->pdo->prepare('DELETE FROM finance_transaction_attachments WHERE transaction_id = ? AND attachment_id = ?');
+        $stmt = $this->pdo->prepare('DELETE FROM finance_transaction_attachments WHERE transaction_id = ? AND '
+            . 'attachment_id = ?');
         $stmt->execute([$transactionId, $attachmentId]);
     }
 
@@ -44,7 +47,8 @@ class TransactionAttachmentRepository
      */
     public function findAttachmentIdsForTransaction(int $transactionId): array
     {
-        $stmt = $this->pdo->prepare('SELECT attachment_id FROM finance_transaction_attachments WHERE transaction_id = ?');
+        $stmt = $this->pdo->prepare('SELECT attachment_id FROM finance_transaction_attachments WHERE transaction_id = '
+            . '?');
         $stmt->execute([$transactionId]);
         return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
     }
@@ -81,7 +85,8 @@ class TransactionAttachmentRepository
      */
     public function findTransactionIdsForAttachment(int $attachmentId): array
     {
-        $stmt = $this->pdo->prepare('SELECT transaction_id FROM finance_transaction_attachments WHERE attachment_id = ?');
+        $stmt = $this->pdo->prepare('SELECT transaction_id FROM finance_transaction_attachments WHERE attachment_id = '
+            . '?');
         $stmt->execute([$attachmentId]);
         return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
     }

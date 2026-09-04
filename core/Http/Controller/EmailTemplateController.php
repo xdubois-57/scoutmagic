@@ -112,7 +112,10 @@ class EmailTemplateController extends AbstractController
             'editable' => $template->editable,
             'customised' => $override !== null,
             'subject' => $override['subject'] ?? $template->defaultSubject,
-            'body_html' => $override['body_html'] ?? $this->shippedBody($template, $this->placeholderContext($template)),
+            'body_html' => $override['body_html'] ?? $this->shippedBody(
+                $template,
+                $this->placeholderContext($template)
+            ),
             'preview' => $this->preview($template),
             'test_recipient' => AuthSession::getEmail() ?? '',
         ]);
@@ -158,7 +161,8 @@ class EmailTemplateController extends AbstractController
         $payload = json_decode($request->getRawBody(), true);
         $payload = is_array($payload) ? $payload : [];
 
-        if (($guard = $this->guardCsrfJson($request, isset($payload['_csrf_token']) ? (string) $payload['_csrf_token'] : null)) !== null) {
+        if (($guard = $this->guardCsrfJson($request,
+            isset($payload['_csrf_token']) ? (string) $payload['_csrf_token'] : null)) !== null) {
             return $guard;
         }
 
@@ -172,7 +176,8 @@ class EmailTemplateController extends AbstractController
 
             return $this->json([
                 'success' => false,
-                'error' => "Cet email n'est pas modifiable : il sert à se connecter au site ou à confirmer une adresse.",
+                'error' => "Cet email n'est pas modifiable : il sert à se connecter au site ou à confirmer une "
+                    . "adresse.",
             ], 403);
         }
 

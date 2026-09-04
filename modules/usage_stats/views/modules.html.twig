@@ -36,9 +36,9 @@
                                 </span>
                             {% endif %}
                         </div>
-                        <div class="progress mt-2" style="height: 0.4rem;"
-                             role="progressbar" aria-label="{{ module.name }}"
-                             aria-valuenow="{{ module.width_percent }}" aria-valuemin="0" aria-valuemax="100">
+                        {# Décoratif : la valeur est écrite en toutes lettres juste à côté,
+                           et une barre qui la répète ne fait que la faire lire deux fois. #}
+                        <div aria-hidden="true" class="progress mt-2" style="height: 0.4rem;">
                             <div class="progress-bar" style="width: {{ module.width_percent }}%;"></div>
                         </div>
                     </div>

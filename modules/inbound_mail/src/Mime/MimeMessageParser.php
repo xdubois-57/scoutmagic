@@ -135,7 +135,10 @@ class MimeMessageParser
         if ($disposition === 'attachment' || $filename !== null) {
             $attachments[] = new FetchedAttachment(
                 filename: $filename ?? 'piece-jointe',
-                declaredMimeType: self::parameterlessValue(self::header($headers, 'content-type')) ?: 'application/octet-stream',
+                declaredMimeType: self::parameterlessValue(self::header(
+                    $headers,
+                    'content-type'
+                )) ?: 'application/octet-stream',
                 bytes: self::decodeBody($headers, $body),
                 isInline: $disposition === 'inline',
                 contentId: self::nullIfEmpty(trim(self::header($headers, 'content-id'), '<> ')) 

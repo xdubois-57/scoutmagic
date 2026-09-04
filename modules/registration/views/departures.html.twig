@@ -57,7 +57,7 @@
                leaving is a decision, and decisions belong on the line they
                concern, never in a summary at the top. #}
             {% if reenrollment.visible %}
-                <div class="alert {{ reenrollment.divergences > 0 ? 'alert-warning' : 'alert-info' }} d-flex flex-wrap gap-3 align-items-center" role="status">
+                <output class="alert {{ reenrollment.divergences > 0 ? 'alert-warning' : 'alert-info' }} d-flex flex-wrap gap-3 align-items-center">
                     <span id="departures-divergence-count">
                         <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
                         <strong>{{ reenrollment.divergences }}</strong>
@@ -69,7 +69,7 @@
                         <strong>{{ reenrollment.unanswered }}</strong>
                         {{ reenrollment.unanswered > 1 ? 'familles sans réponse' : 'famille sans réponse' }}
                     </span>
-                </div>
+                </output>
             {% endif %}
 
             {% if sections|length > 1 %}

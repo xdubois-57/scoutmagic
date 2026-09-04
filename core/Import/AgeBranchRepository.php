@@ -35,7 +35,14 @@ class AgeBranchRepository
     }
 
     /**
-     * @return array{id: int, desk_code: string, label: string, sort_order: int, logo_file_id: ?int, explanation_url: string}|null
+     * @return array{
+     *     id: int,
+     *     desk_code: string,
+     *     label: string,
+     *     sort_order: int,
+     *     logo_file_id: ?int,
+     *     explanation_url: string
+     * }|null
      */
     public function findByDeskCode(string $code): ?array
     {
@@ -49,7 +56,14 @@ class AgeBranchRepository
     }
 
     /**
-     * @return array{id: int, desk_code: string, label: string, sort_order: int, logo_file_id: ?int, explanation_url: string}|null
+     * @return array{
+     *     id: int,
+     *     desk_code: string,
+     *     label: string,
+     *     sort_order: int,
+     *     logo_file_id: ?int,
+     *     explanation_url: string
+     * }|null
      */
     public function findById(int $id): ?array
     {
@@ -99,7 +113,17 @@ class AgeBranchRepository
     }
 
     /**
-     * @return array<int, array{id: int, desk_code: string, label: string, sort_order: int, logo_file_id: ?int, explanation_url: string}>
+     * @return array<
+     *     int,
+     *     array{
+     *         id: int,
+     *         desk_code: string,
+     *         label: string,
+     *         sort_order: int,
+     *         logo_file_id: ?int,
+     *         explanation_url: string
+     *     }
+     * >
      */
     public function findAllOrdered(): array
     {
@@ -142,7 +166,14 @@ class AgeBranchRepository
 
     /**
      * @param array<string, mixed> $row
-     * @return array{id: int, desk_code: string, label: string, sort_order: int, logo_file_id: ?int, explanation_url: string}
+     * @return array{
+     *     id: int,
+     *     desk_code: string,
+     *     label: string,
+     *     sort_order: int,
+     *     logo_file_id: ?int,
+     *     explanation_url: string
+     * }
      */
     private static function mapRow(array $row): array
     {

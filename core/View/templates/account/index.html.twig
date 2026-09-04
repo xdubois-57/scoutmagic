@@ -168,9 +168,9 @@
                 </button>
             </div>
 
-            <div id="passkey-unsupported-notice" class="text-warning small mt-2 d-none" role="status">
+            <output id="passkey-unsupported-notice" class="text-warning small mt-2 d-none d-block">
                 Votre navigateur ne supporte pas les clés numériques.
-            </div>
+            </output>
         </div>
     </div>
 
@@ -189,12 +189,12 @@
             <p class="text-body-secondary small mb-0">
                 Activer cette option demandera la permission de votre navigateur.
             </p>
-            <p class="text-warning small mb-0 mt-2 d-none" id="push-denied-notice" role="status">
+            <output class="text-warning small mb-0 mt-2 d-none d-block" id="push-denied-notice">
                 Votre navigateur a refusé les notifications. Vous pouvez modifier ce choix dans les paramètres de votre navigateur.
-            </p>
-            <p class="text-warning small mb-0 mt-2 d-none" id="push-unsupported-notice" role="status">
+            </output>
+            <output class="text-warning small mb-0 mt-2 d-none d-block" id="push-unsupported-notice">
                 Votre navigateur ne supporte pas les notifications push.
-            </p>
+            </output>
             <p class="text-danger small mb-0 mt-2 d-none" id="push-error-notice" role="alert">
                 Une erreur est survenue. Veuillez réessayer.
             </p>

@@ -92,7 +92,8 @@ class ConfigController extends AbstractController
      */
     private function ensureCampaignFilePurgeScheduled(): void
     {
-        $existing = $this->schedulerService->find('finance', PurgeCampaignFilesHandler::TASK_KEY, PurgeCampaignFilesHandler::REFERENCE);
+        $existing = $this->schedulerService->find('finance', PurgeCampaignFilesHandler::TASK_KEY,
+            PurgeCampaignFilesHandler::REFERENCE);
         if ($existing !== null && $existing['status'] === 'pending' && strtotime($existing['run_at']) > time()) {
             return;
         }

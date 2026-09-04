@@ -22,7 +22,8 @@ class LinkFetchLogRepository
 
     public function record(int $memberId): void
     {
-        $stmt = $this->pdo->prepare('INSERT INTO discussion_group_link_fetch_log (member_id, created_at) VALUES (?, ?)');
+        $stmt = $this->pdo->prepare('INSERT INTO discussion_group_link_fetch_log (member_id, created_at) VALUES (?, '
+            . '?)');
         $stmt->execute([$memberId, date('Y-m-d H:i:s')]);
     }
 

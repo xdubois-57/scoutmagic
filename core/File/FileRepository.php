@@ -17,7 +17,8 @@ class FileRepository
     public function findById(int $id): ?FileRecord
     {
         $stmt = $this->pdo->prepare(
-            'SELECT id, relative_path, original_name, mime_type, size_bytes, role_min, custom_resolver, encrypted, owner_member_id, owner_type, owner_id
+            'SELECT id, relative_path, original_name, mime_type, size_bytes, role_min, custom_resolver, encrypted, '
+                . 'owner_member_id, owner_type, owner_id
              FROM files WHERE id = ?'
         );
         $stmt->execute([$id]);
@@ -56,10 +57,12 @@ class FileRepository
         ?int $ownerId = null
     ): int {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min, module_id, created_by, encrypted, owner_member_id, owner_type, owner_id)
+            'INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min, module_id, created_by, '
+                . 'encrypted, owner_member_id, owner_type, owner_id)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
-        $stmt->execute([$relativePath, $originalName, $mimeType, $sizeBytes, $roleMin, $moduleId, $createdBy, $encrypted ? 1 : 0, $ownerMemberId, $ownerType, $ownerId]);
+        $stmt->execute([$relativePath, $originalName, $mimeType, $sizeBytes, $roleMin, $moduleId, $createdBy,
+            $encrypted ? 1 : 0, $ownerMemberId, $ownerType, $ownerId]);
 
         return (int) $this->pdo->lastInsertId();
     }

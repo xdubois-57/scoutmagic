@@ -62,7 +62,7 @@
   - `aria_label` — names the <nav> landmark; defaults to 'Navigation'.
 
   `aria-current="page"` marks the selected tab. Selection is a plain
-  <a href> — no JS, no client-side state.
+  link with an href — no JS, no client-side state.
 #}
 {% if items|length > 0 %}
     <nav class="nav-rail" id="{{ picker_id }}" aria-label="{{ aria_label|default('Navigation') }}">

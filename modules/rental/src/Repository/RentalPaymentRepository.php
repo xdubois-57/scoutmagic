@@ -242,7 +242,9 @@ class RentalPaymentRepository
 
         return [
             'rental_receivable_id' => $row['rental_receivable_id'] !== null ? (int) $row['rental_receivable_id'] : null,
-            'rental_communication' => $row['rental_communication'] !== null ? (string) $row['rental_communication'] : null,
+            'rental_communication' => $row['rental_communication'] !== null
+                ? (string) $row['rental_communication']
+                : null,
             'deposit_amount_cents' => $row['deposit_amount_cents'] !== null ? (int) $row['deposit_amount_cents'] : null,
             'deposit_due_date' => $row['deposit_due_date'] !== null ? (string) $row['deposit_due_date'] : null,
             'balance_due_date' => $row['balance_due_date'] !== null ? (string) $row['balance_due_date'] : null,

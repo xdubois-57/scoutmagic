@@ -50,11 +50,14 @@ class FeesAttentionProvider implements AttentionPointProvider
 
         $difference = $report->toCorrectDifferenceCents();
         $why = $difference !== null
-            ? 'Écart estimé de ' . number_format(abs($difference) / 100, 2, ',', ' ') . ' € sur la prochaine facture de la fédération.'
-            : "L'écart en euros n'est pas chiffrable tant que le barème ne porte pas de montant pour les catégories concernées.";
+            ? 'Écart estimé de ' . number_format(abs($difference) / 100, 2, ',', ' ') . ' € sur la prochaine facture '
+                . 'de la fédération.'
+            : "L'écart en euros n'est pas chiffrable tant que le barème ne porte pas de montant pour les catégories "
+                . "concernées.";
 
         return [new AttentionPoint(
-            title: $wrong . ' foyer' . ($wrong > 1 ? 's portent' : ' porte') . ' une catégorie tarifaire devenue fausse',
+            title: $wrong . ' foyer' . ($wrong > 1 ? 's portent' : ' porte') . ' une catégorie tarifaire devenue '
+                . 'fausse',
             why: $why . " La catégorie encodée dans Desk ne suit pas automatiquement un mouvement de membre.",
             actionLabel: 'Ouvrir la justesse des tarifs',
             actionUrl: '/admin/fees/tarifs',

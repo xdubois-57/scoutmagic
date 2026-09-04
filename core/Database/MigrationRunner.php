@@ -184,7 +184,9 @@ class MigrationRunner
      */
     public function isPending(array $schemaFiles): bool
     {
-        return $this->getStoredSetting($this->schemaHashSettingKey($schemaFiles)) !== $this->computeSchemaHash($schemaFiles);
+        return $this->getStoredSetting(
+            $this->schemaHashSettingKey($schemaFiles)
+        ) !== $this->computeSchemaHash($schemaFiles);
     }
 
     /**
@@ -630,7 +632,8 @@ class MigrationRunner
             $key,
             (string) json_encode($progress->toArray()),
             'Progression de migration de schéma en cours (interne)',
-            'État intermédiaire d\'une migration d\'un ou plusieurs modules interrompue par le budget de temps ; supprimé automatiquement une fois la migration terminée.'
+            'État intermédiaire d\'une migration d\'un ou plusieurs modules interrompue par le budget de temps ; '
+                . 'supprimé automatiquement une fois la migration terminée.'
         );
     }
 
@@ -679,7 +682,8 @@ class MigrationRunner
             $key,
             $hash,
             'Empreinte du schéma migré (interne)',
-            'Utilisée pour éviter de revérifier le schéma de la base de données à chaque page tant que schema.sql/drops.sql n\'ont pas changé depuis la dernière migration réussie.'
+            'Utilisée pour éviter de revérifier le schéma de la base de données à chaque page tant que '
+                . 'schema.sql/drops.sql n\'ont pas changé depuis la dernière migration réussie.'
         );
     }
 
@@ -722,7 +726,8 @@ class MigrationRunner
             }
 
             $insertStmt = $pdo->prepare(
-                'INSERT INTO settings (module_id, setting_key, setting_value, default_value, setting_type, label, description, editable, sort_order)
+                'INSERT INTO settings (module_id, setting_key, setting_value, default_value, setting_type, label, '
+                    . 'description, editable, sort_order)
                  VALUES (NULL, ?, ?, ?, \'text\', ?, ?, 0, 999)'
             );
             $insertStmt->execute([$key, $value, $value, $label, $description]);

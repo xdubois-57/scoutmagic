@@ -19,7 +19,8 @@ class StatementImportRepository
      */
     public function findByAccountId(int $accountId): array
     {
-        $stmt = $this->pdo->prepare('SELECT * FROM finance_statement_imports WHERE account_id = ? ORDER BY imported_at DESC');
+        $stmt = $this->pdo->prepare('SELECT * FROM finance_statement_imports WHERE account_id = ? ORDER BY '
+            . 'imported_at DESC');
         $stmt->execute([$accountId]);
         return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
@@ -44,7 +45,8 @@ class StatementImportRepository
      */
     public function findMostRecentForAccount(int $accountId): ?StatementImport
     {
-        $stmt = $this->pdo->prepare('SELECT * FROM finance_statement_imports WHERE account_id = ? ORDER BY imported_at DESC, id DESC LIMIT 1');
+        $stmt = $this->pdo->prepare('SELECT * FROM finance_statement_imports WHERE account_id = ? ORDER BY '
+            . 'imported_at DESC, id DESC LIMIT 1');
         $stmt->execute([$accountId]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
         return $row !== false ? $this->hydrate($row) : null;
@@ -70,7 +72,8 @@ class StatementImportRepository
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO finance_statement_imports
-                (account_id, bank_code, original_filename, lines_total, lines_new, lines_duplicate, imported_by, imported_at)
+                (account_id, bank_code, original_filename, lines_total, lines_new, lines_duplicate, imported_by, '
+                . 'imported_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([

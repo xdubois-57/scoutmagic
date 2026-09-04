@@ -136,7 +136,8 @@ class MassMailController extends AbstractController
             return $this->notFound();
         }
 
-        return $this->render('@mass_mail/compose.html.twig', $this->buildComposeContext($email, $this->formFromEmail($email), null));
+        return $this->render('@mass_mail/compose.html.twig',
+            $this->buildComposeContext($email, $this->formFromEmail($email), null));
     }
 
     /**
@@ -283,7 +284,10 @@ class MassMailController extends AbstractController
      */
     public function createForm(Request $request, array $params): Response
     {
-        return $this->render('@mass_mail/compose.html.twig', $this->buildComposeContext(null, $this->emptyForm(), null));
+        return $this->render(
+            '@mass_mail/compose.html.twig',
+            $this->buildComposeContext(null, $this->emptyForm(), null)
+        );
     }
 
     /**
@@ -348,10 +352,16 @@ class MassMailController extends AbstractController
         }
         $originalName = (string) ($uploadedFile['name'] ?? '');
         if (!str_ends_with(mb_strtolower($originalName), '.xlsx')) {
-            return $this->json(['success' => false, 'errors' => ['Seuls les fichiers Excel .xlsx sont acceptés.']], 422);
+            return $this->json(
+                ['success' => false, 'errors' => ['Seuls les fichiers Excel .xlsx sont acceptés.']],
+                422
+            );
         }
         if ((int) ($uploadedFile['size'] ?? 0) > self::AUDIENCE_MAX_SIZE_BYTES) {
-            return $this->json(['success' => false, 'errors' => ['Le fichier dépasse la taille maximale de 5 Mo.']], 422);
+            return $this->json(
+                ['success' => false, 'errors' => ['Le fichier dépasse la taille maximale de 5 Mo.']],
+                422
+            );
         }
 
         try {
@@ -410,7 +420,8 @@ class MassMailController extends AbstractController
     public function mergePreview(Request $request, array $params): Response
     {
         try {
-            $preview = $this->massMailService->getMergePreview((int) $params['id'], (int) $request->getQuery('offset', 0));
+            $preview = $this->massMailService->getMergePreview((int) $params['id'],
+                (int) $request->getQuery('offset', 0));
         } catch (MassMailException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
         }
@@ -485,7 +496,8 @@ class MassMailController extends AbstractController
             // concatenated.
             FlashMessage::set('error', UserFacingMessage::from(
                 $e,
-                "L'email de test n'a pas pu être envoyé — vérifiez la configuration d'envoi du site (Configuration > Email), puis réessayez."
+                "L'email de test n'a pas pu être envoyé — vérifiez la configuration d'envoi du site (Configuration > "
+                    . "Email), puis réessayez."
             ));
 
             return $this->redirect('/mass-mail/' . $id);
@@ -639,7 +651,11 @@ class MassMailController extends AbstractController
         if ($email !== null) {
             foreach ($this->massMailService->getAttachments($email->id) as $attachment) {
                 $file = $this->fileRepository->findById($attachment->fileId);
-                $attachments[] = ['id' => $attachment->id, 'file_id' => $attachment->fileId, 'name' => $file->originalName ?? '?'];
+                $attachments[] = [
+                    'id' => $attachment->id,
+                    'file_id' => $attachment->fileId,
+                    'name' => $file->originalName ?? '?'
+                ];
             }
         }
 
@@ -648,7 +664,8 @@ class MassMailController extends AbstractController
         $audienceId = $form['audience_id'] !== null ? (int) $form['audience_id'] : null;
         if ($audienceId !== null) {
             try {
-                $summary = $this->massMailService->getAudienceSummary($audienceId, AuthSession::getUserAccountId(), $authorization);
+                $summary = $this->massMailService->getAudienceSummary($audienceId, AuthSession::getUserAccountId(),
+                    $authorization);
                 $audience = $summary['audience'];
                 $audienceSample = $summary['sample'];
             } catch (MassMailException) {
@@ -670,11 +687,14 @@ class MassMailController extends AbstractController
             'forced_section_id' => $authorization->forcedSenderSectionId,
             'list_options' => $this->buildListOptions($authorization, (string) $form['list']),
             'scout_years' => $this->buildScoutYearOptions(),
-            'previous_year_cutoff' => (string) ($this->settingService->get(self::SETTING_PREVIOUS_YEAR_CUTOFF, 'mass_mail') ?: self::DEFAULT_PREVIOUS_YEAR_CUTOFF),
+            'previous_year_cutoff' => (string) ($this->settingService->get(self::SETTING_PREVIOUS_YEAR_CUTOFF,
+                'mass_mail') ?: self::DEFAULT_PREVIOUS_YEAR_CUTOFF),
             'audience' => $audience,
             'audience_sample' => $audienceSample,
             'attachments' => $attachments,
-            'counts' => $email !== null ? $this->massMailService->getStatusCounts($email->id) : ['total' => 0, 'sent' => 0, 'pending' => 0, 'error' => 0],
+            'counts' => $email !== null
+                ? $this->massMailService->getStatusCounts($email->id)
+                : ['total' => 0, 'sent' => 0, 'pending' => 0, 'error' => 0],
             'current_user_email' => AuthSession::getEmail() ?? '',
             'csrf_token' => CsrfGuard::generateToken(),
         ];
@@ -691,7 +711,10 @@ class MassMailController extends AbstractController
      * (Service\MassMailService), so this is presentation, never a
      * boundary (SECURITY.md §3).
      *
-     * @return array<int, array{value: string, label: string, selected: bool, disabled: bool, description: string, type: string}>
+     * @return array<
+     *     int,
+     *     array{value: string, label: string, selected: bool, disabled: bool, description: string, type: string}
+     * >
      */
     private function buildListOptions(SenderAuthorization $authorization, string $selected): array
     {
@@ -723,7 +746,8 @@ class MassMailController extends AbstractController
             'label' => 'Publipostage — fichier Excel',
             'selected' => str_starts_with($selected, Email::LIST_TYPE_MAIL_MERGE . ':'),
             'disabled' => false,
-            'description' => 'Un fichier Excel importé définit les destinataires : un email par ligne, avec des variables par colonne.',
+            'description' => 'Un fichier Excel importé définit les destinataires : un email par ligne, avec des '
+                . 'variables par colonne.',
             'type' => Email::LIST_TYPE_MAIL_MERGE,
         ];
 
@@ -737,7 +761,11 @@ class MassMailController extends AbstractController
      * section list only for one's own section, everything else to a chef
      * d'unité or above.
      */
-    private static function isListAllowed(SenderAuthorization $authorization, string $listType, ?int $listSectionId): bool
+    private static function isListAllowed(
+        SenderAuthorization $authorization,
+        string $listType,
+        ?int $listSectionId
+    ): bool
     {
         if ($authorization->isChefDUniteOrAbove) {
             return true;
@@ -780,7 +808,9 @@ class MassMailController extends AbstractController
     {
         return [
             'section_id' => $email->sectionId,
-            'list' => $email->listType . ':' . ($email->listType === Email::LIST_TYPE_CUSTOM ? $email->listId : ($email->listSectionId ?? '')),
+            'list' => $email->listType
+                . ':'
+                . ($email->listType === Email::LIST_TYPE_CUSTOM ? $email->listId : ($email->listSectionId ?? '')),
             'scout_year_ids' => $email->scoutYearIds,
             'subject' => $email->subject,
             'body_html' => $email->bodyHtml,
@@ -872,11 +902,18 @@ class MassMailController extends AbstractController
     {
         $byId = array_column($this->scoutYearService->getAll(), 'label', 'id');
 
-        return array_values(array_map(static fn(int $id): string => (string) ($byId[$id] ?? '?'), $email->scoutYearIds));
+        return array_values(array_map(
+            static fn(int $id): string => (string) ($byId[$id] ?? '?'),
+            $email->scoutYearIds
+        ));
     }
 
     /**
-     * @return array{previous: array{id: int, label: string, available: bool, warning: ?string}, current: array{id: int, label: string, available: bool, warning: ?string}, next: array{id: int, label: string, available: bool, warning: ?string}}
+     * @return array{
+     *     previous: array{id: int, label: string, available: bool, warning: ?string},
+     *     current: array{id: int, label: string, available: bool, warning: ?string},
+     *     next: array{id: int, label: string, available: bool, warning: ?string}
+     * }
      */
     private function buildScoutYearOptions(): array
     {
@@ -896,7 +933,12 @@ class MassMailController extends AbstractController
             && $this->mailingListService->resolveMembers('default_active_members', null, null, $nextId) !== [];
 
         return [
-            'previous' => ['id' => $this->scoutYearService->ensureYear($previousLabel), 'label' => $previousLabel, 'available' => true, 'warning' => null],
+            'previous' => [
+                'id' => $this->scoutYearService->ensureYear($previousLabel),
+                'label' => $previousLabel,
+                'available' => true,
+                'warning' => null
+            ],
             'current' => ['id' => $current['id'], 'label' => $current['label'], 'available' => true, 'warning' => null],
             'next' => [
                 'id' => $nextId,
@@ -931,7 +973,8 @@ class MassMailController extends AbstractController
 
         $userSectionIds = $this->massMailAccessService->getUserSectionIds($email, $currentYearId);
         $linkedMembers = $this->memberService->getLinkedMembers($email, $currentYearId);
-        $forcedSectionId = SectionPickerHelper::resolveDefault(null, $linkedMembers, $this->sectionService->getAllWithBranches());
+        $forcedSectionId = SectionPickerHelper::resolveDefault(null, $linkedMembers,
+            $this->sectionService->getAllWithBranches());
 
         return new SenderAuthorization(false, $userSectionIds, $forcedSectionId);
     }

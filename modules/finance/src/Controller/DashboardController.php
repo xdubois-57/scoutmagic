@@ -82,7 +82,9 @@ class DashboardController extends AbstractController
 
         $categoryParam = (string) $request->getQuery('category_id', 'all');
         $uncategorizedOnly = $categoryParam === 'none';
-        $categoryId = (!$uncategorizedOnly && $categoryParam !== 'all' && $categoryParam !== '') ? (int) $categoryParam : null;
+        $categoryId = (!$uncategorizedOnly && $categoryParam !== 'all' && $categoryParam !== '')
+            ? (int) $categoryParam
+            : null;
         $search = trim((string) $request->getQuery('q', ''));
 
         $balance = $this->balanceService->getBalanceAt($account, new \DateTimeImmutable('today'));
@@ -105,7 +107,8 @@ class DashboardController extends AbstractController
             $balanceEvolution = $this->financeService->getBalanceEvolution($account->id, $fiscalYear->id);
             $recentMovements = array_slice(
                 $isFiltered
-                    ? $this->findMatchingMovements($account->id, $fiscalYear->id, $categoryId, $uncategorizedOnly, $search)
+                    ? $this->findMatchingMovements($account->id, $fiscalYear->id, $categoryId, $uncategorizedOnly,
+                        $search)
                     : $this->findActionNeededMovements($account->id, $fiscalYear->id),
                 0,
                 self::RECENT_MOVEMENTS_LIMIT
@@ -122,8 +125,12 @@ class DashboardController extends AbstractController
         );
         $recentMovementRows = array_map(fn(Transaction $movement) => [
             'movement' => $movement,
-            'counterparty' => MovementPresenter::counterparty($movement, $firstReceiptsByMovementId[$movement->id] ?? null, $account->name),
-            'description' => MovementPresenter::description($movement, $firstReceiptsByMovementId[$movement->id] ?? null),
+            'counterparty' => MovementPresenter::counterparty($movement,
+                $firstReceiptsByMovementId[$movement->id] ?? null, $account->name),
+            'description' => MovementPresenter::description(
+                $movement,
+                $firstReceiptsByMovementId[$movement->id] ?? null
+            ),
         ], $recentMovements);
 
         $bilan = ['income' => 0.0, 'expense' => 0.0, 'total' => 0.0];
@@ -216,7 +223,8 @@ class DashboardController extends AbstractController
         bool $uncategorizedOnly,
         string $search
     ): array {
-        $movements = $this->transactionRepository->findFiltered([$accountId], $fiscalYearId, $categoryId, null, $uncategorizedOnly);
+        $movements = $this->transactionRepository->findFiltered([$accountId], $fiscalYearId, $categoryId, null,
+            $uncategorizedOnly);
 
         if ($search === '') {
             return $movements;
@@ -298,7 +306,10 @@ class DashboardController extends AbstractController
         if ($attachment->suggestedLabel !== null && mb_stripos($attachment->suggestedLabel, $search) !== false) {
             return true;
         }
-        return $attachment->suggestedDescription !== null && mb_stripos($attachment->suggestedDescription, $search) !== false;
+        return $attachment->suggestedDescription !== null && mb_stripos(
+            $attachment->suggestedDescription,
+            $search
+        ) !== false;
     }
 
     /**

@@ -31,8 +31,10 @@ class RequestStatusService
      * @var array<string, array<int, string>>
      */
     private const ALLOWED_TRANSITIONS = [
-        RegistrationRequest::STATUS_PENDING => [RegistrationRequest::STATUS_ACCEPTED, RegistrationRequest::STATUS_REFUSED, RegistrationRequest::STATUS_WITHDRAWN],
-        RegistrationRequest::STATUS_ACCEPTED => [RegistrationRequest::STATUS_REFUSED, RegistrationRequest::STATUS_WITHDRAWN, RegistrationRequest::STATUS_PENDING],
+        RegistrationRequest::STATUS_PENDING => [RegistrationRequest::STATUS_ACCEPTED,
+            RegistrationRequest::STATUS_REFUSED, RegistrationRequest::STATUS_WITHDRAWN],
+        RegistrationRequest::STATUS_ACCEPTED => [RegistrationRequest::STATUS_REFUSED,
+            RegistrationRequest::STATUS_WITHDRAWN, RegistrationRequest::STATUS_PENDING],
         RegistrationRequest::STATUS_REFUSED => [RegistrationRequest::STATUS_PENDING],
         RegistrationRequest::STATUS_WITHDRAWN => [RegistrationRequest::STATUS_PENDING],
         RegistrationRequest::STATUS_ENCODED => [],
@@ -94,7 +96,11 @@ class RequestStatusService
      */
     public function visibleStatus(RegistrationRequest $request): string
     {
-        if (in_array($request->status, [RegistrationRequest::STATUS_ACCEPTED, RegistrationRequest::STATUS_ENCODED], true)
+        if (in_array(
+            $request->status,
+            [RegistrationRequest::STATUS_ACCEPTED, RegistrationRequest::STATUS_ENCODED],
+            true
+        )
             && $request->acceptedEmailSentAt === null
         ) {
             return RegistrationRequest::STATUS_PENDING;

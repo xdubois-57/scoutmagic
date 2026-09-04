@@ -192,7 +192,17 @@ class LeadershipRepository
      * member and survives both a mid-year section change and the wholesale
      * overwrite every import does to `member_functions`.
      *
-     * @return list<array{member_id: int, member_year_id: int, first_name: string, last_name: string, totem: ?string, birth_date: ?string, scout_year_offset: int, section_id: int, section_name: ?string}>
+     * @return list<array{
+     *     member_id: int,
+     *     member_year_id: int,
+     *     first_name: string,
+     *     last_name: string,
+     *     totem: ?string,
+     *     birth_date: ?string,
+     *     scout_year_offset: int,
+     *     section_id: int,
+     *     section_name: ?string
+     * }>
      */
     public function findMembersInBranchSections(int $scoutYearId, int $branchSortOrder, string $referenceDate): array
     {

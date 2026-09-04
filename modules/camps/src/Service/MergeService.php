@@ -371,7 +371,13 @@ class MergeService
     /**
      * @param array<int, string> $lost
      */
-    private function appendToNote(Camp $from, Camp $to, array $lost, ?int $actorUserAccountId, \DateTimeImmutable $today): void
+    private function appendToNote(
+        Camp $from,
+        Camp $to,
+        array $lost,
+        ?int $actorUserAccountId,
+        \DateTimeImmutable $today
+    ): void
     {
         $fromKey = CampService::noteKey($from->id);
         $toKey = CampService::noteKey($to->id);

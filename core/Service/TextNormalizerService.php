@@ -312,15 +312,18 @@ class TextNormalizerService
 
         // Mobile: 4XX XX XX XX
         if ($len === 9 && $nat[0] === '4') {
-            return sprintf('+32 %s %s %s %s', substr($nat, 0, 3), substr($nat, 3, 2), substr($nat, 5, 2), substr($nat, 7, 2));
+            return sprintf('+32 %s %s %s %s', substr($nat, 0, 3), substr($nat, 3, 2), substr($nat, 5, 2),
+                substr($nat, 7, 2));
         }
 
         if ($len === 8) {
             // Brussels: 1-digit zone code (2). Others: 2-digit zone code.
             if ($nat[0] === '2') {
-                return sprintf('+32 %s %s %s %s', substr($nat, 0, 1), substr($nat, 1, 3), substr($nat, 4, 2), substr($nat, 6, 2));
+                return sprintf('+32 %s %s %s %s', substr($nat, 0, 1), substr($nat, 1, 3), substr($nat, 4, 2),
+                    substr($nat, 6, 2));
             }
-            return sprintf('+32 %s %s %s %s', substr($nat, 0, 2), substr($nat, 2, 2), substr($nat, 4, 2), substr($nat, 6, 2));
+            return sprintf('+32 %s %s %s %s', substr($nat, 0, 2), substr($nat, 2, 2), substr($nat, 4, 2),
+                substr($nat, 6, 2));
         }
 
         // Doesn't match a known Belgian pattern: group generically.

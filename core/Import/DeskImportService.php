@@ -66,7 +66,12 @@ class DeskImportService
      * @throws ImportException when the file cannot be read or its headers do not match
      * @throws RosterReplacementRefusedException when the file would replace the roster with something it should not
      */
-    public function import(string $filePath, int $scoutYearId, int $importedBy, bool $replacementConfirmed = false): ImportResult
+    public function import(
+        string $filePath,
+        int $scoutYearId,
+        int $importedBy,
+        bool $replacementConfirmed = false
+    ): ImportResult
     {
         $parsed = $this->parser->parse($filePath);
         $this->mappingResolver->resetImportState();
@@ -278,7 +283,12 @@ class DeskImportService
      *
      * @throws RosterReplacementRefusedException
      */
-    private function assertReplacementAllowed(ParsedImport $parsed, int $scoutYearId, int $importedBy, bool $confirmed): void
+    private function assertReplacementAllowed(
+        ParsedImport $parsed,
+        int $scoutYearId,
+        int $importedBy,
+        bool $confirmed
+    ): void
     {
         $assessment = $this->replacementGuard->assess($parsed, $scoutYearId, $importedBy);
         if ($assessment->isClear()) {
@@ -306,7 +316,12 @@ class DeskImportService
     /**
      * @param string[] $warnings
      */
-    private function importMember(ParsedMember $member, int $scoutYearId, array &$warnings, \DateTimeImmutable $asOf): void
+    private function importMember(
+        ParsedMember $member,
+        int $scoutYearId,
+        array &$warnings,
+        \DateTimeImmutable $asOf
+    ): void
     {
         // Upsert member
         $memberId = $this->memberRepository->upsertByDeskId($member->deskId);
@@ -332,22 +347,38 @@ class DeskImportService
         $encryptedData = [
             'first_name_encrypted' => $this->encryption->encrypt($member->firstName, 'member_years.first_name'),
             'last_name_encrypted' => $this->encryption->encrypt($member->lastName, 'member_years.last_name'),
-            'gender_encrypted' => $member->gender !== null ? $this->encryption->encrypt($member->gender, 'member_years.gender') : null,
-            'birth_date_encrypted' => $member->birthDate !== null ? $this->encryption->encrypt($member->birthDate, 'member_years.birth_date') : null,
-            'phone_encrypted' => $member->phone !== null ? $this->encryption->encrypt($member->phone, 'member_years.phone') : null,
-            'mobile_encrypted' => $member->mobile !== null ? $this->encryption->encrypt($member->mobile, 'member_years.mobile') : null,
+            'gender_encrypted' => $member->gender !== null
+                ? $this->encryption->encrypt($member->gender, 'member_years.gender')
+                : null,
+            'birth_date_encrypted' => $member->birthDate !== null
+                ? $this->encryption->encrypt($member->birthDate, 'member_years.birth_date')
+                : null,
+            'phone_encrypted' => $member->phone !== null
+                ? $this->encryption->encrypt($member->phone, 'member_years.phone')
+                : null,
+            'mobile_encrypted' => $member->mobile !== null
+                ? $this->encryption->encrypt($member->mobile, 'member_years.mobile')
+                : null,
             'email_encrypted' => $emailEncrypted,
             'email_blind_index' => $emailBlindIndex,
-            'totem_encrypted' => $member->totem !== null ? $this->encryption->encrypt($member->totem, 'member_years.totem') : null,
-            'quali_encrypted' => $member->quali !== null ? $this->encryption->encrypt($member->quali, 'member_years.quali') : null,
-            'patrol_encrypted' => $member->patrol !== null ? $this->encryption->encrypt($member->patrol, 'member_years.patrol') : null,
+            'totem_encrypted' => $member->totem !== null
+                ? $this->encryption->encrypt($member->totem, 'member_years.totem')
+                : null,
+            'quali_encrypted' => $member->quali !== null
+                ? $this->encryption->encrypt($member->quali, 'member_years.quali')
+                : null,
+            'patrol_encrypted' => $member->patrol !== null
+                ? $this->encryption->encrypt($member->patrol, 'member_years.patrol')
+                : null,
             'formation_level' => $member->formationLevel,
             'federation_mail_consent' => $member->federationMailConsent,
             'unit_mail_consent' => $member->unitMailConsent,
             'fee_category_id' => $feeCategoryId,
             'unit_code' => $member->unitCode,
             // Handicap is health data (GDPR special category) → encrypted at rest.
-            'handicap_encrypted' => $member->handicap !== null ? $this->encryption->encrypt($member->handicap, 'member_years.handicap') : null,
+            'handicap_encrypted' => $member->handicap !== null
+                ? $this->encryption->encrypt($member->handicap, 'member_years.handicap')
+                : null,
             'supplementary_insurance' => $member->supplementaryInsurance,
         ];
 
@@ -365,14 +396,30 @@ class DeskImportService
 
             $addresses[] = [
                 'address_type' => $addr->type,
-                'street_encrypted' => $addr->street !== null ? $this->encryption->encrypt($addr->street, 'member_addresses.street') : null,
-                'number_encrypted' => $addr->number !== null ? $this->encryption->encrypt($addr->number, 'member_addresses.number') : null,
-                'box_encrypted' => $addr->box !== null ? $this->encryption->encrypt($addr->box, 'member_addresses.box') : null,
-                'complement_encrypted' => $addr->complement !== null ? $this->encryption->encrypt($addr->complement, 'member_addresses.complement') : null,
-                'postal_code_encrypted' => $addr->postalCode !== null ? $this->encryption->encrypt($addr->postalCode, 'member_addresses.postal_code') : null,
-                'city_encrypted' => $addr->city !== null ? $this->encryption->encrypt($addr->city, 'member_addresses.city') : null,
-                'country_encrypted' => $addr->country !== null ? $this->encryption->encrypt($addr->country, 'member_addresses.country') : null,
-                'address_normalized_blind_index' => $normalized !== '' ? $this->encryption->blindIndex($normalized, 'address') : null,
+                'street_encrypted' => $addr->street !== null
+                    ? $this->encryption->encrypt($addr->street, 'member_addresses.street')
+                    : null,
+                'number_encrypted' => $addr->number !== null
+                    ? $this->encryption->encrypt($addr->number, 'member_addresses.number')
+                    : null,
+                'box_encrypted' => $addr->box !== null
+                    ? $this->encryption->encrypt($addr->box, 'member_addresses.box')
+                    : null,
+                'complement_encrypted' => $addr->complement !== null
+                    ? $this->encryption->encrypt($addr->complement, 'member_addresses.complement')
+                    : null,
+                'postal_code_encrypted' => $addr->postalCode !== null
+                    ? $this->encryption->encrypt($addr->postalCode, 'member_addresses.postal_code')
+                    : null,
+                'city_encrypted' => $addr->city !== null
+                    ? $this->encryption->encrypt($addr->city, 'member_addresses.city')
+                    : null,
+                'country_encrypted' => $addr->country !== null
+                    ? $this->encryption->encrypt($addr->country, 'member_addresses.country')
+                    : null,
+                'address_normalized_blind_index' => $normalized !== ''
+                    ? $this->encryption->blindIndex($normalized, 'address')
+                    : null,
             ];
         }
         $this->memberYearRepository->replaceAddresses($memberYearId, $addresses);

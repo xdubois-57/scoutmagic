@@ -59,7 +59,8 @@ class PostService
         $this->assertAcceptable($body);
 
         $now = Timestamps::now();
-        $postId = $this->postRepository->create($group->id, $userAccountId, $authorMemberId, $this->normalize($body), $now);
+        $postId = $this->postRepository->create($group->id, $userAccountId, $authorMemberId, $this->normalize($body),
+            $now);
         $this->activityService->bump($group->id, $postId, $now);
 
         return $postId;

@@ -19,7 +19,6 @@
     var isUnitChief = container.dataset.isUnitChief === '1';
     var maxLength = Number.parseInt(container.dataset.maxLength, 10) || 140;
     var aiAvailable = container.dataset.aiAvailable === '1';
-    var remainingBudget = container.dataset.remainingBudget !== '' ? Number.parseInt(container.dataset.remainingBudget, 10) : null;
     var budgetEl = document.getElementById('retro-budget-remaining');
 
     // The local postJson() copy this file carried resolved to
@@ -36,7 +35,6 @@
     }
 
     function updateBudgetDisplay(value) {
-        remainingBudget = value;
         if (budgetEl) budgetEl.textContent = value;
     }
 
@@ -380,7 +378,7 @@
                 document.body.appendChild(input);
                 input.select();
                 document.execCommand('copy');
-                document.body.removeChild(input);
+                input.remove();
                 copyBtn.innerHTML = '<i class="bi bi-check-lg"></i> Copié';
                 setTimeout(restore, 2000);
             }

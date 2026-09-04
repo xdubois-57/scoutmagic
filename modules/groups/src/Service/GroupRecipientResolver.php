@@ -172,7 +172,11 @@ class GroupRecipientResolver
      * @param int[] $excludedAccountIds
      * @return array<int, array{userAccountId: int, memberId: ?int}>
      */
-    public function forGroupExcluding(DiscussionGroup $group, int $effectiveScoutYearId, array $excludedAccountIds): array
+    public function forGroupExcluding(
+        DiscussionGroup $group,
+        int $effectiveScoutYearId,
+        array $excludedAccountIds
+    ): array
     {
         return $this->excluding($this->forGroup($group, $effectiveScoutYearId), $excludedAccountIds);
     }

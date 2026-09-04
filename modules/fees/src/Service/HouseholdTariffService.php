@@ -86,7 +86,15 @@ class HouseholdTariffService
      * always all three, carrying the stored override and amount plus the
      * fee category the heuristic would pick when nothing was overridden.
      *
-     * @return array<string, array{category: HouseholdFeeCategory, fee_category_id: ?int, amount_cents: ?int, suggested_fee_category_id: ?int}>
+     * @return array<
+     *     string,
+     *     array{
+     *         category: HouseholdFeeCategory,
+     *         fee_category_id: ?int,
+     *         amount_cents: ?int,
+     *         suggested_fee_category_id: ?int
+     *     }
+     * >
      */
     public function panel(): array
     {

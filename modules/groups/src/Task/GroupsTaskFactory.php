@@ -52,7 +52,10 @@ use Modules\Groups\Service\SectionGroupSyncService;
  */
 final class GroupsTaskFactory
 {
-    public static function lifecycle(TaskContext $context, ?DelegatedAlbumManager $albumManager = null): GroupLifecycleService
+    public static function lifecycle(
+        TaskContext $context,
+        ?DelegatedAlbumManager $albumManager = null
+    ): GroupLifecycleService
     {
         $pdo = $context->connection->getPdo();
         $albumManager ??= DelegatedAlbumManagerFactory::fromTaskContext($context);

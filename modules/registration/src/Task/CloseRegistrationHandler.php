@@ -38,7 +38,10 @@ class CloseRegistrationHandler implements TaskHandlerInterface
                 new \DateTimeImmutable(),
                 OpenRegistrationHandler::catchUpDays($context->settings)
             );
-            $appliedOn = (string) ($context->settings->get('registration_scheduled_close_applied_on', 'registration') ?: '');
+            $appliedOn = (string) ($context->settings->get(
+                'registration_scheduled_close_applied_on',
+                'registration'
+            ) ?: '');
 
             if ($dueOn !== null && $appliedOn < $dueOn) {
                 $context->settings->set('registration_form_open', '0', 'registration');

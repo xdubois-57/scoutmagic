@@ -40,7 +40,10 @@ class ProviderConfigService
     ];
 
     /**
-     * @param (\Closure(string, string, array<string, string>, ?string): array{status: int, body: string})|null $ovhTransport
+     * @param (\Closure(string, string, array<
+     *     string,
+     *     string
+     * >, ?string): array{status: int, body: string})|null $ovhTransport
      *        Injectable HTTP transport for every OvhApiClient this service
      *        builds — null in production (real cURL, see
      *        OvhApiClient::defaultTransport()); tests substitute a fake so
@@ -123,7 +126,8 @@ class ProviderConfigService
             throw new ProviderException(
                 UserFacingMessage::from(
                     $e,
-                    'La demande de Consumer Key auprès d\'OVH a échoué — vérifiez l\'Application Key et l\'Application Secret, puis réessayez.'
+                    'La demande de Consumer Key auprès d\'OVH a échoué — vérifiez l\'Application Key et '
+                        . 'l\'Application Secret, puis réessayez.'
                 ),
                 0,
                 $e
@@ -160,7 +164,8 @@ class ProviderConfigService
             // The prefix is the whole point of this call site — what OVH
             // answered is a detail on $e, not a suffix on the sentence.
             throw new ProviderException(
-                'La Consumer Key n\'est pas (encore) validée — approuvez-la sur le site d\'OVH, puis relancez la vérification.',
+                'La Consumer Key n\'est pas (encore) validée — approuvez-la sur le site d\'OVH, puis relancez la '
+                    . 'vérification.',
                 0,
                 $e
             );
@@ -277,7 +282,11 @@ class ProviderConfigService
         return new OvhTelephonyProvider($client, $billingAccount, $serviceName);
     }
 
-    private function buildClient(string $applicationKey, string $applicationSecret, ?string $consumerKey = null): OvhApiClient
+    private function buildClient(
+        string $applicationKey,
+        string $applicationSecret,
+        ?string $consumerKey = null
+    ): OvhApiClient
     {
         return new OvhApiClient($applicationKey, $applicationSecret, $consumerKey, transport: $this->ovhTransport);
     }

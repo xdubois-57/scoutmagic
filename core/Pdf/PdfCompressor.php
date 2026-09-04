@@ -130,7 +130,8 @@ class PdfCompressor
         };
 
         $cmd = sprintf(
-            'gs -dSAFER -dBATCH -dNOPAUSE -dQUIET -sDEVICE=pdfwrite -dCompatibilityLevel=1.5 -dPDFSETTINGS=%s -sOutputFile=%s %s',
+            'gs -dSAFER -dBATCH -dNOPAUSE -dQUIET -sDEVICE=pdfwrite -dCompatibilityLevel=1.5 -dPDFSETTINGS=%s '
+                . '-sOutputFile=%s %s',
             escapeshellarg($pdfSettings), escapeshellarg($output), escapeshellarg($input)
         );
 

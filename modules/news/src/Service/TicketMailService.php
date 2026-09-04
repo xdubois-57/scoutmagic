@@ -89,7 +89,14 @@ class TicketMailService
             $this->ticketVariables($form, (string) $response->ticketReference)
         ));
 
-        $this->sendWithIcs($article, $form, $response->contactEmail, $email->subject, $email->bodyHtml, $email->bodyText);
+        $this->sendWithIcs(
+            $article,
+            $form,
+            $response->contactEmail,
+            $email->subject,
+            $email->bodyHtml,
+            $email->bodyText
+        );
     }
 
     /**

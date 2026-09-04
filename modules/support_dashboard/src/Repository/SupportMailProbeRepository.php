@@ -166,7 +166,8 @@ class SupportMailProbeRepository
         $authentication = null;
         if (($row['authentication_encrypted'] ?? null) !== null) {
             $decoded = json_decode(
-                $this->encryption->decrypt((string) $row['authentication_encrypted'], 'support_mail_probes.authentication'),
+                $this->encryption->decrypt((string) $row['authentication_encrypted'],
+                    'support_mail_probes.authentication'),
                 true
             );
             $authentication = is_array($decoded) ? $decoded : null;

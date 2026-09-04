@@ -50,7 +50,9 @@ class ShortUrlService
             }
         }
 
-        throw new \RuntimeException('Unable to generate a unique short code after ' . self::MAX_ATTEMPTS . ' attempts.');
+        throw new \RuntimeException(
+            'Unable to generate a unique short code after ' . self::MAX_ATTEMPTS . ' attempts.'
+        );
     }
 
     private function randomCode(): string

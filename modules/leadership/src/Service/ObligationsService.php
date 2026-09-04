@@ -86,7 +86,13 @@ class ObligationsService
                     detail: $row->functionLabel,
                     note: $days === 0
                         ? "Atteint " . LeadershipRules::ADULT_AGE . " ans aujourd'hui."
-                        : 'Atteint ' . LeadershipRules::ADULT_AGE . ' ans dans ' . $days . ' jour' . ($days > 1 ? 's' : '') . '.',
+                        : 'Atteint '
+                            . LeadershipRules::ADULT_AGE
+                            . ' ans dans '
+                            . $days
+                            . ' jour'
+                            . ($days > 1 ? 's' : '')
+                            . '.',
                     severity: $days <= 7 ? 'warning' : 'normal',
                     days: $days,
                     daysDirection: PersonLine::DAYS_UNTIL,
@@ -162,7 +168,10 @@ class ObligationsService
             );
         }
 
-        usort($lines, static fn (PersonLine $a, PersonLine $b) => TextMatcher::compareNames($a->fullName, $b->fullName));
+        usort(
+            $lines,
+            static fn (PersonLine $a, PersonLine $b) => TextMatcher::compareNames($a->fullName, $b->fullName)
+        );
 
         return $lines;
     }

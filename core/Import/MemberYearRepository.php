@@ -145,7 +145,8 @@ class MemberYearRepository
     public function findByMemberAndYear(int $memberId, int $scoutYearId): ?array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT id, member_id, scout_year_id, email_blind_index FROM member_years WHERE member_id = ? AND scout_year_id = ?'
+            'SELECT id, member_id, scout_year_id, email_blind_index FROM member_years WHERE member_id = ? AND '
+                . 'scout_year_id = ?'
         );
         $stmt->execute([$memberId, $scoutYearId]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);

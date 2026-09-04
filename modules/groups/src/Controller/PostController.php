@@ -427,7 +427,11 @@ class PostController extends AbstractController
      */
     public function edit(Request $request, array $params): Response
     {
-        return $this->postAction($request, $params, function (DiscussionGroup $group, Post $post, GroupSessionContext $context) use ($request) {
+        return $this->postAction($request, $params, function (
+            DiscussionGroup $group,
+            Post $post,
+            GroupSessionContext $context
+        ) use ($request) {
             if (!$this->postService->canEdit($post, $context)) {
                 return new Response('Ce message ne peut plus être modifié.', 403);
             }
@@ -446,7 +450,11 @@ class PostController extends AbstractController
                 // Read BEFORE the write: whoever the message already named
                 // has already been told, and must not be told again
                 // because a typo elsewhere in it was corrected.
-                $alreadyMentioned = $this->mentionService?->resolve($group, $post->body, $context->effectiveScoutYearId) ?? [];
+                $alreadyMentioned = $this->mentionService?->resolve(
+                    $group,
+                    $post->body,
+                    $context->effectiveScoutYearId
+                ) ?? [];
 
                 try {
                     $this->postService->edit($post, $body);
@@ -456,7 +464,8 @@ class PostController extends AbstractController
 
                 $edited = $this->postRepository->findById($post->id);
                 if ($edited !== null) {
-                    $this->notifyMentions($group, $edited->id, $edited->body, $edited->isHidden(), $context, $alreadyMentioned);
+                    $this->notifyMentions($group, $edited->id, $edited->body, $edited->isHidden(), $context,
+                        $alreadyMentioned);
                 }
             }
 
@@ -497,7 +506,11 @@ class PostController extends AbstractController
      */
     public function vote(Request $request, array $params): Response
     {
-        return $this->postAction($request, $params, function (DiscussionGroup $group, Post $post, GroupSessionContext $context) use ($request): Response {
+        return $this->postAction($request, $params, function (
+            DiscussionGroup $group,
+            Post $post,
+            GroupSessionContext $context
+        ) use ($request): Response {
             $permission = $this->accessService->canParticipate($group, $context);
             if (!$permission->allowed) {
                 return new Response($permission->message, 403);
@@ -561,7 +574,11 @@ class PostController extends AbstractController
      */
     public function delete(Request $request, array $params): Response
     {
-        return $this->postAction($request, $params, function (DiscussionGroup $group, Post $post, GroupSessionContext $context) use ($request) {
+        return $this->postAction($request, $params, function (
+            DiscussionGroup $group,
+            Post $post,
+            GroupSessionContext $context
+        ) use ($request) {
             $canModerate = $this->accessService->canModerate($group, $context);
             if (!$this->postService->canDelete($post, $context, $canModerate)) {
                 return new Response('Vous ne pouvez pas supprimer ce message.', 403);
@@ -615,7 +632,11 @@ class PostController extends AbstractController
     {
         $duration = (string) $request->getBody('duration', PostService::PIN_DURATION_DEFAULT);
 
-        return $this->postAction($request, $params, function (DiscussionGroup $group, Post $post, GroupSessionContext $context) use ($duration) {
+        return $this->postAction($request, $params, function (
+            DiscussionGroup $group,
+            Post $post,
+            GroupSessionContext $context
+        ) use ($duration) {
             if (!$this->accessService->canModerate($group, $context)) {
                 return new Response('Seul un modérateur du groupe peut épingler un message.', 403);
             }
@@ -633,7 +654,11 @@ class PostController extends AbstractController
      */
     public function unpin(Request $request, array $params): Response
     {
-        return $this->postAction($request, $params, function (DiscussionGroup $group, Post $post, GroupSessionContext $context) {
+        return $this->postAction($request, $params, function (
+            DiscussionGroup $group,
+            Post $post,
+            GroupSessionContext $context
+        ) {
             if (!$this->accessService->canModerate($group, $context)) {
                 return new Response('Seul un modérateur du groupe peut épingler un message.', 403);
             }

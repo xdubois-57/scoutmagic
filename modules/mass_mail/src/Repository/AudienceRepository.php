@@ -28,7 +28,13 @@ class AudienceRepository
     /**
      * @param string[] $columns
      */
-    public function createAudience(string $sourceFilename, string $sheetName, array $columns, int $rowCount, ?int $createdBy): int
+    public function createAudience(
+        string $sourceFilename,
+        string $sheetName,
+        array $columns,
+        int $rowCount,
+        ?int $createdBy
+    ): int
     {
         $stmt = $this->pdo->prepare(
             'INSERT INTO mass_mail_audiences (source_filename, sheet_name, columns_json, row_count, created_by)
@@ -73,7 +79,8 @@ class AudienceRepository
      */
     public function findRowsByAudience(int $audienceId): array
     {
-        $stmt = $this->pdo->prepare('SELECT * FROM mass_mail_audience_rows WHERE audience_id = ? ORDER BY row_index ASC, id ASC');
+        $stmt = $this->pdo->prepare('SELECT * FROM mass_mail_audience_rows WHERE audience_id = ? ORDER BY row_index '
+            . 'ASC, id ASC');
         $stmt->execute([$audienceId]);
         return array_map([$this, 'hydrateRow'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
@@ -85,7 +92,8 @@ class AudienceRepository
     public function findRowByOffset(int $audienceId, int $offset): ?AudienceRow
     {
         $stmt = $this->pdo->prepare(
-            'SELECT * FROM mass_mail_audience_rows WHERE audience_id = ? ORDER BY row_index ASC, id ASC LIMIT 1 OFFSET ' . max(0, $offset)
+            'SELECT * FROM mass_mail_audience_rows WHERE audience_id = ? ORDER BY row_index ASC, id ASC LIMIT 1 '
+                . 'OFFSET ' . max(0, $offset)
         );
         $stmt->execute([$audienceId]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
@@ -189,7 +197,9 @@ class AudienceRepository
             audienceId: (int) $row['audience_id'],
             rowIndex: (int) $row['row_index'],
             memberId: $row['member_id'] !== null ? (int) $row['member_id'] : null,
-            email: $row['email_encrypted'] !== null ? $this->encryption->decrypt($row['email_encrypted'], 'mass_mail_audience_rows.email') : null,
+            email: $row['email_encrypted'] !== null
+                ? $this->encryption->decrypt($row['email_encrypted'], 'mass_mail_audience_rows.email')
+                : null,
             data: is_array($data) ? array_map('strval', $data) : []
         );
     }

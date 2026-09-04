@@ -316,7 +316,11 @@ class FinanceMessageConsumer implements MessageConsumerInterface, ReferenceDirec
         }
 
         if ($staffAccount !== null) {
-            return AnalysisResult::linkedTo(self::CONSUMER_ID, self::referenceFor($staffAccount->id), LinkOrigin::SENDER);
+            return AnalysisResult::linkedTo(
+                self::CONSUMER_ID,
+                self::referenceFor($staffAccount->id),
+                LinkOrigin::SENDER
+            );
         }
 
         // Nothing places it. On the unit's PUBLIC address that is where

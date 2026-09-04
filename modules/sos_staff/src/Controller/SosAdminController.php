@@ -438,7 +438,8 @@ class SosAdminController extends AbstractController
             if (!is_array($cell) || !isset($cell['member_id'], $cell['date'], $cell['state'])) {
                 continue;
             }
-            if (!in_array((string) $cell['state'], [OnCallAssignment::STATE_ONCALL, OnCallAssignment::STATE_UNAVAILABLE], true)) {
+            if (!in_array((string) $cell['state'],
+                [OnCallAssignment::STATE_ONCALL, OnCallAssignment::STATE_UNAVAILABLE], true)) {
                 continue;
             }
 
@@ -455,7 +456,13 @@ class SosAdminController extends AbstractController
             $validCells[] = ['member_id' => $memberId, 'date' => $date, 'state' => (string) $cell['state']];
         }
 
-        $result = $this->onCallService->saveMonth($year, $month, $validCells, $orderedStaffMemberIds, $effectiveYear->id);
+        $result = $this->onCallService->saveMonth(
+            $year,
+            $month,
+            $validCells,
+            $orderedStaffMemberIds,
+            $effectiveYear->id
+        );
 
         $this->onCallService->cleanupOlderThanOneYear();
 
@@ -492,7 +499,8 @@ class SosAdminController extends AbstractController
     {
         $provider = $this->providerConfigService->getActiveProvider();
         if ($provider === null) {
-            return ['active' => false, 'number' => null, 'label' => null, 'error' => 'Aucun fournisseur de téléphonie actif configuré.'];
+            return ['active' => false, 'number' => null, 'label' => null, 'error' => 'Aucun fournisseur de téléphonie '
+                . 'actif configuré.'];
         }
 
         try {
@@ -560,7 +568,11 @@ class SosAdminController extends AbstractController
      * nearest upcoming transition is flagged is_next for highlighting.
      * Capped at 10 entries per page.
      *
-     * @return array{entries: array<int, array{date: string, run_at: string, label: string, status: string, is_next: bool}>, page: int, total_pages: int}
+     * @return array{
+     *     entries: array<int, array{date: string, run_at: string, label: string, status: string, is_next: bool}>,
+     *     page: int,
+     *     total_pages: int
+     * }
      */
     private function buildPlannedTransitions(int $year, int $month, int $scoutYearId, int $page = 1): array
     {

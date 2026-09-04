@@ -35,7 +35,12 @@ class GroupSessionContextFactory
     ) {
     }
 
-    public function build(?string $email, string $role, ?int $userAccountId, ?int $yearPreviewId = null): GroupSessionContext
+    public function build(
+        ?string $email,
+        string $role,
+        ?int $userAccountId,
+        ?int $yearPreviewId = null
+    ): GroupSessionContext
     {
         $roleEnum = Role::fromString($role);
         $effectiveYear = $this->scoutYearResolver->getEffectiveYear($yearPreviewId, $roleEnum);

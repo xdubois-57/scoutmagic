@@ -66,8 +66,13 @@ class ConfigDangerController extends AbstractController
                     'finance',
                     'movements_deleted',
                     'security',
-                    "Tous les mouvements du compte ont été supprimés ({$deletedMovements} mouvement(s), {$deletedCheckpoints} solde(s) de référence)",
-                    ['account_id' => $accountId, 'deleted_movements' => $deletedMovements, 'deleted_checkpoints' => $deletedCheckpoints],
+                    "Tous les mouvements du compte ont été supprimés ({$deletedMovements} mouvement(s), "
+                        . "{$deletedCheckpoints} solde(s) de référence)",
+                    [
+                        'account_id' => $accountId,
+                        'deleted_movements' => $deletedMovements,
+                        'deleted_checkpoints' => $deletedCheckpoints
+                    ],
                     AuthSession::getUserAccountId()
                 );
                 return $this->json(['success' => true]);

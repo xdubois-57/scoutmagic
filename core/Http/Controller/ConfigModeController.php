@@ -26,7 +26,10 @@ class ConfigModeController extends AbstractController
      */
     public function activate(Request $request, array $params): Response
     {
-        if (($guard = $this->guardCsrf($request, SafeRedirect::internalPathFromUrl($request->getReferer() ?? '/'))) !== null) {
+        if (($guard = $this->guardCsrf(
+            $request,
+            SafeRedirect::internalPathFromUrl($request->getReferer() ?? '/')
+        )) !== null) {
             return $guard;
         }
 
@@ -51,7 +54,10 @@ class ConfigModeController extends AbstractController
      */
     public function deactivate(Request $request, array $params): Response
     {
-        if (($guard = $this->guardCsrf($request, SafeRedirect::internalPathFromUrl($request->getReferer() ?? '/'))) !== null) {
+        if (($guard = $this->guardCsrf(
+            $request,
+            SafeRedirect::internalPathFromUrl($request->getReferer() ?? '/')
+        )) !== null) {
             return $guard;
         }
 

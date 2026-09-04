@@ -278,7 +278,8 @@ class MailboxSyncService
                 => isset($results[$consumer->consumerId()])
         ));
         $keepBody = self::anyWants($claimants, static fn(MessageRetentionPreference $p): bool => $p->wantsBody(), true);
-        $keepHeaders = self::anyWants($claimants, static fn(MessageRetentionPreference $p): bool => $p->wantsRawHeaders(), false);
+        $keepHeaders = self::anyWants($claimants,
+            static fn(MessageRetentionPreference $p): bool => $p->wantsRawHeaders(), false);
 
         $storedId = $this->messageRepository->create(
             mailboxId: $mailbox->id,

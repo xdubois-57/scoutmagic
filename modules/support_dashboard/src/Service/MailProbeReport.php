@@ -81,7 +81,10 @@ final class MailProbeReport
 
         if ($received) {
             foreach (['spf' => 'SPF', 'dkim' => 'DKIM', 'dmarc' => 'DMARC'] as $key => $label) {
-                $lines[] = str_pad($label, 19) . ': ' . self::verdictLabel((string) ($authentication[$key] ?? 'absent'));
+                $lines[] = str_pad(
+                    $label,
+                    19
+                ) . ': ' . self::verdictLabel((string) ($authentication[$key] ?? 'absent'));
             }
         }
 

@@ -132,7 +132,8 @@ class RgpdContentService
         $phoneProvider = $this->getPhoneProviderInfo();
         $galleryStorage = $this->galleryStorageInfo($subProcessors);
 
-        $systemPrompt = $this->buildSystemPrompt($baseContent, $activeModules, $providerInfo, $modelsInfo, $phoneProvider, $galleryStorage, $userPrompt);
+        $systemPrompt = $this->buildSystemPrompt($baseContent, $activeModules, $providerInfo, $modelsInfo,
+            $phoneProvider, $galleryStorage, $userPrompt);
 
         $request = new LlmRequest(
             prompt: "Génère le contenu RGPD complet en HTML selon la structure imposée dans le prompt système.",
@@ -203,7 +204,9 @@ class RgpdContentService
             // is the actionable half of the whole check — survives the
             // Core\Exception\UserFacingMessage gate at the display site.
             throw new RgpdGenerationException(
-                "Le contenu généré ne désigne pas clairement « {$unitName} » comme responsable du traitement — il n'a pas été enregistré. Réessayez, ou complétez les instructions personnalisées pour préciser le nom de l'unité."
+                "Le contenu généré ne désigne pas clairement « {$unitName} » comme responsable du traitement — il "
+                    . "n'a pas été enregistré. Réessayez, ou complétez les instructions personnalisées pour préciser "
+                    . "le nom de l'unité."
             );
         }
 
@@ -250,9 +253,12 @@ class RgpdContentService
 
             $continuationRequest = new LlmRequest(
                 tier: $request->tier,
-                prompt: "Voici le document HTML généré jusqu'ici, interrompu en cours de génération (peut-être en plein milieu d'une balise ou d'un mot) :\n\n"
+                prompt: "Voici le document HTML généré jusqu'ici, interrompu en cours de génération (peut-être en "
+                    . "plein milieu d'une balise ou d'un mot) :\n\n"
                     . $accumulated
-                    . "\n\nContinue directement l'écriture EXACTEMENT à partir de là où elle s'est arrêtée, jusqu'à la fin du document (section 10 incluse). Ne répète rien de ce qui précède, ne réécris pas depuis le début, n'ajoute aucun préambule ni commentaire — uniquement la suite du HTML.",
+                    . "\n\nContinue directement l'écriture EXACTEMENT à partir de là où elle s'est arrêtée, jusqu'à la "
+                    . "fin du document (section 10 incluse). Ne répète rien de ce qui précède, ne réécris pas "
+                    . "depuis le début, n'ajoute aucun préambule ni commentaire — uniquement la suite du HTML.",
                 systemPrompt: $request->systemPrompt,
                 timeoutSeconds: $request->timeoutSeconds,
                 maxTokens: $request->maxTokens
@@ -264,7 +270,8 @@ class RgpdContentService
 
         if ($response->truncated) {
             throw new RgpdGenerationException(
-                'La réponse générée a été tronquée malgré ' . (self::MAX_CONTINUATIONS + 1) . ' tentatives. Réessayez, ou raccourcissez les instructions personnalisées.'
+                'La réponse générée a été tronquée malgré ' . (self::MAX_CONTINUATIONS + 1) . ' tentatives. Réessayez, '
+                    . 'ou raccourcissez les instructions personnalisées.'
             );
         }
 

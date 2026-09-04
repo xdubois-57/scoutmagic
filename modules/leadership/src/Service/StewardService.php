@@ -198,7 +198,10 @@ class StewardService
             );
         }
 
-        usort($lines, static fn (PersonLine $a, PersonLine $b) => TextMatcher::compareNames($a->fullName, $b->fullName));
+        usort(
+            $lines,
+            static fn (PersonLine $a, PersonLine $b) => TextMatcher::compareNames($a->fullName, $b->fullName)
+        );
 
         return $lines;
     }

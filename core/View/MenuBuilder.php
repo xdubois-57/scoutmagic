@@ -81,14 +81,55 @@ class MenuBuilder
 
     /** @var array<array{id: string, label: string, icon: string, role_min: string}> */
     private const MENUS = [
-        ['id' => self::MENU_NOTRE_UNITE,   'label' => 'Notre unité',       'icon' => 'bi-house',    'role_min' => 'public'],
-        ['id' => self::MENU_ESPACE_ANIMES, 'label' => 'Espace membres',     'icon' => 'bi-people',   'role_min' => 'identified'],
-        ['id' => self::MENU_ESPACE_CHEFS,  'label' => 'Espace animateurs',      'icon' => 'bi-star',     'role_min' => 'intendant'],
-        ['id' => self::MENU_ESPACE_ADMIN,  'label' => "Espace chefs d'U",  'icon' => 'bi-gear',     'role_min' => 'admin'],
-        ['id' => self::MENU_CONFIGURATION, 'label' => 'Configuration',     'icon' => 'bi-sliders',  'role_min' => 'superadmin'],
+        [
+            'id' => self::MENU_NOTRE_UNITE,
+            'label' => 'Notre unité',
+            'icon' => 'bi-house',
+            'role_min' => 'public'
+        ],
+        [
+            'id' => self::MENU_ESPACE_ANIMES,
+            'label' => 'Espace membres',
+            'icon' => 'bi-people',
+            'role_min' => 'identified'
+        ],
+        [
+            'id' => self::MENU_ESPACE_CHEFS,
+            'label' => 'Espace animateurs',
+            'icon' => 'bi-star',
+            'role_min' => 'intendant'
+        ],
+        [
+            'id' => self::MENU_ESPACE_ADMIN,
+            'label' => "Espace chefs d'U",
+            'icon' => 'bi-gear',
+            'role_min' => 'admin'
+        ],
+        [
+            'id' => self::MENU_CONFIGURATION,
+            'label' => 'Configuration',
+            'icon' => 'bi-sliders',
+            'role_min' => 'superadmin'
+        ],
     ];
 
-    /** @var array<string, array<array{label: string, url: string, roleMin: string, order: int, isDynamic: bool, subtitle: ?string, sortGroup: string, icon: ?string, avatarMemberId: ?int, menuGroup: ?string}>> */
+    /**
+     * @var array<
+     *     string,
+     *     array<array{
+     *         label: string,
+     *         url: string,
+     *         roleMin: string,
+     *         order: int,
+     *         isDynamic: bool,
+     *         subtitle: ?string,
+     *         sortGroup: string,
+     *         icon: ?string,
+     *         avatarMemberId: ?int,
+     *         menuGroup: ?string
+     *     }>
+     * >
+     */
     private array $pages = [];
 
     public function __construct(
@@ -208,7 +249,31 @@ class MenuBuilder
      * desktop mega-menu panel — one list seen two ways, never two lists
      * that could disagree.
      *
-     * @return array<array{id: string, label: string, icon: string, pages: array<array{label: string, url: string, isDynamic: bool, subtitle: ?string, icon: ?string, avatarMemberId: ?int}>, groups: array<array{id: ?string, label: ?string, pages: array<array{label: string, url: string, isDynamic: bool, subtitle: ?string, icon: ?string, avatarMemberId: ?int}>}>}>
+     * @return array<array{
+     *     id: string,
+     *     label: string,
+     *     icon: string,
+     *     pages: array<array{
+     *         label: string,
+     *         url: string,
+     *         isDynamic: bool,
+     *         subtitle: ?string,
+     *         icon: ?string,
+     *         avatarMemberId: ?int
+     *     }>,
+     *     groups: array<array{
+     *         id: ?string,
+     *         label: ?string,
+     *         pages: array<array{
+     *             label: string,
+     *             url: string,
+     *             isDynamic: bool,
+     *             subtitle: ?string,
+     *             icon: ?string,
+     *             avatarMemberId: ?int
+     *         }>
+     *     }>
+     * }>
      */
     public function build(): array
     {
@@ -249,7 +314,18 @@ class MenuBuilder
      * been stable since PHP 8.0, so two entries with the same sort group
      * and order keep their registration order.
      *
-     * @return array<array{label: string, url: string, roleMin: string, order: int, isDynamic: bool, subtitle: ?string, sortGroup: string, icon: ?string, avatarMemberId: ?int, menuGroup: ?string}>
+     * @return array<array{
+     *     label: string,
+     *     url: string,
+     *     roleMin: string,
+     *     order: int,
+     *     isDynamic: bool,
+     *     subtitle: ?string,
+     *     sortGroup: string,
+     *     icon: ?string,
+     *     avatarMemberId: ?int,
+     *     menuGroup: ?string
+     * }>
      */
     private function visibleEntries(string $menuId): array
     {
@@ -261,7 +337,10 @@ class MenuBuilder
 
         usort(
             $entries,
-            fn(array $a, array $b) => (self::SORT_GROUP_RANK[$a['sortGroup']] <=> self::SORT_GROUP_RANK[$b['sortGroup']])
+            fn(
+                array $a,
+                array $b
+            ) => (self::SORT_GROUP_RANK[$a['sortGroup']] <=> self::SORT_GROUP_RANK[$b['sortGroup']])
                 ?: ($a['order'] <=> $b['order'])
         );
 
@@ -285,8 +364,30 @@ class MenuBuilder
      * than present and empty: an intendant must never be shown a titled
      * column with nothing under it.
      *
-     * @param array<array{label: string, url: string, roleMin: string, order: int, isDynamic: bool, subtitle: ?string, sortGroup: string, icon: ?string, avatarMemberId: ?int, menuGroup: ?string}> $entries
-     * @return array<array{id: ?string, label: ?string, pages: array<array{label: string, url: string, isDynamic: bool, subtitle: ?string, icon: ?string, avatarMemberId: ?int}>}>
+     * @param array<array{
+     *     label: string,
+     *     url: string,
+     *     roleMin: string,
+     *     order: int,
+     *     isDynamic: bool,
+     *     subtitle: ?string,
+     *     sortGroup: string,
+     *     icon: ?string,
+     *     avatarMemberId: ?int,
+     *     menuGroup: ?string
+     * }> $entries
+     * @return array<array{
+     *     id: ?string,
+     *     label: ?string,
+     *     pages: array<array{
+     *         label: string,
+     *         url: string,
+     *         isDynamic: bool,
+     *         subtitle: ?string,
+     *         icon: ?string,
+     *         avatarMemberId: ?int
+     *     }>
+     * }>
      */
     private static function buildGroups(string $menuId, array $entries): array
     {
@@ -305,7 +406,19 @@ class MenuBuilder
 
         $fallbackId = $declared[count($declared) - 1]['id'];
 
-        /** @var array<string, array<array{label: string, url: string, isDynamic: bool, subtitle: ?string, icon: ?string, avatarMemberId: ?int}>> $byGroup */
+        /**
+         * @var array<
+         *     string,
+         *     array<array{
+         *         label: string,
+         *         url: string,
+         *         isDynamic: bool,
+         *         subtitle: ?string,
+         *         icon: ?string,
+         *         avatarMemberId: ?int
+         *     }>
+         * > $byGroup
+         */
         $byGroup = [];
         foreach ($entries as $entry) {
             $byGroup[$entry['menuGroup'] ?? $fallbackId][] = self::toPage($entry);
@@ -332,8 +445,26 @@ class MenuBuilder
      * `pages` carry, so a template reads the same page whichever way it
      * reached it.
      *
-     * @param array{label: string, url: string, roleMin: string, order: int, isDynamic: bool, subtitle: ?string, sortGroup: string, icon: ?string, avatarMemberId: ?int, menuGroup: ?string} $entry
-     * @return array{label: string, url: string, isDynamic: bool, subtitle: ?string, icon: ?string, avatarMemberId: ?int}
+     * @param array{
+     *     label: string,
+     *     url: string,
+     *     roleMin: string,
+     *     order: int,
+     *     isDynamic: bool,
+     *     subtitle: ?string,
+     *     sortGroup: string,
+     *     icon: ?string,
+     *     avatarMemberId: ?int,
+     *     menuGroup: ?string
+     * } $entry
+     * @return array{
+     *     label: string,
+     *     url: string,
+     *     isDynamic: bool,
+     *     subtitle: ?string,
+     *     icon: ?string,
+     *     avatarMemberId: ?int
+     * }
      */
     private static function toPage(array $entry): array
     {

@@ -137,7 +137,10 @@ class ModuleManager
                 return false;
             }
             foreach ($data as $entry) {
-                if (!is_array($entry) || !isset($entry['stamp'], $entry['manifest']) || !$entry['manifest'] instanceof ModuleManifest) {
+                if (!is_array($entry) || !isset(
+                    $entry['stamp'],
+                    $entry['manifest']
+                ) || !$entry['manifest'] instanceof ModuleManifest) {
                     return false;
                 }
             }
@@ -255,7 +258,8 @@ class ModuleManager
                         $manifest = $this->manifestFromFileCached($manifestPath);
                         // Verify id matches directory name
                         if ($manifest->id !== $dir) {
-                            throw new ModuleException("Module id '{$manifest->id}' does not match directory name '{$dir}'");
+                            throw new ModuleException("Module id '{$manifest->id}' does not match directory name "
+                                . "'{$dir}'");
                         }
                     } catch (ModuleException $e) {
                         // Rendered as a title="" tooltip on the module
@@ -306,7 +310,13 @@ class ModuleManager
         // Modules in registry but missing from disk
         foreach ($registryMap as $moduleId => $entry) {
             $manifest = new ModuleManifest($moduleId, $moduleId, $entry['installed_version'], [], [], [], [], []);
-            $modules[$moduleId] = new ModuleInfo($manifest, $entry['enabled'], $entry['installed_version'], false, null);
+            $modules[$moduleId] = new ModuleInfo(
+                $manifest,
+                $entry['enabled'],
+                $entry['installed_version'],
+                false,
+                null
+            );
             $sortKeys[$moduleId] = $entry['sort_order'];
         }
 
@@ -470,7 +480,8 @@ class ModuleManager
                     // loadEnabledModules(), never migrates. So this stays
                     // on the value every schema has always had.
                     'info',
-                    "Module « {$module->manifest->id} » non chargé : un module requis est absent, invalide ou désactivé",
+                    "Module « {$module->manifest->id} » non chargé : un module requis est absent, invalide ou "
+                        . "désactivé",
                     ['module_id' => $module->manifest->id, 'requires' => $module->manifest->requires]
                 );
                 continue;

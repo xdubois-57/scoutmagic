@@ -190,7 +190,10 @@ class ImportReportRepository
         }
 
         try {
-            return $this->encryption->decrypt(is_resource($value) ? (string) stream_get_contents($value) : (string) $value, $context);
+            return $this->encryption->decrypt(
+                is_resource($value) ? (string) stream_get_contents($value) : (string) $value,
+                $context
+            );
         } catch (\Throwable) {
             // A report that cannot read one name still has to render the
             // rest: the alternative is a page that fails entirely because

@@ -18,13 +18,13 @@
        d'unité reads a former member's 2019 details as current and phones
        a number that stopped working years ago. #}
     {% if is_past_year|default(false) %}
-        <div class="alert alert-warning d-flex align-items-start gap-2" role="status">
+        <output class="alert alert-warning d-flex align-items-start gap-2">
             <i class="bi bi-calendar-event flex-shrink-0" aria-hidden="true"></i>
             <div>
                 Données de l'année scoute <strong>{{ year_label }}</strong> — la dernière année
                 où ce membre est connu. Les coordonnées d'une année antérieure peuvent différer.
             </div>
-        </div>
+        </output>
     {% endif %}
 
     <div class="row g-3">
@@ -125,11 +125,11 @@
                     <p class="text-body-secondary small mb-2">
                         Ajustez si ce membre est en avance ou en retard d'un an sur l'année habituelle de sa section.
                     </p>
-                    <div class="btn-group" role="group" aria-label="Année dans la branche">
+                    <fieldset class="btn-group" aria-label="Année dans la branche">
                         <button type="button" class="btn btn-outline-secondary offset-btn{{ member.scoutYearOffset == -1 ? ' active' : '' }}" data-offset="-1">−1 an</button>
                         <button type="button" class="btn btn-outline-secondary offset-btn{{ member.scoutYearOffset == 0 ? ' active' : '' }}" data-offset="0">Normal</button>
                         <button type="button" class="btn btn-outline-secondary offset-btn{{ member.scoutYearOffset == 1 ? ' active' : '' }}" data-offset="1">+1 an</button>
-                    </div>
+                    </fieldset>
                     <div class="mt-3">
                         <span class="badge rounded-pill text-bg-light border d-inline-flex align-items-center gap-2">
                             <span class="rounded-circle d-inline-block" id="scout-year-offset-dot"

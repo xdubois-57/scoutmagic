@@ -308,7 +308,11 @@ class ReenrollmentService
 
         $inBranch = [];
         foreach ($this->projectedPopulation->projectedPopulation($targetScoutYearId) as $person) {
-            if ($person->memberId !== null && $person->sectionId !== null && isset($sectionsInBranch[$person->sectionId])) {
+            if (
+                $person->memberId !== null
+                && $person->sectionId !== null
+                && isset($sectionsInBranch[$person->sectionId])
+            ) {
                 $inBranch[$person->memberId] = true;
             }
         }

@@ -38,7 +38,11 @@ final class GalleryStorageSubProcessorService implements SubProcessorProvider
             }
             $names[] = match ($location->s3Provider) {
                 'hetzner' => 'Hetzner Object Storage (Allemagne/Finlande, UE)',
-                'cloudflare_r2' => 'Cloudflare R2 (réseau mondial, région selon configuration du bucket : ' . ($location->s3Region !== null && $location->s3Region !== '' ? $location->s3Region : 'non précisée') . ')',
+                'cloudflare_r2' => 'Cloudflare R2 (réseau mondial, région selon configuration du bucket : '
+                    . ($location->s3Region !== null && $location->s3Region !== ''
+                        ? $location->s3Region
+                        : 'non précisée')
+                    . ')',
                 'scaleway' => 'Scaleway Object Storage (France/Pays-Bas, UE)',
                 'ovhcloud' => 'OVHcloud Object Storage (France/Allemagne/Pologne, UE)',
                 default => 'Fournisseur S3-compatible personnalisé (localisation selon configuration)',

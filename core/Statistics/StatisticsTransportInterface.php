@@ -22,5 +22,10 @@ interface StatisticsTransportInterface
      * POST a JSON body, authenticated by a bearer token carried in the
      * `Authorization` header — never in the body.
      */
-    public function post(string $url, string $jsonBody, string $bearerToken, string $userAgent): StatisticsTransportResponse;
+    public function post(
+        string $url,
+        string $jsonBody,
+        string $bearerToken,
+        string $userAgent
+    ): StatisticsTransportResponse;
 }

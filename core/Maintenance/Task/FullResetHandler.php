@@ -43,7 +43,8 @@ class FullResetHandler implements TaskHandlerInterface
     {
         $pdo = $context->connection->getPdo();
         $basePath = dirname($context->storagePath);
-        $backupService = $this->backupService ?? new BackupService($context->connection, $context->storagePath, $basePath);
+        $backupService = $this->backupService ?? new BackupService($context->connection, $context->storagePath,
+            $basePath);
 
         $preserveDir = null;
 

@@ -345,7 +345,13 @@ class RentalOperationsService
     ): void {
         $this->storeQuote(
             $booking,
-            $this->quoteEditor->editLine($this->workingQuote($booking, $asset), $index, $label, $quantity, $amountCents),
+            $this->quoteEditor->editLine(
+                $this->workingQuote($booking, $asset),
+                $index,
+                $label,
+                $quantity,
+                $amountCents
+            ),
             $actorMemberId
         );
     }

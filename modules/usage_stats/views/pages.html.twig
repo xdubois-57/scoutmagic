@@ -19,7 +19,7 @@
     {# Le filtre par public. Ce sont bien des filtres qu'on bascule, donc
        des boutons — la sous-navigation, elle, est le rail au-dessus, et
        les deux ne doivent pas se ressembler. #}
-    <div class="d-flex flex-nowrap overflow-auto gap-2 pb-2 mb-3" role="group" aria-label="Filtrer par public">
+    <nav class="d-flex flex-nowrap overflow-auto gap-2 pb-2 mb-3" aria-label="Filtrer par public">
         {% for filter in report.filters %}
             <a href="/config/usage/pages?month={{ report.month }}{{ filter.value ? '&audience=' ~ filter.value : '' }}"
                class="btn btn-sm flex-shrink-0 text-nowrap tap-target {{ filter.selected ? 'btn-primary' : 'btn-outline-secondary' }}"
@@ -27,7 +27,7 @@
                 {{ filter.label }}
             </a>
         {% endfor %}
-    </div>
+    </nav>
 
     {% if report.pages|length > 0 %}
         <div class="d-flex flex-column gap-2">
@@ -45,9 +45,9 @@
                         <p class="small text-body-secondary font-monospace text-truncate mb-0">
                             {{ page.route }} · {{ page.module_name }}
                         </p>
-                        <div class="progress mt-2" style="height: 0.4rem;"
-                             role="progressbar" aria-label="{{ page.label }}"
-                             aria-valuenow="{{ page.width_percent }}" aria-valuemin="0" aria-valuemax="100">
+                        {# Décoratif : la valeur est écrite en toutes lettres juste à côté,
+                           et une barre qui la répète ne fait que la faire lire deux fois. #}
+                        <div aria-hidden="true" class="progress mt-2" style="height: 0.4rem;">
                             <div class="progress-bar" style="width: {{ page.width_percent }}%;"></div>
                         </div>
                     </div>

@@ -58,13 +58,15 @@ class HookRegistry
     public function register(string $hookInterface, object $implementation): void
     {
         if (!interface_exists($hookInterface)) {
-            throw new \LogicException("'{$hookInterface}' is not an interface — hooks are registered under their Core\\Module interface name.");
+            throw new \LogicException("'{$hookInterface}' is not an interface — hooks are registered under their "
+                . "Core\\Module interface name.");
         }
         if (!$implementation instanceof $hookInterface) {
             throw new \LogicException(get_class($implementation) . " does not implement {$hookInterface}.");
         }
         if (isset($this->implementations[$hookInterface])) {
-            throw new \LogicException("A '{$hookInterface}' implementation is already registered — one implementation per hook; multi-contributor hooks use their own dedicated registry.");
+            throw new \LogicException("A '{$hookInterface}' implementation is already registered — one "
+                . "implementation per hook; multi-contributor hooks use their own dedicated registry.");
         }
 
         $this->implementations[$hookInterface] = $implementation;

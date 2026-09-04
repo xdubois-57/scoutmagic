@@ -56,14 +56,25 @@ class CampaignOverviewService
      * Campaigns of one scout year, narrowed to the accounts this session
      * may see, each with what it asks for and what has come in.
      *
-     * @return array<int, array{campaign: Campaign, row_count: int, amount_due: int, amount_received: int, percent: int, todo_count: int}>
+     * @return array<
+     *     int,
+     *     array{
+     *         campaign: Campaign,
+     *         row_count: int,
+     *         amount_due: int,
+     *         amount_received: int,
+     *         percent: int,
+     *         todo_count: int
+     *     }
+     * >
      */
     public function listForYear(int $scoutYearId, Role $viewerRole): array
     {
         $summaries = [];
 
         foreach ($this->campaigns->findByScoutYear($scoutYearId) as $campaign) {
-            if (!$this->accountVisibility->isVisibleTo($this->accountRepository->findById($campaign->accountId), $viewerRole)) {
+            if (!$this->accountVisibility->isVisibleTo($this->accountRepository->findById($campaign->accountId),
+                $viewerRole)) {
                 continue;
             }
 
@@ -158,7 +169,9 @@ class CampaignOverviewService
                 'member_id' => $row->memberId,
                 'last_name' => $entry !== null ? $entry->lastName : '',
                 'first_name' => $entry !== null ? $entry->firstName : '',
-                'display_name' => $entry !== null ? trim($entry->lastName . ' ' . $entry->firstName) : ('Membre #' . $row->memberId),
+                'display_name' => $entry !== null
+                    ? trim($entry->lastName . ' ' . $entry->firstName)
+                    : ('Membre #' . $row->memberId),
                 'section' => $entry?->sectionName,
                 'communication' => $receivable->communication,
                 'amount_due' => $settlement->amountDueCents,
@@ -187,7 +200,10 @@ class CampaignOverviewService
 
             $totals['amount_due'] += $settlement->amountDueCents;
             $totals['amount_received'] += min($settlement->amountAllocatedCents, $settlement->amountDueCents);
-            if ($settlement->status === ReceivableSettlement::STATUS_UNPAID || $settlement->status === ReceivableSettlement::STATUS_PARTIAL) {
+            if (
+                $settlement->status === ReceivableSettlement::STATUS_UNPAID
+                || $settlement->status === ReceivableSettlement::STATUS_PARTIAL
+            ) {
                 $totals['unpaid_count']++;
             }
             if ($settlement->amountOverpaidCents > 0) {
@@ -239,7 +255,11 @@ class CampaignOverviewService
      * @param array<int, array{first_name: ?string, last_name: ?string}> $authorNames
      * @return array<string, mixed>
      */
-    private function orphanRow(\Modules\Finance\Repository\CampaignRow $row, ?\Core\Member\MemberDirectoryEntry $entry, array $authorNames): array
+    private function orphanRow(
+        \Modules\Finance\Repository\CampaignRow $row,
+        ?\Core\Member\MemberDirectoryEntry $entry,
+        array $authorNames
+    ): array
     {
         return [
             'row_id' => $row->id,
@@ -247,7 +267,9 @@ class CampaignOverviewService
             'member_id' => $row->memberId,
             'last_name' => $entry !== null ? $entry->lastName : '',
             'first_name' => $entry !== null ? $entry->firstName : '',
-            'display_name' => $entry !== null ? trim($entry->lastName . ' ' . $entry->firstName) : ('Membre #' . $row->memberId),
+            'display_name' => $entry !== null
+                ? trim($entry->lastName . ' ' . $entry->firstName)
+                : ('Membre #' . $row->memberId),
             'section' => $entry?->sectionName,
             'communication' => null,
             'amount_due' => $row->amountCents,
@@ -273,7 +295,9 @@ class CampaignOverviewService
             return null;
         }
 
-        $label = trim(($authorNames[$authorId]['first_name'] ?? '') . ' ' . ($authorNames[$authorId]['last_name'] ?? ''));
+        $label = trim(
+            ($authorNames[$authorId]['first_name'] ?? '') . ' ' . ($authorNames[$authorId]['last_name'] ?? '')
+        );
 
         return $label !== '' ? $label : null;
     }

@@ -65,17 +65,17 @@
         </div>
     </div>
 {% elseif batch.isDistributing() %}
-    <div class="alert alert-info" role="status">
+    <output class="alert alert-info d-block">
         <i class="bi bi-hourglass-split" aria-hidden="true"></i>
         Envoi en cours depuis le {{ batch.distributionStartedAt|datetime_fr }}. Les messages partent
         par petits groupes ; rechargez la page pour suivre.
-    </div>
+    </output>
 {% else %}
-    <div class="alert alert-success" role="status">
+    <output class="alert alert-success d-block">
         <i class="bi bi-bell" aria-hidden="true"></i>
         Les familles ont été prévenues le {{ batch.notifiedAt|datetime_fr }}. Une notification par
         compte, pas une par enfant.
-    </div>
+    </output>
 {% endif %}
 
 {% if batch.distributionStartedAt %}

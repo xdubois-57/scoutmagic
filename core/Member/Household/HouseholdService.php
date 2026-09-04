@@ -97,7 +97,11 @@ class HouseholdService
 
         $blindIndex = $this->encryption->blindIndex($normalized, 'address');
         $members = $this->repository->findMembersAtAddress($blindIndex, $scoutYearId);
-        $incoming = $this->registrationCount?->countAtAddress($blindIndex, $scoutYearId, $excludeRegistrationRequestId) ?? 0;
+        $incoming = $this->registrationCount?->countAtAddress(
+            $blindIndex,
+            $scoutYearId,
+            $excludeRegistrationRequestId
+        ) ?? 0;
 
         return new Household($blindIndex, $members, $incoming);
     }

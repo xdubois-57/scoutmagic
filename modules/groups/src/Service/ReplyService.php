@@ -166,7 +166,8 @@ class ReplyService
 
         // The rejected text goes nowhere but back to its own author.
         throw new GroupsException(
-            $result['reason'] ?? 'Cette réponse peut être perçue comme une attaque personnelle. Merci de la reformuler.',
+            $result['reason'] ?? 'Cette réponse peut être perçue comme une attaque personnelle. Merci de la '
+                . 'reformuler.',
             GroupsException::TYPE_OFFENSIVE,
             $result['suggestion']
         );

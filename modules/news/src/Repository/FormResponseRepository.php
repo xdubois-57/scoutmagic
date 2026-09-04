@@ -31,7 +31,8 @@ class FormResponseRepository
      */
     public function findByFormId(int $formId): array
     {
-        $stmt = $this->pdo->prepare('SELECT * FROM news_form_responses WHERE form_id = ? ORDER BY submitted_at ASC, id ASC');
+        $stmt = $this->pdo->prepare('SELECT * FROM news_form_responses WHERE form_id = ? ORDER BY submitted_at ASC, '
+            . 'id ASC');
         $stmt->execute([$formId]);
         return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
@@ -41,7 +42,8 @@ class FormResponseRepository
      */
     public function findByFormIdSince(int $formId, string $sinceDatetime): array
     {
-        $stmt = $this->pdo->prepare('SELECT * FROM news_form_responses WHERE form_id = ? AND submitted_at > ? ORDER BY submitted_at ASC');
+        $stmt = $this->pdo->prepare('SELECT * FROM news_form_responses WHERE form_id = ? AND submitted_at > ? ORDER '
+            . 'BY submitted_at ASC');
         $stmt->execute([$formId, $sinceDatetime]);
         return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
@@ -56,7 +58,8 @@ class FormResponseRepository
 
     public function findByAccountAndForm(int $formId, int $userAccountId): ?FormResponse
     {
-        $stmt = $this->pdo->prepare('SELECT * FROM news_form_responses WHERE form_id = ? AND user_account_id = ? LIMIT 1');
+        $stmt = $this->pdo->prepare('SELECT * FROM news_form_responses WHERE form_id = ? AND user_account_id = ? '
+            . 'LIMIT 1');
         $stmt->execute([$formId, $userAccountId]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
         return $row !== false ? $this->hydrate($row) : null;
@@ -64,7 +67,8 @@ class FormResponseRepository
 
     public function findByMemberYearAndForm(int $formId, int $memberYearId): ?FormResponse
     {
-        $stmt = $this->pdo->prepare('SELECT * FROM news_form_responses WHERE form_id = ? AND member_year_id = ? LIMIT 1');
+        $stmt = $this->pdo->prepare('SELECT * FROM news_form_responses WHERE form_id = ? AND member_year_id = ? LIMIT '
+            . '1');
         $stmt->execute([$formId, $memberYearId]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
         return $row !== false ? $this->hydrate($row) : null;
@@ -81,7 +85,8 @@ class FormResponseRepository
         }
 
         $placeholders = implode(',', array_fill(0, count($memberYearIds), '?'));
-        $stmt = $this->pdo->prepare("SELECT member_year_id FROM news_form_responses WHERE form_id = ? AND member_year_id IN ({$placeholders})");
+        $stmt = $this->pdo->prepare("SELECT member_year_id FROM news_form_responses WHERE form_id = ? AND "
+            . "member_year_id IN ({$placeholders})");
         $stmt->execute([$formId, ...$memberYearIds]);
         return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
     }
@@ -91,7 +96,10 @@ class FormResponseRepository
      * a transaction alongside its capacity check — see beginTransaction()/
      * commit()/rollBack() below — so this never opens its own.
      *
-     * @param array<int, string> $values field_id => plain-text answer (encrypted uniformly, module spec — no per-field judgment)
+     * @param array<
+     *     int,
+     *     string
+     * > $values field_id => plain-text answer (encrypted uniformly, module spec — no per-field judgment)
      */
     public function create(
         int $formId,
@@ -103,7 +111,8 @@ class FormResponseRepository
         ?int $receivableId
     ): int {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO news_form_responses (form_id, user_account_id, member_year_id, contact_email, contact_email_blind_index, structured_communication, receivable_id, submitted_at)
+            'INSERT INTO news_form_responses (form_id, user_account_id, member_year_id, contact_email, '
+                . 'contact_email_blind_index, structured_communication, receivable_id, submitted_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
@@ -133,7 +142,8 @@ class FormResponseRepository
     public function update(int $responseId, string $contactEmail, array $values): void
     {
         $stmt = $this->pdo->prepare(
-            'UPDATE news_form_responses SET contact_email = ?, contact_email_blind_index = ?, updated_at = ? WHERE id = ?'
+            'UPDATE news_form_responses SET contact_email = ?, contact_email_blind_index = ?, updated_at = ? WHERE id '
+                . '= ?'
         );
         $stmt->execute([
             $this->encryption->encrypt(
@@ -164,7 +174,9 @@ class FormResponseRepository
 
         $values = [];
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            $values[(int) $row['field_id']] = $row['value'] !== null ? $this->encryption->decrypt($row['value'], 'news_form_response_values.value') : '';
+            $values[(int) $row['field_id']] = $row['value'] !== null
+                ? $this->encryption->decrypt($row['value'], 'news_form_response_values.value')
+                : '';
         }
         return $values;
     }
@@ -180,7 +192,8 @@ class FormResponseRepository
      * there — Service\ResponseService still wraps the check+insert in
      * one transaction either way.
      *
-     * @param int|null $excludeResponseId when editing an existing response, its own previous value is excluded from the sum (module spec: "their own previous value is returned to the pool for the edit")
+     * @param int|null $excludeResponseId when editing an existing response, its own previous value is excluded from the
+     *     sum (module spec: "their own previous value is returned to the pool for the edit")
      */
     public function sumFieldValues(int $fieldId, ?int $excludeResponseId = null, bool $lockForUpdate = false): float
     {
@@ -208,7 +221,8 @@ class FormResponseRepository
 
     public function setReceivable(int $responseId, string $structuredCommunication, int $receivableId): void
     {
-        $stmt = $this->pdo->prepare('UPDATE news_form_responses SET structured_communication = ?, receivable_id = ? WHERE id = ?');
+        $stmt = $this->pdo->prepare('UPDATE news_form_responses SET structured_communication = ?, receivable_id = ? '
+            . 'WHERE id = ?');
         $stmt->execute([$structuredCommunication, $receivableId, $responseId]);
     }
 
@@ -304,9 +318,11 @@ class FormResponseRepository
      */
     private function insertValues(int $responseId, array $values): void
     {
-        $stmt = $this->pdo->prepare('INSERT INTO news_form_response_values (response_id, field_id, value) VALUES (?, ?, ?)');
+        $stmt = $this->pdo->prepare('INSERT INTO news_form_response_values (response_id, field_id, value) VALUES (?, '
+            . '?, ?)');
         foreach ($values as $fieldId => $value) {
-            $stmt->execute([$responseId, $fieldId, $value !== '' ? $this->encryption->encrypt($value, 'news_form_response_values.value') : null]);
+            $stmt->execute([$responseId, $fieldId,
+                $value !== '' ? $this->encryption->encrypt($value, 'news_form_response_values.value') : null]);
         }
     }
 
@@ -321,7 +337,9 @@ class FormResponseRepository
             userAccountId: $row['user_account_id'] !== null ? (int) $row['user_account_id'] : null,
             memberYearId: $row['member_year_id'] !== null ? (int) $row['member_year_id'] : null,
             contactEmail: $this->encryption->decrypt($row['contact_email'], 'news_form_responses.contact_email'),
-            structuredCommunication: $row['structured_communication'] !== null ? (string) $row['structured_communication'] : null,
+            structuredCommunication: $row['structured_communication'] !== null
+                ? (string) $row['structured_communication']
+                : null,
             receivableId: $row['receivable_id'] !== null ? (int) $row['receivable_id'] : null,
             submittedAt: (string) $row['submitted_at'],
             updatedAt: $row['updated_at'] !== null ? (string) $row['updated_at'] : null,

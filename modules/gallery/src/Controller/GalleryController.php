@@ -146,7 +146,8 @@ class GalleryController extends AbstractController
             'album' => $album,
             'breadcrumb_current' => $album->title,
             'media' => $media,
-            'has_downloadable_media' => !$unavailable && count(array_filter($mediaRows, fn(Media $m) => $m->processingStatus === Media::STATUS_DONE)) > 0,
+            'has_downloadable_media' => !$unavailable && count(array_filter($mediaRows,
+                fn(Media $m) => $m->processingStatus === Media::STATUS_DONE)) > 0,
             'storage_unavailable' => $unavailable,
             'storage_unavailable_reason' => $unavailableReason,
         ]);
@@ -307,7 +308,8 @@ class GalleryController extends AbstractController
         if ($album->isDelegated()) {
             \assert($album->ownerType !== null && $album->ownerId !== null);
             $role = Role::fromString(AuthSession::getRole());
-            if (!$this->delegatedAlbumAccessRegistry->isAllowed($album->ownerType, $album->ownerId, $role, $this->linkedMemberIds)) {
+            if (!$this->delegatedAlbumAccessRegistry->isAllowed($album->ownerType, $album->ownerId, $role,
+                $this->linkedMemberIds)) {
                 return new Response('Not Found', 404);
             }
         } elseif (!$this->isVisible($album)) {
@@ -582,7 +584,8 @@ class GalleryController extends AbstractController
         \assert($album->ownerType !== null && $album->ownerId !== null);
 
         $role = Role::fromString(AuthSession::getRole());
-        if (!$this->delegatedAlbumAccessRegistry->isAllowed($album->ownerType, $album->ownerId, $role, $this->linkedMemberIds)) {
+        if (!$this->delegatedAlbumAccessRegistry->isAllowed($album->ownerType, $album->ownerId, $role,
+            $this->linkedMemberIds)) {
             return new Response('Not Found', 404);
         }
 

@@ -56,8 +56,10 @@ class SosConfigController extends AbstractController
 
         return $this->render('@sos_staff/config.html.twig', [
             'provider_options' => $this->providerConfigService->getProviderOptions(),
-            'has_application_credentials' => !empty($config['application_key']) && !empty($config['application_secret']),
-            'has_pending_consumer_key' => !empty($config['consumer_key']) && ($config['consumer_key_validated'] ?? false) !== true,
+            'has_application_credentials' => !empty($config['application_key'])
+                && !empty($config['application_secret']),
+            'has_pending_consumer_key' => !empty($config['consumer_key'])
+                && ($config['consumer_key_validated'] ?? false) !== true,
             'consumer_key_validated' => ($config['consumer_key_validated'] ?? false) === true,
             'billing_account' => $config['billing_account'] ?? null,
             'service_name' => $config['service_name'] ?? null,

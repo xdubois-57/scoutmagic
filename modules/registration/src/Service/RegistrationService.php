@@ -138,12 +138,20 @@ class RegistrationService
         return $requestId;
     }
 
-    private function sendReceiptEmail(string $to, string $childFirstName, string $targetYearLabel, string $trackingUrl): void
+    private function sendReceiptEmail(
+        string $to,
+        string $childFirstName,
+        string $targetYearLabel,
+        string $trackingUrl
+    ): void
     {
         $default = '<p>Bonjour,</p>'
-            . '<p>Nous avons bien reçu votre demande d\'inscription pour {{prenom_enfant}} pour l\'année scoute {{annee_scoute}}.</p>'
-            . '<p><strong>Ceci n\'est pas encore une acceptation.</strong> Votre demande sera examinée par l\'unité.</p>'
-            . '<p>Vous pouvez suivre l\'état de votre demande à tout moment via ce lien : <a href="{{lien_suivi}}">{{lien_suivi}}</a></p>'
+            . '<p>Nous avons bien reçu votre demande d\'inscription pour {{prenom_enfant}} pour l\'année scoute '
+            . '{{annee_scoute}}.</p>'
+            . '<p><strong>Ceci n\'est pas encore une acceptation.</strong> Votre demande sera examinée par '
+            . 'l\'unité.</p>'
+            . '<p>Vous pouvez suivre l\'état de votre demande à tout moment via ce lien : <a '
+            . 'href="{{lien_suivi}}">{{lien_suivi}}</a></p>'
             . '<p>À bientôt,<br>{{nom_unite}}</p>';
         $body = $this->substitute($this->editableContentService->get('registration_email_receipt_body', $default), [
             'prenom_enfant' => $childFirstName,
@@ -176,14 +184,20 @@ class RegistrationService
      * child's first name and the slot ever appear here, never contact
      * details (module spec).
      */
-    private function sendUnitAlertEmail(string $childFirstName, string $targetYearLabel, string $slotLabel, string $ficheUrl): void
+    private function sendUnitAlertEmail(
+        string $childFirstName,
+        string $targetYearLabel,
+        string $slotLabel,
+        string $ficheUrl
+    ): void
     {
         $alertEmail = (string) $this->settingService->get('registration_unit_alert_email', 'registration', '');
         if ($alertEmail === '') {
             return;
         }
 
-        $default = '<p>Nouvelle demande d\'inscription reçue pour {{prenom_enfant}} — créneau : {{creneau}}, année {{annee_scoute}}, reçue le {{date_reception}}.</p>'
+        $default = '<p>Nouvelle demande d\'inscription reçue pour {{prenom_enfant}} — créneau : {{creneau}}, année '
+            . '{{annee_scoute}}, reçue le {{date_reception}}.</p>'
             . '<p><a href="{{lien_fiche}}">Voir la demande</a></p>';
         $body = $this->substitute($this->editableContentService->get('registration_email_unit_alert_body', $default), [
             'prenom_enfant' => $childFirstName,

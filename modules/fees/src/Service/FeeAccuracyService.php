@@ -79,7 +79,8 @@ class FeeAccuracyService
                 $ignoredEntry = null;
             }
 
-            $review = $this->review($household, $blindIndex, $memberRows, $addressLabels, $feeCategoryLabels, $ignoredEntry);
+            $review = $this->review($household, $blindIndex, $memberRows, $addressLabels, $feeCategoryLabels,
+                $ignoredEntry);
 
             if ($ignoredEntry !== null) {
                 $setAside[] = $review;
@@ -120,7 +121,18 @@ class FeeAccuracyService
     }
 
     /**
-     * @param array<int, array{member_id: int, first_name: string, last_name: string, totem: ?string, fee_category_id: ?int, leaving: bool, leaving_marked_at: ?string}> $memberRows
+     * @param array<
+     *     int,
+     *     array{
+     *         member_id: int,
+     *         first_name: string,
+     *         last_name: string,
+     *         totem: ?string,
+     *         fee_category_id: ?int,
+     *         leaving: bool,
+     *         leaving_marked_at: ?string
+     *     }
+     * > $memberRows
      * @param array<string, string> $addressLabels
      * @param array<int, string> $feeCategoryLabels
      */

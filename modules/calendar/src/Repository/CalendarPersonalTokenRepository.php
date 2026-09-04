@@ -76,7 +76,8 @@ class CalendarPersonalTokenRepository
         $existing = $this->findTokenByUserAccountId($userAccountId);
         if ($existing === null) {
             $stmt = $this->pdo->prepare(
-                'INSERT INTO calendar_personal_tokens (user_account_id, token_encrypted, token_blind_index) VALUES (?, ?, ?)'
+                'INSERT INTO calendar_personal_tokens (user_account_id, token_encrypted, token_blind_index) VALUES '
+                    . '(?, ?, ?)'
             );
             $stmt->execute([$userAccountId, $encrypted, $blindIndex]);
             return;

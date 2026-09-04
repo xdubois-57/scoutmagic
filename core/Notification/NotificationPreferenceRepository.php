@@ -61,18 +61,21 @@ class NotificationPreferenceRepository
 
         $dbValue = $value === null ? null : ($value ? 1 : 0);
 
-        $stmt = $this->pdo->prepare('SELECT id FROM notification_preferences WHERE user_account_id = ? AND type_id = ?');
+        $stmt = $this->pdo->prepare('SELECT id FROM notification_preferences WHERE user_account_id = ? AND type_id = '
+            . '?');
         $stmt->execute([$userAccountId, $typeId]);
         $existingId = $stmt->fetchColumn();
 
         if ($existingId !== false) {
-            $stmt = $this->pdo->prepare("UPDATE notification_preferences SET {$channel} = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?");
+            $stmt = $this->pdo->prepare("UPDATE notification_preferences SET {$channel} = ?, updated_at = "
+                . "CURRENT_TIMESTAMP WHERE id = ?");
             $stmt->execute([$dbValue, $existingId]);
 
             return;
         }
 
-        $stmt = $this->pdo->prepare("INSERT INTO notification_preferences (user_account_id, type_id, {$channel}) VALUES (?, ?, ?)");
+        $stmt = $this->pdo->prepare("INSERT INTO notification_preferences (user_account_id, type_id, {$channel}) "
+            . "VALUES (?, ?, ?)");
         $stmt->execute([$userAccountId, $typeId, $dbValue]);
     }
 

@@ -95,7 +95,12 @@ class ResponseService
      */
     public function buildPaymentSummary(NewsForm $form, FormResponse $response, float $total): ?array
     {
-        if ($total <= 0.0 || $response->structuredCommunication === null || !$this->isPaymentAvailable() || $form->financeAccountId === null) {
+        if (
+            $total <= 0.0
+            || $response->structuredCommunication === null
+            || !$this->isPaymentAvailable()
+            || $form->financeAccountId === null
+        ) {
             return null;
         }
 
@@ -126,7 +131,10 @@ class ResponseService
     }
 
     /**
-     * @return array<int, string> memberYearId => display name — 'members' options_source, unavailable in public access (module spec)
+     * @return array<
+     *     int,
+     *     string
+     * > memberYearId => display name — 'members' options_source, unavailable in public access (module spec)
      */
     public function resolveMemberOptions(?string $email, int $scoutYearId): array
     {
@@ -188,7 +196,10 @@ class ResponseService
             return false;
         }
 
-        return count($this->responseRepository->findAnsweredMemberYearIds($form->id, $memberYearIds)) >= count($memberYearIds);
+        return count($this->responseRepository->findAnsweredMemberYearIds(
+            $form->id,
+            $memberYearIds
+        )) >= count($memberYearIds);
     }
 
     public function hasAlreadyResponded(NewsForm $form, ?int $userAccountId, ?int $memberYearId): bool
@@ -336,7 +347,15 @@ class ResponseService
      * @param FormField[] $fields
      * @param array<int, string|string[]> $answers
      */
-    public function update(FormResponse $response, NewsForm $form, array $fields, string $contactEmail, array $answers, ?string $userEmail, int $scoutYearId): FormResponse
+    public function update(
+        FormResponse $response,
+        NewsForm $form,
+        array $fields,
+        string $contactEmail,
+        array $answers,
+        ?string $userEmail,
+        int $scoutYearId
+    ): FormResponse
     {
         $memberOptions = $form->access === NewsForm::ACCESS_IDENTIFIED
             ? $this->resolveMemberOptions($userEmail, $scoutYearId)
@@ -374,7 +393,12 @@ class ResponseService
      *        consumption is returned to the capacity pool (see remainingCapacity())
      * @return array<int, string>
      */
-    private function validateAndNormalizeAnswers(array $fields, array $answers, array $memberOptions, ?int $excludeResponseId): array
+    private function validateAndNormalizeAnswers(
+        array $fields,
+        array $answers,
+        array $memberOptions,
+        ?int $excludeResponseId
+    ): array
     {
         $normalized = [];
 
@@ -419,11 +443,13 @@ class ResponseService
             // submission, but the server is the only check that actually
             // matters (a JS-disabled or scripted client bypasses HTML5
             // validation entirely).
-            if ($field->fieldType === FormField::TYPE_EMAIL && $value !== '' && !filter_var($value, FILTER_VALIDATE_EMAIL)) {
+            if ($field->fieldType === FormField::TYPE_EMAIL && $value !== '' && !filter_var($value,
+                FILTER_VALIDATE_EMAIL)) {
                 throw new NewsException('Le champ "' . $field->label . '" doit être une adresse email valide.');
             }
 
-            if ($field->fieldType === FormField::TYPE_PHONE && $value !== '' && !preg_match('/^\+?[0-9 .\-()]{6,20}$/', $value)) {
+            if ($field->fieldType === FormField::TYPE_PHONE && $value !== '' && !preg_match('/^\+?[0-9 .\-()]{6,20}$/',
+                $value)) {
                 throw new NewsException('Le champ "' . $field->label . '" doit être un numéro de téléphone valide.');
             }
 
@@ -458,7 +484,13 @@ class ResponseService
     /**
      * @param FormField[] $fields
      */
-    private function sendConfirmationEmail(Article $article, NewsForm $form, array $fields, FormResponse $response, float $total): void
+    private function sendConfirmationEmail(
+        Article $article,
+        NewsForm $form,
+        array $fields,
+        FormResponse $response,
+        float $total
+    ): void
     {
         $answers = $this->responseRepository->getValues($response->id);
         $answerLines = [];
@@ -563,7 +595,13 @@ class ResponseService
      * The same for the payment details. Empty when there is nothing to
      * pay, which is what the templates' `{% if payment_summary %}` reads.
      *
-     * @param array{total: float, iban: string, beneficiary: string, communication: string, qr_data_uri: string}|null $payment
+     * @param array{
+     *     total: float,
+     *     iban: string,
+     *     beneficiary: string,
+     *     communication: string,
+     *     qr_data_uri: string
+     * }|null $payment
      */
     private static function paymentLines(?array $payment): string
     {

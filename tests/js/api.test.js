@@ -187,3 +187,50 @@ describe('poll()', () => {
         expect(calls).toBe(0);
     });
 });
+
+describe('pollSlot()', () => {
+    it('stops the poll it holds, and a second stop is harmless', async () => {
+        const api = await loadApi();
+        vi.useFakeTimers();
+        let calls = 0;
+        const slot = api.pollSlot();
+
+        expect(slot.isRunning()).toBe(false);
+        slot.start(api.poll(() => { calls++; }, { intervalMs: 1000, resumeOnVisible: false }));
+        expect(slot.isRunning()).toBe(true);
+
+        await vi.advanceTimersByTimeAsync(2500);
+        expect(calls).toBe(2);
+
+        slot.stop();
+        slot.stop();
+        expect(slot.isRunning()).toBe(false);
+        await vi.advanceTimersByTimeAsync(5000);
+        expect(calls).toBe(2);
+    });
+
+    it('stops the previous poll when a new one takes the slot', async () => {
+        // What two hand-written copies of this got wrong in turn: starting a
+        // second poll without stopping the first left both running.
+        const api = await loadApi();
+        vi.useFakeTimers();
+        let first = 0;
+        let second = 0;
+        const slot = api.pollSlot();
+
+        slot.start(api.poll(() => { first++; }, { intervalMs: 1000, resumeOnVisible: false }));
+        await vi.advanceTimersByTimeAsync(1500);
+        slot.stop();
+        slot.start(api.poll(() => { second++; }, { intervalMs: 1000, resumeOnVisible: false }));
+        await vi.advanceTimersByTimeAsync(2500);
+
+        expect(first).toBe(1);
+        expect(second).toBe(2);
+    });
+
+    it('an empty slot stops without a handle', async () => {
+        const api = await loadApi();
+
+        expect(() => api.pollSlot().stop()).not.toThrow();
+    });
+});

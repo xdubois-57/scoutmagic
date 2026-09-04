@@ -199,7 +199,8 @@ class ReplyController extends AbstractController
         }
 
         try {
-            $replyId = $this->replyService->create($group, $post->id, $context->userAccountId, $authorMemberId, $body, $mediaId);
+            $replyId = $this->replyService->create($group, $post->id, $context->userAccountId, $authorMemberId, $body,
+                $mediaId);
         } catch (GroupsException $e) {
             // The image was uploaded before the reply row existed, so a
             // refusal here has to take it back out again — otherwise a
@@ -271,7 +272,11 @@ class ReplyController extends AbstractController
      */
     public function edit(Request $request, array $params): Response
     {
-        return $this->replyAction($request, $params, function (DiscussionGroup $group, Reply $reply, GroupSessionContext $context) use ($request) {
+        return $this->replyAction($request, $params, function (
+            DiscussionGroup $group,
+            Reply $reply,
+            GroupSessionContext $context
+        ) use ($request) {
             if (!$this->replyService->canEdit($reply, $context)) {
                 return new Response('Cette réponse ne peut plus être modifiée.', 403);
             }
@@ -288,7 +293,11 @@ class ReplyController extends AbstractController
                 // Read before the write: whoever this reply already named
                 // has been told once, and an edit must not tell them
                 // again — only whoever the edit newly names.
-                $alreadyMentioned = $this->mentionService?->resolve($group, $reply->body, $context->effectiveScoutYearId) ?? [];
+                $alreadyMentioned = $this->mentionService?->resolve(
+                    $group,
+                    $reply->body,
+                    $context->effectiveScoutYearId
+                ) ?? [];
 
                 try {
                     $this->replyService->edit($reply, $body);
@@ -322,7 +331,11 @@ class ReplyController extends AbstractController
      */
     public function delete(Request $request, array $params): Response
     {
-        return $this->replyAction($request, $params, function (DiscussionGroup $group, Reply $reply, GroupSessionContext $context) use ($request) {
+        return $this->replyAction($request, $params, function (
+            DiscussionGroup $group,
+            Reply $reply,
+            GroupSessionContext $context
+        ) use ($request) {
             $canModerate = $this->accessService->canModerate($group, $context);
             if (!$this->replyService->canDelete($reply, $context, $canModerate)) {
                 return new Response('Vous ne pouvez pas supprimer cette réponse.', 403);
@@ -331,7 +344,12 @@ class ReplyController extends AbstractController
             // Same rule as a post's: recorded only when a moderator
             // removes someone else's reply, and with ids only.
             if ($canModerate && $reply->authorUserAccountId !== $context->userAccountId) {
-                $this->reportService->journalModeratorDeletion('reply', $group->id, $reply->id, $context->userAccountId);
+                $this->reportService->journalModeratorDeletion(
+                    'reply',
+                    $group->id,
+                    $reply->id,
+                    $context->userAccountId
+                );
             }
 
             // Deletes the reply's image (another module's table, out of

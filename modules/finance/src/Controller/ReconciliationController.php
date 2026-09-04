@@ -303,7 +303,9 @@ class ReconciliationController extends AbstractController
             'account' => $account,
             // Grouped for READING only — IbanNormalizer::format() must
             // never travel further (ARCHITECTURE.md §8.72).
-            'iban_display' => $account->iban !== null ? IbanNormalizer::format(IbanNormalizer::normalize($account->iban)) : null,
+            'iban_display' => $account->iban !== null
+                ? IbanNormalizer::format(IbanNormalizer::normalize($account->iban))
+                : null,
             'qr_data_uri' => $png !== null ? 'data:image/png;base64,' . base64_encode($png) : null,
             // The breadcrumb is the site's only back affordance
             // (design.md §7.3), so the way back is a trail entry and

@@ -19,6 +19,19 @@ function buildPage(inner) {
 const viewer = () => document.getElementById('file-viewer');
 const el = (id) => document.getElementById(id);
 
+/**
+ * The installed application, as the browser reports it — the same idiom
+ * assets/js/offline-cache.js already uses.
+ */
+function pretendStandalone(on) {
+    window.matchMedia = /** @type {any} */ ((query) => ({
+        matches: on && query === '(display-mode: standalone)',
+        media: query,
+        addEventListener() {},
+        removeEventListener() {},
+    }));
+}
+
 async function load() {
     vi.resetModules();
     await import('../../public/assets/js/file-viewer.js');
@@ -29,6 +42,7 @@ const isOpen = () => viewer() !== null && !viewer().classList.contains('d-none')
 describe('file-viewer', () => {
     beforeEach(() => {
         document.body.innerHTML = '';
+        pretendStandalone(false);
     });
 
     describe('the safety net', () => {
@@ -191,6 +205,138 @@ describe('file-viewer', () => {
 
         expect(document.querySelectorAll('#file-viewer')).toHaveLength(1);
         expect(viewer().querySelector('img').src).toContain('/files/2');
+    });
+
+    describe('the installed application, where there is no back button', () => {
+        beforeEach(() => {
+            pretendStandalone(true);
+        });
+
+        /**
+         * The report that produced this section, after the first fix.
+         *
+         * `download` and `target="_blank"` are enough on Android and on
+         * the desktop. On iOS both are handled INSIDE the standalone
+         * window: what came up was Safari's own download screen —
+         * « image006.jpg, Image JPEG - 2 ko, Ouvrir dans Aperçu » — with
+         * no back button either. The attribute meant to keep the page
+         * still is what took it away.
+         *
+         * So there, the click must not navigate at all.
+         */
+        it('intercepts a plain file link instead of letting it navigate', async () => {
+            buildPage('<a id="bare" href="/files/42">image006.jpg</a>');
+            await load();
+
+            const event = new MouseEvent('click', { bubbles: true, cancelable: true });
+            document.getElementById('bare').dispatchEvent(event);
+
+            expect(event.defaultPrevented).toBe(true);
+            expect(isOpen()).toBe(true);
+            expect(viewer().querySelector('img').src).toContain('/files/42');
+        });
+
+        it('does not put download on a link there, since that is the trap', async () => {
+            buildPage('<a id="bare" href="/files/42">image006.jpg</a>');
+            await load();
+
+            expect(document.getElementById('bare').hasAttribute('download')).toBe(false);
+        });
+
+        it('names the file from whatever the link could tell it', async () => {
+            buildPage('<a id="bare" href="/files/42">image006.jpg</a>');
+            await load();
+            document.getElementById('bare').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+            expect(viewer().querySelector('p').textContent).toBe('image006.jpg');
+        });
+
+        it('falls back when the browser cannot draw the file', async () => {
+            // The type is discovered by trying rather than declared: the
+            // links it now intercepts carry nothing but an id, and a HEAD
+            // request per click would cost a round trip to learn what one
+            // failed image load says for free.
+            buildPage('<a id="bare" href="/files/42" download="contrat.pdf">Contrat</a>');
+            await load();
+            document.getElementById('bare').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+            const img = viewer().querySelector('img');
+            img.onerror(new Event('error'));
+
+            expect(img.classList.contains('d-none')).toBe(true);
+            expect(viewer().querySelector('.file-viewer__content.text-center p').textContent)
+                .toContain('contrat.pdf');
+        });
+
+        /**
+         * The viewer must not strand the app it exists to protect.
+         *
+         * A `download` link inside it would land on the very screen that
+         * was reported. `window.open()` from a standalone web app
+         * launches the BROWSER — a separate application — so ScoutMagic
+         * stays put, one swipe away.
+         */
+        it('opens the browser rather than downloading in place', async () => {
+            buildPage('<a id="bare" href="/files/42">image006.jpg</a>');
+            await load();
+            document.getElementById('bare').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+            const action = viewer().querySelector('a');
+            expect(action.hasAttribute('download')).toBe(false);
+            expect(action.textContent).toContain('navigateur');
+
+            const opened = vi.fn();
+            window.open = opened;
+            action.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+            // `href` resolves to an absolute URL, which is what
+            // window.open should be handed anyway.
+            expect(opened).toHaveBeenCalledTimes(1);
+            expect(opened.mock.calls[0][0]).toContain('/files/42');
+            expect(opened.mock.calls[0][1]).toBe('_blank');
+        });
+
+        /**
+         * The gallery's own « Télécharger en haute qualité » wears
+         * `download`, and so does every link the browser-tab net
+         * decorates. In the installed app that attribute is precisely
+         * what strands the window, so a link wearing it is caught too.
+         */
+        it('catches any same-origin link already carrying download', async () => {
+            buildPage('<a id="hq" href="/gallery/media/12/download" download>Télécharger</a>');
+            await load();
+
+            const event = new MouseEvent('click', { bubbles: true, cancelable: true });
+            document.getElementById('hq').dispatchEvent(event);
+
+            expect(event.defaultPrevented).toBe(true);
+            expect(isOpen()).toBe(true);
+        });
+
+        it('never intercepts a link to somebody else\'s site', async () => {
+            // `download` is ignored cross-origin by the browser anyway,
+            // and deciding where an external link goes is not this
+            // script's business.
+            buildPage('<a id="ext" href="https://example.org/x.pdf" download>Ailleurs</a>');
+            await load();
+
+            const event = new MouseEvent('click', { bubbles: true, cancelable: true });
+            document.getElementById('ext').dispatchEvent(event);
+
+            expect(event.defaultPrevented).toBe(false);
+            expect(isOpen()).toBe(false);
+        });
+
+        it('still leaves links that are not files alone', async () => {
+            buildPage('<a id="page" href="/chefs/camps">Camps</a>');
+            await load();
+
+            const event = new MouseEvent('click', { bubbles: true, cancelable: true });
+            document.getElementById('page').dispatchEvent(event);
+
+            expect(event.defaultPrevented).toBe(false);
+            expect(isOpen()).toBe(false);
+        });
     });
 
     it('protects links even on a page with no viewer markup at all', async () => {

@@ -15,12 +15,19 @@ class EditableContentRepository
     }
 
     /**
-     * @return array{content_key: string, content_type: string, content_value: ?string, module_id: ?string, modified_at: string}|null
+     * @return array{
+     *     content_key: string,
+     *     content_type: string,
+     *     content_value: ?string,
+     *     module_id: ?string,
+     *     modified_at: string
+     * }|null
      */
     public function findByKey(string $key): ?array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT content_key, content_type, content_value, module_id, modified_at FROM editable_contents WHERE content_key = ?'
+            'SELECT content_key, content_type, content_value, module_id, modified_at FROM editable_contents WHERE '
+                . 'content_key = ?'
         );
         $stmt->execute([$key]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
@@ -54,13 +61,15 @@ class EditableContentRepository
 
             $now = self::now();
             $stmt = $this->pdo->prepare(
-                'UPDATE editable_contents SET content_type = ?, content_value = ?, modified_at = ?, modified_by = ? WHERE content_key = ?'
+                'UPDATE editable_contents SET content_type = ?, content_value = ?, modified_at = ?, modified_by = ? '
+                    . 'WHERE content_key = ?'
             );
             $stmt->execute([$type, $value, $now, $modifiedBy, $key]);
         } else {
             $now = self::now();
             $stmt = $this->pdo->prepare(
-                'INSERT INTO editable_contents (content_key, content_type, content_value, module_id, modified_at, modified_by)
+                'INSERT INTO editable_contents (content_key, content_type, content_value, module_id, modified_at, '
+                    . 'modified_by)
                  VALUES (?, ?, ?, ?, ?, ?)'
             );
             $stmt->execute([$key, $type, $value, $moduleId, $now, $modifiedBy]);

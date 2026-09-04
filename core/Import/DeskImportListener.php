@@ -46,7 +46,8 @@ interface DeskImportListener
 {
     /**
      * @param int $scoutYearId The year that was just imported.
-     * @param int[] $activeMemberIds Every `members.id` the import left active for that year. A reference to a member id outside this list is what "no longer on the roster" means.
+     * @param int[] $activeMemberIds Every `members.id` the import left active for that year. A reference to a member id
+     *     outside this list is what "no longer on the roster" means.
      */
     public function onDeskImportCompleted(int $scoutYearId, array $activeMemberIds): void;
 }

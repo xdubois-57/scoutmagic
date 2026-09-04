@@ -80,7 +80,8 @@ class StatisticsPayloadBuilder
             'generated_at' => (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format(\DateTimeInterface::ATOM),
             'scoutmagic' => [
                 'version' => $this->collect(fn(): string => VersionFile::read($this->projectRoot)),
-                'is_dev_build' => $this->collect(fn(): bool => VersionFile::isDevBuild(VersionFile::read($this->projectRoot))),
+                'is_dev_build' =>
+                    $this->collect(fn(): bool => VersionFile::isDevBuild(VersionFile::read($this->projectRoot))),
             ],
             'scout_year' => [
                 'label' => $this->collect(fn(): ?string => $this->scoutYearLabel($publicScoutYearId)),
@@ -123,7 +124,8 @@ class StatisticsPayloadBuilder
                 'auto_update_level' => $this->collect(fn(): ?string => $this->settingValue('auto_update_level')),
             ],
             'lifecycle' => [
-                'installed_at' => $this->collect(fn(): ?string => $this->settingValue(InstallationDateService::SETTING_KEY)),
+                'installed_at' =>
+                    $this->collect(fn(): ?string => $this->settingValue(InstallationDateService::SETTING_KEY)),
                 'last_upgraded_at' => $this->collect(fn(): ?string => $this->lastUpgradedAt()),
             ],
             'storage' => [
@@ -427,7 +429,8 @@ class StatisticsPayloadBuilder
     private function lastUpgradedAt(): ?string
     {
         $stmt = $this->pdo->query(
-            "SELECT completed_at FROM update_history WHERE status = 'completed' AND completed_at IS NOT NULL ORDER BY completed_at DESC LIMIT 1"
+            "SELECT completed_at FROM update_history WHERE status = 'completed' AND completed_at IS NOT NULL ORDER BY "
+                . "completed_at DESC LIMIT 1"
         );
         $value = $stmt !== false ? $stmt->fetchColumn() : false;
 

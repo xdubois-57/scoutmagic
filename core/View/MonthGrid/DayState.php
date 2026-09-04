@@ -75,11 +75,18 @@ final class DayState
     public const STATE_UNSELECTABLE = 'unselectable';
 
     /**
-     * @param string $state One of the STATE_* constants, or any caller-defined string — the builder and partial never branch on the value, they only pass it through as a CSS hook.
-     * @param string $accessibleLabel Human-readable French equivalent of the colour, e.g. "Libre", "Occupé", "Départ le matin". Rendered as text for assistive technology.
+     * @param string $state One of the STATE_* constants, or any caller-defined string — the builder and partial never
+     *     branch on the value, they only pass it through as a CSS hook.
+     * @param string $accessibleLabel Human-readable French equivalent of the colour, e.g. "Libre", "Occupé", "Départ le
+     *     matin". Rendered as text for assistive technology.
      * @param string|null $color CSS colour for the cell, or null to let the stylesheet decide from $state alone.
-     * @param bool $selectable Whether the visitor may click this day. Never a security boundary — the server re-validates every submitted range.
-     * @param array<string, string> $data Opaque extra attributes echoed back as data-* attributes on the rendered cell (e.g. a remaining quantity, a price).
+     * @param bool $selectable Whether the visitor may click this day. Never a security boundary — the server
+     *     re-validates every submitted range.
+     * @param array<
+     *     string,
+     *     string
+     * > $data Opaque extra attributes echoed back as data-* attributes on the rendered cell (e.g. a remaining quantity,
+     * a price).
      */
     public function __construct(
         public readonly string $state,

@@ -105,7 +105,8 @@ class InstallUpdateHandler implements TaskHandlerInterface
         // must never be repeated: installFiles() is not safe to re-run
         // over files that may already reflect the new version.
         if ($history->status === 'migrating') {
-            $this->resumeMigration($historyId, $history, $downloadUrl, $sourceType, $context, $updateHistoryRepository, $backupRepository, $fileRepository);
+            $this->resumeMigration($historyId, $history, $downloadUrl, $sourceType, $context, $updateHistoryRepository,
+                $backupRepository, $fileRepository);
             return;
         }
 
@@ -358,7 +359,8 @@ class InstallUpdateHandler implements TaskHandlerInterface
 
             $this->refuseUnconvergedMigration($migrationResult);
 
-            $this->finishInstall($historyId, $history, $context, $updateHistoryRepository, $backupRepository, $fileRepository);
+            $this->finishInstall($historyId, $history, $context, $updateHistoryRepository, $backupRepository,
+                $fileRepository);
         } catch (\Throwable $migrationError) {
             // Unlike the initial attempt, this invocation never created its
             // own backup — reconstruct the safety backup's file paths from
@@ -385,8 +387,13 @@ class InstallUpdateHandler implements TaskHandlerInterface
                     'core',
                     'update_failed',
                     'info',
-                    'Échec de la migration lors de la reprise d\'une mise à jour, sans sauvegarde disponible pour restauration',
-                    ['version_from' => $history->versionFrom, 'version_to' => $history->versionTo, 'error' => $migrationError->getMessage()],
+                    'Échec de la migration lors de la reprise d\'une mise à jour, sans sauvegarde disponible pour '
+                        . 'restauration',
+                    [
+                        'version_from' => $history->versionFrom,
+                        'version_to' => $history->versionTo,
+                        'error' => $migrationError->getMessage()
+                    ],
                     $history->requestedBy
                 );
                 $this->announce(
@@ -394,7 +401,8 @@ class InstallUpdateHandler implements TaskHandlerInterface
                     $history,
                     'core.update_failed',
                     'Échec critique de la mise à jour',
-                    'La migration a échoué et aucune sauvegarde de sécurité n\'a pu être restaurée automatiquement. Une intervention manuelle est nécessaire.'
+                    'La migration a échoué et aucune sauvegarde de sécurité n\'a pu être restaurée automatiquement. '
+                        . 'Une intervention manuelle est nécessaire.'
                 );
                 return;
             }
@@ -535,7 +543,11 @@ class InstallUpdateHandler implements TaskHandlerInterface
         $updateHistoryRepository->markFailed(
             $historyId,
             'L\'archive de cette mise à jour n\'a jamais été publiée : l\'intégration continue devait déposer '
-            . '« ' . basename($downloadUrl) . ' » sur la préversion « ' . \Core\Maintenance\GitHubWebhookService::DEV_BUILD_TAG . ' » du dépôt, et elle est toujours '
+            . '« '
+            . basename($downloadUrl)
+            . ' » sur la préversion « '
+            . \Core\Maintenance\GitHubWebhookService::DEV_BUILD_TAG
+            . ' » du dépôt, et elle est toujours '
             . 'absente. La mise à jour a été abandonnée sans rien modifier ; relancez la construction, puis '
             . 'réessayez.'
         );
@@ -584,7 +596,12 @@ class InstallUpdateHandler implements TaskHandlerInterface
         return $status;
     }
 
-    private function scheduleMigrationResume(TaskContext $context, int $historyId, string $downloadUrl, string $sourceType): void
+    private function scheduleMigrationResume(
+        TaskContext $context,
+        int $historyId,
+        string $downloadUrl,
+        string $sourceType
+    ): void
     {
         $schedulerService = new SchedulerService(new SchedulerRepository($context->connection->getPdo()));
         $schedulerService->scheduleAfter('core', 'install_update', 0, [
@@ -725,7 +742,11 @@ class InstallUpdateHandler implements TaskHandlerInterface
             'update_failed',
             'info',
             'Échec de l\'installation de la mise à jour',
-            ['version_from' => $history->versionFrom, 'version_to' => $history->versionTo, 'error' => $error->getMessage()],
+            [
+                'version_from' => $history->versionFrom,
+                'version_to' => $history->versionTo,
+                'error' => $error->getMessage()
+            ],
             $history->requestedBy
         );
 
@@ -763,7 +784,8 @@ class InstallUpdateHandler implements TaskHandlerInterface
                 $history->requestedBy
             );
             $notifyTitle = 'Échec de la mise à jour';
-            $notifyBody = "La mise à jour vers la version {$history->versionTo} a échoué — une restauration automatique a été effectuée.";
+            $notifyBody = "La mise à jour vers la version {$history->versionTo} a échoué — une restauration "
+                . "automatique a été effectuée.";
         } catch (\Throwable $rollbackError) {
             $updateHistoryRepository->markFailed(
                 $historyId,
@@ -777,11 +799,16 @@ class InstallUpdateHandler implements TaskHandlerInterface
                 'update_rollback_failed',
                 'info',
                 'La restauration automatique après échec de mise à jour a elle-même échoué',
-                ['version_from' => $history->versionFrom, 'version_to' => $history->versionTo, 'error' => $rollbackError->getMessage()],
+                [
+                    'version_from' => $history->versionFrom,
+                    'version_to' => $history->versionTo,
+                    'error' => $rollbackError->getMessage()
+                ],
                 $history->requestedBy
             );
             $notifyTitle = 'Échec critique de la mise à jour';
-            $notifyBody = 'La mise à jour a échoué et la restauration automatique a également échoué. Une intervention manuelle est nécessaire.';
+            $notifyBody = 'La mise à jour a échoué et la restauration automatique a également échoué. Une intervention '
+                . 'manuelle est nécessaire.';
         }
 
         $this->announce($context, $history, 'core.update_failed', $notifyTitle, $notifyBody);
@@ -1213,7 +1240,11 @@ class InstallUpdateHandler implements TaskHandlerInterface
      * shared per this codebase's established tolerance for this specific
      * small duplication.
      */
-    private function purgeBeyondLimit(BackupRepository $backupRepository, FileRepository $fileRepository, string $storagePath): void
+    private function purgeBeyondLimit(
+        BackupRepository $backupRepository,
+        FileRepository $fileRepository,
+        string $storagePath
+    ): void
     {
         foreach ($backupRepository->findBeyond(self::KEEP_BACKUPS) as $old) {
             foreach ([$old->fileId, $old->dbDumpFileId] as $fileId) {

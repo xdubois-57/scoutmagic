@@ -33,7 +33,8 @@ class CampaignRowRepository
     public function create(int $campaignId, int $memberId, int $amountCents, int $sourceLine, array $mergeData): int
     {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO finance_campaign_rows (campaign_id, member_id, amount_cents, source_line, merge_data, created_at)
+            'INSERT INTO finance_campaign_rows (campaign_id, member_id, amount_cents, source_line, merge_data, '
+                . 'created_at)
              VALUES (?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
@@ -139,7 +140,9 @@ class CampaignRowRepository
             'UPDATE finance_campaign_rows SET note = ?, note_author_id = ?, note_updated_at = ? WHERE id = ?'
         );
         $stmt->execute([
-            $trimmed === null || $trimmed === '' ? null : $this->encryption->encrypt($trimmed, 'finance_campaign_rows.note'),
+            $trimmed === null || $trimmed === ''
+                ? null
+                : $this->encryption->encrypt($trimmed, 'finance_campaign_rows.note'),
             $trimmed === null || $trimmed === '' ? null : $authorId,
             $trimmed === null || $trimmed === '' ? null : date('Y-m-d H:i:s'),
             $id,
@@ -164,7 +167,8 @@ class CampaignRowRepository
     {
         $mergeData = [];
         if (($row['merge_data'] ?? null) !== null) {
-            $decoded = json_decode($this->encryption->decrypt($row['merge_data'], 'finance_campaign_rows.merge_data'), true);
+            $decoded = json_decode($this->encryption->decrypt($row['merge_data'], 'finance_campaign_rows.merge_data'),
+                true);
             if (is_array($decoded)) {
                 foreach ($decoded as $header => $value) {
                     $mergeData[(string) $header] = (string) $value;
@@ -179,7 +183,9 @@ class CampaignRowRepository
             amountCents: (int) $row['amount_cents'],
             sourceLine: (int) ($row['source_line'] ?? 0),
             mergeData: $mergeData,
-            note: ($row['note'] ?? null) !== null ? $this->encryption->decrypt($row['note'], 'finance_campaign_rows.note') : null,
+            note: ($row['note'] ?? null) !== null
+                ? $this->encryption->decrypt($row['note'], 'finance_campaign_rows.note')
+                : null,
             noteAuthorId: isset($row['note_author_id']) ? (int) $row['note_author_id'] : null,
             noteUpdatedAt: isset($row['note_updated_at']) ? (string) $row['note_updated_at'] : null,
             createdAt: (string) $row['created_at']

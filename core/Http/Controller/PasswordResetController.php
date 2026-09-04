@@ -135,7 +135,8 @@ class PasswordResetController extends AbstractController
     {
         $id = (int) ($params['id'] ?? 0);
 
-        if (($guard = $this->guardCsrf($request, '/password-reset/' . $id . '#' . rawurlencode((string) $request->getBody('token', '')))) !== null) {
+        if (($guard = $this->guardCsrf($request,
+            '/password-reset/' . $id . '#' . rawurlencode((string) $request->getBody('token', '')))) !== null) {
             return $guard;
         }
 
@@ -156,7 +157,8 @@ class PasswordResetController extends AbstractController
         }
 
         if (!$this->passwordResetService->resetPassword($id, $token, $newPassword)) {
-            FlashMessage::set('error', 'Ce lien de réinitialisation n\'est plus valide. Veuillez en demander un nouveau.');
+            FlashMessage::set('error',
+                'Ce lien de réinitialisation n\'est plus valide. Veuillez en demander un nouveau.');
             return $this->redirect('/login');
         }
 

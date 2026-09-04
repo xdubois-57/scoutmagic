@@ -157,7 +157,8 @@ class PersonalFeedService
         $role = Role::fromString($this->roleResolver->resolve($userAccount->email, $scoutYearId));
 
         return array_map(function (CalendarEvent $event) use ($role, $userAccount, $scoutYearId): CalendarEvent {
-            $link = $this->retroEventLinkLookup->findLinkedBoardLink($event->id, $role, $userAccount->email, $scoutYearId);
+            $link = $this->retroEventLinkLookup->findLinkedBoardLink($event->id, $role, $userAccount->email,
+                $scoutYearId);
             if ($link === null) {
                 return $event;
             }

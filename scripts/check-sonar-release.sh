@@ -152,10 +152,12 @@ sonar_get() {
 # expression against the decoded response, used below to keep each
 # extraction a single readable line instead of hand-parsing JSON in bash.
 php_get() {
+    local json_file="$1" expression="$2"
     php -r '
         $d = json_decode(file_get_contents($argv[1]), true);
         echo eval("return " . $argv[2] . ";");
-    ' "$1" "$2"
+    ' "${json_file}" "${expression}"
+    return $?
 }
 
 # --- 1. Confirm a SonarQube analysis exists for the exact commit being released ---

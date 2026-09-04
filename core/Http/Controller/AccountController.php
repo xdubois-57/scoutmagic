@@ -146,7 +146,8 @@ class AccountController extends AbstractController
         // Validate current password if user already has one
         if ($hasPassword) {
             $account = $this->userAccountRepo->findById($userId);
-            if ($account === null || $account->passwordHash === null || !password_verify($currentPassword, $account->passwordHash)) {
+            if ($account === null || $account->passwordHash === null || !password_verify($currentPassword,
+                $account->passwordHash)) {
                 FlashMessage::set('error', 'Le mot de passe actuel est incorrect.');
                 return $this->redirect('/account');
             }

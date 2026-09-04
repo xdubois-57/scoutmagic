@@ -45,13 +45,16 @@ final class CoreTaskHandlers
             'send_notification_emails' => \Core\Notification\Task\SendNotificationEmailsHandler::class,
             'purge_notifications' => \Core\Notification\Task\PurgeNotificationsHandler::class,
             'purge_human_check_rate_limits' => \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler::class,
-            \Core\Help\Assistant\Task\PurgeHelpAssistantHandler::TASK_KEY => \Core\Help\Assistant\Task\PurgeHelpAssistantHandler::class,
+            \Core\Help\Assistant\Task\PurgeHelpAssistantHandler::TASK_KEY =>
+                \Core\Help\Assistant\Task\PurgeHelpAssistantHandler::class,
             \Core\Statistics\Task\SendStatisticsHandler::TASK_KEY => \Core\Statistics\Task\SendStatisticsHandler::class,
-            \Core\Support\Task\GenerateSupportPackageHandler::TASK_KEY => \Core\Support\Task\GenerateSupportPackageHandler::class,
+            \Core\Support\Task\GenerateSupportPackageHandler::TASK_KEY =>
+                \Core\Support\Task\GenerateSupportPackageHandler::class,
             // Waits for a package to exist, then joins it to the ticket
             // that asked for it (« l'archive est toujours transmise »).
             \Core\Support\Task\SendTicketArchiveHandler::TASK_KEY => \Core\Support\Task\SendTicketArchiveHandler::class,
-            \Core\Support\Task\PurgeSupportPackagesHandler::TASK_KEY => \Core\Support\Task\PurgeSupportPackagesHandler::class,
+            \Core\Support\Task\PurgeSupportPackagesHandler::TASK_KEY =>
+                \Core\Support\Task\PurgeSupportPackagesHandler::class,
             \Core\Import\Task\PurgeImportsHandler::TASK_KEY => \Core\Import\Task\PurgeImportsHandler::class,
         ];
     }

@@ -557,18 +557,30 @@ class RegistrationConfigController extends AbstractController
             'notice_content' => $this->editableContentService->get(self::NOTICE_CONTENT_KEY, ''),
             'notice_content_key' => self::NOTICE_CONTENT_KEY,
 
-            'registration_form_open' => $this->settingService->get('registration_form_open', 'registration', '0') === '1',
-            'scheduled_open_at' => (string) $this->settingService->get('registration_scheduled_open_at', 'registration', ''),
-            'scheduled_close_at' => (string) $this->settingService->get('registration_scheduled_close_at', 'registration', ''),
+            'registration_form_open' => $this->settingService->get(
+                'registration_form_open',
+                'registration',
+                '0'
+            ) === '1',
+            'scheduled_open_at' => (string) $this->settingService->get('registration_scheduled_open_at', 'registration',
+                ''),
+            'scheduled_close_at' => (string) $this->settingService->get('registration_scheduled_close_at',
+                'registration', ''),
 
             // Waitlist management, surfaced inside the capacity box rather
             // than hidden away in Configuration > Réglages. When it is off,
             // the two thresholds and the waitlist columns of the capacity
             // table are not rendered at all — they describe a mechanism
             // that is not running (their stored values are untouched).
-            'waitlist_enabled' => $this->settingService->get(self::SETTING_WAITLIST_ENABLED, 'registration', '1') === '1',
-            'threshold_available' => (string) $this->settingService->get(self::SETTING_THRESHOLD_AVAILABLE, 'registration', '0.5'),
-            'threshold_limited' => (string) $this->settingService->get(self::SETTING_THRESHOLD_LIMITED, 'registration', '0.1'),
+            'waitlist_enabled' => $this->settingService->get(
+                self::SETTING_WAITLIST_ENABLED,
+                'registration',
+                '1'
+            ) === '1',
+            'threshold_available' => (string) $this->settingService->get(self::SETTING_THRESHOLD_AVAILABLE,
+                'registration', '0.5'),
+            'threshold_limited' => (string) $this->settingService->get(self::SETTING_THRESHOLD_LIMITED, 'registration',
+                '0.1'),
             'default_capacity' => SlotService::DEFAULT_CAPACITY,
 
             'selectable_years' => $years['selectable'],
@@ -611,7 +623,12 @@ class RegistrationConfigController extends AbstractController
      * @param array{id: int, label: string, start_date: string, end_date: string} $selectedYear
      * @return array<int, array<string, mixed>>
      */
-    private function buildFilteredRequestRows(int $selectedYearId, array $selectedYear, ?string $statusFilter, ?string $search): array
+    private function buildFilteredRequestRows(
+        int $selectedYearId,
+        array $selectedYear,
+        ?string $statusFilter,
+        ?string $search
+    ): array
     {
         $referenceYear = SlotMath::referenceCalendarYear(
             MemberYearService::referenceYearFromScoutYearLabel((string) $selectedYear['label']),

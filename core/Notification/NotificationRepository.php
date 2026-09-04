@@ -18,7 +18,14 @@ class NotificationRepository
     ) {
     }
 
-    public function create(int $userAccountId, ?int $memberId, string $typeId, string $title, string $body, ?string $url): int
+    public function create(
+        int $userAccountId,
+        ?int $memberId,
+        string $typeId,
+        string $title,
+        string $body,
+        ?string $url
+    ): int
     {
         // created_at from PHP rather than the column's DEFAULT
         // CURRENT_TIMESTAMP: the notification list groups rows into
@@ -204,7 +211,8 @@ class NotificationRepository
 
     public function markAllReadForUser(int $userAccountId): void
     {
-        $stmt = $this->pdo->prepare('UPDATE notifications SET read_at = ? WHERE user_account_id = ? AND read_at IS NULL');
+        $stmt = $this->pdo->prepare('UPDATE notifications SET read_at = ? WHERE user_account_id = ? AND read_at IS '
+            . 'NULL');
         $stmt->execute([(new \DateTimeImmutable())->format('Y-m-d H:i:s'), $userAccountId]);
     }
 

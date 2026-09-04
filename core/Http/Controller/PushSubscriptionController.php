@@ -63,7 +63,8 @@ class PushSubscriptionController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Non authentifié.'], 401);
         }
 
-        $this->notificationService->subscribe($userId, $endpoint, $authKey, $p256dhKey, $this->deviceLabelFromUserAgent($request));
+        $this->notificationService->subscribe($userId, $endpoint, $authKey, $p256dhKey,
+            $this->deviceLabelFromUserAgent($request));
 
         $this->journalService->log(
             'core',

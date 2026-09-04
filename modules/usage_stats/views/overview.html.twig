@@ -107,9 +107,9 @@
                                     <span>{{ audience.label }}</span>
                                     <span class="fw-semibold">{{ audience.views }}</span>
                                 </div>
-                                <div class="progress mt-1" style="height: 0.4rem;"
-                                     role="progressbar" aria-label="{{ audience.label }}"
-                                     aria-valuenow="{{ audience.share_percent }}" aria-valuemin="0" aria-valuemax="100">
+                                {# Décoratif : la valeur est écrite en toutes lettres juste à côté,
+                                   et une barre qui la répète ne fait que la faire lire deux fois. #}
+                                <div aria-hidden="true" class="progress mt-1" style="height: 0.4rem;">
                                     <div class="progress-bar" style="width: {{ audience.share_percent }}%;"></div>
                                 </div>
                             </li>

@@ -96,7 +96,14 @@ class SectionDocumentService
      * has none yet (so there's always somewhere to add the first one),
      * most recent first.
      *
-     * @return array<int, array{scout_year: array{id: int, label: string, start_date: string, end_date: string}, documents: SectionDocument[], is_current: bool}>
+     * @return array<
+     *     int,
+     *     array{
+     *         scout_year: array{id: int, label: string, start_date: string, end_date: string},
+     *         documents: SectionDocument[],
+     *         is_current: bool
+     *     }
+     * >
      */
     public function listYearsForStaffsPage(int $sectionId, int $currentScoutYearId): array
     {
@@ -171,12 +178,17 @@ class SectionDocumentService
             $content, $mimeType, $originalFilename, self::STORAGE_SUBDIRECTORY, 'identified', 'core', $uploadedBy
         );
 
-        $documentId = $this->repository->create($sectionId, $scoutYearId, $fileId, $title, $description, strlen($content), $uploadedBy);
+        $documentId = $this->repository->create($sectionId, $scoutYearId, $fileId, $title, $description,
+            strlen($content), $uploadedBy);
         $this->fileRepository->updateOwner($fileId, 'section_document', $documentId);
 
         $this->journalService->log(
             'core', 'section_document_added', 'info', 'Document de section ajouté',
-            ['section_id' => $sectionId, 'scout_year_id' => $scoutYearId, 'section_document_id' => $documentId], $uploadedBy
+            [
+                'section_id' => $sectionId,
+                'scout_year_id' => $scoutYearId,
+                'section_document_id' => $documentId
+            ], $uploadedBy
         );
 
         // Background compression (Core\Member\Task\CompressSectionDocumentHandler)
@@ -184,8 +196,12 @@ class SectionDocumentService
         // handler itself degrades to 'skipped' for every other reason
         // (no backend, no size win), this is just avoiding scheduling a
         // task that would immediately no-op for a non-PDF.
-        if ($mimeType === 'application/pdf' && $this->settingService->get('section_document_compression_enabled') !== '0') {
-            $this->schedulerService->scheduleAfter('core', 'compress_section_document', 0, ['section_document_id' => $documentId]);
+        if (
+            $mimeType === 'application/pdf'
+            && $this->settingService->get('section_document_compression_enabled') !== '0'
+        ) {
+            $this->schedulerService->scheduleAfter('core', 'compress_section_document', 0,
+                ['section_document_id' => $documentId]);
         }
 
         $document = $this->repository->findById($documentId);
@@ -204,11 +220,16 @@ class SectionDocumentService
         }
         $document = $this->requireDocument($documentId);
 
-        $this->repository->updateTitleAndDescription($documentId, $cleanTitle, $description !== null && trim($description) !== '' ? trim($description) : null);
+        $this->repository->updateTitleAndDescription($documentId, $cleanTitle,
+            $description !== null && trim($description) !== '' ? trim($description) : null);
 
         $this->journalService->log(
             'core', 'section_document_renamed', 'info', 'Document de section renommé',
-            ['section_id' => $document->sectionId, 'scout_year_id' => $document->scoutYearId, 'section_document_id' => $documentId], $actorId
+            [
+                'section_id' => $document->sectionId,
+                'scout_year_id' => $document->scoutYearId,
+                'section_document_id' => $documentId
+            ], $actorId
         );
     }
 
@@ -245,7 +266,11 @@ class SectionDocumentService
 
         $this->journalService->log(
             'core', 'section_document_deleted', 'info', 'Document de section supprimé',
-            ['section_id' => $document->sectionId, 'scout_year_id' => $document->scoutYearId, 'section_document_id' => $documentId], $actorId
+            [
+                'section_id' => $document->sectionId,
+                'scout_year_id' => $document->scoutYearId,
+                'section_document_id' => $documentId
+            ], $actorId
         );
     }
 
@@ -256,7 +281,14 @@ class SectionDocumentService
      * that has since been hidden or deactivated still appears — past
      * membership is a historical fact (module addendum).
      *
-     * @return array<int, array{section: array<string, mixed>, scout_year: array{id: int, label: string, start_date: string, end_date: string}, documents: SectionDocument[]}>
+     * @return array<
+     *     int,
+     *     array{
+     *         section: array<string, mixed>,
+     *         scout_year: array{id: int, label: string, start_date: string, end_date: string},
+     *         documents: SectionDocument[]
+     *     }
+     * >
      */
     public function listForMemberPage(int $memberId): array
     {

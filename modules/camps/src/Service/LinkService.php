@@ -152,7 +152,12 @@ class LinkService
             file_put_contents($tmpPath, $imageBytes);
 
             return $this->uploadHandler->handle(
-                ['tmp_name' => $tmpPath, 'size' => strlen($imageBytes), 'error' => UPLOAD_ERR_OK, 'name' => 'link_preview'],
+                [
+                    'tmp_name' => $tmpPath,
+                    'size' => strlen($imageBytes),
+                    'error' => UPLOAD_ERR_OK,
+                    'name' => 'link_preview'
+                ],
                 "camps/{$campId}/links",
                 self::IMAGE_ALLOWED_MIMES,
                 self::IMAGE_MAX_BYTES,

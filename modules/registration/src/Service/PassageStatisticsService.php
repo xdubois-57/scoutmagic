@@ -70,7 +70,25 @@ class PassageStatisticsService
      *
      * @return array{
      *   available: bool,
-     *   branches: array<int, array{label: string, sections: array<int, array{id: int, label: string, color: string, scopes: array<string, array{total: int, certain: int, hypothesis: int, male: int, female: int, unknown: int}>}>, scopes: array<string, array{max: int, total: int}>}>,
+     *   branches: array<
+     *       int,
+     *       array{
+     *           label: string,
+     *           sections: array<
+     *               int,
+     *               array{
+     *                   id: int,
+     *                   label: string,
+     *                   color: string,
+     *                   scopes: array<
+     *                       string,
+     *                       array{total: int, certain: int, hypothesis: int, male: int, female: int, unknown: int}
+     *                   >
+     *               }
+     *           >,
+     *           scopes: array<string, array{max: int, total: int}>
+     *       }
+     *   >,
      *   unassigned: array<string, int>
      * }
      */
@@ -101,7 +119,12 @@ class PassageStatisticsService
             ];
         }
 
-        /** @var array<int, array<int, array<string, array<string, int>>>> $tally branch sort order => section id => scope => counts */
+        /**
+         * @var array<
+         *     int,
+         *     array<int, array<string, array<string, int>>>
+         * > $tally branch sort order => section id => scope => counts
+         */
         $tally = [];
         $unassigned = $this->emptyScopeCounts();
 
@@ -148,7 +171,22 @@ class PassageStatisticsService
     /**
      * @param array<int, array<string, array<string, int>>> $sectionsInBranch
      * @param array<int, array{branch_sort_order: int, branch_label: string, label: string, color: string}> $sectionMeta
-     * @return array{label: string, sections: array<int, array{id: int, label: string, color: string, scopes: array<string, array{total: int, certain: int, hypothesis: int, male: int, female: int, unknown: int}>}>, scopes: array<string, array{max: int, total: int}>}
+     * @return array{
+     *     label: string,
+     *     sections: array<
+     *         int,
+     *         array{
+     *             id: int,
+     *             label: string,
+     *             color: string,
+     *             scopes: array<
+     *                 string,
+     *                 array{total: int, certain: int, hypothesis: int, male: int, female: int, unknown: int}
+     *             >
+     *         }
+     *     >,
+     *     scopes: array<string, array{max: int, total: int}>
+     * }
      */
     private function buildBranch(int $branchOrder, array $sectionsInBranch, array $sectionMeta): array
     {
@@ -170,7 +208,9 @@ class PassageStatisticsService
             $label = $meta['branch_label'];
             $scopes = [];
             foreach ([self::SCOPE_PROJECTED, self::SCOPE_ARRIVALS] as $scope) {
-                /** @var array{total: int, certain: int, hypothesis: int, male: int, female: int, unknown: int} $counts */
+                /**
+                 * @var array{total: int, certain: int, hypothesis: int, male: int, female: int, unknown: int} $counts
+                 */
                 $counts = $sectionsInBranch[$sectionId][$scope] ?? $this->emptySectionCounts();
                 $scopes[$scope] = $counts;
                 // The bar is comparable BETWEEN sections of one branch, so

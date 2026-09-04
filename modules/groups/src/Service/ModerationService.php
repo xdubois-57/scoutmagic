@@ -65,7 +65,8 @@ class ModerationService
             ],
             'reason' => [
                 'type' => ['string', 'null'],
-                'description' => 'Si flagged est true, une courte explication en français à afficher à l\'auteur. null sinon.',
+                'description' => 'Si flagged est true, une courte explication en français à afficher à l\'auteur. null '
+                    . 'sinon.',
             ],
             'suggestion' => [
                 'type' => ['string', 'null'],
@@ -159,9 +160,12 @@ class ModerationService
 
         $reason = isset($parsed['reason']) && is_string($parsed['reason']) && trim($parsed['reason']) !== ''
             ? trim($parsed['reason'])
-            : 'Ce message peut être perçu comme une attaque personnelle ou un propos irrespectueux. Merci de le reformuler.';
+            : 'Ce message peut être perçu comme une attaque personnelle ou un propos irrespectueux. Merci de le '
+                . 'reformuler.';
 
-        $suggestionRaw = isset($parsed['suggestion']) && is_string($parsed['suggestion']) ? trim($parsed['suggestion']) : '';
+        $suggestionRaw = isset($parsed['suggestion']) && is_string($parsed['suggestion'])
+            ? trim($parsed['suggestion'])
+            : '';
         // Never trust the model's own character counting — the cap is
         // enforced here regardless of what came back, same precedent as
         // retro's own service.

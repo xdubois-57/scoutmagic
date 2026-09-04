@@ -95,7 +95,8 @@ class InboundMailboxRepository
      */
     public function findCredentials(int $mailboxId): ?MailboxCredentials
     {
-        $stmt = $this->pdo->prepare('SELECT username_encrypted, password_encrypted FROM inbound_mailboxes WHERE id = ?');
+        $stmt = $this->pdo->prepare('SELECT username_encrypted, password_encrypted FROM inbound_mailboxes WHERE id = '
+            . '?');
         $stmt->execute([$mailboxId]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
 
@@ -321,7 +322,9 @@ class InboundMailboxRepository
             folders: $folders,
             isEnabled: (bool) $row['is_enabled'],
             syncState: SyncState::from((string) $row['sync_state']),
-            lastSyncedAt: DateInput::fromStorage($row['last_synced_at'] === null ? null : (string) $row['last_synced_at']),
+            lastSyncedAt: DateInput::fromStorage(
+                $row['last_synced_at'] === null ? null : (string) $row['last_synced_at']
+            ),
             lastError: $row['last_error'] !== null ? (string) $row['last_error'] : null,
             lastErrorAt: DateInput::fromStorage($row['last_error_at'] === null ? null : (string) $row['last_error_at']),
             purpose: MailboxPurpose::fromString(

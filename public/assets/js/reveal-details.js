@@ -24,7 +24,7 @@
     /** @param {HTMLElement} trigger */
     function targetOf(trigger) {
         var spec = trigger.dataset.reveal || '';
-        if (spec.indexOf('next:') === 0) {
+        if (spec.startsWith('next:')) {
             var next = trigger.nextElementSibling;
             var selector = spec.slice(5);
             return next && next.matches(selector) ? next : null;

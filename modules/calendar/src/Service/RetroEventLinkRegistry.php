@@ -52,7 +52,12 @@ class RetroEventLinkRegistry implements RetroEventLinkLookupInterface
         $this->lookup = $lookup;
     }
 
-    public function findLinkedBoardLink(int $eventId, Role $viewerRole, ?string $viewerEmail, ?int $scoutYearId): ?RetroLinkSummary
+    public function findLinkedBoardLink(
+        int $eventId,
+        Role $viewerRole,
+        ?string $viewerEmail,
+        ?int $scoutYearId
+    ): ?RetroLinkSummary
     {
         return $this->lookup?->findLinkedBoardLink($eventId, $viewerRole, $viewerEmail, $scoutYearId);
     }

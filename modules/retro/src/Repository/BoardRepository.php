@@ -48,7 +48,8 @@ class BoardRepository
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO retro_boards (
-                title, board_date, calendar_event_id, token_encrypted, token_blind_index, short_code, listed, vote_mode, vote_budget,
+                title, board_date, calendar_event_id, token_encrypted, token_blind_index, short_code, listed, '
+                . 'vote_mode, vote_budget,
                 votes_visible, anti_duplicate_mode, max_comment_length, auto_close_delay, auto_close_at, created_by,
                 close_notify_enabled, close_notify_email, link_visibility
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
@@ -123,7 +124,8 @@ class BoardRepository
      */
     public function findUnarchivedOrderedByCreated(): array
     {
-        $stmt = $this->pdo->prepare("SELECT * FROM retro_boards WHERE status <> 'archived' ORDER BY created_at DESC, id DESC");
+        $stmt = $this->pdo->prepare("SELECT * FROM retro_boards WHERE status <> 'archived' ORDER BY created_at DESC, "
+            . "id DESC");
         $stmt->execute();
 
         return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
@@ -137,7 +139,8 @@ class BoardRepository
      */
     public function findRecentArchived(int $limit): array
     {
-        $stmt = $this->pdo->prepare("SELECT * FROM retro_boards WHERE status = 'archived' ORDER BY created_at DESC, id DESC LIMIT ?");
+        $stmt = $this->pdo->prepare("SELECT * FROM retro_boards WHERE status = 'archived' ORDER BY created_at DESC, "
+            . "id DESC LIMIT ?");
         $stmt->bindValue(1, $limit, \PDO::PARAM_INT);
         $stmt->execute();
 
@@ -185,7 +188,8 @@ class BoardRepository
         $stmt = $this->pdo->prepare(
             'UPDATE retro_boards SET
                 title = ?, board_date = ?, calendar_event_id = ?, listed = ?, vote_mode = ?, vote_budget = ?,
-                votes_visible = ?, anti_duplicate_mode = ?, max_comment_length = ?, auto_close_delay = ?, auto_close_at = ?,
+                votes_visible = ?, anti_duplicate_mode = ?, max_comment_length = ?, auto_close_delay = ?, '
+                . 'auto_close_at = ?,
                 close_notify_enabled = ?, close_notify_email = ?, link_visibility = ?
              WHERE id = ?'
         );
@@ -198,7 +202,8 @@ class BoardRepository
 
     public function close(int $id): void
     {
-        $stmt = $this->pdo->prepare("UPDATE retro_boards SET status = 'closed', closed_at = CURRENT_TIMESTAMP WHERE id = ?");
+        $stmt = $this->pdo->prepare("UPDATE retro_boards SET status = 'closed', closed_at = CURRENT_TIMESTAMP WHERE "
+            . "id = ?");
         $stmt->execute([$id]);
     }
 
@@ -209,7 +214,8 @@ class BoardRepository
      */
     public function reopen(int $id, ?string $autoCloseAt): void
     {
-        $stmt = $this->pdo->prepare("UPDATE retro_boards SET status = 'open', closed_at = NULL, auto_close_at = ? WHERE id = ?");
+        $stmt = $this->pdo->prepare("UPDATE retro_boards SET status = 'open', closed_at = NULL, auto_close_at = ? "
+            . "WHERE id = ?");
         $stmt->execute([$autoCloseAt, $id]);
     }
 
@@ -227,7 +233,8 @@ class BoardRepository
 
     public function regenerateLink(int $id, string $token, ?string $shortCode): void
     {
-        $stmt = $this->pdo->prepare('UPDATE retro_boards SET token_encrypted = ?, token_blind_index = ?, short_code = ? WHERE id = ?');
+        $stmt = $this->pdo->prepare('UPDATE retro_boards SET token_encrypted = ?, token_blind_index = ?, short_code = '
+            . '? WHERE id = ?');
         $stmt->execute([
             $this->encryption->encrypt($token, self::TOKEN_ENCRYPTION_CONTEXT),
             $this->encryption->blindIndex($token, self::TOKEN_BLIND_INDEX_PURPOSE),

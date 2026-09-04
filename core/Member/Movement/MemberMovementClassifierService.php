@@ -127,12 +127,15 @@ final class MemberMovementClassifierService
     ): MemberMovementResult {
         if ($previousSection !== null) {
             if ($previousSection['section_id'] === $current['section_id']) {
-                return new MemberMovementResult(MemberMovementStatus::CONTINUING, $previousSection['section_id'], $previousSection['age_branch_id']);
+                return new MemberMovementResult(MemberMovementStatus::CONTINUING, $previousSection['section_id'],
+                    $previousSection['age_branch_id']);
             }
             if ($previousSection['age_branch_id'] === $current['age_branch_id']) {
-                return new MemberMovementResult(MemberMovementStatus::SECTION_CHANGE, $previousSection['section_id'], $previousSection['age_branch_id']);
+                return new MemberMovementResult(MemberMovementStatus::SECTION_CHANGE, $previousSection['section_id'],
+                    $previousSection['age_branch_id']);
             }
-            return new MemberMovementResult(MemberMovementStatus::BRANCH_CHANGE, $previousSection['section_id'], $previousSection['age_branch_id']);
+            return new MemberMovementResult(MemberMovementStatus::BRANCH_CHANGE, $previousSection['section_id'],
+                $previousSection['age_branch_id']);
         }
 
         if ($activeLastYearWithoutSection) {

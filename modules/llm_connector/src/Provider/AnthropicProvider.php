@@ -213,7 +213,9 @@ class AnthropicProvider implements LlmProviderInterface
 
         if ($responseSchema !== null) {
             $schemaJson = json_encode($responseSchema, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
-            $parts[] = "You MUST respond with valid JSON conforming exactly to this schema:\n" . $schemaJson . "\nDo not include any text outside the JSON object.";
+            $parts[] = "You MUST respond with valid JSON conforming exactly to this schema:\n"
+                . $schemaJson
+                . "\nDo not include any text outside the JSON object.";
         }
 
         return $parts !== [] ? implode("\n\n", $parts) : null;

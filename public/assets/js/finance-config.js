@@ -70,10 +70,11 @@
             return;
         }
 
-        var res = await api.postJson('/config/finance/danger', Object.assign({
+        var res = await api.postJson('/config/finance/danger', {
             action: action,
-            confirmation_text: confirmationText
-        }, extra));
+            confirmation_text: confirmationText,
+            ...extra
+        });
 
         if (res.data && res.data.success) {
             window.location.reload();

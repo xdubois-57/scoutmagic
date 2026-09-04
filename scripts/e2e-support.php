@@ -824,7 +824,8 @@ function e2e_activate_all_modules(
         if ($module->validationError !== null) {
             fwrite(
                 STDERR,
-                "E2E provisioning failed: module '{$moduleId}' has an invalid module.json — {$module->validationError}\n"
+                "E2E provisioning failed: module '{$moduleId}' has an invalid module.json — "
+                    . "{$module->validationError}\n"
             );
             exit(1);
         }
@@ -848,7 +849,10 @@ function e2e_activate_all_modules(
             // the enabled_by_default auto-activation index.php performs.
             $moduleManager->activate($moduleId, null);
         } catch (Throwable $e) {
-            fwrite(STDERR, "E2E provisioning failed: module '{$moduleId}' could not be activated — {$e->getMessage()}\n");
+            fwrite(
+                STDERR,
+                "E2E provisioning failed: module '{$moduleId}' could not be activated — {$e->getMessage()}\n"
+            );
             exit(1);
         }
     }
@@ -1139,7 +1143,8 @@ function e2e_seed_member_for_admin(
     // an inactive row would link to nothing at all.
     $statement = $pdo->prepare(
         'INSERT INTO member_years'
-        . ' (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, email_encrypted, email_blind_index, is_active)'
+        . ' (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, email_encrypted, email_blind_index, '
+        . 'is_active)'
         . ' VALUES (?, ?, ?, ?, ?, ?, 1)'
     );
     $statement->execute([
@@ -1196,7 +1201,8 @@ function e2e_seed_ordinary_member(
 
     $statement = $pdo->prepare(
         'INSERT INTO member_years'
-        . ' (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, email_encrypted, email_blind_index, is_active)'
+        . ' (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, email_encrypted, email_blind_index, '
+        . 'is_active)'
         . ' VALUES (?, ?, ?, ?, ?, ?, 1)'
     );
     $statement->execute([
@@ -1284,7 +1290,8 @@ function e2e_seed_section_with_both_members(Core\Database\Connection $connection
     $functionId = (int) $pdo->lastInsertId();
 
     $functionStatement = $pdo->prepare(
-        'INSERT INTO member_functions (member_year_id, function_id, section_id, age_branch_id, start_date, is_main_function)'
+        'INSERT INTO member_functions (member_year_id, function_id, section_id, age_branch_id, start_date, '
+            . 'is_main_function)'
         . ' SELECT my.id, ?, ?, ?, ?, 1 FROM member_years my'
         . ' JOIN members m ON m.id = my.member_id'
         . ' WHERE m.desk_id = ? AND my.scout_year_id = ?'
@@ -1332,7 +1339,17 @@ function e2e_seed_section_with_both_members(Core\Database\Connection $connection
  * every CI job that already reads them. `admin` is the role displayed as
  * "Chef d'Unité" (Core\Security\Role), hence "unit admin".
  *
- * @return list<array{key: string, env_prefix: string, default_email: string, desk_id: string, first_name: string, last_name: string, function_code: string, function_label: string, role: Core\Security\Role}>
+ * @return list<array{
+ *     key: string,
+ *     env_prefix: string,
+ *     default_email: string,
+ *     desk_id: string,
+ *     first_name: string,
+ *     last_name: string,
+ *     function_code: string,
+ *     function_label: string,
+ *     role: Core\Security\Role
+ * }>
  */
 function e2e_role_accounts(): array
 {
@@ -1497,7 +1514,8 @@ function e2e_seed_role_members(
         // it returns.
         $statement = $pdo->prepare(
             'INSERT INTO member_years'
-            . ' (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, email_encrypted, email_blind_index, is_active)'
+            . ' (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, email_encrypted, '
+            . 'email_blind_index, is_active)'
             . ' VALUES (?, ?, ?, ?, ?, ?, 1)'
         );
         $statement->execute([
@@ -1510,7 +1528,8 @@ function e2e_seed_role_members(
         ]);
         $memberYearId = (int) $pdo->lastInsertId();
 
-        $pdo->prepare('INSERT INTO member_section_periods (member_id, section_id, scout_year_id, start_date, end_date) VALUES (?, ?, ?, ?, NULL)')
+        $pdo->prepare('INSERT INTO member_section_periods (member_id, section_id, scout_year_id, start_date, '
+            . 'end_date) VALUES (?, ?, ?, ?, NULL)')
             ->execute([$memberId, $sectionId, $scoutYearId, $startDate]);
 
         // The role is carried by the FUNCTION, never by a flag on
@@ -1522,7 +1541,8 @@ function e2e_seed_role_members(
         $functionId = (int) $pdo->lastInsertId();
 
         $pdo->prepare(
-            'INSERT INTO member_functions (member_year_id, function_id, section_id, age_branch_id, start_date, is_main_function)'
+            'INSERT INTO member_functions (member_year_id, function_id, section_id, age_branch_id, start_date, '
+                . 'is_main_function)'
             . ' VALUES (?, ?, ?, ?, ?, 1)'
         )->execute([$memberYearId, $functionId, $sectionId, $ageBranchId, $startDate]);
 
@@ -1636,7 +1656,8 @@ function e2e_seed_unit_chief_function_for_admin(Core\Database\Connection $connec
     )->execute(['E2E-ADMIN', $scoutYearId]);
 
     $pdo->prepare(
-        'INSERT INTO member_functions (member_year_id, function_id, section_id, age_branch_id, start_date, is_main_function)'
+        'INSERT INTO member_functions (member_year_id, function_id, section_id, age_branch_id, start_date, '
+            . 'is_main_function)'
         . ' SELECT my.id, ?, ?, ?, ?, 1 FROM member_years my'
         . ' JOIN members m ON m.id = my.member_id'
         . ' WHERE m.desk_id = ? AND my.scout_year_id = ?'

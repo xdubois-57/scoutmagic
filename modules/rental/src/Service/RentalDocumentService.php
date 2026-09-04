@@ -274,7 +274,10 @@ class RentalDocumentService
             (string) ($this->settingService->get('site_name') ?: 'Unité scoute'),
             [
                 'Bien : ' . $asset->name,
-                'Séjour : du ' . self::frenchDate($booking->arrivalDate) . ' au ' . self::frenchDate($booking->departureDate),
+                'Séjour : du '
+                    . self::frenchDate($booking->arrivalDate)
+                    . ' au '
+                    . self::frenchDate($booking->departureDate),
             ],
             $type === DocumentType::INVOICE ? $this->vatNote($asset) : null
         );

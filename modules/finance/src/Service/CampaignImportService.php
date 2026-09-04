@@ -50,9 +50,18 @@ class CampaignImportService
      * it is a lookup, not a guess, so accepting it costs nothing and
      * saves a refusal nobody would understand.
      */
-    private const MEMBER_ID_ALIASES = ['id interne', 'idinterne', 'member id', 'memberid', 'id membre', 'identifiant interne'];
+    private const MEMBER_ID_ALIASES = ['id interne', 'idinterne', 'member id', 'memberid', 'id membre',
+        'identifiant interne'];
     private const DESK_ID_ALIASES = ['identifiant desk', 'identifiantdesk', 'tiers', 'desk id', 'deskid'];
-    private const AMOUNT_ALIASES = ['montant', 'montant du', 'montant a payer', 'montant eur', 'amount', 'prix', 'tarif'];
+    private const AMOUNT_ALIASES = [
+        'montant',
+        'montant du',
+        'montant a payer',
+        'montant eur',
+        'amount',
+        'prix',
+        'tarif'
+    ];
 
     public function __construct(private MemberLookupRepository $members)
     {
@@ -105,9 +114,14 @@ class CampaignImportService
         $seenMemberIds = [];
 
         foreach ($dataRows as $row) {
-            $memberId = $this->resolveMember($row['data'], $memberIdColumn, $deskIdColumn, $resolvedIds, $resolvedDeskIds, $problem);
+            $memberId = $this->resolveMember($row['data'], $memberIdColumn, $deskIdColumn, $resolvedIds,
+                $resolvedDeskIds, $problem);
             if ($memberId === null) {
-                $problems[] = ['line' => $row['line'], 'content' => $this->summarize($row['data']), 'problem' => (string) $problem];
+                $problems[] = [
+                    'line' => $row['line'],
+                    'content' => $this->summarize($row['data']),
+                    'problem' => (string) $problem
+                ];
                 continue;
             }
 
@@ -296,7 +310,8 @@ class CampaignImportService
             $spreadsheet = $reader->load($filePath);
         } catch (\Throwable) {
             throw CampaignImportException::file(
-                "Le fichier n'a pas pu être lu comme un fichier Excel (.xlsx). Repartez de l'export des membres du site."
+                "Le fichier n'a pas pu être lu comme un fichier Excel (.xlsx). Repartez de l'export des membres du "
+                    . "site."
             );
         }
 
@@ -356,13 +371,15 @@ class CampaignImportService
         if ($memberIdColumn === null && $deskIdColumn === null) {
             throw CampaignImportException::file(
                 "Le fichier n'a pas de colonne d'identifiant. Repartez de l'export des membres du site et gardez sa "
-                . 'colonne « ID interne » : c\'est elle qui rattache chaque montant au bon membre. Ne reconstruisez pas la liste à la main.'
+                . 'colonne « ID interne » : c\'est elle qui rattache chaque montant au bon membre. Ne reconstruisez '
+                . 'pas la liste à la main.'
             );
         }
 
         if ($amountColumn === null) {
             throw CampaignImportException::file(
-                'Le fichier n\'a pas de colonne « Montant ». Ajoutez-la à l\'export des membres et complétez-la ligne par ligne.'
+                'Le fichier n\'a pas de colonne « Montant ». Ajoutez-la à l\'export des membres et complétez-la ligne '
+                    . 'par ligne.'
             );
         }
 

@@ -34,7 +34,8 @@ final class PriceQuote
     /**
      * @param PriceLine[] $lines
      * @param string[] $warnings User-facing French sentences.
-     * @param PricePeriod|null $period The period the stay is charged under; the arrival period when a stay spans several.
+     * @param PricePeriod|null $period The period the stay is charged under; the arrival period when a stay spans
+     *     several.
      */
     public function __construct(
         public readonly array $lines,

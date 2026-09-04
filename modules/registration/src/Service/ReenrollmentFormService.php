@@ -175,7 +175,10 @@ class ReenrollmentFormService
 
         $sections = [];
         foreach ($arrival as $section) {
-            $sections[] = ['id' => (int) $section['id'], 'label' => (string) ($section['name'] ?? $section['desk_code'])];
+            $sections[] = [
+                'id' => (int) $section['id'],
+                'label' => (string) ($section['name'] ?? $section['desk_code'])
+            ];
         }
 
         // An empty arrival list means one of two things and they are not

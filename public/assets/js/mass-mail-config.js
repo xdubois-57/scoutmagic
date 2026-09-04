@@ -77,6 +77,18 @@
         return !!(res.data && res.data.success);
     }
 
+    /**
+     * The list modal's own error line. Outside wireListModal() because it
+     * reads the box by id and borrows nothing from that call.
+     *
+     * @param {string} message
+     */
+    function showModalError(message) {
+        var box = el('cfg-list-error');
+        box.textContent = message;
+        box.classList.remove('d-none');
+    }
+
     /** @param {{ok: boolean, status: number, data: any}} res */
     function toastError(res) {
         window.ScoutMagicToast.show(errorMessage(res), { variant: 'error' });
@@ -98,13 +110,6 @@
             } else {
                 modalEl.classList.add('show');
             }
-        }
-
-        /** @param {string} message */
-        function showModalError(message) {
-            var box = el('cfg-list-error');
-            box.textContent = message;
-            box.classList.remove('d-none');
         }
 
         function resetModal() {

@@ -34,8 +34,16 @@ class CampsConfigController extends AbstractController
     public function index(Request $request, array $params): Response
     {
         return $this->render('@camps/config.html.twig', [
-            'default_country' => (string) ($this->settings->get('camps_default_country', self::MODULE, 'Belgique') ?? ''),
-            'past_stays_per_page' => (int) ($this->settings->get('camps_past_stays_per_page', self::MODULE, '20') ?? 20),
+            'default_country' => (string) ($this->settings->get(
+                'camps_default_country',
+                self::MODULE,
+                'Belgique'
+            ) ?? ''),
+            'past_stays_per_page' => (int) ($this->settings->get(
+                'camps_past_stays_per_page',
+                self::MODULE,
+                '20'
+            ) ?? 20),
         ]);
     }
 
@@ -48,7 +56,8 @@ class CampsConfigController extends AbstractController
             return $guard;
         }
 
-        $this->settings->set('camps_default_country', trim((string) $request->getBody('camps_default_country', '')), self::MODULE);
+        $this->settings->set('camps_default_country', trim((string) $request->getBody('camps_default_country', '')),
+            self::MODULE);
 
         // Clamped rather than rejected: this is a display convenience, and
         // an out-of-range value here should not stop an administrator

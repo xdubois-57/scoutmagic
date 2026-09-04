@@ -274,7 +274,7 @@
     }
 
     el('test-rule-btn').addEventListener('click', async () => {
-        const res = await api.postJson('/config/finance/rules', Object.assign({ action: 'test' }, ruleConditionsPayload()));
+        const res = await api.postJson('/config/finance/rules', { action: 'test', ...ruleConditionsPayload() });
         const resultBox = el('test-rule-result');
         if (res.data && res.data.success) {
             resultBox.textContent = res.data.count + ' mouvement(s) existant(s) correspondent.';
@@ -286,10 +286,11 @@
     el('rule-form').addEventListener('submit', async (e) => {
         e.preventDefault();
         const id = inputEl('rule-id').value;
-        const payload = /** @type {Object.<string, any>} */ (Object.assign({
+        const payload = /** @type {Object.<string, any>} */ ({
             action: id ? 'update' : 'create',
-            category_id: Number.parseInt(/** @type {HTMLSelectElement} */ (el('rule-category')).value, 10)
-        }, ruleConditionsPayload()));
+            category_id: Number.parseInt(/** @type {HTMLSelectElement} */ (el('rule-category')).value, 10),
+            ...ruleConditionsPayload()
+        });
         if (id) payload.id = Number.parseInt(id, 10);
 
         const res = await api.postJson('/config/finance/rules', payload);
@@ -306,7 +307,7 @@
      * @param {Object} extra
      */
     async function postRuleAction(action, extra) {
-        const res = await api.postJson('/config/finance/rules', Object.assign({ action: action }, extra));
+        const res = await api.postJson('/config/finance/rules', { action: action, ...extra });
         if (res.data && res.data.success) {
             window.location.reload();
         } else {

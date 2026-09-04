@@ -96,7 +96,11 @@ class ReenrollmentMenuHookService implements MenuEntryProvider
                 true,
                 $this->campaign->isOpen()
                     ? ($unanswered > 0
-                        ? $unanswered . ' réponse' . ($unanswered > 1 ? 's' : '') . ' attendue' . ($unanswered > 1 ? 's' : '')
+                        ? $unanswered
+                            . ' réponse'
+                            . ($unanswered > 1 ? 's' : '')
+                            . ' attendue'
+                            . ($unanswered > 1 ? 's' : '')
                         : 'Réponse enregistrée')
                     : 'Campagne clôturée',
                 MenuBuilder::SORT_GROUP_DYNAMIC,

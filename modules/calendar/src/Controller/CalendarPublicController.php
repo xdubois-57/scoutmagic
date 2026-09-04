@@ -102,7 +102,8 @@ class CalendarPublicController extends AbstractController
 
         [$year, $month] = $this->resolveRequestedMonth($request->getQuery('month'));
 
-        $calendarIds = $this->calendarPickerService->resolveCalendarIdsForGrid($selectedCalendarId, $eligibleCalendars, $email, $effectiveYear->id);
+        $calendarIds = $this->calendarPickerService->resolveCalendarIdsForGrid($selectedCalendarId, $eligibleCalendars,
+            $email, $effectiveYear->id);
 
         $events = $this->calendarService->getEventsForGrid($year, $month, $calendarIds);
         $weeks = $this->monthGridBuilder->build($year, $month, $this->calendarService->toGridEvents($events));
@@ -170,7 +171,10 @@ class CalendarPublicController extends AbstractController
     {
         $calendar = $this->calendarService->findByIcsToken((string) ($params['token'] ?? ''));
         if ($calendar === null) {
-            return (new Response('Calendrier introuvable.', 404))->setHeader('Content-Type', 'text/plain; charset=utf-8');
+            return (new Response('Calendrier introuvable.', 404))->setHeader(
+                'Content-Type',
+                'text/plain; charset=utf-8'
+            );
         }
 
         // A calendar's own public token has NO identified reader at all, so

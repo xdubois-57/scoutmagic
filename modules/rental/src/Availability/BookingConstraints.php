@@ -29,9 +29,11 @@ final class BookingConstraints
      * @param int $maxNights Longest stay accepted. 0 means no maximum.
      * @param int $minNoticeDays How far ahead a request must be made. 0 means "today is fine".
      * @param int $maxHorizonDays How far into the future requests are accepted. 0 means no horizon.
-     * @param int[] $allowedArrivalWeekdays ISO weekdays (1 = Monday … 7 = Sunday) a stay may start on. Empty means any day.
+     * @param int[] $allowedArrivalWeekdays ISO weekdays (1 = Monday … 7 = Sunday) a stay may start on. Empty means any
+     *     day.
      * @param int|null $maxPersons Hard capacity ceiling for a request. Null means the asset's own capacity governs.
-     * @param int $bufferNights Nights of breathing space left after each occupancy — cleaning, a caretaker's round. 0 means back-to-back rentals are fine.
+     * @param int $bufferNights Nights of breathing space left after each occupancy — cleaning, a caretaker's round. 0
+     *     means back-to-back rentals are fine.
      */
     public function __construct(
         public readonly int $minNights = 0,

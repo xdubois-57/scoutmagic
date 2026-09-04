@@ -49,7 +49,10 @@ class PurgeMergeAudiencesHandler implements TaskHandlerInterface
         $pdo = $context->connection->getPdo();
         $repository = new AudienceRepository($pdo, $context->encryption);
 
-        $months = (int) ($context->settings->get('merge_retention_months', 'mass_mail') ?: self::DEFAULT_RETENTION_MONTHS);
+        $months = (int) ($context->settings->get(
+            'merge_retention_months',
+            'mass_mail'
+        ) ?: self::DEFAULT_RETENTION_MONTHS);
         if ($months <= 0) {
             $months = self::DEFAULT_RETENTION_MONTHS;
         }

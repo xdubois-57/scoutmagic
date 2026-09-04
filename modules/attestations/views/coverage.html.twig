@@ -75,11 +75,11 @@
             </div>
 
             {% if coverage.isComplete() %}
-                <div class="alert alert-success" role="status">
+                <output class="alert alert-success d-block">
                     <i class="bi bi-check-circle" aria-hidden="true"></i>
                     Tout le monde a la sienne — {{ coverage.covered|length }} membre(s) sur
                     {{ coverage.total() }}.
-                </div>
+                </output>
             {% else %}
                 <div class="card border-warning mb-4">
                     <div class="card-header bg-warning-subtle text-warning-emphasis d-flex align-items-center gap-2">

@@ -65,10 +65,12 @@ class ReenrollmentRepository
         if ($existingId === null) {
             $stmt = $this->pdo->prepare(
                 'INSERT INTO registration_reenrollments
-                    (member_id, scout_year_id, decision, preferred_section_id, family_comment_encrypted, answered_at, answered_by_user_account_id)
+                    (member_id, scout_year_id, decision, preferred_section_id, family_comment_encrypted, answered_at, '
+                    . 'answered_by_user_account_id)
                  VALUES (?, ?, ?, ?, ?, ?, ?)'
             );
-            $stmt->execute([$memberId, $scoutYearId, $decision, $preferredSectionId, $comment, $now, $answeredByUserAccountId]);
+            $stmt->execute([$memberId, $scoutYearId, $decision, $preferredSectionId, $comment, $now,
+                $answeredByUserAccountId]);
             $id = (int) $this->pdo->lastInsertId();
         } else {
             $stmt = $this->pdo->prepare(
@@ -85,7 +87,8 @@ class ReenrollmentRepository
         }
 
         $insert = $this->pdo->prepare(
-            'INSERT INTO registration_friend_wishes (reenrollment_id, position, raw_name_encrypted, matched_member_id, match_state)
+            'INSERT INTO registration_friend_wishes (reenrollment_id, position, raw_name_encrypted, '
+                . 'matched_member_id, match_state)
              VALUES (?, ?, ?, ?, ?)'
         );
         $position = 0;
@@ -238,11 +241,13 @@ class ReenrollmentRepository
      */
     public function saveRequestWishes(int $registrationRequestId, array $friendWishes): void
     {
-        $delete = $this->pdo->prepare('DELETE FROM registration_request_friend_wishes WHERE registration_request_id = ?');
+        $delete = $this->pdo->prepare('DELETE FROM registration_request_friend_wishes WHERE registration_request_id = '
+            . '?');
         $delete->execute([$registrationRequestId]);
 
         $insert = $this->pdo->prepare(
-            'INSERT INTO registration_request_friend_wishes (registration_request_id, position, raw_name_encrypted, matched_member_id, match_state)
+            'INSERT INTO registration_request_friend_wishes (registration_request_id, position, raw_name_encrypted, '
+                . 'matched_member_id, match_state)
              VALUES (?, ?, ?, ?, ?)'
         );
         $position = 0;
@@ -295,10 +300,13 @@ class ReenrollmentRepository
             decision: (string) $row['decision'],
             preferredSectionId: $row['preferred_section_id'] !== null ? (int) $row['preferred_section_id'] : null,
             familyComment: $row['family_comment_encrypted'] !== null
-                ? $this->encryption->decrypt($row['family_comment_encrypted'], 'registration_reenrollments.family_comment')
+                ? $this->encryption->decrypt($row['family_comment_encrypted'],
+                    'registration_reenrollments.family_comment')
                 : null,
             answeredAt: DateInput::requireFromStorage((string) $row['answered_at'], 'answered_at'),
-            answeredByUserAccountId: $row['answered_by_user_account_id'] !== null ? (int) $row['answered_by_user_account_id'] : null,
+            answeredByUserAccountId: $row['answered_by_user_account_id'] !== null
+                ? (int) $row['answered_by_user_account_id']
+                : null,
             friendWishes: $this->findWishes($id),
             appliedLeaving: $row['applied_leaving'] === null ? null : (bool) $row['applied_leaving'],
         );

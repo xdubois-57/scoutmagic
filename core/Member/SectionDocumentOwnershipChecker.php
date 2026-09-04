@@ -58,7 +58,8 @@ class SectionDocumentOwnershipChecker implements FileOwnershipCheckerInterface
         $referenceDate = SectionMembershipService::resolveReferenceDate($referenceDateSetting, $scoutYear);
 
         foreach ($linkedMemberIds as $memberId) {
-            if ($this->membershipRepository->hasPeriodCovering($memberId, $document->sectionId, $document->scoutYearId, $referenceDate)) {
+            if ($this->membershipRepository->hasPeriodCovering($memberId, $document->sectionId, $document->scoutYearId,
+                $referenceDate)) {
                 return true;
             }
         }

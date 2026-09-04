@@ -42,11 +42,11 @@
                     où le parcours a encore le temps de se terminer pendant leur animation.
                 </p>
                 {% if history_too_short %}
-                    <div class="alert alert-info small mb-3" role="status">
+                    <output class="alert alert-info small mb-3 d-block">
                         Une seule année scoute est présente dans le site pour le moment. Les animateurs de première
                         année sont reconnus en comparant avec l'année précédente : cette partie de la liste se
                         remplira à partir de la deuxième année importée.
-                    </div>
+                    </output>
                 {% endif %}
                 {% include '@leadership/partials/_person_list.html.twig' with {
                     lines: to_convince,
@@ -85,7 +85,7 @@
                    est ce qui rend la baisse compréhensible — sans elle,
                    mieux valait ne rien changer du tout. #}
                 {% if unspecified_brevets > 0 %}
-                    <div class="alert alert-warning small" role="status">
+                    <output class="alert alert-warning small d-block">
                         <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
                         {{ unspecified_brevets }} animateur{{ unspecified_brevets > 1 ? 's ont' : ' a' }} un niveau de
                         formation à préciser. {{ unspecified_brevets > 1 ? 'Ils ne sont pas comptés' : "Il n'est pas compté" }}
@@ -93,7 +93,7 @@
                         <a href="/admin/leadership/training?mapping=1#formation-mapping" class="alert-link">
                             Préciser les niveaux de formation
                         </a>.
-                    </div>
+                    </output>
                 {% endif %}
                 {% if section_situations|length > 0 %}
                     <ul class="list-group list-group-flush">
