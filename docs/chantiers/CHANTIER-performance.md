@@ -5,7 +5,8 @@ composition root), `SECURITY.md`, `AGENTS.md` et
 `docs/chantiers/reference-dataset.md`. Il part d'une campagne de mesures
 menée le 3 septembre 2026 sur la branche
 `claude/performance-multi-year-members-k77t1y`, dont l'outillage est commité
-sous `scripts/perf/` pour que chaque lot puisse être re-mesuré.
+sous `scripts/perf/` pour que chaque lot puisse être re-mesuré. Le §5 est
+le journal : ce qui a été fait, re-mesuré, et ce qui a été écarté.
 
 Le symptôme rapporté : le site paraît lent quand l'unité a beaucoup de
 membres sur plusieurs années, plus encore en mode application installée
@@ -263,3 +264,208 @@ pages et à tous les utilisateurs, les suivants aux pages listées.
   est dans les requêtes et les calculs, pas dans les `new`.
 - `/config/maintenance` (218 ms) ne dépend pas des membres (état du cron,
   historique, sauvegardes) et n'est pas traité ici.
+
+---
+
+## 5. Journal du chantier
+
+Les cinq lots ont été implémentés les 3 et 4 septembre 2026 sur la même
+branche, chacun re-mesuré avec `scripts/perf/` sur les deux instances
+d'échelle avant le suivant, puis commité séparément. Les tableaux ci-dessous
+reprennent ceux du §2 avec les chiffres finaux (médiane de 3 requêtes,
+même serveur, même compte). Les écarts par rapport au plan du §3 sont
+notés lot par lot, avec la raison.
+
+### Lot 0 — Rendre le coût visible
+
+Fait tel que prévu. `Core\Database\Connection` construit un
+`Core\Database\InstrumentedPdo` (avec `InstrumentedStatement`), qui
+alimente `Core\Database\QueryCounter` : nombre d'instructions et durée
+cumulée par requête HTTP. Chaque entrée de `Core\Debug\RequestTimeline`
+porte désormais `sql` et `sql_ms`, et `public/index.php` pose une marque
+`module_<id>` à l'entrée de chaque bloc de module, de sorte que
+`scripts/perf/request-timeline.php` attribue les requêtes SQL à un segment
+sans copie modifiée d'`index.php`.
+
+Le budget écrit au §3 (« une page vide sous 15 requêtes et 15 ms hors
+contrôleur ») n'est **pas** atteint : le plancher final est de ~35
+instructions et ~28 ms, voir lot 1. Les garde-fous du lot 4 vérifient donc
+des **formes** (un coût qui ne dépend pas de la taille de l'unité) et non
+ce chiffre.
+
+### Lot 1 — Le plancher
+
+| Mesure (manifeste PWA, hors contrôleur) | Avant | Après |
+|---|---|---|
+| Échelle 1 | 51 ms, 60 SQL | **29 ms, 35 SQL** |
+| Échelle 2,5 | 75 – 95 ms, 60 SQL | **28 ms, 35 SQL** |
+
+Le plancher ne dépend plus du nombre de membres. Détail :
+
+1. **Hook de menu réinscription** : `PassageService::animeMemberIdsAmong()`
+   ne lit que les membres liés au compte (`WHERE my.member_id IN (…)`) ;
+   `ReenrollmentFormService::cardsFor()` et `mayAnswerFor()` l'utilisent.
+   C'était le seul poste qui croissait avec les membres (8 → 33 ms) ; il
+   est maintenant constant. La mémorisation en session prévue n'a pas été
+   nécessaire : la requête restreinte coûte moins de 1 ms.
+2. **Scheduler** : le snapshot de `SchedulerService` compte les lignes
+   `pending` par triple ; `collapseIfDuplicated()` ne fait plus de SELECT
+   quand il y en a moins de deux. 25 SELECT par requête → 0.
+3. **Chargements anticipés des modules** : **non fait**. Mesurés après les
+   deux points précédents, ils pèsent ensemble moins de 2 ms et 7
+   requêtes ; le gain ne justifiait pas de rendre paresseuses des fabriques
+   que plusieurs modules consomment.
+4. **Vérification de migration** : `MigrationRunner` met en cache le
+   hachage des fichiers `schema.sql` indexé par leurs `mtime` et taille
+   (`storage/cache/schema_hash.cache`).
+5. **Index de recherche d'aide** : mémorisé par rôle dans un fichier de
+   cache (`HelpSearchIndex`, `HelpRegistry::cacheDirectory()`) au lieu
+   d'être recalculé à chaque page. Il reste inclus dans la page (52 Ko),
+   pas déplacé vers une route `/api/aide/index` : c'est un changement du
+   panneau d'aide (`help-search.js`) qui sort du périmètre « aucun
+   comportement fonctionnel ne change », et son coût CPU est celui qui
+   était mesuré, pas ses octets.
+6. **Menu** : un filtre Twig `compact_html` (`Core\View\CompactHtmlExtension`)
+   retire l'indentation du partiel de navigation. Une page ordinaire
+   passe de **207 Ko à 139 – 145 Ko**, sans toucher au HTML rendu par
+   `nav.js`. Le filtre laisse `<pre>` et `<textarea>` intacts.
+
+### Lot 2 — Application installée
+
+Mesuré avec `scripts/perf/pwa-request-storm.cjs`, même serveur (6
+workers), même compte, consentement fonctionnel accordé :
+
+| Mode | Requêtes par navigation | dont HTML / API | Avant |
+|---|---|---|---|
+| Onglet navigateur | 62 – 65 | 4 | 60 – 63 / 4 |
+| Application installée | **62 – 65** | **4** | 76 – 93 / 20 – 34 |
+
+L'application installée coûte désormais au serveur exactement ce que
+coûte un onglet. Détail :
+
+1. `offline-prefetch.js` : une exécution par lancement (drapeau
+   `sessionStorage`, rejoué après 24 h), après `load` et en temps
+   d'inactivité, **2 requêtes simultanées**, jamais sous Data Saver.
+2. Liste hors ligne : `prefetch: false` sur `/chefs/staffs` (cœur),
+   `/trombinoscope`, `/chiefs/stats`, `/previsions` (modules) ; ces pages
+   restent servies hors ligne après consultation. `ModuleManifest` valide
+   le drapeau ; `docs/module-development.md` le documente.
+3. `sw.js` : `navigationPreload` activé à l'`activate`, `event.preloadResponse`
+   utilisé, lecture de la configuration en parallèle du `fetch()`.
+4. **ETag bon marché : non fait.** Répondre 304 avant le contrôleur
+   suppose de connaître toutes les écritures qui invalident une page ; une
+   page de décision (passage, prévisions) servie périmée coûte plus cher
+   qu'un rendu. Le point 1 a fait disparaître le besoin : il n'y a plus de
+   GET conditionnels en rafale.
+5. Retour visuel immédiat : `navigation-feedback.js` ferme l'offcanvas
+   au clic sur un lien interne, affiche une barre de progression
+   (`#navigation-progress`, `app.css`) et nettoie offcanvas, modales et
+   backdrops restaurés par le bfcache sur `pageshow`.
+6. `offline-nav.js` : ne bloque plus un clic quand le dialogue ne peut pas
+   s'afficher, et confirme `navigator.onLine === false` par un `HEAD
+   /api/version` de 1,5 s avant de bloquer.
+7. `file-viewer.js` : l'observateur ne rescanne que les nœuds ajoutés et
+   les attributs `href` modifiés.
+
+### Lot 3 — Pages proportionnelles aux membres
+
+| Page | Éch. 1 avant → après | Éch. 2,5 avant → après | SQL avant → après |
+|---|---|---|---|
+| `/chefs/membres/export` | 1 121 → 1 005 | 2 792 → 2 444 | 71 → 48 |
+| `/trombinoscope/pdf` | 1 229 → **40** (cache) | 2 194 → **44** (cache) | 172 – 259 → 43 |
+| `/mass-mail/new` | 143 → 94 | 340 → 156 | 103 → 79 |
+| `/passage` | 133 → 90 | 314 → 165 | 93 → 69 |
+| `/previsions` | 118 → 71 | 282 → 105 | 85 → 61 |
+| `/chefs/membres` | 118 → 83 | 270 → 136 | 70 → 46 |
+| `/trombinoscope` | 118 → **53** | 218 → **55** | 173 – 260 → 44 |
+| `/chefs/staffs` | 184 → 162 | 205 → 161 | 95 → 58 |
+| `/admin/points-attention` | 114 → 89 | 205 → 146 | 83 → 59 |
+| `/admin/scout-year` | 92 → 62 | 204 → 79 | 81 → 57 |
+| `/admin/fees/tarifs` | 104 → 79 | 193 → 125 | 75 → 51 |
+| `/sections` (public) | 110 → **56** | 172 → **59** | 151 → 71 |
+| `/admin/members?q=` | 85 → 55 | 171 → 89 | 65 → 40 |
+| `/api/offline/manifest` | 86 → 41 | 122 → 42 | 129 – 216 → 58 |
+| `/` , `/contact` | 61 – 68 → 48 – 51 | 89 – 92 → 48 – 50 | 69 – 73 → 49 – 51 |
+
+Taille HTML : `/chefs/membres` 860 Ko → 394 Ko (1,84 Mo → 746 Ko),
+`/passage` 581 Ko → 345 Ko (1,07 Mo → 575 Ko).
+
+Détail et écarts :
+
+1. **Photos** : `MemberPhotoService::primeFileIds()` résout en une requête
+   les identifiants de fichier d'une page ; `PageController`,
+   `TrombinoscopeController` et l'emboîteur PDF l'appellent. 90 requêtes → 1.
+2. **Staff par section** : `TrombinoscopeService::getSectionStaffForSections()`,
+   `SectionService::getStaffForSections()` / `getAnimesForSections()` et
+   `SectionResponsableProvider::getResponsables()` lisent toutes les sections
+   en une passe ; utilisés par `/trombinoscope`, `/sections`, le PDF,
+   `/chefs/camps/nouveau` et le module `groups`. Les badges de référent
+   sont lus par `BadgeRepository::findAllByReferentSection()` en une
+   requête. **Non fait** : sortir `syncSectionReferentBadges()` et
+   `ensureSection()` du GET `/chefs/staffs`. La page reste à ~160 ms, dont
+   124 ms dans le contrôleur pour 23 instructions (la requête des sections
+   passe trois fois, les réglages deux fois, la liste des documents de
+   section rafraîchit son backend détecté) ; c'est le prochain poste à
+   ouvrir, hors de ce chantier.
+3. **Listes** `/chefs/membres` et `/passage` : `compact_html` sur les
+   lignes (−55 % de HTML). **Non fait** : changer le défaut « Toutes les
+   sections », trier et filtrer côté serveur, paginer — ce sont des
+   changements d'interface que le plan excluait, et le coût serveur restant
+   (83 ms / 136 ms) est celui du déchiffrement des lignes affichées.
+4. **Export XLSX** : `MemberExportService` écrit par `fromArray()`,
+   `SpreadsheetResponse` désactive le pré-calcul des formules. Le plancher
+   de PhpSpreadsheet est mesuré à 1,6 s de cellules + 0,9 s d'écriture pour
+   860 × 33 cellules ; l'objectif « < 500 ms pour 1 000 lignes » n'est pas
+   atteignable sans changer de bibliothèque, ce qui n'est pas dans ce lot.
+5. **PDF trombinoscope** : cache disque signé par le contenu
+   (`TrombinoscopePdfService::cacheFile()`, signature des membres, photos et
+   réglages), plutôt qu'une tâche planifiée : même effet pour le visiteur,
+   aucun état à invalider, et le premier appel après un changement rend
+   comme avant.
+6. **Points d'attention et statistiques : non fait.** Un résultat calculé à
+   l'import serait périmé dès qu'un tarif, une fonction ou une formation est
+   modifié dans l'application, et ces pages servent à décider. Les gains du
+   lot 1 et des index les ramènent à 89 / 146 ms.
+7. **Recherche membres** : les noms étant chiffrés et la recherche étant
+   une sous-chaîne, un blind index n'est pas applicable. À la place,
+   `MemberSearchService::matchForYear()` cherche d'abord dans l'année
+   chargée sans ses adresses, complète les résultats trouvés par
+   `MemberSearchRepository::findAddressTexts()`, et ne recharge l'année
+   avec toutes les adresses que si rien n'a été trouvé. 85 / 171 → 55 / 89 ms.
+8. `/mass-mail/new` : `MassMailController` ne demande la projection de
+   l'année suivante (tous les animés, déchiffrés) que si aucun import
+   n'existe déjà pour cette année ; 103 → 79 requêtes.
+9. **Index** ajoutés dans `schema/core.sql` : `member_functions
+   (section_id, is_main_function, id)`, `(member_year_id, is_main_function,
+   id)`, `member_years (scout_year_id, is_active, leaving)`.
+
+### Lot 4 — Garde-fous
+
+- `tests/Integration/QueryBudgetTest.php` (SQLite, `InstrumentedPdo`)
+  vérifie trois formes : le mur du trombinoscope coûte le même nombre
+  d'instructions avec 2 ou 14 sections (≤ 5) ; staff et animés de toutes les
+  sections coûtent le même nombre d'instructions quelle que soit la taille
+  de l'unité (≤ 10) ; amorcer les photos d'une page est une instruction et
+  leur rendu zéro.
+- `tests/e2e/specs/pwa-prefetch-once.spec.js` : en `standalone` simulé
+  (`matchMedia` répondu par un script d'initialisation), le manifeste hors
+  ligne est demandé une fois au premier chargement et **jamais** sur les
+  trois pages suivantes du même lancement.
+- Ce document est le journal.
+
+Observation faite en lançant `npm run e2e` complet : les scénarios de la
+galerie échouent ici parce que le premier passage du cron de l'instance
+jetable exécute `auto_backup`, qui archive ~340 Mo à travers les liens
+symboliques de l'instance en ~104 s et épuise les 120 s d'attente de
+`tests/e2e/support/scheduler.js`. Rejoués seuls sur une instance dont la
+sauvegarde a déjà tourné, ils passent en 22 s. Ce n'est pas lié au chantier.
+
+### Ce qui reste
+
+- `/chefs/staffs` : 124 ms de contrôleur pour 23 instructions, voir lot 3.2.
+- Export XLSX : changer de bibliothèque (ou écrire le XLSX directement) si
+  1 à 2,5 s par export devient gênant.
+- `/config/maintenance` (218 ms), hors périmètre depuis le §4.
+- Sur hébergement mutualisé, le plancher de 35 instructions pèse encore
+  15 à 35 ms de latence réseau ; les chargements anticipés des modules
+  (lot 1.3) deviendraient alors le poste suivant.
