@@ -2385,6 +2385,7 @@ $leadershipFormationLevels = null;
 // disabled, and the service degrades to counting members alone.
 $householdRegistrationCountForOthers = null;
 if ($isEnabled('registration')) {
+    \Core\Debug\RequestTimeline::mark('module_registration');
     $householdRegistrationCountForOthers = new \Modules\Registration\Service\HouseholdRegistrationCountService(
         new \Modules\Registration\Repository\RegistrationRequestRepository($pdo, $encryptionService)
     );
@@ -2441,6 +2442,7 @@ $frontController->registerController(
 $usageStatsRecorder = null;
 $usageStatsModuleUsageForOthers = null;
 if ($isEnabled('usage_stats')) {
+    \Core\Debug\RequestTimeline::mark('module_usage_stats');
     $usageStatsPageViews = new \Modules\UsageStats\Repository\PageViewRepository($pdo);
     $usageStatsRecorder = new \Modules\UsageStats\Service\PageViewRecorder($usageStatsPageViews);
     // The module's ONE published capability (Api\ModuleUsageInterface):
@@ -2517,6 +2519,7 @@ $statisticsSender = new \Core\Statistics\StatisticsSender(
 // It sits this early because RgpdContentService, built in the trunk just
 // below, is the first consumer.
 if ($isEnabled('llm_connector')) {
+    \Core\Debug\RequestTimeline::mark('module_llm_connector');
     $llmProviderRepo = new \Modules\LlmConnector\Repository\ProviderRepository($pdo, $encryptionService);
     $llmModelRepo = new \Modules\LlmConnector\Repository\ProviderModelRepository($pdo);
     $llmConnectorForOthers = new \Modules\LlmConnector\Service\LlmConnectorService($llmProviderRepo, $llmModelRepo,
@@ -2871,6 +2874,7 @@ $frontController->registerController(PlaceholderController::class, new Placehold
 
 // Module controllers with dependencies (only wired when the module is enabled).
 if ($isEnabled('member_stats')) {
+    \Core\Debug\RequestTimeline::mark('module_member_stats');
     $memberStatsService = new \Modules\MemberStats\Service\MemberStatsService(
         new \Modules\MemberStats\Repository\MemberStatsRepository($connection, $encryptionService),
         $sectionService,
@@ -2883,6 +2887,7 @@ if ($isEnabled('member_stats')) {
 }
 
 if ($isEnabled('trombinoscope')) {
+    \Core\Debug\RequestTimeline::mark('module_trombinoscope');
     $trombinoscopeFunctionFlagsService = new \Modules\Trombinoscope\Service\FunctionFlagsService(
         new \Modules\Trombinoscope\Repository\FunctionFlagsRepository($pdo)
     );
@@ -2957,6 +2962,7 @@ $calendarServiceForOthers = null;
 $calendarIcsBuilderForOthers = null;
 
 if ($isEnabled('calendar')) {
+    \Core\Debug\RequestTimeline::mark('module_calendar');
     $calendarVirtualEventRegistry = new \Modules\Calendar\Service\VirtualEventRegistry();
     // The retro-link registry breaks the calendar↔retro cycle the same
     // way the virtual-event registry breaks calendar↔rental (§7.6):
@@ -3033,6 +3039,7 @@ if ($isEnabled('calendar')) {
 }
 
 if ($isEnabled('sos_staff')) {
+    \Core\Debug\RequestTimeline::mark('module_sos_staff');
     $sosProviderCredentialRepo = new \Modules\SosStaff\Repository\ProviderCredentialRepository(
         $pdo,
         $encryptionService
@@ -3099,6 +3106,7 @@ if ($isEnabled('sos_staff')) {
 }
 
 if ($isEnabled('attestations')) {
+    \Core\Debug\RequestTimeline::mark('module_attestations');
     $attestationBatchRepository = new \Modules\Attestations\Repository\BatchRepository($connection);
     $attestationLineRepository = new \Modules\Attestations\Repository\BatchLineRepository(
         $connection,
@@ -3185,6 +3193,7 @@ if ($isEnabled('attestations')) {
 }
 
 if ($isEnabled('banner')) {
+    \Core\Debug\RequestTimeline::mark('module_banner');
     $bannerRepo = new \Modules\Banner\Repository\BannerRepository($pdo);
     $bannerService = new \Modules\Banner\Service\BannerService($bannerRepo, $editableContentService);
 
@@ -3210,6 +3219,7 @@ if ($isEnabled('banner')) {
 $inboundMailForOthers = null;
 
 if ($isEnabled('inbound_mail')) {
+    \Core\Debug\RequestTimeline::mark('module_inbound_mail');
     $inboundMailboxRepository = new \Modules\InboundMail\Repository\InboundMailboxRepository($pdo, $encryptionService);
     $inboundMessageRepository = new \Modules\InboundMail\Repository\InboundMessageRepository($pdo, $encryptionService);
 
@@ -3448,6 +3458,7 @@ $financeStatementStatusForOthers = null;
 $financeAccountForOthers = null;
 
 if ($isEnabled('finance')) {
+    \Core\Debug\RequestTimeline::mark('module_finance');
     $financeFiscalYearRepo = new \Modules\Finance\Repository\FiscalYearRepository($pdo, $scoutYearService);
     $financeAccountRepo = new \Modules\Finance\Repository\AccountRepository($pdo, $encryptionService);
     $financeCategoryRepo = new \Modules\Finance\Repository\CategoryRepository($pdo);
@@ -3978,6 +3989,7 @@ if ($isEnabled('finance')) {
 $massMailDraftForOthers = null;
 
 if ($isEnabled('mass_mail')) {
+    \Core\Debug\RequestTimeline::mark('module_mass_mail');
     $massMailListRepo = new \Modules\MassMail\Repository\MailingListRepository($pdo);
     $massMailResolutionRepo = new \Modules\MassMail\Repository\MemberResolutionRepository($pdo, $encryptionService);
     $massMailEmailRepo = new \Modules\MassMail\Repository\EmailRepository($pdo);
@@ -4069,6 +4081,7 @@ if (isset($financeCampaignControllerFactory)) {
 }
 
 if ($isEnabled('news')) {
+    \Core\Debug\RequestTimeline::mark('module_news');
     $newsArticleRepo = new \Modules\News\Repository\ArticleRepository($pdo);
     $newsFormRepo = new \Modules\News\Repository\FormRepository($pdo);
     $newsFieldRepo = new \Modules\News\Repository\FormFieldRepository($pdo);
@@ -4225,6 +4238,7 @@ if ($isEnabled('news')) {
 }
 
 if ($isEnabled('gallery')) {
+    \Core\Debug\RequestTimeline::mark('module_gallery');
     $galleryAlbumRepo = new \Modules\Gallery\Repository\AlbumRepository($pdo);
     $galleryMediaRepo = new \Modules\Gallery\Repository\MediaRepository($pdo);
     // Legacy singleton (pre-multi-location) — only read from now on, by
@@ -4313,6 +4327,7 @@ if ($isEnabled('gallery')) {
 }
 
 if ($isEnabled('groups')) {
+    \Core\Debug\RequestTimeline::mark('module_groups');
     $groupsGroupRepo = new \Modules\Groups\Repository\GroupRepository($pdo);
     $groupsSectionRepo = new \Modules\Groups\Repository\GroupSectionRepository($pdo);
     $groupsMemberRepo = new \Modules\Groups\Repository\GroupMemberRepository($pdo);
@@ -4648,6 +4663,7 @@ if ($isEnabled('groups')) {
 // §8.49). Only ever discovered on the receiving installation, so this block
 // is dead code everywhere else by construction.
 if ($isEnabled('support_dashboard')) {
+    \Core\Debug\RequestTimeline::mark('module_support_dashboard');
     $supportInstallationRepo = new \Modules\SupportDashboard\Repository\SupportInstallationRepository($pdo);
     $supportRateLimitRepo = new \Modules\SupportDashboard\Repository\SupportReportRateLimitRepository($pdo);
     $supportMonthlyAggregateRepo = new \Modules\SupportDashboard\Repository\SupportMonthlyAggregateRepository($pdo);
@@ -4805,6 +4821,7 @@ if ($isEnabled('support_dashboard')) {
 }
 
 if ($isEnabled('test_tools')) {
+    \Core\Debug\RequestTimeline::mark('module_test_tools');
     // The mail sandbox (ARCHITECTURE.md §8.63). Its transport was already
     // decided far above, next to MailService — this half only wires the
     // pages that show what was captured.
@@ -4844,6 +4861,7 @@ if ($isEnabled('test_tools')) {
 }
 
 if ($isEnabled('camps')) {
+    \Core\Debug\RequestTimeline::mark('module_camps');
     $campsPlaceRepo = new \Modules\Camps\Repository\PlaceRepository($pdo);
     $campsCampRepo = new \Modules\Camps\Repository\CampRepository($pdo, $encryptionService);
     $campsContactRepo = new \Modules\Camps\Repository\ContactRepository($pdo, $encryptionService);
@@ -5146,6 +5164,7 @@ if ($isEnabled('camps')) {
 }
 
 if ($isEnabled('retro')) {
+    \Core\Debug\RequestTimeline::mark('module_retro');
     $retroBoardRepo = new \Modules\Retro\Repository\BoardRepository($pdo, $encryptionService);
     $retroCommentRepo = new \Modules\Retro\Repository\CommentRepository($pdo);
     $retroVoteRepo = new \Modules\Retro\Repository\VoteRepository($pdo);
@@ -5216,6 +5235,7 @@ if ($isEnabled('retro')) {
 // scoping, only function scoping, so calendar's own top-level `if` body
 // variables remain readable for the rest of this script.
 if ($isEnabled('registration')) {
+    \Core\Debug\RequestTimeline::mark('module_registration');
     $registrationBaseUrl = (string) ($settingService->get('base_url') ?: '');
     $registrationSiteName = (string) ($settingService->get('site_name') ?: 'Unité scoute');
 
@@ -5653,6 +5673,7 @@ if ($isEnabled('registration')) {
 // reusing its locals would only mean a forward reference nothing can prove
 // is defined. Both are stateless wrappers around the same PDO handle.
 if ($isEnabled('rental')) {
+    \Core\Debug\RequestTimeline::mark('module_rental');
     $rentalCurrentYearId = (int) $scoutYearService->getCurrentYear()['id'];
 
     $rentalAssetRepository = new \Modules\Rental\Repository\RentalAssetRepository($pdo, $encryptionService);
@@ -6081,6 +6102,7 @@ if ($isEnabled('rental')) {
 // there is no cache to warm here and nothing to invalidate after an
 // import.
 if ($isEnabled('leadership')) {
+    \Core\Debug\RequestTimeline::mark('module_leadership');
     $leadershipRepository = new \Modules\Leadership\Repository\LeadershipRepository($connection, $encryptionService);
     $leadershipMappingRepository = new \Modules\Leadership\Repository\FormationLevelMappingRepository($connection);
     $leadershipResolver = new \Modules\Leadership\Service\FormationLevelResolver();
@@ -6161,6 +6183,7 @@ if ($isEnabled('leadership')) {
 }
 
 if ($isEnabled('fees')) {
+    \Core\Debug\RequestTimeline::mark('module_fees');
     $feesImportRepo = new \Modules\Fees\Repository\FeesImportRepository($pdo);
     $feesIgnoredHouseholdRepo = new \Modules\Fees\Repository\IgnoredHouseholdRepository($pdo, $encryptionService);
     $feesTariffService = new \Modules\Fees\Service\HouseholdTariffService(

@@ -3317,7 +3317,8 @@ core/
   Http/          Router, Request, Response, FrontController
   Security/      RbacGuard, Session, Csrf, PasswordHasher, Encryption, WebAuthn, Role,
                  SecretManager, CapabilityToken, SsrfUrlValidator
-  Database/      PDO connection, SchemaIntrospector, MigrationRunner, Connection
+  Database/      PDO connection, SchemaIntrospector, MigrationRunner, Connection; InstrumentedPdo +
+                 QueryCounter — the PDO every request runs on counts and times its statements
   View/          Twig bootstrap, helpers, partials, SectionRepository, EditableContentService
   Mail/          MailService, DkimManager, DnsVerifier
   Module/        ModuleManager, module-into-core hook interfaces (FunctionFlagsProvider, HomeBannerProvider, HomeNewsProvider, HomePaymentDueProvider, MemberPaymentProvider, SectionResponsableProvider — §7.4)
@@ -3351,7 +3352,8 @@ core/
                  (§8.62)
   Image/         ImageDimensionGuard — the pixel-count ceiling every decode passes (SECURITY.md §25)
   System/        ExecutableLocator, ShellExecutor
-  Debug/         RequestTimeline — opt-in `?debug=1` per-request timing/memory checkpoints
+  Debug/         RequestTimeline — opt-in `?debug=1` per-request timing/memory checkpoints, each
+                 stamped with the running SQL statement count (one per module block of index.php)
   Exception/     UserFacingException/UserFacingMessage — the marker that says a caught
                  exception's message may be shown to the visitor verbatim
   Service/       Cross-cutting helpers (e.g. TextNormalizerService, DeskDateParser)

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Core\Debug;
 
+use Core\Database\InstrumentedPdo;
+use Core\Database\QueryCounter;
 use Core\Debug\RequestTimeline;
 use PHPUnit\Framework\TestCase;
 
@@ -62,7 +64,25 @@ class RequestTimelineTest extends TestCase
         $this->assertSame('checkpoint_one', $entries[0]['label']);
         $this->assertArrayHasKey('t_ms', $entries[0]);
         $this->assertArrayHasKey('mem_mb', $entries[0]);
+        $this->assertArrayHasKey('sql', $entries[0]);
+        $this->assertArrayHasKey('sql_ms', $entries[0]);
         $this->assertSame('checkpoint_two', $entries[1]['label']);
         $this->assertSame(3, $entries[1]['task_count']);
+    }
+    public function testEveryCheckpointCarriesTheRunningStatementCount(): void
+    {
+        $_GET['debug'] = '1';
+        QueryCounter::reset();
+        $pdo = new InstrumentedPdo('sqlite::memory:');
+
+        RequestTimeline::mark('before');
+        $pdo->exec('CREATE TABLE t (a INTEGER)');
+        $pdo->query('SELECT 1');
+        RequestTimeline::mark('after');
+
+        [$before, $after] = RequestTimeline::getEntries();
+
+        $this->assertSame(2, $after['sql'] - $before['sql'], 'the delta between two checkpoints is the segment\'s own statement count');
+        $this->assertGreaterThanOrEqual($before['sql_ms'], $after['sql_ms']);
     }
 }

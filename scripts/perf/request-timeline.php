@@ -55,6 +55,7 @@ $pdo = new PDO(
 );
 $separator = str_contains($path, '?') ? '&' : '?';
 $segments = [];
+$statements = [];
 for ($run = 0; $run < $runs; $run++) {
     $lastId = (int) $pdo->query('SELECT MAX(id) FROM event_log')->fetchColumn();
     perf_request($base . $path . $separator . 'debug=1', $jar);
@@ -73,22 +74,29 @@ for ($run = 0; $run < $runs; $run++) {
         continue; // warm-up
     }
     $previous = 0.0;
+    $previousSql = 0;
     $previousLabel = 'start';
     foreach ($meta['timeline'] ?? [] as $entry) {
-        $segments[$previousLabel . ' -> ' . $entry['label']][] = $entry['t_ms'] - $previous;
+        $key = $previousLabel . ' -> ' . $entry['label'];
+        $segments[$key][] = $entry['t_ms'] - $previous;
+        $statements[$key][] = (int) ($entry['sql'] ?? 0) - $previousSql;
         $previous = $entry['t_ms'];
+        $previousSql = (int) ($entry['sql'] ?? 0);
         $previousLabel = $entry['label'];
     }
 }
 $rows = [];
 foreach ($segments as $label => $values) {
     sort($values);
-    $rows[] = [$label, $values[intdiv(count($values), 2)]];
+    $counts = $statements[$label];
+    sort($counts);
+    $rows[] = [$label, $values[intdiv(count($values), 2)], $counts[intdiv(count($counts), 2)]];
 }
 usort($rows, static fn(array $a, array $b): int => $b[1] <=> $a[1]);
-printf("%s — %.1f ms to the last checkpoint (median of %d runs)\n", $path, array_sum(array_column($rows, 1)), $runs - 1);
-foreach ($rows as [$label, $ms]) {
-    if ($ms >= 0.5) {
-        printf("%6.1f ms  %s\n", $ms, $label);
+printf("%s — %.1f ms, %d SQL statements to the last checkpoint (median of %d runs)\n", $path, array_sum(array_column($rows, 1)), array_sum(array_column($rows, 2)), $runs - 1);
+printf("%9s %5s  %s\n", 'ms', 'sql', 'segment');
+foreach ($rows as [$label, $ms, $sql]) {
+    if ($ms >= 0.5 || $sql > 0) {
+        printf("%6.1f ms %5d  %s\n", $ms, $sql, $label);
     }
 }
