@@ -114,6 +114,13 @@ describe('navigation-feedback.js: the progress bar', () => {
         ['a viewer trigger', {}, '/files/12', { 'data-file-viewer': '' }],
         ['a fragment on the same page', {}, '#top', {}],
         ['another site', {}, 'https://example.org/', {}],
+        // CodeQL js/incomplete-url-scheme-check: this used to be a prefix
+        // match for `javascript:` on the raw attribute, which named one
+        // scheme and missed the rest. The allowlist that replaced it is
+        // what these three pin.
+        ['a javascript: URL', {}, 'javascript:alert(1)', {}],
+        ['a data: URL', {}, 'data:text/html,<b>x</b>', {}],
+        ['a vbscript: URL', {}, 'vbscript:msgbox(1)', {}],
     ])('stays hidden for %s', async (_label, init, href, attrs) => {
         page('<a id="l">x</a>');
         const link = document.getElementById('l');

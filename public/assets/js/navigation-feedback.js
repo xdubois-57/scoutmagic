@@ -76,7 +76,17 @@
             return false;
         }
         var href = link.getAttribute('href') || '';
-        if (href === '' || href.charAt(0) === '#' || href.indexOf('javascript:') === 0) {
+        if (href === '' || href.charAt(0) === '#') {
+            return false;
+        }
+        // The RESOLVED protocol, not a prefix match on the raw attribute.
+        // A deny-list of prefixes is never finished — this one named
+        // `javascript:` and missed `data:` and `vbscript:` (CodeQL
+        // js/incomplete-url-scheme-check), and would still miss the
+        // leading-whitespace and mixed-case spellings of all three. An
+        // allowlist of the two schemes a navigation can actually use has
+        // no such gap, and the browser has already done the parsing.
+        if (link.protocol !== 'http:' && link.protocol !== 'https:') {
             return false;
         }
         if (link.origin !== window.location.origin) {
