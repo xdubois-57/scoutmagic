@@ -69,7 +69,8 @@
      */
     function memberYearIdOf(card) {
         var parsed = Number.parseInt(card.dataset.memberYearId, 10);
-        return parsed > 0 ? parsed : 0;
+
+        return Number.isInteger(parsed) ? Math.max(parsed, 0) : 0;
     }
 
     // --- Export selection ---

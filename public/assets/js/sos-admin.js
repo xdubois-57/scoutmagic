@@ -539,7 +539,9 @@
                 return;
             }
             transitionsList.innerHTML = await res.text();
-        } catch (err) {
+        } catch {
+            // A dropped connection and an unreadable body are the same
+            // failure from here, and get the same message as !res.ok.
             window.ScoutMagicToast.show('Erreur : réponse serveur invalide.', { variant: 'error' });
         }
     }

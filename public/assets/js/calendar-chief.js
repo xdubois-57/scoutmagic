@@ -69,7 +69,7 @@
      * @returns {boolean}
      */
     function isEditableCalendar(calendarId) {
-        return calendarId != null && editableCalendarIds.indexOf(Number(calendarId)) !== -1;
+        return calendarId != null && editableCalendarIds.includes(Number(calendarId));
     }
 
     var modal = window.bootstrap ? new window.bootstrap.Modal(eventModalEl) : null;

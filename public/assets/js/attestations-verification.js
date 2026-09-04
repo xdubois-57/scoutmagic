@@ -77,7 +77,7 @@
         if (selectedFunctions.length === 0) {
             return true;
         }
-        return selectedFunctions.indexOf(row.dataset.function || '') !== -1;
+        return selectedFunctions.includes(row.dataset.function || '');
     }
 
     /**

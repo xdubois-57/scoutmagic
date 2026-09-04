@@ -113,7 +113,7 @@
         var raw = normalize(value).split(/[^a-z0-9]+/);
         for (var i = 0; i < raw.length; i++) {
             var token = raw[i];
-            if (token === '' || STOP_WORDS.indexOf(token) !== -1) {
+            if (token === '' || STOP_WORDS.includes(token)) {
                 continue;
             }
             tokens.push(stem(token));
@@ -209,7 +209,7 @@
     function scoreTerm(term, prepared) {
         var best = 0;
         for (var field in FIELD_WEIGHTS) {
-            if (!Object.prototype.hasOwnProperty.call(FIELD_WEIGHTS, field)) {
+            if (!Object.hasOwn(FIELD_WEIGHTS, field)) {
                 continue;
             }
             best = Math.max(best, scoreTermAgainstField(term, prepared.fields[field], FIELD_WEIGHTS[field]));

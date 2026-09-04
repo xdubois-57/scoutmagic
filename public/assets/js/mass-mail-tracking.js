@@ -41,7 +41,7 @@
                 '#mmt-table tbody tr[data-status]'
             )).forEach(function (row) {
                 var matchesSearch = !search
-                    || (row.dataset.search || '').indexOf(search) !== -1;
+                    || (row.dataset.search || '').includes(search);
                 var matchesStatus = !status || row.dataset.status === status;
                 row.classList.toggle('d-none', !(matchesSearch && matchesStatus));
             });

@@ -67,7 +67,7 @@
             // The browser drops it by itself in some conditions; forget
             // our handle so the visibility listener below can ask again.
             wakeLock.addEventListener('release', function () { wakeLock = null; });
-        } catch (e) {
+        } catch {
             // Refused (a battery-saver mode, a policy): the screen still
             // works, it just dims. Never a message — this is a comfort.
             wakeLock = null;

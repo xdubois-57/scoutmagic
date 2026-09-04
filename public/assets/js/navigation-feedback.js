@@ -76,7 +76,7 @@
             return false;
         }
         var href = link.getAttribute('href') || '';
-        if (href === '' || href.charAt(0) === '#') {
+        if (href === '' || href.startsWith('#')) {
             return false;
         }
         // The RESOLVED protocol, not a prefix match on the raw attribute.

@@ -310,7 +310,7 @@ self.addEventListener('fetch', function (event) {
     // logo upload must equally miss until CACHE_NAME's own icon-version
     // bump has re-precached it. This is the actual cache-busting fix —
     // ignoreSearch here would silently undo it (see ARCHITECTURE §8.23).
-    if (ICON_URLS.indexOf(url.pathname) !== -1) {
+    if (ICON_URLS.includes(url.pathname)) {
         event.respondWith(
             caches.match(request).then(function (cached) {
                 return cached || fetch(request);
@@ -322,7 +322,7 @@ self.addEventListener('fetch', function (event) {
     // Rest of the app shell — cache-first, ignoreSearch so a request that
     // happens to carry a query string (none of these legitimately do)
     // still matches the precached bare-path entry.
-    if (APP_SHELL_BASE_URLS.indexOf(url.pathname) !== -1) {
+    if (APP_SHELL_BASE_URLS.includes(url.pathname)) {
         event.respondWith(
             caches.match(request, { ignoreSearch: true }).then(function (cached) {
                 return cached || fetch(request);
@@ -435,7 +435,7 @@ function isWhitelisted(pathname, whitelist) {
                 continue;
             }
             const remainder = trimSlashes(pathname.slice(entry.path.length));
-            if (remainder !== '' && remainder.indexOf('/') === -1) {
+            if (remainder !== '' && !remainder.includes('/')) {
                 return true;
             }
         } else if (pathname === entry.path) {

@@ -79,7 +79,7 @@
      */
     function openFromHash(hash, root) {
         var id = String(hash || '').replace(/^#/, '');
-        if (id === '' || typeof bootstrap === 'undefined' || typeof bootstrap.Modal === 'undefined') {
+        if (id === '' || typeof bootstrap === 'undefined' || bootstrap.Modal === undefined) {
             return false;
         }
 

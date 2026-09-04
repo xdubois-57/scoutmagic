@@ -29,7 +29,7 @@
      * @returns {string}
      */
     function blockFor(texts, key) {
-        if (!texts || !key || !Object.prototype.hasOwnProperty.call(texts, key)) {
+        if (!texts || !key || !Object.hasOwn(texts, key)) {
             return '';
         }
         var block = texts[key];
@@ -61,7 +61,7 @@
             }
             await navigator.clipboard.writeText(text);
             window.ScoutMagicToast.show('Foyer copié.', { variant: 'success' });
-        } catch (e) {
+        } catch {
             // navigator.clipboard needs a secure context and is simply
             // absent otherwise — the same fallback as
             // leadership-copy-emails.js: hand the text over, pre-selected,

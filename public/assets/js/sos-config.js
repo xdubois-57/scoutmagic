@@ -166,7 +166,8 @@
         try {
             var parsed = new URL(raw, window.location.href);
             return (parsed.protocol === 'https:' || parsed.protocol === 'http:') ? parsed.href : null;
-        } catch (err) {
+        } catch {
+            // URL() throws on a value that is not a URL — there is none.
             return null;
         }
     }

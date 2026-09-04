@@ -153,7 +153,7 @@
                     transfer.items.add(toJpegFile(file, resizedBlob));
                     singleInput.files = transfer.files;
                     statusEl.textContent = 'Image compressée (' + Math.round(resizedBlob.size / 1024) + ' Ko).';
-                } catch (err) {
+                } catch {
                     // The original file is still in the input: submit it.
                     statusEl.textContent = '';
                 }
@@ -252,14 +252,16 @@
                         try {
                             const resizedBlob = await resizeImage(file);
                             processed.push(toJpegFile(file, resizedBlob));
-                        } catch (err) {
+                        } catch {
                             processed.push(file); // fall back to the original file
                         }
                     }
                     selectedFiles = processed;
                     syncInputAndRender();
                     statusEl.textContent = '';
-                } catch (err) {
+                } catch {
+                    // Resizing the batch failed as a whole — the files the
+                    // user chose are still the ones submitted.
                     statusEl.textContent = '';
                 }
             });

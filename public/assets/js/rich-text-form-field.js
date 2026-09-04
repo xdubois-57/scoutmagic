@@ -57,7 +57,7 @@ export function keywordOf(node) {
         ? /** @type {HTMLElement} */ (node).dataset.keyword
         : null;
 
-    return keyword ? keyword : null;
+    return keyword || null;
 }
 
 /**
@@ -109,7 +109,7 @@ function chipifyTextNode(text, knownKeywords) {
     let match = pattern.exec(source);
 
     while (match !== null) {
-        if (knownKeywords.indexOf(match[1]) !== -1) {
+        if (knownKeywords.includes(match[1])) {
             if (match.index > cut) {
                 chipped.appendChild(document.createTextNode(source.slice(cut, match.index)));
             }

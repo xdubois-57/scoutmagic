@@ -97,7 +97,8 @@
             try {
                 var data = JSON.parse(decodeURIComponent(pair.slice(eq + 1).trim()));
                 return !!(data && data.functional);
-            } catch (e) {
+            } catch {
+                // A malformed consent cookie is not consent.
                 return false;
             }
         }
@@ -108,7 +109,7 @@
     function forget() {
         try {
             localStorage.removeItem(STORAGE_KEY);
-        } catch (e) {
+        } catch {
             // Storage disabled or private browsing — nothing was stored.
         }
     }
@@ -135,7 +136,7 @@
             var stored = localStorage.getItem(STORAGE_KEY);
 
             return stored === null ? null : stored === '1';
-        } catch (e) {
+        } catch {
             // Storage disabled or private browsing — no answer, so the
             // screen gets to give one.
             return null;

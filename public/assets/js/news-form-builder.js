@@ -61,11 +61,11 @@
         // the scheme, so an injected tab/newline (e.g. "java\tscript:")
         // can't slip past a naive prefix check.
         var normalized = String(value).replace(/[\t\r\n]+/g, '').trim().toLowerCase();
-        var schemeMatch = normalized.match(/^([a-z][a-z0-9+.-]*):/);
+        var schemeMatch = /^([a-z][a-z0-9+.-]*):/.exec(normalized);
         if (!schemeMatch) {
             return true;
         }
-        return URL_SCHEME_ALLOWLIST.indexOf(schemeMatch[1]) !== -1;
+        return URL_SCHEME_ALLOWLIST.includes(schemeMatch[1]);
     }
 
     /**
@@ -76,7 +76,7 @@
         var allowed = HTML_SANITIZER_ALLOWED_TAGS[tagName] || [];
         Array.prototype.slice.call(el.attributes).forEach(function (attr) {
             var name = attr.name.toLowerCase();
-            if (name.indexOf('on') === 0 || allowed.indexOf(name) === -1) {
+            if (name.startsWith('on') || !allowed.includes(name)) {
                 el.removeAttribute(attr.name);
                 return;
             }
@@ -99,9 +99,9 @@
             var next = child.nextSibling;
             if (child.nodeType === Node.ELEMENT_NODE) {
                 var tagName = child.tagName.toLowerCase();
-                if (HTML_SANITIZER_STRIP_WITH_CONTENT.indexOf(tagName) !== -1) {
+                if (HTML_SANITIZER_STRIP_WITH_CONTENT.includes(tagName)) {
                     child.remove();
-                } else if (!Object.prototype.hasOwnProperty.call(HTML_SANITIZER_ALLOWED_TAGS, tagName)) {
+                } else if (!Object.hasOwn(HTML_SANITIZER_ALLOWED_TAGS, tagName)) {
                     // Not in the allowlist: drop the tag but keep its text/inline content.
                     var firstMoved = child.firstChild;
                     while (child.firstChild) {
@@ -738,7 +738,7 @@
         // content, "Formulaire" once there's something to fill in.
         function updateFormSettingsVisibility() {
             var hasRealInput = fieldState.some(function (f) {
-                return NON_INPUT_TYPES.indexOf(f.field_type) === -1;
+                return !NON_INPUT_TYPES.includes(f.field_type);
             });
 
             var settings = document.getElementById('news-form-settings');
@@ -855,7 +855,7 @@
 
             var label = document.createElement('span');
             label.className = 'flex-grow-1';
-            var isNonInput = NON_INPUT_TYPES.indexOf(field.field_type) !== -1;
+            var isNonInput = NON_INPUT_TYPES.includes(field.field_type);
             var BLOCK_LABELS = { confirmation: 'Bloc de confirmation', text: 'Bloc de texte' };
             var labelText = BLOCK_LABELS[field.field_type] || field.label || 'Sans libellé';
             // field.label is admin-entered free text (not HTML-sanitized server-side,
@@ -1188,7 +1188,7 @@
             panel.className = 'mt-2 pt-2 border-top';
             panel.addEventListener('click', function (e) { e.stopPropagation(); });
 
-            if (NON_INPUT_TYPES.indexOf(field.field_type) === -1) {
+            if (!NON_INPUT_TYPES.includes(field.field_type)) {
                 buildLabelAndRequiredRow(panel, field);
             }
 
@@ -1196,7 +1196,7 @@
                 buildNumberCapacityRow(panel, field);
             }
 
-            if (['dropdown', 'radio', 'checkbox'].indexOf(field.field_type) !== -1) {
+            if (['dropdown', 'radio', 'checkbox'].includes(field.field_type)) {
                 buildOptionsSourceRow(panel, field);
             }
 

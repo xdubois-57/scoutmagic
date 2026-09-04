@@ -53,7 +53,9 @@
             transfer.items.add(files[0]);
             input.files = transfer.files;
             return true;
-        } catch (e) {
+        } catch {
+            // DataTransfer is not constructible everywhere; the caller
+            // keeps the file input as the user left it.
             return false;
         }
     }

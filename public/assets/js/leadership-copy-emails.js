@@ -42,7 +42,7 @@
         list.querySelectorAll('[data-email]').forEach(function (row) {
             var address = (/** @type {HTMLElement} */ (row).dataset.email || '').trim();
             var key = address.toLowerCase();
-            if (address === '' || Object.prototype.hasOwnProperty.call(seen, key)) {
+            if (address === '' || Object.hasOwn(seen, key)) {
                 return;
             }
             seen[key] = true;
@@ -89,7 +89,7 @@
             }
             await navigator.clipboard.writeText(text);
             window.ScoutMagicToast.show('Adresses copiées.', { variant: 'success' });
-        } catch (e) {
+        } catch {
             // navigator.clipboard needs a secure context and is simply
             // absent otherwise. Handing the addresses over, pre-selected,
             // is the honest fallback — a button that silently does nothing

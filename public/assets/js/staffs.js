@@ -138,7 +138,7 @@
         }
 
         var memberYearId = Number.parseInt(wrapper.dataset.memberYearId, 10);
-        if (!(memberYearId > 0)) {
+        if (!Number.isInteger(memberYearId) || memberYearId <= 0) {
             return;
         }
 

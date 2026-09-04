@@ -251,7 +251,7 @@
             // server-side, a throttle slot only actually gets consumed
             // once a URL is genuinely found — but there is no reason to
             // ask at all for a message with no "http" in it whatsoever).
-            if (body.indexOf('http://') === -1 && body.indexOf('https://') === -1) {
+            if (!body.includes('http://') && !body.includes('https://')) {
                 hideLinkPreview();
                 return;
             }
@@ -594,7 +594,7 @@
             // ...and one waiting at the end, unless the poll is already
             // as long as the server will accept.
             var current = pollInputs();
-            var lastValue = current.length > 0 ? current[current.length - 1].value.trim() : '';
+            var lastValue = current.length > 0 ? current.at(-1).value.trim() : '';
             if (lastValue !== '' && current.length < max) {
                 pollOptions.appendChild(buildPollRow(current.length + 1));
             }
@@ -2215,7 +2215,9 @@
                 throw new Error('unexpected payload');
             }
             modalBody.innerHTML = data.html;
-        } catch (e) {
+        } catch {
+            // A failed request and an unexpected payload are the same
+            // thing to the reader: the message could not be shown.
             modalBody.textContent = errorText;
         }
     }
@@ -2309,7 +2311,9 @@
             await navigator.clipboard.writeText(url);
             button.textContent = 'Lien copié';
             setTimeout(function () { button.textContent = original; }, 2000);
-        } catch (e) {
+        } catch {
+            // No clipboard, or the write refused: hand the link over to be
+            // copied by hand rather than let the button do nothing.
             await window.ScoutMagicConfirm.prompt({
                 message: 'Copiez le lien de ce message :',
                 title: 'Lien du message',

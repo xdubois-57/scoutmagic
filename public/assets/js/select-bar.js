@@ -152,7 +152,7 @@
     function setSelected(pickerId, id, selected) {
         var container = document.getElementById(pickerId);
         if (!container) return;
-        var selector = '.select-bar-item[data-id="' + String(id).replace(/["\\]/g, '\\$&') + '"]';
+        var selector = '.select-bar-item[data-id="' + String(id).replace(/["\\]/g, String.raw`\$&`) + '"]';
         container.querySelectorAll(selector).forEach(function (el) {
             setItemSelected(/** @type {HTMLElement} */ (el), selected);
         });

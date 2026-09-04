@@ -78,7 +78,7 @@
                     continue;
                 }
                 var remainder = trimSlashes(pathname.slice(entry.path.length));
-                if (remainder !== '' && remainder.indexOf('/') === -1) {
+                if (remainder !== '' && !remainder.includes('/')) {
                     return true;
                 }
             } else if (pathname === entry.path) {
@@ -245,7 +245,9 @@
                 return null;
             }
             return resolved.href;
-        } catch (e) {
+        } catch {
+            // URL() throws on an attribute that is not a URL at all, and
+            // that is not a link this can follow.
             return null;
         }
     }

@@ -39,7 +39,9 @@
             window.sessionStorage.removeItem(PENDING_QUESTION_KEY);
 
             return typeof pending === 'string' ? pending : '';
-        } catch (e) {
+        } catch {
+            // sessionStorage disabled or partitioned away — no pending
+            // question, which is the same as never having stored one.
             return '';
         }
     }
