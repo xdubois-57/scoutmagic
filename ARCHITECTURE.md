@@ -3353,7 +3353,10 @@ core/
   Image/         ImageDimensionGuard — the pixel-count ceiling every decode passes (SECURITY.md §25)
   System/        ExecutableLocator, ShellExecutor
   Debug/         RequestTimeline — opt-in `?debug=1` per-request timing/memory checkpoints, each
-                 stamped with the running SQL statement count (one per module block of index.php)
+                 stamped with the running SQL statement count (one per module block of index.php).
+                 Server time only: it sees nothing of the network, the service worker or the
+                 rendering (docs/chantiers/CHANTIER-performance.md §6 for the client-side beacon
+                 that would complete it)
   Exception/     UserFacingException/UserFacingMessage — the marker that says a caught
                  exception's message may be shown to the visitor verbatim
   Service/       Cross-cutting helpers (e.g. TextNormalizerService, DeskDateParser)

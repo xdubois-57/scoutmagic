@@ -469,3 +469,66 @@ sauvegarde a déjà tourné, ils passent en 22 s. Ce n'est pas lié au chantier.
 - Sur hébergement mutualisé, le plancher de 35 instructions pèse encore
   15 à 35 ms de latence réseau ; les chargements anticipés des modules
   (lot 1.3) deviendraient alors le poste suivant.
+
+---
+
+## 6. Suite envisagée : une fenêtre de mesure depuis la page Support
+
+Idée retenue le 4 septembre 2026, pas encore implémentée. Le superadmin
+ouvre, depuis Configuration > Support et après confirmation, une fenêtre
+de mesure de quelques minutes ; pendant ce temps chaque requête journalise
+sa chronologie comme le fait `?debug=1` ; il envoie ensuite un ticket dont
+l'archive contient les mesures. Ce qui existe déjà couvre l'essentiel :
+`RequestTimeline` écrit dans `event_log`, et `EventJournalCollector`
+embarque les 48 dernières heures du journal dans l'archive.
+
+À faire, dans cet ordre :
+
+1. **Activation par une date de fin**, jamais par un drapeau : un réglage
+   ou un fichier témoin `storage/cache/measure_until` dont la date
+   d'expiration est comparée à chaque requête. L'arrêt est automatique,
+   sans tâche planifiée, et un mode oublié ne peut pas rester actif.
+2. **Toutes les requêtes de tous les comptes** pendant la fenêtre, avec un
+   plafond (quelques centaines de requêtes) pour protéger `event_log`. La
+   page lente est souvent celle d'un chef, pas celle du superadmin.
+3. **Cinq minutes par défaut, quinze au maximum.** Une minute suffit à
+   peine, sur un téléphone, à ouvrir le menu et toucher trois pages.
+4. **Un collecteur dédié** dans le paquet de support :
+   `request-timelines.csv`, une ligne par segment (chemin, rôle, delta
+   de temps, delta de SQL, temps SQL) et un résumé par chemin (nombre,
+   médiane, maximum, segment le plus lourd). Le chemin seul, jamais la
+   chaîne de requête, comme l'entrée de journal actuelle.
+5. La page Support affiche l'état de la fenêtre et le nombre de requêtes
+   enregistrées, puis le formulaire de ticket tel quel.
+
+### Coût quand la fenêtre est fermée
+
+Mesuré le 4 septembre 2026 (PHP 8.4, OPcache) : un `mark()` complet, avec
+`microtime()`, `memory_get_usage()` et les deux compteurs SQL, coûte
+**0,47 µs** ; les 37 jalons d'une requête coûtent **18 µs**, soit 0,06 %
+du plancher de 28 ms. Un `filemtime()` sur un fichier témoin absent coûte
+**2 µs**. Les deux approches sont donc sans effet mesurable ; celle du
+fichier témoin garde en plus la propriété actuelle, « aucun travail quand
+le mode est fermé », et se lit avant que les réglages ne soient
+disponibles. C'est celle à retenir.
+
+### Limite : on ne mesure que le serveur
+
+`RequestTimeline` voit le temps entre l'entrée dans `index.php` et la fin
+de la réponse. Il ne voit **ni** le réseau, **ni** le service worker,
+**ni** le rendu, **ni** le pré-téléchargement hors ligne. Or les deux
+symptômes rapportés à l'origine de ce chantier (§2.4 : lenteur en
+application installée, « second appui » sur le menu) étaient entièrement
+côté client ; une fenêtre de mesure serveur les aurait montrés comme des
+pages à 50 ms.
+
+Second temps, à faire quand le besoin se présentera : pendant la fenêtre,
+la page envoie un petit beacon (`navigator.sendBeacon`) vers une route
+dédiée avec les métriques de navigation du navigateur
+(`PerformanceNavigationTiming` : temps jusqu'au premier octet, réponse
+complète, `DOMContentLoaded`, `load`), le mode (`standalone` ou onglet),
+si la réponse venait du service worker (`workerStart`), et le type de
+connexion quand il est disponible. Versé dans le même CSV, il permet de
+séparer un serveur lent d'un réseau lent ou d'un service worker qui
+attend. Sans lui, un ticket « le site est lent » reçu d'une unité peut
+conclure à tort que tout va bien.
