@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\News\Service;
 
+use Core\Service\TextNormalizerService;
 use Core\Service\DateInput;
 use Modules\Finance\Api\EpcPayloadReaderInterface;
 use Modules\Finance\Api\ExpectedReceivableInterface;
@@ -596,8 +597,13 @@ class ScanService
             return '';
         }
 
-        $folded = @iconv('UTF-8', 'ASCII//TRANSLIT', $value);
-
-        return mb_strtolower($folded !== false ? $folded : $value);
+        // Core\Service\TextNormalizerService::fold() rather than
+        // iconv('ASCII//TRANSLIT'), which that helper's docblock names as
+        // the one thing never to use here: its output depends on the C
+        // library, so « arrête » folds to « arrete » on glibc and to
+        // « arr^ete » on the libiconv macOS and musl ship. The search then
+        // silently stops ignoring accents on those hosts while CI, on
+        // glibc, stays green.
+        return TextNormalizerService::fold($value);
     }
 }

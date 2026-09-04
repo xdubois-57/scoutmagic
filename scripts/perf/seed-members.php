@@ -36,6 +36,12 @@ if (!isset($argv[1]) || !is_dir($argv[1] . '/storage/keys')) {
     exit(1);
 }
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
+
+// Accents are folded through the core helper, never through
+// iconv('ASCII//TRANSLIT'): its output depends on the C library, so the
+// seeded addresses would differ between a glibc box and a macOS one and
+// a performance run would not be comparing the same data.
+// tests/Architecture/AccentFoldingTest.php enforces this.
 Core\Config\AppClock::apply();
 $inst = $argv[1];
 $years = (int) ($argv[2] ?? 8);
@@ -67,7 +73,7 @@ foreach ($branchDefs as $sort => [$label]) {
     $branches[$sort] = (int) $pdo->lastInsertId();
     foreach ($sectionNames[$sort] as $i => $name) {
         $pdo->prepare('INSERT INTO sections (age_branch_id, desk_code, name, email, is_visible, is_active, color) VALUES (?, ?, ?, ?, 1, 1, NULL)')
-            ->execute([$branches[$sort], 'SEC' . $sort . $i, $name, strtolower(str_replace(' ', '.', iconv('UTF-8', 'ASCII//TRANSLIT', $name))) . '@example.invalid']);
+            ->execute([$branches[$sort], 'SEC' . $sort . $i, $name, str_replace(' ', '.', Core\Service\TextNormalizerService::fold($name)) . '@example.invalid']);
         $sections[$sort][] = (int) $pdo->lastInsertId();
     }
 }
@@ -106,7 +112,7 @@ $mk = function (int $birthYear, string $kind) use (&$idx, $pick, $firstNames, $l
     return [
         'desk_id' => sprintf('DESK-%06d', $idx), 'first' => $first, 'last' => $last,
         'gender' => mt_rand(0, 1) ? 'M' : 'F', 'birth' => sprintf('%d-%02d-%02d', $birthYear, mt_rand(1, 12), mt_rand(1, 28)),
-        'email' => strtolower(iconv('UTF-8', 'ASCII//TRANSLIT', $first . '.' . str_replace(' ', '', $last))) . $idx . '@example.invalid',
+        'email' => str_replace(' ', '', Core\Service\TextNormalizerService::fold($first . '.' . $last)) . $idx . '@example.invalid',
         'phone' => mt_rand(0, 2) ? sprintf('+3247%07d', mt_rand(0, 9999999)) : null,
         'street' => $pick($streets), 'number' => (string) mt_rand(1, 250), 'pc' => $pc, 'city' => $city,
         'slot' => mt_rand(0, 1000), 'join' => $join, 'left' => $left, 'kind' => $kind,
