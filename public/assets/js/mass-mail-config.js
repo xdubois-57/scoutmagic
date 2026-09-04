@@ -74,7 +74,7 @@
      * @returns {boolean}
      */
     function isSuccess(res) {
-        return !!(res.data && res.data.success);
+        return !!(res.data?.success);
     }
 
     /**

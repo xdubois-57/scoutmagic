@@ -92,7 +92,7 @@
      * @returns {string}
      */
     function failureMessage(res) {
-        return (res.data && res.data.error) || 'Erreur : réponse serveur invalide.';
+        return res.data?.error || 'Erreur : réponse serveur invalide.';
     }
 
     /**
@@ -232,7 +232,7 @@
         var res = await api.withDisabled(submitBtn, function () {
             return api.postJson(isUpdate ? '/chefs/calendar/event-update' : '/chefs/calendar/event-create', payload);
         });
-        if (res.data && res.data.success) {
+        if (res.data?.success) {
             window.location.reload();
         } else {
             showError(res);
@@ -251,7 +251,7 @@
                 event_id: Number.parseInt(idInput.value, 10)
             });
         });
-        if (res.data && res.data.success) {
+        if (res.data?.success) {
             window.location.reload();
         } else {
             showError(res);

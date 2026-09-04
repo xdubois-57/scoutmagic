@@ -41,7 +41,7 @@
 
     document.addEventListener('click', async function (event) {
         var target = /** @type {HTMLElement|null} */ (event.target);
-        if (!target || !target.closest) {
+        if (!target?.closest) {
             return;
         }
         var button = /** @type {HTMLElement|null} */ (target.closest('[data-fees-copy]'));

@@ -79,11 +79,11 @@
                 value: value
             });
 
-            if (res.data && res.data.success) {
+            if (res.data?.success) {
                 modal.hide();
                 window.location.reload();
             } else {
-                document.getElementById('settingEditError').textContent = (res.data && res.data.error) || 'Erreur réseau.';
+                document.getElementById('settingEditError').textContent = (res.data?.error) || 'Erreur réseau.';
                 document.getElementById('settingEditError').classList.remove('d-none');
             }
         });

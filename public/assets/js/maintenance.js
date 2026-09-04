@@ -13,7 +13,7 @@
     select.addEventListener('change', function () {
         window.ScoutMagicApi.postJson('/config/maintenance/backup/auto-frequency', { frequency: select.value })
             .then(function (res) {
-                if (res.data && res.data.success) {
+                if (res.data?.success) {
                     window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
                 }
             });
@@ -486,7 +486,7 @@
     // --- Réinitialisation complète ---
     var fullResetCheckbox = /** @type {HTMLInputElement} */ (document.getElementById('full-reset-checkbox'));
     var fullResetUpdate = wireKeywordGate('full-reset-keyword', 'EFFACER', function () {
-        return fullResetCheckbox && fullResetCheckbox.checked;
+        return fullResetCheckbox?.checked;
     });
     if (fullResetCheckbox && fullResetUpdate) {
         fullResetCheckbox.addEventListener('change', fullResetUpdate);
@@ -551,7 +551,7 @@
     var serverPicker = document.getElementById('restore-server-picker');
     var uploadPicker = document.getElementById('restore-upload-picker');
     function toggleRestoreSource() {
-        var isUpload = sourceUploadRadio && sourceUploadRadio.checked;
+        var isUpload = sourceUploadRadio?.checked;
         if (serverPicker) serverPicker.classList.toggle('d-none', !!isUpload);
         if (uploadPicker) uploadPicker.classList.toggle('d-none', !isUpload);
     }
@@ -594,9 +594,9 @@
             var chunker = window.ScoutMagicChunkedUpload;
             var fileInput = /** @type {HTMLInputElement} */ (document.getElementById('restore-backup-file'));
             var uploadIdInput = /** @type {HTMLInputElement} */ (document.getElementById('restore-upload-id'));
-            var chunkFile = sourceUploadRadio && sourceUploadRadio.checked
-                && fileInput && fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
-            if (chunker && uploadIdInput && chunkFile && chunkFile.size > chunker.CHUNK_THRESHOLD) {
+            var chunkFile = sourceUploadRadio?.checked
+                && fileInput?.files && fileInput.files[0] ? fileInput.files[0] : null;
+            if (chunker && uploadIdInput && chunkFile?.size > chunker.CHUNK_THRESHOLD) {
                 submitBtn.disabled = true;
                 var chunkErrorEl = document.getElementById('restore-backup-error');
                 var chunkProgressEl = document.getElementById('restore-backup-progress');
@@ -614,7 +614,7 @@
                     submitBtn.disabled = false;
                     if (chunkProgressEl) chunkProgressEl.classList.add('d-none');
                     if (chunkErrorEl) {
-                        chunkErrorEl.textContent = (err && err.message) || 'Le téléversement a échoué.';
+                        chunkErrorEl.textContent = err?.message || 'Le téléversement a échoué.';
                         chunkErrorEl.classList.remove('d-none');
                     }
                 });

@@ -134,13 +134,13 @@
             return;
         }
         document.querySelectorAll('.offcanvas.show').forEach(function (el) {
-            var instance = bootstrap.Offcanvas && bootstrap.Offcanvas.getInstance(el);
+            var instance = bootstrap.Offcanvas?.getInstance(el);
             if (instance) {
                 instance.hide();
             }
         });
         document.querySelectorAll('.modal.show').forEach(function (el) {
-            var instance = bootstrap.Modal && bootstrap.Modal.getInstance(el);
+            var instance = bootstrap.Modal?.getInstance(el);
             if (instance) {
                 instance.hide();
             }

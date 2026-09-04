@@ -386,7 +386,7 @@
     // Delegated, so a link rendered after load works too.
     doc.addEventListener('click', function (event) {
         var target = /** @type {Element} */ (event.target);
-        if (!target || !target.closest) {
+        if (!target?.closest) {
             return;
         }
 

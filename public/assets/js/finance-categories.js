@@ -84,10 +84,10 @@
         if (id) payload.id = Number.parseInt(id, 10);
 
         const res = await api.postJson('/config/finance/categories', payload);
-        if (res.data && res.data.success) {
+        if (res.data?.success) {
             window.location.reload();
         } else {
-            categoryErrorBox.textContent = (res.data && res.data.error) || 'Erreur.';
+            categoryErrorBox.textContent = res.data?.error || 'Erreur.';
             categoryErrorBox.classList.remove('d-none');
         }
     });
@@ -98,10 +98,10 @@
      */
     async function postCategoryAction(action, id) {
         const res = await api.postJson('/config/finance/categories', { action: action, id: id });
-        if (res.data && res.data.success) {
+        if (res.data?.success) {
             window.location.reload();
         } else {
-            toastError(res.data && res.data.error);
+            toastError(res.data?.error);
         }
     }
 
@@ -133,10 +133,10 @@
             return undefined;
         }
         const res = await api.postJson('/config/finance/categories', { action: 'reset_defaults' });
-        if (res.data && res.data.success) {
+        if (res.data?.success) {
             window.location.reload();
         } else {
-            toastError(res.data && res.data.error);
+            toastError(res.data?.error);
         }
     });
 
@@ -168,10 +168,10 @@
             return undefined;
         }
         const res = await api.postJson('/config/finance/rules', { action: 'reset_defaults' });
-        if (res.data && res.data.success) {
+        if (res.data?.success) {
             window.location.reload();
         } else {
-            toastError(res.data && res.data.error);
+            toastError(res.data?.error);
         }
     });
 
@@ -209,7 +209,7 @@
         runRulesPoll = api.poll(async () => {
             const res = await api.postJson('/config/finance/rules', { action: 'run_status' });
             const data = res.data;
-            if (!data || !data.success) {
+            if (!data?.success) {
                 return undefined; // transient failure — keep polling
             }
             setRunRulesRunning(data.running);
@@ -235,11 +235,11 @@
         }
 
         const res = await api.postJson('/config/finance/rules', { action: 'run_on_uncategorized' });
-        if (res.data && res.data.success) {
+        if (res.data?.success) {
             setRunRulesRunning(true);
             startRunRulesPolling();
         } else {
-            toastError(res.data && res.data.error);
+            toastError(res.data?.error);
         }
     });
 
@@ -247,7 +247,7 @@
     // navigated away and back while it was still running).
     (async () => {
         const res = await api.postJson('/config/finance/rules', { action: 'run_status' });
-        if (res.data && res.data.success && res.data.running) {
+        if (res.data?.success && res.data.running) {
             setRunRulesRunning(true);
             startRunRulesPolling();
         }
@@ -276,10 +276,10 @@
     el('test-rule-btn').addEventListener('click', async () => {
         const res = await api.postJson('/config/finance/rules', { action: 'test', ...ruleConditionsPayload() });
         const resultBox = el('test-rule-result');
-        if (res.data && res.data.success) {
+        if (res.data?.success) {
             resultBox.textContent = res.data.count + ' mouvement(s) existant(s) correspondent.';
         } else {
-            resultBox.textContent = (res.data && res.data.error) || 'Erreur.';
+            resultBox.textContent = res.data?.error || 'Erreur.';
         }
     });
 
@@ -294,10 +294,10 @@
         if (id) payload.id = Number.parseInt(id, 10);
 
         const res = await api.postJson('/config/finance/rules', payload);
-        if (res.data && res.data.success) {
+        if (res.data?.success) {
             window.location.reload();
         } else {
-            ruleErrorBox.textContent = (res.data && res.data.error) || 'Erreur.';
+            ruleErrorBox.textContent = res.data?.error || 'Erreur.';
             ruleErrorBox.classList.remove('d-none');
         }
     });
@@ -308,10 +308,10 @@
      */
     async function postRuleAction(action, extra) {
         const res = await api.postJson('/config/finance/rules', { action: action, ...extra });
-        if (res.data && res.data.success) {
+        if (res.data?.success) {
             window.location.reload();
         } else {
-            toastError(res.data && res.data.error);
+            toastError(res.data?.error);
         }
     }
 
@@ -322,10 +322,10 @@
     document.getElementById('toggle-ai-rule-btn')?.addEventListener('click', async (e) => {
         const btn = /** @type {HTMLElement} */ (e.currentTarget);
         const res = await api.postJson('/config/finance/rules', { action: 'set_ai_enabled', enabled: btn.dataset.active !== '1' });
-        if (res.data && res.data.success) {
+        if (res.data?.success) {
             window.location.reload();
         } else {
-            toastError(res.data && res.data.error);
+            toastError(res.data?.error);
         }
     });
 
@@ -354,8 +354,8 @@
                 action: 'reorder',
                 ordered_ids: orderedRuleIds(),
             });
-            if (!res.data || !res.data.success) {
-                toastError(res.data && res.data.error);
+            if (!res.data?.success) {
+                toastError(res.data?.error);
                 window.location.reload();
             }
             // On success the list is already visually reordered by the
@@ -372,7 +372,7 @@
     // --- Move up/down (touch-friendly alternative to drag-and-drop for rules) ---
     function persistRuleOrder() {
         api.postJson('/config/finance/rules', { action: 'reorder', ordered_ids: orderedRuleIds() })
-            .then(res => { if (!res.data || !res.data.success) toastError(res.data && res.data.error); });
+            .then(res => { if (!res.data?.success) toastError(res.data?.error); });
     }
     function updateRuleMoveButtons() {
         const items = Array.from(rulesList.querySelectorAll('.rule-item'));
@@ -387,7 +387,7 @@
         btn.addEventListener('click', () => {
             const item = btn.closest('.rule-item');
             const prev = item.previousElementSibling;
-            if (prev && prev.classList.contains('rule-item')) {
+            if (prev?.classList.contains('rule-item')) {
                 prev.before(item);
                 persistRuleOrder();
                 updateRuleMoveButtons();
@@ -398,7 +398,7 @@
         btn.addEventListener('click', () => {
             const item = btn.closest('.rule-item');
             const next = item.nextElementSibling;
-            if (next && next.classList.contains('rule-item')) {
+            if (next?.classList.contains('rule-item')) {
                 item.before(next);
                 persistRuleOrder();
                 updateRuleMoveButtons();

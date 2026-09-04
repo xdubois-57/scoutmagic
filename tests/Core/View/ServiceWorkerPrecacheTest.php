@@ -218,7 +218,7 @@ class ServiceWorkerPrecacheTest extends TestCase
         $this->assertNotEmpty($m, 'Could not locate networkFirstWithCacheFallback() in public/sw.js');
 
         $this->assertMatchesRegularExpression(
-            '/if \(response && response\.ok && !response\.redirected && config\.standalone\) \{/',
+            '/if \(response\?\.ok && !response\.redirected && config\.standalone\) \{/',
             $m[1]
         );
     }

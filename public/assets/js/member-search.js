@@ -54,7 +54,7 @@
      * @returns {void}
      */
     function toastError(res, fallback) {
-        var message = (res.data && res.data.error) || fallback;
+        var message = res.data?.error || fallback;
         window.ScoutMagicToast.show(message, { variant: 'error' });
     }
 
@@ -147,7 +147,7 @@
                     setButtonsDisabled(true);
                     try {
                         var res = await api.postJson('/members/' + memberYearId + '/scout-year-offset', { offset: offset });
-                        if (!res.data || !res.data.success) {
+                        if (!res.data?.success) {
                             toastError(res, 'Erreur.');
                             return;
                         }
@@ -192,7 +192,7 @@
              */
             function save(payload) {
                 api.postJson('/members/' + memberYearId + '/departure', payload).then(function (res) {
-                    if (res.data && res.data.success) {
+                    if (res.data?.success) {
                         return;
                     }
                     // postJson answers status 0 — and only status 0 — when

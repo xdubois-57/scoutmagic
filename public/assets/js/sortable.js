@@ -40,7 +40,7 @@
      * @returns {void}
      */
     function bind(container, options) {
-        if (!container || !options || !options.itemSelector) {
+        if (!container || !options?.itemSelector) {
             return;
         }
         if (container.dataset.sortableBound === '1') {
@@ -56,7 +56,7 @@
         /** @param {Event} e */
         function itemOf(e) {
             var target = /** @type {HTMLElement|null} */ (e.target);
-            return target && target.closest
+            return target?.closest
                 ? /** @type {HTMLElement|null} */ (target.closest(itemSelector))
                 : null;
         }

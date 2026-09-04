@@ -150,7 +150,7 @@
 
     function syncType() {
         var checked = /** @type {HTMLInputElement} */ (document.querySelector('input[name="type"]:checked'));
-        var isS3 = !!checked && checked.value === 's3';
+        var isS3 = checked?.value === 's3';
         if (localFields) localFields.classList.toggle('d-none', isS3);
         if (s3Fields) s3Fields.classList.toggle('d-none', !isS3);
     }

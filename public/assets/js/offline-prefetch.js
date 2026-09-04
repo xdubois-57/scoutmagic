@@ -80,7 +80,7 @@
         return;
     }
     var connection = /** @type {any} */ (navigator).connection;
-    if (connection && connection.saveData === true) {
+    if (connection?.saveData === true) {
         return;
     }
     if (!claimThisLaunch()) {
@@ -105,7 +105,7 @@
             var raw = window.sessionStorage.getItem(LAUNCH_KEY);
             if (raw) {
                 var last = JSON.parse(raw);
-                if (last && last.scope === scope && (Date.now() - Number(last.at)) < REFRESH_AFTER_MS) {
+                if (last?.scope === scope && (Date.now() - Number(last.at)) < REFRESH_AFTER_MS) {
                     return false;
                 }
             }

@@ -210,7 +210,7 @@
 
         list.addEventListener('change', function (e) {
             var target = /** @type {HTMLElement} */ (e.target);
-            if (target && target.classList.contains('attestations-line-check')) {
+            if (target?.classList.contains('attestations-line-check')) {
                 refresh();
             }
         });

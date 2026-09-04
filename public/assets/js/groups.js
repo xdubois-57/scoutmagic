@@ -543,7 +543,7 @@
             input.style.minHeight = '44px';
             input.placeholder = 'Choix ' + index + ' (facultatif)';
             var first = pollInputs()[0];
-            if (first && first.maxLength > 0) {
+            if (first?.maxLength > 0) {
                 input.maxLength = first.maxLength;
             }
             var remove = document.createElement('button');
@@ -874,7 +874,7 @@
             // re-using it would leave the autocomplete answering keystrokes
             // into nothing. Cheap, and it means the cache can never outlive
             // the node it points at.
-            if (menu && menu.isConnected) {
+            if (menu?.isConnected) {
                 return menu;
             }
             if (menu) {
@@ -1222,7 +1222,7 @@
         // reader opened it to see.
         document.addEventListener('toggle', function (event) {
             var thread = /** @type {HTMLDetailsElement} */ (event.target);
-            if (!thread.classList || !thread.classList.contains('groups-thread') || !thread.open) {
+            if (!thread.classList?.contains('groups-thread') || !thread.open) {
                 return;
             }
             var count = /** @type {HTMLElement} */ (thread.querySelector('.groups-thread-count'));
@@ -1619,7 +1619,7 @@
                 return { ok: response.ok, data: data };
             });
         }).then(function (result) {
-            if (result.ok && result.data && result.data.restored === true) {
+            if (result.ok && result.data?.restored === true) {
                 if (banner) {
                     banner.remove();
                 }
@@ -2010,7 +2010,7 @@
         var lastHeading = null;
         Array.prototype.forEach.call(picker.options, function (option) {
             var parent = option.parentElement;
-            var heading = parent && parent.tagName === 'OPTGROUP' ? parent.label : null;
+            var heading = parent?.tagName === 'OPTGROUP' ? parent.label : null;
             if (heading && heading !== lastHeading) {
                 var title = document.createElement('div');
                 title.className = 'list-group-item bg-body-tertiary text-body-secondary small py-1';
@@ -2345,7 +2345,7 @@
         // A still-processing or failed media keeps the plain link, which
         // is exactly what its missing data-medium-url already signals.
         var mediaCell = /** @type {HTMLElement} */ (target.closest('.groups-media-cell.gallery-lightbox-trigger'));
-        if (mediaCell && mediaCell.dataset.mediumUrl && document.getElementById('gallery-lightbox')) {
+        if (mediaCell?.dataset.mediumUrl && document.getElementById('gallery-lightbox')) {
             event.preventDefault();
             return;
         }
@@ -2489,7 +2489,7 @@
 
         clearReplyImagePreview(form);
 
-        var file = input.files && input.files.length > 0 ? input.files[0] : null;
+        var file = input.files?.length > 0 ? input.files[0] : null;
         if (!file) {
             return;
         }

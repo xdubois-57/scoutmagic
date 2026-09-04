@@ -203,7 +203,7 @@
         var savedRange = null;
         function saveSelection() {
             var sel = window.getSelection();
-            if (sel && sel.rangeCount > 0) savedRange = sel.getRangeAt(0);
+            if (sel?.rangeCount > 0) savedRange = sel.getRangeAt(0);
         }
         editable.addEventListener('keyup', saveSelection);
         editable.addEventListener('mouseup', saveSelection);
@@ -468,8 +468,8 @@
 
     function updateAiButtonsState() {
         var enabled = hasTitleOrContent();
-        if (aiSummaryBtn && aiSummaryBtn.dataset.busy !== '1') aiSummaryBtn.disabled = !enabled;
-        if (aiKeywordsBtn && aiKeywordsBtn.dataset.busy !== '1') aiKeywordsBtn.disabled = !enabled;
+        if (aiSummaryBtn?.dataset.busy !== '1') aiSummaryBtn.disabled = !enabled;
+        if (aiKeywordsBtn?.dataset.busy !== '1') aiKeywordsBtn.disabled = !enabled;
     }
 
     var titleInputEl = document.querySelector('input[name="title"]');
@@ -528,9 +528,9 @@
         var closesAt = /** @type {HTMLInputElement} */ (document.getElementById('form_closes_at'));
         var today = new Date().toISOString().slice(0, 10);
         var open = true;
-        if (forceClosed && forceClosed.checked) open = false;
-        if (opensAt && opensAt.value && today < opensAt.value) open = false;
-        if (closesAt && closesAt.value && today > closesAt.value) open = false;
+        if (forceClosed?.checked) open = false;
+        if (opensAt?.value && today < opensAt.value) open = false;
+        if (closesAt?.value && today > closesAt.value) open = false;
         badge.textContent = open ? 'Ouvert' : 'Fermé';
         badge.className = 'badge rounded-pill ' + (open ? 'text-bg-success' : 'text-bg-secondary');
     }
@@ -994,7 +994,7 @@
         function addLabelledFieldEditRow(panel, text, controlId, options) {
             var row = addFieldEditRow(panel, '');
             var label = document.createElement('label');
-            label.className = (options && options.hidden) ? 'visually-hidden' : 'form-label small';
+            label.className = (options?.hidden) ? 'visually-hidden' : 'form-label small';
             label.htmlFor = controlId;
             label.textContent = text;
             row.appendChild(label);

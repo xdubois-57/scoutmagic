@@ -39,14 +39,14 @@
                     enabled: enabled
                 });
             }).then(function (res) {
-                if (res.data && res.data.success) {
+                if (res.data?.success) {
                     window.location.reload();
                     return;
                 }
                 window.ScoutMagicToast.show(
                     res.status === 0
                         ? 'Erreur réseau.'
-                        : (res.data && res.data.error) || 'Le module n\'a pas pu être modifié.',
+                        : res.data?.error || 'Le module n\'a pas pu être modifié.',
                     { variant: 'error' }
                 );
                 toggle.checked = !enabled;

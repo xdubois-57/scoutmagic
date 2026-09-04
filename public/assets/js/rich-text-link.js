@@ -72,7 +72,7 @@
      */
     function captureSelection() {
         var selection = window.getSelection();
-        return selection && selection.rangeCount > 0 ? selection.getRangeAt(0).cloneRange() : null;
+        return selection?.rangeCount > 0 ? selection.getRangeAt(0).cloneRange() : null;
     }
 
     /**

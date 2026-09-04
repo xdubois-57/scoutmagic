@@ -51,7 +51,7 @@
         token = decodeURIComponent(token);
     } catch (e) { /* not percent-encoded — use as-is */ }
 
-    if (window.history && window.history.replaceState) {
+    if (window.history?.replaceState) {
         window.history.replaceState(null, '', window.location.pathname + window.location.search);
     }
 
@@ -73,7 +73,7 @@
     })
         .then(function (r) { return r.json(); })
         .then(function (data) {
-            if (!data || !data.valid) {
+            if (!data?.valid) {
                 show(invalid);
                 return;
             }

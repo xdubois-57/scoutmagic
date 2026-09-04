@@ -139,7 +139,7 @@
         // --- « Remplacer le reçu » : one file, one input ---
         form.addEventListener('submit', async (e) => {
             const file = singleInput.files[0];
-            if (!file || !file.type.startsWith('image/') || !supportsResize) {
+            if (!file?.type.startsWith('image/') || !supportsResize) {
                 return; // native submit proceeds — non-image, or no client-side resize support
             }
 

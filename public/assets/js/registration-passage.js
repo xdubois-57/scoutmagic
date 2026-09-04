@@ -81,7 +81,7 @@
         }
 
         var box = document.getElementById('passage-statistics');
-        if (!box || !box.parentElement) {
+        if (!box?.parentElement) {
             return;
         }
 
@@ -137,7 +137,7 @@
             api.withDisabled(button, function () {
                 return api.postJson(select.dataset.endpoint || '', payload);
             }).then(function (res) {
-                if (res.data && res.data.success) {
+                if (res.data?.success) {
                     feedback(cell, 'Enregistré.', false);
                     // The box comes back in the save's own answer (one
                     // round trip, no cache to invalidate) — spec §8.
@@ -148,7 +148,7 @@
                     feedback(cell, 'Erreur réseau.', true);
                     return;
                 }
-                feedback(cell, (res.data && res.data.error) || "Erreur lors de l'enregistrement.", true);
+                feedback(cell, res.data?.error || "Erreur lors de l'enregistrement.", true);
             });
         });
 
@@ -194,13 +194,13 @@
         inlineFeedback(box, 'Enregistrement…', false);
 
         return api.postJson(element.dataset.endpoint || '', payload).then(function (res) {
-            if (res.data && res.data.success) {
+            if (res.data?.success) {
                 inlineFeedback(box, 'Enregistré.', false);
                 return true;
             }
             inlineFeedback(
                 box,
-                res.status === 0 ? 'Erreur réseau.' : (res.data && res.data.error) || "Erreur lors de l'enregistrement.",
+                res.status === 0 ? 'Erreur réseau.' : res.data?.error || "Erreur lors de l'enregistrement.",
                 true
             );
             return false;
@@ -213,7 +213,7 @@
             /** @type {Record<string, number>} */
             var payload = {};
             payload[field.dataset.field || 'preferred_section_id'] = Number.parseInt(field.value, 10);
-            autoSave(field, field.parentElement && field.parentElement.querySelector('.passage-wish-feedback'), payload);
+            autoSave(field, field.parentElement?.querySelector('.passage-wish-feedback'), payload);
         });
     });
 
@@ -222,7 +222,7 @@
         // On blur, like the Départs comment: a note is written in one go,
         // and a save per keystroke would be a request per keystroke.
         field.addEventListener('blur', function () {
-            autoSave(field, field.parentElement && field.parentElement.querySelector('.passage-note-feedback'), {
+            autoSave(field, field.parentElement?.querySelector('.passage-note-feedback'), {
                 note: field.value,
             });
         });
@@ -263,7 +263,7 @@
                 return api.postJson(optimizeButton.dataset.endpoint || '', {
                     method: chosen ? chosen.value : 'balanced',
                 }).then(function (res) {
-                    if (res.data && res.data.success) {
+                    if (res.data?.success) {
                         // The warnings are the one thing worth carrying
                         // across the reload, and sessionStorage is the
                         // wrong tool for one sentence — so they are shown
@@ -275,7 +275,7 @@
                     }
                     inlineFeedback(
                         box,
-                        res.status === 0 ? 'Erreur réseau.' : (res.data && res.data.error) || 'La répartition a échoué.',
+                        res.status === 0 ? 'Erreur réseau.' : res.data?.error || 'La répartition a échoué.',
                         true
                     );
                 });
@@ -302,13 +302,13 @@
 
                 api.withDisabled(resetButton, function () {
                     return api.postJson(resetButton.dataset.endpoint || '', {}).then(function (res) {
-                        if (res.data && res.data.success) {
+                        if (res.data?.success) {
                             window.location.reload();
                             return;
                         }
                         inlineFeedback(
                             box,
-                            res.status === 0 ? 'Erreur réseau.' : (res.data && res.data.error) || 'La réinitialisation a échoué.',
+                            res.status === 0 ? 'Erreur réseau.' : res.data?.error || 'La réinitialisation a échoué.',
                             true
                         );
                     });
@@ -333,7 +333,7 @@
 
             api.withDisabled(reviewButton, function () {
                 return api.postJson(reviewButton.dataset.endpoint || '', {}).then(function (res) {
-                    if (res.data && res.data.success) {
+                    if (res.data?.success) {
                         // The suggestions are server-rendered, so the page
                         // is reloaded rather than patched: a second
                         // renderer for « à vérifier » in the browser would
@@ -343,7 +343,7 @@
                     }
                     inlineFeedback(
                         box,
-                        res.status === 0 ? 'Erreur réseau.' : (res.data && res.data.error) || 'La relecture a échoué.',
+                        res.status === 0 ? 'Erreur réseau.' : res.data?.error || 'La relecture a échoué.',
                         true
                     );
                 });
@@ -363,7 +363,7 @@
         checkbox.addEventListener('change', function () {
             inlineFeedback(box, 'Enregistrement…', false);
             api.postJson(endpoint, { confirmed: checkbox.checked }).then(function (res) {
-                if (res.data && res.data.success) {
+                if (res.data?.success) {
                     inlineFeedback(box, checkbox.checked ? 'Confirmé.' : 'Confirmation retirée.', false);
                     block.classList.toggle('alert-success', checkbox.checked);
                     block.classList.toggle('alert-warning', !checkbox.checked);
@@ -375,7 +375,7 @@
                 checkbox.checked = !checkbox.checked;
                 inlineFeedback(
                     box,
-                    res.status === 0 ? 'Erreur réseau.' : (res.data && res.data.error) || "Erreur lors de l'enregistrement.",
+                    res.status === 0 ? 'Erreur réseau.' : res.data?.error || "Erreur lors de l'enregistrement.",
                     true
                 );
             });

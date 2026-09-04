@@ -75,7 +75,7 @@
             }
         }
 
-        if (navigator.clipboard && navigator.clipboard.writeText && window.isSecureContext) {
+        if (navigator.clipboard?.writeText && window.isSecureContext) {
             navigator.clipboard.writeText(input.value).then(showCopied).catch(fallbackCopy);
         } else {
             fallbackCopy();
@@ -84,7 +84,7 @@
 
     document.addEventListener('click', function(event) {
         var target = /** @type {HTMLElement} */ (event.target);
-        if (target.classList && target.classList.contains('btn-copy-value')) {
+        if (target.classList?.contains('btn-copy-value')) {
             copyValue(target);
         }
     });

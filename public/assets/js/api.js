@@ -55,7 +55,7 @@
      * @returns {Promise<{ok: boolean, status: number, data: any}>}
      */
     function postJson(url, body, options) {
-        var method = (options && options.method) || 'POST';
+        var method = options?.method || 'POST';
         return fetch(url, {
             method: method,
             headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken() },

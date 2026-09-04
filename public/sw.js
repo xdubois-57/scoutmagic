@@ -389,7 +389,7 @@ function handleNavigate(request, url, preloadResponse) {
     const network = startNetworkRequest(request, preloadResponse);
 
     return getOfflineConfig().then(function (config) {
-        if (!config || !config.consent || !isWhitelisted(url.pathname, config.whitelist)) {
+        if (!config?.consent || !isWhitelisted(url.pathname, config.whitelist)) {
             // Lot 1 behavior, unchanged: a failed navigation falls back to
             // the precached offline page instead of the browser's own
             // network-error interstitial — the one thing an installed,
@@ -460,7 +460,7 @@ function networkFirstWithCacheFallback(request, url, config, network) {
         // installed app does. READS below stay unconditional regardless:
         // a single tab visit must not blind the installed app's own
         // already-cached copy until its next page load.
-        if (response && response.ok && !response.redirected && config.standalone) {
+        if (response?.ok && !response.redirected && config.standalone) {
             const copy = response.clone();
             caches.open(cacheName).then(function (cache) { cache.put(request, copy); });
         }
@@ -565,7 +565,7 @@ self.addEventListener('push', function (event) {
 self.addEventListener('notificationclick', function (event) {
     event.notification.close();
 
-    const url = event.notification.data && event.notification.data.url;
+    const url = event.notification.data?.url;
     if (!url) {
         return;
     }

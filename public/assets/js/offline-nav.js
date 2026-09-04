@@ -292,7 +292,7 @@
     if (typeof originalFetch === 'function') {
         window.fetch = function (input, init) {
             var method = 'GET';
-            if (init && init.method) {
+            if (init?.method) {
                 method = init.method;
             } else if (input && typeof input === 'object' && /** @type {Request} */ (input).method) {
                 method = /** @type {Request} */ (input).method;

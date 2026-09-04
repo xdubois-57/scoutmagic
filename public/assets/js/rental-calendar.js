@@ -220,7 +220,7 @@ export function refresh(pageUrl) {
 export function wireCalendar(container) {
     container.addEventListener('click', function (event) {
         const target = /** @type {HTMLElement} */ (event.target);
-        const cell = /** @type {HTMLElement|null} */ (target && target.closest ? target.closest('[data-date]') : null);
+        const cell = /** @type {HTMLElement|null} */ (target?.closest ? target.closest('[data-date]') : null);
         if (!cell) {
             return;
         }

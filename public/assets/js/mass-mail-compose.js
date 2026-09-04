@@ -138,8 +138,8 @@
         const res = await fetch('/mass-mail/audiences', { method: 'POST', body: formData });
         const data = await res.json().catch(() => null);
         setText('mm-merge-chosen', '');
-        if (!data || !data.success) {
-            showMergeError((data && data.errors) || [(data && data.error) || 'Erreur.']);
+        if (!data?.success) {
+            showMergeError(data?.errors || [data?.error || 'Erreur.']);
             return;
         }
         showMergeError([]);
@@ -189,7 +189,7 @@
      */
     async function loadAudienceSample(audienceId) {
         const res = await api.getJson('/mass-mail/audiences/' + audienceId);
-        if (!res.data || !res.data.success) return;
+        if (!res.data?.success) return;
         renderVariableMenu(res.data.audience.columns, res.data.sample || {});
     }
 
@@ -298,7 +298,7 @@
     async function loadMergePreview(offset) {
         const res = await api.getJson('/mass-mail/' + DATA.emailId + '/merge-preview?offset=' + offset);
         const data = res.data;
-        if (!data || !data.success) return;
+        if (!data?.success) return;
 
         const preview = data.preview;
         mergeOffset = preview.offset;
@@ -361,7 +361,7 @@
     async function recipientSentence() {
         const res = await api.getJson('/mass-mail/' + DATA.emailId + '/recipient-count');
         const data = res.data;
-        if (!data || !data.success) return '';
+        if (!data?.success) return '';
         if (data.count === 0) return 'Cette liste ne désigne actuellement personne. ';
 
         const plural = data.count > 1;

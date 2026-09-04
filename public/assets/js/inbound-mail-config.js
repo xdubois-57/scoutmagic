@@ -42,7 +42,7 @@
      * @returns {boolean}
      */
     function succeeded(res) {
-        return !!(res.data && res.data.success);
+        return !!(res.data?.success);
     }
 
     /**
@@ -50,7 +50,7 @@
      * @returns {string}
      */
     function failureMessage(res) {
-        return (res.data && res.data.error) || 'Erreur : réponse serveur invalide.';
+        return res.data?.error || 'Erreur : réponse serveur invalide.';
     }
 
     /**

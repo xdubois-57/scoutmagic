@@ -18,7 +18,7 @@
     // .checked back programmatically after a failed save, which fires no
     // 'change' event of its own.
     function syncAriaChecked(toggle) {
-        if (window.ScoutMagicNav && window.ScoutMagicNav.syncSwitchAriaChecked) {
+        if (window.ScoutMagicNav?.syncSwitchAriaChecked) {
             window.ScoutMagicNav.syncSwitchAriaChecked(toggle);
         }
     }
@@ -45,7 +45,7 @@
                 .then(function (res) {
                     // A network failure or an HTTP error page arrives as a
                     // data-less envelope — same revert as a refused save.
-                    if (!res.data || !res.data.success) {
+                    if (!res.data?.success) {
                         toggle.checked = !toggle.checked;
                         syncAriaChecked(toggle);
                     }
@@ -65,7 +65,7 @@
             discretion: discretionToggle.checked
         })
             .then(function (res) {
-                if (res.data && res.data.success) {
+                if (res.data?.success) {
                     window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
                 }
             });

@@ -82,7 +82,7 @@
                         // posts; the delivered list is the fallback where
                         // DataTransfer is missing, so the visitor is at
                         // least told what they dropped.
-                        describe(zone, input.files && input.files.length ? input.files : files);
+                        describe(zone, input.files?.length ? input.files : files);
                     }, { input: input });
                 } else {
                     // No drop-zone.js on the page: the zone is then just a

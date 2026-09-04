@@ -111,7 +111,7 @@
      */
     function submitAsync(form, submitter) {
         var payload = new FormData(form);
-        if (submitter && submitter.getAttribute('name')) {
+        if (submitter?.getAttribute('name')) {
             payload.append(
                 /** @type {string} */ (submitter.getAttribute('name')),
                 submitter.getAttribute('value') || ''
@@ -119,7 +119,7 @@
         }
 
         var button = /** @type {HTMLButtonElement|null} */ (
-            (submitter && submitter.tagName === 'BUTTON')
+            (submitter?.tagName === 'BUTTON')
                 ? submitter
                 : form.querySelector('button[type="submit"]')
         );

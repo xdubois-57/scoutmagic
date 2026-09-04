@@ -367,7 +367,7 @@
             // The "Copié" feedback deliberately stays inline (the button's
             // own label flips), not a toast: it is positioned exactly where
             // the user just clicked.
-            if (navigator.clipboard && navigator.clipboard.writeText) {
+            if (navigator.clipboard?.writeText) {
                 navigator.clipboard.writeText(url).then(function () {
                     copyBtn.innerHTML = '<i class="bi bi-check-lg"></i> Copié';
                     setTimeout(restore, 2000);

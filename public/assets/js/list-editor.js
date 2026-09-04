@@ -59,7 +59,7 @@
             btn.addEventListener('click', function () {
                 var item = btn.closest('.list-editor-item');
                 var prev = item.previousElementSibling;
-                if (prev && prev.classList.contains('list-editor-item')) {
+                if (prev?.classList.contains('list-editor-item')) {
                     prev.before(item);
                     persistOrder();
                     updateMoveButtons();
@@ -70,7 +70,7 @@
             btn.addEventListener('click', function () {
                 var item = btn.closest('.list-editor-item');
                 var next = item.nextElementSibling;
-                if (next && next.classList.contains('list-editor-item')) {
+                if (next?.classList.contains('list-editor-item')) {
                     item.before(next);
                     persistOrder();
                     updateMoveButtons();

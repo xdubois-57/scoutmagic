@@ -40,7 +40,7 @@
 
     /** @param {{ok: boolean, status: number, data: any}} res */
     function toastError(res, fallback) {
-        var message = (res.data && res.data.error) || fallback;
+        var message = res.data?.error || fallback;
         window.ScoutMagicToast.show(message, { variant: 'error' });
     }
 
@@ -52,7 +52,7 @@
                 id: Number.parseInt(select.dataset.id || '', 10),
                 role_min: select.value
             }).then(function (res) {
-                if (res.data && res.data.success) {
+                if (res.data?.success) {
                     return;
                 }
                 toastError(res, 'Erreur.');
@@ -65,7 +65,7 @@
         return;
     }
 
-    var Modal = window.bootstrap && window.bootstrap.Modal;
+    var Modal = window.bootstrap?.Modal;
     var modal = Modal ? new Modal(modalEl) : null;
     var editorContent = document.getElementById('richTextEditorContent');
     var saveBtn = document.getElementById('richTextEditorSave');
@@ -75,7 +75,7 @@
 
     addBtn.addEventListener('click', async function () {
         var created = await api.postJson(addBtn.dataset.url || '', {});
-        if (!created.data || !created.data.success) {
+        if (!created.data?.success) {
             toastError(created, "Erreur lors de l'ajout.");
             return;
         }
@@ -91,7 +91,7 @@
                 value: editorContent.innerHTML,
                 type: 'rich_text'
             }).then(function (res) {
-                if (!res.data || !res.data.success) {
+                if (!res.data?.success) {
                     toastError(res, 'Erreur.');
                     return;
                 }
