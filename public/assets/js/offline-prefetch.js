@@ -74,7 +74,7 @@
     if (!config.consent || config.accountScope === 'guest') {
         return;
     }
-    var isStandalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
+    var isStandalone = window.matchMedia?.('(display-mode: standalone)').matches
         || window.navigator.standalone === true;
     if (!isStandalone) {
         return;

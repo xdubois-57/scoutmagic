@@ -151,13 +151,15 @@ run_case "unreviewed hotspot" 1
 # out of three" is the mistake this rule invites.
 # ---------------------------------------------------------------
 issue_json() {
-    # $1: tags array, $2: impacts array
-    printf '[{"key":"AY-1","rule":"php:S103","tags":%s,"impacts":%s}]' "$1" "$2"
+    local tags="$1"
+    local impacts="$2"
+    printf '[{"key":"AY-1","rule":"php:S103","tags":%s,"impacts":%s}]' "${tags}" "${impacts}"
 }
 MAINT_LOW='[{"softwareQuality":"MAINTAINABILITY","severity":"LOW"}]'
+CONVENTION='["convention"]'
 
 echo "3. The exempt finding: MAINTAINABILITY + LOW + convention -> PASS"
-write_default_fake_curl "${HEAD_SHA}" "OK" 0 0 1 "$(issue_json '["convention"]' "${MAINT_LOW}")"
+write_default_fake_curl "${HEAD_SHA}" "OK" 0 0 1 "$(issue_json "${CONVENTION}" "${MAINT_LOW}")"
 run_case "maintainability/low/convention is exempt" 0
 
 echo "3a. Same finding without the convention tag -> BLOCK"
@@ -170,12 +172,12 @@ run_case "maintainability/low, untagged" 1
 
 echo "3c. convention + MAINTAINABILITY but MEDIUM -> BLOCK"
 write_default_fake_curl "${HEAD_SHA}" "OK" 0 0 1 \
-    "$(issue_json '["convention"]' '[{"softwareQuality":"MAINTAINABILITY","severity":"MEDIUM"}]')"
+    "$(issue_json "${CONVENTION}" '[{"softwareQuality":"MAINTAINABILITY","severity":"MEDIUM"}]')"
 run_case "convention nit at MEDIUM" 1
 
 echo "3d. convention + LOW but RELIABILITY -> BLOCK"
 write_default_fake_curl "${HEAD_SHA}" "OK" 0 0 1 \
-    "$(issue_json '["convention"]' '[{"softwareQuality":"RELIABILITY","severity":"LOW"}]')"
+    "$(issue_json "${CONVENTION}" '[{"softwareQuality":"RELIABILITY","severity":"LOW"}]')"
 run_case "convention nit impacting reliability" 1
 
 echo "3e. MIXED impacts: maintainability/LOW *and* reliability/MEDIUM -> BLOCK"
@@ -183,12 +185,12 @@ echo "3e. MIXED impacts: maintainability/LOW *and* reliability/MEDIUM -> BLOCK"
 # exemption on one of its impacts and not on the other; one impact outside
 # the exemption is enough to block.
 write_default_fake_curl "${HEAD_SHA}" "OK" 0 0 1 \
-    "$(issue_json '["convention"]' '[{"softwareQuality":"MAINTAINABILITY","severity":"LOW"},{"softwareQuality":"RELIABILITY","severity":"MEDIUM"}]')"
+    "$(issue_json "${CONVENTION}" '[{"softwareQuality":"MAINTAINABILITY","severity":"LOW"},{"softwareQuality":"RELIABILITY","severity":"MEDIUM"}]')"
 run_case "mixed impacts, one outside the exemption" 1
 
 echo "3f. convention-tagged finding carrying NO impacts -> BLOCK"
 # Absence of evidence is not an exemption.
-write_default_fake_curl "${HEAD_SHA}" "OK" 0 0 1 "$(issue_json '["convention"]' '[]')"
+write_default_fake_curl "${HEAD_SHA}" "OK" 0 0 1 "$(issue_json "${CONVENTION}" '[]')"
 run_case "convention nit with no impacts declared" 1
 
 echo "3g. An exempt finding alongside a blocking one -> BLOCK"

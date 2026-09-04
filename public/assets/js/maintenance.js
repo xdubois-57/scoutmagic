@@ -595,7 +595,7 @@
             var fileInput = /** @type {HTMLInputElement} */ (document.getElementById('restore-backup-file'));
             var uploadIdInput = /** @type {HTMLInputElement} */ (document.getElementById('restore-upload-id'));
             var chunkFile = sourceUploadRadio?.checked
-                && fileInput?.files && fileInput.files[0] ? fileInput.files[0] : null;
+                && fileInput?.files?.[0] ? fileInput.files[0] : null;
             if (chunker && uploadIdInput && chunkFile?.size > chunker.CHUNK_THRESHOLD) {
                 submitBtn.disabled = true;
                 var chunkErrorEl = document.getElementById('restore-backup-error');

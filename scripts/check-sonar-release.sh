@@ -60,6 +60,12 @@ set -euo pipefail
 SONAR_HOST_URL="${SONAR_HOST_URL:-https://sonarcloud.io}"
 SONAR_PROJECT_KEY="${SONAR_PROJECT_KEY:-xdubois-57_scoutmagic}"
 SONAR_BRANCH="${SONAR_BRANCH:-main}"
+
+# Percent-encoded once, here, rather than by a `php -r` subshell at each of
+# the six query sites: both are constants for the whole run, and spawning
+# twelve interpreters to encode the same two strings is twelve interpreters.
+PROJECT_Q="$(php -r 'echo rawurlencode($argv[1]);' "${SONAR_PROJECT_KEY}")"
+BRANCH_Q="$(php -r 'echo rawurlencode($argv[1]);' "${SONAR_BRANCH}")"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Overridable so check-sonar-release.test.sh can point this at a throwaway
 # path instead of ever touching a real developer's ${REPO_ROOT}/.sonar-token.
@@ -169,7 +175,7 @@ KEY_LINE='  %s\n'
 LOCAL_HEAD="$(git rev-parse HEAD)"
 
 ANALYSES_FILE="$(mktemp)"
-if ! sonar_get "/api/project_analyses/search?project=$(php -r 'echo rawurlencode($argv[1]);' "${SONAR_PROJECT_KEY}")&branch=$(php -r 'echo rawurlencode($argv[1]);' "${SONAR_BRANCH}")&ps=1" > "${ANALYSES_FILE}"; then
+if ! sonar_get "/api/project_analyses/search?project=${PROJECT_Q}&branch=${BRANCH_Q}&ps=1" > "${ANALYSES_FILE}"; then
     rm -f "${ANALYSES_FILE}"
     fail
 fi
@@ -190,7 +196,7 @@ fi
 
 # --- 2. Quality Gate ---
 QG_FILE="$(mktemp)"
-if ! sonar_get "/api/qualitygates/project_status?projectKey=$(php -r 'echo rawurlencode($argv[1]);' "${SONAR_PROJECT_KEY}")&branch=$(php -r 'echo rawurlencode($argv[1]);' "${SONAR_BRANCH}")" > "${QG_FILE}"; then
+if ! sonar_get "/api/qualitygates/project_status?projectKey=${PROJECT_Q}&branch=${BRANCH_Q}" > "${QG_FILE}"; then
     rm -f "${QG_FILE}"
     fail
 fi
@@ -209,7 +215,7 @@ rm -f "${QG_FILE}"
 
 # --- 3. Unresolved SECURITY-impact issues (any severity) ---
 SECURITY_ISSUES_FILE="$(mktemp)"
-if ! sonar_get "/api/issues/search?componentKeys=$(php -r 'echo rawurlencode($argv[1]);' "${SONAR_PROJECT_KEY}")&branch=$(php -r 'echo rawurlencode($argv[1]);' "${SONAR_BRANCH}")&resolved=false&impactSoftwareQualities=SECURITY&ps=100" > "${SECURITY_ISSUES_FILE}"; then
+if ! sonar_get "/api/issues/search?componentKeys=${PROJECT_Q}&branch=${BRANCH_Q}&resolved=false&impactSoftwareQualities=SECURITY&ps=100" > "${SECURITY_ISSUES_FILE}"; then
     rm -f "${SECURITY_ISSUES_FILE}"
     fail
 fi
@@ -219,7 +225,7 @@ rm -f "${SECURITY_ISSUES_FILE}"
 
 # --- 4. Unreviewed Security Hotspots ---
 HOTSPOTS_FILE="$(mktemp)"
-if ! sonar_get "/api/hotspots/search?projectKey=$(php -r 'echo rawurlencode($argv[1]);' "${SONAR_PROJECT_KEY}")&branch=$(php -r 'echo rawurlencode($argv[1]);' "${SONAR_BRANCH}")&status=TO_REVIEW&ps=100" > "${HOTSPOTS_FILE}"; then
+if ! sonar_get "/api/hotspots/search?projectKey=${PROJECT_Q}&branch=${BRANCH_Q}&status=TO_REVIEW&ps=100" > "${HOTSPOTS_FILE}"; then
     rm -f "${HOTSPOTS_FILE}"
     fail
 fi
@@ -250,7 +256,7 @@ ISSUES_TOTAL=0
 PAGE=1
 while :; do
     PAGE_FILE="$(mktemp)"
-    if ! sonar_get "/api/issues/search?componentKeys=$(php -r 'echo rawurlencode($argv[1]);' "${SONAR_PROJECT_KEY}")&branch=$(php -r 'echo rawurlencode($argv[1]);' "${SONAR_BRANCH}")&resolved=false&ps=500&p=${PAGE}" > "${PAGE_FILE}"; then
+    if ! sonar_get "/api/issues/search?componentKeys=${PROJECT_Q}&branch=${BRANCH_Q}&resolved=false&ps=500&p=${PAGE}" > "${PAGE_FILE}"; then
         rm -f "${PAGE_FILE}" "${BLOCKING_KEYS_FILE}"
         fail
     fi
@@ -306,7 +312,7 @@ if [[ "${BLOCKED}" -eq 1 ]]; then
         [[ -n "${SECURITY_ISSUES_KEYS}" ]] && { echo "Blocking security issues:"; printf "${KEY_LINE}" ${SECURITY_ISSUES_KEYS}; }
         [[ -n "${HOTSPOTS_KEYS}" ]] && { echo "Unreviewed security hotspots:"; printf "${KEY_LINE}" ${HOTSPOTS_KEYS}; }
         [[ -n "${BLOCKING_KEYS}" ]] && { echo "Blocking issues (first 10 of ${BLOCKING_COUNT}):"; printf "${KEY_LINE}" ${BLOCKING_KEYS}; }
-        echo "See: ${SONAR_HOST_URL}/project/issues?id=$(php -r 'echo rawurlencode($argv[1]);' "${SONAR_PROJECT_KEY}")&branch=$(php -r 'echo rawurlencode($argv[1]);' "${SONAR_BRANCH}")&resolved=false"
+        echo "See: ${SONAR_HOST_URL}/project/issues?id=${PROJECT_Q}&branch=${BRANCH_Q}&resolved=false"
     } >&2
     fail
 fi

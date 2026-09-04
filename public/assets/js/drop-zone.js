@@ -66,7 +66,7 @@
 
         zone.addEventListener('drop', function (e) {
             var transfer = /** @type {DragEvent} */ (e).dataTransfer;
-            if (transfer?.files && transfer.files.length) {
+            if (transfer?.files?.length) {
                 onFiles(transfer.files);
             }
         });

@@ -605,7 +605,7 @@
         { type: 'confirmation', label: 'Bloc de confirmation', icon: 'bi-info-circle' },
         { type: 'text', label: 'Bloc de texte', icon: 'bi-card-text' }
     ];
-    var NON_INPUT_TYPES = ['confirmation', 'text'];
+    var NON_INPUT_TYPES = new Set(['confirmation', 'text']);
     var TYPE_LABELS = {};
     FIELD_TYPES.forEach(function (t) { TYPE_LABELS[t.type] = t.label; });
 
@@ -754,7 +754,7 @@
         // content, "Formulaire" once there's something to fill in.
         function updateFormSettingsVisibility() {
             var hasRealInput = fieldState.some(function (f) {
-                return !NON_INPUT_TYPES.includes(f.field_type);
+                return !NON_INPUT_TYPES.has(f.field_type);
             });
 
             var settings = document.getElementById('news-form-settings');
@@ -871,7 +871,7 @@
 
             var label = document.createElement('span');
             label.className = 'flex-grow-1';
-            var isNonInput = NON_INPUT_TYPES.includes(field.field_type);
+            var isNonInput = NON_INPUT_TYPES.has(field.field_type);
             var BLOCK_LABELS = { confirmation: 'Bloc de confirmation', text: 'Bloc de texte' };
             var labelText = BLOCK_LABELS[field.field_type] || field.label || 'Sans libellé';
             // field.label is admin-entered free text (not HTML-sanitized server-side,
@@ -1204,7 +1204,7 @@
             panel.className = 'mt-2 pt-2 border-top';
             panel.addEventListener('click', function (e) { e.stopPropagation(); });
 
-            if (!NON_INPUT_TYPES.includes(field.field_type)) {
+            if (!NON_INPUT_TYPES.has(field.field_type)) {
                 buildLabelAndRequiredRow(panel, field);
             }
 
