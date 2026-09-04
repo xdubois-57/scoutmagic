@@ -163,9 +163,17 @@ describe('navigation-feedback.js: the progress bar', () => {
         document.body.innerHTML = '<a id="l" href="/calendar">Calendrier</a>';
         await boot();
 
-        click(document.getElementById('l'));
-        vi.advanceTimersByTime(500);
-        window.dispatchEvent(new Event('pageshow'));
+        // The claim is « does not throw », so it has to be stated. Without
+        // an assertion this passed for any reason at all — including the
+        // script never having run (SonarQube javascript:S2699, BLOCKER).
+        expect(() => {
+            click(document.getElementById('l'));
+            vi.advanceTimersByTime(500);
+            window.dispatchEvent(new Event('pageshow'));
+        }).not.toThrow();
+
+        // And nothing was conjured up to stand in for the missing bar.
+        expect(document.getElementById('navigation-progress')).toBeNull();
     });
 });
 

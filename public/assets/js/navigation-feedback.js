@@ -72,7 +72,7 @@
         if (link.target && link.target !== '_self') {
             return false;
         }
-        if (link.hasAttribute('download') || link.hasAttribute('data-file-viewer')) {
+        if (link.hasAttribute('download') || link.dataset.fileViewer !== undefined) {
             return false;
         }
         var href = link.getAttribute('href') || '';
