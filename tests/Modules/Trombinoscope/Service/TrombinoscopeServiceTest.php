@@ -144,4 +144,34 @@ class TrombinoscopeServiceTest extends TestCase
 
         $this->assertNull($service->getResponsable(1, 1));
     }
+
+    public function testGetSectionStaffForSectionsHydratesEverybodyOnceAndSplitsPerSection(): void
+    {
+        $repository = $this->createMock(TrombinoscopeRepository::class);
+        // Twice: once for the wall below, once more through getResponsables().
+        $repository->expects($this->exactly(2))->method('getEligibleStaffForSections')->with([1, 2], 7)->willReturn([
+            1 => [['member_year_id' => 10, 'is_lead' => true], ['member_year_id' => 20, 'is_lead' => false]],
+            2 => [['member_year_id' => 30, 'is_lead' => false]],
+        ]);
+        $repository->expects($this->never())->method('getEligibleStaffForSection');
+
+        $sectionService = $this->createMock(SectionService::class);
+        $sectionService->expects($this->exactly(2))->method('hydrateMemberProfiles')->with([10, 20, 30])->willReturn([
+            10 => $this->makeProfile(10, 1, 'Alice'),
+            20 => $this->makeProfile(20, 2, 'Bob'),
+            30 => $this->makeProfile(30, 3, 'Carol'),
+        ]);
+
+        $service = new TrombinoscopeService($repository, $sectionService);
+        $result = $service->getSectionStaffForSections([1, 2], 7);
+
+        $this->assertSame('Alice', $result[1]['lead']->firstName);
+        $this->assertSame(['Bob'], array_map(fn($p) => $p->firstName, $result[1]['staff']));
+        $this->assertNull($result[2]['lead']);
+        $this->assertSame(['Carol'], array_map(fn($p) => $p->firstName, $result[2]['staff']));
+
+        $responsables = $service->getResponsables([1, 2], 7);
+        $this->assertSame('Alice', $responsables[1]->firstName);
+        $this->assertNull($responsables[2]);
+    }
 }

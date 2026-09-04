@@ -45,7 +45,13 @@ class TrombinoscopePdfService
         private TrombinoscopeService $trombinoscopeService,
         private SectionService $sectionService,
         private StaffPhotoEmbedder $photoEmbedder,
-        private TrombinoscopeHtmlBuilder $htmlBuilder
+        private TrombinoscopeHtmlBuilder $htmlBuilder,
+        /**
+         * Where a rendered document is kept until its inputs change (a
+         * directory, typically storage/temp). Null — the tests — means
+         * every call renders. See generate().
+         */
+        private ?string $cacheDirectory = null
     ) {
     }
 
@@ -63,8 +69,39 @@ class TrombinoscopePdfService
         bool $showContacts
     ): string
     {
-        $sections = $this->buildSectionViews($scoutYearId, $showContacts);
-        $html = $this->htmlBuilder->build($sections, $unitName, $yearLabel, $siteUrl, $showContacts);
+        // Rendering costs one to two seconds for a large unit — every
+        // portrait is decoded, cropped and re-encoded, then dompdf lays out
+        // fifteen pages — and its inputs only change on a Desk import, a
+        // photo upload or a setting. So the document is kept on disk under
+        // a signature of everything it is made of (the staff of every
+        // section, their photos' file ids, the labels, the flags, and the
+        // layout code itself) and served as-is while that signature holds:
+        // a stale copy is impossible by construction, since any change to
+        // an input is a different file name. Older copies for the same
+        // year are removed when a new one is written.
+        $sections = $this->sectionService->getAllWithBranches();
+        $staffBySection = $this->trombinoscopeService->getSectionStaffForSections(
+            array_map(static fn(array $s): int => (int) $s['id'], $sections),
+            $scoutYearId
+        );
+        $memberIds = [];
+        foreach ($staffBySection as $data) {
+            foreach (array_merge($data['lead'] !== null ? [$data['lead']] : [], $data['staff']) as $profile) {
+                $memberIds[] = $profile->memberId;
+            }
+        }
+        $this->photoEmbedder->prime($memberIds, $scoutYearId);
+
+        $cacheFile = $this->cacheFile($scoutYearId, $yearLabel, $unitName, $siteUrl, $showContacts, $sections, $staffBySection);
+        if ($cacheFile !== null && is_file($cacheFile)) {
+            $cached = @file_get_contents($cacheFile);
+            if ($cached !== false && $cached !== '') {
+                return $cached;
+            }
+        }
+
+        $views = $this->buildSectionViews($scoutYearId, $showContacts, $sections, $staffBySection);
+        $html = $this->htmlBuilder->build($views, $unitName, $yearLabel, $siteUrl, $showContacts);
 
         $options = new Options();
         $options->set('isRemoteEnabled', false);
@@ -74,8 +111,81 @@ class TrombinoscopePdfService
         $dompdf->loadHtml($html);
         $dompdf->setPaper('A4', 'portrait');
         $dompdf->render();
+        $pdf = $dompdf->output();
 
-        return $dompdf->output();
+        if ($cacheFile !== null) {
+            $this->store($cacheFile, $pdf, $scoutYearId);
+        }
+
+        return $pdf;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $sections
+     * @param array<int, array{lead: ?MemberProfile, staff: MemberProfile[]}> $staffBySection
+     */
+    private function cacheFile(
+        int $scoutYearId,
+        string $yearLabel,
+        string $unitName,
+        string $siteUrl,
+        bool $showContacts,
+        array $sections,
+        array $staffBySection
+    ): ?string {
+        if ($this->cacheDirectory === null) {
+            return null;
+        }
+
+        $people = [];
+        foreach ($staffBySection as $sectionId => $data) {
+            foreach (array_merge($data['lead'] !== null ? [$data['lead']] : [], $data['staff']) as $profile) {
+                $people[] = [
+                    $sectionId,
+                    $data['lead'] === $profile,
+                    $profile->memberYearId,
+                    $profile->getDisplayName(),
+                    $profile->firstName,
+                    $profile->lastName,
+                    $showContacts ? ($profile->mobile ?: $profile->phone) : null,
+                    $showContacts ? $profile->email : null,
+                    $this->photoEmbedder->fileIdFor($profile->memberId, $scoutYearId),
+                ];
+            }
+        }
+        $layout = (string) realpath(__DIR__ . '/../Pdf/TrombinoscopeHtmlBuilder.php');
+        $layoutStat = $layout !== '' ? @stat($layout) : false;
+
+        $signature = hash('sha256', json_encode([
+            $scoutYearId,
+            $yearLabel,
+            $unitName,
+            $siteUrl,
+            $showContacts,
+            array_map(static fn(array $s): array => [
+                (int) $s['id'], $s['name'] ?? null, $s['desk_code'] ?? null, $s['branch_name'] ?? null,
+                $s['color'] ?? null, $s['email'] ?? null, $s['sort_order'] ?? null,
+            ], $sections),
+            $people,
+            $layoutStat !== false ? [$layoutStat['mtime'], $layoutStat['size']] : null,
+        ]));
+
+        return $this->cacheDirectory . '/trombinoscope/' . $scoutYearId . '-' . $signature . '.pdf';
+    }
+
+    private function store(string $cacheFile, string $pdf, int $scoutYearId): void
+    {
+        $directory = dirname($cacheFile);
+        if (!is_dir($directory) && !@mkdir($directory, 0755, true) && !is_dir($directory)) {
+            return;
+        }
+        foreach (glob($directory . '/' . $scoutYearId . '-*.pdf') ?: [] as $stale) {
+            @unlink($stale);
+        }
+        $tmp = $cacheFile . '.' . bin2hex(random_bytes(4)) . '.tmp';
+        if (@file_put_contents($tmp, $pdf) === false || !@rename($tmp, $cacheFile)) {
+            @unlink($tmp);
+        }
     }
 
     /**
@@ -97,11 +207,16 @@ class TrombinoscopePdfService
      *         with no special case and, when nobody is designated, the
      *         same "Responsable non désigné" as anybody else.
      */
-    private function buildSectionViews(int $scoutYearId, bool $showContacts): array
+    /**
+     * @param array<int, array<string, mixed>> $sections
+     * @param array<int, array{lead: ?MemberProfile, staff: MemberProfile[]}> $staffBySection
+     * @return SectionView[]
+     */
+    private function buildSectionViews(int $scoutYearId, bool $showContacts, array $sections, array $staffBySection): array
     {
         $views = [];
-        foreach ($this->sectionService->getAllWithBranches() as $section) {
-            $data = $this->trombinoscopeService->getSectionStaff((int) $section['id'], $scoutYearId);
+        foreach ($sections as $section) {
+            $data = $staffBySection[(int) $section['id']] ?? ['lead' => null, 'staff' => []];
 
             $lead = $data['lead'] !== null
                 ? $this->toStaffView($data['lead'], $scoutYearId, true, $showContacts)

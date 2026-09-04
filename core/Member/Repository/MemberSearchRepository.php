@@ -42,7 +42,14 @@ class MemberSearchRepository
     public function findAllForYear(
         int $scoutYearId,
         string $scoutYearLabel = '',
-        string $scoutYearStartDate = ''
+        string $scoutYearStartDate = '',
+        /**
+         * The address is seven more decryptions per row and the one field
+         * a search rarely lands on: the service asks for it only for the
+         * rows that matched (findAddressTexts()), and for everybody only
+         * when nothing else matched.
+         */
+        bool $withAddresses = true
     ): array
     {
         $pdo = $this->connection->getPdo();
@@ -56,7 +63,7 @@ class MemberSearchRepository
 
         $ids = array_map(static fn(array $r): int => (int) $r['id'], $rows);
         $functions = $this->loadMainFunctions($ids);
-        $addresses = $this->loadAddresses($ids);
+        $addresses = $withAddresses ? $this->loadAddresses($ids) : [];
 
         $results = [];
         foreach ($rows as $row) {
@@ -118,6 +125,20 @@ class MemberSearchRepository
         }
 
         return $map;
+    }
+
+    /**
+     * The formatted first address of each given member year — what a
+     * search result shows, and what an address search matches on.
+     *
+     * @param array<int, int> $memberYearIds
+     * @return array<int, string> keyed by member_year_id; absent when there is no address
+     */
+    public function findAddressTexts(array $memberYearIds): array
+    {
+        $memberYearIds = array_values(array_unique(array_map('intval', $memberYearIds)));
+
+        return $memberYearIds === [] ? [] : $this->loadAddresses($memberYearIds);
     }
 
     /**

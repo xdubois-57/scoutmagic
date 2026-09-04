@@ -428,12 +428,15 @@ class GroupMemberController extends AbstractController
         $alreadyIn = $this->alreadyInMemberIds($group);
 
         $groups = [];
-        foreach ($this->sectionService->getAllWithBranches() as $section) {
+        $sections = $this->sectionService->getAllWithBranches();
+        $sectionIds = array_map(static fn(array $s): int => (int) $s['id'], $sections);
+        // Two queries and one hydration for the whole unit, where this used
+        // to hydrate every section separately (ten statements per section).
+        $staffBySection = $this->sectionService->getStaffForSections($sectionIds, $scoutYearId);
+        $animesBySection = $this->sectionService->getAnimesForSections($sectionIds, $scoutYearId);
+        foreach ($sections as $section) {
             $sectionId = (int) $section['id'];
-            $profiles = array_merge(
-                $this->sectionService->getSectionStaff($sectionId, $scoutYearId),
-                $this->sectionService->getSectionAnimes($sectionId, $scoutYearId)
-            );
+            $profiles = array_merge($staffBySection[$sectionId] ?? [], $animesBySection[$sectionId] ?? []);
 
             $candidates = array_values(array_filter(
                 $profiles,
@@ -472,12 +475,14 @@ class GroupMemberController extends AbstractController
         $alreadyIn = $this->alreadyInMemberIds($group);
 
         $byMemberId = [];
-        foreach ($this->sectionService->getAllWithBranches() as $section) {
-            $sectionId = (int) $section['id'];
-            foreach (array_merge(
-                $this->sectionService->getSectionStaff($sectionId, $scoutYearId),
-                $this->sectionService->getSectionAnimes($sectionId, $scoutYearId)
-            ) as $profile) {
+        $sectionIds = array_map(
+            static fn(array $s): int => (int) $s['id'],
+            $this->sectionService->getAllWithBranches()
+        );
+        $staffBySection = $this->sectionService->getStaffForSections($sectionIds, $scoutYearId);
+        $animesBySection = $this->sectionService->getAnimesForSections($sectionIds, $scoutYearId);
+        foreach ($sectionIds as $sectionId) {
+            foreach (array_merge($staffBySection[$sectionId] ?? [], $animesBySection[$sectionId] ?? []) as $profile) {
                 if (!in_array($profile->memberId, $alreadyIn, true)) {
                     $byMemberId[$profile->memberId] = $profile;
                 }

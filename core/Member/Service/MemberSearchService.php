@@ -37,6 +37,9 @@ class MemberSearchService
     /** @var array<int, MemberSearchResult[]> Per-request cache, keyed by scout year id. */
     private array $cache = [];
 
+    /** @var array<int, true> the years whose cached rows already carry their addresses */
+    private array $cacheWithAddresses = [];
+
     public function __construct(
         private MemberSearchRepository $repository,
         private ScoutYearService $scoutYearService
@@ -61,7 +64,46 @@ class MemberSearchService
      */
     public function search(int $scoutYearId, string $query, string $scope = self::SCOPE_ACTIVE): array
     {
-        return $this->sortByName($this->matchIn($this->allForYear($scoutYearId), $query, $scope));
+        return $this->sortByName($this->matchForYear($scoutYearId, $query, $scope));
+    }
+
+    /**
+     * Match against the year's rows WITHOUT their addresses first — a
+     * search is nearly always a name, and an address is seven decryptions
+     * per row for the whole year — then fetch the addresses of the rows
+     * that matched, so the result still shows them. Only when nothing at
+     * all matched is the address pass run over everybody, once, and kept
+     * for the rest of the request.
+     *
+     * @return MemberSearchResult[]
+     */
+    private function matchForYear(int $scoutYearId, string $query, string $scope): array
+    {
+        $matched = $this->matchIn($this->allForYear($scoutYearId), $query, $scope);
+        if ($matched !== []) {
+            return $this->withAddresses($scoutYearId, $matched);
+        }
+
+        return $this->matchIn($this->allForYearWithAddresses($scoutYearId), $query, $scope);
+    }
+
+    /**
+     * @param MemberSearchResult[] $rows
+     * @return MemberSearchResult[]
+     */
+    private function withAddresses(int $scoutYearId, array $rows): array
+    {
+        if (isset($this->cacheWithAddresses[$scoutYearId])) {
+            return $rows;
+        }
+        $addresses = $this->repository->findAddressTexts(
+            array_map(static fn(MemberSearchResult $r): int => $r->memberYearId, $rows)
+        );
+
+        return array_map(
+            static fn(MemberSearchResult $r): MemberSearchResult => $r->withAddress($addresses[$r->memberYearId] ?? null),
+            $rows
+        );
     }
 
     /**
@@ -80,7 +122,9 @@ class MemberSearchService
     {
         $matched = [];
         foreach ($this->scoutYearService->getAll() as $year) {
-            $matched = [...$matched, ...$this->matchIn($this->allForYear((int) $year['id']), $query, $scope)];
+            // (matchForYear() rather than matchIn(allForYear()), for the
+            // same address economy year after year)
+            $matched = [...$matched, ...$this->matchForYear((int) $year['id'], $query, $scope)];
         }
 
         return $this->groupByMember($matched, $effectiveScoutYearId);
@@ -199,7 +243,7 @@ class MemberSearchService
     {
         foreach ($this->allForYear($scoutYearId) as $member) {
             if ($member->memberYearId === $memberYearId) {
-                return $member;
+                return $this->withAddresses($scoutYearId, [$member])[0];
             }
         }
 
@@ -212,15 +256,41 @@ class MemberSearchService
     private function allForYear(int $scoutYearId): array
     {
         if (!isset($this->cache[$scoutYearId])) {
-            $year = $this->scoutYearService->findById($scoutYearId);
-            $this->cache[$scoutYearId] = $this->repository->findAllForYear(
-                $scoutYearId,
-                (string) ($year['label'] ?? ''),
-                (string) ($year['start_date'] ?? '')
-            );
+            $this->cache[$scoutYearId] = $this->loadYear($scoutYearId, withAddresses: false);
         }
 
         return $this->cache[$scoutYearId];
+    }
+
+    /**
+     * The address pass: every row of the year with its address, loaded
+     * once and then used for everything (matching and display alike).
+     *
+     * @return MemberSearchResult[]
+     */
+    private function allForYearWithAddresses(int $scoutYearId): array
+    {
+        if (!isset($this->cacheWithAddresses[$scoutYearId])) {
+            $this->cacheWithAddresses[$scoutYearId] = true;
+            $this->cache[$scoutYearId] = $this->loadYear($scoutYearId, withAddresses: true);
+        }
+
+        return $this->cache[$scoutYearId];
+    }
+
+    /**
+     * @return MemberSearchResult[]
+     */
+    private function loadYear(int $scoutYearId, bool $withAddresses): array
+    {
+        $year = $this->scoutYearService->findById($scoutYearId);
+
+        return $this->repository->findAllForYear(
+            $scoutYearId,
+            (string) ($year['label'] ?? ''),
+            (string) ($year['start_date'] ?? ''),
+            $withAddresses
+        );
     }
 
     /**

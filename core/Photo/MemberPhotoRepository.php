@@ -38,6 +38,43 @@ class MemberPhotoRepository
     }
 
     /**
+     * findFileIdForYearOrEarlier() for many members in one query: the
+     * most recent photo of each, taken in the given year or an earlier
+     * one. A member without a photo is simply absent from the result.
+     *
+     * @param array<int, int> $memberIds
+     * @return array<int, int> member id => file id
+     */
+    public function findFileIdsForYearOrEarlier(array $memberIds, int $scoutYearId): array
+    {
+        $memberIds = array_values(array_unique(array_map('intval', $memberIds)));
+        if ($memberIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(', ', array_fill(0, count($memberIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT mp.member_id, mp.file_id
+             FROM member_photos mp
+             JOIN scout_years sy ON sy.id = mp.scout_year_id
+             JOIN scout_years target ON target.id = ?
+             WHERE mp.member_id IN ({$placeholders}) AND sy.start_date <= target.start_date
+             ORDER BY mp.member_id ASC, sy.start_date DESC"
+        );
+        $stmt->execute([$scoutYearId, ...$memberIds]);
+
+        $fileIds = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $memberId = (int) $row['member_id'];
+            if (!isset($fileIds[$memberId])) {
+                $fileIds[$memberId] = (int) $row['file_id'];
+            }
+        }
+
+        return $fileIds;
+    }
+
+    /**
      * Create or replace the photo for a member at a given scout year.
      */
     public function upsert(int $memberId, int $scoutYearId, int $fileId, ?int $createdBy): void

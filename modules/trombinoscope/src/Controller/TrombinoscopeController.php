@@ -41,7 +41,9 @@ class TrombinoscopeController extends AbstractController
         private TrombinoscopeService $trombinoscopeService,
         private ScoutYearResolver $scoutYearResolver,
         private SettingService $settingService,
-        private TrombinoscopePdfService $pdfService
+        private TrombinoscopePdfService $pdfService,
+        /** Optional so the many existing constructions keep working; without it every portrait resolves its own photo. */
+        private ?\Core\Photo\MemberPhotoService $memberPhotoService = null
     ) {
     }
 
@@ -94,15 +96,25 @@ class TrombinoscopeController extends AbstractController
             ? $allSections
             : array_values(array_filter($allSections, fn(array $s) => $s['id'] === $selectedId));
 
+        $staffBySection = $this->trombinoscopeService->getSectionStaffForSections(
+            array_map(static fn(array $s): int => (int) $s['id'], $sectionsToRender),
+            $effectiveYear->id
+        );
         $sectionBlocks = [];
+        $memberIds = [];
         foreach ($sectionsToRender as $section) {
-            $data = $this->trombinoscopeService->getSectionStaff((int) $section['id'], $effectiveYear->id);
+            $data = $staffBySection[(int) $section['id']] ?? ['lead' => null, 'staff' => []];
             $sectionBlocks[] = [
                 'section' => $section,
                 'lead' => $data['lead'],
                 'staff' => $data['staff'],
             ];
+            foreach (array_merge($data['lead'] !== null ? [$data['lead']] : [], $data['staff']) as $profile) {
+                $memberIds[] = $profile->memberId;
+            }
         }
+        // One photo query for the whole wall instead of one per portrait.
+        $this->memberPhotoService?->primeFileIds($memberIds, $effectiveYear->id);
 
         // The section picker changes what this page shows without changing
         // its URL structure (?section={id}) — the breadcrumb's own segment

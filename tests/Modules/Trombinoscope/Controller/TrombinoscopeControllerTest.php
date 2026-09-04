@@ -124,6 +124,16 @@ class TrombinoscopeControllerTest extends TestCase
             {
                 return ['lead' => $this->lead, 'staff' => []];
             }
+
+            public function getSectionStaffForSections(array $sectionIds, int $scoutYearId): array
+            {
+                $result = [];
+                foreach ($sectionIds as $id) {
+                    $result[$id] = $this->getSectionStaff($id, $scoutYearId);
+                }
+
+                return $result;
+            }
         };
 
         $settingService = new class($this->showContacts) extends SettingService {
@@ -145,6 +155,19 @@ class TrombinoscopeControllerTest extends TestCase
             new class extends StaffPhotoEmbedder {
                 public function __construct()
                 {
+                }
+
+                public function prime(array $memberIds, int $scoutYearId): void
+                {
+                }
+
+
+                public function fileIdFor(int $memberId, int $scoutYearId): ?int
+
+                {
+
+                    return null;
+
                 }
 
                 public function dataUriFor(int $memberId, int $scoutYearId): ?string

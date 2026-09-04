@@ -108,6 +108,7 @@
                 <h2 class="h5 mb-3">Nouvelles inscriptions — année {{ target_year_label }}</h2>
                 <p class="small text-body-secondary">Demandes acceptées, pas encore encodées dans Desk. La section prévue choisie ici est la même donnée que sur la fiche de la demande.</p>
                 <div class="table-responsive">
+                    {% apply compact_html %}
                     <table class="table table-sm align-middle">
                         <thead>
                             <tr>
@@ -182,6 +183,7 @@
                             {% endfor %}
                         </tbody>
                     </table>
+                    {% endapply %}
                 </div>
             </div>
         </div>
@@ -201,6 +203,7 @@
                 {% for key, group in branch_changes %}
                     <h3 class="h6 mt-4">Actuellement {{ group.section_label }}</h3>
                     <div class="table-responsive">
+                        {% apply compact_html %}
                         <table class="table table-sm align-middle">
                             <thead>
                                 <tr>
@@ -268,6 +271,7 @@
                                 {% endfor %}
                             </tbody>
                         </table>
+                        {% endapply %}
                     </div>
                 {% endfor %}
             </div>

@@ -548,4 +548,34 @@ class SectionServiceTest extends TestCase
         $this->expectExceptionMessage('Couleur invalide — format hexadécimal attendu (ex : #378ADD).');
         $this->service->updateSectionColor($sectionId, 'not-a-color');
     }
+
+    public function testGetStaffAndAnimesForSectionsAnswerEverySectionInOnePass(): void
+    {
+        $stmt = $this->pdo->prepare('SELECT id FROM age_branches WHERE desk_code = ?');
+        $stmt->execute(['BAL']);
+        $balId = (int) $stmt->fetchColumn();
+        $sectionA = $this->createSection('BAL01', $balId);
+        $sectionB = $this->createSection('BAL02', $balId);
+        $sectionC = $this->createSection('BAL03', $balId);
+
+        $this->createMemberInSection($sectionA, 'Zoé', 'chief');
+        $this->createMemberInSection($sectionA, 'Alice', 'admin');
+        $this->createMemberInSection($sectionA, 'Kid', 'identified');
+        $this->createMemberInSection($sectionB, 'Charlie', 'chief');
+        $this->createMemberInSection($sectionB, 'Intendant', 'intendant');
+
+        $staff = $this->service->getStaffForSections([$sectionA, $sectionB, $sectionC], $this->scoutYearId);
+        $animes = $this->service->getAnimesForSections([$sectionA, $sectionB, $sectionC], $this->scoutYearId);
+
+        $this->assertSame([$sectionA, $sectionB, $sectionC], array_keys($staff));
+        $this->assertSame(['Alice', 'Zoé'], array_map(fn($p) => $p->firstName, $staff[$sectionA]), 'sorted by display name');
+        $this->assertSame(['Charlie'], array_map(fn($p) => $p->firstName, $staff[$sectionB]));
+        $this->assertSame([], $staff[$sectionC]);
+        $this->assertSame(['Kid'], array_map(fn($p) => $p->firstName, $animes[$sectionA]));
+        $this->assertSame([], $animes[$sectionB], 'an intendant is neither staff nor animé, as in getSectionAnimes()');
+        $this->assertSame(
+            array_map(fn($p) => $p->memberYearId, $this->service->getSectionStaff($sectionA, $this->scoutYearId)),
+            array_map(fn($p) => $p->memberYearId, $staff[$sectionA])
+        );
+    }
 }

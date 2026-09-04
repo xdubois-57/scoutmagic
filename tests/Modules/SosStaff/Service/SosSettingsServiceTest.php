@@ -88,6 +88,16 @@ class SosSettingsServiceTest extends TestCase
             {
                 return $this->profile;
             }
+
+            public function getResponsables(array $sectionIds, int $scoutYearId): array
+            {
+                $byId = [];
+                foreach ($sectionIds as $id) {
+                    $byId[$id] = $this->getResponsable($id, $scoutYearId);
+                }
+
+                return $byId;
+            }
         };
     }
 

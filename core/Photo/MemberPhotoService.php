@@ -45,6 +45,34 @@ class MemberPhotoService
     }
 
     /**
+     * Resolve many members' photos in one query and remember them, so
+     * that the resolveFileId() calls a page's templates make afterwards
+     * (Core\View\TwigFactory's member_photo()) hit the memo instead of the
+     * database. A page listing N members used to issue N photo queries —
+     * 132 on the trombinoscope of a large unit; a controller that knows
+     * which members it is about to render primes them here first.
+     *
+     * @param array<int, int> $memberIds
+     */
+    public function primeFileIds(array $memberIds, int $scoutYearId): void
+    {
+        $missing = [];
+        foreach (array_unique(array_map('intval', $memberIds)) as $memberId) {
+            if (!array_key_exists($memberId . ':' . $scoutYearId, $this->resolved)) {
+                $missing[] = $memberId;
+            }
+        }
+        if ($missing === []) {
+            return;
+        }
+
+        $found = $this->repository->findFileIdsForYearOrEarlier($missing, $scoutYearId);
+        foreach ($missing as $memberId) {
+            $this->resolved[$memberId . ':' . $scoutYearId] = $found[$memberId] ?? null;
+        }
+    }
+
+    /**
      * Set (create or replace) the photo for a member at a given scout year.
      */
     public function setPhoto(int $memberId, int $scoutYearId, int $fileId, ?int $createdBy): void

@@ -58,6 +58,48 @@ class TrombinoscopeRepository
     }
 
     /**
+     * getEligibleStaffForSection() for several sections in one query.
+     *
+     * @param array<int, int> $sectionIds
+     * @return array<int, array<int, array{member_year_id: int, is_lead: bool}>> keyed by section id, every
+     *         requested section present (possibly empty), in the order the function rows were declared
+     */
+    public function getEligibleStaffForSections(array $sectionIds, int $scoutYearId): array
+    {
+        $sectionIds = array_values(array_unique(array_map('intval', $sectionIds)));
+        $bySection = array_fill_keys($sectionIds, []);
+        if ($sectionIds === []) {
+            return $bySection;
+        }
+
+        $placeholders = implode(', ', array_fill(0, count($sectionIds), '?'));
+        $stmt = $this->connection->getPdo()->prepare(
+            "SELECT mf.section_id, mf.member_year_id, mf.is_main_function, mf.id AS mf_id,
+                    COALESCE(tff.is_lead, 0) AS is_lead
+             FROM member_functions mf
+             JOIN member_years my ON mf.member_year_id = my.id
+             JOIN functions f ON mf.function_id = f.id
+             LEFT JOIN trombinoscope_function_flags tff ON tff.function_id = f.id
+             WHERE mf.section_id IN ({$placeholders}) AND my.scout_year_id = ? AND my.is_active = 1
+               AND f.role IN ('chief', 'admin')
+             ORDER BY mf.section_id ASC, mf.is_main_function DESC, mf.id ASC"
+        );
+        $stmt->execute([...$sectionIds, $scoutYearId]);
+
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $sectionId = (int) $row['section_id'];
+            $memberYearId = (int) $row['member_year_id'];
+            if (!isset($bySection[$sectionId][$memberYearId])) {
+                $bySection[$sectionId][$memberYearId] = ['member_year_id' => $memberYearId, 'is_lead' => (bool) $row['is_lead']];
+            } elseif ((bool) $row['is_lead']) {
+                $bySection[$sectionId][$memberYearId]['is_lead'] = true;
+            }
+        }
+
+        return array_map('array_values', $bySection);
+    }
+
+    /**
      * Every currently eligible staff member's persistent member id, across
      * every section combined (Lot 3 offline photo pre-download —
      * Core\Http\Controller\OfflineController). Same eligibility rule as

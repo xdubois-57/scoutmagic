@@ -2919,12 +2919,14 @@ if ($isEnabled('trombinoscope')) {
             $imageVariantService,
             $storagePath
         ),
-        new \Modules\Trombinoscope\Pdf\TrombinoscopeHtmlBuilder()
+        new \Modules\Trombinoscope\Pdf\TrombinoscopeHtmlBuilder(),
+        // The rendered document is kept here until its inputs change.
+        $storagePath . '/temp'
     );
     $frontController->registerController(
         \Modules\Trombinoscope\Controller\TrombinoscopeController::class,
         new \Modules\Trombinoscope\Controller\TrombinoscopeController($twig, $sectionService, $trombinoscopeService,
-            $scoutYearResolver, $settingService, $trombinoscopePdfService)
+            $scoutYearResolver, $settingService, $trombinoscopePdfService, $memberPhotoService)
     );
 
     // The module's three core-hook implementations (§7.4), registered

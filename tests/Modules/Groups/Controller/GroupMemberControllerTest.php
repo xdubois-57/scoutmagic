@@ -131,6 +131,10 @@ class GroupMemberControllerTest extends TestCase
         $sectionService->method('getSection')->willReturn(['id' => $this->sectionId, 'name' => 'Louveteaux', 'desk_code' => 'LOU']);
         $sectionService->method('getSectionStaff')->willReturn($candidateProfiles);
         $sectionService->method('getSectionAnimes')->willReturn([]);
+        $sectionService->method('getStaffForSections')
+            ->willReturnCallback(static fn(array $ids): array => array_fill_keys($ids, $candidateProfiles));
+        $sectionService->method('getAnimesForSections')
+            ->willReturnCallback(static fn(array $ids): array => array_fill_keys($ids, []));
 
         $twig = TwigFactory::create(
             dirname(__DIR__, 4) . '/core/View/templates',

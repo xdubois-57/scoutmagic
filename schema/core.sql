@@ -273,6 +273,11 @@ CREATE TABLE member_years (
     -- the plain idx_scout_year used to do; SchemaComparator never drops
     -- an index, so installs that predate this composite simply keep both.
     INDEX idx_my_year_active (scout_year_id, is_active),
+    -- The roster filter plus the departure flag, for the attention point
+    -- that counts members marked as leaving while still active
+    -- (Core\Attention\CoreAttentionRepository) — index-only instead of a
+    -- scan of the year's rows.
+    INDEX idx_my_year_active_leaving (scout_year_id, is_active, leaving),
     INDEX idx_email_blind (email_blind_index),
     CONSTRAINT fk_my_member FOREIGN KEY (member_id) REFERENCES members(id),
     CONSTRAINT fk_my_year FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
@@ -312,6 +317,14 @@ CREATE TABLE member_functions (
     end_date DATE,
     mandate_end DATE,
     is_main_function BOOLEAN NOT NULL DEFAULT FALSE,
+    -- The most-joined table of the roster path had no declared index and
+    -- relied on the implicit foreign-key ones; every hot read filters on a
+    -- section or a member year and sorts on (is_main_function DESC, id),
+    -- which these two serve without a filesort. Additive: SchemaComparator
+    -- matches indexes by name and never drops one, so an install that
+    -- predates them simply gains them on its next migration.
+    INDEX idx_mf_section_main (section_id, is_main_function, id),
+    INDEX idx_mf_member_year_main (member_year_id, is_main_function, id),
     CONSTRAINT fk_mf_member_year FOREIGN KEY (member_year_id) REFERENCES member_years(id) ON DELETE CASCADE,
     CONSTRAINT fk_mf_function FOREIGN KEY (function_id) REFERENCES functions(id),
     CONSTRAINT fk_mf_section FOREIGN KEY (section_id) REFERENCES sections(id),

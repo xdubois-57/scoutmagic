@@ -228,13 +228,6 @@ class SchedulerService
     }
 
     /**
-     * Back to one queued row, keeping the one that runs first.
-     *
-     * Cheap in the ordinary case — the guard above already established
-     * there is at least one, and collapsePending() returns without a
-     * write unless there are two.
-     */
-    /**
      * collapse(), unless the snapshot already proves there is nothing to
      * collapse. Without the cache the answer is not known, so the repository
      * is asked as before (one SELECT, the cron path). With it, the snapshot
@@ -253,6 +246,13 @@ class SchedulerService
         $this->collapse($moduleId, $taskKey, $reference);
     }
 
+    /**
+     * Back to one queued row, keeping the one that runs first.
+     *
+     * Cheap in the ordinary case — the guard above already established
+     * there is at least one, and collapsePending() returns without a
+     * write unless there are two.
+     */
     private function collapse(string $moduleId, string $taskKey, string $reference): void
     {
         if ($this->repository->collapsePending($moduleId, $taskKey, $reference) > 0) {

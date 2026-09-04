@@ -31,7 +31,11 @@ final class SpreadsheetResponse
             throw new \RuntimeException('Impossible de créer le fichier temporaire pour l\'export.');
         }
 
-        (new Xlsx($spreadsheet))->save($tmp);
+        $writer = new Xlsx($spreadsheet);
+        // Every export in this codebase writes explicitly typed cells (see
+        // Core\Export\TabularSpreadsheet): nothing to calculate.
+        $writer->setPreCalculateFormulas(false);
+        $writer->save($tmp);
         $spreadsheet->disconnectWorksheets();
 
         return (new Response())

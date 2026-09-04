@@ -35,6 +35,45 @@ class TrombinoscopeService implements SectionResponsableProvider, StaffDirectory
             array_map(fn(array $entry) => (int) $entry['member_year_id'], $eligible)
         );
 
+        return $this->splitLeadAndStaff($eligible, $profiles);
+    }
+
+    /**
+     * getSectionStaff() for every section of the wall, the PDF or the
+     * public sections page in one pass: one eligibility query and one
+     * profile hydration for all of them, instead of five queries per
+     * section (fourteen sections used to cost seventy).
+     *
+     * @param array<int, int> $sectionIds
+     * @return array<int, array{lead: ?MemberProfile, staff: MemberProfile[]}> keyed by section id
+     */
+    public function getSectionStaffForSections(array $sectionIds, int $scoutYearId): array
+    {
+        $eligibleBySection = $this->repository->getEligibleStaffForSections($sectionIds, $scoutYearId);
+
+        $memberYearIds = [];
+        foreach ($eligibleBySection as $eligible) {
+            foreach ($eligible as $entry) {
+                $memberYearIds[] = (int) $entry['member_year_id'];
+            }
+        }
+        $profiles = $this->sectionService->hydrateMemberProfiles($memberYearIds);
+
+        $result = [];
+        foreach ($eligibleBySection as $sectionId => $eligible) {
+            $result[$sectionId] = $this->splitLeadAndStaff($eligible, $profiles);
+        }
+
+        return $result;
+    }
+
+    /**
+     * @param array<int, array{member_year_id: int, is_lead: bool}> $eligible
+     * @param array<int, MemberProfile> $profiles keyed by member_year_id
+     * @return array{lead: ?MemberProfile, staff: MemberProfile[]}
+     */
+    private function splitLeadAndStaff(array $eligible, array $profiles): array
+    {
         $lead = null;
         $staff = [];
         foreach ($eligible as $entry) {
@@ -52,6 +91,20 @@ class TrombinoscopeService implements SectionResponsableProvider, StaffDirectory
         usort($staff, fn(MemberProfile $a, MemberProfile $b) => strcasecmp($a->getDisplayName(), $b->getDisplayName()));
 
         return ['lead' => $lead, 'staff' => $staff];
+    }
+
+    /**
+     * The responsable of every requested section, in one pass.
+     *
+     * @param array<int, int> $sectionIds
+     * @return array<int, ?MemberProfile> keyed by section id
+     */
+    public function getResponsables(array $sectionIds, int $scoutYearId): array
+    {
+        return array_map(
+            static fn(array $data): ?MemberProfile => $data['lead'],
+            $this->getSectionStaffForSections($sectionIds, $scoutYearId)
+        );
     }
 
     /**

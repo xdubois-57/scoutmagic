@@ -672,8 +672,12 @@ class CampsChiefController extends AbstractController
         );
 
         $names = [];
-        foreach ($this->sections->getAllWithBranches() as $section) {
-            foreach ($this->sections->getSectionStaff((int) $section['id'], $year->id) as $profile) {
+        $staffBySection = $this->sections->getStaffForSections(
+            array_map(static fn(array $s): int => (int) $s['id'], $this->sections->getAllWithBranches()),
+            $year->id
+        );
+        foreach ($staffBySection as $staff) {
+            foreach ($staff as $profile) {
                 $name = trim($profile->firstName . ' ' . $profile->lastName);
                 if ($name !== '') {
                     $names[$profile->memberId] = $name;

@@ -929,7 +929,13 @@ class MassMailController extends AbstractController
         // (Modules\Registration\Api\ProjectedPopulationProvider), which is
         // exactly what the warning below is about. Without that module the
         // old rule stands unchanged.
-        $nextIsProjected = $this->mailingListService->futureAudienceWarning($nextId) !== null
+        // Computing the projected audience means running the registration
+        // module's whole projection (every animé of the year, decrypted);
+        // an import for next year already makes it available, so the
+        // projection is only asked when nothing cheaper answers.
+        $nextImported = $this->importJournalRepository->findByYear($nextId) !== [];
+        $nextIsProjected = !$nextImported
+            && $this->mailingListService->futureAudienceWarning($nextId) !== null
             && $this->mailingListService->resolveMembers('default_active_members', null, null, $nextId) !== [];
 
         return [
@@ -943,7 +949,7 @@ class MassMailController extends AbstractController
             'next' => [
                 'id' => $nextId,
                 'label' => $nextLabel,
-                'available' => $this->importJournalRepository->findByYear($nextId) !== [] || $nextIsProjected,
+                'available' => $nextImported || $nextIsProjected,
                 // Null for the current year and for any past one: a warning
                 // shown on every ordinary send is a warning nobody reads.
                 'warning' => $this->mailingListService->futureAudienceWarning($nextId),

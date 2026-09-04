@@ -94,4 +94,17 @@ class BadgeRepositoryTest extends TestCase
 
         $this->assertNull($this->repository->findById($id));
     }
+
+    public function testFindAllByReferentSectionKeysEveryReferentBadgeByItsSection(): void
+    {
+        $this->repository->create('Infirmier', true);
+        $a = $this->repository->create('Référent Meute', false, 12);
+        $b = $this->repository->create('Référent Troupe', false, 13);
+
+        $bySection = $this->repository->findAllByReferentSection();
+
+        $this->assertSame([12, 13], array_keys($bySection));
+        $this->assertSame($a, $bySection[12]->id);
+        $this->assertSame($b, $bySection[13]->id);
+    }
 }
