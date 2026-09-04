@@ -145,12 +145,30 @@ class HelpAssistantRbacTest extends TestCase
         );
     }
 
+    /**
+     * Byte offset of the GET registration for $path, or null if there is none.
+     */
+    private static function offsetOfRoute(string $source, string $path): ?int
+    {
+        $matched = preg_match(
+            '/addRoute\s*\(\s*[\'"]GET[\'"]\s*,\s*[\'"]' . preg_quote($path, '/') . '[\'"]\s*,/',
+            $source,
+            $m,
+            PREG_OFFSET_CAPTURE
+        );
+
+        return $matched === 1 ? (int) $m[0][1] : null;
+    }
+
     public function testTheAssistantPageIsRegisteredBeforeTheTopicRoute(): void
     {
         $source = self::source();
 
-        $assistant = strpos($source, "addRoute('GET', '/aide/assistant'");
-        $topic = strpos($source, "addRoute('GET', '/aide/{topic}'");
+        // Offset of each registration, found whitespace-tolerantly: the
+        // composition root wraps long addRoute() calls one argument per line,
+        // and this test is about ORDER, never about layout.
+        $assistant = self::offsetOfRoute($source, '/aide/assistant');
+        $topic = self::offsetOfRoute($source, '/aide/{topic}');
 
         $this->assertIsInt($assistant, 'GET /aide/assistant is not registered.');
         $this->assertIsInt($topic, 'GET /aide/{topic} is not registered.');

@@ -48,7 +48,9 @@ class SupportSettingsAreRegisteredTest extends TestCase
 
         foreach (self::declaredSettings() as $class => $keys) {
             foreach ($keys as $constant => $key) {
-                if (!str_contains($index, "register('" . $key . "'")) {
+                // \s* between the paren and the key: the composition root
+                // wraps long register() calls one argument per line.
+                if (preg_match("/register\\(\\s*'" . preg_quote($key, '/') . "'/", $index) !== 1) {
                     $missing[] = sprintf('%s::%s (%s)', self::shortName($class), $constant, $key);
                 }
             }

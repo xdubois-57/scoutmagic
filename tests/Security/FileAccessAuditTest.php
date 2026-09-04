@@ -93,7 +93,8 @@ class FileAccessAuditTest extends TestCase
         $this->assertSame(
             1,
             preg_match(
-                '/addRoute\s*\([^;]*MaintenanceController::class\s*,\s*[\'"]' . preg_quote($action, '/') . '[\'"]\s*,\s*[\'"]([a-z_]+)[\'"]\s*\)/',
+                '/addRoute\s*\([^;]*MaintenanceController::class\s*,\s*[\'"]' . preg_quote($action, '/')
+                . '[\'"]\s*,\s*[\'"]([a-z_]+)[\'"]\s*,?\s*\)/',
                 $contents,
                 $m
             ),
