@@ -186,6 +186,16 @@ test.describe('Rentals', () => {
         await renter.locator('input[name="accept_conditions"]').check();
         await renter.locator('input[name="accept_privacy"]').check();
 
+        // NOTE FOR ANYONE PROBING THIS SPEC'S STABILITY: do not reach for
+        // --repeat-each. HumanCheck's third barrier is a per-IP sliding
+        // window (5 attempts / 10 minutes by default,
+        // core/Security/HumanCheck/HumanCheckService.php), and every repeat
+        // submits this form from the same address, so the 6th run is
+        // refused with « Votre demande n'a pas pu être envoyée » — a real
+        // rejection by a barrier working exactly as specified, which reads
+        // as a flaky test and is not one. Sample this spec with separate
+        // invocations instead.
+        //
         // Core\Security\HumanCheck refuses a form submitted faster than a
         // human could have filled it — a real barrier, and one this
         // scenario has to clear the way a visitor does rather than
