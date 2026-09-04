@@ -159,6 +159,9 @@ php_get() {
     return $?
 }
 
+# How every list of issue keys is printed below.
+KEY_LINE='  %s\n'
+
 # --- 1. Confirm a SonarQube analysis exists for the exact commit being released ---
 # Fail closed if the branch has no analysis yet, or its most recent analysis
 # does not correspond to the local HEAD commit — this is exactly the "l'état
@@ -300,9 +303,9 @@ fi
 
 if [[ "${BLOCKED}" -eq 1 ]]; then
     {
-        [[ -n "${SECURITY_ISSUES_KEYS}" ]] && { echo "Blocking security issues:"; printf '  %s\n' ${SECURITY_ISSUES_KEYS}; }
-        [[ -n "${HOTSPOTS_KEYS}" ]] && { echo "Unreviewed security hotspots:"; printf '  %s\n' ${HOTSPOTS_KEYS}; }
-        [[ -n "${BLOCKING_KEYS}" ]] && { echo "Blocking issues (first 10 of ${BLOCKING_COUNT}):"; printf '  %s\n' ${BLOCKING_KEYS}; }
+        [[ -n "${SECURITY_ISSUES_KEYS}" ]] && { echo "Blocking security issues:"; printf "${KEY_LINE}" ${SECURITY_ISSUES_KEYS}; }
+        [[ -n "${HOTSPOTS_KEYS}" ]] && { echo "Unreviewed security hotspots:"; printf "${KEY_LINE}" ${HOTSPOTS_KEYS}; }
+        [[ -n "${BLOCKING_KEYS}" ]] && { echo "Blocking issues (first 10 of ${BLOCKING_COUNT}):"; printf "${KEY_LINE}" ${BLOCKING_KEYS}; }
         echo "See: ${SONAR_HOST_URL}/project/issues?id=$(php -r 'echo rawurlencode($argv[1]);' "${SONAR_PROJECT_KEY}")&branch=$(php -r 'echo rawurlencode($argv[1]);' "${SONAR_BRANCH}")&resolved=false"
     } >&2
     fail
