@@ -132,7 +132,12 @@ describe('file-viewer', () => {
             document.getElementById('photo').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
             const download = viewer().querySelector('a');
-            expect(download.getAttribute('href')).toBe('/files/7');
+            // The RESOLVED URL, not the trigger's relative string: open()
+            // assigns what safeViewerUrl() validated rather than what it
+            // was handed, so that a checker can see the value reaching the
+            // sink is the one that was approved. Same resource either way —
+            // a browser resolves an anchor's .href to absolute regardless.
+            expect(download.href).toBe(new URL('/files/7', document.location.href).href);
             expect(download.getAttribute('download')).toBe('recu.png');
         });
 

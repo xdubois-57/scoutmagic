@@ -251,20 +251,30 @@
      * its scheme, while `javascript:`, `data:` and `vbscript:` do not.
      *
      * @param {string} href
-     * @returns {boolean}
+     * @returns {string|null} the resolved URL, or null when it may not be used
      */
-    function isViewableUrl(href) {
+    function safeViewerUrl(href) {
         if (!href) {
-            return false;
+            return null;
         }
 
         try {
             var resolved = new URL(href, doc.location.href);
+            if (resolved.protocol !== 'http:' && resolved.protocol !== 'https:') {
+                return null;
+            }
 
-            return resolved.protocol === 'http:' || resolved.protocol === 'https:';
+            // The RESOLVED href, not the caller's string. Assigning what
+            // was validated rather than what was inspected is the whole
+            // point: the two can differ, and a checker — human or CodeQL —
+            // cannot tell that a later assignment of the raw input is the
+            // same value it just approved. CodeQL kept both alerts open
+            // against a boolean version of this function for exactly that
+            // reason, and it was right to.
+            return resolved.href;
         } catch (e) {
             // Not a URL at all — certainly not one to hand a sink.
-            return false;
+            return null;
         }
     }
 
@@ -287,7 +297,8 @@
      *        type, null when it is to be discovered
      */
     function open(href, label, known) {
-        if (!isViewableUrl(href)) {
+        var safeHref = safeViewerUrl(href);
+        if (safeHref === null) {
             return;
         }
 
@@ -296,7 +307,7 @@
         }
 
         name.textContent = label;
-        download.href = href;
+        download.href = safeHref;
         // The name rides on `download` only where that attribute is safe.
         // In the installed app it is the trap itself — setting it here
         // would put the viewer's own button back on Safari's download
@@ -314,7 +325,7 @@
             image.onerror = function () {
                 showFallback(label);
             };
-            image.src = href;
+            image.src = safeHref;
             image.alt = label;
             image.classList.remove('d-none');
             fallback.classList.add('d-none');
