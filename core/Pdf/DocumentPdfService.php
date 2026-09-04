@@ -137,7 +137,10 @@ class DocumentPdfService
                 <meta charset="UTF-8">
                 <style>
                     @page { margin: 24mm 18mm 22mm 18mm; }
-                    body { font-family: "DejaVu Sans", sans-serif; font-size: 10.5pt; line-height: 1.5; color: #1a1a1a; }
+                    body {
+                        font-family: "DejaVu Sans", sans-serif;
+                        font-size: 10.5pt; line-height: 1.5; color: #1a1a1a;
+                    }
                     header { border-bottom: 1px solid #888; padding-bottom: 8px; margin-bottom: 18px; }
                     h1 { font-size: 16pt; margin: 0 0 4px 0; }
                     .unit { font-size: 9pt; color: #555; }

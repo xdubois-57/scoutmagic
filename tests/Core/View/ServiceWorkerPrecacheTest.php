@@ -111,14 +111,14 @@ class ServiceWorkerPrecacheTest extends TestCase
      */
     public function testIconFetchHandlerDoesNotUseIgnoreSearch(): void
     {
-        preg_match('/if \(ICON_URLS\.indexOf\(url\.pathname\) !== -1\) \{(.*?)\n    \}/s', $this->swJs, $m);
+        preg_match('/if \(ICON_URLS\.includes\(url\.pathname\)\) \{(.*?)\n    \}/s', $this->swJs, $m);
         $this->assertNotEmpty($m, 'Could not locate the ICON_URLS fetch-handler branch in public/sw.js');
         $this->assertStringNotContainsString('ignoreSearch', $m[1]);
     }
 
     public function testAppShellBaseFetchHandlerStillUsesIgnoreSearch(): void
     {
-        preg_match('/if \(APP_SHELL_BASE_URLS\.indexOf\(url\.pathname\) !== -1\) \{(.*?)\n    \}/s', $this->swJs, $m);
+        preg_match('/if \(APP_SHELL_BASE_URLS\.includes\(url\.pathname\)\) \{(.*?)\n    \}/s', $this->swJs, $m);
         $this->assertNotEmpty($m, 'Could not locate the APP_SHELL_BASE_URLS fetch-handler branch in public/sw.js');
         $this->assertStringContainsString('ignoreSearch', $m[1]);
     }

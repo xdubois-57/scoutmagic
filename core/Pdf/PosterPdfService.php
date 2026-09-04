@@ -144,7 +144,10 @@ class PosterPdfService
         </div>
         <div class="qr-url">' . htmlspecialchars($qrUrl, ENT_QUOTES, 'UTF-8') . '</div>
     </div>
-    <div class="footer">' . htmlspecialchars($unitShortName, ENT_QUOTES, 'UTF-8') . ' — ' . htmlspecialchars($date, ENT_QUOTES, 'UTF-8') . '</div>
+    <div class="footer">'
+        . htmlspecialchars($unitShortName, ENT_QUOTES, 'UTF-8')
+        . ' — '
+        . htmlspecialchars($date, ENT_QUOTES, 'UTF-8') . '</div>
 </body>
 </html>';
     }

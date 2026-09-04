@@ -64,7 +64,13 @@ class OfflineWhitelist
         // launch — one of the heaviest pages of the site (every staff of
         // a section, badges, photos), and the installed app used to
         // render it on every launch for everyone who might open it.
-        ['path' => '/chefs/staffs', 'label' => 'Staffs', 'match' => 'exact', 'role_min' => 'intendant', 'prefetch' => false],
+        [
+            'path' => '/chefs/staffs',
+            'label' => 'Staffs',
+            'match' => 'exact',
+            'role_min' => 'intendant',
+            'prefetch' => false,
+        ],
         // Contextual help (ARCHITECTURE.md §8.64) — product documentation
         // shipped with the release, so keeping it readable offline costs
         // nothing sensitive. role_min public on both: a topic page a role

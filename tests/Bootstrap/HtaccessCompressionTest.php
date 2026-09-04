@@ -40,6 +40,32 @@ class HtaccessCompressionTest extends TestCase
         return (string) file_get_contents(dirname(__DIR__, 2) . '/' . $path);
     }
 
+    /**
+     * Every type named by the source's DEFLATE directives, sorted.
+     *
+     * Apache accepts AddOutputFilterByType repeated, and both sources use
+     * that to stay inside a 120-character line. Reading only the FIRST
+     * directive would compare a quarter of one list against a quarter of
+     * the other and call them equal, so this gathers all of them.
+     *
+     * @return string[]
+     */
+    private function compressedTypes(string $kind, string $path): array
+    {
+        preg_match_all('/AddOutputFilterByType DEFLATE ([^\n]+)/', $this->source($kind, $path), $m);
+        $types = [];
+        foreach ($m[1] ?? [] as $list) {
+            foreach (preg_split('/\s+/', trim($list)) ?: [] as $type) {
+                if ($type !== '') {
+                    $types[] = $type;
+                }
+            }
+        }
+        sort($types);
+
+        return $types;
+    }
+
     #[DataProvider('htaccessSources')]
     public function testCompressionIsEnabledForTextResponses(string $kind, string $path): void
     {
@@ -70,11 +96,11 @@ class HtaccessCompressionTest extends TestCase
     #[DataProvider('htaccessSources')]
     public function testAlreadyCompressedBinaryTypesAreNeverInTheList(string $kind, string $path): void
     {
-        preg_match('/AddOutputFilterByType DEFLATE ([^\n]+)/', $this->source($kind, $path), $m);
-        $this->assertNotEmpty($m, 'the DEFLATE directive must exist');
+        $types = $this->compressedTypes($kind, $path);
+        $this->assertNotEmpty($types, 'the DEFLATE directive must exist');
 
         foreach (['image/webp', 'image/png', 'image/jpeg', 'application/pdf', 'video/', 'font/'] as $binaryType) {
-            $this->assertStringNotContainsString($binaryType, $m[1]);
+            $this->assertStringNotContainsString($binaryType, implode(' ', $types));
         }
     }
 
@@ -85,9 +111,9 @@ class HtaccessCompressionTest extends TestCase
      */
     public function testBothSourcesCompressTheSameTypes(): void
     {
-        preg_match('/AddOutputFilterByType DEFLATE ([^\n]+)/', $this->source('file', 'public/.htaccess'), $a);
-        preg_match('/AddOutputFilterByType DEFLATE ([^\n]+)/', $this->source('generated', ''), $b);
+        $fromFile = $this->compressedTypes('file', 'public/.htaccess');
 
-        $this->assertSame(trim($a[1] ?? ''), trim($b[1] ?? ''));
+        $this->assertNotEmpty($fromFile, 'the DEFLATE directive must exist');
+        $this->assertSame($fromFile, $this->compressedTypes('generated', ''));
     }
 }

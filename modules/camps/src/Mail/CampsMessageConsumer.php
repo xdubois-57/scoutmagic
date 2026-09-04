@@ -72,7 +72,10 @@ use Modules\InboundMail\Api\ReferenceSuggestion;
  * stay has no way to know. Saying « c'est l'un de ces deux, choisissez »
  * is the honest middle the module used to lack.
  */
-class CampsMessageConsumer implements MessageConsumerInterface, ReferenceDirectory, \Modules\InboundMail\Api\PropositionListener
+class CampsMessageConsumer implements
+    MessageConsumerInterface,
+    ReferenceDirectory,
+    \Modules\InboundMail\Api\PropositionListener
 {
     public const CONSUMER_ID = 'camps';
 

@@ -77,7 +77,8 @@ class StatisticsPayloadBuilder
             'statistics_schema_version' => self::STATISTICS_SCHEMA_VERSION,
             'installation_id' => $this->collect(fn(): string => $this->identityService->getInstallationId()),
             'instance_url' => $this->collect(fn(): ?string => $this->settingValue('base_url')),
-            'generated_at' => (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format(\DateTimeInterface::ATOM),
+            'generated_at' => (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))
+                ->format(\DateTimeInterface::ATOM),
             'scoutmagic' => [
                 'version' => $this->collect(fn(): string => VersionFile::read($this->projectRoot)),
                 'is_dev_build' =>

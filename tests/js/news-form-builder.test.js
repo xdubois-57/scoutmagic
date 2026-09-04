@@ -151,7 +151,7 @@ describe('news-form-builder.js: sanitizeHtml() — attributes', () => {
         expect(sanitizeHtml('<p ONCLICK="alert(1)">x</p>')).toBe('<p>x</p>');
     });
 
-    // Mutation-checked: removing the `name.indexOf('on') === 0` guard from
+    // Mutation-checked: removing the `name.startsWith('on')` guard from
     // sanitizeHtmlAttributes() breaks NO black-box test, because no allowlist
     // currently contains an attribute starting with "on", so the per-tag
     // allowlist rejects every handler on its own. The guard is therefore

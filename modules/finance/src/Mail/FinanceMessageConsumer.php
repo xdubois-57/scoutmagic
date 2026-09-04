@@ -76,7 +76,10 @@ use Modules\InboundMail\Api\ReferenceSuggestion;
  * this account". A consumer that needed finance to change would have been
  * a consumer built at the wrong layer.
  */
-class FinanceMessageConsumer implements MessageConsumerInterface, ReferenceDirectory, \Modules\InboundMail\Api\PropositionListener
+class FinanceMessageConsumer implements
+    MessageConsumerInterface,
+    ReferenceDirectory,
+    \Modules\InboundMail\Api\PropositionListener
 {
     public const CONSUMER_ID = 'finance';
 

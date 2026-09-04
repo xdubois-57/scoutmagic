@@ -90,7 +90,10 @@ class TrombinoscopeRepository
             $sectionId = (int) $row['section_id'];
             $memberYearId = (int) $row['member_year_id'];
             if (!isset($bySection[$sectionId][$memberYearId])) {
-                $bySection[$sectionId][$memberYearId] = ['member_year_id' => $memberYearId, 'is_lead' => (bool) $row['is_lead']];
+                $bySection[$sectionId][$memberYearId] = [
+                    'member_year_id' => $memberYearId,
+                    'is_lead' => (bool) $row['is_lead'],
+                ];
             } elseif ((bool) $row['is_lead']) {
                 $bySection[$sectionId][$memberYearId]['is_lead'] = true;
             }

@@ -78,7 +78,7 @@ class OfflineNavDialogTest extends TestCase
     public function testChildMatchLogicMirrorsExactlyOneExtraSegment(): void
     {
         $this->assertStringContainsString("entry.match === 'child'", $this->navJs);
-        $this->assertStringContainsString("remainder.indexOf('/') === -1", $this->navJs);
+        $this->assertStringContainsString("!remainder.includes('/')", $this->navJs);
     }
 
     public function testAppliedStateNeverForcesTabindex(): void
