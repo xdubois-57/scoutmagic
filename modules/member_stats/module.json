@@ -27,7 +27,8 @@
       "path": "/chiefs/stats",
       "label": "Statistiques",
       "match": "exact",
-      "role_min": "chief"
+      "role_min": "chief",
+      "prefetch": false
     }
   ]
 }

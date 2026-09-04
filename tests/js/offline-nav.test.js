@@ -269,18 +269,51 @@ describe('offline-nav.js: click interception (layer 1a — links)', () => {
         expect(modalInstance.show).not.toHaveBeenCalled();
     });
 
-    it('blocks a click and opens the dialog with the PAGE message while offline on a non-whitelisted link', async () => {
+    it('blocks a click and opens the dialog with the PAGE message while offline on a non-whitelisted link, once the network confirmed it is away', async () => {
         buildConfig(CORE_WHITELIST);
         buildDialog();
         const link = buildLink('/finance');
         setOnline(false);
+        const probe = vi.fn(() => Promise.reject(new TypeError('Failed to fetch')));
+        window.fetch = probe;
         await boot();
 
         const evt = new MouseEvent('click', { bubbles: true, cancelable: true });
         link.dispatchEvent(evt);
         expect(evt.defaultPrevented).toBe(true);
-        expect(modalInstance.show).toHaveBeenCalled();
+        await vi.waitFor(() => expect(modalInstance.show).toHaveBeenCalled());
+        expect(probe).toHaveBeenCalledWith('/api/version', expect.objectContaining({ method: 'HEAD', cache: 'no-store' }));
         expect(document.getElementById('offline-dialog-message').textContent).toBe("Cette page n'est pas disponible hors ligne.");
+    });
+
+    it('opens the page after all when navigator.onLine was stale and the server answers the probe', async () => {
+        buildConfig(CORE_WHITELIST);
+        buildDialog();
+        const link = buildLink('/finance');
+        setOnline(false);
+        window.fetch = vi.fn(() => Promise.resolve({ ok: true }));
+        const assign = vi.fn();
+        vi.stubGlobal('location', { ...window.location, assign });
+        await boot();
+
+        const evt = new MouseEvent('click', { bubbles: true, cancelable: true });
+        link.dispatchEvent(evt);
+        expect(evt.defaultPrevented).toBe(true);
+        await vi.waitFor(() => expect(assign).toHaveBeenCalledWith(link.href));
+        expect(modalInstance.show).not.toHaveBeenCalled();
+        vi.unstubAllGlobals();
+    });
+
+    it('never cancels a click it could not explain — no dialog markup, or no Bootstrap yet', async () => {
+        buildConfig(CORE_WHITELIST);
+        const link = buildLink('/finance');
+        setOnline(false);
+        delete global.bootstrap;
+        await boot();
+
+        const evt = new MouseEvent('click', { bubbles: true, cancelable: true });
+        link.dispatchEvent(evt);
+        expect(evt.defaultPrevented).toBe(false);
     });
 
     it('re-evaluates the click against the CURRENT DOM, not a cached class, so a link added after boot is still covered', async () => {
@@ -491,13 +524,14 @@ describe('offline-nav.js: showDialog()', () => {
         link.href = '/finance';
         document.body.appendChild(link);
         setOnline(false);
+        window.fetch = vi.fn(() => Promise.reject(new TypeError('Failed to fetch')));
         await boot();
 
         link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
         link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
+        await vi.waitFor(() => expect(modalInstance.show).toHaveBeenCalledTimes(2));
         expect(global.bootstrap.Modal).toHaveBeenCalledTimes(1);
-        expect(modalInstance.show).toHaveBeenCalledTimes(2);
     });
 });
 

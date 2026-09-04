@@ -182,4 +182,34 @@ class OfflineWhitelistTest extends TestCase
     {
         $this->assertFalse($this->whitelist->isPathWhitelisted('/finance'));
     }
+
+    // --- prefetch: whitelisted is not the same as pre-downloaded at launch ---
+
+    public function testOnlyTheStaffsPageIsWhitelistedWithoutBeingPrefetched(): void
+    {
+        $notPrefetched = [];
+        foreach ($this->whitelist->getAllEntries() as $entry) {
+            if (!OfflineWhitelist::isPrefetched($entry)) {
+                $notPrefetched[] = $entry['path'];
+            }
+        }
+
+        $this->assertSame(['/chefs/staffs'], $notPrefetched);
+    }
+
+    public function testGetEntriesForRoleCarriesThePrefetchFlagWithTrueAsTheDefault(): void
+    {
+        $this->whitelist->registerModuleEntries('m', [
+            ['path' => '/heavy', 'label' => 'Lourd', 'match' => 'exact', 'role_min' => 'public', 'prefetch' => false],
+        ]);
+
+        $byPath = [];
+        foreach ($this->whitelist->getEntriesForRole(Role::INTENDANT) as $entry) {
+            $byPath[$entry['path']] = $entry['prefetch'];
+        }
+
+        $this->assertTrue($byPath['/']);
+        $this->assertFalse($byPath['/chefs/staffs']);
+        $this->assertFalse($byPath['/heavy']);
+    }
 }

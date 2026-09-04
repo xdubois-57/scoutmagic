@@ -278,6 +278,13 @@
     <script src="{{ asset('/assets/js/offline-cache.js') }}" defer></script>
     <script src="{{ asset('/assets/js/offline-nav.js') }}" defer></script>
     <script src="{{ asset('/assets/js/offline-prefetch.js') }}" defer></script>
+    {# Ce que l'on voit entre un appui et la page suivante (assets/js/
+       navigation-feedback.js) : le menu latéral se ferme, une fine barre
+       de progression apparaît en haut de l'écran, et un retour arrière
+       ne restaure jamais un menu ouvert. Indispensable dans l'application
+       installée, qui n'a ni barre d'adresse ni indicateur de chargement. #}
+    <div id="navigation-progress" role="progressbar" aria-label="Chargement de la page" aria-valuetext="Chargement" hidden></div>
+    <script src="{{ asset('/assets/js/navigation-feedback.js') }}" defer></script>
     {# Generic "unavailable offline" dialog (Lot 4, offline-nav.js) — one
        modal for the whole site, no per-page wiring: a click on a
        non-whitelisted link, any form submission, or any non-GET fetch()

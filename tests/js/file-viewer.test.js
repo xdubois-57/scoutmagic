@@ -94,6 +94,18 @@ describe('file-viewer', () => {
 
             expect(document.getElementById('late').hasAttribute('download')).toBe(true);
         });
+
+        it('covers a link whose href is only written after it ran — the gallery lightbox points one control at each photo', async () => {
+            buildPage('<a id="dl">Télécharger</a>');
+            await load();
+            const link = document.getElementById('dl');
+
+            link.setAttribute('href', '/files/12');
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            expect(link.hasAttribute('download')).toBe(true);
+            expect(link.getAttribute('target')).toBe('_blank');
+        });
     });
 
     describe('the in-app viewer', () => {

@@ -19,12 +19,16 @@ declare const bootstrap: {
     Modal: {
         new (element: Element): BootstrapComponentInstance;
         getOrCreateInstance(element: Element): BootstrapComponentInstance;
+        // null when no instance was ever created for the element — what
+        // navigation-feedback.js wants: never CREATE one just to hide it.
+        getInstance(element: Element): BootstrapComponentInstance | null;
     };
     Collapse: {
         getOrCreateInstance(element: Element, options?: { toggle?: boolean }): BootstrapComponentInstance;
     };
     Offcanvas: {
         getOrCreateInstance(element: Element): BootstrapComponentInstance;
+        getInstance(element: Element): BootstrapComponentInstance | null;
     };
     Toast: {
         new (element: Element, options?: { delay?: number }): BootstrapComponentInstance;

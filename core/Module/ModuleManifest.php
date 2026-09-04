@@ -94,7 +94,7 @@ class ModuleManifest
      *         default_on_role_min: ?string
      *     }
      * > $notifications
-     * @param array<int, array{path: string, label: string, match: string, role_min: string}> $offline
+     * @param array<int, array{path: string, label: string, match: string, role_min: string, prefetch: bool}> $offline
      * @param array<int, string> $requires
      * @param array<int, string> $visibleWhen
      * @param array<
@@ -1016,7 +1016,7 @@ class ModuleManifest
      * docs/module-development.md for the module-author-facing contract.
      *
      * @param array<string, mixed>|mixed $entry
-     * @return array{path: string, label: string, match: string, role_min: string}
+     * @return array{path: string, label: string, match: string, role_min: string, prefetch: bool}
      */
     private static function validateOfflineEntry(string $moduleId, mixed $entry, int $index): array
     {
@@ -1045,11 +1045,16 @@ class ModuleManifest
                 . "'exact' or 'child'");
         }
 
+        if (isset($entry['prefetch']) && !is_bool($entry['prefetch'])) {
+            throw new ModuleException("Module '{$moduleId}' offline[{$index}] prefetch must be a boolean");
+        }
+
         return [
             'path' => $entry['path'],
             'label' => $entry['label'],
             'match' => $match,
             'role_min' => $entry['role_min'],
+            'prefetch' => $entry['prefetch'] ?? true,
         ];
     }
 

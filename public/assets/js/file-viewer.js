@@ -122,8 +122,43 @@
     // Links another script inserted, and links inside a modal opened
     // later: the net has to cover what was not in the document when it
     // ran, or it only covers the easy half.
+    //
+    // Only the nodes a mutation added are looked at — never the whole
+    // document again. This observer fires for every backdrop Bootstrap
+    // appends and removes when the menu or a modal opens, for every
+    // toast, for every list a script fills in; on a page with a few
+    // thousand elements a full querySelectorAll each time was measurable
+    // jank exactly while the visitor was interacting with the menu.
+    //
+    // An href written onto a link that already existed is watched too: the
+    // gallery's lightbox points its one download control at each photo in
+    // turn, and that anchor is never re-inserted.
     if (typeof MutationObserver === 'function') {
-        new MutationObserver(protectAll).observe(doc.body, { childList: true, subtree: true });
+        new MutationObserver(function (mutations) {
+            if (isStandalone()) {
+                return;
+            }
+            mutations.forEach(function (mutation) {
+                if (mutation.type === 'attributes') {
+                    var changed = mutation.target;
+                    if (changed instanceof Element && changed.matches('a[href^="/files/"]')) {
+                        protect(/** @type {HTMLAnchorElement} */ (changed));
+                    }
+                    return;
+                }
+                mutation.addedNodes.forEach(function (node) {
+                    if (!(node instanceof Element)) {
+                        return;
+                    }
+                    if (node.matches('a[href^="/files/"]')) {
+                        protect(/** @type {HTMLAnchorElement} */ (node));
+                    }
+                    node.querySelectorAll('a[href^="/files/"]').forEach(function (link) {
+                        protect(/** @type {HTMLAnchorElement} */ (link));
+                    });
+                });
+            });
+        }).observe(doc.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['href'] });
     }
 
     /**

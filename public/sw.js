@@ -155,6 +155,7 @@ const APP_SHELL_BASE_URLS = [
     '/assets/js/offline-nav.js',
     '/assets/js/offline-prefetch.js',
     '/assets/js/offline-page.js',
+    '/assets/js/navigation-feedback.js',
     '/assets/img/lesscouts.png',
     '/assets/img/branches/logo_baladins.png',
     '/assets/img/branches/logo_louveteaux.png',
@@ -270,15 +271,27 @@ self.addEventListener('activate', function (event) {
     // purgeAllContentCaches()) and activate() wiping every cache whose name
     // differed from CACHE_NAME used to silently empty them on every
     // release or logo upload — a real bug, fixed here.
-    event.waitUntil(
+    event.waitUntil(Promise.all([
         caches.keys().then(function (names) {
             return Promise.all(
                 names
                     .filter(function (name) { return name.startsWith(APP_SHELL_CACHE_PREFIX) && name !== CACHE_NAME; })
                     .map(function (name) { return caches.delete(name); })
             );
-        })
-    );
+        }),
+        // Navigation preload: the browser starts the network request for a
+        // navigation the moment it happens, in parallel with waking this
+        // worker up, instead of after it. Every navigation used to wait for
+        // the worker to boot AND read its configuration from Cache Storage
+        // before fetch() was even issued — an installed app is frozen by
+        // the OS far more often than a tab, so it paid that on most taps.
+        // handleNavigate() picks the preloaded response up through
+        // event.preloadResponse. Optional: a browser without it is simply
+        // where it was before.
+        self.registration.navigationPreload
+            ? self.registration.navigationPreload.enable().catch(function () {})
+            : Promise.resolve()
+    ]));
     self.clients.claim();
 });
 
@@ -346,11 +359,35 @@ self.addEventListener('fetch', function (event) {
     // keeps SECURITY.md's file-access rule true for the service worker.
     // Navigations get the one exception below.
     if (request.mode === 'navigate') {
-        event.respondWith(handleNavigate(request, url));
+        event.respondWith(handleNavigate(request, url, event.preloadResponse));
     }
 });
 
-function handleNavigate(request, url) {
+/**
+ * The network request for a navigation, started NOW — before the offline
+ * configuration has been read — so that reading it costs the navigation
+ * nothing. `preloadResponse` (event.preloadResponse, see activate) is
+ * the same request already made by the browser while this worker was
+ * waking up; it resolves to undefined where preload is unsupported or
+ * was not used, in which case a plain fetch() takes over. The rejection
+ * is observed once here so an early failure never surfaces as an
+ * unhandled rejection; every consumer attaches its own handling.
+ *
+ * @param {Request} request
+ * @param {Promise<Response|undefined>|undefined} preloadResponse
+ * @returns {Promise<Response>}
+ */
+function startNetworkRequest(request, preloadResponse) {
+    const network = Promise.resolve(preloadResponse).then(function (preloaded) {
+        return preloaded || fetch(request);
+    });
+    network.catch(function () {});
+    return network;
+}
+
+function handleNavigate(request, url, preloadResponse) {
+    const network = startNetworkRequest(request, preloadResponse);
+
     return getOfflineConfig().then(function (config) {
         if (!config || !config.consent || !isWhitelisted(url.pathname, config.whitelist)) {
             // Lot 1 behavior, unchanged: a failed navigation falls back to
@@ -358,12 +395,12 @@ function handleNavigate(request, url) {
             // network-error interstitial — the one thing an installed,
             // standalone app must never show, since there's no browser
             // chrome to explain it.
-            return fetch(request).catch(function () {
+            return network.catch(function () {
                 return caches.match('/offline');
             });
         }
 
-        return networkFirstWithCacheFallback(request, url, config);
+        return networkFirstWithCacheFallback(request, url, config, network);
     });
 }
 
@@ -408,10 +445,10 @@ function isWhitelisted(pathname, whitelist) {
     return false;
 }
 
-function networkFirstWithCacheFallback(request, url, config) {
+function networkFirstWithCacheFallback(request, url, config, network) {
     const cacheName = CONTENT_CACHE_PREFIX + config.account_scope + '-' + config.version;
 
-    return fetch(request).then(function (response) {
+    return (network || fetch(request)).then(function (response) {
         // response.redirected (e.g. an identified-only page bounced to
         // /login because the session had actually expired) must never be
         // cached under the original whitelisted URL — that would silently
@@ -562,6 +599,7 @@ globalThis.ScoutMagicServiceWorkerInternals = {
     injectOfflineBanner: injectOfflineBanner,
     networkFirstWithCacheFallback: networkFirstWithCacheFallback,
     handleNavigate: handleNavigate,
+    startNetworkRequest: startNetworkRequest,
     storeOfflineConfig: storeOfflineConfig,
     getOfflineConfig: getOfflineConfig,
     purgeAllContentCaches: purgeAllContentCaches,

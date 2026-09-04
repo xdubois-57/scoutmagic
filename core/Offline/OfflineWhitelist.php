@@ -60,7 +60,11 @@ class OfflineWhitelist
         ['path' => '/account', 'label' => 'Mon compte', 'match' => 'exact', 'role_min' => 'identified'],
         ['path' => '/notifications', 'label' => 'Notifications', 'match' => 'exact', 'role_min' => 'identified'],
         ['path' => '/members/', 'label' => 'Membre', 'match' => 'child', 'role_min' => 'identified'],
-        ['path' => '/chefs/staffs', 'label' => 'Staffs', 'match' => 'exact', 'role_min' => 'intendant'],
+        // prefetch false: cached when visited, never pre-downloaded at
+        // launch — one of the heaviest pages of the site (every staff of
+        // a section, badges, photos), and the installed app used to
+        // render it on every launch for everyone who might open it.
+        ['path' => '/chefs/staffs', 'label' => 'Staffs', 'match' => 'exact', 'role_min' => 'intendant', 'prefetch' => false],
         // Contextual help (ARCHITECTURE.md §8.64) — product documentation
         // shipped with the release, so keeping it readable offline costs
         // nothing sensitive. role_min public on both: a topic page a role
@@ -105,6 +109,20 @@ class OfflineWhitelist
     }
 
     /**
+     * Whether the installed app pre-downloads this entry at launch
+     * (Core\Offline\OfflineManifestService, public/assets/js/
+     * offline-prefetch.js). Default yes; an entry declares `prefetch:
+     * false` when its page is costly to render and rarely the reason the
+     * app was opened — it stays whitelisted, so a visit still caches it.
+     *
+     * @param array<string, mixed> $entry a whitelist entry, with or without its role_min
+     */
+    public static function isPrefetched(array $entry): bool
+    {
+        return $entry['prefetch'] ?? true;
+    }
+
+    /**
      * Entries a given role is actually entitled to hold offline — this,
      * not getAllEntries(), is what feeds `#offline-config-data`
      * (base.html.twig) and Core\Offline\OfflineManifestService: a
@@ -124,6 +142,7 @@ class OfflineWhitelist
                     'path' => $entry['path'],
                     'label' => $entry['label'],
                     'match' => $entry['match'],
+                    'prefetch' => self::isPrefetched($entry),
                 ];
             }
         }

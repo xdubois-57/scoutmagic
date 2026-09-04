@@ -214,7 +214,7 @@ class ServiceWorkerPrecacheTest extends TestCase
      */
     public function testNetworkFirstWithCacheFallbackGatesTheWriteOnStandalone(): void
     {
-        preg_match('/function networkFirstWithCacheFallback\(request, url, config\) \{(.*?)\n\}/s', $this->swJs, $m);
+        preg_match('/function networkFirstWithCacheFallback\(request, url, config, network\) \{(.*?)\n\}/s', $this->swJs, $m);
         $this->assertNotEmpty($m, 'Could not locate networkFirstWithCacheFallback() in public/sw.js');
 
         $this->assertMatchesRegularExpression(
@@ -230,7 +230,7 @@ class ServiceWorkerPrecacheTest extends TestCase
      */
     public function testNetworkFirstWithCacheFallbackReadsAreUnconditional(): void
     {
-        preg_match('/function networkFirstWithCacheFallback\(request, url, config\) \{(.*?)\n\}/s', $this->swJs, $m);
+        preg_match('/function networkFirstWithCacheFallback\(request, url, config, network\) \{(.*?)\n\}/s', $this->swJs, $m);
         $this->assertNotEmpty($m, 'Could not locate networkFirstWithCacheFallback() in public/sw.js');
 
         preg_match('/\.catch\(function \(\) \{(.*)/s', $m[1], $catchBlock);
