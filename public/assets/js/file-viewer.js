@@ -234,6 +234,41 @@
     }
 
     /**
+     * Whether a URL may be put into `download.href` or `image.src`.
+     *
+     * Both are navigable sinks: `javascript:…` in an href runs when the
+     * button is clicked, and this file's own handler calls
+     * `win.open(download.href)` on it. CodeQL flagged exactly that
+     * (js/xss-through-dom, two HIGH alerts) and it was reachable — the
+     * `data-file-viewer` path passed its attribute through unread, while
+     * only the plain-link path rejected a scheme.
+     *
+     * Validated HERE rather than at the two call sites, because a third
+     * one would arrive without the check and nothing would say so. The
+     * link path already resolves to an absolute http(s) URL before
+     * calling, so an allowlist of the two web schemes accepts everything
+     * legitimate: a relative path resolves against the page and inherits
+     * its scheme, while `javascript:`, `data:` and `vbscript:` do not.
+     *
+     * @param {string} href
+     * @returns {boolean}
+     */
+    function isViewableUrl(href) {
+        if (!href) {
+            return false;
+        }
+
+        try {
+            var resolved = new URL(href, doc.location.href);
+
+            return resolved.protocol === 'http:' || resolved.protocol === 'https:';
+        } catch (e) {
+            // Not a URL at all — certainly not one to hand a sink.
+            return false;
+        }
+    }
+
+    /**
      * Show one file, without navigating to it.
      *
      * **The type is discovered by trying, not declared.** A caller that
@@ -252,6 +287,10 @@
      *        type, null when it is to be discovered
      */
     function open(href, label, known) {
+        if (!isViewableUrl(href)) {
+            return;
+        }
+
         if (!viewer) {
             build();
         }

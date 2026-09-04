@@ -339,6 +339,50 @@ describe('file-viewer', () => {
         });
     });
 
+    describe('the URL a trigger hands the viewer', () => {
+        // CodeQL js/xss-through-dom, two HIGH alerts on this file, and
+        // they were reachable. `download.href` is navigable — the
+        // standalone branch calls win.open() on it — and `image.src`
+        // likewise. The plain-link path rejected anything carrying a
+        // scheme; the `data-file-viewer` path passed its attribute
+        // straight through, so markup rendered from user content could
+        // put `javascript:` into a sink.
+        it('refuses a javascript: URL from data-file-viewer', async () => {
+            buildPage('<a id="x" href="/files/7" data-file-viewer="javascript:alert(1)">Piège</a>');
+            await load();
+
+            document.getElementById('x').dispatchEvent(
+                new MouseEvent('click', { bubbles: true, cancelable: true })
+            );
+
+            expect(isOpen()).toBe(false);
+        });
+
+        it('refuses a data: URL too', async () => {
+            buildPage('<a id="x" href="/files/7" data-file-viewer="data:text/html,<script>x</script>">Piège</a>');
+            await load();
+
+            document.getElementById('x').dispatchEvent(
+                new MouseEvent('click', { bubbles: true, cancelable: true })
+            );
+
+            expect(isOpen()).toBe(false);
+        });
+
+        it('still opens on the ordinary same-origin path', async () => {
+            // The guard must not cost the feature: a relative path
+            // resolves against the page and inherits its http(s) scheme.
+            buildPage('<a id="ok" href="/files/7" data-file-viewer="/files/7" data-file-name="Photo">Photo</a>');
+            await load();
+
+            document.getElementById('ok').dispatchEvent(
+                new MouseEvent('click', { bubbles: true, cancelable: true })
+            );
+
+            expect(isOpen()).toBe(true);
+        });
+    });
+
     it('protects links even on a page with no viewer markup at all', async () => {
         // The net must not depend on the overlay being present: a page
         // that renders no viewer still renders file links.
