@@ -412,7 +412,10 @@ class SqlParser
      * because the comparator likewise never removes a table a module
      * stopped declaring.
      *
-     * @return array<array{table: string, column: string}|array{table: string, constraint: string}|array{table: string, drop_table: true}>
+     * @return array<array{
+     *     table: string,
+     *     column: string
+     * }|array{table: string, constraint: string}|array{table: string, drop_table: true}>
      */
     public function parseDropsFile(string $filePath): array
     {
@@ -429,7 +432,10 @@ class SqlParser
     }
 
     /**
-     * @return array<array{table: string, column: string}|array{table: string, constraint: string}|array{table: string, drop_table: true}>
+     * @return array<array{
+     *     table: string,
+     *     column: string
+     * }|array{table: string, constraint: string}|array{table: string, drop_table: true}>
      */
     public function parseDrops(string $sql): array
     {

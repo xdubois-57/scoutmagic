@@ -3,17 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="refresh" content="10">
     <title>Mise à jour en cours</title>
     {# Deliberately NOT extending base.html.twig, and no external CSS/JS at
        all: this page can render mid-'installing', while
        Task\InstallUpdateHandler::installFiles() is actively copying the
        new file tree over the live one — an external stylesheet or script
        requested at that exact moment could be missing, truncated, or a
-       mismatched mix of old/new versions. A plain <meta http-equiv="refresh">
-       re-checks status periodically without needing any script at all,
-       which also sidesteps the CSP nonce this app requires for inline
-       <script> (script-src 'self' 'nonce-…', no 'unsafe-inline').
+       mismatched mix of old/new versions.
+
+       The periodic re-check is an INLINE, nonced script rather than an
+       automatic page refresh in a meta tag: a page that reloads itself
+       out from under a reader interrupts a screen reader mid-sentence and
+       takes the back button with it (WCAG 2.2.1, Sonar
+       Web:MetaRefreshCheck). Inline is not the concern above — nothing is
+       fetched — and the nonce is the same one the style element below
+       uses. Without scripting the link in the card is the manual
+       equivalent, which is what a visitor needs anyway.
 
        The <style> below does carry a nonce: since style-src-elem dropped
        'unsafe-inline' (Core\Http\Response::buildStyleSrc()), an inline
@@ -63,11 +68,15 @@
 </head>
 <body>
     <div class="card">
-        <div class="spinner" role="status" aria-label="Mise à jour en cours"></div>
+        {# Decorative: the heading under it says the same thing. #}
+        <div class="spinner" aria-hidden="true"></div>
         <h1>Mise à jour en cours</h1>
         <p>{{ status_label }}</p>
         <p>{{ elapsed_label }}</p>
-        <p>Cette page se rafraîchit automatiquement.</p>
+        <p>Cette page se rafraîchit automatiquement — ou <a href="">actualisez-la</a>.</p>
     </div>
+    <script nonce="{{ csp_nonce }}">
+        setTimeout(function () { window.location.reload(); }, 10000);
+    </script>
 </body>
 </html>

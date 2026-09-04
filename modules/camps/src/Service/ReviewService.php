@@ -59,7 +59,13 @@ class ReviewService
     /**
      * @param array<string, mixed> $fields
      */
-    public function save(Camp $camp, array $fields, ?int $authorMemberId, ?int $actorUserAccountId, \DateTimeImmutable $today): void
+    public function save(
+        Camp $camp,
+        array $fields,
+        ?int $authorMemberId,
+        ?int $actorUserAccountId,
+        \DateTimeImmutable $today
+    ): void
     {
         if (!$this->isOpen($camp, $today)) {
             throw new CampsException(

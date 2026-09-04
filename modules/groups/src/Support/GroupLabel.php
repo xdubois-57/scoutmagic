@@ -34,7 +34,11 @@ use Modules\Groups\Repository\DiscussionGroup;
  */
 final class GroupLabel
 {
-    public static function withYear(DiscussionGroup $group, int $effectiveScoutYearId, string $effectiveScoutYearLabel): string
+    public static function withYear(
+        DiscussionGroup $group,
+        int $effectiveScoutYearId,
+        string $effectiveScoutYearLabel
+    ): string
     {
         if ($group->scoutYearId === null || $group->scoutYearId !== $effectiveScoutYearId) {
             return $group->name;

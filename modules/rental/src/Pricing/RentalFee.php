@@ -30,7 +30,8 @@ final class RentalFee
 
     /**
      * @param string $nature One of the NATURE_* constants.
-     * @param int $amountCents For FIXED, the amount. For PER_PERSON, the amount per person. For METER, the price of one unit read (one kWh, one m³).
+     * @param int $amountCents For FIXED, the amount. For PER_PERSON, the amount per person. For METER, the price of one
+     *     unit read (one kWh, one m³).
      * @param string|null $meterUnit For METER only — the unit shown next to the reading ("kWh", "m³"). Null otherwise.
      */
     public function __construct(

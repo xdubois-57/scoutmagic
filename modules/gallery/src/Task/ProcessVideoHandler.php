@@ -53,13 +53,15 @@ class ProcessVideoHandler implements TaskHandlerInterface
         // Never write renditions into a location a migration is in the middle
         // of moving away from — see Task\MediaProcessingGate.
         if ($album !== null && $album->isMigrating()) {
-            if ((new MediaProcessingGate())->deferWhileMigrating('process_video', $mediaId, $album->id, $payload, $context)) {
+            if ((new MediaProcessingGate())->deferWhileMigrating('process_video', $mediaId, $album->id, $payload,
+                $context)) {
                 return;
             }
             $mediaRepository->markFailed($mediaId);
             $context->journal->log(
                 'gallery', 'video_processing_failed', 'info', 'Échec du traitement d\'une vidéo',
-                ['media_id' => $mediaId, 'album_id' => $media->albumId, 'error' => 'Migration de stockage toujours en cours.']
+                ['media_id' => $mediaId, 'album_id' => $media->albumId, 'error' => 'Migration de stockage toujours en '
+                    . 'cours.']
             );
             return;
         }
@@ -142,7 +144,9 @@ class ProcessVideoHandler implements TaskHandlerInterface
             }
 
             $mediaRepository->markVideoDone(
-                $mediaId, $thumbKey, $mediumKey, $largeKey, $originalKey, $probe['width'], $probe['height'], $probe['durationSeconds']
+                $mediaId, $thumbKey, $mediumKey, $largeKey, $originalKey, $probe[
+                    'width'
+                ], $probe['height'], $probe['durationSeconds']
             );
 
             // Module spec: drop the staging original's bytes once processed,

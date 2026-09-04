@@ -87,7 +87,8 @@ class DelegatedAlbumService implements DelegatedAlbumManager
 
         try {
             $albumId = $this->albumRepository->create(
-                Album::TYPE_LOCAL, $title, null, $albumDate, null, $scoutYearId, null, $location->id, $createdBy, $ownerType, $ownerId
+                Album::TYPE_LOCAL, $title, null, $albumDate, null, $scoutYearId, null, $location->id, $createdBy,
+                $ownerType, $ownerId
             );
         } catch (\PDOException $e) {
             // Two callers racing to create the first album for the same

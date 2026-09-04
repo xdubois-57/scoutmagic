@@ -409,7 +409,13 @@ function authz_http(string $url, string $method, ?string $cookie, ?string $jsonB
  * @return array{status: int, content_type: string, location: string, cookie: ?string}|null
  *         null on a transport failure (including a timeout)
  */
-function authz_http_once(string $url, string $method, ?string $cookie, ?string $jsonBody = null, int $timeout = 15): ?array
+function authz_http_once(
+    string $url,
+    string $method,
+    ?string $cookie,
+    ?string $jsonBody = null,
+    int $timeout = 15
+): ?array
 {
     $headers = ["Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"];
     if ($cookie !== null) {
@@ -582,7 +588,10 @@ function authz_credentials(): array
         $email = (string) getenv($prefix . '_EMAIL');
         $password = (string) getenv($prefix . '_PASSWORD');
         if ($email === '' || $password === '') {
-            fwrite(STDERR, "authz: {$prefix}_EMAIL/{$prefix}_PASSWORD are not set — run this through scripts/dast.sh.\n");
+            fwrite(
+                STDERR,
+                "authz: {$prefix}_EMAIL/{$prefix}_PASSWORD are not set — run this through scripts/dast.sh.\n"
+            );
             exit(1);
         }
         $credentials[$role] = ['email' => $email, 'password' => $password];

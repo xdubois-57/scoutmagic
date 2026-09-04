@@ -91,7 +91,10 @@ class PageController extends AbstractController
 
         return $this->render('pages/home.html.twig', [
             'banner_html' => $bannerHtml,
-            'news_articles' => $this->hooks?->getOptional(HomeNewsProvider::class)?->getLatestVisibleArticles(self::HOME_NEWS_LIMIT, AuthSession::getRole()) ?? [],
+            'news_articles' => $this->hooks?->getOptional(HomeNewsProvider::class)?->getLatestVisibleArticles(
+                self::HOME_NEWS_LIMIT,
+                AuthSession::getRole()
+            ) ?? [],
             'group_activity' => $groupActivity,
             'payment_due' => $paymentDue,
         ]);

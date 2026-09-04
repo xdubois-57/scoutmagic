@@ -59,7 +59,8 @@ class RegistrationRequestRepository
             $fields['birth_date']
         ), 'registration_name_dob');
 
-        $addressNormalized = AddressNormalizer::normalize($fields['street'], $fields['number'], null, $fields['postal_code']);
+        $addressNormalized = AddressNormalizer::normalize($fields['street'], $fields['number'], null,
+            $fields['postal_code']);
         $addressBlind = $addressNormalized !== '' ? $this->encryption->blindIndex($addressNormalized, 'address') : null;
 
         // The request row and its sibling links are one single unit of work:
@@ -85,8 +86,12 @@ class RegistrationRequestRepository
                 $this->encryption->encrypt($fields['email'], 'registration_requests.email'),
                 $this->encryption->blindIndex(self::normalizeEmail($fields['email']), 'registration_email'),
                 $this->encryption->encrypt($fields['phone1'], 'registration_requests.phone1'),
-                $fields['phone2'] !== null ? $this->encryption->encrypt($fields['phone2'], 'registration_requests.phone2') : null,
-                $fields['remarks'] !== null && $fields['remarks'] !== '' ? $this->encryption->encrypt($fields['remarks'], 'registration_requests.remarks') : null,
+                $fields['phone2'] !== null
+                    ? $this->encryption->encrypt($fields['phone2'], 'registration_requests.phone2')
+                    : null,
+                $fields['remarks'] !== null && $fields['remarks'] !== ''
+                    ? $this->encryption->encrypt($fields['remarks'], 'registration_requests.remarks')
+                    : null,
                 $nameDobBlind,
                 $desiredSectionId,
                 RegistrationRequest::STATUS_PENDING,
@@ -183,7 +188,8 @@ class RegistrationRequestRepository
      */
     public function findAllForYear(int $scoutYearId): array
     {
-        $stmt = $this->pdo->prepare('SELECT * FROM registration_requests WHERE scout_year_id = ? ORDER BY received_at ASC, id ASC');
+        $stmt = $this->pdo->prepare('SELECT * FROM registration_requests WHERE scout_year_id = ? ORDER BY received_at '
+            . 'ASC, id ASC');
         $stmt->execute([$scoutYearId]);
 
         return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
@@ -276,7 +282,8 @@ class RegistrationRequestRepository
     public function findEncodedMemberIdsForYear(int $scoutYearId): array
     {
         $stmt = $this->pdo->prepare(
-            "SELECT linked_member_id FROM registration_requests WHERE scout_year_id = ? AND status = 'encoded' AND linked_member_id IS NOT NULL"
+            "SELECT linked_member_id FROM registration_requests WHERE scout_year_id = ? AND status = 'encoded' AND "
+                . "linked_member_id IS NOT NULL"
         );
         $stmt->execute([$scoutYearId]);
 
@@ -300,7 +307,10 @@ class RegistrationRequestRepository
         $stmt->execute([$scoutYearId]);
 
         return array_map(
-            static fn(array $row) => ['id' => (int) $row['id'], 'name_dob_blind_index' => (string) $row['name_dob_blind_index']],
+            static fn(array $row) => [
+                'id' => (int) $row['id'],
+                'name_dob_blind_index' => (string) $row['name_dob_blind_index']
+            ],
             $stmt->fetchAll(\PDO::FETCH_ASSOC)
         );
     }
@@ -416,7 +426,8 @@ class RegistrationRequestRepository
      */
     public function findSiblingMemberIds(int $requestId): array
     {
-        $stmt = $this->pdo->prepare('SELECT member_id FROM registration_request_siblings WHERE registration_request_id = ?');
+        $stmt = $this->pdo->prepare('SELECT member_id FROM registration_request_siblings WHERE '
+            . 'registration_request_id = ?');
         $stmt->execute([$requestId]);
 
         return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
@@ -473,7 +484,9 @@ class RegistrationRequestRepository
     public function updateInternalNotes(int $id, ?string $notes): void
     {
         $stmt = $this->pdo->prepare('UPDATE registration_requests SET internal_notes_encrypted = ? WHERE id = ?');
-        $stmt->execute([$notes !== null && $notes !== '' ? $this->encryption->encrypt($notes, 'registration_requests.internal_notes') : null, $id]);
+        $stmt->execute([$notes !== null && $notes !== '' ? $this->encryption->encrypt($notes,
+            'registration_requests.internal_notes') : null,
+            $id]);
     }
 
     /**
@@ -600,8 +613,10 @@ class RegistrationRequestRepository
             id: (int) $row['id'],
             scoutYearId: (int) $row['scout_year_id'],
             parentName: $this->encryption->decrypt($row['parent_name_encrypted'], 'registration_requests.parent_name'),
-            childLastName: $this->encryption->decrypt($row['child_last_name_encrypted'], 'registration_requests.child_last_name'),
-            childFirstName: $this->encryption->decrypt($row['child_first_name_encrypted'], 'registration_requests.child_first_name'),
+            childLastName: $this->encryption->decrypt($row['child_last_name_encrypted'],
+                'registration_requests.child_last_name'),
+            childFirstName: $this->encryption->decrypt($row['child_first_name_encrypted'],
+                'registration_requests.child_first_name'),
             gender: $this->encryption->decrypt($row['gender_encrypted'], 'registration_requests.gender'),
             birthDate: $this->encryption->decrypt($row['birth_date_encrypted'], 'registration_requests.birth_date'),
             street: $this->encryption->decrypt($row['street_encrypted'], 'registration_requests.street'),
@@ -610,17 +625,27 @@ class RegistrationRequestRepository
             city: $this->encryption->decrypt($row['city_encrypted'], 'registration_requests.city'),
             email: $this->encryption->decrypt($row['email_encrypted'], 'registration_requests.email'),
             phone1: $this->encryption->decrypt($row['phone1_encrypted'], 'registration_requests.phone1'),
-            phone2: $row['phone2_encrypted'] !== null ? $this->encryption->decrypt($row['phone2_encrypted'], 'registration_requests.phone2') : null,
-            remarks: $row['remarks_encrypted'] !== null ? $this->encryption->decrypt($row['remarks_encrypted'], 'registration_requests.remarks') : null,
+            phone2: $row['phone2_encrypted'] !== null
+                ? $this->encryption->decrypt($row['phone2_encrypted'], 'registration_requests.phone2')
+                : null,
+            remarks: $row['remarks_encrypted'] !== null
+                ? $this->encryption->decrypt($row['remarks_encrypted'], 'registration_requests.remarks')
+                : null,
             desiredSectionId: $row['desired_section_id'] !== null ? (int) $row['desired_section_id'] : null,
             status: (string) $row['status'],
             receivedAt: DateInput::requireFromStorage((string) $row['received_at'], 'received_at'),
             intendedSectionId: $row['intended_section_id'] !== null ? (int) $row['intended_section_id'] : null,
             feeCategoryId: $row['fee_category_id'] !== null ? (int) $row['fee_category_id'] : null,
-            internalNotes: $row['internal_notes_encrypted'] !== null ? $this->encryption->decrypt($row['internal_notes_encrypted'], 'registration_requests.internal_notes') : null,
+            internalNotes: $row['internal_notes_encrypted'] !== null
+                ? $this->encryption->decrypt($row['internal_notes_encrypted'], 'registration_requests.internal_notes')
+                : null,
             linkedMemberId: $row['linked_member_id'] !== null ? (int) $row['linked_member_id'] : null,
-            acceptedEmailSentAt: DateInput::fromStorage($row['accepted_email_sent_at'] === null ? null : (string) $row['accepted_email_sent_at']),
-            refusedEmailSentAt: DateInput::fromStorage($row['refused_email_sent_at'] === null ? null : (string) $row['refused_email_sent_at']),
+            acceptedEmailSentAt: DateInput::fromStorage(
+                $row['accepted_email_sent_at'] === null ? null : (string) $row['accepted_email_sent_at']
+            ),
+            refusedEmailSentAt: DateInput::fromStorage(
+                $row['refused_email_sent_at'] === null ? null : (string) $row['refused_email_sent_at']
+            ),
             finalAt: DateInput::fromStorage($row['final_at'] === null ? null : (string) $row['final_at'])
         );
     }

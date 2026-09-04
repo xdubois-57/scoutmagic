@@ -45,7 +45,13 @@ class MediaProcessingGate
      *              the retry budget is spent and the caller should mark the
      *              media failed
      */
-    public function deferWhileMigrating(string $taskKey, int $mediaId, int $albumId, array $payload, TaskContext $context): bool
+    public function deferWhileMigrating(
+        string $taskKey,
+        int $mediaId,
+        int $albumId,
+        array $payload,
+        TaskContext $context
+    ): bool
     {
         $deferrals = (int) ($payload['migration_deferrals'] ?? 0);
         if ($deferrals >= self::MAX_DEFERRALS) {

@@ -80,7 +80,10 @@ class MentionService
             // tests only — public/index.php always passes it): the old
             // membership-by-membership behaviour, unchanged.
             $humans = [];
-            foreach ($this->memberService->findDisplayNamesByMemberIds($memberIds, $scoutYearId) as $memberId => $name) {
+            foreach ($this->memberService->findDisplayNamesByMemberIds(
+                $memberIds,
+                $scoutYearId
+            ) as $memberId => $name) {
                 $humans[$name] = ['member_ids' => [(int) $memberId], 'label' => $name];
             }
 

@@ -78,7 +78,9 @@ class MovementController extends AbstractController
 
         $categoryParam = (string) $request->getQuery('category_id', 'all');
         $uncategorizedOnly = $categoryParam === 'none';
-        $categoryId = (!$uncategorizedOnly && $categoryParam !== 'all' && $categoryParam !== '') ? (int) $categoryParam : null;
+        $categoryId = (!$uncategorizedOnly && $categoryParam !== 'all' && $categoryParam !== '')
+            ? (int) $categoryParam
+            : null;
 
         $search = trim((string) $request->getQuery('q', ''));
 
@@ -184,7 +186,9 @@ class MovementController extends AbstractController
 
         $categoryParam = (string) $request->getQuery('category_id', 'all');
         $uncategorizedOnly = $categoryParam === 'none';
-        $categoryId = (!$uncategorizedOnly && $categoryParam !== 'all' && $categoryParam !== '') ? (int) $categoryParam : null;
+        $categoryId = (!$uncategorizedOnly && $categoryParam !== 'all' && $categoryParam !== '')
+            ? (int) $categoryParam
+            : null;
 
         $search = trim((string) $request->getQuery('q', ''));
 
@@ -204,7 +208,12 @@ class MovementController extends AbstractController
         $movementIds = array_map(fn(Transaction $transaction) => $transaction->id, $movements);
         $firstReceiptsByMovementId = $this->firstReceiptResolver->resolve($movementIds);
 
-        $spreadsheet = $this->buildMovementsXlsx($movements, $categoriesById, $firstReceiptsByMovementId, $account->name);
+        $spreadsheet = $this->buildMovementsXlsx(
+            $movements,
+            $categoriesById,
+            $firstReceiptsByMovementId,
+            $account->name
+        );
 
         $this->journalService->log(
             'finance', 'movements_exported', 'info', 'Export des mouvements en XLSX',
@@ -219,7 +228,12 @@ class MovementController extends AbstractController
      * @param array<int, \Modules\Finance\Repository\Category> $categoriesById
      * @param array<int, Attachment> $firstReceiptsByMovementId
      */
-    private function buildMovementsXlsx(array $movements, array $categoriesById, array $firstReceiptsByMovementId, string $accountName): \PhpOffice\PhpSpreadsheet\Spreadsheet
+    private function buildMovementsXlsx(
+        array $movements,
+        array $categoriesById,
+        array $firstReceiptsByMovementId,
+        string $accountName
+    ): \PhpOffice\PhpSpreadsheet\Spreadsheet
     {
         $spreadsheet = new Spreadsheet();
         $sheet = $spreadsheet->getActiveSheet();
@@ -241,7 +255,8 @@ class MovementController extends AbstractController
             // into a live formula in the treasurer's export.
             $sheet->setCellValueExplicit([1, $rowNum], $movement->transactionDate, DataType::TYPE_STRING);
             $sheet->setCellValueExplicit([2, $rowNum], $movement->label, DataType::TYPE_STRING);
-            $sheet->setCellValueExplicit([3, $rowNum], MovementPresenter::counterparty($movement, $firstReceipt, $accountName), DataType::TYPE_STRING);
+            $sheet->setCellValueExplicit([3, $rowNum],
+                MovementPresenter::counterparty($movement, $firstReceipt, $accountName), DataType::TYPE_STRING);
             $sheet->setCellValueExplicit([4, $rowNum], (string) $movement->amount, DataType::TYPE_NUMERIC);
             $sheet->setCellValueExplicit([5, $rowNum], $category?->name ?? '', DataType::TYPE_STRING);
             $sheet->setCellValueExplicit([6, $rowNum], $movement->comment ?? '', DataType::TYPE_STRING);
@@ -281,7 +296,9 @@ class MovementController extends AbstractController
 
         $categoryId = $transaction->categoryId;
         if (array_key_exists('category_id', $data)) {
-            $categoryId = $data['category_id'] !== null && $data['category_id'] !== '' ? (int) $data['category_id'] : null;
+            $categoryId = $data['category_id'] !== null && $data['category_id'] !== ''
+                ? (int) $data['category_id']
+                : null;
             if ($categoryId !== null && $this->categoryRepository->findById($categoryId) === null) {
                 return $this->json(['success' => false, 'error' => 'Catégorie invalide.'], 400);
             }
@@ -387,14 +404,16 @@ class MovementController extends AbstractController
 
         $files = $request->getFiles('receipt');
         if ($files === []) {
-            return $this->json(['success' => false, 'error' => 'Aucun fichier fourni ou erreur lors du téléversement.'], 400);
+            return $this->json(['success' => false, 'error' => 'Aucun fichier fourni ou erreur lors du téléversement.'],
+                400);
         }
         $file = $files[0];
         if ($file['error'] !== UPLOAD_ERR_OK) {
             return $this->json(['success' => false, 'error' => 'Erreur lors du téléversement.'], 400);
         }
         if ($file['size'] > self::MAX_ATTACHMENT_SIZE_BYTES) {
-            return $this->json(['success' => false, 'error' => 'Le fichier dépasse la taille maximale autorisée (15 Mo).'], 400);
+            return $this->json(['success' => false, 'error' => 'Le fichier dépasse la taille maximale autorisée (15 '
+                . 'Mo).'], 400);
         }
 
         $content = file_get_contents($file['tmp_name']);
@@ -409,7 +428,8 @@ class MovementController extends AbstractController
         $mimeType = $detected !== false ? $detected : 'application/octet-stream';
 
         try {
-            $attachment = $this->receiptService->upload($content, $mimeType, $file['name'], $account->id, null, null, AuthSession::getUserAccountId());
+            $attachment = $this->receiptService->upload($content, $mimeType, $file['name'], $account->id, null, null,
+                AuthSession::getUserAccountId());
             $this->receiptService->associate($attachment->id, [$id]);
         } catch (FinanceException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 400);
@@ -489,7 +509,9 @@ class MovementController extends AbstractController
                 'label' => $transaction->label,
                 'amount' => $transaction->amount,
                 'counterparty' => MovementPresenter::counterparty(
-                    $transaction, $firstReceipts[$transaction->id] ?? null, $accountNamesById[$transaction->accountId] ?? ''
+                    $transaction, $firstReceipts[
+                        $transaction->id
+                    ] ?? null, $accountNamesById[$transaction->accountId] ?? ''
                 ),
                 'description' => MovementPresenter::description($transaction, $firstReceipts[$transaction->id] ?? null),
             ], $matches),

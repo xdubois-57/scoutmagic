@@ -116,10 +116,12 @@
         {% include extra_toolbar_template %}
     {% endif %}
 
+    {# No role here: until the script sets `contenteditable`, this div is
+       inert and aria-hidden, and announcing a textbox nobody can type in
+       would be a lie. The role travels with the wiring, in
+       assets/js/rich-text-form-field.js. #}
     <div class="rich-text-form-surface form-control"
          id="{{ field_id }}"
-         role="textbox"
-         aria-multiline="true"
          aria-hidden="true"
          {% if label is defined and label %}aria-labelledby="{{ field_id }}-label"{% endif %}
          style="min-height: {{ rows_height|default('16rem') }}; overflow-y: auto;">{{ value|raw }}</div>

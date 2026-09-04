@@ -136,7 +136,7 @@
             options.user.id = base64ToBuffer(options.user.id);
             if (options.excludeCredentials) {
                 options.excludeCredentials = options.excludeCredentials.map(function (c) {
-                    return Object.assign({}, c, { id: base64ToBuffer(c.id) });
+                    return { ...c, id: base64ToBuffer(c.id) };
                 });
             }
 

@@ -93,7 +93,12 @@ class MemberMergeService
      *
      * @throws MergeException when the pair cannot be merged, always before anything moves
      */
-    public function merge(int $keptMemberId, int $duplicateMemberId, ?int $userAccountId, ?int $candidateId = null): MergePreview
+    public function merge(
+        int $keptMemberId,
+        int $duplicateMemberId,
+        ?int $userAccountId,
+        ?int $candidateId = null
+    ): MergePreview
     {
         if ($keptMemberId === $duplicateMemberId) {
             throw new MergeException('Une fiche ne peut pas être fusionnée avec elle-même.');

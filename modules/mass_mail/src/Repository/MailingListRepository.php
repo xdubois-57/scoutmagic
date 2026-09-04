@@ -43,7 +43,13 @@ class MailingListRepository
      * @param int[] $functionIds
      * @param int[] $sectionIds
      */
-    public function create(string $name, string $description, array $functionIds, array $sectionIds, ?int $createdBy): int
+    public function create(
+        string $name,
+        string $description,
+        array $functionIds,
+        array $sectionIds,
+        ?int $createdBy
+    ): int
     {
         $stmt = $this->pdo->prepare('INSERT INTO mass_mail_lists (name, description, created_by) VALUES (?, ?, ?)');
         $stmt->execute([$name, $description, $createdBy]);
@@ -121,7 +127,8 @@ class MailingListRepository
         $this->pdo->prepare('DELETE FROM mass_mail_list_functions WHERE list_id = ?')->execute([$listId]);
         $this->pdo->prepare('DELETE FROM mass_mail_list_sections WHERE list_id = ?')->execute([$listId]);
 
-        $functionStmt = $this->pdo->prepare('INSERT INTO mass_mail_list_functions (list_id, function_id) VALUES (?, ?)');
+        $functionStmt = $this->pdo->prepare('INSERT INTO mass_mail_list_functions (list_id, function_id) VALUES (?, '
+            . '?)');
         foreach (array_unique($functionIds) as $functionId) {
             $functionStmt->execute([$listId, $functionId]);
         }

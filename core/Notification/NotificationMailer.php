@@ -51,7 +51,8 @@ class NotificationMailer
      * %}` to hide an empty one behind, so an empty value would arrive as a
      * blank paragraph in the middle of somebody's message.
      */
-    private const DISCRETION_BODY = "Vous avez une nouvelle notification sur %s. Son contenu n'est pas repris ici : vous avez activé la discrétion dans vos préférences de notification.";
+    private const DISCRETION_BODY = "Vous avez une nouvelle notification sur %s. Son contenu n'est pas repris ici : "
+        . "vous avez activé la discrétion dans vos préférences de notification.";
 
     private const EMPTY_BODY = 'Ouvrez le site pour en savoir plus.';
 

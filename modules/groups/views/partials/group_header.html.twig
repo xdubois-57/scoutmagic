@@ -108,10 +108,10 @@
 {% endif %}
 
 {% if post_permission is defined and not post_permission.allowed %}
-    <div class="alert alert-secondary small" role="status">
+    <output class="alert alert-secondary small d-block">
         {{ post_permission.message }}
         {% if post_permission.actionUrl %}
             <a href="{{ post_permission.actionUrl }}">{{ post_permission.actionLabel }}</a>
         {% endif %}
-    </div>
+    </output>
 {% endif %}

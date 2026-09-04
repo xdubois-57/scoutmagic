@@ -102,7 +102,8 @@ class InvoiceImportService
             // is. Without one there is nothing to be idempotent on.
             return InvoiceImportOutcome::refused([new InvoiceProblem(
                 InvoiceProblem::NO_LINE_FOUND,
-                "Le numéro de la facture n'a pas été trouvé : sans lui, le site ne peut pas reconnaître un document déjà importé."
+                "Le numéro de la facture n'a pas été trouvé : sans lui, le site ne peut pas reconnaître un document "
+                    . "déjà importé."
             )], $invoice->ignoredRowCount);
         }
 

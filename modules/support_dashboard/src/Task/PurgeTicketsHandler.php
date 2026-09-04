@@ -95,7 +95,8 @@ class PurgeTicketsHandler implements TaskHandlerInterface
                     'support_tickets_purged',
                     'info',
                     sprintf(
-                        '%d archive(s) de diagnostic supprimée(s), %d ticket(s) supprimé(s), %d analyse(s) supprimée(s).',
+                        '%d archive(s) de diagnostic supprimée(s), %d ticket(s) supprimé(s), %d analyse(s) '
+                            . 'supprimée(s).',
                         $archives,
                         count($expired),
                         $analyses

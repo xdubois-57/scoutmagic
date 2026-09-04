@@ -74,7 +74,8 @@ class RunCategorizationRulesHandler implements TaskHandlerInterface
         );
 
         $bulkCategorizationService = new BulkCategorizationService(
-            $transactionRepository, $ruleEngine, $aiCategorizationService, new SettingService(new SettingRepository($pdo)),
+            $transactionRepository, $ruleEngine, $aiCategorizationService,
+            new SettingService(new SettingRepository($pdo)),
             new SchedulerService(new SchedulerRepository($pdo))
         );
 

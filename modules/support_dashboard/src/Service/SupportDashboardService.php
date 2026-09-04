@@ -87,7 +87,8 @@ class SupportDashboardService
 
         $pageCount = max(1, (int) ceil(count($filtered) / SupportDashboardFilters::PER_PAGE));
         $page = min($filters->page, $pageCount);
-        $pageRows = array_slice($filtered, ($page - 1) * SupportDashboardFilters::PER_PAGE, SupportDashboardFilters::PER_PAGE);
+        $pageRows = array_slice($filtered, ($page - 1) * SupportDashboardFilters::PER_PAGE,
+            SupportDashboardFilters::PER_PAGE);
 
         return [
             'rows' => $pageRows,
@@ -434,7 +435,10 @@ class SupportDashboardService
             if (!array_key_exists($filters->moduleId, $modules)) {
                 return false;
             }
-            if ($filters->moduleEnabled !== null && $modules[$filters->moduleId]['enabled'] !== $filters->moduleEnabled) {
+            if (
+                $filters->moduleEnabled !== null
+                && $modules[$filters->moduleId]['enabled'] !== $filters->moduleEnabled
+            ) {
                 return false;
             }
         }

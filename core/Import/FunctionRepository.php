@@ -76,7 +76,10 @@ class FunctionRepository
     /**
      * Return all confirmed functions grouped by role.
      *
-     * @return array<string, array<int, array{id: int, desk_code: string, label: string, role: string, confirmed: bool}>>
+     * @return array<
+     *     string,
+     *     array<int, array{id: int, desk_code: string, label: string, role: string, confirmed: bool}>
+     * >
      */
     public function findAllGroupedByRole(): array
     {

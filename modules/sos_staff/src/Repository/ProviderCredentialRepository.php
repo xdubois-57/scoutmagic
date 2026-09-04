@@ -62,7 +62,8 @@ class ProviderCredentialRepository
         }
 
         $stmt = $this->pdo->prepare(
-            'UPDATE sos_provider_credentials SET config_encrypted = ?, updated_at = CURRENT_TIMESTAMP WHERE provider = ?'
+            'UPDATE sos_provider_credentials SET config_encrypted = ?, updated_at = CURRENT_TIMESTAMP WHERE provider '
+                . '= ?'
         );
         $stmt->execute([$encrypted, $provider]);
     }

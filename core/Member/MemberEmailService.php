@@ -118,14 +118,16 @@ class MemberEmailService
         // cap — so a capped member (or a repeat of an existing address) never
         // pays the lookup cost (audit M15).
         if (!$this->emailDomainValidator->hasValidDomain($normalized)) {
-            throw new MemberEmailException("Le domaine de cette adresse email n'a pas pu être vérifié — vérifiez qu'il n'y a pas de faute de frappe.");
+            throw new MemberEmailException("Le domaine de cette adresse email n'a pas pu être vérifié — vérifiez "
+                . "qu'il n'y a pas de faute de frappe.");
         }
 
         $rawToken = bin2hex(random_bytes(32));
         $tokenHash = password_hash($rawToken, PASSWORD_DEFAULT);
         $expiresAt = new \DateTimeImmutable('+' . self::CONFIRMATION_EXPIRY_HOURS . ' hours');
 
-        $id = $this->repository->create($memberId, $normalized, MemberEmail::SOURCE_MANUAL, MemberEmail::STATUS_PENDING, $tokenHash, $expiresAt);
+        $id = $this->repository->create($memberId, $normalized, MemberEmail::SOURCE_MANUAL, MemberEmail::STATUS_PENDING,
+            $tokenHash, $expiresAt);
         $created = $this->repository->findById($id);
         \assert($created !== null);
 
@@ -161,7 +163,8 @@ class MemberEmailService
         $this->regenerateAndSendConfirmation($row, $actorId);
 
         $this->journalService->log(
-            'core', 'member_email_confirmation_resent', 'info', "Renvoi de la confirmation d'une adresse email secondaire",
+            'core', 'member_email_confirmation_resent', 'info', "Renvoi de la confirmation d'une adresse email "
+                . "secondaire",
             ['member_id' => $memberId, 'member_email_id' => $emailId], $actorId
         );
 
@@ -319,7 +322,8 @@ class MemberEmailService
             return;
         }
 
-        $validRows = array_filter($this->repository->findAllByEmail($triggerRow->email), fn(MemberEmail $r) => $r->isValid());
+        $validRows = array_filter($this->repository->findAllByEmail($triggerRow->email),
+            fn(MemberEmail $r) => $r->isValid());
         if ($validRows === []) {
             // Already fully unsubscribed everywhere — idempotent no-op,
             // including no duplicate notification emails.
@@ -338,7 +342,9 @@ class MemberEmailService
             $profile = $this->memberService->findProfileByMemberAndYear($row->memberId, (int) $currentYear['id']);
             if ($profile !== null) {
                 $affectedMemberNames[] = trim(
-                    TextNormalizerService::normalizeName($profile->firstName) . ' ' . TextNormalizerService::normalizeName($profile->lastName)
+                    TextNormalizerService::normalizeName($profile->firstName)
+                        . ' '
+                        . TextNormalizerService::normalizeName($profile->lastName)
                 );
             }
         }
@@ -413,7 +419,13 @@ class MemberEmailService
      *         includes it, since SECURITY.md §11 bars personal data from
      *         journal entries unconditionally.
      */
-    private function sendConfirmationEmail(int $emailId, int $memberId, string $to, string $rawToken, ?int $actorId): void
+    private function sendConfirmationEmail(
+        int $emailId,
+        int $memberId,
+        string $to,
+        string $rawToken,
+        ?int $actorId
+    ): void
     {
         $confirmUrl = rtrim($this->baseUrl, '/') . "/members/emails/confirm/{$emailId}?token={$rawToken}";
         $context = [
@@ -429,7 +441,8 @@ class MemberEmailService
         $email = $this->emailTemplateRenderer->render('member_email_confirmation', $context);
 
         try {
-            $this->mailService->send(to: $to, subject: $email->subject, bodyHtml: $email->bodyHtml, bodyText: $email->bodyText);
+            $this->mailService->send(to: $to, subject: $email->subject, bodyHtml: $email->bodyHtml,
+                bodyText: $email->bodyText);
         } catch (MailException $e) {
             $reason = str_replace($to, '[adresse]', $e->getMessage());
             $this->journalService->log(

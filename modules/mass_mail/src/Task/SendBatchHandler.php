@@ -56,7 +56,8 @@ class SendBatchHandler implements TaskHandlerInterface
         $mergeRenderer = new MergeRenderer();
         $massMailService = $this->buildMassMailService($context);
 
-        $batchSize = (int) $context->settings->get(self::SETTING_BATCH_SIZE, 'mass_mail', (string) self::DEFAULT_BATCH_SIZE);
+        $batchSize = (int) $context->settings->get(self::SETTING_BATCH_SIZE, 'mass_mail',
+            (string) self::DEFAULT_BATCH_SIZE);
         if ($batchSize <= 0) {
             $batchSize = self::DEFAULT_BATCH_SIZE;
         }
@@ -88,7 +89,9 @@ class SendBatchHandler implements TaskHandlerInterface
             $subject = $email->subject;
             $baseBodyHtml = $email->bodyHtml;
             if ($email->listType === Email::LIST_TYPE_MAIL_MERGE) {
-                $mergeRow = $recipient->audienceRowId !== null ? $audienceRepository->findRowById($recipient->audienceRowId) : null;
+                $mergeRow = $recipient->audienceRowId !== null
+                    ? $audienceRepository->findRowById($recipient->audienceRowId)
+                    : null;
                 if ($mergeRow === null) {
                     $recipientRepository->recordSendFailure($recipient->id, 'Données de publipostage purgées');
                     $errorCount++;
@@ -102,14 +105,19 @@ class SendBatchHandler implements TaskHandlerInterface
             foreach ($attachmentRepository->findByEmailId($email->id) as $attachment) {
                 $file = $fileRepository->findById($attachment->fileId);
                 if ($file !== null) {
-                    $attachments[] = ['path' => $context->storagePath . '/' . $file->relativePath, 'name' => $file->originalName];
+                    $attachments[] = [
+                        'path' => $context->storagePath . '/' . $file->relativePath,
+                        'name' => $file->originalName
+                    ];
                 }
             }
 
             // Cached per batch — several recipients typically share the
             // same email/sender section.
             if (!isset($senderIdentityBySection[$email->sectionId])) {
-                $senderIdentityBySection[$email->sectionId] = $massMailService->resolveSenderIdentity($email->sectionId);
+                $senderIdentityBySection[
+                    $email->sectionId
+                ] = $massMailService->resolveSenderIdentity($email->sectionId);
             }
             $sender = $senderIdentityBySection[$email->sectionId];
 
@@ -138,9 +146,11 @@ class SendBatchHandler implements TaskHandlerInterface
 
             $bodyHtml = $baseBodyHtml
                 . '<hr><p style="font-size:12px;color:#999;">Vous recevez cet email en tant que membre de l\'unité. '
-                . '<a href="' . htmlspecialchars($unsubscribeUrl, ENT_QUOTES) . '">Se désinscrire des emails groupés</a>.</p>';
+                . '<a href="' . htmlspecialchars($unsubscribeUrl, ENT_QUOTES) . '">Se désinscrire des emails '
+                . 'groupés</a>.</p>';
             $bodyText = strip_tags($baseBodyHtml)
-                . "\n\n---\nVous recevez cet email en tant que membre de l'unité.\nSe désinscrire des emails groupés : " . $unsubscribeUrl;
+                . "\n\n---\nVous recevez cet email en tant que membre de l'unité.\nSe désinscrire des emails groupés : "
+                . $unsubscribeUrl;
 
             try {
                 $context->mailService->send(
@@ -179,7 +189,11 @@ class SendBatchHandler implements TaskHandlerInterface
                     'recipient_send_failed',
                     'info',
                     'Échec d\'envoi à un destinataire d\'email groupé',
-                    ['recipient_id' => $recipient->id, 'email_id' => $recipient->emailId, 'mail_error' => $e->getMessage()],
+                    [
+                        'recipient_id' => $recipient->id,
+                        'email_id' => $recipient->emailId,
+                        'mail_error' => $e->getMessage()
+                    ],
                     null
                 );
                 $errorCount++;
@@ -230,7 +244,8 @@ class SendBatchHandler implements TaskHandlerInterface
         }
 
         $pdo = $context->connection->getPdo();
-        $memberYear = (new MemberYearRepository($pdo))->findByMemberAndYear($recipient->memberId, $recipient->scoutYearId);
+        $memberYear = (new MemberYearRepository($pdo))->findByMemberAndYear($recipient->memberId,
+            $recipient->scoutYearId);
         $url = $memberYear !== null ? '/members/' . $memberYear['id'] . '/emails/' . $recipient->id : null;
 
         $context->notifications->dispatch('mass_mail.email_received', [
@@ -255,7 +270,9 @@ class SendBatchHandler implements TaskHandlerInterface
             $intervalMinutes = self::DEFAULT_BATCH_INTERVAL_MINUTES;
         }
 
-        $schedulerService = new SchedulerService(new \Core\Scheduler\SchedulerRepository($context->connection->getPdo()));
+        $schedulerService = new SchedulerService(
+            new \Core\Scheduler\SchedulerRepository($context->connection->getPdo())
+        );
         $schedulerService->scheduleAfter('mass_mail', 'send_batch', $intervalMinutes * 60);
     }
 
@@ -268,7 +285,8 @@ class SendBatchHandler implements TaskHandlerInterface
             new \Core\Badge\MemberBadgeRepository($pdo)
         );
 
-        $memberService = new \Core\Member\MemberService(new \Core\Import\MemberYearRepository($pdo), $context->encryption, $context->connection);
+        $memberService = new \Core\Member\MemberService(new \Core\Import\MemberYearRepository($pdo),
+            $context->encryption, $context->connection);
         $scoutYearService = new \Core\Config\ScoutYearService($pdo);
 
         // No module namespace needed — Core\Member\MemberEmailService only

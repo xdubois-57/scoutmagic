@@ -251,7 +251,10 @@ class CampaignService
         // Same predicate as every other finance page: a campaign booked
         // against a section's account belongs to that section's
         // treasurer, here as anywhere else.
-        if (!$this->accountVisibility->isVisibleTo($this->accountRepository->findById($campaign->accountId), $viewerRole)) {
+        if (!$this->accountVisibility->isVisibleTo(
+            $this->accountRepository->findById($campaign->accountId),
+            $viewerRole
+        )) {
             throw new FinanceException("Cette campagne n'existe pas.");
         }
 

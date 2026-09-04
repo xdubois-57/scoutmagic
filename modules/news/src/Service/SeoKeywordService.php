@@ -47,8 +47,10 @@ class SeoKeywordService
         $request = new LlmRequest(
             tier: LlmTier::CHEAP,
             prompt: "Titre : {$title}\n\nContenu :\n{$plainText}",
-            systemPrompt: 'Tu es un assistant qui génère des mots-clés SEO pour un article de site web d\'une unité scoute. '
-                . 'Réponds uniquement avec une liste de 5 à 10 mots-clés ou courtes expressions, séparés par des virgules, en français, '
+            systemPrompt: 'Tu es un assistant qui génère des mots-clés SEO pour un article de site web d\'une unité '
+                . 'scoute. '
+                . 'Réponds uniquement avec une liste de 5 à 10 mots-clés ou courtes expressions, séparés par des '
+                . 'virgules, en français, '
                 . 'sans phrase d\'introduction ni numérotation.'
         );
 
@@ -90,9 +92,11 @@ class SeoKeywordService
         $request = new LlmRequest(
             tier: LlmTier::CHEAP,
             prompt: "Titre : {$title}\n\nContenu :\n{$plainText}",
-            systemPrompt: 'Tu es un assistant qui rédige des résumés accrocheurs pour les actualités d\'un site web d\'une unité scoute, '
+            systemPrompt: 'Tu es un assistant qui rédige des résumés accrocheurs pour les actualités d\'un site web '
+                . 'd\'une unité scoute, '
                 . 'destinés à être partagés sur les réseaux sociaux (Facebook, Instagram...). '
-                . 'Réponds uniquement avec UNE SEULE phrase, en français, engageante et donnant envie de cliquer sur le lien, '
+                . 'Réponds uniquement avec UNE SEULE phrase, en français, engageante et donnant envie de cliquer sur '
+                . 'le lien, '
                 . 'sans guillemets, sans hashtag, sans emoji, sans phrase d\'introduction.'
         );
 

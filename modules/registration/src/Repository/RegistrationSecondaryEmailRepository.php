@@ -75,7 +75,8 @@ class RegistrationSecondaryEmailRepository
 
     public function findByRequestAndEmail(int $registrationRequestId, string $email): ?RegistrationSecondaryEmail
     {
-        $blindIndex = $this->encryption->blindIndex(RegistrationRequestRepository::normalizeEmail($email), 'registration_email');
+        $blindIndex = $this->encryption->blindIndex(RegistrationRequestRepository::normalizeEmail($email),
+            'registration_email');
         $stmt = $this->pdo->prepare(
             'SELECT * FROM registration_secondary_emails WHERE registration_request_id = ? AND email_blind_index = ?'
         );
@@ -95,14 +96,19 @@ class RegistrationSecondaryEmailRepository
     public function findRequestIdsByValidBlindIndex(string $blindIndex): array
     {
         $stmt = $this->pdo->prepare(
-            "SELECT registration_request_id FROM registration_secondary_emails WHERE email_blind_index = ? AND status = 'valid'"
+            "SELECT registration_request_id FROM registration_secondary_emails WHERE email_blind_index = ? AND status "
+                . "= 'valid'"
         );
         $stmt->execute([$blindIndex]);
 
         return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
     }
 
-    public function refreshConfirmation(int $id, string $confirmationTokenHash, \DateTimeImmutable $confirmationExpiresAt): void
+    public function refreshConfirmation(
+        int $id,
+        string $confirmationTokenHash,
+        \DateTimeImmutable $confirmationExpiresAt
+    ): void
     {
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
         $stmt = $this->pdo->prepare(
@@ -140,11 +146,19 @@ class RegistrationSecondaryEmailRepository
             registrationRequestId: (int) $row['registration_request_id'],
             email: $this->encryption->decrypt($row['email_encrypted'], 'registration_secondary_emails.email'),
             status: (string) $row['status'],
-            confirmationTokenHash: $row['confirmation_token_hash'] !== null ? (string) $row['confirmation_token_hash'] : null,
-            confirmationExpiresAt: DateInput::fromStorage($row['confirmation_expires_at'] === null ? null : (string) $row['confirmation_expires_at']),
-            lastConfirmationSentAt: DateInput::fromStorage($row['last_confirmation_sent_at'] === null ? null : (string) $row['last_confirmation_sent_at']),
+            confirmationTokenHash: $row['confirmation_token_hash'] !== null
+                ? (string) $row['confirmation_token_hash']
+                : null,
+            confirmationExpiresAt: DateInput::fromStorage(
+                $row['confirmation_expires_at'] === null ? null : (string) $row['confirmation_expires_at']
+            ),
+            lastConfirmationSentAt: DateInput::fromStorage(
+                $row['last_confirmation_sent_at'] === null ? null : (string) $row['last_confirmation_sent_at']
+            ),
             confirmedAt: DateInput::fromStorage($row['confirmed_at'] === null ? null : (string) $row['confirmed_at']),
-            deactivatedAt: DateInput::fromStorage($row['deactivated_at'] === null ? null : (string) $row['deactivated_at']),
+            deactivatedAt: DateInput::fromStorage(
+                $row['deactivated_at'] === null ? null : (string) $row['deactivated_at']
+            ),
             createdAt: DateInput::requireFromStorage((string) $row['created_at'], 'created_at')
         );
     }

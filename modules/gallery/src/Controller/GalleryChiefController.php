@@ -275,7 +275,13 @@ class GalleryChiefController extends AbstractController
      * MediaService::upload() validation (real-MIME allowlist, per-type size
      * ceiling) as a single-POST upload.
      */
-    private function uploadMediaChunk(Request $request, Album $album, Role $role, string $email, string $uploadId): Response
+    private function uploadMediaChunk(
+        Request $request,
+        Album $album,
+        Role $role,
+        string $email,
+        string $uploadId
+    ): Response
     {
         if ($this->chunkedUploadStore === null) {
             return $this->json(['success' => false, 'error' => 'Envoi fragmenté indisponible.'], 500);
@@ -321,7 +327,10 @@ class GalleryChiefController extends AbstractController
         }
 
         if ($assembled === null) {
-            return $this->json(['success' => true, 'received' => $this->chunkedUploadStore->receivedBytes($uploadId, session_id())]);
+            return $this->json([
+                'success' => true,
+                'received' => $this->chunkedUploadStore->receivedBytes($uploadId, session_id())
+            ]);
         }
 
         $syntheticFile = [
@@ -332,7 +341,13 @@ class GalleryChiefController extends AbstractController
         ];
 
         try {
-            $media = $this->mediaService->upload($album, $syntheticFile, $role, $email, AuthSession::getUserAccountId());
+            $media = $this->mediaService->upload(
+                $album,
+                $syntheticFile,
+                $role,
+                $email,
+                AuthSession::getUserAccountId()
+            );
         } catch (GalleryException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
         } finally {

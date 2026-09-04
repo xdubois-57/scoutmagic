@@ -45,7 +45,8 @@ class LastLoginMethodCookie
             // defaults to true, and a Secure cookie is silently dropped by
             // the browser over plain HTTP, which was why this never
             // actually persisted.
-            CookieHelper::set(self::NAME, $method, time() + self::EXPIRY_DAYS * 86400, 'functional', $consentService, '/', true, $isHttps);
+            CookieHelper::set(self::NAME, $method, time() + self::EXPIRY_DAYS * 86400, 'functional', $consentService,
+                '/', true, $isHttps);
         } catch (CookieConsentException) {
             // Functional cookies not consented to — simply don't remember.
         }

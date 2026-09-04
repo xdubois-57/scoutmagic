@@ -44,7 +44,8 @@ class RentalBlockRepository implements OccupancyProvider
         ?int $createdByMemberId
     ): int {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO rental_blocks (asset_id, start_date, end_date, units, reason, created_by_member_id, created_at)
+            'INSERT INTO rental_blocks (asset_id, start_date, end_date, units, reason, created_by_member_id, '
+                . 'created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([

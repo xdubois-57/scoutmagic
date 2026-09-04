@@ -36,9 +36,11 @@ final class MenuEntry
 {
     /**
      * @param string $menuId One of MenuBuilder::MENU_* — which menu this entry belongs to.
-     * @param string $roleMin Minimum role for the entry to be *displayed*; never a substitute for the route's own guard.
+     * @param string $roleMin Minimum role for the entry to be *displayed*; never a substitute for the route's own
+     *     guard.
      * @param int $order Tie-break within $sortGroup only — see MenuBuilder::visibleEntries().
-     * @param bool $isDynamic Renders with the per-visitor avatar treatment (nav.html.twig) and is matched exact-only for the active-page highlight.
+     * @param bool $isDynamic Renders with the per-visitor avatar treatment (nav.html.twig) and is matched exact-only
+     *     for the active-page highlight.
      */
     public function __construct(
         public readonly string $menuId,

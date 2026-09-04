@@ -149,7 +149,12 @@ final class MemberExportRowBuilder
             );
         }
 
-        usort($rows, fn(MemberExportRow $a, MemberExportRow $b) => [$a->sectionName, $a->lastName, $a->firstName] <=> [$b->sectionName, $b->lastName, $b->firstName]);
+        usort($rows,
+            fn(
+                MemberExportRow $a,
+                MemberExportRow $b
+            ) => [$a->sectionName, $a->lastName, $a->firstName] <=> [$b->sectionName, $b->lastName, $b->firstName]
+            );
 
         return $rows;
     }
@@ -185,13 +190,21 @@ final class MemberExportRowBuilder
 
         $phones = [];
         if (!empty($memberYearRow['phone_encrypted'])) {
-            $phones[] = 'Téléphone : ' . TextNormalizerService::normalizePhone($this->encryption->decrypt($memberYearRow['phone_encrypted'], 'member_years.phone'));
+            $phones[] = 'Téléphone : ' . TextNormalizerService::normalizePhone($this->encryption->decrypt(
+                $memberYearRow['phone_encrypted'],
+                'member_years.phone'
+            ));
         }
         if (!empty($memberYearRow['mobile_encrypted'])) {
-            $phones[] = 'GSM : ' . TextNormalizerService::normalizePhone($this->encryption->decrypt($memberYearRow['mobile_encrypted'], 'member_years.mobile'));
+            $phones[] = 'GSM : ' . TextNormalizerService::normalizePhone($this->encryption->decrypt(
+                $memberYearRow['mobile_encrypted'],
+                'member_years.mobile'
+            ));
         }
 
-        $previousSection = $movement->previousSectionId !== null ? ($sectionsById[$movement->previousSectionId] ?? null) : null;
+        $previousSection = $movement->previousSectionId !== null
+            ? ($sectionsById[$movement->previousSectionId] ?? null)
+            : null;
 
         $bucketLabel = match ($entry->bucket) {
             SectionRosterEntry::BUCKET_ANIMATEUR => 'Animateur',
@@ -206,18 +219,38 @@ final class MemberExportRowBuilder
             scoutYearLabel: $scoutYearLabel,
             firstName: $this->encryption->decrypt($memberYearRow['first_name_encrypted'], 'member_years.first_name'),
             lastName: $this->encryption->decrypt($memberYearRow['last_name_encrypted'], 'member_years.last_name'),
-            totem: !empty($memberYearRow['totem_encrypted']) ? $this->encryption->decrypt($memberYearRow['totem_encrypted'], 'member_years.totem') : null,
-            quali: !empty($memberYearRow['quali_encrypted']) ? $this->encryption->decrypt($memberYearRow['quali_encrypted'], 'member_years.quali') : null,
-            gender: !empty($memberYearRow['gender_encrypted']) ? $this->encryption->decrypt($memberYearRow['gender_encrypted'], 'member_years.gender') : null,
-            birthDate: !empty($memberYearRow['birth_date_encrypted']) ? $this->encryption->decrypt($memberYearRow['birth_date_encrypted'], 'member_years.birth_date') : null,
+            totem: !empty($memberYearRow['totem_encrypted'])
+                ? $this->encryption->decrypt($memberYearRow['totem_encrypted'], 'member_years.totem')
+                : null,
+            quali: !empty($memberYearRow['quali_encrypted'])
+                ? $this->encryption->decrypt($memberYearRow['quali_encrypted'], 'member_years.quali')
+                : null,
+            gender: !empty($memberYearRow['gender_encrypted'])
+                ? $this->encryption->decrypt($memberYearRow['gender_encrypted'], 'member_years.gender')
+                : null,
+            birthDate: !empty($memberYearRow['birth_date_encrypted'])
+                ? $this->encryption->decrypt($memberYearRow['birth_date_encrypted'], 'member_years.birth_date')
+                : null,
             emails: $emails,
             phones: $phones,
-            street: $addressRow !== null && !empty($addressRow['street_encrypted']) ? $this->encryption->decrypt($addressRow['street_encrypted'], 'member_addresses.street') : null,
-            number: $addressRow !== null && !empty($addressRow['number_encrypted']) ? $this->encryption->decrypt($addressRow['number_encrypted'], 'member_addresses.number') : null,
-            box: $addressRow !== null && !empty($addressRow['box_encrypted']) ? $this->encryption->decrypt($addressRow['box_encrypted'], 'member_addresses.box') : null,
-            postalCode: $addressRow !== null && !empty($addressRow['postal_code_encrypted']) ? $this->encryption->decrypt($addressRow['postal_code_encrypted'], 'member_addresses.postal_code') : null,
-            city: $addressRow !== null && !empty($addressRow['city_encrypted']) ? $this->encryption->decrypt($addressRow['city_encrypted'], 'member_addresses.city') : null,
-            country: $addressRow !== null && !empty($addressRow['country_encrypted']) ? $this->encryption->decrypt($addressRow['country_encrypted'], 'member_addresses.country') : null,
+            street: $addressRow !== null && !empty($addressRow['street_encrypted'])
+                ? $this->encryption->decrypt($addressRow['street_encrypted'], 'member_addresses.street')
+                : null,
+            number: $addressRow !== null && !empty($addressRow['number_encrypted'])
+                ? $this->encryption->decrypt($addressRow['number_encrypted'], 'member_addresses.number')
+                : null,
+            box: $addressRow !== null && !empty($addressRow['box_encrypted'])
+                ? $this->encryption->decrypt($addressRow['box_encrypted'], 'member_addresses.box')
+                : null,
+            postalCode: $addressRow !== null && !empty($addressRow['postal_code_encrypted'])
+                ? $this->encryption->decrypt($addressRow['postal_code_encrypted'], 'member_addresses.postal_code')
+                : null,
+            city: $addressRow !== null && !empty($addressRow['city_encrypted'])
+                ? $this->encryption->decrypt($addressRow['city_encrypted'], 'member_addresses.city')
+                : null,
+            country: $addressRow !== null && !empty($addressRow['country_encrypted'])
+                ? $this->encryption->decrypt($addressRow['country_encrypted'], 'member_addresses.country')
+                : null,
             sectionName: $section['name'] ?? $section['desk_code'] ?? null,
             sectionCode: $section['desk_code'] ?? null,
             branchName: $section['branch_name'] ?? null,
@@ -225,11 +258,20 @@ final class MemberExportRowBuilder
             functionLabels: $functionLabels,
             isActive: (bool) $memberYearRow['is_active'],
             scoutYearOffset: (int) $memberYearRow['scout_year_offset'],
-            formationLevel: $memberYearRow['formation_level'] !== null ? (string) $memberYearRow['formation_level'] : null,
-            supplementaryInsurance: $memberYearRow['supplementary_insurance'] !== null ? (string) $memberYearRow['supplementary_insurance'] : null,
+            formationLevel: $memberYearRow['formation_level'] !== null
+                ? (string) $memberYearRow['formation_level']
+                : null,
+            supplementaryInsurance: $memberYearRow['supplementary_insurance'] !== null
+                ? (string) $memberYearRow['supplementary_insurance']
+                : null,
             leaving: (bool) $memberYearRow['leaving'],
-            leavingComment: !empty($memberYearRow['leaving_comment_encrypted']) ? $this->encryption->decrypt($memberYearRow['leaving_comment_encrypted'], 'member_years.leaving_comment') : null,
-            handicap: !empty($memberYearRow['handicap_encrypted']) ? $this->encryption->decrypt($memberYearRow['handicap_encrypted'], 'member_years.handicap') : null,
+            leavingComment: !empty($memberYearRow['leaving_comment_encrypted']) ? $this->encryption->decrypt(
+                $memberYearRow['leaving_comment_encrypted'],
+                'member_years.leaving_comment'
+            ) : null,
+            handicap: !empty($memberYearRow['handicap_encrypted'])
+                ? $this->encryption->decrypt($memberYearRow['handicap_encrypted'], 'member_years.handicap')
+                : null,
             movementStatusLabel: $movement->status->label(),
             previousSectionName: $previousSection['name'] ?? $previousSection['desk_code'] ?? null,
             previousBranchName: $previousSection['branch_name'] ?? null

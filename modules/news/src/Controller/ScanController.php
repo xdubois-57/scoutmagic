@@ -192,7 +192,10 @@ class ScanController extends AbstractController
         if (count($matches) === 1) {
             return $this->json([
                 'success' => true,
-                'verdict' => $this->presentVerdict($this->scanService->verdictForResponse($form, $matches[0]['response'])),
+                'verdict' => $this->presentVerdict($this->scanService->verdictForResponse(
+                    $form,
+                    $matches[0]['response']
+                )),
                 'matches' => [],
             ]);
         }

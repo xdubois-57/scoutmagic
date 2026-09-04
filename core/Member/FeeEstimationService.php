@@ -60,7 +60,11 @@ class FeeEstimationService
         $blindIndex = $this->encryption->blindIndex($normalized, 'address');
         $count = $this->repository->countProjectedHouseholdMembers($blindIndex, $scoutYearId);
         if ($this->registrationCount !== null) {
-            $count += $this->registrationCount->countAtAddress($blindIndex, $scoutYearId, $excludeRegistrationRequestId);
+            $count += $this->registrationCount->countAtAddress(
+                $blindIndex,
+                $scoutYearId,
+                $excludeRegistrationRequestId
+            );
         }
 
         return FeeEstimate::forHouseholdSize($count);

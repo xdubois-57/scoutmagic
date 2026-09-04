@@ -169,11 +169,13 @@ class StorageLocationService
             $subdir = $location->subdir !== null && $location->subdir !== '' ? $location->subdir : 'gallery';
             $dir = $this->localStoragePath($subdir);
             if (!is_dir($dir) && !@mkdir($dir, 0755, true)) {
-                $this->storageLocationRepository->recordCheckResult($location->id, false, "Le dossier de stockage local ({$dir}) n'existe pas et n'a pas pu être créé.");
+                $this->storageLocationRepository->recordCheckResult($location->id, false,
+                    "Le dossier de stockage local ({$dir}) n'existe pas et n'a pas pu être créé.");
                 return;
             }
             if (!is_writable($dir)) {
-                $this->storageLocationRepository->recordCheckResult($location->id, false, "Le dossier de stockage local ({$dir}) n'est pas accessible en écriture.");
+                $this->storageLocationRepository->recordCheckResult($location->id, false,
+                    "Le dossier de stockage local ({$dir}) n'est pas accessible en écriture.");
                 return;
             }
             $this->storageLocationRepository->recordCheckResult($location->id, true, null);

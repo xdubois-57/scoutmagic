@@ -178,7 +178,9 @@ class Response
 
         $imgSrc = implode(' ', array_merge(["'self'", 'data:', 'blob:'], $this->extraImgSrc));
 
-        return "default-src 'self'; {$scriptSrc}; {$this->buildStyleSrc()}; img-src {$imgSrc}; font-src 'self'; connect-src 'self'; manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
+        return "default-src 'self'; {$scriptSrc}; {$this->buildStyleSrc()}; img-src {$imgSrc}; font-src 'self'; "
+            . "connect-src 'self'; manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'self'; "
+            . "form-action 'self'";
     }
 
     /**

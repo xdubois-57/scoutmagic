@@ -55,7 +55,13 @@ class TrombinoscopePdfService
      *        the HTML, so it is in neither the document nor its text layer.
      * @return string raw PDF bytes
      */
-    public function generate(int $scoutYearId, string $yearLabel, string $unitName, string $siteUrl, bool $showContacts): string
+    public function generate(
+        int $scoutYearId,
+        string $yearLabel,
+        string $unitName,
+        string $siteUrl,
+        bool $showContacts
+    ): string
     {
         $sections = $this->buildSectionViews($scoutYearId, $showContacts);
         $html = $this->htmlBuilder->build($sections, $unitName, $yearLabel, $siteUrl, $showContacts);

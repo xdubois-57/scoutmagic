@@ -132,12 +132,17 @@ class RegistrationRequestController extends AbstractController
         if ($registrationRequest === null) {
             return new Response('Not Found', 404);
         }
-        if (($guard = $this->guardCsrf($request, '/config/inscriptions/demandes/' . $registrationRequest->id)) !== null) {
+        if (($guard = $this->guardCsrf(
+            $request,
+            '/config/inscriptions/demandes/' . $registrationRequest->id
+        )) !== null) {
             return $guard;
         }
 
         $submitted = (int) $request->getBody('intended_section_id', '0');
-        $sectionId = $submitted > 0 && $this->sectionBelongsToRequestSlot($registrationRequest, $submitted) ? $submitted : null;
+        $sectionId = $submitted > 0 && $this->sectionBelongsToRequestSlot($registrationRequest, $submitted)
+            ? $submitted
+            : null;
 
         $this->requestRepository->updateIntendedSection($registrationRequest->id, $sectionId);
         FlashMessage::set('success', 'Section prévue mise à jour.');
@@ -156,7 +161,10 @@ class RegistrationRequestController extends AbstractController
         if ($registrationRequest === null) {
             return new Response('Not Found', 404);
         }
-        if (($guard = $this->guardCsrf($request, '/config/inscriptions/demandes/' . $registrationRequest->id)) !== null) {
+        if (($guard = $this->guardCsrf(
+            $request,
+            '/config/inscriptions/demandes/' . $registrationRequest->id
+        )) !== null) {
             return $guard;
         }
 
@@ -191,7 +199,10 @@ class RegistrationRequestController extends AbstractController
         if ($registrationRequest === null) {
             return new Response('Not Found', 404);
         }
-        if (($guard = $this->guardCsrf($request, '/config/inscriptions/demandes/' . $registrationRequest->id)) !== null) {
+        if (($guard = $this->guardCsrf(
+            $request,
+            '/config/inscriptions/demandes/' . $registrationRequest->id
+        )) !== null) {
             return $guard;
         }
 
@@ -218,7 +229,10 @@ class RegistrationRequestController extends AbstractController
         if ($registrationRequest === null) {
             return new Response('Not Found', 404);
         }
-        if (($guard = $this->guardCsrf($request, '/config/inscriptions/demandes/' . $registrationRequest->id)) !== null) {
+        if (($guard = $this->guardCsrf(
+            $request,
+            '/config/inscriptions/demandes/' . $registrationRequest->id
+        )) !== null) {
             return $guard;
         }
 
@@ -268,7 +282,10 @@ class RegistrationRequestController extends AbstractController
         if ($registrationRequest === null) {
             return new Response('Not Found', 404);
         }
-        if (($guard = $this->guardCsrf($request, '/config/inscriptions/demandes/' . $registrationRequest->id)) !== null) {
+        if (($guard = $this->guardCsrf(
+            $request,
+            '/config/inscriptions/demandes/' . $registrationRequest->id
+        )) !== null) {
             return $guard;
         }
 
@@ -295,7 +312,10 @@ class RegistrationRequestController extends AbstractController
         if ($registrationRequest === null) {
             return new Response('Not Found', 404);
         }
-        if (($guard = $this->guardCsrf($request, '/config/inscriptions/demandes/' . $registrationRequest->id)) !== null) {
+        if (($guard = $this->guardCsrf(
+            $request,
+            '/config/inscriptions/demandes/' . $registrationRequest->id
+        )) !== null) {
             return $guard;
         }
 
@@ -340,7 +360,10 @@ class RegistrationRequestController extends AbstractController
             $sectionLabels[$section['id']] = $section['name'] ?? $section['desk_code'];
         }
         $sectionsInBranch = $slot !== null
-            ? array_values(array_filter($sections, static fn(array $s) => $s['age_branch_id'] === $slot['age_branch_id']))
+            ? array_values(array_filter(
+                $sections,
+                static fn(array $s) => $s['age_branch_id'] === $slot['age_branch_id']
+            ))
             : [];
 
         $feeEstimate = $this->feeEstimationService->estimate(
@@ -355,7 +378,8 @@ class RegistrationRequestController extends AbstractController
         $linkedMemberYearId = null;
         if ($registrationRequest->linkedMemberId !== null) {
             $publicYear = $this->scoutYearResolver->getCurrentPublicYear();
-            $memberYear = $this->memberYearRepository->findByMemberAndYear($registrationRequest->linkedMemberId, (int) $publicYear['id']);
+            $memberYear = $this->memberYearRepository->findByMemberAndYear($registrationRequest->linkedMemberId,
+                (int) $publicYear['id']);
             $linkedMemberYearId = $memberYear['id'] ?? null;
         }
 
@@ -363,7 +387,8 @@ class RegistrationRequestController extends AbstractController
             'r' => $registrationRequest,
             // The child's name is already decrypted on the entity — no
             // extra decryption for the breadcrumb title.
-            'breadcrumb_current' => trim($registrationRequest->childFirstName . ' ' . $registrationRequest->childLastName),
+            'breadcrumb_current' =>
+                trim($registrationRequest->childFirstName . ' ' . $registrationRequest->childLastName),
             'scout_year_label' => $scoutYearLabel,
             'slot_label' => $this->slotLabel($brackets, $slot),
             'desired_section_label' => $registrationRequest->desiredSectionId !== null
@@ -396,7 +421,10 @@ class RegistrationRequestController extends AbstractController
      *
      * @return array<int, array{name: string, section_label: string}>
      */
-    private function siblingDetails(\Modules\Registration\Repository\RegistrationRequest $registrationRequest, string $targetScoutYearLabel): array
+    private function siblingDetails(
+        \Modules\Registration\Repository\RegistrationRequest $registrationRequest,
+        string $targetScoutYearLabel
+    ): array
     {
         $publicYear = $this->scoutYearResolver->getCurrentPublicYear();
         $referenceYear = SlotMath::referenceCalendarYear(
@@ -432,7 +460,11 @@ class RegistrationRequestController extends AbstractController
      * @param array<\Modules\Registration\Repository\AgeBracket> $brackets
      * @return array{age_branch_id: int, year_in_branch: int}|null
      */
-    private function requestSlot(\Modules\Registration\Repository\RegistrationRequest $registrationRequest, array $brackets, string $scoutYearLabel): ?array
+    private function requestSlot(
+        \Modules\Registration\Repository\RegistrationRequest $registrationRequest,
+        array $brackets,
+        string $scoutYearLabel
+    ): ?array
     {
         $referenceYear = SlotMath::referenceCalendarYear(
             MemberYearService::referenceYearFromScoutYearLabel($scoutYearLabel),
@@ -442,7 +474,10 @@ class RegistrationRequestController extends AbstractController
         return SlotMath::slotForBirthDate($brackets, $registrationRequest->birthDate, $referenceYear);
     }
 
-    private function sectionBelongsToRequestSlot(\Modules\Registration\Repository\RegistrationRequest $registrationRequest, int $sectionId): bool
+    private function sectionBelongsToRequestSlot(
+        \Modules\Registration\Repository\RegistrationRequest $registrationRequest,
+        int $sectionId
+    ): bool
     {
         $scoutYear = $this->scoutYearService->findById($registrationRequest->scoutYearId);
         $brackets = $this->ageBracketRepository->findAllOrdered();

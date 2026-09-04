@@ -76,7 +76,9 @@ class BulkCategorizationService
 
     public function setAiRuleEnabled(bool $enabled): void
     {
-        $this->settingService->register(self::AI_ENABLED_SETTING_KEY, '0', 'boolean', 'Règle de catégorisation IA activée', 'Indicateur interne — ne pas modifier.', 'finance', null, null, false);
+        $this->settingService->register(self::AI_ENABLED_SETTING_KEY, '0', 'boolean',
+            'Règle de catégorisation IA activée', 'Indicateur interne — ne pas modifier.', 'finance', null, null, false
+            );
         $this->settingService->setInternal(self::AI_ENABLED_SETTING_KEY, $enabled ? '1' : '0', 'finance');
     }
 
@@ -143,7 +145,9 @@ class BulkCategorizationService
 
     private function registerRunningSetting(): void
     {
-        $this->settingService->register(self::RUNNING_SETTING_KEY, '0', 'number', 'Exécution des règles en cours depuis', 'Indicateur interne — ne pas modifier.', 'finance', null, null, false);
+        $this->settingService->register(self::RUNNING_SETTING_KEY, '0', 'number',
+            'Exécution des règles en cours depuis', 'Indicateur interne — ne pas modifier.', 'finance', null, null,
+            false);
     }
 
     /**
@@ -224,13 +228,15 @@ class BulkCategorizationService
         // value whichever type that row happens to carry — only a timestamp
         // would fail validation on a `boolean` row, which is precisely why
         // the timestamp lives under its own key.
-        $this->settingService->register(self::LEGACY_RUNNING_SETTING_KEY, '0', 'boolean', 'Exécution des règles en cours (obsolète)', 'Indicateur interne — ne pas modifier.', 'finance', null, null, false);
+        $this->settingService->register(self::LEGACY_RUNNING_SETTING_KEY, '0', 'boolean', 'Exécution des règles en '
+            . 'cours (obsolète)', 'Indicateur interne — ne pas modifier.', 'finance', null, null, false);
         $this->settingService->setInternal(self::LEGACY_RUNNING_SETTING_KEY, '0', 'finance');
     }
 
     private function storeLastResult(BulkCategorizationResult $result): void
     {
-        $this->settingService->register(self::LAST_RESULT_SETTING_KEY, '', 'text', 'Résultat de la dernière exécution des règles', 'Indicateur interne — ne pas modifier.', 'finance', null, null, false);
+        $this->settingService->register(self::LAST_RESULT_SETTING_KEY, '', 'text', 'Résultat de la dernière exécution '
+            . 'des règles', 'Indicateur interne — ne pas modifier.', 'finance', null, null, false);
         $this->settingService->setInternal(self::LAST_RESULT_SETTING_KEY, json_encode([
             'categorized_by_rules' => $result->categorizedByRules,
             'categorized_by_ai' => $result->categorizedByAi,

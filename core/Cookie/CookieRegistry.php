@@ -39,7 +39,8 @@ class CookieRegistry
             [
                 'name' => 'last_login_method',
                 'category' => 'functional',
-                'purpose' => 'Mémorisation de la méthode de connexion utilisée la dernière fois, pour la présélectionner sur la page de connexion.',
+                'purpose' => 'Mémorisation de la méthode de connexion utilisée la dernière fois, pour la '
+                    . 'présélectionner sur la page de connexion.',
                 'duration' => '13 mois',
             ],
             [
@@ -55,7 +56,9 @@ class CookieRegistry
                 // caching, in a later lot).
                 'name' => 'app-shell-{version}',
                 'category' => 'necessary',
-                'purpose' => 'Stocke localement les fichiers nécessaires à l\'installation et l\'ouverture de l\'application (mise en page, styles, icônes) — aucune donnée personnelle, aucun contenu du site.',
+                'purpose' => 'Stocke localement les fichiers nécessaires à l\'installation et l\'ouverture de '
+                    . 'l\'application (mise en page, styles, icônes) — aucune donnée personnelle, aucun contenu du '
+                    . 'site.',
                 'duration' => 'Jusqu\'à la prochaine mise à jour du site (remplacé automatiquement)',
             ],
             [
@@ -72,7 +75,8 @@ class CookieRegistry
                 // is stored as an absence of the entry.
                 'name' => 'theme_preference',
                 'category' => 'functional',
-                'purpose' => 'Mémorisation du thème d\'affichage choisi (clair ou sombre) pour l\'appliquer à chaque visite.',
+                'purpose' => 'Mémorisation du thème d\'affichage choisi (clair ou sombre) pour l\'appliquer à chaque '
+                    . 'visite.',
                 'duration' => 'Jusqu\'au retrait (suppression manuelle ou retour au thème automatique)',
             ],
             [
@@ -93,8 +97,13 @@ class CookieRegistry
                 // logout or on withdrawing this consent.
                 'name' => 'content-{accountScope}-{version}',
                 'category' => 'functional',
-                'purpose' => 'Conserve localement, depuis l\'application installée, une copie des pages consultables hors ligne (accueil, contact, sections, protection des données, calendrier, notifications, trombinoscope, staffs, statistiques, prévisions, votre page personnelle et « Mon compte ») ainsi que les photos qu\'elles affichent, pour pouvoir les consulter hors connexion.',
-                'duration' => 'Jusqu\'à péremption (durée configurable, 30 jours par défaut), déconnexion, ou retrait de ce consentement',
+                'purpose' => 'Conserve localement, depuis l\'application installée, une copie des pages consultables '
+                    . 'hors ligne (accueil, contact, sections, protection des données, calendrier, notifications, '
+                    . 'trombinoscope, staffs, statistiques, prévisions, votre page personnelle et « Mon compte ») '
+                    . 'ainsi '
+                    . 'que les photos qu\'elles affichent, pour pouvoir les consulter hors connexion.',
+                'duration' => 'Jusqu\'à péremption (durée configurable, 30 jours par défaut), déconnexion, ou retrait '
+                    . 'de ce consentement',
             ],
         ];
     }

@@ -33,7 +33,8 @@ class AlbumRepository
      */
     public function findAll(): array
     {
-        $stmt = $this->pdo->query('SELECT * FROM gallery_albums WHERE owner_type IS NULL ORDER BY album_date DESC, id DESC');
+        $stmt = $this->pdo->query('SELECT * FROM gallery_albums WHERE owner_type IS NULL ORDER BY album_date DESC, id '
+            . 'DESC');
         return $stmt !== false ? array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC)) : [];
     }
 
@@ -54,7 +55,8 @@ class AlbumRepository
 
         $placeholders = implode(',', array_fill(0, count($scoutYearIds), '?'));
         $stmt = $this->pdo->prepare(
-            "SELECT * FROM gallery_albums WHERE owner_type IS NULL AND scout_year_id IN ({$placeholders}) ORDER BY album_date DESC, id DESC"
+            "SELECT * FROM gallery_albums WHERE owner_type IS NULL AND scout_year_id IN ({$placeholders}) ORDER BY "
+                . "album_date DESC, id DESC"
         );
         $stmt->execute(array_values($scoutYearIds));
 
@@ -117,7 +119,8 @@ class AlbumRepository
         }
 
         $stmt = $this->pdo->prepare(
-            "SELECT * FROM gallery_albums WHERE owner_type IS NULL AND scout_year_id IN ({$yearPlaceholders}) AND {$sectionClause} ORDER BY album_date DESC, id DESC"
+            "SELECT * FROM gallery_albums WHERE owner_type IS NULL AND scout_year_id IN ({$yearPlaceholders}) AND "
+                . "{$sectionClause} ORDER BY album_date DESC, id DESC"
         );
         $stmt->execute($params);
         return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
@@ -159,10 +162,12 @@ class AlbumRepository
         ?int $ownerId = null
     ): int {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO gallery_albums (type, title, subtitle, album_date, section_id, scout_year_id, external_url, storage_location_id, created_by, created_at, owner_type, owner_id)
+            'INSERT INTO gallery_albums (type, title, subtitle, album_date, section_id, scout_year_id, external_url, '
+                . 'storage_location_id, created_by, created_at, owner_type, owner_id)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
-        $stmt->execute([$type, $title, $subtitle, $albumDate, $sectionId, $scoutYearId, $externalUrl, $storageLocationId, $createdBy, date('Y-m-d H:i:s'), $ownerType, $ownerId]);
+        $stmt->execute([$type, $title, $subtitle, $albumDate, $sectionId, $scoutYearId, $externalUrl,
+            $storageLocationId, $createdBy, date('Y-m-d H:i:s'), $ownerType, $ownerId]);
         return (int) $this->pdo->lastInsertId();
     }
 
@@ -179,7 +184,8 @@ class AlbumRepository
     public function startMigration(int $id, int $targetLocationId): void
     {
         $stmt = $this->pdo->prepare(
-            "UPDATE gallery_albums SET migration_status = 'in_progress', migration_target_location_id = ?, migration_error = NULL WHERE id = ?"
+            "UPDATE gallery_albums SET migration_status = 'in_progress', migration_target_location_id = ?, "
+                . "migration_error = NULL WHERE id = ?"
         );
         $stmt->execute([$targetLocationId, $id]);
     }
@@ -193,7 +199,8 @@ class AlbumRepository
     public function completeMigration(int $id, int $newStorageLocationId): void
     {
         $stmt = $this->pdo->prepare(
-            "UPDATE gallery_albums SET storage_location_id = ?, migration_status = 'none', migration_target_location_id = NULL, migration_error = NULL WHERE id = ?"
+            "UPDATE gallery_albums SET storage_location_id = ?, migration_status = 'none', "
+                . "migration_target_location_id = NULL, migration_error = NULL WHERE id = ?"
         );
         $stmt->execute([$newStorageLocationId, $id]);
     }
@@ -205,7 +212,8 @@ class AlbumRepository
      */
     public function failMigration(int $id, string $error): void
     {
-        $stmt = $this->pdo->prepare("UPDATE gallery_albums SET migration_status = 'failed', migration_error = ? WHERE id = ?");
+        $stmt = $this->pdo->prepare("UPDATE gallery_albums SET migration_status = 'failed', migration_error = ? WHERE "
+            . "id = ?");
         $stmt->execute([$error, $id]);
     }
 
@@ -218,14 +226,22 @@ class AlbumRepository
         ?string $externalUrl
     ): void {
         $stmt = $this->pdo->prepare(
-            'UPDATE gallery_albums SET title = ?, subtitle = ?, album_date = ?, section_id = ?, external_url = ? WHERE id = ?'
+            'UPDATE gallery_albums SET title = ?, subtitle = ?, album_date = ?, section_id = ?, external_url = ? '
+                . 'WHERE id = ?'
         );
         $stmt->execute([$title, $subtitle, $albumDate, $sectionId, $externalUrl, $id]);
     }
 
-    public function updateOgMetadata(int $id, ?string $ogTitle, ?string $ogDescription, ?string $ogImageUrl, ?int $ogImageFileId): void
+    public function updateOgMetadata(
+        int $id,
+        ?string $ogTitle,
+        ?string $ogDescription,
+        ?string $ogImageUrl,
+        ?int $ogImageFileId
+    ): void
     {
-        $stmt = $this->pdo->prepare('UPDATE gallery_albums SET og_title = ?, og_description = ?, og_image_url = ?, og_image_file_id = ? WHERE id = ?');
+        $stmt = $this->pdo->prepare('UPDATE gallery_albums SET og_title = ?, og_description = ?, og_image_url = ?, '
+            . 'og_image_file_id = ? WHERE id = ?');
         $stmt->execute([$ogTitle, $ogDescription, $ogImageUrl, $ogImageFileId, $id]);
     }
 
@@ -262,7 +278,9 @@ class AlbumRepository
             ogImageFileId: $row['og_image_file_id'] !== null ? (int) $row['og_image_file_id'] : null,
             storageLocationId: $row['storage_location_id'] !== null ? (int) $row['storage_location_id'] : null,
             migrationStatus: (string) $row['migration_status'],
-            migrationTargetLocationId: $row['migration_target_location_id'] !== null ? (int) $row['migration_target_location_id'] : null,
+            migrationTargetLocationId: $row['migration_target_location_id'] !== null
+                ? (int) $row['migration_target_location_id']
+                : null,
             migrationError: $row['migration_error'] !== null ? (string) $row['migration_error'] : null,
             createdBy: (int) $row['created_by'],
             createdAt: (string) $row['created_at'],

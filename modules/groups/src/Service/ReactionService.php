@@ -49,7 +49,12 @@ class ReactionService
      *         Service\GroupNotificationService needs to tell "someone
      *         reacted" from "someone changed their mind".
      */
-    public function toggleOnPost(DiscussionGroup $group, int $postId, int $memberId, string $reactionKey): ReactionOutcome
+    public function toggleOnPost(
+        DiscussionGroup $group,
+        int $postId,
+        int $memberId,
+        string $reactionKey
+    ): ReactionOutcome
     {
         return $this->toggle($this->postReactions, $group, $postId, $postId, $memberId, $reactionKey);
     }

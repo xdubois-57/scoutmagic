@@ -95,7 +95,8 @@ class MemberSearchService
      */
     public function searchGrouped(int $scoutYearId, string $query, string $scope, int $effectiveScoutYearId): array
     {
-        return $this->groupByMember($this->matchIn($this->allForYear($scoutYearId), $query, $scope), $effectiveScoutYearId);
+        return $this->groupByMember($this->matchIn($this->allForYear($scoutYearId), $query, $scope),
+            $effectiveScoutYearId);
     }
 
     /**

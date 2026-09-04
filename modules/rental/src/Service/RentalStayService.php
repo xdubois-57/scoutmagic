@@ -230,7 +230,18 @@ class RentalStayService
     }
 
     /**
-     * @return array<int, array{id: int, label: string, sort_order: int, arrival_state: InventoryState, departure_state: InventoryState, arrival_note: ?string, departure_note: ?string}>
+     * @return array<
+     *     int,
+     *     array{
+     *         id: int,
+     *         label: string,
+     *         sort_order: int,
+     *         arrival_state: InventoryState,
+     *         departure_state: InventoryState,
+     *         arrival_note: ?string,
+     *         departure_note: ?string
+     *     }
+     * >
      */
     public function inventoryFor(int $bookingId): array
     {
@@ -379,7 +390,13 @@ class RentalStayService
      * version, or a manager who opens the page twice ends up with two.
      *
      * @param SettlementLine[] $manualLines
-     * @return array{lines: SettlementLine[], total_cents: int, balance_cents: int, security_deposit_withheld_cents: int, security_deposit_return_cents: int}
+     * @return array{
+     *     lines: SettlementLine[],
+     *     total_cents: int,
+     *     balance_cents: int,
+     *     security_deposit_withheld_cents: int,
+     *     security_deposit_return_cents: int
+     * }
      */
     public function previewSettlement(
         RentalBooking $booking,

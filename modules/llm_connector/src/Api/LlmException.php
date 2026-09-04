@@ -92,7 +92,8 @@ class LlmException extends \RuntimeException implements UserFacingException
     public static function apiError(string $detail, ?int $httpStatus = null): self
     {
         $message = $httpStatus !== null
-            ? "Le fournisseur IA a refusé la requête (erreur HTTP {$httpStatus}) — vérifiez la clé et l'adresse du fournisseur, puis réessayez."
+            ? "Le fournisseur IA a refusé la requête (erreur HTTP {$httpStatus}) — vérifiez la clé et l'adresse du "
+                . "fournisseur, puis réessayez."
             : 'Le fournisseur IA a renvoyé une réponse inattendue — réessayez dans quelques instants.';
 
         return new self($message, self::API_ERROR, null, $detail !== '' ? $detail : null);
@@ -105,7 +106,8 @@ class LlmException extends \RuntimeException implements UserFacingException
     public static function invalidRequest(string $detail): self
     {
         return new self(
-            'La requête n\'a pas pu être préparée pour le fournisseur IA — le contenu à envoyer contient des caractères illisibles.',
+            'La requête n\'a pas pu être préparée pour le fournisseur IA — le contenu à envoyer contient des '
+                . 'caractères illisibles.',
             self::API_ERROR,
             null,
             $detail !== '' ? $detail : null

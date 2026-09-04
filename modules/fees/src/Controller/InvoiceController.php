@@ -162,7 +162,12 @@ class InvoiceController extends AbstractController
      * A failure here never loses the import: the verification is what the
      * treasurer came for, and the document is still in their downloads.
      */
-    private function keepPdfIfAsked(Request $request, InvoiceImportOutcome $outcome, string $content, string $filename): void
+    private function keepPdfIfAsked(
+        Request $request,
+        InvoiceImportOutcome $outcome,
+        string $content,
+        string $filename
+    ): void
     {
         $accountId = (int) $request->getBody('finance_account_id', 0);
         if ($this->expenseReceipts === null || $accountId <= 0 || $outcome->invoiceId === null) {

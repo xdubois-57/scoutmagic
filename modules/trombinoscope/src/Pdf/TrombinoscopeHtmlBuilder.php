@@ -47,7 +47,13 @@ class TrombinoscopeHtmlBuilder
      *        order the site shows them — the document always covers the
      *        whole unit, Staff d'Unité included, and never a selection.
      */
-    public function build(array $sections, string $unitName, string $yearLabel, string $siteUrl, bool $showContacts): string
+    public function build(
+        array $sections,
+        string $unitName,
+        string $yearLabel,
+        string $siteUrl,
+        bool $showContacts
+    ): string
     {
         $pages = $this->buildDirectoryPage($sections, $unitName, $yearLabel, $showContacts);
         foreach ($sections as $section) {
@@ -77,7 +83,9 @@ class TrombinoscopeHtmlBuilder
             // to, which is the one failure this document cannot afford.
             . '.addr { word-wrap: break-word; }'
             . '.page-break { page-break-before: always; }'
-            . '.running { position: fixed; bottom: -10mm; left: 0; right: 0; font-size: 7pt; color: ' . self::MUTED . '; }'
+            . '.running { position: fixed; bottom: -10mm; left: 0; right: 0; font-size: 7pt; color: '
+            . self::MUTED
+            . '; }'
             . '.pageno:after { content: counter(page); }';
     }
 
@@ -104,7 +112,12 @@ class TrombinoscopeHtmlBuilder
      *
      * @param SectionView[] $sections
      */
-    private function buildDirectoryPage(array $sections, string $unitName, string $yearLabel, bool $showContacts): string
+    private function buildDirectoryPage(
+        array $sections,
+        string $unitName,
+        string $yearLabel,
+        bool $showContacts
+    ): string
     {
         $density = DirectoryDensity::forSectionCount(count($sections));
 
@@ -158,7 +171,11 @@ class TrombinoscopeHtmlBuilder
         // The branch colour is a full-height band down the card's edge,
         // drawn as a thick left border rather than a cell so it spans the
         // card whatever its content — an empty cell would not.
-        $html = '<table class="card" style="border-left:' . $this->mm($density->band) . 'mm solid ' . $this->color($section->color) . ';">'
+        $html = '<table class="card" style="border-left:'
+            . $this->mm($density->band)
+            . 'mm solid '
+            . $this->color($section->color)
+            . ';">'
             . '<tr><td style="width:' . $this->mm($density->portrait) . 'mm;padding:' . $pad . 'mm;">';
 
         $html .= $lead !== null
@@ -166,14 +183,20 @@ class TrombinoscopeHtmlBuilder
             : $this->vacantPortrait($density->portrait, $density->portrait / 2.6);
 
         $html .= '</td><td style="padding:' . $pad . 'mm ' . $pad . 'mm ' . $pad . 'mm 0;">'
-            . '<div style="font-size:' . $density->sectionNameSize . 'pt;font-weight:bold;color:' . $this->color($section->color) . ';">'
+            . '<div style="font-size:'
+            . $density->sectionNameSize
+            . 'pt;font-weight:bold;color:'
+            . $this->color($section->color)
+            . ';">'
             . $this->escape(mb_strtoupper($section->name)) . '</div>';
 
         if ($lead === null) {
             // A section with nobody designated keeps its card. A visible
             // hole pushes the Staff d'Unité to fix it; leaving the section
             // out would suggest it does not exist.
-            $html .= '<div class="muted" style="font-size:' . $density->civilNameSize . 'pt;font-style:italic;margin-top:1mm;">'
+            $html .= '<div class="muted" style="font-size:'
+                . $density->civilNameSize
+                . 'pt;font-style:italic;margin-top:1mm;">'
                 . 'Responsable non désigné</div>';
         } else {
             $html .= '<div style="font-size:' . $density->totemSize . 'pt;font-weight:bold;">'
@@ -200,7 +223,10 @@ class TrombinoscopeHtmlBuilder
         $count = count($sections);
         $columns = $density->footerColumns($count);
         $size = $density->footerSize($count);
-        $withEmail = array_values(array_filter($sections, fn(SectionView $s) => $s->email !== null && $s->email !== ''));
+        $withEmail = array_values(array_filter(
+            $sections,
+            fn(SectionView $s) => $s->email !== null && $s->email !== ''
+        ));
 
         $html = '<div style="border-top:0.6mm solid ' . self::INK . ';padding-top:2mm;margin-top:3mm;">';
 
@@ -210,7 +236,9 @@ class TrombinoscopeHtmlBuilder
             foreach (array_chunk($withEmail, $columns) as $row) {
                 $html .= '<tr>';
                 for ($column = 0; $column < $columns; $column++) {
-                    $html .= '<td class="addr" style="vertical-align:top;padding:0 2mm 0.6mm 0;font-size:' . $size . 'pt;">';
+                    $html .= '<td class="addr" style="vertical-align:top;padding:0 2mm 0.6mm 0;font-size:'
+                        . $size
+                        . 'pt;">';
                     if (isset($row[$column])) {
                         $html .= '<span style="font-weight:bold;color:' . $this->color($row[$column]->color) . ';">'
                             . $this->escape($row[$column]->name) . '</span> '
@@ -228,7 +256,10 @@ class TrombinoscopeHtmlBuilder
             $note .= ' · coordonnées personnelles masquées par le réglage';
         }
 
-        return $html . '<div class="muted" style="font-size:7pt;margin-top:2mm;">' . $this->escape($note) . '</div></div>';
+        return $html
+            . '<div class="muted" style="font-size:7pt;margin-top:2mm;">'
+            . $this->escape($note)
+            . '</div></div>';
     }
 
     /* ================= one page per section =========================== */
@@ -239,7 +270,12 @@ class TrombinoscopeHtmlBuilder
      * one — a parent detaching "the Louveteaux page" must get the whole of
      * it and nothing else.
      */
-    private function buildSectionPage(SectionView $section, string $unitName, string $yearLabel, bool $showContacts): string
+    private function buildSectionPage(
+        SectionView $section,
+        string $unitName,
+        string $yearLabel,
+        bool $showContacts
+    ): string
     {
         $staff = $section->staff;
         $density = SectionDensity::forStaffCount(count($staff));
@@ -249,16 +285,25 @@ class TrombinoscopeHtmlBuilder
 
         // The name at the top is what lets a reader pick this page out of
         // the print dialog. Nothing else on the sheet does that job.
-        $html .= '<table style="width:100%;border-bottom:0.6mm solid ' . $color . ';padding-bottom:2mm;margin-bottom:4mm;"><tr>'
-            . '<td style="width:3mm;padding:0;"><div style="width:2mm;height:11mm;background-color:' . $color . ';"></div></td>'
+        $html .= '<table style="width:100%;border-bottom:0.6mm solid '
+            . $color
+            . ';padding-bottom:2mm;margin-bottom:4mm;"><tr>'
+            . '<td style="width:3mm;padding:0;"><div style="width:2mm;height:11mm;background-color:'
+            . $color
+            . ';"></div></td>'
             . '<td style="padding-left:3mm;">'
-            . '<div style="font-size:20pt;font-weight:bold;color:' . $color . ';">' . $this->escape($section->name) . '</div>'
+            . '<div style="font-size:20pt;font-weight:bold;color:'
+            . $color
+            . ';">'
+            . $this->escape($section->name)
+            . '</div>'
             . '<div class="muted" style="font-size:10pt;margin-top:1mm;">'
             . $this->escape($this->sectionSubtitle($section, count($staff), $yearLabel))
             . '</div></td></tr></table>';
 
         $html .= $staff === []
-            ? '<div class="muted" style="font-size:11pt;font-style:italic;">Aucun animateur pour cette section cette année.</div>'
+            ? '<div class="muted" style="font-size:11pt;font-style:italic;">Aucun animateur pour cette section cette '
+                . 'année.</div>'
             : $this->buildPortraitGrid($staff, $section->color, $density, $showContacts);
 
         return $html . $this->buildSectionFooter($section, $unitName) . '</div>';
@@ -279,7 +324,12 @@ class TrombinoscopeHtmlBuilder
     /**
      * @param StaffView[] $staff
      */
-    private function buildPortraitGrid(array $staff, string $sectionColor, SectionDensity $density, bool $showContacts): string
+    private function buildPortraitGrid(
+        array $staff,
+        string $sectionColor,
+        SectionDensity $density,
+        bool $showContacts
+    ): string
     {
         $cellWidth = round(100 / $density->columns, 4);
         $html = '<table class="grid">';
@@ -301,7 +351,12 @@ class TrombinoscopeHtmlBuilder
         return $html . '</table>';
     }
 
-    private function buildPortraitCard(StaffView $member, string $sectionColor, SectionDensity $density, bool $showContacts): string
+    private function buildPortraitCard(
+        StaffView $member,
+        string $sectionColor,
+        SectionDensity $density,
+        bool $showContacts
+    ): string
     {
         $pad = $this->mm($density->padding);
         $color = $this->color($sectionColor);
@@ -319,8 +374,13 @@ class TrombinoscopeHtmlBuilder
             // full width of its container, which would turn a chip into a
             // band across the card, while a width-less table shrinks to
             // its content.
-            $html .= '<table style="margin-top:1mm;"><tr><td style="font-size:' . max(6.0, $density->contactSize - 0.5) . 'pt;'
-                . 'font-weight:bold;text-transform:uppercase;color:#ffffff;background-color:' . $color . ';padding:0.4mm 1.2mm;">'
+            $html .= '<table style="margin-top:1mm;"><tr><td style="font-size:' . max(
+                6.0,
+                $density->contactSize - 0.5
+            ) . 'pt;'
+                . 'font-weight:bold;text-transform:uppercase;color:#ffffff;background-color:'
+                . $color
+                . ';padding:0.4mm 1.2mm;">'
                 . 'Responsable</td></tr></table>';
         }
 
@@ -348,7 +408,10 @@ class TrombinoscopeHtmlBuilder
                 . '<span style="font-weight:bold;">' . $this->escape($section->email) . '</span></div>';
         }
 
-        return $html . '<div class="muted" style="font-size:7pt;margin-top:1mm;">' . $this->escape($unitName) . '</div></div>';
+        return $html
+            . '<div class="muted" style="font-size:7pt;margin-top:1mm;">'
+            . $this->escape($unitName)
+            . '</div></div>';
     }
 
     /* ================= shared pieces ================================== */
@@ -362,7 +425,13 @@ class TrombinoscopeHtmlBuilder
         $sideMm = $this->mm($side);
 
         if ($member->photoDataUri !== null) {
-            return '<img src="' . $member->photoDataUri . '" style="width:' . $sideMm . 'mm;height:' . $sideMm . 'mm;border-radius:50%;" alt="">';
+            return '<img src="'
+                . $member->photoDataUri
+                . '" style="width:'
+                . $sideMm
+                . 'mm;height:'
+                . $sideMm
+                . 'mm;border-radius:50%;" alt="">';
         }
 
         return $this->disc(
@@ -409,10 +478,18 @@ class TrombinoscopeHtmlBuilder
     {
         $html = '';
         if ($member->phone !== null && $member->phone !== '') {
-            $html .= '<div style="font-size:' . $size . 'pt;font-weight:bold;">' . $this->escape($member->phone) . '</div>';
+            $html .= '<div style="font-size:'
+                . $size
+                . 'pt;font-weight:bold;">'
+                . $this->escape($member->phone)
+                . '</div>';
         }
         if ($member->email !== null && $member->email !== '') {
-            $html .= '<div class="muted addr" style="font-size:' . $size . 'pt;">' . $this->escape($member->email) . '</div>';
+            $html .= '<div class="muted addr" style="font-size:'
+                . $size
+                . 'pt;">'
+                . $this->escape($member->email)
+                . '</div>';
         }
 
         return $html !== '' ? '<div style="margin-top:0.8mm;">' . $html . '</div>' : '';

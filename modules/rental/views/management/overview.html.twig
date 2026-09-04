@@ -28,12 +28,12 @@
               nothing. Said where the manager actually is, with the link to
               the exact field that fixes it.
             #}
-            <div class="alert alert-warning" role="status">
+            <output class="alert alert-warning d-block">
                 <strong>Ce bien est visible publiquement mais n'a encore aucun tarif.</strong>
                 Les visiteurs voient « Tarif sur demande » à la place d'une estimation.
                 <a href="/mes-locations/{{ asset.slug }}/reglages#tarification" class="alert-link">Définir
                 le tarif</a> — le champ « Tarif par défaut » suffit pour commencer.
-            </div>
+            </output>
         {% endif %}
 
         {#

@@ -117,10 +117,19 @@
      * @returns {HTMLElement|null}
      */
     function movementRowFromEvent(event) {
-        if (!(event.target instanceof Element) || event.target.closest('a, button')) {
+        if (!(event.target instanceof Element)) {
             return null;
         }
-        return /** @type {HTMLElement|null} */ (event.target.closest('.movement-row'));
+        const row = /** @type {HTMLElement|null} */ (event.target.closest('.movement-row'));
+        if (!row) {
+            return null;
+        }
+        // A link or button INSIDE a row keeps its own behaviour. The mobile
+        // card is itself a <button>, so the row can never be that control —
+        // testing for one without this would have made every card inert.
+        const control = event.target.closest('a, button');
+
+        return control && control !== row ? null : row;
     }
 
     document.addEventListener('click', (e) => {
@@ -194,12 +203,18 @@
             const row = document.createElement('div');
             row.className = 'd-flex align-items-center gap-2 border rounded p-2';
             let info = '<a href="/files/' + a.file_id + '" target="_blank" rel="noopener" class="fw-semibold">' + escapeHtml(a.original_filename) + '</a>';
-            if (a.suggested_amount || a.suggested_date || a.suggested_label) {
-                info += '<div class="small">'
-                    + (a.suggested_amount ? formatAmountEur(a.suggested_amount) : '')
-                    + (a.suggested_date ? ((a.suggested_amount ? ' — ' : '') + escapeHtml(a.suggested_date)) : '')
-                    + (a.suggested_label ? ((a.suggested_amount || a.suggested_date ? ' — ' : '') + escapeHtml(a.suggested_label)) : '')
-                    + '</div>';
+            const suggested = [];
+            if (a.suggested_amount) {
+                suggested.push(formatAmountEur(a.suggested_amount));
+            }
+            if (a.suggested_date) {
+                suggested.push(escapeHtml(a.suggested_date));
+            }
+            if (a.suggested_label) {
+                suggested.push(escapeHtml(a.suggested_label));
+            }
+            if (suggested.length > 0) {
+                info += '<div class="small">' + suggested.join(' — ') + '</div>';
             }
             if (a.suggested_description) {
                 info += '<div class="small text-body-secondary fst-italic">' + escapeHtml(a.suggested_description) + '</div>';

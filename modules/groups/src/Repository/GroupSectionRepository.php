@@ -42,7 +42,8 @@ class GroupSectionRepository
      */
     public function findSectionIds(int $groupId): array
     {
-        $stmt = $this->pdo->prepare('SELECT section_id FROM discussion_group_sections WHERE group_id = ? ORDER BY section_id');
+        $stmt = $this->pdo->prepare('SELECT section_id FROM discussion_group_sections WHERE group_id = ? ORDER BY '
+            . 'section_id');
         $stmt->execute([$groupId]);
 
         return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
@@ -63,7 +64,8 @@ class GroupSectionRepository
 
         $placeholders = implode(',', array_fill(0, count($groupIds), '?'));
         $stmt = $this->pdo->prepare(
-            "SELECT group_id, section_id FROM discussion_group_sections WHERE group_id IN ({$placeholders}) ORDER BY section_id"
+            "SELECT group_id, section_id FROM discussion_group_sections WHERE group_id IN ({$placeholders}) ORDER "
+                . "BY section_id"
         );
         $stmt->execute(array_map('intval', $groupIds));
 

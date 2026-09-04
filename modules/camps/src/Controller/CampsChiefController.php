@@ -332,7 +332,12 @@ class CampsChiefController extends AbstractController
                 . '?statut=' . rawurlencode($statusFilter) . '&page=',
             'status_filter' => $statusFilter,
             'status_chips' => $this->statusChips($statusFilter),
-            'audit_page' => $this->audit->page(PlaceService::ENTITY_TYPE, $place->id, 1, AuditService::DEFAULT_PER_PAGE),
+            'audit_page' => $this->audit->page(
+                PlaceService::ENTITY_TYPE,
+                $place->id,
+                1,
+                AuditService::DEFAULT_PER_PAGE
+            ),
             'audit_labels' => CampLabels::FIELD_LABELS,
         ]);
     }

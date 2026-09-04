@@ -93,8 +93,28 @@ class ForecastService
 
     /**
      * @return array{
-     *   summary: array{projected_total: int, current_total: int, variation: int, departures_count: int, aging_out_count: int, new_registrations_count: int},
-     *   sections: array<int, array{id: int, label: string, color: string, total_years_in_branch: int, year_segments: array<int, int>, gender: array{male: int, female: int, other: int, total: int}, total: int, certain_total: int, hypothesis_total: int}>,
+     *   summary: array{
+     *       projected_total: int,
+     *       current_total: int,
+     *       variation: int,
+     *       departures_count: int,
+     *       aging_out_count: int,
+     *       new_registrations_count: int
+     *   },
+     *   sections: array<
+     *       int,
+     *       array{
+     *           id: int,
+     *           label: string,
+     *           color: string,
+     *           total_years_in_branch: int,
+     *           year_segments: array<int, int>,
+     *           gender: array{male: int, female: int, other: int, total: int},
+     *           total: int,
+     *           certain_total: int,
+     *           hypothesis_total: int
+     *       }
+     *   >,
      *   unassigned: array{total: int, from_passage: int, from_registration: int, from_unknown_section: int},
      *   pyramid: array<int, array{male: int, female: int, other: int}>,
      *   pyramid_max: int
@@ -137,7 +157,19 @@ class ForecastService
      * where each row lands (buildViewModel), and both invariants in this
      * class's docblock still hold over exactly this list.
      *
-     * @return array<int, array{member_id: ?int, request_id: ?int, section_id: ?int, year_in_branch: ?int, gender: string, birth_year: ?int, certain: bool, origin: string}>
+     * @return array<
+     *     int,
+     *     array{
+     *         member_id: ?int,
+     *         request_id: ?int,
+     *         section_id: ?int,
+     *         year_in_branch: ?int,
+     *         gender: string,
+     *         birth_year: ?int,
+     *         certain: bool,
+     *         origin: string
+     *     }
+     * >
      */
     public function projectedRows(
         int $currentYearId,
@@ -156,7 +188,12 @@ class ForecastService
     }
 
     /**
-     * @return array{rows: array<int, array<string, mixed>>, sections: array<int, array<string, mixed>>, aging_out: int, new_registrations: int}
+     * @return array{
+     *     rows: array<int, array<string, mixed>>,
+     *     sections: array<int, array<string, mixed>>,
+     *     aging_out: int,
+     *     new_registrations: int
+     * }
      */
     private function collectProjectedRows(
         int $currentYearId,
@@ -177,7 +214,19 @@ class ForecastService
         // nobody, so this never adds empty clutter.
         $sections = $this->sectionService->getAllWithBranches(true);
 
-        /** @var array<int, array{section_id: ?int, year_in_branch: ?int, gender: ?string, birth_year: ?int, certain: bool, origin: string}> $projected */
+        /**
+         * @var array<
+         *     int,
+         *     array{
+         *         section_id: ?int,
+         *         year_in_branch: ?int,
+         *         gender: ?string,
+         *         birth_year: ?int,
+         *         certain: bool,
+         *         origin: string
+         *     }
+         * > $projected
+         */
         $projected = [];
         $agingOut = 0;
 
@@ -188,7 +237,9 @@ class ForecastService
             $targetMemberIds[$memberId] = true;
 
             $birthYear = MemberYearService::extractBirthYear(
-                $row['birth_date_encrypted'] !== null ? $this->encryption->decrypt($row['birth_date_encrypted'], 'member_years.birth_date') : null
+                $row['birth_date_encrypted'] !== null
+                    ? $this->encryption->decrypt($row['birth_date_encrypted'], 'member_years.birth_date')
+                    : null
             );
             $effectiveAge = $this->memberYearService->getEffectiveAge(
                 $birthYear,
@@ -205,7 +256,9 @@ class ForecastService
                 'section_id' => $row['section_id'] !== null ? (int) $row['section_id'] : null,
                 'year_in_branch' => $effectiveAge->yearInBranch,
                 'gender' => $this->classifyGender(
-                    $row['gender_encrypted'] !== null ? $this->encryption->decrypt($row['gender_encrypted'], 'member_years.gender') : null
+                    $row['gender_encrypted'] !== null
+                        ? $this->encryption->decrypt($row['gender_encrypted'], 'member_years.gender')
+                        : null
                 ),
                 'birth_year' => $birthYear,
                 'certain' => true,
@@ -227,10 +280,14 @@ class ForecastService
             }
 
             $birthYear = MemberYearService::extractBirthYear(
-                $row['birth_date_encrypted'] !== null ? $this->encryption->decrypt($row['birth_date_encrypted'], 'member_years.birth_date') : null
+                $row['birth_date_encrypted'] !== null
+                    ? $this->encryption->decrypt($row['birth_date_encrypted'], 'member_years.birth_date')
+                    : null
             );
-            $currentAge = $this->memberYearService->getEffectiveAge($birthYear, (int) $row['scout_year_offset'], $currentReferenceYear);
-            $projectedAge = $this->memberYearService->getEffectiveAge($birthYear, (int) $row['scout_year_offset'], $targetReferenceYear);
+            $currentAge = $this->memberYearService->getEffectiveAge($birthYear, (int) $row['scout_year_offset'],
+                $currentReferenceYear);
+            $projectedAge = $this->memberYearService->getEffectiveAge($birthYear, (int) $row['scout_year_offset'],
+                $targetReferenceYear);
 
             // The decisive question is where they land NEXT year, never
             // where they sit today — a member held back by scout_year_offset
@@ -255,7 +312,9 @@ class ForecastService
                 'section_id' => $row['section_id'] !== null ? (int) $row['section_id'] : null,
                 'year_in_branch' => $projectedAge->yearInBranch,
                 'gender' => $this->classifyGender(
-                    $row['gender_encrypted'] !== null ? $this->encryption->decrypt($row['gender_encrypted'], 'member_years.gender') : null
+                    $row['gender_encrypted'] !== null
+                        ? $this->encryption->decrypt($row['gender_encrypted'], 'member_years.gender')
+                        : null
                 ),
                 'birth_year' => $birthYear,
                 'certain' => false,
@@ -306,7 +365,8 @@ class ForecastService
         // section prévue (or "non attribués" when none is chosen). Never
         // 'encoded' requests (see class docblock) — the double-counting
         // guard is structural, not a runtime check.
-        $newRegistrations = $this->passageService->getNewRegistrations($targetYearId, $targetYearLabel, $referenceMonthDay, $currentYearId);
+        $newRegistrations = $this->passageService->getNewRegistrations($targetYearId, $targetYearLabel,
+            $referenceMonthDay, $currentYearId);
         foreach ($newRegistrations as $row) {
             $request = $row['request'];
 
@@ -348,8 +408,28 @@ class ForecastService
      * here in miniature rather than shared, since that method is private
      * and this module has its own dependencies for it already).
      *
-     * @param array<int, array{age_branch_id: int, branch_label: string, branch_sort_order: int, year_in_branch: int, capacity: int, projected: int, accepted: int, remaining: int, tier: string}> $capacityBreakdown
-     * @return array<int, array{label: string, color: string, rows: array<int, array{year_in_branch: int, capacity: int, remaining: int, tier: string}>}>
+     * @param array<
+     *     int,
+     *     array{
+     *         age_branch_id: int,
+     *         branch_label: string,
+     *         branch_sort_order: int,
+     *         year_in_branch: int,
+     *         capacity: int,
+     *         projected: int,
+     *         accepted: int,
+     *         remaining: int,
+     *         tier: string
+     *     }
+     * > $capacityBreakdown
+     * @return array<
+     *     int,
+     *     array{
+     *         label: string,
+     *         color: string,
+     *         rows: array<int, array{year_in_branch: int, capacity: int, remaining: int, tier: string}>
+     *     }
+     * >
      */
     public function groupCapacityByBranch(array $capacityBreakdown): array
     {
@@ -391,7 +471,8 @@ class ForecastService
      */
     private function resolveBranchColorBySortOrder(int $sortOrder, array $allSections): string
     {
-        $branchSections = array_values(array_filter($allSections, static fn(array $s) => $s['branch_sort_order'] === $sortOrder));
+        $branchSections = array_values(array_filter($allSections,
+            static fn(array $s) => $s['branch_sort_order'] === $sortOrder));
         if ($branchSections === []) {
             return MemberYearService::colorForBranchSortOrder($sortOrder);
         }
@@ -477,10 +558,17 @@ class ForecastService
             }
             $source = $byMemberId[$row['member_id']] ?? null;
             $row['gender'] = $this->classifyGender(
-                $source !== null && $source['gender_encrypted'] !== null ? $this->encryption->decrypt($source['gender_encrypted'], 'member_years.gender') : null
+                $source !== null && $source['gender_encrypted'] !== null
+                    ? $this->encryption->decrypt($source['gender_encrypted'], 'member_years.gender')
+                    : null
             );
+            $encryptedBirthDate = $source['birth_date_encrypted'] ?? null;
             $birthYear = $source !== null
-                ? MemberYearService::extractBirthYear($source['birth_date_encrypted'] !== null ? $this->encryption->decrypt($source['birth_date_encrypted'], 'member_years.birth_date') : null)
+                ? MemberYearService::extractBirthYear(
+                    $encryptedBirthDate !== null
+                        ? $this->encryption->decrypt($encryptedBirthDate, 'member_years.birth_date')
+                        : null
+                )
                 : null;
             $row['birth_year'] = $birthYear;
             $row['year_in_branch'] = $source !== null
@@ -496,11 +584,53 @@ class ForecastService
     }
 
     /**
-     * @param array<int, array{section_id: ?int, year_in_branch: ?int, gender: ?string, birth_year: ?int, certain: bool, origin: string}> $projected
-     * @param array<int, array{id: int, desk_code: string, name: ?string, age_branch_id: int, branch_name: string, branch_sort_order: int, is_visible: bool, color: ?string}> $sections
+     * @param array<
+     *     int,
+     *     array{
+     *         section_id: ?int,
+     *         year_in_branch: ?int,
+     *         gender: ?string,
+     *         birth_year: ?int,
+     *         certain: bool,
+     *         origin: string
+     *     }
+     * > $projected
+     * @param array<
+     *     int,
+     *     array{
+     *         id: int,
+     *         desk_code: string,
+     *         name: ?string,
+     *         age_branch_id: int,
+     *         branch_name: string,
+     *         branch_sort_order: int,
+     *         is_visible: bool,
+     *         color: ?string
+     *     }
+     * > $sections
      * @return array{
-     *   summary: array{projected_total: int, current_total: int, variation: int, departures_count: int, aging_out_count: int, new_registrations_count: int},
-     *   sections: array<int, array{id: int, label: string, color: string, total_years_in_branch: int, year_segments: array<int, int>, gender: array{male: int, female: int, other: int, total: int}, total: int, certain_total: int, hypothesis_total: int}>,
+     *   summary: array{
+     *       projected_total: int,
+     *       current_total: int,
+     *       variation: int,
+     *       departures_count: int,
+     *       aging_out_count: int,
+     *       new_registrations_count: int
+     *   },
+     *   sections: array<
+     *       int,
+     *       array{
+     *           id: int,
+     *           label: string,
+     *           color: string,
+     *           total_years_in_branch: int,
+     *           year_segments: array<int, int>,
+     *           gender: array{male: int, female: int, other: int, total: int},
+     *           total: int,
+     *           certain_total: int,
+     *           hypothesis_total: int
+     *       }
+     *   >,
      *   unassigned: array{total: int, from_passage: int, from_registration: int, from_unknown_section: int},
      *   pyramid: array<int, array{male: int, female: int, other: int}>,
      *   pyramid_max: int
@@ -540,7 +670,8 @@ class ForecastService
             if ($row['birth_year'] !== null) {
                 $pyramid[$row['birth_year']] ??= ['male' => 0, 'female' => 0, 'other' => 0];
                 $pyramid[$row['birth_year']][$row['gender']]++;
-                $pyramidMax = max($pyramidMax, $pyramid[$row['birth_year']]['male'], $pyramid[$row['birth_year']]['female']);
+                $pyramidMax = max($pyramidMax, $pyramid[$row['birth_year']]['male'],
+                    $pyramid[$row['birth_year']]['female']);
             }
 
             // Every row that cannot land in a real section row is tallied
@@ -567,7 +698,9 @@ class ForecastService
             $sectionsById[$sectionId]['total']++;
             $sectionsById[$sectionId]['gender'][$row['gender']]++;
             $sectionsById[$sectionId]['gender']['total']++;
-            $row['certain'] ? $sectionsById[$sectionId]['certain_total']++ : $sectionsById[$sectionId]['hypothesis_total']++;
+            $row['certain']
+                ? $sectionsById[$sectionId]['certain_total']++
+                : $sectionsById[$sectionId]['hypothesis_total']++;
 
             if ($row['year_in_branch'] !== null) {
                 $sectionsById[$sectionId]['year_segments'][$row['year_in_branch']] =

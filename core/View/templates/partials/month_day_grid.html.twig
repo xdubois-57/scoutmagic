@@ -24,6 +24,11 @@
   — a caller's own nonced script block queries [data-date] to wire up
   selection.
 
+  **No ARIA grid roles.** `role="grid"`/`row`/`gridcell` promise arrow-key
+  navigation over a roving focus, and this partial attaches no script at
+  all — a promise nothing here keeps. Each selectable day is a real button
+  with a name instead, which is what a reader actually needs.
+
   **Colour is never the only carrier of meaning.** Every cell renders
   day.accessible_label as visually-hidden text, so a screen reader announces
   "14 Occupé" and a colour-blind visitor gets the same information from the
@@ -33,12 +38,12 @@
 <div class="calendar-weekday-row text-body-secondary fw-semibold mb-1" aria-hidden="true">
     <div>Lun</div><div>Mar</div><div>Mer</div><div>Jeu</div><div>Ven</div><div>Sam</div><div>Dim</div>
 </div>
-<div class="daygrid" role="grid"{% if caption is defined and caption %} aria-label="{{ caption }}"{% endif %}>
+<div class="daygrid"{% if caption is defined and caption %} aria-label="{{ caption }}"{% endif %}>
     {% for week in weeks %}
-        <div class="daygrid-week" role="row">
+        <div class="daygrid-week">
             {% for day in week.days %}
                 {% set day_tag = day.selectable ? 'button' : 'div' %}
-                <{{ day_tag }} role="gridcell"
+                <{{ day_tag }}
                     class="daygrid-day daygrid-day--{{ day.state }}{{ day.selectable ? ' daygrid-day--selectable' : '' }}{{ not day.in_month ? ' is-padding' : '' }}{{ day.is_today ? ' is-today' : '' }}"
                     {%- if day.color %} style="--daygrid-day-color: {{ day.color }};"{% endif %}
                     data-date="{{ day.date }}"

@@ -159,7 +159,8 @@ class ReceiptService
             throw new FinanceException('Compte introuvable.');
         }
 
-        return $this->store($account, $content, $mimeType, $originalFilename, $suggestedAmount, $suggestedDate, $uploadedBy, $reuseIdentical);
+        return $this->store($account, $content, $mimeType, $originalFilename, $suggestedAmount, $suggestedDate,
+            $uploadedBy, $reuseIdentical);
     }
 
     /**
@@ -243,9 +244,12 @@ class ReceiptService
             self::fileOwnerIdFor($account)
         );
 
-        $suggestedSource = ($suggestedAmount !== null || $suggestedDate !== null) ? Attachment::SUGGESTED_SOURCE_MANUAL : null;
+        $suggestedSource = ($suggestedAmount !== null || $suggestedDate !== null)
+            ? Attachment::SUGGESTED_SOURCE_MANUAL
+            : null;
         $id = $this->attachmentRepository->create(
-            $account?->id, $fileId, $mimeType, $originalFilename, $suggestedAmount, $suggestedDate, null, $uploadedBy, $suggestedSource,
+            $account?->id, $fileId, $mimeType, $originalFilename, $suggestedAmount, $suggestedDate, null, $uploadedBy,
+            $suggestedSource,
             $contentHash
         );
 
@@ -334,7 +338,13 @@ class ReceiptService
      * @throws FinanceException when the attachment (or its account) is
      *                           unknown, or the new file's MIME type is unsupported
      */
-    public function replace(int $attachmentId, string $content, string $mimeType, string $originalFilename, ?int $uploadedBy): Attachment
+    public function replace(
+        int $attachmentId,
+        string $content,
+        string $mimeType,
+        string $originalFilename,
+        ?int $uploadedBy
+    ): Attachment
     {
         $old = $this->attachmentRepository->findById($attachmentId);
         if ($old === null || $old->accountId === null) {

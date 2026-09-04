@@ -33,12 +33,40 @@ use Core\Service\DateInput;
 class DayStateGridBuilder
 {
     /**
-     * @param array<string, DayState> $states Keyed by 'Y-m-d'. Days absent from this map get $default — so a caller only describes the days it knows something about, and cannot accidentally leave a cell with no accessible label.
-     * @param DayState $default State for every day the caller did not map, including the leading/trailing padding days of adjacent months. Required rather than defaulted: the neutral label is user-facing French text, which is the caller's to write, not core's to guess.
+     * @param array<
+     *     string,
+     *     DayState
+     * > $states Keyed by 'Y-m-d'. Days absent from this map get $default — so a caller only describes the days it knows
+     * something about, and cannot accidentally leave a cell with no accessible label.
+     * @param DayState $default State for every day the caller did not map, including the leading/trailing padding days
+     *     of adjacent months. Required rather than defaulted: the neutral label is user-facing French text, which is
+     *     the caller's to write, not core's to guess.
      * @param \DateTimeImmutable|null $today Injectable for tests; defaults to the real current date.
-     * @return array<int, array{days: array<int, array{date: string, day_number: int, in_month: bool, is_today: bool, state: string, accessible_label: string, color: ?string, selectable: bool, data: array<string, string>}>}>
+     * @return array<
+     *     int,
+     *     array{days: array<
+     *         int,
+     *         array{
+     *             date: string,
+     *             day_number: int,
+     *             in_month: bool,
+     *             is_today: bool,
+     *             state: string,
+     *             accessible_label: string,
+     *             color: ?string,
+     *             selectable: bool,
+     *             data: array<string, string>
+     *         }
+     *     >}
+     * >
      */
-    public function build(int $year, int $month, array $states, DayState $default, ?\DateTimeImmutable $today = null): array
+    public function build(
+        int $year,
+        int $month,
+        array $states,
+        DayState $default,
+        ?\DateTimeImmutable $today = null
+    ): array
     {
         $firstOfMonth = DateInput::firstOfMonth($year, $month);
         $lastOfMonth = $firstOfMonth->modify('last day of this month');

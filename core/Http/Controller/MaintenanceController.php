@@ -126,7 +126,8 @@ class MaintenanceController extends AbstractController
         $latestVersion = (string) ($this->settingService->get('update_latest_version') ?: '');
         $installedVersion = VersionFile::read(dirname($this->storagePath));
         $level = (string) ($this->settingService->get('auto_update_level') ?: 'minor');
-        $updateAvailable = $latestVersion !== '' && VersionFile::isNewerThan($latestVersion, $installedVersion, $level === 'dev');
+        $updateAvailable = $latestVersion !== '' && VersionFile::isNewerThan($latestVersion, $installedVersion,
+            $level === 'dev');
 
         $autoUpdateEnabled = (bool) ((int) ($this->settingService->get('auto_update_enabled') ?: '0'));
         $webhookConfigured = $this->webhookSecret() !== '';
@@ -176,7 +177,8 @@ class MaintenanceController extends AbstractController
             'update_latest_version' => $latestVersion,
             'update_release_notes' => (string) ($this->settingService->get('update_release_notes') ?: ''),
             'update_release_html_url' => (string) ($this->settingService->get('update_release_html_url') ?: ''),
-            'update_dependencies_changed' => (bool) ((int) ($this->settingService->get('update_dependencies_changed') ?: '0')),
+            'update_dependencies_changed' =>
+                (bool) ((int) ($this->settingService->get('update_dependencies_changed') ?: '0')),
             // Twenty, not five. Five showed roughly one evening of dev-mode
             // auto-updates: the six consecutive rollbacks that wedged
             // production did not fit on the page at once, so the pattern
@@ -200,8 +202,12 @@ class MaintenanceController extends AbstractController
             'auto_update_silent_days' => $autoUpdateHealth['silent_days'],
             'auto_update_silence_warning' => $autoUpdateHealth['warn'],
             'auto_update_last_push_at' => (string) ($this->settingService->get('auto_update_last_push_at') ?: ''),
-            'auto_update_last_push_result' => (string) ($this->settingService->get('auto_update_last_push_result') ?: ''),
-            'webhook_url' => rtrim((string) ($this->settingService->get('base_url') ?: ''), '/') . '/api/webhook/github',
+            'auto_update_last_push_result' =>
+                (string) ($this->settingService->get('auto_update_last_push_result') ?: ''),
+            'webhook_url' => rtrim(
+                (string) ($this->settingService->get('base_url') ?: ''),
+                '/'
+            ) . '/api/webhook/github',
             'dev_update_branch' => (string) ($this->settingService->get('dev_update_branch') ?: 'main'),
         ]);
     }
@@ -235,13 +241,17 @@ class MaintenanceController extends AbstractController
         $latestVersion = (string) ($this->settingService->get('update_latest_version') ?: '');
         $downloadUrl = (string) ($this->settingService->get('update_download_url') ?: '');
 
-        if ($latestVersion === '' || $downloadUrl === '' || !VersionFile::isNewerThan($latestVersion, $installedVersion)) {
+        if ($latestVersion === '' || $downloadUrl === '' || !VersionFile::isNewerThan(
+            $latestVersion,
+            $installedVersion
+        )) {
             return $this->json(['success' => false, 'error' => 'Aucune mise à jour disponible.'], 400);
         }
 
         $dependenciesChanged = (bool) ((int) ($this->settingService->get('update_dependencies_changed') ?: '0'));
 
-        $historyId = $this->updateHistoryRepository->create($installedVersion, $latestVersion, $dependenciesChanged, $userId);
+        $historyId = $this->updateHistoryRepository->create($installedVersion, $latestVersion, $dependenciesChanged,
+            $userId);
 
         $this->schedulerService->scheduleAfter(
             'core',
@@ -283,12 +293,16 @@ class MaintenanceController extends AbstractController
             // \Throwable rethrown as one from somewhere else would get.
             return $this->json(['success' => false, 'error' => UserFacingMessage::from(
                 $e,
-                "La dernière version n'a pas pu être récupérée depuis GitHub — vérifiez la connexion du serveur et les paramètres du dépôt."
+                "La dernière version n'a pas pu être récupérée depuis GitHub — vérifiez la connexion du serveur et "
+                    . "les paramètres du dépôt."
             )], 502);
         }
 
         if ($commit === null) {
-            return $this->json(['success' => false, 'error' => "Branche « {$branch} » introuvable sur le dépôt GitHub."], 404);
+            return $this->json(
+                ['success' => false, 'error' => "Branche « {$branch} » introuvable sur le dépôt GitHub."],
+                404
+            );
         }
 
         $versionTo = $commit->shortVersion();
@@ -314,7 +328,12 @@ class MaintenanceController extends AbstractController
         } catch (\Throwable) {
         }
 
-        $historyId = $this->updateHistoryRepository->create($installedVersion, $versionTo, $dependenciesChanged, $userId);
+        $historyId = $this->updateHistoryRepository->create(
+            $installedVersion,
+            $versionTo,
+            $dependenciesChanged,
+            $userId
+        );
 
         $this->schedulerService->scheduleAfter(
             'core',
@@ -382,7 +401,8 @@ class MaintenanceController extends AbstractController
                 $commit = $client->getLatestCommit($branch);
 
                 if ($commit === null) {
-                    return $this->json(['success' => false, 'error' => "Branche « {$branch} » introuvable sur le dépôt GitHub."], 404);
+                    return $this->json(['success' => false, 'error' => "Branche « {$branch} » introuvable sur le "
+                        . "dépôt GitHub."], 404);
                 }
 
                 $commitMessage = trim($commit->message);
@@ -433,7 +453,8 @@ class MaintenanceController extends AbstractController
             // Same reasoning as installDevBranchUpdate() above.
             return $this->json(['success' => false, 'error' => UserFacingMessage::from(
                 $e,
-                "La dernière version n'a pas pu être récupérée depuis GitHub — vérifiez la connexion du serveur et les paramètres du dépôt."
+                "La dernière version n'a pas pu être récupérée depuis GitHub — vérifiez la connexion du serveur et "
+                    . "les paramètres du dépôt."
             )], 502);
         }
     }
@@ -644,7 +665,8 @@ class MaintenanceController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Un mot de passe est requis.'], 400);
         }
         if (!$this->backupService->supportsZipEncryption()) {
-            return $this->json(['success' => false, 'error' => 'Le serveur ne supporte pas le chiffrement des archives — contactez votre hébergeur.'], 422);
+            return $this->json(['success' => false, 'error' => 'Le serveur ne supporte pas le chiffrement des archives '
+                . '— contactez votre hébergeur.'], 422);
         }
 
         $userId = AuthSession::getUserAccountId();
@@ -745,7 +767,8 @@ class MaintenanceController extends AbstractController
         $userId = AuthSession::getUserAccountId();
         $actionId = $this->schedulerService->scheduleAfter('core', 'reset_settings', 0, [], null, $userId);
 
-        $this->journalService->log('core', 'settings_reset_requested', 'security', 'Réinitialisation des paramètres par défaut demandée', [], $userId);
+        $this->journalService->log('core', 'settings_reset_requested', 'security',
+            'Réinitialisation des paramètres par défaut demandée', [], $userId);
 
         return $this->json(['success' => true, 'action_id' => $actionId]);
     }
@@ -774,7 +797,8 @@ class MaintenanceController extends AbstractController
         $userId = AuthSession::getUserAccountId();
         $actionId = $this->schedulerService->scheduleAfter('core', 'full_reset', 0, [], null, $userId);
 
-        $this->journalService->log('core', 'full_reset_requested', 'security', 'Réinitialisation complète demandée', [], $userId);
+        $this->journalService->log('core', 'full_reset_requested', 'security', 'Réinitialisation complète demandée', [],
+            $userId);
 
         return $this->json(['success' => true, 'action_id' => $actionId]);
     }
@@ -801,7 +825,9 @@ class MaintenanceController extends AbstractController
         $userId = AuthSession::getUserAccountId();
         $source = (string) $request->getBody('source', 'server');
         $password = (string) $request->getBody('password', '');
-        $encryptedPassword = $password !== '' ? base64_encode($this->encryption->encrypt($password, 'backup_password')) : null;
+        $encryptedPassword = $password !== ''
+            ? base64_encode($this->encryption->encrypt($password, 'backup_password'))
+            : null;
 
         $payload = ['source' => $source, 'encrypted_password' => $encryptedPassword];
 
@@ -867,7 +893,8 @@ class MaintenanceController extends AbstractController
 
         $actionId = $this->schedulerService->scheduleAfter('core', 'restore_backup', 0, $payload, null, $userId);
 
-        $this->journalService->log('core', 'backup_restore_requested', 'security', 'Restauration de sauvegarde demandée', ['source' => $source], $userId);
+        $this->journalService->log('core', 'backup_restore_requested', 'security',
+            'Restauration de sauvegarde demandée', ['source' => $source], $userId);
 
         return $this->redirect('/config/maintenance?restore_id=' . $actionId);
     }
@@ -1062,9 +1089,16 @@ class MaintenanceController extends AbstractController
      * scheduled it — firing after the admin disabled auto-updates or
      * switched to development mode, or at the old day/time forever.
      */
-    private function reconcilePendingScheduledInstall(bool $enabled, string $level, ?string $day, ?string $time, ?int $userId): void
+    private function reconcilePendingScheduledInstall(
+        bool $enabled,
+        string $level,
+        ?string $day,
+        ?string $time,
+        ?int $userId
+    ): void
     {
-        $pending = $this->schedulerService->find('core', 'install_update', GitHubWebhookService::SCHEDULED_INSTALL_REFERENCE);
+        $pending = $this->schedulerService->find('core', 'install_update',
+            GitHubWebhookService::SCHEDULED_INSTALL_REFERENCE);
         if ($pending === null) {
             return;
         }
@@ -1146,7 +1180,9 @@ class MaintenanceController extends AbstractController
             'core',
             $wasConfigured ? 'webhook_secret_regenerated' : 'webhook_secret_generated',
             'security',
-            $wasConfigured ? 'Secret du webhook GitHub régénéré (l\'ancien webhook cessera de fonctionner)' : 'Secret du webhook GitHub généré',
+            $wasConfigured
+                ? 'Secret du webhook GitHub régénéré (l\'ancien webhook cessera de fonctionner)'
+                : 'Secret du webhook GitHub généré',
             [],
             $userId
         );

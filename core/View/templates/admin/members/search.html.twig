@@ -17,13 +17,13 @@
         {# The membership filter travels with the query, so a submit keeps
            it. Default « Actifs » — that is what is wanted nine times out
            of ten, and the other two are one tap away. #}
-        <div class="btn-group mt-2" role="group" aria-label="Membres affichés">
+        <fieldset class="btn-group mt-2" aria-label="Membres affichés">
             {% for value in scopes %}
                 <input type="radio" class="btn-check" name="scope" id="scope-{{ value }}" value="{{ value }}"
                        {{ scope == value ? 'checked' : '' }} autocomplete="off">
                 <label class="btn btn-outline-secondary btn-sm" for="scope-{{ value }}">{{ scope_labels[value] }}</label>
             {% endfor %}
-        </div>
+        </fieldset>
         {% if all_years %}
             <input type="hidden" name="annees" value="1">
         {% endif %}
@@ -83,7 +83,7 @@
     {% if query is not empty %}
         <div class="mt-4">
             {% if all_years %}
-                <div class="alert alert-info d-flex align-items-start gap-2" role="status">
+                <output class="alert alert-info d-flex align-items-start gap-2">
                     <i class="bi bi-clock-history flex-shrink-0" aria-hidden="true"></i>
                     <div>
                         La recherche porte sur toutes les années scoutes.
@@ -95,7 +95,7 @@
                         {% endif %}
                         <a href="/admin/members?q={{ query|url_encode }}&amp;scope={{ scope }}">Revenir à l'année en cours</a>.
                     </div>
-                </div>
+                </output>
             {% else %}
                 <div class="card">
                     <div class="card-body">

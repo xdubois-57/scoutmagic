@@ -18,14 +18,31 @@ class Router
      */
     private const VALID_ROLES = ['public', 'identified', 'intendant', 'chief', 'admin', 'superadmin'];
 
-    /** @var array<array{method: string, path: string, controllerClass: string, action: string, roleMin: string, breadcrumb: ?array{label: string, parents: array<string>, ancestors?: array<int, array{label: string, path: string}>}}> */
+    /**
+     * @var array<array{
+     *     method: string,
+     *     path: string,
+     *     controllerClass: string,
+     *     action: string,
+     *     roleMin: string,
+     *     breadcrumb: ?array{
+     *         label: string,
+     *         parents: array<string>,
+     *         ancestors?: array<int, array{label: string, path: string}>
+     *     }
+     * }>
+     */
     private array $routes = [];
 
     /** @var string[] Module IDs for routes that belong to modules */
     private array $moduleRoutes = [];
 
     /**
-     * @param ?array{label: string, parents: array<string>, ancestors?: array<int, array{label: string, path: string}>} $breadcrumb
+     * @param ?array{
+     *     label: string,
+     *     parents: array<string>,
+     *     ancestors?: array<int, array{label: string, path: string}>
+     * } $breadcrumb
      *   Optional breadcrumb declaration for this route (see partials/breadcrumb_bar.html.twig) — null when the
      *   route doesn't declare one, which is valid: the breadcrumb simply stops at the home icon for that page.
      *   `ancestors` names real ancestor PAGES by their own route path; see ancestorTrailFor() below.
@@ -164,7 +181,11 @@ class Router
      *   and complicating a shared component for one of them is not worth
      *   it.
      *
-     * @param ?array{label: string, parents: array<string>, ancestors?: array<int, array{label: string, path: string}>} $breadcrumb
+     * @param ?array{
+     *     label: string,
+     *     parents: array<string>,
+     *     ancestors?: array<int, array{label: string, path: string}>
+     * } $breadcrumb
      * @return array<int, array{label: string, url: string}>
      */
     public function ancestorTrailFor(?array $breadcrumb, \Core\Security\Role $viewerRole): array

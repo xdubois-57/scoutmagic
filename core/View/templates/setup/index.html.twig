@@ -136,7 +136,7 @@
             </div>
 
             <button type="button" class="btn btn-outline-secondary" id="btn-test-db" data-action="{{ not is_initialized ? '/setup/install-database' : '/setup/test-db' }}">
-                <span class="spinner-border spinner-border-sm d-none" id="db-spinner" role="status"></span>
+                <output class="spinner-border spinner-border-sm d-none" id="db-spinner"></output>
                 {{ not is_initialized ? 'Installer la base de données' : 'Tester la connexion' }}
             </button>
             <span id="db-test-result" class="ms-2"></span>
@@ -145,7 +145,7 @@
             <div id="db-not-empty-warning" class="alert alert-warning mt-3 d-none">
                 <p class="mb-2">Cette base de données contient déjà des tables (<span id="db-not-empty-count"></span>). Poursuivre l'installation dessus provoquera des erreurs (les données existantes ont été chiffrées avec une ancienne clé qui n'existe plus). Sauvegardez son contenu puis videz-la avant de continuer, ou choisissez une autre base de données.</p>
                 <button type="button" class="btn btn-warning btn-sm" id="btn-backup-empty-db">
-                    <span class="spinner-border spinner-border-sm d-none" id="backup-empty-spinner" role="status"></span>
+                    <output class="spinner-border spinner-border-sm d-none" id="backup-empty-spinner"></output>
                     Sauvegarder puis vider la base
                 </button>
                 <button type="button" class="btn btn-outline-danger btn-sm d-none" id="btn-empty-without-backup">
@@ -257,7 +257,7 @@
                         <p class="text-body-secondary small">Aucune clé DKIM pour le moment — une clé sera générée automatiquement lors de l'enregistrement final, mais la propagation DNS peut prendre du temps : générez-la dès maintenant si vous voulez configurer l'enregistrement DNS DKIM sans attendre la fin de l'installation.</p>
                         <div class="mb-2">
                             <button type="button" class="btn btn-outline-secondary btn-sm" id="btn-generate-dkim">
-                                <span class="spinner-border spinner-border-sm d-none" id="dkim-gen-spinner" role="status"></span>
+                                <output class="spinner-border spinner-border-sm d-none" id="dkim-gen-spinner"></output>
                                 Générer la clé maintenant
                             </button>
                             <span id="dkim-gen-result" class="small ms-2"></span>
@@ -272,7 +272,7 @@
                 <div class="input-group">
                     <input type="email" class="form-control" id="test_email_recipient" placeholder="destinataire@exemple.be">
                     <button type="button" class="btn btn-outline-secondary" id="btn-test-email">
-                        <span class="spinner-border spinner-border-sm d-none" id="email-spinner" role="status"></span>
+                        <output class="spinner-border spinner-border-sm d-none" id="email-spinner"></output>
                         Envoyer un test
                     </button>
                 </div>
@@ -290,7 +290,7 @@
                         <p class="text-body-secondary small mb-2">Complétez les champs ci-dessus puis cliquez sur « Vérifier les DNS » pour afficher les enregistrements requis.</p>
                     </div>
                     <button type="button" class="btn btn-outline-secondary btn-sm" id="btn-check-dns">
-                        <span class="spinner-border spinner-border-sm d-none" id="dns-spinner" role="status"></span>
+                        <output class="spinner-border spinner-border-sm d-none" id="dns-spinner"></output>
                         Vérifier les DNS
                     </button>
                 </div>

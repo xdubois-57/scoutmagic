@@ -24,10 +24,14 @@ class TextNormalizerExtension extends AbstractExtension
     public function getFilters(): array
     {
         return [
-            new TwigFilter('normalize_name', static fn(?string $v): string => TextNormalizerService::normalizeName((string) $v)),
-            new TwigFilter('normalize_totem', static fn(?string $v): string => TextNormalizerService::normalizeTotem((string) $v)),
-            new TwigFilter('normalize_phone', static fn(?string $v): string => TextNormalizerService::normalizePhone((string) $v)),
-            new TwigFilter('normalize_address', static fn(?string $v): string => TextNormalizerService::normalizeAddress((string) $v)),
+            new TwigFilter('normalize_name',
+                static fn(?string $v): string => TextNormalizerService::normalizeName((string) $v)),
+            new TwigFilter('normalize_totem',
+                static fn(?string $v): string => TextNormalizerService::normalizeTotem((string) $v)),
+            new TwigFilter('normalize_phone',
+                static fn(?string $v): string => TextNormalizerService::normalizePhone((string) $v)),
+            new TwigFilter('normalize_address',
+                static fn(?string $v): string => TextNormalizerService::normalizeAddress((string) $v)),
         ];
     }
 }

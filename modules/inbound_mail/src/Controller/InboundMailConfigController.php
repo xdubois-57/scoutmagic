@@ -326,7 +326,8 @@ class InboundMailConfigController extends AbstractController
         }
 
         if ($id > 0) {
-            $this->adminService->update($id, $name, $host, $port, $encryption, $username, $password, $folders, $isEnabled);
+            $this->adminService->update($id, $name, $host, $port, $encryption, $username, $password, $folders,
+                $isEnabled);
             $this->journalService->log(
                 'inbound_mail',
                 'inbound_mailbox_updated',
@@ -345,7 +346,8 @@ class InboundMailConfigController extends AbstractController
             return $this->redirect('/config/courrier-entrant');
         }
 
-        $newId = $this->adminService->create($name, $host, $port, $encryption, $username, $password, $folders, $isEnabled);
+        $newId = $this->adminService->create($name, $host, $port, $encryption, $username, $password, $folders,
+            $isEnabled);
         $this->journalService->log(
             'inbound_mail',
             'inbound_mailbox_created',

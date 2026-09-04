@@ -69,10 +69,10 @@
       member needs to know is what they can still do here, not merely that
       something is wrong.
     #}
-    <div id="offline-readonly-banner" class="alert alert-warning border-0 rounded-0 mb-0 py-2 text-center small d-none" role="status">
+    <output id="offline-readonly-banner" class="alert alert-warning border-0 rounded-0 mb-0 py-2 text-center small d-none d-block">
         <i class="bi bi-wifi-off me-1" aria-hidden="true"></i>
         Hors ligne — vous consultez une version enregistrée, en lecture seule.
-    </div>
+    </output>
 
     {% block nav %}
     {% if menus is defined and menus is not null %}

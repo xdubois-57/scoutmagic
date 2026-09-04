@@ -58,7 +58,12 @@ class PassageService
      *   sections_in_branch: array<int, array{id: int, name: ?string, desk_code: string}>
      * }>
      */
-    public function getNewRegistrations(int $targetYearId, string $targetYearLabel, string $referenceMonthDay, int $currentPublicYearId): array
+    public function getNewRegistrations(
+        int $targetYearId,
+        string $targetYearLabel,
+        string $referenceMonthDay,
+        int $currentPublicYearId
+    ): array
     {
         $brackets = $this->ageBracketRepository->findAllOrdered();
         $referenceYear = SlotMath::referenceCalendarYear(
@@ -88,7 +93,8 @@ class PassageService
             $siblings = $siblingsByRequest[$request->id] ?? [];
 
             $sectionsInBranch = $slot !== null
-                ? array_values(array_filter($sections, static fn(array $s) => $s['age_branch_id'] === $slot['age_branch_id']))
+                ? array_values(array_filter($sections,
+                    static fn(array $s) => $s['age_branch_id'] === $slot['age_branch_id']))
                 : [];
 
             $rows[] = [
@@ -113,7 +119,21 @@ class PassageService
      *     member_id: int, name: string, branch_year_label: string,
      *     household: array<int, array{name: string, section_label: ?string}>,
      *     destination_section_id: ?int,
-     *     destination_options: array<int, array{id: int, desk_code: string, name: ?string, email: ?string, age_branch_id: int, branch_name: string, branch_sort_order: int, is_visible: bool, is_active: bool, color: ?string}>
+     *     destination_options: array<
+     *         int,
+     *         array{
+     *             id: int,
+     *             desk_code: string,
+     *             name: ?string,
+     *             email: ?string,
+     *             age_branch_id: int,
+     *             branch_name: string,
+     *             branch_sort_order: int,
+     *             is_visible: bool,
+     *             is_active: bool,
+     *             color: ?string
+     *         }
+     *     >
      *   }>
      * }>
      */
@@ -144,9 +164,12 @@ class PassageService
         $promoted = [];
         foreach ($candidates as $row) {
             $birthYear = MemberYearService::extractBirthYear(
-                $row['birth_date_encrypted'] !== null ? $this->encryption->decrypt($row['birth_date_encrypted'], 'member_years.birth_date') : null
+                $row['birth_date_encrypted'] !== null
+                    ? $this->encryption->decrypt($row['birth_date_encrypted'], 'member_years.birth_date')
+                    : null
             );
-            $effectiveAge = $memberYearService->getEffectiveAge($birthYear, (int) $row['scout_year_offset'], $referenceYear);
+            $effectiveAge = $memberYearService->getEffectiveAge($birthYear, (int) $row['scout_year_offset'],
+                $referenceYear);
 
             // Only the last rank of a branch changes branch at all (and a
             // last-year Pionnier "ne passe nulle part") — one single
@@ -168,7 +191,9 @@ class PassageService
                 'name' => $this->decryptName($row['first_name_encrypted'], $row['last_name_encrypted']),
                 'branch_year_label' => $effectiveAge->getBranchYearLabel(),
                 'current_section_id' => $currentSectionId,
-                'current_section_label' => $currentSectionId !== null ? ($sectionLabels[$currentSectionId] ?? '—') : '—',
+                'current_section_label' => $currentSectionId !== null
+                    ? ($sectionLabels[$currentSectionId] ?? '—')
+                    : '—',
                 'household' => $households[$memberYearId] ?? [],
                 'destination_options' => $sectionsBySortOrder[$nextSortOrder] ?? [],
             ];
@@ -229,7 +254,21 @@ class PassageService
      * caller that legitimately needs it (roadmap IT-17 scopes name
      * matching to the arrival BRANCH, which is what these sections are of).
      *
-     * @return array<int, array{id: int, desk_code: string, name: ?string, email: ?string, age_branch_id: int, branch_name: string, branch_sort_order: int, is_visible: bool, is_active: bool, color: ?string}>
+     * @return array<
+     *     int,
+     *     array{
+     *         id: int,
+     *         desk_code: string,
+     *         name: ?string,
+     *         email: ?string,
+     *         age_branch_id: int,
+     *         branch_name: string,
+     *         branch_sort_order: int,
+     *         is_visible: bool,
+     *         is_active: bool,
+     *         color: ?string
+     *     }
+     * >
      */
     public function arrivalSectionsForMember(
         int $memberId,
@@ -254,7 +293,9 @@ class PassageService
         }
 
         $nextSortOrder = $this->arrivalBranchSortOrder(
-            $row['birth_date_encrypted'] !== null ? $this->encryption->decrypt($row['birth_date_encrypted'], 'member_years.birth_date') : null,
+            $row['birth_date_encrypted'] !== null
+                ? $this->encryption->decrypt($row['birth_date_encrypted'], 'member_years.birth_date')
+                : null,
             (int) $row['scout_year_offset'],
             MemberYearService::referenceYearFromScoutYearLabel($currentPublicYearLabel)
         );
@@ -646,8 +687,12 @@ class PassageService
 
     private function decryptName($firstNameEncrypted, $lastNameEncrypted): string
     {
-        $first = $firstNameEncrypted !== null ? $this->encryption->decrypt($firstNameEncrypted, 'member_years.first_name') : '';
-        $last = $lastNameEncrypted !== null ? $this->encryption->decrypt($lastNameEncrypted, 'member_years.last_name') : '';
+        $first = $firstNameEncrypted !== null
+            ? $this->encryption->decrypt($firstNameEncrypted, 'member_years.first_name')
+            : '';
+        $last = $lastNameEncrypted !== null
+            ? $this->encryption->decrypt($lastNameEncrypted, 'member_years.last_name')
+            : '';
 
         return trim($first . ' ' . $last);
     }

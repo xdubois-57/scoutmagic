@@ -164,8 +164,8 @@
             // absolute one, starting with a single slash, is a page of
             // this site and nothing else.
             return typeof topic.page_path === 'string'
-                && topic.page_path.charAt(0) === '/'
-                && topic.page_path.charAt(1) !== '/';
+                && topic.page_path.startsWith('/')
+                && !topic.page_path.startsWith('//');
         });
 
         if (pages.length > 0) {

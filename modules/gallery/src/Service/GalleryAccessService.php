@@ -61,7 +61,10 @@ class GalleryAccessService
         foreach ($this->relevantScoutYearIds() as $scoutYearId) {
             foreach ($this->memberService->getLinkedMembers($email, $scoutYearId) as $member) {
                 foreach ($member->functions as $function) {
-                    if ($function->sectionCode !== null && Role::fromString($function->functionRole)->hasAccess(Role::CHIEF)) {
+                    if (
+                        $function->sectionCode !== null
+                        && Role::fromString($function->functionRole)->hasAccess(Role::CHIEF)
+                    ) {
                         $sectionCodes[] = $function->sectionCode;
                     }
                 }

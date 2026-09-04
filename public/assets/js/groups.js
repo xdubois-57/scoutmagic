@@ -910,7 +910,7 @@
             if (typeof caret !== 'number') {
                 return null;
             }
-            var match = /@([\p{L}][\p{L}\-']*(?:\s[\p{L}][\p{L}\-']*)?)?$/u.exec(field.value.slice(0, caret));
+            var match = /@(\p{L}[\p{L}\-']*(?:\s\p{L}[\p{L}\-']*)?)?$/u.exec(field.value.slice(0, caret));
             if (!match) {
                 return null;
             }

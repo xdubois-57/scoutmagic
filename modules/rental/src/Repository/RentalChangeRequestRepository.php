@@ -152,7 +152,9 @@ class RentalChangeRequestRepository
             kind: ChangeRequestKind::from((string) $row['kind']),
             status: ChangeRequestStatus::from((string) $row['status']),
             proposedArrivalDate: $row['proposed_arrival_date'] !== null ? (string) $row['proposed_arrival_date'] : null,
-            proposedDepartureDate: $row['proposed_departure_date'] !== null ? (string) $row['proposed_departure_date'] : null,
+            proposedDepartureDate: $row['proposed_departure_date'] !== null
+                ? (string) $row['proposed_departure_date']
+                : null,
             proposedUnits: $row['proposed_units'] !== null ? (int) $row['proposed_units'] : null,
             proposedPersons: $row['proposed_persons'] !== null ? (int) $row['proposed_persons'] : null,
             proposedPrice: $snapshot,

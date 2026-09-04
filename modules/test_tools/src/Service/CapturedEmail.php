@@ -19,7 +19,10 @@ namespace Modules\TestTools\Service;
 final class CapturedEmail
 {
     /**
-     * @param array<int, array{id: int, file_name: string, mime_type: string, size_bytes: int, file_id: int|null}> $attachments
+     * @param array<
+     *     int,
+     *     array{id: int, file_name: string, mime_type: string, size_bytes: int, file_id: int|null}
+     * > $attachments
      */
     public function __construct(
         public readonly int $id,

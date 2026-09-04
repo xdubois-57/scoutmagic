@@ -42,7 +42,8 @@ class ArticleRepository
         }
 
         $placeholders = implode(',', array_fill(0, count($visibilities), '?'));
-        $stmt = $this->pdo->prepare("SELECT * FROM news_articles WHERE visibility IN ({$placeholders}) ORDER BY created_at DESC");
+        $stmt = $this->pdo->prepare("SELECT * FROM news_articles WHERE visibility IN ({$placeholders}) ORDER BY "
+            . "created_at DESC");
         $stmt->execute($visibilities);
         return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
@@ -63,7 +64,8 @@ class ArticleRepository
 
         $placeholders = implode(',', array_fill(0, count($visibilities), '?'));
         $stmt = $this->pdo->prepare(
-            "SELECT * FROM news_articles WHERE visibility IN ({$placeholders}) ORDER BY created_at DESC LIMIT ? OFFSET ?"
+            "SELECT * FROM news_articles WHERE visibility IN ({$placeholders}) ORDER BY created_at DESC LIMIT ? "
+                . "OFFSET ?"
         );
         foreach (array_values($visibilities) as $index => $visibility) {
             $stmt->bindValue($index + 1, $visibility);
@@ -130,7 +132,8 @@ class ArticleRepository
     {
         $placeholders = implode(',', array_fill(0, count($visibilities), '?'));
         $stmt = $this->pdo->prepare(
-            "SELECT * FROM news_articles WHERE visibility IN ({$placeholders}) OR (visibility = 'direct_link' AND created_by = ?) ORDER BY created_at DESC"
+            "SELECT * FROM news_articles WHERE visibility IN ({$placeholders}) OR (visibility = 'direct_link' AND "
+                . "created_by = ?) ORDER BY created_at DESC"
         );
         $stmt->execute([...$visibilities, $authorId]);
         return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
@@ -148,10 +151,12 @@ class ArticleRepository
     ): int {
         $now = date('Y-m-d H:i:s');
         $stmt = $this->pdo->prepare(
-            'INSERT INTO news_articles (title, summary, image_file_id, visibility, is_indexed, seo_keywords, seo_stop_date, created_by, created_at, updated_at)
+            'INSERT INTO news_articles (title, summary, image_file_id, visibility, is_indexed, seo_keywords, '
+                . 'seo_stop_date, created_by, created_at, updated_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
-        $stmt->execute([$title, $summary, $imageFileId, $visibility, $isIndexed ? 1 : 0, $seoKeywords, $seoStopDate, $createdBy, $now, $now]);
+        $stmt->execute([$title, $summary, $imageFileId, $visibility, $isIndexed ? 1 : 0, $seoKeywords, $seoStopDate,
+            $createdBy, $now, $now]);
         return (int) $this->pdo->lastInsertId();
     }
 
@@ -178,9 +183,11 @@ class ArticleRepository
         }
 
         $stmt = $this->pdo->prepare(
-            'UPDATE news_articles SET title = ?, summary = ?, image_file_id = ?, visibility = ?, is_indexed = ?, seo_keywords = ?, seo_stop_date = ?, updated_at = ? WHERE id = ?'
+            'UPDATE news_articles SET title = ?, summary = ?, image_file_id = ?, visibility = ?, is_indexed = ?, '
+                . 'seo_keywords = ?, seo_stop_date = ?, updated_at = ? WHERE id = ?'
         );
-        $stmt->execute([$title, $summary, $imageFileId, $visibility, $isIndexed ? 1 : 0, $seoKeywords, $seoStopDate, date('Y-m-d H:i:s'), $id]);
+        $stmt->execute([$title, $summary, $imageFileId, $visibility, $isIndexed ? 1 : 0, $seoKeywords, $seoStopDate,
+            date('Y-m-d H:i:s'), $id]);
     }
 
     public function setHasForm(int $id, bool $hasForm): void

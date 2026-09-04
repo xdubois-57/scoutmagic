@@ -143,9 +143,9 @@
             <button type="button" class="btn btn-outline-secondary btn-sm mb-3" id="update-check-now">
                 <i class="bi bi-arrow-repeat" aria-hidden="true"></i> Vérifier maintenant
             </button>
-            <div class="mt-2 mb-3 small d-none" id="update-check-now-progress" role="status">
+            <output class="mt-2 mb-3 small d-none d-block" id="update-check-now-progress">
                 <span class="spinner-border spinner-border-sm"></span> Vérification en cours…
-            </div>
+            </output>
             <div class="mt-2 mb-3 small text-danger d-none" id="update-check-now-error" role="alert"></div>
 
             {# Populated by JS from POST /config/maintenance/update/check-now
@@ -162,9 +162,9 @@
                         <i class="bi bi-cloud-arrow-down" aria-hidden="true"></i> Installer maintenant
                     </button>
                     <button type="button" class="btn btn-outline-secondary btn-sm" id="update-check-now-dismiss">Plus tard</button>
-                    <div class="mt-2 small d-none" id="update-check-now-install-progress" role="status">
+                    <output class="mt-2 small d-none d-block" id="update-check-now-install-progress">
                         <span class="spinner-border spinner-border-sm"></span> Installation en cours…<span data-role="migration-detail"></span>
-                    </div>
+                    </output>
                     <div class="mt-2 small text-danger d-none" id="update-check-now-install-error" role="alert"></div>
                 </form>
             </div>
@@ -197,9 +197,9 @@
                         <button type="submit" class="btn btn-primary btn-sm" id="update-install-submit">
                             <i class="bi bi-cloud-arrow-down" aria-hidden="true"></i> Installer la mise à jour
                         </button>
-                        <div class="mt-2 small d-none" id="update-install-progress" role="status">
+                        <output class="mt-2 small d-none d-block" id="update-install-progress">
                             <span class="spinner-border spinner-border-sm"></span> Installation en cours…<span data-role="migration-detail"></span>
-                        </div>
+                        </output>
                         <div class="mt-2 small text-danger d-none" id="update-install-error" role="alert"></div>
                     </form>
                 </div>
@@ -443,7 +443,7 @@
             </div>
 
             <button type="button" class="btn btn-primary btn-sm" id="auto-update-save">Enregistrer</button>
-            <span class="small text-success d-none" id="auto-update-saved" role="status">Enregistré</span>
+            <output class="small text-success d-none" id="auto-update-saved">Enregistré</output>
             <div class="mt-2 small text-danger d-none" id="auto-update-error" role="alert"></div>
         </div>
     </div>
@@ -535,9 +535,9 @@
                         <button type="submit" class="btn btn-primary btn-sm" id="full-backup-submit">
                             <i class="bi bi-shield-lock" aria-hidden="true"></i> Générer
                         </button>
-                        <div class="mt-2 small d-none" id="full-backup-progress" role="status">
+                        <output class="mt-2 small d-none d-block" id="full-backup-progress">
                             <span class="spinner-border spinner-border-sm"></span> Génération en cours…
-                        </div>
+                        </output>
                         <div class="mt-2 small text-danger d-none" id="full-backup-error" role="alert"></div>
                     </form>
                 </div>
@@ -621,7 +621,7 @@
                         <button type="submit" class="btn btn-outline-danger btn-sm" id="reset-settings-submit" disabled>
                             Réinitialiser les paramètres
                         </button>
-                        <div class="mt-2 small d-none" id="reset-settings-progress" role="status"><span class="spinner-border spinner-border-sm"></span> En cours…</div>
+                        <output class="mt-2 small d-none d-block" id="reset-settings-progress"><span class="spinner-border spinner-border-sm"></span> En cours…</output>
                         <div class="mt-2 small text-danger d-none" id="reset-settings-error" role="alert"></div>
                     </form>
                 </div>
@@ -674,7 +674,7 @@
                         <button type="submit" class="btn btn-outline-danger btn-sm" id="restore-backup-submit" disabled>
                             Restaurer
                         </button>
-                        <div class="mt-2 small d-none" id="restore-backup-progress" role="status"><span class="spinner-border spinner-border-sm"></span> Restauration en cours…</div>
+                        <output class="mt-2 small d-none d-block" id="restore-backup-progress"><span class="spinner-border spinner-border-sm"></span> Restauration en cours…</output>
                         <div class="mt-2 small text-danger d-none" id="restore-backup-error" role="alert"></div>
                     </form>
                 </div>
@@ -698,7 +698,7 @@
                         <button type="submit" class="btn btn-danger btn-sm" id="full-reset-submit" disabled>
                             Tout effacer
                         </button>
-                        <div class="mt-2 small d-none" id="full-reset-progress" role="status"><span class="spinner-border spinner-border-sm"></span> Réinitialisation en cours — ne fermez pas cette page…</div>
+                        <output class="mt-2 small d-none d-block" id="full-reset-progress"><span class="spinner-border spinner-border-sm"></span> Réinitialisation en cours — ne fermez pas cette page…</output>
                         <div class="mt-2 small text-danger d-none" id="full-reset-error" role="alert"></div>
                     </form>
                 </div>

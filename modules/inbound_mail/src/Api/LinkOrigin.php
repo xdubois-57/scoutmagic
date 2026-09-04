@@ -107,6 +107,9 @@ enum LinkOrigin: string
      */
     public function isCertain(): bool
     {
-        return $this === self::REFERENCE || $this === self::REPLY_ADDRESS || $this === self::THREAD || $this === self::MANUAL;
+        return $this === self::REFERENCE
+            || $this === self::REPLY_ADDRESS
+            || $this === self::THREAD
+            || $this === self::MANUAL;
     }
 }

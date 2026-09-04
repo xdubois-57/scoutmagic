@@ -219,7 +219,7 @@ function purgeAllContentCaches() {
     return caches.keys().then(function (names) {
         return Promise.all(
             names
-                .filter(function (name) { return name.indexOf(CONTENT_CACHE_PREFIX) === 0; })
+                .filter(function (name) { return name.startsWith(CONTENT_CACHE_PREFIX); })
                 .map(function (name) { return caches.delete(name); })
         );
     });
@@ -274,7 +274,7 @@ self.addEventListener('activate', function (event) {
         caches.keys().then(function (names) {
             return Promise.all(
                 names
-                    .filter(function (name) { return name.indexOf(APP_SHELL_CACHE_PREFIX) === 0 && name !== CACHE_NAME; })
+                    .filter(function (name) { return name.startsWith(APP_SHELL_CACHE_PREFIX) && name !== CACHE_NAME; })
                     .map(function (name) { return caches.delete(name); })
             );
         })

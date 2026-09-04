@@ -147,14 +147,16 @@ class HumanCheckService
         // entry in this codebase); this is only about not ALSO
         // duplicating it into context, unlike a few other log() call
         // sites do.
-        $this->journal->log('core', 'human_check_failed', 'security', 'Échec de la vérification anti-robot', ['form' => $formKey]);
+        $this->journal->log('core', 'human_check_failed', 'security', 'Échec de la vérification anti-robot',
+            ['form' => $formKey]);
 
         return HumanCheckResult::rejected($reason);
     }
 
     private function sign(string $formKey, string $trapField, int $timestamp): string
     {
-        return $this->encryption->blindIndex(self::TOKEN_VERSION . ':' . $formKey . ':' . $trapField . ':' . $timestamp, 'human_check_sign');
+        return $this->encryption->blindIndex(self::TOKEN_VERSION . ':' . $formKey . ':' . $trapField . ':' . $timestamp,
+            'human_check_sign');
     }
 
     /**

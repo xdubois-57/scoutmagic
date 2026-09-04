@@ -41,7 +41,8 @@ class MemberLookupRepository
      */
     public function resolveIds(array $memberIds): array
     {
-        $ids = array_values(array_unique(array_filter(array_map('intval', $memberIds), static fn(int $id): bool => $id > 0)));
+        $ids = array_values(array_unique(array_filter(array_map('intval', $memberIds),
+            static fn(int $id): bool => $id > 0)));
         if ($ids === []) {
             return [];
         }
@@ -72,7 +73,8 @@ class MemberLookupRepository
         }
 
         $placeholders = implode(',', array_fill(0, count($values), '?'));
-        $stmt = $this->pdo->prepare("SELECT desk_id, id, merged_into_member_id FROM members WHERE desk_id IN ($placeholders)");
+        $stmt = $this->pdo->prepare("SELECT desk_id, id, merged_into_member_id FROM members WHERE desk_id IN "
+            . "($placeholders)");
         $stmt->execute($values);
 
         $resolved = [];

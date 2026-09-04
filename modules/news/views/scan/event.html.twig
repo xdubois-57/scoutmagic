@@ -81,14 +81,14 @@
           Validating asks the server to write that a seat is consumed, and
           this site reads offline but never writes offline.
         #}
-        <div class="alert alert-warning d-flex gap-2" role="status">
+        <output class="alert alert-warning d-flex gap-2">
             <i class="bi bi-wifi-off flex-shrink-0" aria-hidden="true"></i>
             <span>
                 <strong>Une connexion est nécessaire</strong> pour valider une entrée. Sans réseau,
                 cet écran ne peut ni vérifier un billet ni enregistrer un passage — imprimez la
                 liste des attendus la veille.
             </span>
-        </div>
+        </output>
 
         {#
           The camera. The scan is the gesture of the queue, so it comes
@@ -113,7 +113,7 @@
                     Cadrez le QR du billet
                 </p>
             </div>
-            <p class="alert alert-warning mt-2 mb-0" id="news-scan-camera-error" role="status" hidden></p>
+            <output class="alert alert-warning mt-2 mb-0 d-block" id="news-scan-camera-error" hidden></output>
         </div>
 
         {# The manual entry: one field, and never folded behind an « autres

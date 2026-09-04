@@ -55,7 +55,8 @@ class AutoCloseHandler implements TaskHandlerInterface
         }
 
         $boardRepository->close($boardId);
-        $context->journal->log('retro', 'board_auto_closed', 'info', 'Rétrospective clôturée automatiquement', ['board_id' => $boardId]);
+        $context->journal->log('retro', 'board_auto_closed', 'info', 'Rétrospective clôturée automatiquement',
+            ['board_id' => $boardId]);
 
         $llmConnector = $context->getOptional(LlmConnectorInterface::class);
         $summaryService = $llmConnector !== null ? new SummaryService($llmConnector) : null;
@@ -69,7 +70,8 @@ class AutoCloseHandler implements TaskHandlerInterface
                     $boardRepository->setAiSummary($boardId, $summary);
                 }
             } catch (RetroException $e) {
-                $context->journal->log('retro', 'board_summary_failed', 'info', 'Échec de la synthèse IA', ['board_id' => $boardId, 'error' => $e->getMessage()]);
+                $context->journal->log('retro', 'board_summary_failed', 'info', 'Échec de la synthèse IA',
+                    ['board_id' => $boardId, 'error' => $e->getMessage()]);
             }
         }
 
@@ -90,7 +92,12 @@ class AutoCloseHandler implements TaskHandlerInterface
      *
      * @param array<int, \Modules\Retro\Repository\Comment> $visibleComments
      */
-    private function sendCloseNotification(\Modules\Retro\Repository\Board $board, string $email, array $visibleComments, TaskContext $context): void
+    private function sendCloseNotification(
+        \Modules\Retro\Repository\Board $board,
+        string $email,
+        array $visibleComments,
+        TaskContext $context
+    ): void
     {
         $repoRoot = dirname(__DIR__, 4);
         // Through TwigFactory like every other handler that sends an

@@ -63,7 +63,12 @@ class MassMailAccessService
      *
      * @param int[] $userSectionIds
      */
-    public static function canUseList(bool $isChefDUniteOrAbove, array $userSectionIds, string $listType, ?int $listSectionId): bool
+    public static function canUseList(
+        bool $isChefDUniteOrAbove,
+        array $userSectionIds,
+        string $listType,
+        ?int $listSectionId
+    ): bool
     {
         if ($isChefDUniteOrAbove) {
             return true;

@@ -64,8 +64,20 @@ class RentalBookingService implements OccupancyProvider
      * The caller has already validated the range and verified `HumanCheck` —
      * this method is about persisting a decision, not about deciding.
      *
-     * @param array{name: string, email: string, phone: ?string, organisation: ?string, purpose: ?string, comment: ?string} $renter
-     * @param array{conditions_version: ?string, conditions_text: ?string, privacy_version: ?string, privacy_text: ?string} $acceptances
+     * @param array{
+     *     name: string,
+     *     email: string,
+     *     phone: ?string,
+     *     organisation: ?string,
+     *     purpose: ?string,
+     *     comment: ?string
+     * } $renter
+     * @param array{
+     *     conditions_version: ?string,
+     *     conditions_text: ?string,
+     *     privacy_version: ?string,
+     *     privacy_text: ?string
+     * } $acceptances
      * @return array{booking: RentalBooking, tracking_token: string}
      * @throws RentalException
      */
@@ -101,7 +113,8 @@ class RentalBookingService implements OccupancyProvider
         }
 
         if (($acceptances['privacy_version'] ?? null) === null) {
-            throw new RentalException('Vous devez confirmer avoir pris connaissance de la politique de confidentialité.');
+            throw new RentalException('Vous devez confirmer avoir pris connaissance de la politique de '
+                . 'confidentialité.');
         }
 
         /** @return array{id: int, tracking_token: string} */

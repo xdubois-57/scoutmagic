@@ -43,9 +43,17 @@ class GalleryConfigController extends AbstractController
      * @var array<string, array{min: int, max: int, label: string}>
      */
     private const NUMERIC_SETTINGS = [
-        'gallery_max_media_per_album' => ['min' => 1, 'max' => 10000, 'label' => 'Le nombre maximum de médias par album'],
+        'gallery_max_media_per_album' => [
+            'min' => 1,
+            'max' => 10000,
+            'label' => 'Le nombre maximum de médias par album'
+        ],
         'gallery_max_photo_upload_mb' => ['min' => 1, 'max' => 1024, 'label' => 'La taille maximale par photo (Mo)'],
-        'gallery_photo_max_dimension' => ['min' => 500, 'max' => 20000, 'label' => 'La dimension maximale des photos (px)'],
+        'gallery_photo_max_dimension' => [
+            'min' => 500,
+            'max' => 20000,
+            'label' => 'La dimension maximale des photos (px)'
+        ],
         'gallery_max_video_upload_mb' => ['min' => 1, 'max' => 65536, 'label' => 'La taille maximale par vidéo (Mo)'],
         'gallery_max_video_duration_sec' => ['min' => 1, 'max' => 86400, 'label' => 'La durée maximale par vidéo (s)'],
     ];
@@ -109,7 +117,8 @@ class GalleryConfigController extends AbstractController
             }
             $value = (int) $raw;
             if ($value < $bounds['min'] || $value > $bounds['max']) {
-                return $this->saveError("{$bounds['label']} doit être comprise entre {$bounds['min']} et {$bounds['max']}.");
+                return $this->saveError("{$bounds['label']} doit être comprise entre {$bounds['min']} et "
+                    . "{$bounds['max']}.");
             }
             $numericValues[$key] = (string) $value;
         }
@@ -126,7 +135,8 @@ class GalleryConfigController extends AbstractController
             // SettingException naming a key. The journal keeps it; the page
             // gets a sentence somebody wrote for it.
             $this->journalService->log(
-                'gallery', 'config_update_failed', 'info', 'Échec de l\'enregistrement de la configuration de la galerie',
+                'gallery', 'config_update_failed', 'info', 'Échec de l\'enregistrement de la configuration de la '
+                    . 'galerie',
                 ['error' => $e->getMessage()], (int) AuthSession::getUserAccountId()
             );
 
@@ -193,7 +203,8 @@ class GalleryConfigController extends AbstractController
         // S3-compatible providers vary, but the host must still be public.
         $endpoint = (string) ($data['endpoint'] ?? '');
         if (!\Core\Security\SsrfUrlValidator::isPublicHttpsUrl($endpoint, true)) {
-            return $this->json(['success' => false, 'error' => 'L\'adresse du service doit être une URL https publique.'], 422);
+            return $this->json(['success' => false, 'error' => 'L\'adresse du service doit être une URL https '
+                . 'publique.'], 422);
         }
 
         $backend = new S3StorageBackend(
@@ -292,7 +303,8 @@ class GalleryConfigController extends AbstractController
         $email = AuthSession::getEmail() ?? '';
 
         try {
-            $this->albumService->startMigration((int) $params['id'], (int) ($data['target_location_id'] ?? 0), $role, $email);
+            $this->albumService->startMigration((int) $params['id'], (int) ($data['target_location_id'] ?? 0), $role,
+                $email);
         } catch (GalleryException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
         }
@@ -314,7 +326,8 @@ class GalleryConfigController extends AbstractController
             'ffmpeg_available' => $this->ffmpegAvailability->check(),
             'gallery_s3_ai_available' => $this->s3ErrorExplainerService->isAvailable(),
             'locations' => $locations,
-            'local_albums' => array_values(array_filter($this->albumService->findAllForManage(), fn(Album $a) => $a->isLocal())),
+            'local_albums' => array_values(array_filter($this->albumService->findAllForManage(),
+                fn(Album $a) => $a->isLocal())),
             // Albums another module owns. Listed HERE and nowhere else in
             // gallery: what they hold and who may see them belong to their
             // owner, but they take real space on a real location and moving
@@ -335,7 +348,8 @@ class GalleryConfigController extends AbstractController
             ),
             'location_album_counts' => array_combine(
                 array_map(fn(StorageLocation $l) => $l->id, $locations),
-                array_map(fn(StorageLocation $l) => $this->storageLocationRepository->countAlbumsUsing($l->id), $locations)
+                array_map(fn(StorageLocation $l) => $this->storageLocationRepository->countAlbumsUsing($l->id),
+                    $locations)
             ),
             // Room left on the volume behind each local location. Null for
             // an S3 location and null on a host that will not answer — the
@@ -346,13 +360,19 @@ class GalleryConfigController extends AbstractController
                 array_map(fn(StorageLocation $l) => $this->storageLocationService->diskSpaceFor($l), $locations)
             ),
             'gallery_allow_external' => (bool) $this->settingService->get('gallery_allow_external', 'gallery', true),
-            'gallery_max_media_per_album' => (int) $this->settingService->get('gallery_max_media_per_album', 'gallery', 200),
-            'gallery_max_photo_upload_mb' => (int) $this->settingService->get('gallery_max_photo_upload_mb', 'gallery', 30),
-            'gallery_photo_max_dimension' => (int) $this->settingService->get('gallery_photo_max_dimension', 'gallery', 3000),
+            'gallery_max_media_per_album' => (int) $this->settingService->get('gallery_max_media_per_album', 'gallery',
+                200),
+            'gallery_max_photo_upload_mb' => (int) $this->settingService->get('gallery_max_photo_upload_mb', 'gallery',
+                30),
+            'gallery_photo_max_dimension' => (int) $this->settingService->get('gallery_photo_max_dimension', 'gallery',
+                3000),
             'gallery_allow_video' => (bool) $this->settingService->get('gallery_allow_video', 'gallery', true),
-            'gallery_max_video_upload_mb' => (int) $this->settingService->get('gallery_max_video_upload_mb', 'gallery', 2048),
-            'gallery_max_video_duration_sec' => (int) $this->settingService->get('gallery_max_video_duration_sec', 'gallery', 1800),
-            'gallery_keep_original_video' => (bool) $this->settingService->get('gallery_keep_original_video', 'gallery', false),
+            'gallery_max_video_upload_mb' => (int) $this->settingService->get('gallery_max_video_upload_mb', 'gallery',
+                2048),
+            'gallery_max_video_duration_sec' => (int) $this->settingService->get('gallery_max_video_duration_sec',
+                'gallery', 1800),
+            'gallery_keep_original_video' => (bool) $this->settingService->get('gallery_keep_original_video', 'gallery',
+                false),
             'csrf_token' => CsrfGuard::generateToken(),
         ];
     }

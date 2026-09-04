@@ -152,7 +152,10 @@ class UserAccountRepository
      */
     public function findIdsByBlindIndexes(array $blindIndexes): array
     {
-        $blindIndexes = array_values(array_unique(array_filter($blindIndexes, static fn(string $i): bool => $i !== '')));
+        $blindIndexes = array_values(array_unique(array_filter(
+            $blindIndexes,
+            static fn(string $i): bool => $i !== ''
+        )));
         if ($blindIndexes === []) {
             return [];
         }
@@ -533,12 +536,14 @@ class UserAccountRepository
 
         $passwordChangedAt = null;
         if (!empty($row['password_changed_at'])) {
-            $passwordChangedAt = DateInput::requireFromStorage((string) $row['password_changed_at'], 'password_changed_at');
+            $passwordChangedAt = DateInput::requireFromStorage((string) $row['password_changed_at'],
+                'password_changed_at');
         }
 
         $sessionsValidFrom = null;
         if (!empty($row['sessions_valid_from'])) {
-            $sessionsValidFrom = DateInput::requireFromStorage((string) $row['sessions_valid_from'], 'sessions_valid_from');
+            $sessionsValidFrom = DateInput::requireFromStorage((string) $row['sessions_valid_from'],
+                'sessions_valid_from');
         }
 
         return new UserAccount(
@@ -568,10 +573,16 @@ class UserAccountRepository
      * ("HH:MM" strings) — never independently null, enforced by the
      * caller (Core\Http\Controller\AccountController).
      */
-    public function updateNotificationSettings(int $id, ?string $quietHoursStart, ?string $quietHoursEnd, bool $discretion): void
+    public function updateNotificationSettings(
+        int $id,
+        ?string $quietHoursStart,
+        ?string $quietHoursEnd,
+        bool $discretion
+    ): void
     {
         $stmt = $this->pdo->prepare(
-            'UPDATE user_accounts SET quiet_hours_start = ?, quiet_hours_end = ?, notification_discretion = ? WHERE id = ?'
+            'UPDATE user_accounts SET quiet_hours_start = ?, quiet_hours_end = ?, notification_discretion = ? WHERE '
+                . 'id = ?'
         );
         $stmt->execute([$quietHoursStart, $quietHoursEnd, $discretion ? 1 : 0, $id]);
     }

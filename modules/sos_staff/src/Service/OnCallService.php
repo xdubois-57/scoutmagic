@@ -80,15 +80,34 @@ class OnCallService
      * @param int $scoutYearId stored in each scheduled transition's payload
      *            so Task\ApplyRedirectHandler can resolve member profiles
      *            without having to re-derive the scout year from a date
-     * @return array{transitions: array<int, array{date: string, member_id: ?int, previous_member_id: ?int, run_at: \DateTimeImmutable}>, today_transition: ?array{date: string, member_id: ?int, previous_member_id: ?int, run_at: \DateTimeImmutable}, today_due_now: bool}
+     * @return array{
+     *     transitions: array<
+     *         int,
+     *         array{date: string, member_id: ?int, previous_member_id: ?int, run_at: \DateTimeImmutable}
+     *     >,
+     *     today_transition: ?array{
+     *         date: string,
+     *         member_id: ?int,
+     *         previous_member_id: ?int,
+     *         run_at: \DateTimeImmutable
+     *     },
+     *     today_due_now: bool
+     * }
      */
-    public function saveMonth(int $year, int $month, array $cells, array $orderedStaffMemberIds, int $scoutYearId): array
+    public function saveMonth(
+        int $year,
+        int $month,
+        array $cells,
+        array $orderedStaffMemberIds,
+        int $scoutYearId
+    ): array
     {
         $firstOfMonth = DateInput::firstOfMonth($year, $month);
         $lastOfMonth = $firstOfMonth->modify('last day of this month');
 
         $assignments = array_map(
-            fn(array $cell) => new OnCallAssignment((int) $cell['member_id'], (string) $cell['date'], (string) $cell['state']),
+            fn(array $cell) => new OnCallAssignment((int) $cell['member_id'], (string) $cell['date'],
+                (string) $cell['state']),
             $cells
         );
         $this->repository->replaceRange($firstOfMonth->format('Y-m-d'), $lastOfMonth->format('Y-m-d'), $assignments);
@@ -180,15 +199,33 @@ class OnCallService
 
     /**
      * @param int[] $orderedStaffMemberIds
-     * @return array{transitions: array<int, array{date: string, member_id: ?int, previous_member_id: ?int, run_at: \DateTimeImmutable}>, today_transition: ?array{date: string, member_id: ?int, previous_member_id: ?int, run_at: \DateTimeImmutable}, today_due_now: bool}
+     * @return array{
+     *     transitions: array<
+     *         int,
+     *         array{date: string, member_id: ?int, previous_member_id: ?int, run_at: \DateTimeImmutable}
+     *     >,
+     *     today_transition: ?array{
+     *         date: string,
+     *         member_id: ?int,
+     *         previous_member_id: ?int,
+     *         run_at: \DateTimeImmutable
+     *     },
+     *     today_due_now: bool
+     * }
      */
-    private function computeAndScheduleTransitions(int $year, int $month, array $orderedStaffMemberIds, int $scoutYearId): array
+    private function computeAndScheduleTransitions(
+        int $year,
+        int $month,
+        array $orderedStaffMemberIds,
+        int $scoutYearId
+    ): array
     {
         $firstOfMonth = DateInput::firstOfMonth($year, $month);
         $lastOfMonth = $firstOfMonth->modify('last day of this month');
         $prevMonthLastDay = $firstOfMonth->modify('-1 day');
 
-        $monthAssignments = $this->repository->findForRange($firstOfMonth->format('Y-m-d'), $lastOfMonth->format('Y-m-d'));
+        $monthAssignments = $this->repository->findForRange($firstOfMonth->format('Y-m-d'),
+            $lastOfMonth->format('Y-m-d'));
         $byDate = [];
         foreach ($monthAssignments as $assignment) {
             $byDate[$assignment->date][] = $assignment;
@@ -214,10 +251,20 @@ class OnCallService
                     self::MODULE_ID,
                     self::TASK_KEY,
                     $runAt,
-                    ['date' => $dateStr, 'member_id' => $target, 'previous_member_id' => $previousTarget, 'scout_year_id' => $scoutYearId],
+                    [
+                        'date' => $dateStr,
+                        'member_id' => $target,
+                        'previous_member_id' => $previousTarget,
+                        'scout_year_id' => $scoutYearId
+                    ],
                     $dateStr
                 );
-                $transitions[] = ['date' => $dateStr, 'member_id' => $target, 'previous_member_id' => $previousTarget, 'run_at' => $runAt];
+                $transitions[] = [
+                    'date' => $dateStr,
+                    'member_id' => $target,
+                    'previous_member_id' => $previousTarget,
+                    'run_at' => $runAt
+                ];
             }
 
             $previousTarget = $target;

@@ -76,7 +76,9 @@ class ImportController extends AbstractController
             'current_year' => $currentYear,
             'years' => $years,
             'last_import' => $lastImport,
-            'last_import_author' => $lastImport !== null ? $this->authorName($lastImport['user_account_id'] ?? null) : null,
+            'last_import_author' => $lastImport !== null
+                ? $this->authorName($lastImport['user_account_id'] ?? null)
+                : null,
             'unconfirmed_count' => count($unconfirmed),
             'retention_years' => $this->retentionService->retentionYears(),
             'import_result' => null,
@@ -116,7 +118,10 @@ class ImportController extends AbstractController
                 'snapshot' => $this->rosterSnapshotRepo->findByImport($import->id),
                 // The season's first import has no predecessor: 255 members
                 // arriving is the starting point, not a movement.
-                'first_of_season' => $this->importJournalRepo->findPreviousInYear($import->scoutYearId, $import->id) === null,
+                'first_of_season' => $this->importJournalRepo->findPreviousInYear(
+                    $import->scoutYearId,
+                    $import->id
+                ) === null,
             ];
         }
 
@@ -253,7 +258,10 @@ class ImportController extends AbstractController
 
         $importedBy = AuthSession::getUserAccountId() ?? 0;
 
-        $confirmed = strtoupper(trim((string) $request->getBody('confirm_keyword', ''))) === self::KEYWORD_REPLACE_ROSTER;
+        $confirmed = strtoupper(trim((string) $request->getBody(
+            'confirm_keyword',
+            ''
+        ))) === self::KEYWORD_REPLACE_ROSTER;
 
         // The deposited file is the only moment this CSV exists in clear on
         // disk, and it is the densest personal-data artefact the site ever
@@ -309,7 +317,9 @@ class ImportController extends AbstractController
             'current_year' => $currentYear,
             'years' => $years,
             'last_import' => $lastImport,
-            'last_import_author' => $lastImport !== null ? $this->authorName($lastImport['user_account_id'] ?? null) : null,
+            'last_import_author' => $lastImport !== null
+                ? $this->authorName($lastImport['user_account_id'] ?? null)
+                : null,
             'unconfirmed_count' => count($unconfirmed),
             'retention_years' => $this->retentionService->retentionYears(),
             'import_result' => $result,

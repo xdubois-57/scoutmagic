@@ -228,7 +228,9 @@ class ReceivableAllocationService
 
                     $ownShare = $existing !== null ? max(0, $existing->amountCents) : 0;
                     $remainingDue = $receivable->amountDueCents - ($allocatedByReceivable[$receivable->id] - $ownShare);
-                    $remainingOnTransaction = self::toCents($transaction->amount) - ($usedByTransaction[$transaction->id] - $ownShare);
+                    $remainingOnTransaction = self::toCents(
+                        $transaction->amount
+                    ) - ($usedByTransaction[$transaction->id] - $ownShare);
 
                     $amount = max(0, min($remainingDue, $remainingOnTransaction));
 
@@ -290,7 +292,13 @@ class ReceivableAllocationService
      *         the movement is a debit, or when the amount would take
      *         either side past what it has left.
      */
-    public function allocate(int $transactionId, int $receivableId, int $amountCents, Role $viewerRole, ?int $actorUserAccountId): void
+    public function allocate(
+        int $transactionId,
+        int $receivableId,
+        int $amountCents,
+        Role $viewerRole,
+        ?int $actorUserAccountId
+    ): void
     {
         [$transaction, $receivable] = $this->requirePair($transactionId, $receivableId, $viewerRole);
 
@@ -322,7 +330,8 @@ class ReceivableAllocationService
         }
 
         if ($existing !== null) {
-            $this->allocationRepository->update($existing->id, $amountCents, ReceivableAllocation::SOURCE_MANUAL, $actorUserAccountId);
+            $this->allocationRepository->update($existing->id, $amountCents, ReceivableAllocation::SOURCE_MANUAL,
+                $actorUserAccountId);
             return;
         }
 
@@ -344,7 +353,12 @@ class ReceivableAllocationService
      * @param array<int, int> $amountCentsByReceivableId
      * @throws FinanceException
      */
-    public function split(int $transactionId, array $amountCentsByReceivableId, Role $viewerRole, ?int $actorUserAccountId): void
+    public function split(
+        int $transactionId,
+        array $amountCentsByReceivableId,
+        Role $viewerRole,
+        ?int $actorUserAccountId
+    ): void
     {
         if ($amountCentsByReceivableId === []) {
             throw new FinanceException('Indiquez au moins une créance à couvrir.');
@@ -364,7 +378,13 @@ class ReceivableAllocationService
      *
      * @throws FinanceException
      */
-    public function allocateRefund(int $transactionId, int $receivableId, int $amountCents, Role $viewerRole, ?int $actorUserAccountId): void
+    public function allocateRefund(
+        int $transactionId,
+        int $receivableId,
+        int $amountCents,
+        Role $viewerRole,
+        ?int $actorUserAccountId
+    ): void
     {
         [$transaction, $receivable] = $this->requirePair($transactionId, $receivableId, $viewerRole);
 
@@ -388,7 +408,8 @@ class ReceivableAllocationService
 
         $existing = $this->allocationRepository->findPair($transactionId, $receivableId);
         if ($existing !== null) {
-            $this->allocationRepository->update($existing->id, -$amountCents, ReceivableAllocation::SOURCE_MANUAL, $actorUserAccountId);
+            $this->allocationRepository->update($existing->id, -$amountCents, ReceivableAllocation::SOURCE_MANUAL,
+                $actorUserAccountId);
             return;
         }
 
@@ -477,7 +498,8 @@ class ReceivableAllocationService
             // Nothing was left lying on a movement that names this
             // receivable — the surplus the screen showed came from
             // somewhere this gesture cannot reach.
-            throw new FinanceException("Le trop-perçu n'a pas pu être imputé en entier : rapprochez le mouvement à la main.");
+            throw new FinanceException("Le trop-perçu n'a pas pu être imputé en entier : rapprochez le mouvement à la "
+                . "main.");
         }
     }
 
@@ -783,7 +805,8 @@ class ReceivableAllocationService
         // Same predicate as every other finance page (Service\
         // AccountVisibility): section treasurers are partitioned here as
         // everywhere else, or the partition leaks through this door.
-        if (!$this->accountVisibility->isVisibleTo($this->accountRepository->findById($receivable->accountId), $viewerRole)) {
+        if (!$this->accountVisibility->isVisibleTo($this->accountRepository->findById($receivable->accountId),
+            $viewerRole)) {
             throw new FinanceException("Cette créance n'existe pas.");
         }
 

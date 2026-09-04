@@ -54,7 +54,8 @@ class EmailRepository
                 (subject, body_html, section_id, list_type, list_id, list_section_id, audience_id, status, created_by)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
-        $stmt->execute([$subject, $bodyHtml, $sectionId, $listType, $listId, $listSectionId, $audienceId, Email::STATUS_DRAFT, $createdBy]);
+        $stmt->execute([$subject, $bodyHtml, $sectionId, $listType, $listId, $listSectionId, $audienceId,
+            Email::STATUS_DRAFT, $createdBy]);
         $id = (int) $this->pdo->lastInsertId();
 
         $this->replaceScoutYears($id, $scoutYearIds);
@@ -78,7 +79,8 @@ class EmailRepository
     ): void {
         $stmt = $this->pdo->prepare(
             'UPDATE mass_mail_emails
-             SET subject = ?, body_html = ?, section_id = ?, list_type = ?, list_id = ?, list_section_id = ?, audience_id = ?,
+             SET subject = ?, body_html = ?, section_id = ?, list_type = ?, list_id = ?, list_section_id = ?, '
+                . 'audience_id = ?,
                  updated_at = CURRENT_TIMESTAMP
              WHERE id = ?'
         );
@@ -91,10 +93,12 @@ class EmailRepository
     {
         if ($setSentAt) {
             $stmt = $this->pdo->prepare(
-                'UPDATE mass_mail_emails SET status = ?, sent_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+                'UPDATE mass_mail_emails SET status = ?, sent_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP '
+                    . 'WHERE id = ?'
             );
         } else {
-            $stmt = $this->pdo->prepare('UPDATE mass_mail_emails SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
+            $stmt = $this->pdo->prepare('UPDATE mass_mail_emails SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE '
+                . 'id = ?');
         }
         $stmt->execute([$status, $id]);
     }
@@ -104,7 +108,8 @@ class EmailRepository
      */
     public function getScoutYearIds(int $emailId): array
     {
-        $stmt = $this->pdo->prepare('SELECT scout_year_id FROM mass_mail_email_scout_years WHERE email_id = ? ORDER BY scout_year_id ASC');
+        $stmt = $this->pdo->prepare('SELECT scout_year_id FROM mass_mail_email_scout_years WHERE email_id = ? ORDER '
+            . 'BY scout_year_id ASC');
         $stmt->execute([$emailId]);
         return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
     }
@@ -198,7 +203,8 @@ class EmailRepository
         $scoutYearsByEmailId = $this->getScoutYearIdsForEmails($emailIds);
 
         return [
-            'emails' => array_map(fn(array $row) => $this->hydrate($row, $scoutYearsByEmailId[(int) $row['id']] ?? []), $rows),
+            'emails' => array_map(fn(array $row) => $this->hydrate($row, $scoutYearsByEmailId[(int) $row['id']] ?? []),
+                $rows),
             'total' => $total,
         ];
     }
@@ -220,7 +226,8 @@ class EmailRepository
 
         $placeholders = implode(',', array_fill(0, count($emailIds), '?'));
         $stmt = $this->pdo->prepare(
-            "SELECT email_id, scout_year_id FROM mass_mail_email_scout_years WHERE email_id IN ({$placeholders}) ORDER BY scout_year_id ASC"
+            "SELECT email_id, scout_year_id FROM mass_mail_email_scout_years WHERE email_id IN ({$placeholders}) "
+                . "ORDER BY scout_year_id ASC"
         );
         $stmt->execute($emailIds);
 

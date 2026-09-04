@@ -35,7 +35,8 @@ class FirstReceiptResolver
      */
     public function resolve(array $movementIds): array
     {
-        $firstAttachmentIdsByMovementId = $this->transactionAttachmentRepository->findFirstAttachmentIdsByTransactionIds($movementIds);
+        $firstAttachmentIdsByMovementId = $this->transactionAttachmentRepository
+            ->findFirstAttachmentIdsByTransactionIds($movementIds);
         if ($firstAttachmentIdsByMovementId === []) {
             return [];
         }

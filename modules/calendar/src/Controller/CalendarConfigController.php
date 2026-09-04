@@ -65,7 +65,9 @@ class CalendarConfigController extends AbstractController
             $section = $calendar->sectionId !== null ? ($sectionsById[$calendar->sectionId] ?? null) : null;
             $sectionCalendars[] = [
                 'calendar' => $calendar,
-                'section_name' => $section !== null ? ($section['name'] ?? $section['desk_code']) : $calendar->sectionId,
+                'section_name' => $section !== null
+                    ? ($section['name'] ?? $section['desk_code'])
+                    : $calendar->sectionId,
                 'color' => $section !== null ? SectionService::colorForSection($section) : null,
             ];
         }
@@ -74,7 +76,11 @@ class CalendarConfigController extends AbstractController
 
         return $this->render('@calendar/config.html.twig', [
             'default_title' => (string) $this->settingService->get('event_default_title', 'calendar', 'Réunion'),
-            'default_start_time' => (string) $this->settingService->get('event_default_start_time', 'calendar', '14:00'),
+            'default_start_time' => (string) $this->settingService->get(
+                'event_default_start_time',
+                'calendar',
+                '14:00'
+            ),
             'default_end_time' => (string) $this->settingService->get('event_default_end_time', 'calendar', '17:45'),
             'default_location' => (string) $this->settingService->get('event_default_location', 'calendar', ''),
             'notify_multiday_events_enabled' => $this->notificationService->isEnabled(),
@@ -121,7 +127,8 @@ class CalendarConfigController extends AbstractController
                     'success' => false,
                     'error' => UserFacingMessage::from(
                         $e,
-                        "Cette valeur par défaut n'a pas pu être enregistrée — vérifiez la valeur saisie, puis réessayez."
+                        "Cette valeur par défaut n'a pas pu être enregistrée — vérifiez la valeur saisie, puis "
+                            . "réessayez."
                     ),
                 ], 400);
             }

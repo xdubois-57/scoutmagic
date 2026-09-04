@@ -377,9 +377,12 @@ final class ErrorHandler
         header('Referrer-Policy: strict-origin-when-cross-origin');
 
         $detail = '';
-        // Deliberately outside the Core\Exception\UserFacingMessage policy: printing the class, message and stack trace verbatim is this block's entire purpose, and it is gated on self::$debug.
+        // Deliberately outside the Core\Exception\UserFacingMessage policy: printing the class, message and stack trace
+        // verbatim is this block's entire purpose, and it is gated on self::$debug.
         if (self::$debug && $e !== null) {
-            $detail = '<pre style="text-align:left;white-space:pre-wrap;overflow:auto;background:rgba(127,127,127,.12);padding:1rem;border-radius:.5rem;">'
+            $detail = '<pre '
+                . 'style="text-align:left;white-space:pre-wrap;overflow:auto;'
+                . 'background:rgba(127,127,127,.12);padding:1rem;border-radius:.5rem;">'
                 . htmlspecialchars($e::class . ': ' . $e->getMessage() . "\n" . $e->getTraceAsString(), ENT_QUOTES)
                 . '</pre>';
         }
@@ -387,7 +390,8 @@ final class ErrorHandler
         echo '<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8">'
             . '<meta name="viewport" content="width=device-width, initial-scale=1">'
             . '<title>Erreur serveur</title>'
-            . '<style>body{font-family:system-ui,-apple-system,sans-serif;max-width:40rem;margin:4rem auto;padding:0 1.5rem;text-align:center;color-scheme:light dark;}h1{font-size:1.25rem;}p{opacity:.8;}</style>'
+            . '<style>body{font-family:system-ui,-apple-system,sans-serif;max-width:40rem;margin:4rem auto;padding:0 '
+            . '1.5rem;text-align:center;color-scheme:light dark;}h1{font-size:1.25rem;}p{opacity:.8;}</style>'
             . '</head><body>'
             . '<h1>Une erreur est survenue</h1>'
             . '<p>Le site a rencontré un problème inattendu. Réessayez dans un instant ; '

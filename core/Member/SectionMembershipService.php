@@ -85,7 +85,11 @@ class SectionMembershipService
         $currentScoutYearId = $this->scoutYearService->getCurrentYear()['id'];
 
         foreach ($this->repository->findDistinctMemberSectionYearTriples() as $triple) {
-            if ($this->repository->hasAnyPeriod($triple['member_id'], $triple['section_id'], $triple['scout_year_id'])) {
+            if ($this->repository->hasAnyPeriod(
+                $triple['member_id'],
+                $triple['section_id'],
+                $triple['scout_year_id']
+            )) {
                 continue;
             }
 
@@ -94,7 +98,8 @@ class SectionMembershipService
                 continue;
             }
 
-            $periodId = $this->repository->open($triple['member_id'], $triple['section_id'], $triple['scout_year_id'], $scoutYear['start_date']);
+            $periodId = $this->repository->open($triple['member_id'], $triple['section_id'], $triple['scout_year_id'],
+                $scoutYear['start_date']);
             if ($triple['scout_year_id'] !== $currentScoutYearId) {
                 $this->repository->close($periodId, $scoutYear['end_date']);
             }

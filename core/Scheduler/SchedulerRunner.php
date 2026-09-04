@@ -162,7 +162,8 @@ class SchedulerRunner
                 // $context->notifications->notify(...) without every
                 // caller of SchedulerService::schedule() having to thread
                 // this through manually.
-                $payload['requested_by_user_account_id'] = isset($task['requested_by_user_account_id']) && $task['requested_by_user_account_id'] !== null
+                $payload['requested_by_user_account_id'] = isset($task['requested_by_user_account_id'])
+                    && $task['requested_by_user_account_id'] !== null
                     ? (int) $task['requested_by_user_account_id']
                     : null;
                 $context = $this->taskContext ?? $this->createFallbackContext();
@@ -170,7 +171,8 @@ class SchedulerRunner
                 $this->repository->markDone((int) $task['id']);
                 $processed++;
                 $durationMs = (int) round((microtime(true) - $taskStart) * 1000);
-                RequestTimeline::mark('scheduler_task_done:' . $handlerKey, ['task_id' => $task['id'], 'duration_ms' => $durationMs]);
+                RequestTimeline::mark('scheduler_task_done:' . $handlerKey,
+                    ['task_id' => $task['id'], 'duration_ms' => $durationMs]);
 
                 $this->journal->log(
                     'core',
@@ -193,7 +195,8 @@ class SchedulerRunner
                     . 'événements (Configuration > Journal).'
                 ));
                 $durationMs = (int) round((microtime(true) - $taskStart) * 1000);
-                RequestTimeline::mark('scheduler_task_failed:' . $handlerKey, ['task_id' => $task['id'], 'duration_ms' => $durationMs]);
+                RequestTimeline::mark('scheduler_task_failed:' . $handlerKey,
+                    ['task_id' => $task['id'], 'duration_ms' => $durationMs]);
                 $this->journal->log(
                     'core',
                     'scheduler_task_failed',

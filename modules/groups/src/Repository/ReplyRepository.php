@@ -208,7 +208,12 @@ class ReplyRepository
      * @param int[] $excludeMemberIds
      * @return array<int, int> post id => how many replies are newer than $since
      */
-    public function countNewerForPosts(array $postIds, string $since, array $excludeMemberIds = [], bool $includeHidden = false): array
+    public function countNewerForPosts(
+        array $postIds,
+        string $since,
+        array $excludeMemberIds = [],
+        bool $includeHidden = false
+    ): array
     {
         if ($postIds === []) {
             return [];

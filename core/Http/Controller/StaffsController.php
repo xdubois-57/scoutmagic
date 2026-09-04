@@ -132,7 +132,8 @@ class StaffsController extends AbstractController
         // be assigned to Staff d'U members"; BadgeService::toggleAssignment()
         // enforces this server-side too, regardless of this filtering).
         if ($currentSection !== null && $currentSection['desk_code'] !== UnitStaffSectionService::DESK_CODE) {
-            $availableBadges = array_values(array_filter($availableBadges, fn(Badge $b) => $b->referentSectionId === null));
+            $availableBadges = array_values(array_filter($availableBadges,
+                fn(Badge $b) => $b->referentSectionId === null));
         }
 
         // Documents de section (module addendum) — built for any selected
@@ -142,7 +143,8 @@ class StaffsController extends AbstractController
         // request site-wide, since it's a real subprocess spawn.
         $sectionDocumentYears = [];
         if ($currentSection !== null) {
-            $sectionDocumentYears = $this->sectionDocumentService->listYearsForStaffsPage($currentSection['id'], $scoutYearId);
+            $sectionDocumentYears = $this->sectionDocumentService->listYearsForStaffsPage($currentSection['id'],
+                $scoutYearId);
         }
         $compressionBackend = $this->sectionDocumentService->refreshDetectedBackend();
 
@@ -160,7 +162,8 @@ class StaffsController extends AbstractController
             'section_document_years' => $sectionDocumentYears,
             'section_document_compression_backend' => $compressionBackend,
             'section_document_compression_backend_none' => $compressionBackend === PdfCompressor::BACKEND_NONE,
-            'section_document_oversize_warning_mb' => (int) ($this->settingService->get('section_document_oversize_warning_mb') ?: 5),
+            'section_document_oversize_warning_mb' =>
+                (int) ($this->settingService->get('section_document_oversize_warning_mb') ?: 5),
             'available_badges' => $availableBadges,
         ];
         // The section picker changes what this page shows without changing

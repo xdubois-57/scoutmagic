@@ -99,7 +99,8 @@ class FieldProposalRepository
                 ? $this->encryption->decrypt((string) $row['current_value'], 'camp_field_proposals.value')
                 : null,
             proposedValue: $this->encryption->decrypt((string) $row['proposed_value'], 'camp_field_proposals.value'),
-            proposedMachineValue: $this->encryption->decrypt((string) $row['proposed_machine_value'], 'camp_field_proposals.value'),
+            proposedMachineValue: $this->encryption->decrypt((string) $row['proposed_machine_value'],
+                'camp_field_proposals.value'),
             sourceReference: $row['source_reference'] !== null ? (string) $row['source_reference'] : null,
             createdAt: (string) $row['created_at'],
         );

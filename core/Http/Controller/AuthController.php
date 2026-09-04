@@ -99,7 +99,8 @@ class AuthController extends AbstractController
         }
 
         if (!$this->hasRgpdConsent($request)) {
-            return $this->json(['success' => false, 'error' => 'Vous devez accepter la politique de protection des données pour vous connecter.']);
+            return $this->json(['success' => false, 'error' => 'Vous devez accepter la politique de protection des '
+                . 'données pour vous connecter.']);
         }
 
         // Core\Security\HumanCheck: honeypot + minimum-delay barriers only
@@ -276,7 +277,8 @@ class AuthController extends AbstractController
         }
 
         if (!$this->hasRgpdConsent($request, $body)) {
-            return $this->json(['success' => false, 'error' => 'Vous devez accepter la politique de protection des données pour vous connecter.']);
+            return $this->json(['success' => false, 'error' => 'Vous devez accepter la politique de protection des '
+                . 'données pour vous connecter.']);
         }
 
         $email = trim((string) ($body['email'] ?? ''));
@@ -307,7 +309,8 @@ class AuthController extends AbstractController
         $account = $result['account'];
 
         if (!$this->isMemberAuthorized($account->email)) {
-            return $this->json(['success' => false, 'error' => 'Aucun membre actif n\'est associé à cette adresse email. Contactez un(e) responsable de l\'unité.']);
+            return $this->json(['success' => false, 'error' => 'Aucun membre actif n\'est associé à cette adresse '
+                . 'email. Contactez un(e) responsable de l\'unité.']);
         }
 
         // Login successful
@@ -351,7 +354,8 @@ class AuthController extends AbstractController
         }
 
         if (!$this->hasRgpdConsent($request, $body)) {
-            return $this->json(['success' => false, 'error' => 'Vous devez accepter la politique de protection des données pour vous connecter.']);
+            return $this->json(['success' => false, 'error' => 'Vous devez accepter la politique de protection des '
+                . 'données pour vous connecter.']);
         }
 
         $account = $this->webAuthnService->verifyAuthentication($body);
@@ -361,7 +365,8 @@ class AuthController extends AbstractController
         }
 
         if (!$this->isMemberAuthorized($account->email)) {
-            return $this->json(['success' => false, 'error' => 'Aucun membre actif n\'est associé à cette adresse email. Contactez un(e) responsable de l\'unité.']);
+            return $this->json(['success' => false, 'error' => 'Aucun membre actif n\'est associé à cette adresse '
+                . 'email. Contactez un(e) responsable de l\'unité.']);
         }
 
         $role = $this->resolveRole($account->email, $account->id);

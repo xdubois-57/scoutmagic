@@ -87,13 +87,16 @@ class ConfigCategoryController extends AbstractController
                         (string) ($data['name'] ?? ''),
                         (string) ($data['description'] ?? '')
                     );
-                    $this->journalService->log('finance', 'category_created', 'info', "Catégorie « {$category->name} » créée", ['category_id' => $category->id], AuthSession::getUserAccountId());
+                    $this->journalService->log('finance', 'category_created', 'info', "Catégorie « {$category->name} "
+                        . "» créée", ['category_id' => $category->id], AuthSession::getUserAccountId());
                     return $this->json(['success' => true, 'category_id' => $category->id]);
 
                 case 'update':
                     $id = (int) ($data['id'] ?? 0);
-                    $this->financeService->updateCategory($id, (string) ($data['name'] ?? ''), (string) ($data['description'] ?? ''));
-                    $this->journalService->log('finance', 'category_updated', 'info', 'Catégorie modifiée', ['category_id' => $id], AuthSession::getUserAccountId());
+                    $this->financeService->updateCategory($id, (string) ($data['name'] ?? ''),
+                        (string) ($data['description'] ?? ''));
+                    $this->journalService->log('finance', 'category_updated', 'info', 'Catégorie modifiée',
+                        ['category_id' => $id], AuthSession::getUserAccountId());
                     return $this->json(['success' => true]);
 
                 case 'activate':
@@ -109,12 +112,14 @@ class ConfigCategoryController extends AbstractController
                 case 'delete':
                     $id = (int) ($data['id'] ?? 0);
                     $this->financeService->deleteCategory($id);
-                    $this->journalService->log('finance', 'category_deleted', 'info', 'Catégorie supprimée', ['category_id' => $id], AuthSession::getUserAccountId());
+                    $this->journalService->log('finance', 'category_deleted', 'info', 'Catégorie supprimée',
+                        ['category_id' => $id], AuthSession::getUserAccountId());
                     return $this->json(['success' => true]);
 
                 case 'reset_defaults':
                     $this->financeService->resetDefaultCategories();
-                    $this->journalService->log('finance', 'categories_reset_to_defaults', 'info', 'Catégories par défaut réinitialisées', [], AuthSession::getUserAccountId());
+                    $this->journalService->log('finance', 'categories_reset_to_defaults', 'info',
+                        'Catégories par défaut réinitialisées', [], AuthSession::getUserAccountId());
                     return $this->json(['success' => true]);
 
                 default:

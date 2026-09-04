@@ -189,7 +189,8 @@ class SecondaryEmailService
         $email = $this->emailTemplateRenderer->render('registration.secondary_email_confirmation', $context);
 
         try {
-            $this->mailService->send(to: $to, subject: $email->subject, bodyHtml: $email->bodyHtml, bodyText: $email->bodyText);
+            $this->mailService->send(to: $to, subject: $email->subject, bodyHtml: $email->bodyHtml,
+                bodyText: $email->bodyText);
         } catch (MailException) {
             // Best-effort, same rationale as the module's other emails —
             // the row is kept either way so the parent can be re-sent one.

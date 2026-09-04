@@ -121,7 +121,7 @@
         </div>
 
         {# Same neutral confirmation as a message's — see post_card.html.twig. #}
-        <p class="small text-success mt-1 mb-0 d-none groups-report-confirmation" role="status"></p>
+        <output class="small text-success mt-1 mb-0 d-none groups-report-confirmation d-block"></output>
 
         {% include '@groups/partials/reactions.html.twig' with {
             summary: row.reactions,

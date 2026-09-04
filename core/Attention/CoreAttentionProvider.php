@@ -74,7 +74,11 @@ class CoreAttentionProvider implements AttentionPointProvider
         $count = count($functions);
 
         return [new AttentionPoint(
-            title: $count . ' fonction' . ($count > 1 ? 's attendent' : ' attend') . " d'être qualifiée" . ($count > 1 ? 's' : ''),
+            title: $count
+                . ' fonction'
+                . ($count > 1 ? 's attendent' : ' attend')
+                . " d'être qualifiée"
+                . ($count > 1 ? 's' : ''),
             why: implode(', ', $labels) . ($count > 1 ? ' sont arrivées' : ' est arrivée')
                 . ' au rôle minimum. Les personnes concernées ne voient rien de plus qu\'un membre ordinaire.',
             actionLabel: 'Qualifier dans Config Desk',
@@ -92,7 +96,12 @@ class CoreAttentionProvider implements AttentionPointProvider
         }
 
         return [new AttentionPoint(
-            title: $count . ' membre' . ($count > 1 ? 's annoncés partants sont' : ' annoncé partant est') . ' toujours actif' . ($count > 1 ? 's' : '') . ' dans Desk',
+            title: $count
+                . ' membre'
+                . ($count > 1 ? 's annoncés partants sont' : ' annoncé partant est')
+                . ' toujours actif'
+                . ($count > 1 ? 's' : '')
+                . ' dans Desk',
             why: 'Le drapeau a été posé sur le site, mais Desk les liste encore. Ils seront facturés '
                 . "par la fédération tant que Desk n'est pas mis à jour.",
             actionLabel: 'Voir les membres',

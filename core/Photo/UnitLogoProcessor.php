@@ -54,7 +54,17 @@ class UnitLogoProcessor
     private const MASKABLE_LOGO_RATIO = 0.8;
 
     /**
-     * @return array{16: string, 32: string, 48: string, 64: string, 180: string, 192: string, 512: string, '512-maskable': string, ico: string} PNG-encoded bytes (ico is the packed .ico container)
+     * @return array{
+     *     16: string,
+     *     32: string,
+     *     48: string,
+     *     64: string,
+     *     180: string,
+     *     192: string,
+     *     512: string,
+     *     '512-maskable': string,
+     *     ico: string
+     * } PNG-encoded bytes (ico is the packed .ico container)
      * @throws UploadException when the source can't be decoded
      */
     public function process(string $contents, string $mimeType, string $backgroundColorHex): array
@@ -76,7 +86,8 @@ class UnitLogoProcessor
             180 => $this->encodePng($this->flattenOpaque($square, self::SIZE_180, 1.0, $backgroundColorHex)),
             192 => $this->encodePng($this->resizeSquare($square, self::SIZE_192)),
             512 => $this->encodePng($this->resizeSquare($square, self::SIZE_512)),
-            '512-maskable' => $this->encodePng($this->flattenOpaque($square, self::SIZE_512, self::MASKABLE_LOGO_RATIO, $backgroundColorHex)),
+            '512-maskable' => $this->encodePng($this->flattenOpaque($square, self::SIZE_512, self::MASKABLE_LOGO_RATIO,
+                $backgroundColorHex)),
         ];
         $result['ico'] = $this->packIco([
             self::SIZE_FAVICON_16 => $favicon16,

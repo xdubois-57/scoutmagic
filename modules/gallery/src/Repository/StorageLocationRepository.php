@@ -85,12 +85,17 @@ class StorageLocationRepository
 
         $stmt = $this->pdo->prepare(
             'INSERT INTO gallery_storage_locations
-                (type, label, is_default, subdir, s3_provider, s3_endpoint, s3_region, s3_bucket, s3_access_key, s3_public_url, secret_key_encrypted, created_at)
+                (type, label, is_default, subdir, s3_provider, s3_endpoint, s3_region, s3_bucket, s3_access_key, '
+                . 's3_public_url, secret_key_encrypted, created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
-            $type, $label, $isFirst ? 1 : 0, $subdir, $s3Provider, $s3Endpoint, $s3Region, $s3Bucket, $s3AccessKey, $s3PublicUrl,
-            $secretKey !== null && $secretKey !== '' ? $this->encryption->encrypt($secretKey, 'gallery_storage_locations.secret_key') : null,
+            $type, $label, $isFirst
+                ? 1
+                : 0, $subdir, $s3Provider, $s3Endpoint, $s3Region, $s3Bucket, $s3AccessKey, $s3PublicUrl,
+            $secretKey !== null && $secretKey !== ''
+                ? $this->encryption->encrypt($secretKey, 'gallery_storage_locations.secret_key')
+                : null,
             date('Y-m-d H:i:s'),
         ]);
         return (int) $this->pdo->lastInsertId();
@@ -122,7 +127,8 @@ class StorageLocationRepository
      */
     public function findDefault(): ?StorageLocation
     {
-        $stmt = $this->pdo->query('SELECT * FROM gallery_storage_locations WHERE is_default = 1 ORDER BY id ASC LIMIT 1');
+        $stmt = $this->pdo->query('SELECT * FROM gallery_storage_locations WHERE is_default = 1 ORDER BY id ASC LIMIT '
+            . '1');
         $row = $stmt !== false ? $stmt->fetch(\PDO::FETCH_ASSOC) : false;
         if ($row !== false) {
             return $this->hydrate($row);
@@ -152,7 +158,8 @@ class StorageLocationRepository
         if ($secretKey !== null && $secretKey !== '') {
             $stmt = $this->pdo->prepare(
                 'UPDATE gallery_storage_locations
-                 SET label = ?, subdir = ?, s3_provider = ?, s3_endpoint = ?, s3_region = ?, s3_bucket = ?, s3_access_key = ?, s3_public_url = ?, secret_key_encrypted = ?
+                 SET label = ?, subdir = ?, s3_provider = ?, s3_endpoint = ?, s3_region = ?, s3_bucket = ?, '
+                    . 's3_access_key = ?, s3_public_url = ?, secret_key_encrypted = ?
                  WHERE id = ?'
             );
             $stmt->execute([
@@ -164,10 +171,21 @@ class StorageLocationRepository
 
         $stmt = $this->pdo->prepare(
             'UPDATE gallery_storage_locations
-             SET label = ?, subdir = ?, s3_provider = ?, s3_endpoint = ?, s3_region = ?, s3_bucket = ?, s3_access_key = ?, s3_public_url = ?
+             SET label = ?, subdir = ?, s3_provider = ?, s3_endpoint = ?, s3_region = ?, s3_bucket = ?, '
+                . 's3_access_key = ?, s3_public_url = ?
              WHERE id = ?'
         );
-        $stmt->execute([$label, $subdir, $s3Provider, $s3Endpoint, $s3Region, $s3Bucket, $s3AccessKey, $s3PublicUrl, $id]);
+        $stmt->execute([
+            $label,
+            $subdir,
+            $s3Provider,
+            $s3Endpoint,
+            $s3Region,
+            $s3Bucket,
+            $s3AccessKey,
+            $s3PublicUrl,
+            $id
+        ]);
     }
 
     /**
@@ -178,7 +196,8 @@ class StorageLocationRepository
     public function delete(int $id): void
     {
         if ($this->countAlbumsUsing($id) > 0) {
-            throw new GalleryException('Cette location est encore utilisée par au moins un album — impossible de la supprimer.');
+            throw new GalleryException('Cette location est encore utilisée par au moins un album — impossible de la '
+                . 'supprimer.');
         }
 
         $stmt = $this->pdo->prepare('DELETE FROM gallery_storage_locations WHERE id = ?');
@@ -195,7 +214,8 @@ class StorageLocationRepository
     public function recordCheckResult(int $id, bool $ok, ?string $error): void
     {
         $stmt = $this->pdo->prepare(
-            'UPDATE gallery_storage_locations SET last_checked_at = ?, last_check_ok = ?, last_check_error = ? WHERE id = ?'
+            'UPDATE gallery_storage_locations SET last_checked_at = ?, last_check_ok = ?, last_check_error = ? WHERE '
+                . 'id = ?'
         );
         $stmt->execute([date('Y-m-d H:i:s'), $ok ? 1 : 0, $error, $id]);
     }

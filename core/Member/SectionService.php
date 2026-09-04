@@ -68,7 +68,21 @@ class SectionService
      * is true — pass true only for the Config Desk page, which needs to see
      * (and manage) hidden-but-active sections.
      *
-     * @return array<int, array{id: int, desk_code: string, name: ?string, email: ?string, age_branch_id: int, branch_name: string, branch_sort_order: int, is_visible: bool, is_active: bool, color: ?string}>
+     * @return array<
+     *     int,
+     *     array{
+     *         id: int,
+     *         desk_code: string,
+     *         name: ?string,
+     *         email: ?string,
+     *         age_branch_id: int,
+     *         branch_name: string,
+     *         branch_sort_order: int,
+     *         is_visible: bool,
+     *         is_active: bool,
+     *         color: ?string
+     *     }
+     * >
      */
     public function getAllWithBranches(bool $includeHidden = false): array
     {
@@ -114,7 +128,19 @@ class SectionService
      * never deleted).
      *
      * @param int[] $sectionIds
-     * @return array<int, array{id: int, desk_code: string, name: ?string, email: ?string, age_branch_id: int, branch_name: string, branch_sort_order: int, color: ?string}> keyed by id
+     * @return array<
+     *     int,
+     *     array{
+     *         id: int,
+     *         desk_code: string,
+     *         name: ?string,
+     *         email: ?string,
+     *         age_branch_id: int,
+     *         branch_name: string,
+     *         branch_sort_order: int,
+     *         color: ?string
+     *     }
+     * > keyed by id
      */
     public function findByIds(array $sectionIds): array
     {
@@ -173,7 +199,16 @@ class SectionService
     /**
      * Get a single section by ID with branch info.
      *
-     * @return array{id: int, desk_code: string, name: ?string, email: ?string, age_branch_id: int, branch_name: string, branch_sort_order: int, color: ?string}|null
+     * @return array{
+     *     id: int,
+     *     desk_code: string,
+     *     name: ?string,
+     *     email: ?string,
+     *     age_branch_id: int,
+     *     branch_name: string,
+     *     branch_sort_order: int,
+     *     color: ?string
+     * }|null
      */
     public function getSection(int $sectionId): ?array
     {
@@ -209,7 +244,16 @@ class SectionService
      * start from (e.g. the member page resolving "this member's own
      * section" from their main function).
      *
-     * @return array{id: int, desk_code: string, name: ?string, email: ?string, age_branch_id: int, branch_name: string, branch_sort_order: int, color: ?string}|null
+     * @return array{
+     *     id: int,
+     *     desk_code: string,
+     *     name: ?string,
+     *     email: ?string,
+     *     age_branch_id: int,
+     *     branch_name: string,
+     *     branch_sort_order: int,
+     *     color: ?string
+     * }|null
      */
     public function findByDeskCode(string $deskCode): ?array
     {
@@ -416,7 +460,8 @@ class SectionService
         $placeholders = implode(', ', array_fill(0, count($memberYearIds), '?'));
 
         $stmt = $pdo->prepare(
-            "SELECT my.*, m.desk_id FROM member_years my JOIN members m ON my.member_id = m.id WHERE my.id IN ({$placeholders})"
+            "SELECT my.*, m.desk_id FROM member_years my JOIN members m ON my.member_id = m.id WHERE my.id IN "
+                . "({$placeholders})"
         );
         $stmt->execute($memberYearIds);
         $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
@@ -477,14 +522,30 @@ class SectionService
                 deskId: $row['desk_id'],
                 firstName: $this->encryption->decrypt($row['first_name_encrypted'], 'member_years.first_name'),
                 lastName: $this->encryption->decrypt($row['last_name_encrypted'], 'member_years.last_name'),
-                totem: $row['totem_encrypted'] ? $this->encryption->decrypt($row['totem_encrypted'], 'member_years.totem') : null,
-                quali: $row['quali_encrypted'] ? $this->encryption->decrypt($row['quali_encrypted'], 'member_years.quali') : null,
-                gender: $row['gender_encrypted'] ? $this->encryption->decrypt($row['gender_encrypted'], 'member_years.gender') : null,
-                birthDate: $row['birth_date_encrypted'] ? $this->encryption->decrypt($row['birth_date_encrypted'], 'member_years.birth_date') : null,
-                phone: $row['phone_encrypted'] ? $this->encryption->decrypt($row['phone_encrypted'], 'member_years.phone') : null,
-                mobile: $row['mobile_encrypted'] ? $this->encryption->decrypt($row['mobile_encrypted'], 'member_years.mobile') : null,
-                email: $row['email_encrypted'] ? $this->encryption->decrypt($row['email_encrypted'], 'member_years.email') : null,
-                patrol: $row['patrol_encrypted'] ? $this->encryption->decrypt($row['patrol_encrypted'], 'member_years.patrol') : null,
+                totem: $row['totem_encrypted']
+                    ? $this->encryption->decrypt($row['totem_encrypted'], 'member_years.totem')
+                    : null,
+                quali: $row['quali_encrypted']
+                    ? $this->encryption->decrypt($row['quali_encrypted'], 'member_years.quali')
+                    : null,
+                gender: $row['gender_encrypted']
+                    ? $this->encryption->decrypt($row['gender_encrypted'], 'member_years.gender')
+                    : null,
+                birthDate: $row['birth_date_encrypted']
+                    ? $this->encryption->decrypt($row['birth_date_encrypted'], 'member_years.birth_date')
+                    : null,
+                phone: $row['phone_encrypted']
+                    ? $this->encryption->decrypt($row['phone_encrypted'], 'member_years.phone')
+                    : null,
+                mobile: $row['mobile_encrypted']
+                    ? $this->encryption->decrypt($row['mobile_encrypted'], 'member_years.mobile')
+                    : null,
+                email: $row['email_encrypted']
+                    ? $this->encryption->decrypt($row['email_encrypted'], 'member_years.email')
+                    : null,
+                patrol: $row['patrol_encrypted']
+                    ? $this->encryption->decrypt($row['patrol_encrypted'], 'member_years.patrol')
+                    : null,
                 formationLevel: $row['formation_level'],
                 federationMailConsent: (bool) $row['federation_mail_consent'],
                 unitMailConsent: (bool) $row['unit_mail_consent'],

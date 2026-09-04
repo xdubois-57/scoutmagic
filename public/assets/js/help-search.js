@@ -157,7 +157,7 @@
             if (word === term) {
                 return weight;
             }
-            if (term.length >= MIN_PREFIX_LENGTH && word.indexOf(term) === 0) {
+            if (term.length >= MIN_PREFIX_LENGTH && word.startsWith(term)) {
                 best = Math.max(best, weight * PREFIX_FACTOR);
             }
         }
@@ -300,7 +300,11 @@
                 return b.score - a.score;
             }
 
-            return a.title < b.title ? -1 : (a.title > b.title ? 1 : 0);
+            if (a.title === b.title) {
+                return 0;
+            }
+
+            return a.title < b.title ? -1 : 1;
         });
 
         return scored.slice(0, MAX_RESULTS).map(function (row) {

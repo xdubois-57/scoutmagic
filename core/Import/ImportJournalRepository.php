@@ -32,7 +32,8 @@ class ImportJournalRepository
     ): int {
         $now = date('Y-m-d H:i:s');
         $stmt = $this->pdo->prepare(
-            'INSERT INTO import_journal (scout_year_id, user_account_id, line_count, member_count, new_functions_count, file_id, imported_at)
+            'INSERT INTO import_journal (scout_year_id, user_account_id, line_count, member_count, '
+                . 'new_functions_count, file_id, imported_at)
              VALUES (?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([$scoutYearId, $userId, $lineCount, $memberCount, $newFunctions, $fileId, $now]);

@@ -720,6 +720,15 @@ final class UxConventionsTest extends TestCase
         //    `app_version` and `pwa_icon_version` cache busters;
         //  - `offline-config-data` is a JSON island and is not counted.
         'core/View/templates/base.html.twig' => 2,
+        // The one page that may not load a file: it renders WHILE the new
+        // file tree is being copied over the live one, so `/assets/js/…`
+        // can be missing or half-written at that exact moment. Its whole
+        // behaviour is one `setTimeout(reload)`, replacing a
+        // `<meta http-equiv="refresh">` that took the back button with it
+        // and interrupted a screen reader every ten seconds
+        // (Sonar Web:MetaRefreshCheck). A visitor without scripting has
+        // the manual link beside it.
+        'core/View/templates/maintenance/in_progress.html.twig' => 1,
     ];
 
     public function testBehaviourLivesInFilesNotInTemplates(): void

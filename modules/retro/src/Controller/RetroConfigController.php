@@ -90,7 +90,13 @@ class RetroConfigController extends AbstractController
             return $this->saveError('Rôle minimum de clôture invalide.');
         }
         if ($maxCommentLength < self::MIN_MAX_COMMENT_LENGTH || $maxCommentLength > self::MAX_MAX_COMMENT_LENGTH) {
-            return $this->saveError('La longueur maximale par défaut doit être comprise entre ' . self::MIN_MAX_COMMENT_LENGTH . ' et ' . self::MAX_MAX_COMMENT_LENGTH . '.');
+            return $this->saveError(
+                'La longueur maximale par défaut doit être comprise entre '
+                    . self::MIN_MAX_COMMENT_LENGTH
+                    . ' et '
+                    . self::MAX_MAX_COMMENT_LENGTH
+                    . '.'
+            );
         }
         if ($voteBudget < 1 || $voteBudget > IntegerInput::UNSIGNED_INT_MAX) {
             return $this->saveError('Le budget de points par défaut doit être d\'au moins 1.');
@@ -145,12 +151,26 @@ class RetroConfigController extends AbstractController
     {
         return [
             'ai_available' => $this->aiAvailable(),
-            'retro_role_min_create_board' => (string) ($this->settingService->get('retro_role_min_create_board', 'retro') ?: 'intendant'),
-            'retro_role_min_close_board' => (string) ($this->settingService->get('retro_role_min_close_board', 'retro') ?: 'chief'),
-            'retro_default_max_comment_length' => (int) ($this->settingService->get('retro_default_max_comment_length', 'retro') ?: 140),
-            'retro_default_vote_budget' => (int) ($this->settingService->get('retro_default_vote_budget', 'retro') ?: 5),
-            'retro_polling_interval_seconds' => (int) ($this->settingService->get('retro_polling_interval_seconds', 'retro') ?: 8),
-            'retro_moderation_mode' => (string) ($this->settingService->get('retro_moderation_mode', 'retro') ?: 'disabled'),
+            'retro_role_min_create_board' => (string) ($this->settingService->get(
+                'retro_role_min_create_board',
+                'retro'
+            ) ?: 'intendant'),
+            'retro_role_min_close_board' => (string) ($this->settingService->get(
+                'retro_role_min_close_board',
+                'retro'
+            ) ?: 'chief'),
+            'retro_default_max_comment_length' => (int) ($this->settingService->get('retro_default_max_comment_length',
+                'retro') ?: 140),
+            'retro_default_vote_budget' => (int) ($this->settingService->get(
+                'retro_default_vote_budget',
+                'retro'
+            ) ?: 5),
+            'retro_polling_interval_seconds' => (int) ($this->settingService->get('retro_polling_interval_seconds',
+                'retro') ?: 8),
+            'retro_moderation_mode' => (string) ($this->settingService->get(
+                'retro_moderation_mode',
+                'retro'
+            ) ?: 'disabled'),
             'csrf_token' => CsrfGuard::generateToken(),
         ];
     }

@@ -89,7 +89,8 @@ final class PersonAvatar
         return '<span class="editable-image d-inline-flex" style="' . $dimensions . '"'
             . ' data-context="' . htmlspecialchars($editable['context'], ENT_QUOTES) . '"'
             . ' data-key="' . htmlspecialchars($editable['key'], ENT_QUOTES) . '">'
-            . '<span class="editable-overlay"><button type="button" class="btn btn-sm btn-outline-primary editable-edit-btn">'
+            . '<span class="editable-overlay"><button type="button" class="btn btn-sm btn-outline-primary '
+            . 'editable-edit-btn">'
             . '<i class="bi bi-camera"></i></button></span>'
             . $inner
             . '</span>';

@@ -78,7 +78,18 @@ class ProjectedPopulationService implements ProjectedPopulationProvider
             $labels[(int) $section['id']] = $section['name'] ?? $section['desk_code'];
         }
 
-        /** @var array<int, array{total: int, certain: int, hypothesis: int, ranks: array<int, int>, gender: array{male: int, female: int, other: int, total: int}}> $totals */
+        /**
+         * @var array<
+         *     int,
+         *     array{
+         *         total: int,
+         *         certain: int,
+         *         hypothesis: int,
+         *         ranks: array<int, int>,
+         *         gender: array{male: int, female: int, other: int, total: int}
+         *     }
+         * > $totals
+         */
         $totals = [];
         foreach ($this->rows($targetScoutYearId) as $row) {
             $sectionId = $row['section_id'];
@@ -200,7 +211,19 @@ class ProjectedPopulationService implements ProjectedPopulationProvider
     }
 
     /**
-     * @return array<int, array{member_id: ?int, request_id: ?int, section_id: ?int, year_in_branch: ?int, gender: string, birth_year: ?int, certain: bool, origin: string}>
+     * @return array<
+     *     int,
+     *     array{
+     *         member_id: ?int,
+     *         request_id: ?int,
+     *         section_id: ?int,
+     *         year_in_branch: ?int,
+     *         gender: string,
+     *         birth_year: ?int,
+     *         certain: bool,
+     *         origin: string
+     *     }
+     * >
      */
     private function rows(int $targetScoutYearId): array
     {

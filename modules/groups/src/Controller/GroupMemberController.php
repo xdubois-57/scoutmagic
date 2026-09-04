@@ -190,7 +190,10 @@ class GroupMemberController extends AbstractController
      */
     public function inviteMember(Request $request, array $params): Response
     {
-        return $this->moderatorAction($request, $params, function (DiscussionGroup $group, GroupSessionContext $context) use ($request) {
+        return $this->moderatorAction($request, $params, function (
+            DiscussionGroup $group,
+            GroupSessionContext $context
+        ) use ($request) {
             $memberId = (int) $request->getBody('member_id', 0);
             if ($memberId > 0) {
                 $this->groupService->inviteMember($group, $memberId, $context->linkedMemberIds[0] ?? 0);
@@ -230,7 +233,10 @@ class GroupMemberController extends AbstractController
      */
     public function setModerator(Request $request, array $params): Response
     {
-        return $this->moderatorAction($request, $params, function (DiscussionGroup $group, GroupSessionContext $context) use ($request) {
+        return $this->moderatorAction($request, $params, function (
+            DiscussionGroup $group,
+            GroupSessionContext $context
+        ) use ($request) {
             $memberId = (int) $request->getBody('member_id', 0);
             $grant = (string) $request->getBody('is_moderator', '0') === '1';
             $accountId = (int) $request->getBody('user_account_id', 0);
@@ -241,7 +247,11 @@ class GroupMemberController extends AbstractController
             // as this member is refused rather than stored, so a
             // hand-made POST cannot hand the flag to an unrelated
             // address.
-            if ($grant && !in_array($accountId, $this->recipientResolver?->accountIdsForMember($memberId) ?? [], true)) {
+            if ($grant && !in_array(
+                $accountId,
+                $this->recipientResolver?->accountIdsForMember($memberId) ?? [],
+                true
+            )) {
                 FlashMessage::set('error', 'Cette adresse ne peut pas se connecter en tant que ce membre.');
 
                 return $this->redirect('/groups/' . $group->id . '/members');

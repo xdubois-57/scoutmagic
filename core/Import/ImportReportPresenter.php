@@ -111,7 +111,8 @@ class ImportReportPresenter
             'counts' => [
                 'arrived' => count($diff->arrivedMemberIds),
                 'departed' => count($diff->departedMemberIds),
-                'moved' => count($diff->sectionChanges) + count($diff->functionChanges) + count($diff->feeCategoryChanges),
+                'moved' =>
+                    count($diff->sectionChanges) + count($diff->functionChanges) + count($diff->feeCategoryChanges),
                 'access' => $diff->accessImpactCount(),
             ],
             'is_empty' => $diff->isEmpty(),
@@ -214,7 +215,8 @@ class ImportReportPresenter
             [
                 'label' => 'Lignes du CSV non retenues',
                 'value' => $quality->linesNotRetained,
-                'why' => "une même personne occupe plusieurs lignes (une par fonction et par adresse) — comportement normal",
+                'why' => "une même personne occupe plusieurs lignes (une par fonction et par adresse) — comportement "
+                    . "normal",
             ],
         ];
     }

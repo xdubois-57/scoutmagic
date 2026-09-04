@@ -56,7 +56,8 @@ class UpdateHistoryRepository
     {
         $now = self::now();
         $stmt = $this->pdo->prepare(
-            'INSERT INTO update_history (version_from, version_to, dependencies_changed, requested_by, started_at, progress_at)
+            'INSERT INTO update_history (version_from, version_to, dependencies_changed, requested_by, started_at, '
+                . 'progress_at)
              VALUES (?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
@@ -85,7 +86,9 @@ class UpdateHistoryRepository
      */
     public function findRecent(int $limit): array
     {
-        $stmt = $this->pdo->prepare('SELECT * FROM update_history ORDER BY started_at DESC, id DESC LIMIT ' . (int) $limit);
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM update_history ORDER BY started_at DESC, id DESC LIMIT ' . (int) $limit
+        );
         $stmt->execute();
 
         return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
@@ -243,7 +246,8 @@ class UpdateHistoryRepository
         $stmt = $this->pdo->prepare(
             "UPDATE update_history
              SET status = 'failed',
-                 error_message = 'Mise à jour abandonnée : une nouvelle mise à jour a démarré avant que celle-ci ne se termine.',
+                 error_message = 'Mise à jour abandonnée : une nouvelle mise à jour a démarré avant que celle-ci ne "
+                . "se termine.',
                  completed_at = ?
              WHERE id != ? AND status IN ('backing_up', 'downloading', 'installing', 'migrating')"
         );
@@ -274,13 +278,15 @@ class UpdateHistoryRepository
 
     public function markFailed(int $id, string $errorMessage): void
     {
-        $stmt = $this->pdo->prepare("UPDATE update_history SET status = 'failed', error_message = ?, completed_at = ? WHERE id = ?");
+        $stmt = $this->pdo->prepare("UPDATE update_history SET status = 'failed', error_message = ?, completed_at = ? "
+            . "WHERE id = ?");
         $stmt->execute([substr($errorMessage, 0, 500), self::now(), $id]);
     }
 
     public function markRolledBack(int $id, string $errorMessage): void
     {
-        $stmt = $this->pdo->prepare("UPDATE update_history SET status = 'rolled_back', error_message = ?, completed_at = ? WHERE id = ?");
+        $stmt = $this->pdo->prepare("UPDATE update_history SET status = 'rolled_back', error_message = ?, "
+            . "completed_at = ? WHERE id = ?");
         $stmt->execute([substr($errorMessage, 0, 500), self::now(), $id]);
     }
 

@@ -65,7 +65,16 @@ class PassagePlanningService
      *   staff_note: ?string,
      *   ai_suggestion: ?string,
      *   ai_confirmed: bool,
-     *   wishes: array<int, array{id: int, raw_name: string, match_state: string, matched_label: ?string, candidates: array<int, array{member_id: int, label: string}>}>
+     *   wishes: array<
+     *       int,
+     *       array{
+     *           id: int,
+     *           raw_name: string,
+     *           match_state: string,
+     *           matched_label: ?string,
+     *           candidates: array<int, array{member_id: int, label: string}>
+     *       }
+     *   >
      * }>
      */
     public function forMembers(array $arrivalBranchByMemberId, int $publicYearId, int $targetYearId): array
@@ -128,7 +137,19 @@ class PassagePlanningService
      *
      * @param array<int, ?int> $arrivalBranchByRequestId request id => the
      *        branch the child's birth date puts them in
-     * @return array<int, array{wishes: array<int, array{id: int, raw_name: string, match_state: string, matched_label: ?string, candidates: array<int, array{member_id: int, label: string}>}>}>
+     * @return array<
+     *     int,
+     *     array{wishes: array<
+     *         int,
+     *         array{
+     *             id: int,
+     *             raw_name: string,
+     *             match_state: string,
+     *             matched_label: ?string,
+     *             candidates: array<int, array{member_id: int, label: string}>
+     *         }
+     *     >}
+     * >
      */
     public function forRequests(array $arrivalBranchByRequestId, int $publicYearId, int $targetYearId): array
     {
@@ -195,7 +216,16 @@ class PassagePlanningService
 
     /**
      * @param array<int, FriendWish> $wishes
-     * @return array<int, array{id: int, raw_name: string, match_state: string, matched_label: ?string, candidates: array<int, array{member_id: int, label: string}>}>
+     * @return array<
+     *     int,
+     *     array{
+     *         id: int,
+     *         raw_name: string,
+     *         match_state: string,
+     *         matched_label: ?string,
+     *         candidates: array<int, array{member_id: int, label: string}>
+     *     }
+     * >
      */
     private function describeWishes(
         array $wishes,

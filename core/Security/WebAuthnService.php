@@ -594,7 +594,8 @@ class WebAuthnService
 
     private function base64UrlDecode(string $data): string
     {
-        $padded = str_pad(strtr($data, '-_', '+/'), strlen($data) % 4 === 0 ? strlen($data) : strlen($data) + (4 - strlen($data) % 4), '=');
+        $padded = str_pad(strtr($data, '-_', '+/'),
+            strlen($data) % 4 === 0 ? strlen($data) : strlen($data) + (4 - strlen($data) % 4), '=');
         return base64_decode($padded, true) ?: '';
     }
 }

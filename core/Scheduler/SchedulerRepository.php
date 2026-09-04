@@ -24,7 +24,8 @@ class SchedulerRepository
     ): int {
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
         $stmt = $this->pdo->prepare(
-            'INSERT INTO scheduled_actions (module_id, task_key, run_at, payload, reference, requested_by_user_account_id, created_at)
+            'INSERT INTO scheduled_actions (module_id, task_key, run_at, payload, reference, '
+                . 'requested_by_user_account_id, created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([$moduleId, $taskKey, $runAt, $payload, $reference, $requestedByUserAccountId, $now]);
@@ -136,12 +137,14 @@ class SchedulerRepository
     {
         if ($reference !== null) {
             $stmt = $this->pdo->prepare(
-                'SELECT * FROM scheduled_actions WHERE module_id = ? AND task_key = ? AND reference = ? AND status = ? ORDER BY created_at DESC LIMIT 1'
+                'SELECT * FROM scheduled_actions WHERE module_id = ? AND task_key = ? AND reference = ? AND status = '
+                    . '? ORDER BY created_at DESC LIMIT 1'
             );
             $stmt->execute([$moduleId, $taskKey, $reference, 'pending']);
         } else {
             $stmt = $this->pdo->prepare(
-                'SELECT * FROM scheduled_actions WHERE module_id = ? AND task_key = ? AND reference IS NULL AND status = ? ORDER BY created_at DESC LIMIT 1'
+                'SELECT * FROM scheduled_actions WHERE module_id = ? AND task_key = ? AND reference IS NULL AND '
+                    . 'status = ? ORDER BY created_at DESC LIMIT 1'
             );
             $stmt->execute([$moduleId, $taskKey, 'pending']);
         }

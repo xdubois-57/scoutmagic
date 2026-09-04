@@ -33,13 +33,20 @@ final class SectionRosterService
 
     /**
      * @param int[] $sectionIds
-     * @return array<int, array{animateurs: MemberRosterRow[], intendants: MemberRosterRow[], animes: MemberRosterRow[]}>
+     * @return array<
+     *     int,
+     *     array{animateurs: MemberRosterRow[], intendants: MemberRosterRow[], animes: MemberRosterRow[]}
+     * >
      *         keyed by section_id — a section with no member in a given
      *         bucket simply has an empty array there, never a missing key
      */
     public function buildRoster(array $sectionIds, int $scoutYearId): array
     {
-        $empty = [SectionRosterEntry::BUCKET_ANIMATEUR => [], SectionRosterEntry::BUCKET_INTENDANT => [], SectionRosterEntry::BUCKET_ANIME => []];
+        $empty = [
+            SectionRosterEntry::BUCKET_ANIMATEUR => [],
+            SectionRosterEntry::BUCKET_INTENDANT => [],
+            SectionRosterEntry::BUCKET_ANIME => []
+        ];
         $bySection = array_fill_keys(array_map('intval', $sectionIds), $empty);
 
         $entries = $this->repository->findRosterEntries($sectionIds, $scoutYearId);
@@ -61,7 +68,9 @@ final class SectionRosterService
         $movementByMemberId = $this->movementClassifier->classifyBatch($scoutYearId, $currentRoster);
 
         foreach ($entries as $entry) {
-            $row = $this->buildRow($entry, $memberYearRows[$entry->memberYearId] ?? null, $validEmailsByMember[$entry->memberId] ?? [], $movementByMemberId[$entry->memberId] ?? new MemberMovementResult(MemberMovementStatus::UNKNOWN));
+            $row = $this->buildRow($entry, $memberYearRows[$entry->memberYearId] ?? null,
+                $validEmailsByMember[$entry->memberId] ?? [],
+                $movementByMemberId[$entry->memberId] ?? new MemberMovementResult(MemberMovementStatus::UNKNOWN));
             if ($row === null) {
                 continue;
             }
@@ -85,7 +94,12 @@ final class SectionRosterService
      * @param array<string, mixed>|null $memberYearRow
      * @param MemberEmail[] $validSecondaryEmails
      */
-    private function buildRow(SectionRosterEntry $entry, ?array $memberYearRow, array $validSecondaryEmails, MemberMovementResult $movement): ?MemberRosterRow
+    private function buildRow(
+        SectionRosterEntry $entry,
+        ?array $memberYearRow,
+        array $validSecondaryEmails,
+        MemberMovementResult $movement
+    ): ?MemberRosterRow
     {
         if ($memberYearRow === null) {
             return null;
@@ -103,10 +117,22 @@ final class SectionRosterService
 
         $phones = [];
         if (!empty($memberYearRow['phone_encrypted'])) {
-            $phones[] = ['label' => 'Téléphone', 'value' => TextNormalizerService::normalizePhone($this->encryption->decrypt($memberYearRow['phone_encrypted'], 'member_years.phone'))];
+            $phones[] = [
+                'label' => 'Téléphone',
+                'value' => TextNormalizerService::normalizePhone($this->encryption->decrypt(
+                    $memberYearRow['phone_encrypted'],
+                    'member_years.phone'
+                ))
+            ];
         }
         if (!empty($memberYearRow['mobile_encrypted'])) {
-            $phones[] = ['label' => 'GSM', 'value' => TextNormalizerService::normalizePhone($this->encryption->decrypt($memberYearRow['mobile_encrypted'], 'member_years.mobile'))];
+            $phones[] = [
+                'label' => 'GSM',
+                'value' => TextNormalizerService::normalizePhone($this->encryption->decrypt(
+                    $memberYearRow['mobile_encrypted'],
+                    'member_years.mobile'
+                ))
+            ];
         }
 
         return new MemberRosterRow(
@@ -114,7 +140,9 @@ final class SectionRosterService
             memberId: $entry->memberId,
             firstName: $this->encryption->decrypt($memberYearRow['first_name_encrypted'], 'member_years.first_name'),
             lastName: $this->encryption->decrypt($memberYearRow['last_name_encrypted'], 'member_years.last_name'),
-            totem: !empty($memberYearRow['totem_encrypted']) ? $this->encryption->decrypt($memberYearRow['totem_encrypted'], 'member_years.totem') : null,
+            totem: !empty($memberYearRow['totem_encrypted'])
+                ? $this->encryption->decrypt($memberYearRow['totem_encrypted'], 'member_years.totem')
+                : null,
             functionLabel: $entry->functionLabel,
             bucket: $entry->bucket,
             emails: $emails,
@@ -125,7 +153,10 @@ final class SectionRosterService
 
     /**
      * @param array<int, array<string, MemberRosterRow[]>> $bySection
-     * @return array<int, array{animateurs: MemberRosterRow[], intendants: MemberRosterRow[], animes: MemberRosterRow[]}>
+     * @return array<
+     *     int,
+     *     array{animateurs: MemberRosterRow[], intendants: MemberRosterRow[], animes: MemberRosterRow[]}
+     * >
      */
     private function mapBuckets(array $bySection): array
     {

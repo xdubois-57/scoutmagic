@@ -111,7 +111,8 @@ class RedirectService
             $this->logOutcome('failure', $detailed, $newMemberId);
             $this->sendAdminAlert($detailed);
             throw new SosException(
-                'Le changement de redirection du numéro SOS a échoué — vérifiez la configuration du fournisseur de téléphonie, puis réessayez.',
+                'Le changement de redirection du numéro SOS a échoué — vérifiez la configuration du fournisseur de '
+                    . 'téléphonie, puis réessayez.',
                 0,
                 $e
             );

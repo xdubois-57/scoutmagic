@@ -62,7 +62,11 @@ final class VersionFile
      * comparisons go through this instead of calling version_compare()
      * directly.
      */
-    public static function isNewerThan(string $candidate, string $installed, bool $installedTracksDevChannel = false): bool
+    public static function isNewerThan(
+        string $candidate,
+        string $installed,
+        bool $installedTracksDevChannel = false
+    ): bool
     {
         if ($installedTracksDevChannel && self::isDevBuild($installed)) {
             return false;

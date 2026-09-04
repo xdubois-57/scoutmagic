@@ -50,7 +50,7 @@
                     <option value="{{ section.id }}" {{ planning.staff_section_id == section.id ? 'selected' : '' }}>{{ section.name ?? section.desk_code }}</option>
                 {% endfor %}
             </select>
-            <div class="form-text passage-wish-feedback" role="status" aria-live="polite"></div>
+            <output class="form-text passage-wish-feedback d-block" aria-live="polite"></output>
         </div>
         <div class="col-12 col-md-7">
             <label class="form-label small mb-1" for="passage-note-{{ key }}">
@@ -60,7 +60,7 @@
                       class="form-control form-control-sm passage-note"
                       data-endpoint="{{ endpoint_prefix }}/note"
                       placeholder="Ce que le staff doit savoir pour placer cet enfant.">{{ planning.staff_note }}</textarea>
-            <div class="form-text passage-note-feedback" role="status" aria-live="polite"></div>
+            <output class="form-text passage-note-feedback d-block" aria-live="polite"></output>
         </div>
     {% elseif planning.family_section_label is defined and planning.family_section_label %}
         <div class="col-12">
@@ -87,7 +87,7 @@
                         C'est bien ce que la famille demande
                     </label>
                 </div>
-                <div class="form-text passage-ai-feedback" role="status" aria-live="polite"></div>
+                <output class="form-text passage-ai-feedback d-block" aria-live="polite"></output>
             </div>
         </div>
     {% endif %}
@@ -120,7 +120,7 @@
                         {% else %}
                             <span class="text-body-secondary small">— aucun membre de ce nom</span>
                         {% endif %}
-                        <span class="form-text passage-friend-feedback" role="status" aria-live="polite"></span>
+                        <output class="form-text passage-friend-feedback" aria-live="polite"></output>
                     </li>
                 {% endfor %}
             </ul>

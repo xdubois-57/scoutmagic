@@ -159,7 +159,11 @@ class GroupLifecycleService
         $months = $this->months(self::SETTING_CLOSED_PURGE_MONTHS, self::DEFAULT_CLOSED_PURGE_MONTHS);
         $cutoff = $now->modify("-{$months} months")->format('Y-m-d H:i:s');
 
-        $candidates = $this->groupRepository->findClosedBefore($cutoff, $this->protectedScoutYearIds(), self::BATCH_SIZE);
+        $candidates = $this->groupRepository->findClosedBefore(
+            $cutoff,
+            $this->protectedScoutYearIds(),
+            self::BATCH_SIZE
+        );
 
         $purged = 0;
         foreach ($candidates as $group) {

@@ -20,7 +20,10 @@ class SectionRepository
      * section for internal purposes (section picker, trombinoscope,
      * calendar) but not listed on the public "Notre unité > Sections" page.
      *
-     * @return array<array{branch_label: string, sections: array<array{id: int, name: ?string, desk_code: string, email: ?string}>}>
+     * @return array<array{
+     *     branch_label: string,
+     *     sections: array<array{id: int, name: ?string, desk_code: string, email: ?string}>
+     * }>
      */
     public function findAllGroupedByBranch(): array
     {

@@ -37,7 +37,9 @@ class StructuredCommunicationService implements StructuredCommunicationInterface
             }
         }
 
-        throw new \RuntimeException('Unable to generate a unique structured communication after ' . self::MAX_ATTEMPTS . ' attempts.');
+        throw new \RuntimeException(
+            'Unable to generate a unique structured communication after ' . self::MAX_ATTEMPTS . ' attempts.'
+        );
     }
 
     /**
@@ -132,7 +134,12 @@ class StructuredCommunicationService implements StructuredCommunicationInterface
         // independent, so a bank printing "123/4567 89012" is read the
         // same as one printing the canonical form. The lookarounds are
         // what forbid a match that starts or ends mid-run.
-        if (preg_match_all('/(?<!\d)(\d{3})[\/ .\-]?(\d{4})[\/ .\-]?(\d{5})(?!\d)/', $text, $matches, PREG_SET_ORDER) > 0) {
+        if (preg_match_all(
+            '/(?<!\d)(\d{3})[\/ .\-]?(\d{4})[\/ .\-]?(\d{5})(?!\d)/',
+            $text,
+            $matches,
+            PREG_SET_ORDER
+        ) > 0) {
             foreach ($matches as $match) {
                 $candidate = $match[1] . $match[2] . $match[3];
                 if (!in_array($candidate, $found, true)) {

@@ -43,7 +43,13 @@ final class SettlementCalculator
      * @param MeterConsumption[] $consumptions
      * @param Incident[] $incidents
      * @param SettlementLine[] $manualLines Lines a manager added by hand.
-     * @return array{lines: SettlementLine[], total_cents: int, balance_cents: int, security_deposit_withheld_cents: int, security_deposit_return_cents: int}
+     * @return array{
+     *     lines: SettlementLine[],
+     *     total_cents: int,
+     *     balance_cents: int,
+     *     security_deposit_withheld_cents: int,
+     *     security_deposit_return_cents: int
+     * }
      */
     public function compute(
         ?PriceQuote $agreedPrice,

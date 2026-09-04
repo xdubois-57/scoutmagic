@@ -118,7 +118,10 @@ class ScanService
      * — so filtering on it would hide the event on precisely the evening
      * it is being controlled.
      *
-     * @return array<int, array{form_id: int, article_id: int, title: string, event_date: ?string, event_location: ?string, seats: int}>
+     * @return array<
+     *     int,
+     *     array{form_id: int, article_id: int, title: string, event_date: ?string, event_location: ?string, seats: int}
+     * >
      */
     public function listControllableEvents(string $query = '', ?\DateTimeImmutable $today = null): array
     {
@@ -137,7 +140,10 @@ class ScanService
                 continue;
             }
 
-            if ($needle !== '' && !str_contains(self::normalizeForSearch($article->title . ' ' . ($form->eventLocation ?? '')), $needle)) {
+            if ($needle !== '' && !str_contains(
+                self::normalizeForSearch($article->title . ' ' . ($form->eventLocation ?? '')),
+                $needle
+            )) {
                 continue;
             }
 
@@ -218,7 +224,18 @@ class ScanService
      * send somebody looking for a fault that does not exist), not found,
      * and — inside the first two — whether a payment is even expected.
      *
-     * @return array{status: string, response: ?FormResponse, form: ?NewsForm, article_title: ?string, event_date: ?string, seats: array<int, array{label: string, quantity: string}>, seat_total: int, payment: ?array{amount_due: int, amount_received: int, status: string, receivable_id: int}, used_at: ?string, holder: ?string}
+     * @return array{
+     *     status: string,
+     *     response: ?FormResponse,
+     *     form: ?NewsForm,
+     *     article_title: ?string,
+     *     event_date: ?string,
+     *     seats: array<int, array{label: string, quantity: string}>,
+     *     seat_total: int,
+     *     payment: ?array{amount_due: int, amount_received: int, status: string, receivable_id: int},
+     *     used_at: ?string,
+     *     holder: ?string
+     * }
      */
     public function verdictFor(NewsForm $form, string $scanned): array
     {
@@ -234,7 +251,18 @@ class ScanService
      * The same verdict, for a response already resolved — what the name
      * and e-mail search hands over once somebody picks a row.
      *
-     * @return array{status: string, response: ?FormResponse, form: ?NewsForm, article_title: ?string, event_date: ?string, seats: array<int, array{label: string, quantity: string}>, seat_total: int, payment: ?array{amount_due: int, amount_received: int, status: string, receivable_id: int}, used_at: ?string, holder: ?string}
+     * @return array{
+     *     status: string,
+     *     response: ?FormResponse,
+     *     form: ?NewsForm,
+     *     article_title: ?string,
+     *     event_date: ?string,
+     *     seats: array<int, array{label: string, quantity: string}>,
+     *     seat_total: int,
+     *     payment: ?array{amount_due: int, amount_received: int, status: string, receivable_id: int},
+     *     used_at: ?string,
+     *     holder: ?string
+     * }
      */
     public function verdictForResponse(NewsForm $form, FormResponse $response): array
     {
@@ -319,7 +347,16 @@ class ScanService
      * and ticked with a pen is what stops an evening collapsing because
      * the network went down.
      *
-     * @return array<int, array{label: string, reference: string, seats: array<int, array{label: string, quantity: string}>, seat_total: int, payment: ?array{amount_due: int, amount_received: int, status: string, receivable_id: int}}>
+     * @return array<
+     *     int,
+     *     array{
+     *         label: string,
+     *         reference: string,
+     *         seats: array<int, array{label: string, quantity: string}>,
+     *         seat_total: int,
+     *         payment: ?array{amount_due: int, amount_received: int, status: string, receivable_id: int}
+     *     }
+     * >
      */
     public function expectedAttendees(NewsForm $form): array
     {
@@ -330,7 +367,9 @@ class ScanService
             $answers = $this->responses->getValues($response->id);
             $rows[] = [
                 'label' => $this->describeHolder($fields, $answers, $response),
-                'reference' => $response->hasTicket() ? TicketService::format((string) $response->ticketReference) : '—',
+                'reference' => $response->hasTicket()
+                    ? TicketService::format((string) $response->ticketReference)
+                    : '—',
                 'seats' => $this->seatLines($fields, $answers),
                 'seat_total' => $this->seatsForAnswers($fields, $answers),
                 'payment' => $this->paymentFor($response),
@@ -516,7 +555,18 @@ class ScanService
     }
 
     /**
-     * @return array{status: string, response: ?FormResponse, form: ?NewsForm, article_title: ?string, event_date: ?string, seats: array<int, array{label: string, quantity: string}>, seat_total: int, payment: ?array{amount_due: int, amount_received: int, status: string, receivable_id: int}, used_at: ?string, holder: ?string}
+     * @return array{
+     *     status: string,
+     *     response: ?FormResponse,
+     *     form: ?NewsForm,
+     *     article_title: ?string,
+     *     event_date: ?string,
+     *     seats: array<int, array{label: string, quantity: string}>,
+     *     seat_total: int,
+     *     payment: ?array{amount_due: int, amount_received: int, status: string, receivable_id: int},
+     *     used_at: ?string,
+     *     holder: ?string
+     * }
      */
     private static function emptyVerdict(string $status): array
     {

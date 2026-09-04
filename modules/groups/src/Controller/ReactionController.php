@@ -66,7 +66,12 @@ class ReactionController extends AbstractController
      */
     public function react(Request $request, array $params): Response
     {
-        return $this->reactAction($request, $params, false, function (DiscussionGroup $group, int $memberId, string $key, GroupSessionContext $context) use ($params) {
+        return $this->reactAction($request, $params, false, function (
+            DiscussionGroup $group,
+            int $memberId,
+            string $key,
+            GroupSessionContext $context
+        ) use ($params) {
             $post = $this->postRepository->findById((int) ($params['postId'] ?? 0));
             if ($post === null || $post->groupId !== $group->id) {
                 return null;
@@ -96,7 +101,9 @@ class ReactionController extends AbstractController
 
             return [
                 $outcome,
-                $outcome === ReactionOutcome::INVALID ? null : $this->reactionService->summaryForPost($post->id, $context->linkedMemberIds),
+                $outcome === ReactionOutcome::INVALID
+                    ? null
+                    : $this->reactionService->summaryForPost($post->id, $context->linkedMemberIds),
                 '/groups/' . $group->id . '/posts/' . $post->id . '/react',
                 '/groups/' . $group->id . '/posts/' . $post->id . '/reactions',
             ];
@@ -110,7 +117,12 @@ class ReactionController extends AbstractController
      */
     public function reactToReply(Request $request, array $params): Response
     {
-        return $this->reactAction($request, $params, true, function (DiscussionGroup $group, int $memberId, string $key, GroupSessionContext $context) use ($params) {
+        return $this->reactAction($request, $params, true, function (
+            DiscussionGroup $group,
+            int $memberId,
+            string $key,
+            GroupSessionContext $context
+        ) use ($params) {
             $reply = $this->replyRepository->findById((int) ($params['replyId'] ?? 0));
             if ($reply === null) {
                 return null;
@@ -141,7 +153,9 @@ class ReactionController extends AbstractController
 
             return [
                 $outcome,
-                $outcome === ReactionOutcome::INVALID ? null : $this->reactionService->summaryForReply($reply->id, $context->linkedMemberIds),
+                $outcome === ReactionOutcome::INVALID
+                    ? null
+                    : $this->reactionService->summaryForReply($reply->id, $context->linkedMemberIds),
                 '/groups/' . $group->id . '/replies/' . $reply->id . '/react',
                 '/groups/' . $group->id . '/replies/' . $reply->id . '/reactions',
             ];
@@ -156,7 +170,10 @@ class ReactionController extends AbstractController
      */
     public function postReactors(Request $request, array $params): Response
     {
-        return $this->reactorsAction($params, function (DiscussionGroup $group, GroupSessionContext $context) use ($params) {
+        return $this->reactorsAction($params, function (
+            DiscussionGroup $group,
+            GroupSessionContext $context
+        ) use ($params) {
             $post = $this->postRepository->findById((int) ($params['postId'] ?? 0));
             if ($post === null || $post->groupId !== $group->id) {
                 return null;
@@ -165,7 +182,10 @@ class ReactionController extends AbstractController
                 return null;
             }
 
-            return $this->reactorListService?->forPost($post->id, $group->scoutYearId ?? $context->effectiveScoutYearId) ?? [];
+            return $this->reactorListService?->forPost(
+                $post->id,
+                $group->scoutYearId ?? $context->effectiveScoutYearId
+            ) ?? [];
         });
     }
 
@@ -176,7 +196,10 @@ class ReactionController extends AbstractController
      */
     public function replyReactors(Request $request, array $params): Response
     {
-        return $this->reactorsAction($params, function (DiscussionGroup $group, GroupSessionContext $context) use ($params) {
+        return $this->reactorsAction($params, function (
+            DiscussionGroup $group,
+            GroupSessionContext $context
+        ) use ($params) {
             $reply = $this->replyRepository->findById((int) ($params['replyId'] ?? 0));
             if ($reply === null) {
                 return null;
@@ -190,7 +213,8 @@ class ReactionController extends AbstractController
                 return null;
             }
 
-            return $this->reactorListService?->forReply($reply->id, $group->scoutYearId ?? $context->effectiveScoutYearId) ?? [];
+            return $this->reactorListService?->forReply($reply->id,
+                $group->scoutYearId ?? $context->effectiveScoutYearId) ?? [];
         });
     }
 
@@ -204,7 +228,10 @@ class ReactionController extends AbstractController
      * docblock).
      *
      * @param array<string, string> $params
-     * @param callable(DiscussionGroup, GroupSessionContext): ?array<int, array{key: string, emoji: string, names: string[]}> $locate
+     * @param callable(DiscussionGroup, GroupSessionContext): ?array<
+     *     int,
+     *     array{key: string, emoji: string, names: string[]}
+     * > $locate
      */
     private function reactorsAction(array $params, callable $locate): Response
     {
@@ -247,7 +274,12 @@ class ReactionController extends AbstractController
      * back instead, so it can swap it in without a page reload.
      *
      * @param array<string, string> $params
-     * @param callable(DiscussionGroup, int, string, GroupSessionContext): (null|array{0: ReactionOutcome, 1: ?ReactionSummary, 2: string, 3: string}) $toggle
+     * @param callable(DiscussionGroup, int, string, GroupSessionContext): (null|array{
+     *     0: ReactionOutcome,
+     *     1: ?ReactionSummary,
+     *     2: string,
+     *     3: string
+     * }) $toggle
      */
     private function reactAction(Request $request, array $params, bool $compact, callable $toggle): Response
     {

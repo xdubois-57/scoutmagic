@@ -59,7 +59,7 @@
         return fetch(url, {
             method: method,
             headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken() },
-            body: JSON.stringify(Object.assign({}, body || {}, { _csrf_token: csrfToken() }))
+            body: JSON.stringify({ ...(body || {}), _csrf_token: csrfToken() })
         }).then(function (res) {
             return res.json().then(
                 function (data) { return { ok: res.ok, status: res.status, data: data }; },
@@ -231,6 +231,37 @@
     }
 
     /**
+     * Holds at most one running `poll()` and stops it idempotently.
+     *
+     * Every screen that polls needs the same three lines — a handle, a
+     * null check before `stop()`, and setting it back to null so a second
+     * stop is harmless — and two copies of them, character for character,
+     * is what this replaces (Sonar javascript:S4144). The slot owns the
+     * handle so no caller has to.
+     *
+     * @returns {{start: (handle: {stop: () => void}) => void, stop: () => void, isRunning: () => boolean}}
+     */
+    function pollSlot() {
+        /** @type {{stop: () => void}|null} */
+        var handle = null;
+
+        return {
+            start: function (started) {
+                handle = started;
+            },
+            stop: function () {
+                if (handle) {
+                    handle.stop();
+                    handle = null;
+                }
+            },
+            isRunning: function () {
+                return handle !== null;
+            }
+        };
+    }
+
+    /**
      * Reads a page's server data out of a
      * `<script type="application/json" id="...">` island.
      *
@@ -268,6 +299,7 @@
         escapeHtml: escapeHtml,
         debounce: debounce,
         pageData: pageData,
-        poll: poll
+        poll: poll,
+        pollSlot: pollSlot
     };
 })();

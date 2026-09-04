@@ -133,7 +133,9 @@ class AiCategorizationService
             }
         }
 
-        $suggestion = isset($parsed['new_category_suggestion']) && is_string($parsed['new_category_suggestion']) && trim($parsed['new_category_suggestion']) !== ''
+        $suggestion = isset($parsed['new_category_suggestion'])
+            && is_string($parsed['new_category_suggestion'])
+            && trim($parsed['new_category_suggestion']) !== ''
             ? mb_substr(trim($parsed['new_category_suggestion']), 0, 100)
             : null;
         if ($suggestion !== null) {
@@ -167,7 +169,8 @@ class AiCategorizationService
             $categories
         );
 
-        $details = ["Libellé : {$transaction->label}", 'Montant : ' . number_format($transaction->amount, 2, ',', ' ') . ' €'];
+        $details = ["Libellé : {$transaction->label}",
+            'Montant : ' . number_format($transaction->amount, 2, ',', ' ') . ' €'];
         $details[] = 'Date : ' . $transaction->transactionDate;
         if ($transaction->counterpartyName !== null) {
             $details[] = "Contrepartie : {$transaction->counterpartyName}";

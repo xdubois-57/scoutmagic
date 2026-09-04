@@ -76,12 +76,14 @@ class CalendarUnitFeedTokenRepository
         $existingId = $stmt !== false ? $stmt->fetchColumn() : false;
 
         if ($existingId === false) {
-            $stmt = $this->pdo->prepare('INSERT INTO calendar_unit_feed_token (token_encrypted, token_blind_index) VALUES (?, ?)');
+            $stmt = $this->pdo->prepare('INSERT INTO calendar_unit_feed_token (token_encrypted, token_blind_index) '
+                . 'VALUES (?, ?)');
             $stmt->execute([$encrypted, $blindIndex]);
             return;
         }
 
-        $stmt = $this->pdo->prepare('UPDATE calendar_unit_feed_token SET token_encrypted = ?, token_blind_index = ? WHERE id = ?');
+        $stmt = $this->pdo->prepare('UPDATE calendar_unit_feed_token SET token_encrypted = ?, token_blind_index = ? '
+            . 'WHERE id = ?');
         $stmt->execute([$encrypted, $blindIndex, $existingId]);
     }
 }

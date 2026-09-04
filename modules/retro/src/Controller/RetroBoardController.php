@@ -139,13 +139,15 @@ class RetroBoardController extends AbstractController
             ? $this->voteService->remainingBudget($board, $voterIdentifier)
             : null;
         $votedCommentIds = $voterIdentifier !== null
-            ? $this->voteService->votedCommentIds($board->id, array_map(fn(Comment $c) => $c->id, $comments), $voterIdentifier)
+            ? $this->voteService->votedCommentIds($board->id, array_map(fn(Comment $c) => $c->id, $comments),
+                $voterIdentifier)
             : [];
         $votedSet = array_flip($votedCommentIds);
 
         $byColumn = ['good' => [], 'improve' => [], 'suggestion' => []];
         foreach ($comments as $comment) {
-            $byColumn[$comment->columnKey][] = $this->serializeComment($comment, $isUnitChief, $revealVotes, isset($votedSet[$comment->id]));
+            $byColumn[$comment->columnKey][] = $this->serializeComment($comment, $isUnitChief, $revealVotes,
+                isset($votedSet[$comment->id]));
         }
 
         return $this->render('@retro/board.html.twig', [
@@ -156,7 +158,10 @@ class RetroBoardController extends AbstractController
             'vote_requires_auth' => $board->antiDuplicateMode === 'auth',
             'columns' => $byColumn,
             'ai_available' => $this->moderationService !== null && $this->moderationService->isAvailable(),
-            'polling_interval_seconds' => (int) ($this->settingService->get('retro_polling_interval_seconds', 'retro') ?: 8),
+            'polling_interval_seconds' => (int) ($this->settingService->get(
+                'retro_polling_interval_seconds',
+                'retro'
+            ) ?: 8),
             'csrf_token' => CsrfGuard::generateToken(),
             'public_url' => $baseUrl . $this->boardService->publicUrl($board),
             'remaining_budget' => $remainingBudget,
@@ -214,7 +219,8 @@ class RetroBoardController extends AbstractController
         $canVote = $this->canVote($board, $viewerRole);
         $voterIdentifier = $canVote ? $this->resolveVoterIdentifier($request, $board) : null;
         $votedSet = $voterIdentifier !== null
-            ? array_flip($this->voteService->votedCommentIds($board->id, array_map(fn(Comment $c) => $c->id, $comments), $voterIdentifier))
+            ? array_flip($this->voteService->votedCommentIds($board->id, array_map(fn(Comment $c) => $c->id, $comments),
+                $voterIdentifier))
             : [];
 
         return $this->json([
@@ -243,7 +249,8 @@ class RetroBoardController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
         }
 
-        $rateLimitHash = $this->rateLimitService->identifierHash((string) $request->getServer('REMOTE_ADDR', ''), $this->readVoterCookie($request), session_id());
+        $rateLimitHash = $this->rateLimitService->identifierHash((string) $request->getServer('REMOTE_ADDR', ''),
+            $this->readVoterCookie($request), session_id());
         $moderationMode = $this->resolveModerationMode();
         $acceptedWarning = (bool) ($data['accepted_warning'] ?? false);
 
@@ -311,7 +318,8 @@ class RetroBoardController extends AbstractController
 
         try {
             $this->rateLimitService->checkAndRecord(
-                $this->rateLimitService->identifierHash((string) $request->getServer('REMOTE_ADDR', ''), $this->readVoterCookie($request), session_id()),
+                $this->rateLimitService->identifierHash((string) $request->getServer('REMOTE_ADDR', ''),
+                    $this->readVoterCookie($request), session_id()),
                 'shorten'
             );
             $shortened = $this->moderationService->shorten($body, $board->maxCommentLength);
@@ -343,7 +351,12 @@ class RetroBoardController extends AbstractController
         }
 
         try {
-            $this->rateLimitService->checkAndRecord($this->rateLimitService->identifierHash((string) $request->getServer('REMOTE_ADDR', ''), $this->readVoterCookie($request), session_id()), 'vote');
+            $this->rateLimitService->checkAndRecord($this->rateLimitService->identifierHash(
+                (string) $request->getServer('REMOTE_ADDR', ''),
+                $this->readVoterCookie($request),
+                session_id()
+            ),
+                'vote');
             $liked = $this->voteService->toggleLike($board, $comment, $voterIdentifier);
         } catch (RetroException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
@@ -410,7 +423,12 @@ class RetroBoardController extends AbstractController
 
         try {
             if ($add) {
-                $this->rateLimitService->checkAndRecord($this->rateLimitService->identifierHash((string) $request->getServer('REMOTE_ADDR', ''), $this->readVoterCookie($request), session_id()), 'vote');
+                $this->rateLimitService->checkAndRecord($this->rateLimitService->identifierHash(
+                    (string) $request->getServer('REMOTE_ADDR', ''),
+                    $this->readVoterCookie($request),
+                    session_id()
+                ),
+                    'vote');
                 $remaining = $this->voteService->addPoint($board, $comment, $voterIdentifier);
             } else {
                 $remaining = $this->voteService->removePoint($board, $comment, $voterIdentifier);
@@ -526,12 +544,27 @@ class RetroBoardController extends AbstractController
     }
 
     /**
-     * @return array{id: int, column: string, body: ?string, votes: ?int, hidden: bool, youVoted: bool, created_at?: string}
+     * @return array{
+     *     id: int,
+     *     column: string,
+     *     body: ?string,
+     *     votes: ?int,
+     *     hidden: bool,
+     *     youVoted: bool,
+     *     created_at?: string
+     * }
      */
     private function serializeComment(Comment $comment, bool $isUnitChief, bool $revealVotes, bool $youVoted): array
     {
         if ($comment->hidden && !$isUnitChief) {
-            return ['id' => $comment->id, 'column' => $comment->columnKey, 'body' => null, 'votes' => null, 'hidden' => true, 'youVoted' => $youVoted];
+            return [
+                'id' => $comment->id,
+                'column' => $comment->columnKey,
+                'body' => null,
+                'votes' => null,
+                'hidden' => true,
+                'youVoted' => $youVoted
+            ];
         }
 
         return [

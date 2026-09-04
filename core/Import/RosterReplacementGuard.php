@@ -190,7 +190,12 @@ class RosterReplacementGuard
      * @param string[] $adminDeskIdsBefore
      * @param string[] $adminDeskIdsAfter
      */
-    private function importerLosesAdmin(int $importedBy, int $scoutYearId, array $adminDeskIdsBefore, array $adminDeskIdsAfter): bool
+    private function importerLosesAdmin(
+        int $importedBy,
+        int $scoutYearId,
+        array $adminDeskIdsBefore,
+        array $adminDeskIdsAfter
+    ): bool
     {
         if ($importedBy === 0 || $this->repository->isSuperAdminAccount($importedBy)) {
             // A super-admin's access does not come from Desk and no

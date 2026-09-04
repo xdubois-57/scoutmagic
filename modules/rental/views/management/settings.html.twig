@@ -25,10 +25,10 @@
         {% include '@rental/management/_nav.html.twig' %}
 
         {% if asset.isArchived %}
-            <div class="alert alert-warning" role="status">
+            <output class="alert alert-warning d-block">
                 Ce bien est archivé : il n'apparaît plus publiquement et n'accepte plus de nouvelle
                 réservation. Ces réglages restent modifiables pour clôturer l'historique en cours.
-            </div>
+            </output>
         {% endif %}
 
         <p class="text-body-secondary small">

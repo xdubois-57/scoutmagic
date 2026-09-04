@@ -504,7 +504,10 @@ class CampsMessageConsumer implements MessageConsumerInterface, ReferenceDirecto
             return $camps;
         }
 
-        usort($camps, static fn(Camp $a, Camp $b): int => ($a->id === $picked ? 0 : 1) <=> ($b->id === $picked ? 0 : 1));
+        usort(
+            $camps,
+            static fn(Camp $a, Camp $b): int => ($a->id === $picked ? 0 : 1) <=> ($b->id === $picked ? 0 : 1)
+        );
 
         return $camps;
     }

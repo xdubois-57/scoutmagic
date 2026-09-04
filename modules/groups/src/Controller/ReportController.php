@@ -90,7 +90,12 @@ class ReportController extends AbstractController
      */
     public function reportPost(Request $request, array $params): Response
     {
-        return $this->reportAction($request, $params, 'postId', function (DiscussionGroup $group, int $itemId, GroupSessionContext $context, int $memberId) {
+        return $this->reportAction($request, $params, 'postId', function (
+            DiscussionGroup $group,
+            int $itemId,
+            GroupSessionContext $context,
+            int $memberId
+        ) {
             $post = $this->postRepository->findById($itemId);
             if ($post === null || $post->groupId !== $group->id) {
                 return false;
@@ -124,7 +129,12 @@ class ReportController extends AbstractController
      */
     public function reportReply(Request $request, array $params): Response
     {
-        return $this->reportAction($request, $params, 'replyId', function (DiscussionGroup $group, int $itemId, GroupSessionContext $context, int $memberId) {
+        return $this->reportAction($request, $params, 'replyId', function (
+            DiscussionGroup $group,
+            int $itemId,
+            GroupSessionContext $context,
+            int $memberId
+        ) {
             $reply = $this->replyRepository->findById($itemId);
             if ($reply === null) {
                 return false;
@@ -157,7 +167,11 @@ class ReportController extends AbstractController
      */
     public function restorePost(Request $request, array $params): Response
     {
-        return $this->restoreAction($request, $params, 'postId', function (DiscussionGroup $group, int $itemId, GroupSessionContext $context) {
+        return $this->restoreAction($request, $params, 'postId', function (
+            DiscussionGroup $group,
+            int $itemId,
+            GroupSessionContext $context
+        ) {
             $post = $this->postRepository->findById($itemId);
             if ($post === null || $post->groupId !== $group->id) {
                 return false;
@@ -180,7 +194,11 @@ class ReportController extends AbstractController
      */
     public function restoreReply(Request $request, array $params): Response
     {
-        return $this->restoreAction($request, $params, 'replyId', function (DiscussionGroup $group, int $itemId, GroupSessionContext $context) {
+        return $this->restoreAction($request, $params, 'replyId', function (
+            DiscussionGroup $group,
+            int $itemId,
+            GroupSessionContext $context
+        ) {
             $reply = $this->replyRepository->findById($itemId);
             if ($reply === null) {
                 return false;
@@ -270,7 +288,11 @@ class ReportController extends AbstractController
      */
     public function hidePost(Request $request, array $params): Response
     {
-        return $this->hideAction($request, $params, 'postId', function (DiscussionGroup $group, int $itemId, GroupSessionContext $context): bool {
+        return $this->hideAction($request, $params, 'postId', function (
+            DiscussionGroup $group,
+            int $itemId,
+            GroupSessionContext $context
+        ): bool {
             $post = $this->postRepository->findById($itemId);
             if ($post === null || $post->groupId !== $group->id) {
                 return false;
@@ -289,7 +311,11 @@ class ReportController extends AbstractController
      */
     public function hideReply(Request $request, array $params): Response
     {
-        return $this->hideAction($request, $params, 'replyId', function (DiscussionGroup $group, int $itemId, GroupSessionContext $context): bool {
+        return $this->hideAction($request, $params, 'replyId', function (
+            DiscussionGroup $group,
+            int $itemId,
+            GroupSessionContext $context
+        ): bool {
             $reply = $this->replyRepository->findById($itemId);
             if ($reply === null) {
                 return false;

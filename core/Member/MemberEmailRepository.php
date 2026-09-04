@@ -79,7 +79,8 @@ class MemberEmailRepository
      */
     public function findByMember(int $memberId): array
     {
-        $stmt = $this->pdo->prepare('SELECT * FROM member_emails WHERE member_id = ? ORDER BY created_at DESC, id DESC');
+        $stmt = $this->pdo->prepare('SELECT * FROM member_emails WHERE member_id = ? ORDER BY created_at DESC, id '
+            . 'DESC');
         $stmt->execute([$memberId]);
 
         return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
@@ -222,7 +223,8 @@ class MemberEmailRepository
      */
     public function findValidByMember(int $memberId): array
     {
-        $stmt = $this->pdo->prepare("SELECT * FROM member_emails WHERE member_id = ? AND status = 'valid' AND source = 'manual'");
+        $stmt = $this->pdo->prepare("SELECT * FROM member_emails WHERE member_id = ? AND status = 'valid' AND source "
+            . "= 'manual'");
         $stmt->execute([$memberId]);
 
         return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
@@ -265,7 +267,8 @@ class MemberEmailRepository
     {
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
         $stmt = $this->pdo->prepare(
-            "UPDATE member_emails SET status = 'valid', confirmed_at = ?, confirmation_token_hash = NULL, confirmation_expires_at = NULL WHERE id = ?"
+            "UPDATE member_emails SET status = 'valid', confirmed_at = ?, confirmation_token_hash = NULL, "
+                . "confirmation_expires_at = NULL WHERE id = ?"
         );
         $stmt->execute([$now, $id]);
     }
@@ -295,11 +298,16 @@ class MemberEmailRepository
      * Regenerates the confirmation token for a resend — same row, new
      * hash/expiry, cooldown timestamp bumped.
      */
-    public function refreshConfirmation(int $id, string $confirmationTokenHash, \DateTimeImmutable $confirmationExpiresAt): void
+    public function refreshConfirmation(
+        int $id,
+        string $confirmationTokenHash,
+        \DateTimeImmutable $confirmationExpiresAt
+    ): void
     {
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
         $stmt = $this->pdo->prepare(
-            'UPDATE member_emails SET confirmation_token_hash = ?, confirmation_expires_at = ?, last_confirmation_sent_at = ? WHERE id = ?'
+            'UPDATE member_emails SET confirmation_token_hash = ?, confirmation_expires_at = ?, '
+                . 'last_confirmation_sent_at = ? WHERE id = ?'
         );
         $stmt->execute([$confirmationTokenHash, $confirmationExpiresAt->format('Y-m-d H:i:s'), $now, $id]);
     }
@@ -326,11 +334,19 @@ class MemberEmailRepository
             email: $this->encryption->decrypt($row['email_encrypted'], 'member_emails.email'),
             source: (string) $row['source'],
             status: (string) $row['status'],
-            confirmationTokenHash: $row['confirmation_token_hash'] !== null ? (string) $row['confirmation_token_hash'] : null,
-            confirmationExpiresAt: DateInput::fromStorage($row['confirmation_expires_at'] === null ? null : (string) $row['confirmation_expires_at']),
-            lastConfirmationSentAt: DateInput::fromStorage($row['last_confirmation_sent_at'] === null ? null : (string) $row['last_confirmation_sent_at']),
+            confirmationTokenHash: $row['confirmation_token_hash'] !== null
+                ? (string) $row['confirmation_token_hash']
+                : null,
+            confirmationExpiresAt: DateInput::fromStorage(
+                $row['confirmation_expires_at'] === null ? null : (string) $row['confirmation_expires_at']
+            ),
+            lastConfirmationSentAt: DateInput::fromStorage(
+                $row['last_confirmation_sent_at'] === null ? null : (string) $row['last_confirmation_sent_at']
+            ),
             confirmedAt: DateInput::fromStorage($row['confirmed_at'] === null ? null : (string) $row['confirmed_at']),
-            deactivatedAt: DateInput::fromStorage($row['deactivated_at'] === null ? null : (string) $row['deactivated_at']),
+            deactivatedAt: DateInput::fromStorage(
+                $row['deactivated_at'] === null ? null : (string) $row['deactivated_at']
+            ),
             createdAt: DateInput::requireFromStorage((string) $row['created_at'], 'created_at')
         );
     }

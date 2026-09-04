@@ -72,7 +72,8 @@ class GenerateImageVariantsHandler implements TaskHandlerInterface
             'news',
             'news_image_variants_backfilled',
             'info',
-            sprintf('Reprise des vignettes d\'articles : %d image(s) parcourue(s), %d déclinaison(s) produite(s).', $images, $generated),
+            sprintf('Reprise des vignettes d\'articles : %d image(s) parcourue(s), %d déclinaison(s) produite(s).',
+                $images, $generated),
             ['images' => $images, 'generated' => $generated]
         );
 

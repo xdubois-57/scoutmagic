@@ -93,7 +93,10 @@ class ReceiptController extends AbstractController
      * session's accounts, with those propositions.
      *
      * @param string[] $references
-     * @return list<array{message: \Modules\InboundMail\Api\InboundMessage, candidates: \Modules\InboundMail\Api\MessageCandidate[]}>
+     * @return list<array{
+     *     message: \Modules\InboundMail\Api\InboundMessage,
+     *     candidates: \Modules\InboundMail\Api\MessageCandidate[]
+     * }>
      */
     private function mailPropositions(array $references): array
     {
@@ -171,7 +174,8 @@ class ReceiptController extends AbstractController
         $consumerId = \Modules\Finance\Mail\FinanceMessageConsumer::CONSUMER_ID;
 
         $done = $confirm
-            ? $this->inboundMail->confirmCandidate($consumerId, $references, $messageId, $candidateId, AuthSession::getUserAccountId())
+            ? $this->inboundMail->confirmCandidate($consumerId, $references, $messageId, $candidateId,
+                AuthSession::getUserAccountId())
             : $this->inboundMail->dismissCandidate($consumerId, $references, $messageId, $candidateId);
 
         FlashMessage::set(
@@ -211,7 +215,8 @@ class ReceiptController extends AbstractController
         $page = max(1, (int) $request->getQuery('page', 1));
 
         $totalPages = max(1, (int) ceil(
-            $this->attachmentRepository->countFilteredForAccount($accountId, $pendingOnly, $search !== '' ? $search : null) / self::PER_PAGE
+            $this->attachmentRepository->countFilteredForAccount($accountId, $pendingOnly,
+                $search !== '' ? $search : null) / self::PER_PAGE
         ));
         $page = min($page, $totalPages);
 
@@ -291,7 +296,8 @@ class ReceiptController extends AbstractController
         $search = trim((string) $request->getQuery('q', ''));
         $page = max(1, (int) $request->getQuery('page', 1));
 
-        $total = $this->attachmentRepository->countFilteredForAccount($accountId, $pendingOnly, $search !== '' ? $search : null);
+        $total = $this->attachmentRepository->countFilteredForAccount($accountId, $pendingOnly,
+            $search !== '' ? $search : null);
         $totalPages = max(1, (int) ceil($total / self::PER_PAGE));
         $page = min($page, $totalPages);
 
@@ -418,7 +424,8 @@ class ReceiptController extends AbstractController
 
         $files = $request->getFiles('receipts');
         if ($files === []) {
-            return $this->render('@finance/receipts/form.html.twig', ['error' => 'Aucun fichier fourni ou erreur lors du téléversement.']);
+            return $this->render('@finance/receipts/form.html.twig',
+                ['error' => 'Aucun fichier fourni ou erreur lors du téléversement.']);
         }
         if (count($files) > self::MAX_FILES_PER_UPLOAD) {
             return $this->render('@finance/receipts/form.html.twig', [
@@ -476,7 +483,8 @@ class ReceiptController extends AbstractController
         $mimeType = $detected !== false ? $detected : 'application/octet-stream';
 
         try {
-            $attachment = $this->receiptService->upload($content, $mimeType, $file['name'], $accountId, null, null, AuthSession::getUserAccountId());
+            $attachment = $this->receiptService->upload($content, $mimeType, $file['name'], $accountId, null, null,
+                AuthSession::getUserAccountId());
         } catch (FinanceException $e) {
             return $e->getMessage();
         }
@@ -484,7 +492,8 @@ class ReceiptController extends AbstractController
         // The extraction is queued by Service\ReceiptService::store()
         // itself, so that every way in gets it — including the one with
         // no controller at all, a receipt arriving by e-mail.
-        $this->journalService->log('finance', 'receipt_uploaded', 'info', 'Reçu ajouté', ['attachment_id' => $attachment->id, 'account_id' => $accountId], AuthSession::getUserAccountId());
+        $this->journalService->log('finance', 'receipt_uploaded', 'info', 'Reçu ajouté',
+            ['attachment_id' => $attachment->id, 'account_id' => $accountId], AuthSession::getUserAccountId());
 
         return null;
     }
@@ -585,7 +594,8 @@ class ReceiptController extends AbstractController
             return $this->json(['success' => false, 'error' => $e->getMessage()], 400);
         }
 
-        $this->journalService->log('finance', 'receipt_deleted', 'info', 'Reçu supprimé (archivé)', ['attachment_id' => $id], AuthSession::getUserAccountId());
+        $this->journalService->log('finance', 'receipt_deleted', 'info', 'Reçu supprimé (archivé)',
+            ['attachment_id' => $id], AuthSession::getUserAccountId());
 
         return $this->json(['success' => true]);
     }
@@ -598,25 +608,30 @@ class ReceiptController extends AbstractController
         $id = (int) ($params['id'] ?? 0);
 
         if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            return $this->render('@finance/receipts/form.html.twig', ['error' => self::SESSION_EXPIRED_MESSAGE, 'replace_id' => $id]);
+            return $this->render('@finance/receipts/form.html.twig',
+                ['error' => self::SESSION_EXPIRED_MESSAGE, 'replace_id' => $id]);
         }
 
         $attachment = $this->requireVisibleAttachment($id);
         if ($attachment instanceof Response) {
-            return $this->render('@finance/receipts/form.html.twig', ['error' => 'Reçu introuvable ou inaccessible.', 'replace_id' => $id]);
+            return $this->render('@finance/receipts/form.html.twig',
+                ['error' => 'Reçu introuvable ou inaccessible.', 'replace_id' => $id]);
         }
 
         $file = $request->getFile('receipt');
         if ($file === null || (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
-            return $this->render('@finance/receipts/form.html.twig', ['error' => 'Aucun fichier fourni ou erreur lors du téléversement.', 'replace_id' => $id]);
+            return $this->render('@finance/receipts/form.html.twig',
+                ['error' => 'Aucun fichier fourni ou erreur lors du téléversement.', 'replace_id' => $id]);
         }
         if ((int) ($file['size'] ?? 0) > self::MAX_SIZE_BYTES) {
-            return $this->render('@finance/receipts/form.html.twig', ['error' => 'Le fichier dépasse la taille maximale autorisée (15 Mo).', 'replace_id' => $id]);
+            return $this->render('@finance/receipts/form.html.twig',
+                ['error' => 'Le fichier dépasse la taille maximale autorisée (15 Mo).', 'replace_id' => $id]);
         }
 
         $content = file_get_contents((string) $file['tmp_name']);
         if ($content === false) {
-            return $this->render('@finance/receipts/form.html.twig', ['error' => 'Impossible de lire le fichier envoyé.', 'replace_id' => $id]);
+            return $this->render('@finance/receipts/form.html.twig',
+                ['error' => 'Impossible de lire le fichier envoyé.', 'replace_id' => $id]);
         }
 
         // Detection is the sole source of truth — no client-declared fallback
@@ -626,14 +641,21 @@ class ReceiptController extends AbstractController
         $mimeType = $detected !== false ? $detected : 'application/octet-stream';
 
         try {
-            $newAttachment = $this->receiptService->replace($id, $content, $mimeType, (string) $file['name'], AuthSession::getUserAccountId());
+            $newAttachment = $this->receiptService->replace($id, $content, $mimeType, (string) $file['name'],
+                AuthSession::getUserAccountId());
         } catch (FinanceException $e) {
-            return $this->render('@finance/receipts/form.html.twig', ['error' => $e->getMessage(), 'replace_id' => $id]);
+            return $this->render(
+                '@finance/receipts/form.html.twig',
+                ['error' => $e->getMessage(), 'replace_id' => $id]
+            );
         }
 
-        $this->journalService->log('finance', 'receipt_replaced', 'info', 'Reçu remplacé', ['old_attachment_id' => $id, 'new_attachment_id' => $newAttachment->id], AuthSession::getUserAccountId());
+        $this->journalService->log('finance', 'receipt_replaced', 'info', 'Reçu remplacé',
+            ['old_attachment_id' => $id, 'new_attachment_id' => $newAttachment->id], AuthSession::getUserAccountId());
 
-        return $this->redirect('/finance/receipts' . ($newAttachment->accountId !== null ? '?account_id=' . $newAttachment->accountId : ''));
+        return $this->redirect(
+            '/finance/receipts' . ($newAttachment->accountId !== null ? '?account_id=' . $newAttachment->accountId : '')
+        );
     }
 
     /**
@@ -663,7 +685,8 @@ class ReceiptController extends AbstractController
             return $this->json(['success' => false, 'error' => $e->getMessage()], 400);
         }
 
-        $this->journalService->log('finance', 'receipt_associated', 'info', 'Reçu associé à des mouvements', ['attachment_id' => $id, 'transaction_ids' => $transactionIds], AuthSession::getUserAccountId());
+        $this->journalService->log('finance', 'receipt_associated', 'info', 'Reçu associé à des mouvements',
+            ['attachment_id' => $id, 'transaction_ids' => $transactionIds], AuthSession::getUserAccountId());
 
         return $this->json(['success' => true]);
     }

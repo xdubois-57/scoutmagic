@@ -58,7 +58,8 @@ class SettingRepository
         int $sortOrder
     ): void {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO settings (module_id, setting_key, setting_value, default_value, setting_type, label, description, validation_regex, select_options, editable, sort_order)
+            'INSERT INTO settings (module_id, setting_key, setting_value, default_value, setting_type, label, '
+                . 'description, validation_regex, select_options, editable, sort_order)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
@@ -89,10 +90,12 @@ class SettingRepository
     public function updateDefaultValue(?string $moduleId, string $key, string $defaultValue): void
     {
         if ($moduleId === null) {
-            $stmt = $this->pdo->prepare('UPDATE settings SET default_value = ? WHERE module_id IS NULL AND setting_key = ?');
+            $stmt = $this->pdo->prepare('UPDATE settings SET default_value = ? WHERE module_id IS NULL AND '
+                . 'setting_key = ?');
             $stmt->execute([$defaultValue, $key]);
         } else {
-            $stmt = $this->pdo->prepare('UPDATE settings SET default_value = ? WHERE module_id = ? AND setting_key = ?');
+            $stmt = $this->pdo->prepare('UPDATE settings SET default_value = ? WHERE module_id = ? AND setting_key = '
+                . '?');
             $stmt->execute([$defaultValue, $moduleId, $key]);
         }
     }
@@ -209,12 +212,14 @@ class SettingRepository
     {
         if ($moduleId === null) {
             $stmt = $this->pdo->prepare(
-                "UPDATE settings SET setting_value = ? WHERE module_id IS NULL AND setting_key = ? AND (setting_value IS NULL OR setting_value = '')"
+                "UPDATE settings SET setting_value = ? WHERE module_id IS NULL AND setting_key = ? AND (setting_value "
+                    . "IS NULL OR setting_value = '')"
             );
             $stmt->execute([$value, $key]);
         } else {
             $stmt = $this->pdo->prepare(
-                "UPDATE settings SET setting_value = ? WHERE module_id = ? AND setting_key = ? AND (setting_value IS NULL OR setting_value = '')"
+                "UPDATE settings SET setting_value = ? WHERE module_id = ? AND setting_key = ? AND (setting_value IS "
+                    . "NULL OR setting_value = '')"
             );
             $stmt->execute([$value, $moduleId, $key]);
         }
@@ -238,7 +243,10 @@ class SettingRepository
     }
 
     /**
-     * @return array<string, array{label: string, icon: string|null, description: string|null, settings: array<int, array<string, mixed>>}>
+     * @return array<
+     *     string,
+     *     array{label: string, icon: string|null, description: string|null, settings: array<int, array<string, mixed>>}
+     * >
      */
     public function findAllGrouped(): array
     {

@@ -20,7 +20,10 @@ interface FinanceAccountInterface
      * (Modules\Finance\Api\SepaQrCodeInterface's $beneficiaryName) — null
      * when the account has none set.
      *
-     * @return array<int, array{id: int, name: string, iban: ?string, holder_name: ?string, section_id: ?int}> active accounts only
+     * @return array<
+     *     int,
+     *     array{id: int, name: string, iban: ?string, holder_name: ?string, section_id: ?int}
+     * > active accounts only
      */
     public function getConfiguredAccounts(): array;
 

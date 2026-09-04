@@ -70,11 +70,15 @@ class S3ErrorExplainerService
             tier: LlmTier::CHEAP,
             prompt: $prompt,
             systemPrompt: 'Tu es un assistant technique qui aide un administrateur bénévole, non expert, à configurer '
-                . 'le stockage objet compatible S3 (Hetzner, Cloudflare R2, Scaleway, OVHcloud, ou un fournisseur personnalisé) '
-                . 'd\'un site web associatif. On te donne la configuration saisie (sans la clé secrète, uniquement sa longueur) '
+                . 'le stockage objet compatible S3 (Hetzner, Cloudflare R2, Scaleway, OVHcloud, ou un fournisseur '
+                . 'personnalisé) '
+                . 'd\'un site web associatif. On te donne la configuration saisie (sans la clé secrète, uniquement sa '
+                . 'longueur) '
                 . 'ainsi que le message d\'erreur technique reçu lors du test de connexion. '
-                . 'Explique en français, en 3 à 5 phrases courtes et concrètes, la cause la plus probable pour CE fournisseur '
-                . 'précis et l\'action exacte à réaliser pour la corriger (quel champ modifier, où le trouver dans la console '
+                . 'Explique en français, en 3 à 5 phrases courtes et concrètes, la cause la plus probable pour CE '
+                . 'fournisseur '
+                . 'précis et l\'action exacte à réaliser pour la corriger (quel champ modifier, où le trouver dans la '
+                . 'console '
                 . 'du fournisseur). Ne donne pas de conseils génériques de sécurité, va droit à la cause probable.'
         );
 

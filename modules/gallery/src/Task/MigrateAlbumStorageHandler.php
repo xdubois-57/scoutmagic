@@ -64,10 +64,15 @@ class MigrateAlbumStorageHandler implements TaskHandlerInterface
         $albumRepository = new AlbumRepository($pdo);
         $mediaRepository = new MediaRepository($pdo);
         $storageLocationRepository = new StorageLocationRepository($pdo, $context->encryption);
-        $storageBackendFactory = $this->storageBackendFactory ?? new StorageBackendFactory($storageLocationRepository, $context->storagePath);
+        $storageBackendFactory = $this->storageBackendFactory ?? new StorageBackendFactory($storageLocationRepository,
+            $context->storagePath);
 
         $album = $albumRepository->findById($albumId);
-        if ($album === null || $album->migrationStatus !== Album::MIGRATION_IN_PROGRESS || $album->migrationTargetLocationId === null) {
+        if (
+            $album === null
+            || $album->migrationStatus !== Album::MIGRATION_IN_PROGRESS
+            || $album->migrationTargetLocationId === null
+        ) {
             return;
         }
 
@@ -78,7 +83,9 @@ class MigrateAlbumStorageHandler implements TaskHandlerInterface
             // target and retry.
             return;
         }
-        $sourceLocation = $album->storageLocationId !== null ? $storageLocationRepository->findById($album->storageLocationId) : null;
+        $sourceLocation = $album->storageLocationId !== null
+            ? $storageLocationRepository->findById($album->storageLocationId)
+            : null;
         if ($sourceLocation === null) {
             return;
         }
@@ -93,7 +100,8 @@ class MigrateAlbumStorageHandler implements TaskHandlerInterface
                 } catch (\Throwable $e) {
                     $albumRepository->failMigration(
                         $albumId,
-                        "Lecture impossible du fichier « {$path} » (média #{$media->id}) sur l'emplacement source : " . $e->getMessage()
+                        "Lecture impossible du fichier « {$path} » (média #{$media->id}) sur l'emplacement source : "
+                            . $e->getMessage()
                     );
                     return;
                 }
@@ -104,7 +112,8 @@ class MigrateAlbumStorageHandler implements TaskHandlerInterface
                 } catch (\Throwable $e) {
                     $albumRepository->failMigration(
                         $albumId,
-                        "Écriture impossible du fichier « {$path} » (média #{$media->id}) sur l'emplacement cible : " . $e->getMessage()
+                        "Écriture impossible du fichier « {$path} » (média #{$media->id}) sur l'emplacement cible : "
+                            . $e->getMessage()
                     );
                     return;
                 }
@@ -112,7 +121,8 @@ class MigrateAlbumStorageHandler implements TaskHandlerInterface
                 if ($verifyBytes !== $sourceBytes) {
                     $albumRepository->failMigration(
                         $albumId,
-                        "Vérification échouée pour le fichier « {$path} » (média #{$media->id}) : contenu différent après copie."
+                        "Vérification échouée pour le fichier « {$path} » (média #{$media->id}) : contenu différent "
+                            . "après copie."
                     );
                     return;
                 }

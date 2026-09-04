@@ -166,7 +166,10 @@ function scoutmagic_bootstrap_scheduler(
     // system caller: nothing on a scheduled path has a session to narrow
     // the account partition against (same stance as the audit entries a
     // task writes: the application acting on its own).
-    $financeReceivables = static function () use ($pdo, $encryptionService): \Modules\Finance\Service\ExpectedReceivableService {
+    $financeReceivables = static function () use (
+        $pdo,
+        $encryptionService
+    ): \Modules\Finance\Service\ExpectedReceivableService {
         $receivableRepository = new \Modules\Finance\Repository\ExpectedReceivableRepository($pdo, $encryptionService);
 
         return new \Modules\Finance\Service\ExpectedReceivableService(
@@ -257,7 +260,8 @@ function scoutmagic_bootstrap_scheduler(
                         $moduleManager,
                         $enabledModuleIds
                     ): \Core\View\RgpdContentService {
-                        $providerRepository = new \Modules\LlmConnector\Repository\ProviderRepository($pdo, $encryptionService);
+                        $providerRepository = new \Modules\LlmConnector\Repository\ProviderRepository($pdo,
+                            $encryptionService);
                         $modelRepository = new \Modules\LlmConnector\Repository\ProviderModelRepository($pdo);
                         $hasLlm = in_array('llm_connector', $enabledModuleIds, true);
 
@@ -275,7 +279,8 @@ function scoutmagic_bootstrap_scheduler(
 
                         if ($hasLlm) {
                             $service->addSubProcessorProvider(
-                                new \Modules\LlmConnector\Service\LlmSubProcessorService($providerRepository, $modelRepository)
+                                new \Modules\LlmConnector\Service\LlmSubProcessorService($providerRepository,
+                                    $modelRepository)
                             );
                         }
 
@@ -313,7 +318,16 @@ function scoutmagic_bootstrap_scheduler(
         // inbound-mail tasks: the synchronisation's arrival pass and the
         // deferred content pass ask the same consumers, and two copies of
         // this wiring would be two places for it to drift.
-        $inboundConsumerRegistry = static function (\Core\Scheduler\TaskContext $context) use ($pdo, $encryptionService, $settingService, $journalService, $storagePath, $enabledModuleIds, $notificationService, $userAccountRepo): \Modules\InboundMail\Service\MessageConsumerRegistry {
+        $inboundConsumerRegistry = static function (\Core\Scheduler\TaskContext $context) use (
+            $pdo,
+            $encryptionService,
+            $settingService,
+            $journalService,
+            $storagePath,
+            $enabledModuleIds,
+            $notificationService,
+            $userAccountRepo
+        ): \Modules\InboundMail\Service\MessageConsumerRegistry {
                 $registry = new \Modules\InboundMail\Service\MessageConsumerRegistry();
                 $inboundMail = $context->getOptional(\Modules\InboundMail\Api\InboundMailInterface::class);
                 $auditService = new \Core\Audit\AuditService(new \Core\Audit\AuditRepository($pdo, $encryptionService));
@@ -326,7 +340,10 @@ function scoutmagic_bootstrap_scheduler(
                 if (in_array('support_dashboard', $enabledModuleIds, true)) {
                     $registry->register(new \Modules\SupportDashboard\Mail\SupportMessageConsumer(
                         new \Modules\SupportDashboard\Service\MailProbeService(
-                            new \Modules\SupportDashboard\Repository\SupportMailProbeRepository($pdo, $encryptionService),
+                            new \Modules\SupportDashboard\Repository\SupportMailProbeRepository(
+                                $pdo,
+                                $encryptionService
+                            ),
                             new \Modules\SupportDashboard\Repository\SupportInstallationRepository($pdo),
                             $journalService,
                             $inboundMail
@@ -335,7 +352,8 @@ function scoutmagic_bootstrap_scheduler(
                 }
 
                 if ($inboundMail !== null && in_array('rental', $enabledModuleIds, true)) {
-                    $rentalBookingRepository = new \Modules\Rental\Repository\RentalBookingRepository($pdo, $encryptionService);
+                    $rentalBookingRepository = new \Modules\Rental\Repository\RentalBookingRepository($pdo,
+                        $encryptionService);
                     // No ActorAccountResolver on the scheduled path:
                     // every change is the application acting on its own,
                     // which Core\Audit renders as an automatic entry.
@@ -394,7 +412,8 @@ function scoutmagic_bootstrap_scheduler(
                 // file nothing at all.
                 if ($inboundMail !== null && in_array('finance', $enabledModuleIds, true)) {
                     $financeScoutYearId = (new \Core\Config\ScoutYearService($pdo))->getCurrentYear()['id'];
-                    $financeAccountRepository = new \Modules\Finance\Repository\AccountRepository($pdo, $encryptionService);
+                    $financeAccountRepository = new \Modules\Finance\Repository\AccountRepository($pdo,
+                        $encryptionService);
                     $financeTreasurerScope = new \Modules\Finance\Service\TreasurerScopeService(
                         \Core\Database\Connection::withPdo($pdo),
                         new \Core\Badge\BadgeRepository($pdo),
@@ -647,7 +666,8 @@ function scoutmagic_bootstrap_scheduler(
                 );
 
                 $registry = $inboundConsumerRegistry($context);
-                $inboundMailboxes = new \Modules\InboundMail\Repository\InboundMailboxRepository($pdo, $encryptionService);
+                $inboundMailboxes = new \Modules\InboundMail\Repository\InboundMailboxRepository($pdo,
+                    $encryptionService);
                 // What each box lets each module do (IT-05). Built from
                 // the SAME registry the handler gets, so the modules the
                 // screen scopes and the modules the sync asks cannot be

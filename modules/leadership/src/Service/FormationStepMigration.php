@@ -51,7 +51,8 @@ final class FormationStepMigration
             '0',
             'boolean',
             'Reclassement des niveaux de formation effectué',
-            "Marque interne : indique que les rattachements « brevet » enregistrés avant l'apparition des cases BACV et Woodbadge ont été reclassés. Jamais modifié à la main.",
+            "Marque interne : indique que les rattachements « brevet » enregistrés avant l'apparition des cases BACV "
+                . "et Woodbadge ont été reclassés. Jamais modifié à la main.",
             'leadership',
             null,
             null,

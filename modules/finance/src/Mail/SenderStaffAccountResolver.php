@@ -76,7 +76,11 @@ class SenderStaffAccountResolver
         // (`member_emails`), so an animateur who writes from their personal
         // address is still recognised — the same resolution the whole site
         // uses to decide which sections somebody staffs.
-        $sections = $this->staffAuthorization->getStaffedSections($email, self::NEUTRAL_ROLE->value, $this->scoutYearId);
+        $sections = $this->staffAuthorization->getStaffedSections(
+            $email,
+            self::NEUTRAL_ROLE->value,
+            $this->scoutYearId
+        );
         if (count($sections) !== 1) {
             return null;
         }

@@ -32,7 +32,8 @@ interface MenuEntryProvider
     /**
      * Every entry this module wants to add for the current visitor.
      *
-     * @param string|null $email The authenticated visitor's session email, or null for an anonymous visitor. A provider contributing only public entries ignores it; one contributing per-visitor entries returns [] when it is null.
+     * @param string|null $email The authenticated visitor's session email, or null for an anonymous visitor. A provider
+     *     contributing only public entries ignores it; one contributing per-visitor entries returns [] when it is null.
      * @return MenuEntry[] Typically none, one, or a handful.
      */
     public function getMenuEntries(?string $email): array;

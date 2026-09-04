@@ -99,7 +99,10 @@ class HomeActivityService implements HomeGroupActivityProvider
 
         // Most recently active first — so when the cap below kicks in,
         // the groups left uncounted are the least stale ones to miss.
-        usort($unread, fn(GroupListItem $a, GroupListItem $b) => $b->group->lastActivityAt <=> $a->group->lastActivityAt);
+        usort(
+            $unread,
+            fn(GroupListItem $a, GroupListItem $b) => $b->group->lastActivityAt <=> $a->group->lastActivityAt
+        );
         $counted = array_slice($unread, 0, self::MAX_GROUPS_COUNTED);
 
         $groupIds = array_map(fn(GroupListItem $item) => $item->group->id, $counted);

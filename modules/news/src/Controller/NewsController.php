@@ -288,9 +288,13 @@ class NewsController extends AbstractController
             // The form is no longer optional (usability review: "only the
             // form, with by default a bloc de texte") — every article
             // always gets one, saved together in this same POST.
-            $this->formService->save($article->id, $this->extractFormSettings($request, $visibility), $this->extractFields($request));
+            $this->formService->save($article->id, $this->extractFormSettings($request, $visibility),
+                $this->extractFields($request));
         } catch (NewsException $e) {
-            return $this->render('@news/editor.html.twig', $this->editorErrorContext(null, $request, $e->getMessage()))->setStatusCode(422);
+            return $this->render(
+                '@news/editor.html.twig',
+                $this->editorErrorContext(null, $request, $e->getMessage())
+            )->setStatusCode(422);
         }
 
         $this->journalService->log(
@@ -354,7 +358,8 @@ class NewsController extends AbstractController
         // form starts issuing tickets, and only that direction. Lowering
         // the switch needs nothing — the tickets already issued stay
         // valid and stay scannable.
-        $startsIssuingTickets = $this->formService->willStartIssuingTickets($article->id, (bool) $formSettings['issues_ticket']);
+        $startsIssuingTickets = $this->formService->willStartIssuingTickets($article->id,
+            (bool) $formSettings['issues_ticket']);
 
         try {
             $imageFileId = $this->resolveUploadedImageFileId($request, $visibility, $accountId);
@@ -372,7 +377,8 @@ class NewsController extends AbstractController
 
             $form = $this->formService->save($article->id, $formSettings, $this->extractFields($request));
         } catch (NewsException $e) {
-            return $this->render('@news/editor.html.twig', $this->editorErrorContext($article, $request, $e->getMessage()))->setStatusCode(422);
+            return $this->render('@news/editor.html.twig',
+                $this->editorErrorContext($article, $request, $e->getMessage()))->setStatusCode(422);
         }
 
         $this->journalService->log(
@@ -449,7 +455,9 @@ class NewsController extends AbstractController
         // the list card and social-share description, and short enough
         // that Core\Pdf\PosterPdfService's own truncation never kicks in.
         $pdf = $this->posterPdfService->generate(
-            $article->title, (string) $article->summary, $qrUrl, $shortName, $this->buildImageDataUri($article->imageFileId)
+            $article->title, (string) $article->summary, $qrUrl, $shortName, $this->buildImageDataUri(
+                $article->imageFileId
+            )
         );
         $slug = preg_replace('/[^a-z0-9]+/', '-', mb_strtolower($article->title)) ?? 'article';
 
@@ -488,9 +496,12 @@ class NewsController extends AbstractController
         $alreadyResponded = false;
         $memberOptions = [];
         if ($form !== null) {
-            $memberOptions = $form->access === NewsForm::ACCESS_IDENTIFIED ? $this->responseService->resolveMemberOptions($email, $scoutYearId) : [];
+            $memberOptions = $form->access === NewsForm::ACCESS_IDENTIFIED
+                ? $this->responseService->resolveMemberOptions($email, $scoutYearId)
+                : [];
             if ($form->responseLimit === NewsForm::RESPONSE_LIMIT_ONE_PER_MEMBER) {
-                $alreadyResponded = $this->responseService->hasAlreadyRespondedForAllMembers($form, array_keys($memberOptions));
+                $alreadyResponded = $this->responseService->hasAlreadyRespondedForAllMembers($form,
+                    array_keys($memberOptions));
             } else {
                 $alreadyResponded = $this->responseService->hasAlreadyResponded($form, $accountId, null);
             }
@@ -509,8 +520,12 @@ class NewsController extends AbstractController
             'form_open' => $form?->isOpen() ?? false,
             'already_responded' => $alreadyResponded,
             'requires_login' => $form !== null && $form->access === NewsForm::ACCESS_IDENTIFIED && $accountId === null,
-            'requires_member_selector' => $form !== null && $form->responseLimit === NewsForm::RESPONSE_LIMIT_ONE_PER_MEMBER,
-            'payment_available' => $form !== null && $this->responseService->isPaymentAvailable() && $form->financeAccountId !== null && $this->hasPricedField($fields),
+            'requires_member_selector' => $form !== null
+                && $form->responseLimit === NewsForm::RESPONSE_LIMIT_ONE_PER_MEMBER,
+            'payment_available' => $form !== null
+                && $this->responseService->isPaymentAvailable()
+                && $form->financeAccountId !== null
+                && $this->hasPricedField($fields),
             'contact_email_default' => $email ?? '',
             'member_options' => $memberOptions,
             'csrf_token' => CsrfGuard::generateToken(),
@@ -527,7 +542,9 @@ class NewsController extends AbstractController
             // title, summary and cover image in any chat it is pasted
             // into, leaving the body protected and the gist of it not.
             'social_preview' => $this->articleService->isSociallyShareable($article),
-            'og_url' => $article->shortUrlCode !== null ? $baseUrl . '/s/' . $article->shortUrlCode : $baseUrl . '/news/' . $article->id,
+            'og_url' => $article->shortUrlCode !== null
+                ? $baseUrl . '/s/' . $article->shortUrlCode
+                : $baseUrl . '/news/' . $article->id,
             'og_image_url' => $article->imageFileId !== null ? $baseUrl . '/files/' . $article->imageFileId : null,
             'human_check' => $this->humanCheckChallenge(),
         ]);
@@ -639,7 +656,9 @@ class NewsController extends AbstractController
             // leaving both blank (forever-open, easy to forget about).
             'default_opens_at' => $form?->opensAt ?? (new \DateTimeImmutable())->format('Y-m-d'),
             'default_closes_at' => $form?->closesAt ?? (new \DateTimeImmutable('+6 months'))->format('Y-m-d'),
-            'short_url' => $article?->shortUrlCode !== null ? rtrim((string) ($this->settingService->get('base_url') ?: ''), '/') . '/s/' . $article->shortUrlCode : null,
+            'short_url' => $article?->shortUrlCode !== null
+                ? rtrim((string) ($this->settingService->get('base_url') ?: ''), '/') . '/s/' . $article->shortUrlCode
+                : null,
             'csrf_token' => CsrfGuard::generateToken(),
         ];
     }
@@ -846,7 +865,9 @@ class NewsController extends AbstractController
     {
         return array_map(fn(FormField $field) => [
             'field' => $field,
-            'options' => $field->optionsSource === FormField::OPTIONS_SOURCE_MEMBERS ? array_values($memberOptions) : $field->manualOptions(),
+            'options' => $field->optionsSource === FormField::OPTIONS_SOURCE_MEMBERS
+                ? array_values($memberOptions)
+                : $field->manualOptions(),
             'remaining_capacity' => $field->capacityMax,
         ], $fields);
     }
@@ -859,7 +880,19 @@ class NewsController extends AbstractController
      * requires being logged in just to see the page, so the form is
      * effectively "identified" there too.
      *
-     * @return array{access: string, response_limit: string, opens_at: ?string, closes_at: ?string, is_force_closed: bool, response_role_min: string, daily_digest_enabled: bool, finance_account_id: ?int, issues_ticket: bool, event_date: ?string, event_location: ?string}
+     * @return array{
+     *     access: string,
+     *     response_limit: string,
+     *     opens_at: ?string,
+     *     closes_at: ?string,
+     *     is_force_closed: bool,
+     *     response_role_min: string,
+     *     daily_digest_enabled: bool,
+     *     finance_account_id: ?int,
+     *     issues_ticket: bool,
+     *     event_date: ?string,
+     *     event_location: ?string
+     * }
      */
     private function extractFormSettings(Request $request, string $visibility): array
     {
@@ -953,7 +986,20 @@ class NewsController extends AbstractController
     }
 
     /**
-     * @return array<int, array{id: ?int, field_type: string, label: ?string, is_required: bool, options_source: ?string, options_manual: ?string, capacity_max: ?int, price_per_unit: ?float, confirmation_text: ?string}>
+     * @return array<
+     *     int,
+     *     array{
+     *         id: ?int,
+     *         field_type: string,
+     *         label: ?string,
+     *         is_required: bool,
+     *         options_source: ?string,
+     *         options_manual: ?string,
+     *         capacity_max: ?int,
+     *         price_per_unit: ?float,
+     *         confirmation_text: ?string
+     *     }
+     * >
      */
     private function extractFields(Request $request): array
     {
@@ -967,11 +1013,21 @@ class NewsController extends AbstractController
             'field_type' => (string) ($f['field_type'] ?? ''),
             'label' => isset($f['label']) && $f['label'] !== '' ? (string) $f['label'] : null,
             'is_required' => (bool) ($f['is_required'] ?? false),
-            'options_source' => isset($f['options_source']) && $f['options_source'] !== '' ? (string) $f['options_source'] : null,
-            'options_manual' => isset($f['options_manual']) && $f['options_manual'] !== '' ? (string) $f['options_manual'] : null,
-            'capacity_max' => isset($f['capacity_max']) && $f['capacity_max'] !== '' && $f['capacity_max'] !== null ? (int) $f['capacity_max'] : null,
-            'price_per_unit' => isset($f['price_per_unit']) && $f['price_per_unit'] !== '' && $f['price_per_unit'] !== null ? (float) $f['price_per_unit'] : null,
-            'confirmation_text' => isset($f['confirmation_text']) && $f['confirmation_text'] !== '' ? (string) $f['confirmation_text'] : null,
+            'options_source' => isset($f['options_source']) && $f['options_source'] !== ''
+                ? (string) $f['options_source']
+                : null,
+            'options_manual' => isset($f['options_manual']) && $f['options_manual'] !== ''
+                ? (string) $f['options_manual']
+                : null,
+            'capacity_max' => isset($f['capacity_max']) && $f['capacity_max'] !== '' && $f['capacity_max'] !== null
+                ? (int) $f['capacity_max']
+                : null,
+            'price_per_unit' => isset($f['price_per_unit'])
+                && $f['price_per_unit'] !== ''
+                && $f['price_per_unit'] !== null ? (float) $f['price_per_unit'] : null,
+            'confirmation_text' => isset($f['confirmation_text']) && $f['confirmation_text'] !== ''
+                ? (string) $f['confirmation_text']
+                : null,
         ], $raw);
     }
 
@@ -983,7 +1039,9 @@ class NewsController extends AbstractController
     private function fieldsForTemplate(array $fields, array $memberOptions): array
     {
         return array_map(function (FormField $field) use ($memberOptions) {
-            $options = $field->optionsSource === FormField::OPTIONS_SOURCE_MEMBERS ? array_values($memberOptions) : $field->manualOptions();
+            $options = $field->optionsSource === FormField::OPTIONS_SOURCE_MEMBERS
+                ? array_values($memberOptions)
+                : $field->manualOptions();
             return [
                 'field' => $field,
                 'options' => $options,
@@ -1012,7 +1070,11 @@ class NewsController extends AbstractController
 
     private function ensureDigestTaskScheduled(): void
     {
-        if ($this->schedulerService->find('news', 'send_response_digest', SendResponseDigestHandler::REFERENCE) === null) {
+        if ($this->schedulerService->find(
+            'news',
+            'send_response_digest',
+            SendResponseDigestHandler::REFERENCE
+        ) === null) {
             $this->schedulerService->schedule('news', 'send_response_digest', new \DateTimeImmutable('+1 day'), [], SendResponseDigestHandler::REFERENCE);
         }
     }

@@ -17,7 +17,19 @@ class ProviderModelRepository
     }
 
     /**
-     * @return array<int, array{id: int, provider_id: int, model_id: string, display_name: string, is_tier_cheap: bool, is_tier_capable: bool, is_tier_ocr: bool, last_seen_at: string}>
+     * @return array<
+     *     int,
+     *     array{
+     *         id: int,
+     *         provider_id: int,
+     *         model_id: string,
+     *         display_name: string,
+     *         is_tier_cheap: bool,
+     *         is_tier_capable: bool,
+     *         is_tier_ocr: bool,
+     *         last_seen_at: string
+     *     }
+     * >
      */
     public function findByProvider(int $providerId): array
     {
@@ -149,7 +161,8 @@ class ProviderModelRepository
     {
         // Clear all tier assignments for this provider
         $stmt = $this->pdo->prepare(
-            'UPDATE llm_provider_models SET is_tier_cheap = 0, is_tier_capable = 0, is_tier_ocr = 0 WHERE provider_id = ?'
+            'UPDATE llm_provider_models SET is_tier_cheap = 0, is_tier_capable = 0, is_tier_ocr = 0 WHERE provider_id '
+                . '= ?'
         );
         $stmt->execute([$providerId]);
 
@@ -212,7 +225,16 @@ class ProviderModelRepository
 
     /**
      * @param array<string, mixed> $row
-     * @return array{id: int, provider_id: int, model_id: string, display_name: string, is_tier_cheap: bool, is_tier_capable: bool, is_tier_ocr: bool, last_seen_at: string}
+     * @return array{
+     *     id: int,
+     *     provider_id: int,
+     *     model_id: string,
+     *     display_name: string,
+     *     is_tier_cheap: bool,
+     *     is_tier_capable: bool,
+     *     is_tier_ocr: bool,
+     *     last_seen_at: string
+     * }
      */
     private function hydrate(array $row): array
     {

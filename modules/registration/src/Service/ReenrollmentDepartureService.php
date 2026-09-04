@@ -125,7 +125,13 @@ class ReenrollmentDepartureService
      *
      * @param array<int, array<string, mixed>> $rows each carrying at
      *        least `profile` (with a memberId) and `leaving`
-     * @return array{rows: array<int, array<string, mixed>>, divergences: int, unanswered: int, visible: bool, target_year_label: ?string}
+     * @return array{
+     *     rows: array<int, array<string, mixed>>,
+     *     divergences: int,
+     *     unanswered: int,
+     *     visible: bool,
+     *     target_year_label: ?string
+     * }
      */
     public function annotate(array $rows, string $publicYearLabel): array
     {
@@ -167,6 +173,10 @@ class ReenrollmentDepartureService
 
     private function campaignOpen(): bool
     {
-        return (string) $this->settingService->get(ReenrollmentCampaignService::SETTING_OPEN, 'registration', '0') === '1';
+        return (string) $this->settingService->get(
+            ReenrollmentCampaignService::SETTING_OPEN,
+            'registration',
+            '0'
+        ) === '1';
     }
 }

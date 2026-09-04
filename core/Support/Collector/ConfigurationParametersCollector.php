@@ -68,7 +68,8 @@ class ConfigurationParametersCollector implements SupportCollectorInterface
         $context->addFileFromContent(
             'configuration-parameters.xlsx',
             TabularSpreadsheet::build(
-                ['Clé', 'Module', 'Libellé', 'Type', 'Valeur courante', 'Valeur par défaut', 'Diffère du défaut', 'Éditable'],
+                ['Clé', 'Module', 'Libellé', 'Type', 'Valeur courante', 'Valeur par défaut', 'Diffère du défaut',
+                    'Éditable'],
                 $rows,
                 'Réglages'
             )

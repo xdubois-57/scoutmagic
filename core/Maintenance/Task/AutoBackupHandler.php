@@ -70,7 +70,8 @@ class AutoBackupHandler implements TaskHandlerInterface
     {
         $pdo = $context->connection->getPdo();
         $basePath = dirname($context->storagePath);
-        $backupService = $this->backupService ?? new BackupService($context->connection, $context->storagePath, $basePath);
+        $backupService = $this->backupService ?? new BackupService($context->connection, $context->storagePath,
+            $basePath);
         $backupRepository = new BackupRepository($pdo);
         $fileRepository = new FileRepository($pdo);
 
@@ -101,11 +102,13 @@ class AutoBackupHandler implements TaskHandlerInterface
 
             $context->settings->setInternal('backup_auto_last_run', (new \DateTimeImmutable())->format('Y-m-d H:i:s'));
 
-            $context->journal->log('core', 'auto_backup_completed', 'info', 'Sauvegarde automatique effectuée', ['backup_id' => $backupId]);
+            $context->journal->log('core', 'auto_backup_completed', 'info', 'Sauvegarde automatique effectuée',
+                ['backup_id' => $backupId]);
 
             $this->purgeBeyondLimit($backupRepository, $fileRepository, $context->storagePath);
         } catch (\Throwable $e) {
-            $context->journal->log('core', 'auto_backup_failed', 'info', 'Échec de la sauvegarde automatique', ['error' => $e->getMessage()]);
+            $context->journal->log('core', 'auto_backup_failed', 'info', 'Échec de la sauvegarde automatique',
+                ['error' => $e->getMessage()]);
         }
     }
 
@@ -136,7 +139,11 @@ class AutoBackupHandler implements TaskHandlerInterface
      * — same purge as every other background Maintenance task, sharing the
      * same quota across all backup types.
      */
-    private function purgeBeyondLimit(BackupRepository $backupRepository, FileRepository $fileRepository, string $storagePath): void
+    private function purgeBeyondLimit(
+        BackupRepository $backupRepository,
+        FileRepository $fileRepository,
+        string $storagePath
+    ): void
     {
         foreach ($backupRepository->findBeyond(self::KEEP_BACKUPS) as $old) {
             foreach ([$old->fileId, $old->dbDumpFileId] as $fileId) {

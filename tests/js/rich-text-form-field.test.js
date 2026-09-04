@@ -19,9 +19,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     chipHtml,
+    chipify,
     insertKeyword,
     keywordOf,
-    toEditorHtml,
     toStoredHtml,
     wireField,
 } from '../../public/assets/js/rich-text-form-field.js';
@@ -33,7 +33,8 @@ const KEYWORDS = ['prix_total', 'nom_locataire'];
  * renders it: a server-filled hidden input, an aria-hidden surface, and the
  * form around them.
  *
- * @param {string} value the stored HTML the server rendered into the input
+ * @param {string} value the stored HTML the server rendered into BOTH the
+ *                       surface and the hidden input, as the partial does
  * @returns {HTMLElement} the block root
  */
 function buildField(value) {
@@ -42,7 +43,7 @@ function buildField(value) {
             <div class="rich-text-form-field" data-keywords='${JSON.stringify(KEYWORDS)}'>
                 <button type="button" data-command="bold">B</button>
                 <button type="button" data-insert-keyword="prix_total">Prix total</button>
-                <div class="rich-text-form-surface" aria-hidden="true"></div>
+                <div class="rich-text-form-surface" aria-hidden="true">${value}</div>
                 <input type="hidden" class="rich-text-form-value" value="${value}">
             </div>
         </form>
@@ -123,25 +124,55 @@ describe('rich-text-form-field.js: chipHtml()', () => {
     });
 });
 
-describe('rich-text-form-field.js: toEditorHtml() — stored source to chips', () => {
+/**
+ * A detached element already holding `source`, as the server renders the
+ * surface — chipify() rewrites text in place, it never parses markup.
+ *
+ * @param {string} source
+ * @returns {HTMLElement}
+ */
+function painted(source) {
+    const div = document.createElement('div');
+    div.innerHTML = source;
+    chipify(div, KEYWORDS);
+
+    return div;
+}
+
+describe('rich-text-form-field.js: chipify() — stored source to chips', () => {
     it('turns every known placeholder into a chip', () => {
-        const html = toEditorHtml('<p>Bonjour {{ nom_locataire }}, total {{ prix_total }}.</p>', KEYWORDS);
-        const div = document.createElement('div');
-        div.innerHTML = html;
+        const div = painted('<p>Bonjour {{ nom_locataire }}, total {{ prix_total }}.</p>');
         expect(div.querySelectorAll('[data-keyword]')).toHaveLength(2);
     });
 
     it('tolerates missing and extra spacing inside the braces', () => {
-        const div = document.createElement('div');
-        div.innerHTML = toEditorHtml('{{prix_total}} et {{   prix_total   }}', KEYWORDS);
-        expect(div.querySelectorAll('[data-keyword]')).toHaveLength(2);
+        expect(painted('{{prix_total}} et {{   prix_total   }}').querySelectorAll('[data-keyword]'))
+            .toHaveLength(2);
     });
 
     it('leaves something that only LOOKS like a placeholder as plain text on purpose', () => {
         // Dressing an unknown keyword up as a chip would hide a mistake the
         // author has to see and fix.
-        const html = toEditorHtml('<p>{{ prix_totale }}</p>', KEYWORDS);
-        expect(html).toBe('<p>{{ prix_totale }}</p>');
+        expect(painted('<p>{{ prix_totale }}</p>').innerHTML).toBe('<p>{{ prix_totale }}</p>');
+    });
+
+    it('keeps the text around a placeholder exactly where it was', () => {
+        expect(painted('<p>Avant {{ prix_total }} après</p>').textContent)
+            .toBe('Avant {{ prix_total }} après');
+    });
+
+    it('never nests a chip inside a chip when it runs twice', () => {
+        const div = painted('{{ prix_total }}');
+        chipify(div, KEYWORDS);
+        expect(div.querySelectorAll('[data-keyword]')).toHaveLength(1);
+    });
+
+    it('rewrites text without re-parsing markup — an author\'s « < » stays text', () => {
+        // The value the server rendered is already in the DOM; reading it
+        // back out as markup to write it in again would reinterpret it.
+        const div = painted('<p>1 &lt; 2 {{ prix_total }}</p>');
+        expect(div.textContent).toBe('1 < 2 {{ prix_total }}');
+        expect(div.querySelectorAll('[data-keyword]')).toHaveLength(1);
     });
 });
 
@@ -167,9 +198,7 @@ describe('rich-text-form-field.js: toStoredHtml() — chips back to source', () 
 
     it('round-trips: source → editor → source is the identity', () => {
         const source = '<p>Bonjour <b>{{ nom_locataire }}</b>, total {{ prix_total }}.</p>';
-        const div = document.createElement('div');
-        div.innerHTML = toEditorHtml(source, KEYWORDS);
-        expect(toStoredHtml(div)).toBe(source);
+        expect(toStoredHtml(painted(source))).toBe(source);
     });
 });
 
@@ -194,7 +223,7 @@ describe('rich-text-form-field.js: wireField()', () => {
     it('survives a malformed data-keywords rather than refusing to wire', () => {
         document.body.innerHTML = `
             <div class="rich-text-form-field" data-keywords="{pas du json">
-                <div class="rich-text-form-surface"></div>
+                <div class="rich-text-form-surface">{{ prix_total }}</div>
                 <input type="hidden" class="rich-text-form-value" value="{{ prix_total }}">
             </div>
         `;
@@ -303,11 +332,11 @@ describe('rich-text-form-field.js: DOMContentLoaded wiring', () => {
     it('wires every block on the page once the document is ready', async () => {
         document.body.innerHTML = `
             <div class="rich-text-form-field" data-keywords='["prix_total"]'>
-                <div class="rich-text-form-surface" aria-hidden="true"></div>
+                <div class="rich-text-form-surface" aria-hidden="true">{{ prix_total }}</div>
                 <input type="hidden" class="rich-text-form-value" value="{{ prix_total }}">
             </div>
             <div class="rich-text-form-field" data-keywords='["prix_total"]'>
-                <div class="rich-text-form-surface" aria-hidden="true"></div>
+                <div class="rich-text-form-surface" aria-hidden="true">Rien</div>
                 <input type="hidden" class="rich-text-form-value" value="Rien">
             </div>
         `;

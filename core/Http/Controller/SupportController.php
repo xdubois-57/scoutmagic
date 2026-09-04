@@ -344,7 +344,8 @@ class SupportController extends AbstractController
             SupportArchiveSender::FAILURE_REFUSED =>
                 "Le serveur de support a refusé l'archive. Le ticket est intact, l'archive n'a pas été transmise.",
             default =>
-                "L'archive n'a pas pu être transmise (serveur injoignable ou envoi trop long). Le ticket est intact : vous pouvez réessayer.",
+                "L'archive n'a pas pu être transmise (serveur injoignable ou envoi trop long). Le ticket est intact : "
+                    . "vous pouvez réessayer.",
         };
     }
 
@@ -432,7 +433,8 @@ class SupportController extends AbstractController
         } elseif ($result->isSkipped()) {
             FlashMessage::set('warning', self::skipMessage((string) $result->reason));
         } else {
-            FlashMessage::set('error', 'Le rapport de test n\'a pas pu être transmis. Motif : ' . (string) $result->reason);
+            FlashMessage::set('error',
+                'Le rapport de test n\'a pas pu être transmis. Motif : ' . (string) $result->reason);
         }
 
         return $this->redirect('/config/support');
@@ -623,17 +625,22 @@ class SupportController extends AbstractController
             TicketIdentityService::GUARD_NO_DESTINATION =>
                 "Aucune destination de support n'est configurée sur cette installation.",
             TicketIdentityService::GUARD_INSECURE_DESTINATION =>
-                "La destination du support n'est pas en HTTPS : rien n'est envoyé, le secret d'installation voyagerait en clair.",
+                "La destination du support n'est pas en HTTPS : rien n'est envoyé, le secret d'installation "
+                    . "voyagerait en clair.",
             TicketIdentityService::GUARD_NON_PUBLIC_DESTINATION =>
                 "La destination du support n'est pas un nom public : rien n'est envoyé.",
             SupportTicketSender::FAILURE_NO_IDENTITY =>
-                "L'identité de cette installation n'a pas pu être créée (fichier de secrets indisponible). Votre saisie est conservée ci-dessous.",
+                "L'identité de cette installation n'a pas pu être créée (fichier de secrets indisponible). Votre "
+                    . "saisie est conservée ci-dessous.",
             SupportTicketSender::FAILURE_REFUSED =>
-                "Le serveur de support a refusé le ticket. Vérifiez la catégorie, puis réessayez. Votre saisie est conservée ci-dessous.",
+                "Le serveur de support a refusé le ticket. Vérifiez la catégorie, puis réessayez. Votre saisie est "
+                    . "conservée ci-dessous.",
             SupportTicketSender::FAILURE_MALFORMED_ANSWER =>
-                "Le serveur de support a répondu quelque chose d'inattendu. Réessayez plus tard ; votre saisie est conservée ci-dessous.",
+                "Le serveur de support a répondu quelque chose d'inattendu. Réessayez plus tard ; votre saisie est "
+                    . "conservée ci-dessous.",
             default =>
-                "Le serveur de support est injoignable pour le moment. Aucun ticket n'a été créé ; votre saisie est conservée ci-dessous, vous pouvez réessayer.",
+                "Le serveur de support est injoignable pour le moment. Aucun ticket n'a été créé ; votre saisie est "
+                    . "conservée ci-dessous, vous pouvez réessayer.",
         };
     }
 
@@ -648,9 +655,12 @@ class SupportController extends AbstractController
     private static function skipMessage(string $reason): string
     {
         return match ($reason) {
-            'disabled' => 'L\'envoi automatique des statistiques doit être activé pour pouvoir envoyer un rapport de test.',
-            'non_public_host' => 'L\'adresse de ce site (paramètre « base_url ») n\'est pas un nom public : aucun rapport n\'est envoyé depuis une installation locale ou de test.',
-            'maintenance_in_progress' => 'Une opération de maintenance est en cours : le rapport sera possible une fois terminée.',
+            'disabled' => 'L\'envoi automatique des statistiques doit être activé pour pouvoir envoyer un rapport de '
+                . 'test.',
+            'non_public_host' => 'L\'adresse de ce site (paramètre « base_url ») n\'est pas un nom public : aucun '
+                . 'rapport n\'est envoyé depuis une installation locale ou de test.',
+            'maintenance_in_progress' => 'Une opération de maintenance est en cours : le rapport sera possible une '
+                . 'fois terminée.',
             default => 'Aucun rapport n\'a été envoyé. Motif : ' . $reason,
         };
     }

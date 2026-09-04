@@ -100,7 +100,8 @@ class OvhTelephonyProvider implements PhoneProviderInterface
             throw new ProviderException(
                 UserFacingMessage::from(
                     $e,
-                    'L\'appel à l\'API de téléphonie OVH a échoué — vérifiez la configuration du fournisseur, puis réessayez.'
+                    'L\'appel à l\'API de téléphonie OVH a échoué — vérifiez la configuration du fournisseur, puis '
+                        . 'réessayez.'
                 ),
                 0,
                 $e

@@ -26,7 +26,8 @@ class VideoProcessingService
     public function probe(string $sourcePath): array
     {
         $cmd = sprintf(
-            'ffprobe -v error -select_streams v:0 -show_entries stream=width,height -show_entries format=duration -of json %s',
+            'ffprobe -v error -select_streams v:0 -show_entries stream=width,height -show_entries format=duration -of '
+                . 'json %s',
             escapeshellarg($sourcePath)
         );
         $json = shell_exec($cmd);
@@ -55,7 +56,8 @@ class VideoProcessingService
     {
         $bitrate = $targetHeight >= 1080 ? '5M' : '2M';
         $cmd = sprintf(
-            'ffmpeg -y -i %s -vf %s -c:v libx264 -preset medium -b:v %s -c:a aac -b:a 128k -movflags +faststart %s 2>&1',
+            'ffmpeg -y -i %s -vf %s -c:v libx264 -preset medium -b:v %s -c:a aac -b:a 128k -movflags +faststart %s '
+                . '2>&1',
             escapeshellarg($sourcePath),
             escapeshellarg("scale=-2:{$targetHeight}"),
             escapeshellarg($bitrate),

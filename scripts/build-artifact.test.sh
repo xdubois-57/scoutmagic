@@ -34,15 +34,30 @@ export PATH="${FAKE_BIN_DIR}:${PATH}"
 PASS_COUNT=0
 FAIL_COUNT=0
 
-pass() { echo "  ✅ $1"; PASS_COUNT=$((PASS_COUNT + 1)); }
-fail() { echo "  ❌ $1"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
+pass() {
+    local label="$1"
+    echo "  ✅ ${label}"
+    PASS_COUNT=$((PASS_COUNT + 1))
+    return 0
+}
+
+fail() {
+    local label="$1"
+    echo "  ❌ ${label}"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    return 0
+}
 
 assert_contains() {
-    if grep -q -- "$2" "$1"; then pass "$3"; else fail "$3"; fi
+    local file="$1" needle="$2" label="$3"
+    if grep -q -- "${needle}" "${file}"; then pass "${label}"; else fail "${label}"; fi
+    return 0
 }
 
 assert_not_contains() {
-    if grep -q -- "$2" "$1"; then fail "$3"; else pass "$3"; fi
+    local file="$1" needle="$2" label="$3"
+    if grep -q -- "${needle}" "${file}"; then fail "${label}"; else pass "${label}"; fi
+    return 0
 }
 
 # A throwaway repository root holding a copy of the script (which locates

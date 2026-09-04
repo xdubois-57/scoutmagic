@@ -41,7 +41,11 @@ class ApplyRedirectHandler implements TaskHandlerInterface
     {
         $pdo = $context->connection->getPdo();
 
-        $sectionService = new SectionService($context->connection, $context->encryption, new MemberBadgeRepository($pdo));
+        $sectionService = new SectionService(
+            $context->connection,
+            $context->encryption,
+            new MemberBadgeRepository($pdo)
+        );
         $memberYearRepository = new MemberYearRepository($pdo);
         $memberService = new MemberService(
             $memberYearRepository,
@@ -60,7 +64,10 @@ class ApplyRedirectHandler implements TaskHandlerInterface
             $context->settings
         );
 
-        $providerConfigService = new ProviderConfigService(new ProviderCredentialRepository($pdo, $context->encryption));
+        $providerConfigService = new ProviderConfigService(new ProviderCredentialRepository(
+            $pdo,
+            $context->encryption
+        ));
 
         $twig = TwigFactory::create(
             dirname(__DIR__, 4) . '/core/View/templates',

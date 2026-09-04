@@ -37,14 +37,14 @@
           longer who it WOULD reach but who it did, address by address —
           and that is the Suivi tab, which this page must not duplicate.
         #}
-        <div class="alert alert-info d-flex gap-2" role="status">
+        <output class="alert alert-info d-flex gap-2">
             <i class="bi bi-lock flex-shrink-0" aria-hidden="true"></i>
             <span>
                 La liste des destinataires a été figée au lancement de l'envoi :
                 {{ frozen_counts.total }} destinataire{{ frozen_counts.total > 1 ? 's' : '' }}.
                 Le détail, adresse par adresse, est dans l'onglet « Suivi ».
             </span>
-        </div>
+        </output>
     {% elseif email.listType == 'mail_merge' %}
         {% if audience %}
             <p class="mb-3">

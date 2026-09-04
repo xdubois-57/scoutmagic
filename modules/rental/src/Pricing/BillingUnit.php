@@ -149,7 +149,8 @@ enum BillingUnit: string
      * base-plus-supplement — those are explicitly out of scope and must not
      * be reintroduced here.
      *
-     * @param int $persons Already raised to the minimum by the caller when one applies, so this method never has to know about minimums.
+     * @param int $persons Already raised to the minimum by the caller when one applies, so this method never has to
+     *     know about minimums.
      */
     public function quantityFor(int $nights, int $persons, int $units, int $rooms): int
     {

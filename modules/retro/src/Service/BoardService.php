@@ -125,7 +125,8 @@ class BoardService implements RetroEventLinkLookupInterface
         $windowStart = $today->modify('-' . self::EVENT_WINDOW_DAYS_BEFORE . ' days');
         $windowEnd = $today->modify('+' . self::EVENT_WINDOW_DAYS_AFTER . ' days');
 
-        return $this->calendarEventLookup->findEventsInWindow($windowStart, $windowEnd, $isAdmin ? null : $sectionId, $viewerRole);
+        return $this->calendarEventLookup->findEventsInWindow($windowStart, $windowEnd, $isAdmin ? null : $sectionId,
+            $viewerRole);
     }
 
     /**
@@ -173,7 +174,8 @@ class BoardService implements RetroEventLinkLookupInterface
             $this->scheduleAutoClose($id, $autoCloseAt);
         }
 
-        $this->journalService->log('retro', 'board_created', 'info', 'Rétrospective créée', ['board_id' => $id], $createdBy);
+        $this->journalService->log('retro', 'board_created', 'info', 'Rétrospective créée', ['board_id' => $id],
+            $createdBy);
 
         $board = $this->boardRepository->findById($id);
         \assert($board !== null);
@@ -254,7 +256,8 @@ class BoardService implements RetroEventLinkLookupInterface
 
         $this->boardRepository->close($id);
         $this->schedulerService->cancelPending('retro', 'auto_close_board', 'board_' . $id);
-        $this->journalService->log('retro', 'board_closed', 'info', 'Rétrospective clôturée', ['board_id' => $id], $closedBy);
+        $this->journalService->log('retro', 'board_closed', 'info', 'Rétrospective clôturée', ['board_id' => $id],
+            $closedBy);
 
         $visible = array_values(array_filter(
             $this->commentRepository->findByBoardId($id),
@@ -304,7 +307,8 @@ class BoardService implements RetroEventLinkLookupInterface
             $this->scheduleAutoClose($id, $autoCloseAt);
         }
 
-        $this->journalService->log('retro', 'board_reopened', 'info', 'Rétrospective réouverte', ['board_id' => $id], $reopenedBy);
+        $this->journalService->log('retro', 'board_reopened', 'info', 'Rétrospective réouverte', ['board_id' => $id],
+            $reopenedBy);
 
         $refreshed = $this->boardRepository->findById($id);
         \assert($refreshed !== null);
@@ -326,7 +330,8 @@ class BoardService implements RetroEventLinkLookupInterface
         }
 
         $this->boardRepository->archive($id);
-        $this->journalService->log('retro', 'board_archived', 'info', 'Rétrospective archivée', ['board_id' => $id], $archivedBy);
+        $this->journalService->log('retro', 'board_archived', 'info', 'Rétrospective archivée', ['board_id' => $id],
+            $archivedBy);
 
         $refreshed = $this->boardRepository->findById($id);
         \assert($refreshed !== null);
@@ -348,7 +353,8 @@ class BoardService implements RetroEventLinkLookupInterface
         }
 
         $this->boardRepository->unarchive($id);
-        $this->journalService->log('retro', 'board_unarchived', 'info', 'Rétrospective désarchivée', ['board_id' => $id], $unarchivedBy);
+        $this->journalService->log('retro', 'board_unarchived', 'info', 'Rétrospective désarchivée',
+            ['board_id' => $id], $unarchivedBy);
 
         $refreshed = $this->boardRepository->findById($id);
         \assert($refreshed !== null);
@@ -373,7 +379,8 @@ class BoardService implements RetroEventLinkLookupInterface
         $shortCode = $this->tryCreateShortLink($token, $regeneratedBy);
         $this->boardRepository->regenerateLink($id, $token, $shortCode);
 
-        $this->journalService->log('retro', 'board_link_regenerated', 'info', 'Lien de rétrospective régénéré', ['board_id' => $id], $regeneratedBy);
+        $this->journalService->log('retro', 'board_link_regenerated', 'info', 'Lien de rétrospective régénéré',
+            ['board_id' => $id], $regeneratedBy);
 
         $refreshed = $this->boardRepository->findById($id);
         \assert($refreshed !== null);
@@ -394,7 +401,12 @@ class BoardService implements RetroEventLinkLookupInterface
     /**
      * Api\RetroEventLinkLookupInterface implementation — see its docblock.
      */
-    public function findLinkedBoardLink(int $eventId, Role $viewerRole, ?string $viewerEmail, ?int $scoutYearId): ?RetroLinkSummary
+    public function findLinkedBoardLink(
+        int $eventId,
+        Role $viewerRole,
+        ?string $viewerEmail,
+        ?int $scoutYearId
+    ): ?RetroLinkSummary
     {
         $board = $this->boardRepository->findByCalendarEventId($eventId);
         if ($board === null || !$this->viewerMeetsLinkAudience($board, $viewerRole, $viewerEmail, $scoutYearId)) {
@@ -416,7 +428,12 @@ class BoardService implements RetroEventLinkLookupInterface
         return $this->boardRepository->findByCalendarEventId($eventId) !== null;
     }
 
-    private function viewerMeetsLinkAudience(Board $board, Role $viewerRole, ?string $viewerEmail, ?int $scoutYearId): bool
+    private function viewerMeetsLinkAudience(
+        Board $board,
+        Role $viewerRole,
+        ?string $viewerEmail,
+        ?int $scoutYearId
+    ): bool
     {
         return match ($board->linkVisibility) {
             'identified' => $viewerRole->hasAccess(Role::IDENTIFIED),
@@ -455,7 +472,13 @@ class BoardService implements RetroEventLinkLookupInterface
             throw new RetroException('Délai de clôture automatique invalide.');
         }
         if ($maxCommentLength < self::MIN_MAX_COMMENT_LENGTH || $maxCommentLength > self::MAX_MAX_COMMENT_LENGTH) {
-            throw new RetroException('La longueur maximale doit être comprise entre ' . self::MIN_MAX_COMMENT_LENGTH . ' et ' . self::MAX_MAX_COMMENT_LENGTH . '.');
+            throw new RetroException(
+                'La longueur maximale doit être comprise entre '
+                    . self::MIN_MAX_COMMENT_LENGTH
+                    . ' et '
+                    . self::MAX_MAX_COMMENT_LENGTH
+                    . '.'
+            );
         }
         if ($voteBudget < 1) {
             $voteBudget = 1;

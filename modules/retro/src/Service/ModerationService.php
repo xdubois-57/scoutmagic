@@ -26,11 +26,13 @@ class ModerationService
         'properties' => [
             'flagged' => [
                 'type' => 'boolean',
-                'description' => "true si le texte contient une attaque personnelle, une insulte, ou un propos irrespectueux envers une personne nommée ou identifiable.",
+                'description' => "true si le texte contient une attaque personnelle, une insulte, ou un propos "
+                    . "irrespectueux envers une personne nommée ou identifiable.",
             ],
             'reason' => [
                 'type' => ['string', 'null'],
-                'description' => 'Si flagged est true, une courte explication en français à afficher à l\'auteur. null sinon.',
+                'description' => 'Si flagged est true, une courte explication en français à afficher à l\'auteur. null '
+                    . 'sinon.',
             ],
             'suggestion' => [
                 'type' => ['string', 'null'],
@@ -104,9 +106,12 @@ class ModerationService
 
         $reason = isset($parsed['reason']) && is_string($parsed['reason']) && trim($parsed['reason']) !== ''
             ? trim($parsed['reason'])
-            : 'Ce message peut être perçu comme une attaque personnelle ou un propos irrespectueux. Merci de reformuler ta pensée.';
+            : 'Ce message peut être perçu comme une attaque personnelle ou un propos irrespectueux. Merci de '
+                . 'reformuler ta pensée.';
 
-        $suggestionRaw = isset($parsed['suggestion']) && is_string($parsed['suggestion']) ? trim($parsed['suggestion']) : '';
+        $suggestionRaw = isset($parsed['suggestion']) && is_string($parsed['suggestion'])
+            ? trim($parsed['suggestion'])
+            : '';
         // Never trust the model's own character counting (same precedent
         // as shorten()'s caller and SeoKeywordService::generateSummary()'s
         // hard cap) — enforce $maxLength here regardless of what came back.
@@ -133,7 +138,8 @@ class ModerationService
             tier: LlmTier::CHEAP,
             prompt: $text,
             systemPrompt: "Réécris ce commentaire pour qu'il tienne strictement en moins de {$maxLength} caractères, "
-                . 'en gardant le même sens et le même ton. Réponds uniquement avec le texte réécrit, sans guillemets ni commentaire.'
+                . 'en gardant le même sens et le même ton. Réponds uniquement avec le texte réécrit, sans guillemets '
+                . 'ni commentaire.'
         );
 
         try {

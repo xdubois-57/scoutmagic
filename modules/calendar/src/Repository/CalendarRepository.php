@@ -76,7 +76,8 @@ class CalendarRepository
     /** @return Calendar[] calendars with no section_id, i.e. supplementary calendars */
     public function findSupplementaryCalendars(): array
     {
-        $stmt = $this->pdo->query('SELECT * FROM calendar_calendars WHERE section_id IS NULL ORDER BY is_default DESC, id');
+        $stmt = $this->pdo->query('SELECT * FROM calendar_calendars WHERE section_id IS NULL ORDER BY is_default '
+            . 'DESC, id');
         if ($stmt === false) {
             return [];
         }
@@ -102,10 +103,16 @@ class CalendarRepository
         return (int) $this->pdo->lastInsertId();
     }
 
-    public function createSupplementaryCalendar(string $name, bool $isDefault, string $visibility, string $icsToken): int
+    public function createSupplementaryCalendar(
+        string $name,
+        bool $isDefault,
+        string $visibility,
+        string $icsToken
+    ): int
     {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO calendar_calendars (name, is_default, visibility, ics_token_encrypted, ics_token_blind_index) VALUES (?, ?, ?, ?, ?)'
+            'INSERT INTO calendar_calendars (name, is_default, visibility, ics_token_encrypted, '
+                . 'ics_token_blind_index) VALUES (?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $name, $isDefault ? 1 : 0, $visibility,
@@ -129,7 +136,8 @@ class CalendarRepository
 
     public function updateIcsToken(int $id, string $token): void
     {
-        $stmt = $this->pdo->prepare('UPDATE calendar_calendars SET ics_token_encrypted = ?, ics_token_blind_index = ? WHERE id = ?');
+        $stmt = $this->pdo->prepare('UPDATE calendar_calendars SET ics_token_encrypted = ?, ics_token_blind_index = ? '
+            . 'WHERE id = ?');
         $stmt->execute([
             $this->encryption->encrypt($token, self::TOKEN_ENCRYPTION_CONTEXT),
             $this->encryption->blindIndex($token, self::TOKEN_BLIND_INDEX_PURPOSE),
