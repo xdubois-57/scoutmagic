@@ -89,8 +89,7 @@
      */
     function hasFunctionalConsent() {
         var cookies = document.cookie ? document.cookie.split(';') : [];
-        for (var i = 0; i < cookies.length; i++) {
-            var pair = cookies[i];
+        for (const pair of cookies) {
             var eq = pair.indexOf('=');
             if (eq === -1) continue;
             if (pair.slice(0, eq).trim() !== 'cookie_consent') continue;
@@ -213,9 +212,9 @@
         }
         panel.classList.remove('show');
         var toggles = document.querySelectorAll('.camps-map-toggle');
-        for (var i = 0; i < toggles.length; i++) {
-            toggles[i].setAttribute('aria-expanded', 'false');
-            toggles[i].classList.add('collapsed');
+        for (const toggle of toggles) {
+            toggle.setAttribute('aria-expanded', 'false');
+            toggle.classList.add('collapsed');
         }
     }
 

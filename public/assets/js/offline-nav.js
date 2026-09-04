@@ -71,8 +71,7 @@
     }
 
     function isWhitelisted(pathname) {
-        for (var i = 0; i < whitelist.length; i++) {
-            var entry = whitelist[i];
+        for (const entry of whitelist) {
             if (entry.match === 'child') {
                 if (pathname.indexOf(entry.path) !== 0) {
                     continue;

@@ -53,8 +53,8 @@
         }
 
         var controls = modal.querySelectorAll('input, select, textarea');
-        for (var i = 0; i < controls.length; i++) {
-            var control = /** @type {HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement} */ (controls[i]);
+        for (const node of controls) {
+            const control = /** @type {HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement} */ (node);
             if (control.type === 'hidden' || control.disabled || control.hasAttribute('readonly')) {
                 continue;
             }
@@ -105,12 +105,10 @@
         var scope = root || document;
         var dialogs = scope.querySelectorAll('[data-section-editor]');
 
-        for (var i = 0; i < dialogs.length; i++) {
-            (function (dialog) {
-                dialog.addEventListener('shown.bs.modal', function () {
-                    focusFirstField(dialog);
-                });
-            })(dialogs[i]);
+        for (const dialog of dialogs) {
+            dialog.addEventListener('shown.bs.modal', function () {
+                focusFirstField(dialog);
+            });
         }
     }
 

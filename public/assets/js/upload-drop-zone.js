@@ -37,10 +37,10 @@
             return;
         }
 
-        var names = [];
-        for (var i = 0; i < files.length; i++) {
-            names.push(files[i].name);
-        }
+        // Array.from, not for-of: what reaches here is a FileList — or, in
+        // the tests, a FileList-alike — and an array-LIKE is not an
+        // iterable. Reading it by length and index is the whole contract.
+        var names = Array.from(files, function (file) { return file.name; });
 
         // Not "1 fichier sélectionné": the name is what tells somebody
         // they picked the holiday snap rather than the invoice.
@@ -56,7 +56,7 @@
         var scope = root || document;
         var zones = scope.querySelectorAll('[data-drop-zone-for]');
 
-        for (var i = 0; i < zones.length; i++) {
+        for (const zone of zones) {
             (function (/** @type {HTMLElement} */ zone) {
                 var input = /** @type {HTMLInputElement|null} */ (
                     document.getElementById(zone.dataset.dropZoneFor || '')
@@ -73,8 +73,8 @@
                     dropZone.bind(zone, function (files) {
                         if (typeof DataTransfer === 'function') {
                             var carrier = new DataTransfer();
-                            for (var j = 0; j < files.length; j++) {
-                                carrier.items.add(files[j]);
+                            for (const file of Array.from(files)) {
+                                carrier.items.add(file);
                             }
                             input.files = carrier.files;
                         }
@@ -92,7 +92,7 @@
                         describe(zone, input.files);
                     });
                 }
-            })(/** @type {HTMLElement} */ (zones[i]));
+            })(/** @type {HTMLElement} */ (zone));
         }
     }
 

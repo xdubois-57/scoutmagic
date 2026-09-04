@@ -44,14 +44,14 @@
         }
 
         var found = '';
-        for (var i = 0; i < members.length; i++) {
-            if (normalise(members[i].name) !== needle) {
+        for (const member of members) {
+            if (normalise(member.name) !== needle) {
                 continue;
             }
             if (found !== '') {
                 return '';
             }
-            found = String(members[i].id);
+            found = String(member.id);
         }
 
         return found;

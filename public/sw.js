@@ -428,8 +428,7 @@ function isWhitelisted(pathname, whitelist) {
     if (!whitelist) {
         return false;
     }
-    for (let i = 0; i < whitelist.length; i++) {
-        const entry = whitelist[i];
+    for (const entry of whitelist) {
         if (entry.match === 'child') {
             if (pathname.indexOf(entry.path) !== 0) {
                 continue;
@@ -573,9 +572,9 @@ self.addEventListener('notificationclick', function (event) {
 
     event.waitUntil(
         self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (clientList) {
-            for (let i = 0; i < clientList.length; i++) {
-                if (clientList[i].url === url && 'focus' in clientList[i]) {
-                    return clientList[i].focus();
+            for (const client of clientList) {
+                if (client.url === url && 'focus' in client) {
+                    return client.focus();
                 }
             }
             if (self.clients.openWindow) {
