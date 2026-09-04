@@ -362,4 +362,23 @@ class PassageServiceTest extends TestCase
 
         $this->fail("Member {$name} not found");
     }
+
+    public function testAnimeMemberIdsAmongAnswersForTheGivenMembersOnly(): void
+    {
+        $anime = $this->createMember('Ana', '2016-03-01', $this->louveteauxSectionId);
+        $leaving = $this->createMember('Léo', '2016-03-01', $this->louveteauxSectionId, leaving: true);
+        $chief = $this->createMember('Chef', '1998-03-01', $this->louveteauxSectionId, functionRole: 'chief');
+        $other = $this->createMember('Autre', '2015-03-01', $this->eclaireursSectionId);
+
+        $asked = [$anime['member_id'], $leaving['member_id'], $chief['member_id'], 999999];
+
+        $this->assertSame([$anime['member_id']], $this->service->animeMemberIdsAmong($this->currentYearId, $asked));
+
+        $withLeaving = $this->service->animeMemberIdsAmong($this->currentYearId, $asked, includeLeaving: true);
+        sort($withLeaving);
+        $this->assertSame([$anime['member_id'], $leaving['member_id']], $withLeaving);
+
+        $this->assertNotContains($other['member_id'], $withLeaving, 'a member that was not asked about is never returned');
+        $this->assertSame([], $this->service->animeMemberIdsAmong($this->currentYearId, []));
+    }
 }

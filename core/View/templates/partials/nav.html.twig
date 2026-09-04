@@ -2,6 +2,7 @@
  ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
  Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
 #}
+{% apply compact_html %}
 {# Mobile header bar — visible below lg #}
 <header class="d-lg-none d-flex align-items-center px-3 border-bottom bg-body" style="height:56px;">
     <button class="btn btn-link text-body p-2 me-auto d-inline-flex align-items-center justify-content-center" type="button" data-bs-toggle="offcanvas" data-bs-target="#navOffcanvas" style="min-width:44px;min-height:44px;">
@@ -265,3 +266,4 @@
     </div>
     {% endfor %}
 </nav>
+{% endapply %}

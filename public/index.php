@@ -406,7 +406,8 @@ $migrationRunner = new MigrationRunner(
     new SchemaIntrospector($connection->getPdo()),
     new SchemaComparator(),
     new SqlParser(),
-    journal: $migrationJournal
+    journal: $migrationJournal,
+    hashCacheDirectory: dirname(__DIR__) . '/storage/temp'
 );
 // The WHOLE declared schema — core plus every module's — not just
 // core.sql. Module schemas used to be migrated separately and lazily by
@@ -2327,7 +2328,16 @@ $twig->addGlobal('offline_whitelist', $offlineWhitelist->getEntriesForRole(Role:
 // registry already holds it in memory.
 $twig->addGlobal(
     'help_search_index',
-    (new \Core\Help\HelpSearchIndex($helpService, $helpPageLinkResolver))->forRole(Role::fromString($currentRole))
+    (new \Core\Help\HelpSearchIndex(
+        $helpService,
+        $helpPageLinkResolver,
+        // Memoized per role under the same rule as HelpRegistry's own cache
+        // (a numbered VERSION, never a checkout): the entries only change
+        // with a release or with the set of enabled modules, and building
+        // them cost ~3 ms on every page.
+        $helpRegistry->cacheDirectory(),
+        $appVersion . '|' . implode(',', $moduleManager->getEnabledModuleIds())
+    ))->forRole(Role::fromString($currentRole))
 );
 
 // Determine the active menu section AND which specific page button should

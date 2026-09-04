@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Core\Scheduler;
 
+use Core\Database\InstrumentedPdo;
+use Core\Database\QueryCounter;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use PHPUnit\Framework\TestCase;
@@ -476,5 +478,54 @@ class SchedulerServiceTest extends TestCase
         $cached->cancelPending('camps', 'purge_unsorted_mail', 'daily');
 
         $this->assertTrue($cached->rearm('camps', 'purge_unsorted_mail', 'daily', 'tomorrow 04:00'));
+    }
+
+    /**
+     * The guard public/index.php runs for every recurring task on every
+     * page load. With the snapshot, a chain that has exactly one queued
+     * row must cost nothing beyond the snapshot itself: it used to issue
+     * one collapse SELECT per task — 25 per page — to delete nothing.
+     */
+    public function testCachedSeedOnASingleLiveChainIssuesNoStatementBeyondTheSnapshot(): void
+    {
+        $pdo = DatabaseTestHelper::createTestDatabase(new InstrumentedPdo('sqlite::memory:'));
+        $repo = new SchedulerRepository($pdo);
+        $cached = new SchedulerService($repo, cachePendingRearms: true);
+        $cached->schedule('camps', 'review_reminder', new \DateTimeImmutable('tomorrow 06:00'), [], 'daily');
+        $cached->schedule('core', 'auto_backup', new \DateTimeImmutable('tomorrow 03:00'), [], 'auto');
+
+        $probe = new SchedulerService($repo, cachePendingRearms: true);
+        QueryCounter::reset();
+
+        $this->assertFalse($probe->seedAfter('camps', 'review_reminder', 'daily', 3600));
+        $this->assertFalse($probe->seedAfter('core', 'auto_backup', 'auto', 3600));
+        $this->assertFalse($probe->rearm('camps', 'review_reminder', 'daily', 'tomorrow 06:00'));
+
+        $this->assertSame(1, QueryCounter::count(), 'one snapshot query, then every guard answers from memory');
+    }
+
+    public function testCachedSeedStillCollapsesWhenTheSnapshotCountsDuplicates(): void
+    {
+        $pdo = DatabaseTestHelper::createTestDatabase(new InstrumentedPdo('sqlite::memory:'));
+        $repo = new SchedulerRepository($pdo);
+        $service = new SchedulerService($repo);
+        $service->schedule('camps', 'review_reminder', new \DateTimeImmutable('tomorrow 06:00'), [], 'daily');
+        $service->schedule('camps', 'review_reminder', new \DateTimeImmutable('tomorrow 07:00'), [], 'daily');
+
+        $cached = new SchedulerService($repo, cachePendingRearms: true);
+        $this->assertFalse($cached->seedAfter('camps', 'review_reminder', 'daily', 3600));
+
+        $this->assertSame(
+            1,
+            (int) $pdo->query("SELECT COUNT(*) FROM scheduled_actions WHERE task_key = 'review_reminder' AND status = 'pending'")->fetchColumn()
+        );
+        // And a direct schedule through the same instance is counted, so a
+        // later guard on that triple collapses the pair it just created.
+        $cached->schedule('camps', 'review_reminder', new \DateTimeImmutable('tomorrow 08:00'), [], 'daily');
+        $this->assertFalse($cached->rearm('camps', 'review_reminder', 'daily', 'tomorrow 06:00'));
+        $this->assertSame(
+            1,
+            (int) $pdo->query("SELECT COUNT(*) FROM scheduled_actions WHERE task_key = 'review_reminder' AND status = 'pending'")->fetchColumn()
+        );
     }
 }

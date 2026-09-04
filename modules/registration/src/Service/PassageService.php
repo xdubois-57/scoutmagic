@@ -472,6 +472,47 @@ class PassageService
     }
 
     /**
+     * The subset of `$memberIds` who are animés in `$scoutYearId` — the same
+     * definition as getAnimeMemberYears() (active, a non-staff function in a
+     * section, optionally still counting those marked as leaving), asked
+     * for a handful of people instead of the whole unit.
+     *
+     * This exists for the reenrollment menu hook and form, which only ever
+     * need the answer for the members linked to one account: they used to
+     * call getAnimeMemberYears() and filter the whole unit in memory, which
+     * decrypted every animé of the year on EVERY page load of every
+     * logged-in visitor for ten months a year (the campaign key is non-null
+     * from its opening date to the end of the year). Measured at 8 ms for
+     * 330 animés and 33 ms for 860 — the one part of the request floor that
+     * grew with the unit. Nothing is decrypted here at all.
+     *
+     * @param array<int, int> $memberIds
+     * @return array<int, int> member ids, in no particular order
+     */
+    public function animeMemberIdsAmong(int $scoutYearId, array $memberIds, bool $includeLeaving = false): array
+    {
+        $memberIds = array_values(array_unique(array_map('intval', $memberIds)));
+        if ($memberIds === []) {
+            return [];
+        }
+
+        $leavingFilter = $includeLeaving ? '' : ' AND my.leaving = 0';
+        $placeholders = implode(', ', array_fill(0, count($memberIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT DISTINCT my.member_id
+             FROM member_years my
+             JOIN member_functions mf ON mf.member_year_id = my.id
+             JOIN functions f ON mf.function_id = f.id
+             WHERE my.scout_year_id = ? AND my.is_active = 1{$leavingFilter}
+               AND my.member_id IN ({$placeholders})
+               AND f.role NOT IN ('chief', 'admin', 'intendant') AND mf.section_id IS NOT NULL"
+        );
+        $stmt->execute([$scoutYearId, ...$memberIds]);
+
+        return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
+    /**
      * For each of $memberYearIds, everyone else sharing at least one of its
      * address blind indexes ("même adresse" — module spec, NEVER "fratrie"),
      * active, non-leaving, same scout year. Any role (a household can

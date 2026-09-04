@@ -77,15 +77,26 @@ class ReenrollmentFormService
         string $publicYearLabel,
         int $targetYearId
     ): array {
-        $animeMemberIds = [];
-        foreach ($this->passageService->getAnimeMemberYears($publicYearId, includeLeaving: true) as $row) {
-            $animeMemberIds[(int) $row['member_id']] = true;
+        // Linked members first, then one targeted query for those few ids:
+        // this runs from the menu hook on every page load, so it must never
+        // cost the whole unit (see PassageService::animeMemberIdsAmong()).
+        $linked = $this->memberService->getLinkedMembers($email, $publicYearId);
+        if ($linked === []) {
+            return [];
+        }
+        $animeMemberIds = array_flip($this->passageService->animeMemberIdsAmong(
+            $publicYearId,
+            array_map(static fn(MemberProfile $profile): int => $profile->memberId, $linked),
+            includeLeaving: true
+        ));
+        if ($animeMemberIds === []) {
+            return [];
         }
 
         $limit = $this->reenrollmentService->friendWishLimit();
 
         $cards = [];
-        foreach ($this->memberService->getLinkedMembers($email, $publicYearId) as $profile) {
+        foreach ($linked as $profile) {
             if (!isset($animeMemberIds[$profile->memberId])) {
                 continue;
             }
@@ -127,18 +138,10 @@ class ReenrollmentFormService
      */
     public function mayAnswerFor(string $email, int $memberId, int $publicYearId): bool
     {
-        foreach ($this->passageService->getAnimeMemberYears($publicYearId, includeLeaving: true) as $row) {
-            if ((int) $row['member_id'] !== $memberId) {
-                continue;
+        foreach ($this->memberService->getLinkedMembers($email, $publicYearId) as $profile) {
+            if ($profile->memberId === $memberId) {
+                return $this->passageService->animeMemberIdsAmong($publicYearId, [$memberId], includeLeaving: true) !== [];
             }
-
-            foreach ($this->memberService->getLinkedMembers($email, $publicYearId) as $profile) {
-                if ($profile->memberId === $memberId) {
-                    return true;
-                }
-            }
-
-            return false;
         }
 
         return false;

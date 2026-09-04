@@ -131,4 +131,22 @@ final class FormatFiltersTest extends TestCase
         $this->assertSame('0,05 €', $this->render('5|money_cents'));
         $this->assertSame('', $this->render('value|money_cents', ['value' => null]));
     }
+
+    public function testCompactHtmlDropsIndentationBetweenTagsButKeepsAnInlineSpace(): void
+    {
+        $html = "<ul>\n    <li>\n        <i class=\"bi\"></i> Accueil\n    </li>\n    <li><b>a</b> <b>b</b></li>\n</ul>";
+
+        $this->assertSame(
+            '<ul><li><i class="bi"></i> Accueil </li><li><b>a</b> <b>b</b></li></ul>',
+            $this->twig->createTemplate('{% apply compact_html %}' . $html . '{% endapply %}')->render()
+        );
+    }
+
+    public function testCompactHtmlStillEscapesWhatTheBlockInterpolates(): void
+    {
+        $rendered = $this->twig->createTemplate('{% apply compact_html %}<p>{{ name }}</p>{% endapply %}')
+            ->render(['name' => '<script>']);
+
+        $this->assertSame('<p>&lt;script&gt;</p>', $rendered);
+    }
 }

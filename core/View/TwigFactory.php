@@ -425,6 +425,10 @@ class TwigFactory
         // Register text normalization filters (normalize_name/totem/phone/address)
         $environment->addExtension(new TextNormalizerExtension());
 
+        // compact_html (Core\View\CompactHtmlExtension) — the navigation
+        // partial's indentation stripper.
+        $environment->addExtension(new CompactHtmlExtension());
+
         // Register display_name filter
         $environment->addFilter(new TwigFilter('display_name', function ($member) {
             if ($member instanceof \Core\Member\MemberProfile) {
