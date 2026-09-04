@@ -144,7 +144,12 @@ describe('file-viewer', () => {
             document.getElementById('photo').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
             const download = viewer().querySelector('a');
-            expect(download.getAttribute('href')).toBe('/files/7');
+            // The RESOLVED URL, not the trigger's relative string: open()
+            // assigns what safeViewerUrl() validated rather than what it
+            // was handed, so that a checker can see the value reaching the
+            // sink is the one that was approved. Same resource either way —
+            // a browser resolves an anchor's .href to absolute regardless.
+            expect(download.href).toBe(new URL('/files/7', document.location.href).href);
             expect(download.getAttribute('download')).toBe('recu.png');
         });
 
@@ -348,6 +353,50 @@ describe('file-viewer', () => {
 
             expect(event.defaultPrevented).toBe(false);
             expect(isOpen()).toBe(false);
+        });
+    });
+
+    describe('the URL a trigger hands the viewer', () => {
+        // CodeQL js/xss-through-dom, two HIGH alerts on this file, and
+        // they were reachable. `download.href` is navigable — the
+        // standalone branch calls win.open() on it — and `image.src`
+        // likewise. The plain-link path rejected anything carrying a
+        // scheme; the `data-file-viewer` path passed its attribute
+        // straight through, so markup rendered from user content could
+        // put `javascript:` into a sink.
+        it('refuses a javascript: URL from data-file-viewer', async () => {
+            buildPage('<a id="x" href="/files/7" data-file-viewer="javascript:alert(1)">Piège</a>');
+            await load();
+
+            document.getElementById('x').dispatchEvent(
+                new MouseEvent('click', { bubbles: true, cancelable: true })
+            );
+
+            expect(isOpen()).toBe(false);
+        });
+
+        it('refuses a data: URL too', async () => {
+            buildPage('<a id="x" href="/files/7" data-file-viewer="data:text/html,<script>x</script>">Piège</a>');
+            await load();
+
+            document.getElementById('x').dispatchEvent(
+                new MouseEvent('click', { bubbles: true, cancelable: true })
+            );
+
+            expect(isOpen()).toBe(false);
+        });
+
+        it('still opens on the ordinary same-origin path', async () => {
+            // The guard must not cost the feature: a relative path
+            // resolves against the page and inherits its http(s) scheme.
+            buildPage('<a id="ok" href="/files/7" data-file-viewer="/files/7" data-file-name="Photo">Photo</a>');
+            await load();
+
+            document.getElementById('ok').dispatchEvent(
+                new MouseEvent('click', { bubbles: true, cancelable: true })
+            );
+
+            expect(isOpen()).toBe(true);
         });
     });
 

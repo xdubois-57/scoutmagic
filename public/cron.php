@@ -203,7 +203,38 @@ $dkimManager = new DkimManager(__DIR__ . '/../storage/keys');
 foreach (['short_name', 'mail_from_address', 'mail_from_name', 'dkim_selector'] as $mailSecretKey) {
     $secrets[$mailSecretKey] = (string) ($settingService->get($mailSecretKey) ?: ($secrets[$mailSecretKey] ?? ''));
 }
-$mailService = MailServiceFactory::create($secrets, $dkimManager, null, $journalService);
+// **Le bac à sable e-mail vaut ici AUSSI** (ARCHITECTURE.md §8.63).
+//
+// Ce fichier passait `null` : la capture n'existait que sur le chemin web,
+// et tout ce qu'envoie une tâche planifiée partait pour de bon — la
+// clôture automatique d'une rétrospective, les rappels de location, les
+// factures, les résumés de notifications. Autrement dit : la moitié du
+// courrier du site, et précisément la moitié que personne ne déclenche à
+// la main, donc celle qu'on ne pense pas à vérifier. Signalé par un
+// e-mail de clôture reçu alors que la capture était armée.
+//
+// La MÊME décision à trois conditions que public/index.php, prise par la
+// même fabrique — et le profil d'installation est résolu une fois ici
+// puis réutilisé plus bas par ModuleManager, au lieu d'être résolu deux
+// fois dans le même fichier.
+$installationProfile = \Core\Module\InstallationProfile::resolve(
+    (string) ($settingService->get('base_url') ?? ''),
+    (string) ($settingService->get('statistics_destination') ?? '')
+);
+
+$mailService = MailServiceFactory::create(
+    $secrets,
+    $dkimManager,
+    \Modules\TestTools\Mail\CaptureTransportFactory::forInstallation(
+        $installationProfile,
+        new ModuleRegistryRepository($pdo),
+        $settingService,
+        $pdo,
+        $encryptionService,
+        dirname(__DIR__) . '/storage'
+    ),
+    $journalService
+);
 
 // Web Push (Core\Notification) — same construction as public/index.php.
 // Null when VAPID keys aren't provisioned yet (e.g. this script running
@@ -283,11 +314,9 @@ $moduleManager = new ModuleManager(
     new \Core\Offline\OfflineWhitelist(),
     // Same profile resolution as public/index.php, through the same
     // resolver — a module gated by visible_when must have its scheduled
-    // tasks resolvable under a real crontab too.
-    \Core\Module\InstallationProfile::resolve(
-        (string) ($settingService->get('base_url') ?? ''),
-        (string) ($settingService->get('statistics_destination') ?? '')
-    ),
+    // tasks resolvable under a real crontab too. Résolu plus haut, où le
+    // bac à sable e-mail en a besoin lui aussi.
+    $installationProfile,
     null,
     // Same manifest cache as public/index.php (mtime-keyed).
     dirname(__DIR__) . '/storage/temp'

@@ -179,4 +179,81 @@ class CaptureWiringTest extends TestCase
             'The arm switch must never render as an editable row on Configuration > Paramètres'
         );
     }
+
+    // ── Les deux points d'entrée, et pas seulement le web ───────────────
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function entryPoints(): array
+    {
+        return [
+            'the web request' => ['index.php'],
+            'the real crontab' => ['cron.php'],
+        ];
+    }
+
+    /**
+     * Every entry point that builds a MailService asks the same question.
+     *
+     * The defect this pins: `public/cron.php` passed `null` where
+     * index.php passed the factory's answer. The sandbox therefore
+     * existed on the web path only, and everything a SCHEDULED task sends
+     * went out for real — a retrospective's automatic closure, rental
+     * reminders, invoices, notification digests. Half the site's mail,
+     * and precisely the half nobody triggers by hand, so the half nobody
+     * thinks to check. It was found by receiving one of those e-mails
+     * with the capture armed.
+     *
+     * Asserted on the source rather than by running it: a composition
+     * root is the one place no unit test reaches, which is exactly why
+     * the two copies drifted.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('entryPoints')]
+    public function testEveryEntryPointRoutesItsMailThroughTheSandboxDecision(string $file): void
+    {
+        $source = (string) file_get_contents(dirname(__DIR__, 3) . '/public/' . $file);
+
+        $this->assertStringContainsString(
+            'CaptureTransportFactory::forInstallation(',
+            $source,
+            $file . ' builds a MailService without asking whether this installation captures mail: '
+            . 'everything it sends would go out even with the sandbox armed'
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            '/MailServiceFactory::create\([^;]*,\s*null\s*,/s',
+            $source,
+            $file . ' hands MailServiceFactory a null transport — that is the shape the bug had'
+        );
+    }
+
+    /**
+     * The one place a `null` transport is right, and why it is not an
+     * oversight.
+     *
+     * The setup page's « envoyer un e-mail de test » exists to answer
+     * « does my SMTP configuration work ». Capturing that would answer a
+     * different question and answer it wrongly: the operator would see
+     * « envoyé avec succès » having proven nothing at all. It is the only
+     * send on the site whose entire purpose is to leave the machine.
+     */
+    public function testTheSetupSmtpTestDeliberatelySendsForReal(): void
+    {
+        $source = (string) file_get_contents(
+            dirname(__DIR__, 3) . '/core/Http/Controller/SetupController.php'
+        );
+
+        $this->assertMatchesRegularExpression(
+            '/MailServiceFactory::create\([^;]*,\s*null\s*,/s',
+            $source,
+            'the setup SMTP test must keep sending for real: capturing it would report success '
+            . 'without proving anything'
+        );
+        // And it says so, so the next reader does not "fix" it.
+        $this->assertStringContainsString(
+            'bac à sable',
+            $source,
+            'the deliberate exception must explain itself where it lives'
+        );
+    }
 }

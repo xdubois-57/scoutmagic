@@ -33,7 +33,8 @@ Before submitting any code:
 9. ☐ No secrets in source code.
 10. ☐ Sensitive actions logged via `JournalService`.
 11. ☐ Non-essential cookies checked via `CookieConsentService::isAllowed()` before being set.
-12. ☐ No unit data in a help-assistant prompt — not a member, not a section, not an amount, not aggregated, not anonymised. The assistant answers from help topics only (ARCHITECTURE.md §8.87), it has no tool-calling and no SQL, and the day it can reach the data every prompt injection in a topic or a member's name becomes an exfiltration path.
+12. ☐ A change under `public/assets/js/` had its CodeQL results checked after pushing — see § CodeQL below. Nothing run locally sees `js/xss-through-dom`, and a value is not safe for having come from your own template.
+13. ☐ No unit data in a help-assistant prompt — not a member, not a section, not an amount, not aggregated, not anonymised. The assistant answers from help topics only (ARCHITECTURE.md §8.87), it has no tool-calling and no SQL, and the day it can reach the data every prompt injection in a topic or a member's name becomes an exfiltration path.
 
 ## Exception messages that reach a visitor
 
@@ -137,6 +138,20 @@ Pre-existing findings unrelated to your change are captured in `phpstan-baseline
 Mechanism: the TypeScript compiler used purely as a development-time checker over the existing plain JavaScript (`allowJs`/`checkJs`/`noEmit` — see `tsconfig.json`) — no transpilation, no build, nothing generated, nothing new served to the browser or shipped in a release (see § CSS / frontend below). `scripts/js-typecheck.mjs` (the script behind `npm run typecheck`) wraps `tsc` with a baseline mechanism — `js-typecheck-baseline.json` — modeled directly on `phpstan-baseline.neon`, so pre-existing debt can be accepted incrementally instead of blocking on a wholesale rewrite: a clean run means no *new* finding beyond what the baseline accepts, not zero findings ever. As of this writing the baseline is empty (`{}`) — every finding surfaced when the gate was introduced (mostly `document.getElementById()`/`querySelector()`'s generic return type not matching the specific element the code actually used) was fixed with a JSDoc type cast rather than accepted as debt — but treat that as the current state, not a guarantee: new debt can legitimately enter the baseline over time. The same rule as the PHPStan baseline applies regardless: never add a new finding to `js-typecheck-baseline.json` to make your own change "pass" — fix it, or if it is genuine pre-existing debt you are not touching, leave it as-is. Regenerate it (`node scripts/js-typecheck.mjs --generate-baseline`) only to intentionally accept new pre-existing debt, never to hide a finding your own change just introduced.
 
 **JSDoc matters here more than it does for readability.** TypeScript's `checkJs` only enforces argument-count and argument-type checking on a function once it has JSDoc `@param` types — a plain, untyped JS function parameter is treated as effectively optional and its call sites go unchecked. Add `@param`/`@returns` JSDoc to a function when it has more than one parameter and is called from more than one place within its file (the exact shape of the constructor-signature-drift bug described above) — that is where an unannotated function silently gives up the one guarantee this gate exists to provide. Don't annotate a single-parameter DOM event handler or a one-off callback just to "look typed" — see § CSS / frontend for the general rule against turning this codebase into disguised TypeScript.
+
+## CodeQL — check the scan after every push that touches JavaScript
+
+**Nothing you run locally sees this class of defect.** PHPStan, PHPUnit, `npm run typecheck`, Vitest and the end-to-end suite all passed on a change that shipped two HIGH `js/xss-through-dom` alerts — a `data-file-viewer` attribute read straight into `image.src` and `download.href`, both navigable sinks, one of them handed to `win.open()` by the same file. The code was correct, tested and reviewed; it was also exploitable by any page that renders that attribute from user-controlled content. It was found days later, by hand, because a release refused.
+
+So: **after pushing a change that touches `public/assets/js/`, check the repository's code scanning results before calling the work done.** Not at release time — then, a finding is weeks of other work away from the change that caused it.
+
+How, in order of preference:
+
+1. `gh api "repos/{owner}/{repo}/code-scanning/alerts" --paginate --jq '.[] | select(.state == "open")'`, or the same endpoint with `curl` and a token carrying `security_events` read. This is the only way to see the alerts themselves.
+2. **When that returns `403 Resource not accessible by integration`** — the ordinary case for an agent whose token was never granted that permission, and the same gap `check_security_gate` already tolerates at release time — fall back to the commit's own check runs: `GET /repos/{owner}/{repo}/commits/{sha}/check-runs`, where GitHub's default CodeQL setup appears as `Analyze (javascript-typescript)` and `Analyze (actions)`. Be honest about what that proves: it says the scan **ran and completed**, not that it found nothing. Say exactly that to the user, and give them the Security tab so a human can read the alerts.
+3. Read your own diff for the sinks CodeQL flags, because you can always do that: anything written into `src`, `href`, `action`, `formaction`, `srcdoc`, `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `location`, `window.open()`, `eval`, `setTimeout`/`setInterval` with a string, or `new Function`. **A value is not safe because it came from your own template**: a template renders user-controlled content, which is precisely how the alert above was reachable. Validate at the sink, not at the call sites — a later caller arrives without the check and nothing says so.
+
+An alert that is genuinely a false positive is dismissed in the Security tab with a written justification, the same standard as a Dependabot alert (see § Releases). Never left open and unmentioned.
 
 ## CSS / frontend
 

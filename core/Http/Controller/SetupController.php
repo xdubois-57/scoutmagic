@@ -783,6 +783,15 @@ class SetupController extends AbstractController
         $secrets = $this->mailSecretsUnderTest($request);
 
         try {
+            // **Le seul envoi du site qui doit partir pour de vrai, même
+            // bac à sable armé** (ARCHITECTURE.md §8.63). Ce bouton
+            // répond à « ma configuration SMTP fonctionne-t-elle ? » :
+            // capturer sa réponse répondrait à une autre question, et y
+            // répondrait faux — l'opérateur lirait « envoyé avec succès »
+            // sans que rien n'ait été prouvé. D'où le transport `null`,
+            // qui est ici une décision et non un oubli ; tout autre point
+            // d'entrée passe par CaptureTransportFactory, et un test
+            // épingle les deux moitiés de cette règle.
             $mailService = MailServiceFactory::create($secrets, $this->dkimManager, null, $this->journalService);
             $mailService->send(
                 to: $recipient,
