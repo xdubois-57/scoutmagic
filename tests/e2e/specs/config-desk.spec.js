@@ -26,6 +26,7 @@ import { expect, test } from '@playwright/test';
 
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { loginAsAdmin, loginAsMember } from '../support/admin-login.js';
+import { waitForServerResponse } from '../support/response.js';
 
 const SECTION_RENAMED = 'Meute E2E (renommée)';
 
@@ -37,7 +38,7 @@ const SECTION_RENAMED = 'Meute E2E (renommée)';
  * @param {string} endpoint
  */
 function nextSave(page, endpoint) {
-    return page.waitForResponse((response) => response.url().includes(endpoint));
+    return waitForServerResponse(page, (response) => response.url().includes(endpoint));
 }
 
 test('config desk auto-saves roles and sections, and a role change reaches the member\'s live session at once', async ({ page, browser }) => {

@@ -56,6 +56,7 @@ import { answerCookieBanner } from '../support/cookie-banner.js';
 import { loginAsAdmin } from '../support/admin-login.js';
 import { linkFromMail, waitForMail } from '../support/maildrop.js';
 import { waitOutHumanCheckDelay } from '../support/human-check.js';
+import { waitForServerResponse } from '../support/response.js';
 
 /**
  * Opens one of /config/inscriptions' collapsible boxes, asserting on the
@@ -94,7 +95,7 @@ async function openConfigBox(page, name, panelId) {
  */
 async function saveCapacitiesBox(page) {
     await Promise.all([
-        page.waitForResponse((response) =>
+        waitForServerResponse(page, (response) =>
             response.request().method() === 'POST' && response.url().endsWith('/config/inscriptions')),
         page.locator('#registration-capacities-box')
             .getByRole('button', { name: 'Enregistrer', exact: true }).click(),

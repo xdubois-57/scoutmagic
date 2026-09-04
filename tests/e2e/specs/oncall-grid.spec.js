@@ -27,6 +27,7 @@ import { expect, test } from '@playwright/test';
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { loginAsAdmin } from '../support/admin-login.js';
 import { waitForSosJsReady } from '../support/sos.js';
+import { waitForServerResponse } from '../support/response.js';
 
 /**
  * Puts the roster back the way the harness provisioned it — empty.
@@ -129,7 +130,7 @@ test('the duty grid cycles a cell through its three states, saving the month on 
 
     /** Click the cell once and wait for the full-month save to answer. */
     async function clickAndSave() {
-        const saved = page.waitForResponse((response) => response.url().includes('/admin/sos/oncall'));
+        const saved = waitForServerResponse(page, (response) => response.url().includes('/admin/sos/oncall'));
         await cellAgain().click();
         expect((await saved).ok()).toBe(true);
         await expect(saveStatus).toHaveText('Enregistré.');
@@ -289,7 +290,7 @@ test('on a phone the month is a list of days, and one sheet edits any of them', 
 
     /** Press one of the three named buttons and wait for the month to land. */
     async function press(label) {
-        const saved = page.waitForResponse((response) => response.url().includes('/admin/sos/oncall'));
+        const saved = waitForServerResponse(page, (response) => response.url().includes('/admin/sos/oncall'));
         await memberBlock.getByRole('button', { name: label, exact: true }).click();
         expect((await saved).ok()).toBe(true);
         await expect(page.locator('#sos-day-sheet-status')).toHaveText('Enregistré.');
@@ -394,7 +395,7 @@ test('the default-number warning shows only when today has no on-call', async ({
 
     /** Click today's cell once and wait for the full-month save to answer. */
     async function cycleToday() {
-        const saved = page.waitForResponse((response) => response.url().includes('/admin/sos/oncall'));
+        const saved = waitForServerResponse(page, (response) => response.url().includes('/admin/sos/oncall'));
         await cellAgain().click();
         expect((await saved).ok()).toBe(true);
         await expect(page.locator('#oncall-save-status')).toHaveText('Enregistré.');

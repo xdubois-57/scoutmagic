@@ -41,6 +41,7 @@ import { answerCookieBanner } from '../support/cookie-banner.js';
 import { autoConfirm } from '../support/confirm-dialog.js';
 import { loginAsAdmin } from '../support/admin-login.js';
 import { chooseInSelectBar } from '../support/select-bar.js';
+import { waitForServerResponse } from '../support/response.js';
 
 const MEMBER_NAME = 'Kaa Serpent';
 const DEPARTURE_COMMENT = 'Déménage à Namur cet été.';
@@ -84,7 +85,7 @@ async function openCapacitiesBox(page) {
  */
 async function saveCapacitiesBox(page) {
     await Promise.all([
-        page.waitForResponse((response) =>
+        waitForServerResponse(page, (response) =>
             response.request().method() === 'POST' && response.url().endsWith('/config/inscriptions')),
         page.locator('#registration-capacities-box')
             .getByRole('button', { name: 'Enregistrer', exact: true }).click(),
@@ -146,14 +147,14 @@ test('the departures and passage grids save on change, with no save button anywh
     const leavingBox = page.getByRole('checkbox', { name: `Ne sera plus là l'année prochaine — ${MEMBER_NAME}` });
     await expect(leavingBox).not.toBeChecked();
 
-    const saveOfLeaving = page.waitForResponse((response) => response.url().includes('/departs/') && response.request().method() === 'POST');
+    const saveOfLeaving = waitForServerResponse(page, (response) => response.url().includes('/departs/') && response.request().method() === 'POST');
     await leavingBox.check();
     expect ((await (await saveOfLeaving).json()).success, 'checking the box must save on its own').toBe(true);
 
     const commentField = page.getByLabel(`Note interne — jamais vue par la famille — ${MEMBER_NAME}`);
     await expect(commentField).toBeVisible();
 
-    const saveOfComment = page.waitForResponse((response) => response.url().includes('/departs/') && response.request().method() === 'POST');
+    const saveOfComment = waitForServerResponse(page, (response) => response.url().includes('/departs/') && response.request().method() === 'POST');
     await commentField.fill(DEPARTURE_COMMENT);
     await commentField.blur();
     expect((await (await saveOfComment).json()).success).toBe(true);
@@ -174,7 +175,7 @@ test('the departures and passage grids save on change, with no save button anywh
     // failed in CI under the security scan, whose added latency widens the
     // window (Playwright reports uncheck() done once the DOM reflects it,
     // not once the save has landed).
-    const saveOfReset = page.waitForResponse((response) => response.url().includes('/departs/') && response.request().method() === 'POST');
+    const saveOfReset = waitForServerResponse(page, (response) => response.url().includes('/departs/') && response.request().method() === 'POST');
     await page.getByRole('checkbox', { name: `Ne sera plus là l'année prochaine — ${MEMBER_NAME}` }).uncheck();
     expect((await (await saveOfReset).json()).success, 'unchecking the box must save on its own').toBe(true);
     await page.reload({ waitUntil: 'domcontentloaded' });

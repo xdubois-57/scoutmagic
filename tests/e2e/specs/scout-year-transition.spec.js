@@ -72,6 +72,7 @@ import { loginAsAdmin } from '../support/admin-login.js';
 // Shared with specs/optional-module-dependencies.spec.js, which switches
 // modules off for the opposite reason — see support/modules.js.
 import { toggleModule } from '../support/modules.js';
+import { waitForServerResponse } from '../support/response.js';
 
 const DESK_FIXTURE = path.join(
     path.dirname(fileURLToPath(import.meta.url)),
@@ -173,7 +174,7 @@ async function toggleStep(page, key) {
     // instantly and assert against the pre-submit DOM. Wait on the request
     // itself, then on the reload it causes.
     await Promise.all([
-        page.waitForResponse((response) =>
+        waitForServerResponse(page, (response) =>
             response.url().includes('/admin/scout-year/step') && response.request().method() === 'POST'),
         step(page, key).getByRole('checkbox').click(),
     ]);

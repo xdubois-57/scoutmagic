@@ -28,6 +28,7 @@ import { answerCookieBanner } from '../support/cookie-banner.js';
 import { answerConfirmation, autoConfirm } from '../support/confirm-dialog.js';
 import { expectRendersAsAnEventCalendar } from '../support/calendar.js';
 import { loginAsAdmin, loginAsMember } from '../support/admin-login.js';
+import { waitForServerResponse } from '../support/response.js';
 
 const EVENT_TITLE = `Réunion de branche E2E ${Date.now()}`;
 const EVENT_TITLE_EDITED = `${EVENT_TITLE} (reportée)`;
@@ -64,7 +65,7 @@ test('a chief creates, edits and deletes an event through the modal, the grids r
     // (« Vu par »); its accessible name adds the calendar so a page full
     // of them stays navigable — see partials/form_field's `aria_label`.
     const visibilitySelect = page.getByLabel('Vu par — Meute E2E');
-    const visibilitySave = page.waitForResponse((response) => response.url().includes('/config/calendar/visibility'));
+    const visibilitySave = waitForServerResponse(page, (response) => response.url().includes('/config/calendar/visibility'));
     await visibilitySelect.selectOption('public');
     expect((await visibilitySave).ok()).toBe(true);
 
@@ -207,7 +208,7 @@ test('a chief creates, edits and deletes an event through the modal, the grids r
     // And the section calendar goes back to its provisioned visibility,
     // so the calendar surface later scenarios meet is untouched.
     await page.goto('/config/calendar', { waitUntil: 'load' });
-    const visibilityRestore = page.waitForResponse((response) => response.url().includes('/config/calendar/visibility'));
+    const visibilityRestore = waitForServerResponse(page, (response) => response.url().includes('/config/calendar/visibility'));
     await page.getByLabel('Vu par — Meute E2E').selectOption('chief');
     expect((await visibilityRestore).ok()).toBe(true);
 
@@ -219,12 +220,12 @@ test('a chief creates, edits and deletes an event through the modal, the grids r
     // calendar the later scenarios meet keeps its provisioned value.
     // ---------------------------------------------------------------
     const editRoleSelect = page.getByLabel('Modifié par — Meute E2E');
-    const editRoleSave = page.waitForResponse((response) => response.url().includes('/config/calendar/edit-role'));
+    const editRoleSave = waitForServerResponse(page, (response) => response.url().includes('/config/calendar/edit-role'));
     await editRoleSelect.selectOption('admin');
     expect((await editRoleSave).ok()).toBe(true);
     await expect(editRoleSelect).toHaveValue('admin');
 
-    const editRoleRestore = page.waitForResponse((response) => response.url().includes('/config/calendar/edit-role'));
+    const editRoleRestore = waitForServerResponse(page, (response) => response.url().includes('/config/calendar/edit-role'));
     await editRoleSelect.selectOption('chief');
     expect((await editRoleRestore).ok()).toBe(true);
     await expect(editRoleSelect).toHaveValue('chief');
