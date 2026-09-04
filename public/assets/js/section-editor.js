@@ -88,7 +88,7 @@
         // identifier does not allow.
         var scope = root && typeof root.getElementById === 'function' ? root : document;
         var target = /** @type {HTMLElement|null} */ (scope.getElementById(id));
-        if (target === null || target.dataset.sectionEditor === undefined) {
+        if (target?.dataset.sectionEditor === undefined) {
             return false;
         }
 

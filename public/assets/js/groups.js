@@ -1333,7 +1333,7 @@
             var form = /** @type {HTMLFormElement} */ (element);
             var key = replyDraftKey(form);
             var input = /** @type {HTMLInputElement} */ (form.querySelector('input[name="body"]'));
-            if (!key || !input || input.value.trim() !== '') {
+            if (!key || input?.value.trim() !== '') {
                 return;
             }
 
@@ -1580,7 +1580,7 @@
                 return { ok: response.ok, data: data };
             });
         }).then(function (result) {
-            if (!result.ok || !result.data || result.data.reported !== true) {
+            if (!result.ok || result.data?.reported !== true) {
                 form.submit();
                 return;
             }

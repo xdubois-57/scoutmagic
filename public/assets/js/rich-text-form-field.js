@@ -49,7 +49,7 @@
  * @returns {string|null}
  */
 export function keywordOf(node) {
-    if (!node || node.nodeType !== 1) {
+    if (node?.nodeType !== 1) {
         return null;
     }
 

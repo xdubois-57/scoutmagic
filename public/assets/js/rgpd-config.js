@@ -110,7 +110,7 @@
         return api.getJson('/config/rgpd/generate/status').then(function (res) {
             var data = res.data;
 
-            if (!data || data.success !== true) {
+            if (data?.success !== true) {
                 stopGenerationTimer();
                 generateStatus.innerHTML = generateErrorHtml(res);
                 generateBtn.disabled = false;
@@ -159,7 +159,7 @@
 
         return api.postJson('/config/rgpd/generate', { prompt: prompt })
             .then(function (res) {
-                if (!res.data || res.data.success !== true) {
+                if (res.data?.success !== true) {
                     stopGenerationTimer();
                     generateStatus.innerHTML = generateErrorHtml(res);
                     generateBtn.disabled = false;

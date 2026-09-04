@@ -83,7 +83,7 @@
      * @returns {string}
      */
     function registrationErrorMessage(err) {
-        switch (err && /** @type {any} */ (err).name) {
+        switch (/** @type {any} */ (err)?.name) {
             // The platform authenticator already holds a key for this
             // account on this device (excludeCredentials prevents a
             // duplicate).

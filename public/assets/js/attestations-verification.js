@@ -113,7 +113,7 @@
         var total = rows.length;
         var selected = rows.filter(function (row) {
             var box = checkboxOf(row);
-            return box !== null && box.checked;
+            return box?.checked === true;
         }).length;
 
         if (visibleEl) {
@@ -140,7 +140,7 @@
 
         return tickable.length > 0 && tickable.every(function (row) {
             var box = checkboxOf(row);
-            return box !== null && box.checked;
+            return box?.checked === true;
         });
     }
 

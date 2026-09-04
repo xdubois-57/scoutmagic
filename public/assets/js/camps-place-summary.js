@@ -55,7 +55,7 @@
      */
     function release(form) {
         var button = submitButtonOf(form);
-        if (button === null || button.dataset.idleLabel === undefined) {
+        if (button?.dataset.idleLabel === undefined) {
             return;
         }
 

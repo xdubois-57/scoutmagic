@@ -53,7 +53,7 @@
     // (folded to « ou »), « quand » and « pourquoi » are in it because a
     // `question:` line opens with one of them; « tou » is there because
     // de-suffixing turns « tous » into it.
-    var STOP_WORDS = [
+    var STOP_WORDS = new Set([
         'a', 'au', 'aux', 'avec', 'ce', 'ces', 'cet', 'cette', 'comment', 'dans',
         'de', 'des', 'du', 'elle', 'en', 'est', 'et', 'eux', 'il', 'ils', 'je',
         'la', 'le', 'les', 'leur', 'lui', 'ma', 'mais', 'mes', 'mon', 'ne', 'nos',
@@ -61,7 +61,7 @@
         'pourquoi', 'qu', 'quand', 'que', 'qui', 'quoi', 'sa', 'se', 'ses', 'son',
         'sont', 'sur', 'ta', 'te', 'tes', 'toi', 'ton', 'tou', 'tous', 'tout',
         'toute', 'toutes', 'tu', 'un', 'une', 'vos', 'votre', 'vous', 'y'
-    ];
+    ]);
 
     /**
      * Lowercased with the diacritics stripped, so "médaille" and
@@ -112,7 +112,7 @@
         var tokens = [];
         var raw = normalize(value).split(/[^a-z0-9]+/);
         for (const token of raw) {
-            if (token === '' || STOP_WORDS.includes(token)) {
+            if (token === '' || STOP_WORDS.has(token)) {
                 continue;
             }
             tokens.push(stem(token));
@@ -276,12 +276,12 @@
         var needed = requiredCoverage(terms.length);
         var scored = [];
 
-        for (var i = 0; i < prepared.length; i++) {
+        for (const candidate of prepared) {
             var score = 0;
             var covered = 0;
 
             for (const term of terms) {
-                var best = scoreTerm(term, prepared[i]);
+                var best = scoreTerm(term, candidate);
                 if (best > 0) {
                     covered++;
                     score += best;
@@ -289,7 +289,7 @@
             }
 
             if (covered >= needed) {
-                scored.push({ entry: prepared[i].entry, score: score, title: normalize(prepared[i].entry.title) });
+                scored.push({ entry: candidate.entry, score: score, title: normalize(candidate.entry.title) });
             }
         }
 
