@@ -36,7 +36,11 @@ $jar = tempnam(sys_get_temp_dir(), 'perf-jar');
 $questions = null;
 try {
     $pdo = new PDO(
-        sprintf('mysql:host=%s;port=%d', getenv('PERF_DB_HOST') ?: (getenv('TEST_DB_HOST') ?: '127.0.0.1'), (int) (getenv('PERF_DB_PORT') ?: (getenv('TEST_DB_PORT') ?: 3306))),
+        sprintf(
+            'mysql:host=%s;port=%d',
+            getenv('PERF_DB_HOST') ?: (getenv('TEST_DB_HOST') ?: '127.0.0.1'),
+            (int) (getenv('PERF_DB_PORT') ?: (getenv('TEST_DB_PORT') ?: 3306)),
+        ),
         getenv('PERF_DB_USER') ?: (getenv('TEST_DB_USER') ?: 'root'),
         getenv('PERF_DB_PASSWORD') ?: (getenv('TEST_DB_PASSWORD') ?: '')
     );
@@ -58,7 +62,13 @@ function perf_request(string $url, string $jar, ?string $json = null): array
     $info = curl_getinfo($ch);
     curl_close($ch);
 
-    return [(int) $info['http_code'], strlen($body), (float) $info['total_time'], $body, (string) ($info['redirect_url'] ?? '')];
+    return [
+        (int) $info['http_code'],
+        strlen($body),
+        (float) $info['total_time'],
+        $body,
+        (string) ($info['redirect_url'] ?? ''),
+    ];
 }
 
 if ($email !== '-') {

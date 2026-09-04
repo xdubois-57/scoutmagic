@@ -35,13 +35,13 @@
      */
     function save(memberYearId, payload) {
         return api.postJson('/departs/' + memberYearId, payload).then(function (res) {
-            if (res.data && res.data.success) {
+            if (res.data?.success) {
                 return true;
             }
             window.ScoutMagicToast.show(
                 res.status === 0
                     ? 'Erreur réseau.'
-                    : (res.data && res.data.error) || "Erreur lors de l'enregistrement.",
+                    : res.data?.error || "Erreur lors de l'enregistrement.",
                 { variant: 'error' }
             );
             return false;

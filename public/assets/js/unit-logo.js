@@ -20,10 +20,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
         var res = await window.ScoutMagicApi.postJson('/config/settings/logo-delete', {});
 
-        if (res.data && res.data.success) {
+        if (res.data?.success) {
             window.location.reload();
         } else {
-            window.ScoutMagicToast.show((res.data && res.data.error) || 'Une erreur est survenue.', { variant: 'error' });
+            window.ScoutMagicToast.show(res.data?.error || 'Une erreur est survenue.', { variant: 'error' });
         }
     });
 });

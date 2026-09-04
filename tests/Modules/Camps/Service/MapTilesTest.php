@@ -60,7 +60,11 @@ final class MapTilesTest extends TestCase
 
     public function testTheRgpdPromptTellsTheModelWhatToDoWhenTheModuleIsOff(): void
     {
-        $prompt = (string) file_get_contents(self::root() . '/core/View/RgpdContentService.php');
+        $prompt = (string) preg_replace(
+            '/\s+/u',
+            ' ',
+            (string) file_get_contents(self::root() . '/core/View/RgpdContentService.php')
+        );
 
         // Without this rule the generated policy keeps naming a
         // subprocessor an installation without the module never contacts.

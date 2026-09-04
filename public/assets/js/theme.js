@@ -72,7 +72,7 @@
             if (pair.slice(0, eq).trim() !== 'cookie_consent') continue;
             try {
                 var data = JSON.parse(decodeURIComponent(pair.slice(eq + 1).trim()));
-                return !!(data && data.functional);
+                return !!(data?.functional);
             } catch (e) {
                 return false;
             }

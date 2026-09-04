@@ -27,7 +27,7 @@
 // Under the pressure of a queue somebody holds out the wrong code, and
 // the answer is not to remove one but to make the confusion harmless.
 (function () {
-    const config = window.ScoutMagicApi && window.ScoutMagicApi.pageData('news-scan-data');
+    const config = window.ScoutMagicApi?.pageData('news-scan-data');
     const openButton = /** @type {HTMLButtonElement|null} */ (document.getElementById('news-scan-open-camera'));
     const frame = document.getElementById('news-scan-camera');
     const readerEl = document.getElementById('news-scan-reader');
@@ -67,7 +67,7 @@
             // The browser drops it by itself in some conditions; forget
             // our handle so the visibility listener below can ask again.
             wakeLock.addEventListener('release', function () { wakeLock = null; });
-        } catch (e) {
+        } catch {
             // Refused (a battery-saver mode, a policy): the screen still
             // works, it just dims. Never a message — this is a comfort.
             wakeLock = null;

@@ -54,7 +54,7 @@
      * @returns {boolean}
      */
     function succeeded(res) {
-        return !!(res.data && res.data.success);
+        return !!(res.data?.success);
     }
 
     /**
@@ -65,7 +65,7 @@
      * @returns {string}
      */
     function failureMessage(res) {
-        return (res.data && res.data.error) || 'Erreur : réponse serveur invalide.';
+        return res.data?.error || 'Erreur : réponse serveur invalide.';
     }
 
     /** @param {{ok: boolean, status: number, data: any}} res */
@@ -166,7 +166,8 @@
         try {
             var parsed = new URL(raw, window.location.href);
             return (parsed.protocol === 'https:' || parsed.protocol === 'http:') ? parsed.href : null;
-        } catch (err) {
+        } catch {
+            // URL() throws on a value that is not a URL — there is none.
             return null;
         }
     }

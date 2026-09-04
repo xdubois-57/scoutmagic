@@ -729,7 +729,10 @@ RewriteRule ^ index.php [L]
 # silently when it is absent, like the rest of this file.
 # ---------------------------------------------------------------------
 <IfModule mod_deflate.c>
-    AddOutputFilterByType DEFLATE text/html text/plain text/css text/calendar text/javascript application/javascript application/json application/manifest+json image/svg+xml
+    AddOutputFilterByType DEFLATE text/html text/plain text/css
+    AddOutputFilterByType DEFLATE text/calendar text/javascript
+    AddOutputFilterByType DEFLATE application/javascript application/json
+    AddOutputFilterByType DEFLATE application/manifest+json image/svg+xml
 </IfModule>
 
 HTACCESS;
@@ -2139,12 +2142,19 @@ function bootstrap_render_ui(string $docRoot, string $stateFile): void
 <title>ScoutMagic — Installation</title>
 <style>
   :root { color-scheme: light; }
-  body { font-family: system-ui, -apple-system, sans-serif; max-width: 640px; margin: 0 auto; padding: 1.25rem; line-height: 1.5; }
+  body {
+    font-family: system-ui, -apple-system, sans-serif;
+    max-width: 640px; margin: 0 auto; padding: 1.25rem; line-height: 1.5;
+  }
   h1 { font-size: 1.4rem; }
   h3 { font-size: 1.05rem; margin-top: 0; }
   .option-box { border: 1px solid #ccc; border-radius: .5rem; padding: 1rem; margin: 1rem 0; }
   .paths code { word-break: break-all; }
-  button { min-height: 44px; min-width: 44px; font-size: 1rem; padding: .6rem 1.2rem; border-radius: .5rem; border: none; background: #0d6efd; color: #fff; cursor: pointer; }
+  button {
+    min-height: 44px; min-width: 44px; font-size: 1rem;
+    padding: .6rem 1.2rem; border-radius: .5rem; border: none;
+    background: #0d6efd; color: #fff; cursor: pointer;
+  }
   button:disabled { background: #999; cursor: not-allowed; }
   .report-row { padding: .4rem .2rem; border-bottom: 1px solid #eee; }
   .report-ok { color: #146c2e; }
@@ -2154,7 +2164,10 @@ function bootstrap_render_ui(string $docRoot, string $stateFile): void
   .alert-error { background: #fdecea; color: #611a15; }
   #progress-bar-outer { background: #eee; border-radius: .5rem; height: 1rem; overflow: hidden; margin: 1rem 0; }
   #progress-bar { background: #0d6efd; height: 100%; width: 0; transition: width .3s; }
-  #progress-log { font-size: .85rem; max-height: 220px; overflow-y: auto; background: #f8f9fa; border-radius: .5rem; padding: .75rem; }
+  #progress-log {
+    font-size: .85rem; max-height: 220px; overflow-y: auto;
+    background: #f8f9fa; border-radius: .5rem; padding: .75rem;
+  }
   #progress-log p { margin: .2rem 0; }
   .log-error { color: #b02a37; font-weight: 600; }
   [hidden] { display: none !important; }
@@ -2279,7 +2292,9 @@ function bootstrap_render_ui(string $docRoot, string $stateFile): void
       // runProbe() itself handles the failure normally. Expected, not a
       // bug — this pause just holds the screen here for a moment so
       // there's time to see/copy them before moving on, if needed.
-      logLine('Contrôles envoyés — pause de quelques secondes avant de continuer (si la console du navigateur affiche des erreurs ici, c\\'est normal : elles viennent des vérifications ci-dessus).');
+      logLine('Contrôles envoyés — pause de quelques secondes avant de continuer '
+        + '(si la console du navigateur affiche des erreurs ici, c\\'est normal : '
+        + 'elles viennent des vérifications ci-dessus).');
       return new Promise(function (resolve) { setTimeout(resolve, 8000); }).then(function () {
         return postJson('?action=gate-report', { results: results });
       });
@@ -2311,7 +2326,9 @@ function bootstrap_render_ui(string $docRoot, string $stateFile): void
       abortBtn.disabled = true;
       postJson('?action=abort', {}).then(function (data) {
         if (data.ok === false) {
-          summary.textContent = (data.message || 'Le nettoyage automatique a échoué.') + ' Supprimez manuellement via FTP les fichiers déjà copiés, ainsi que ' + STATE_FILE_NAME + ' et ' + LOCK_FILE_NAME + ', puis rechargez cette page.';
+          summary.textContent = (data.message || 'Le nettoyage automatique a échoué.')
+            + ' Supprimez manuellement via FTP les fichiers déjà copiés, ainsi que '
+            + STATE_FILE_NAME + ' et ' + LOCK_FILE_NAME + ', puis rechargez cette page.';
           summary.className = 'alert alert-error';
           abortBtn.disabled = false;
           return;
@@ -2320,7 +2337,9 @@ function bootstrap_render_ui(string $docRoot, string $stateFile): void
         summary.className = 'alert alert-ok';
         setTimeout(function () { window.location.reload(); }, 2500);
       }).catch(function () {
-        summary.textContent = 'Le nettoyage automatique a également échoué. Supprimez manuellement via FTP les fichiers déjà copiés, ainsi que ' + STATE_FILE_NAME + ' et ' + LOCK_FILE_NAME + ', puis rechargez cette page.';
+        summary.textContent = 'Le nettoyage automatique a également échoué. '
+          + 'Supprimez manuellement via FTP les fichiers déjà copiés, ainsi que '
+          + STATE_FILE_NAME + ' et ' + LOCK_FILE_NAME + ', puis rechargez cette page.';
         summary.className = 'alert alert-error';
         abortBtn.disabled = false;
       });
@@ -2332,7 +2351,10 @@ function bootstrap_render_ui(string $docRoot, string $stateFile): void
     showScreen('report');
     document.getElementById('report-table').innerHTML = '';
     var summary = document.getElementById('report-summary');
-    summary.textContent = "La réponse du serveur n'a pas pu être interprétée (problème réseau, ou le serveur a renvoyé une réponse inattendue). Des fichiers ont peut-être déjà été copiés. Cliquez ci-dessous pour annuler proprement cette tentative avant de réessayer.";
+    summary.textContent = "La réponse du serveur n'a pas pu être interprétée "
+      + "(problème réseau, ou le serveur a renvoyé une réponse inattendue). "
+      + "Des fichiers ont peut-être déjà été copiés. Cliquez ci-dessous pour "
+      + "annuler proprement cette tentative avant de réessayer.";
     summary.className = 'alert alert-error';
     attachAbortButton(summary);
   }
@@ -2366,7 +2388,11 @@ function bootstrap_render_ui(string $docRoot, string $stateFile): void
       // Never auto-redirect when bootstrap.php couldn't delete itself —
       // name the file to remove via FTP, then let the operator continue
       // manually rather than silently leaving it reachable.
-      summary.textContent = (data.cleanup_warning || 'Installation terminée avec succès, mais bootstrap.php n\\'a pas pu se supprimer automatiquement.') + ' Une fois supprimé (ou si vous préférez continuer sans le faire), cliquez ci-dessous.';
+      summary.textContent = (data.cleanup_warning
+          || 'Installation terminée avec succès, mais bootstrap.php n\\'a pas pu '
+            + 'se supprimer automatiquement.')
+        + ' Une fois supprimé (ou si vous préférez continuer sans le faire), '
+        + 'cliquez ci-dessous.';
       summary.className = 'alert alert-warning';
       if (data.token_write_warning) { logLine(data.token_write_warning, true); }
       var continueBtn = document.createElement('button');
@@ -2379,7 +2405,9 @@ function bootstrap_render_ui(string $docRoot, string $stateFile): void
       continueBtn.addEventListener('click', function () { window.location.href = '/setup'; });
       summary.insertAdjacentElement('afterend', continueBtn);
     } else if (effectivePassed) {
-      summary.textContent = 'Installation terminée avec succès. token.php vous attend dans le même dossier FTP — la page suivante vous le demandera. Redirection automatique dans quelques secondes.';
+      summary.textContent = 'Installation terminée avec succès. token.php vous '
+        + 'attend dans le même dossier FTP — la page suivante vous le demandera. '
+        + 'Redirection automatique dans quelques secondes.';
       summary.className = 'alert alert-ok';
       if (data.token_write_warning) { logLine(data.token_write_warning, true); }
       setTimeout(function () { window.location.href = '/setup'; }, 5000);
@@ -2389,7 +2417,9 @@ function bootstrap_render_ui(string $docRoot, string $stateFile): void
       // actual reason lives, and the progress screen's log line for it
       // just got hidden by the switch to this screen. Show it directly.
       var reasonSuffix = data.error ? (' Raison : ' + data.error) : '';
-      summary.textContent = 'L\\'installation a été annulée et les fichiers déjà copiés ont été retirés.' + reasonSuffix + ' Corrigez le point signalé ci-dessus puis rechargez cette page pour réessayer.';
+      summary.textContent = 'L\\'installation a été annulée et les fichiers déjà '
+        + 'copiés ont été retirés.' + reasonSuffix
+        + ' Corrigez le point signalé ci-dessus puis rechargez cette page pour réessayer.';
       summary.className = 'alert alert-error';
     }
   }
@@ -2410,7 +2440,8 @@ function bootstrap_main(): void
     if (bootstrap_already_installed($docRoot) && !is_file($stateFile)) {
         bootstrap_render_error_page(
             'Ce dossier contient déjà une installation ScoutMagic (fichier VERSION ou dossier core/ présent). '
-            . 'Utilisez Configuration > Maintenance pour mettre à jour, ou retirez manuellement les fichiers existants '
+            . 'Utilisez Configuration > Maintenance pour mettre à jour, ou retirez '
+            . 'manuellement les fichiers existants '
             . 'avant de relancer bootstrap.php.'
         );
         return;

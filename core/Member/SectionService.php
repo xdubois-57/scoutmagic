@@ -361,7 +361,8 @@ class SectionService
      * picker, the camps module's « réservé par » list).
      *
      * @param array<int, int> $sectionIds
-     * @return array<int, MemberProfile[]> keyed by section id, every requested id present, each list sorted by display name
+     * @return array<int, MemberProfile[]> keyed by section id, every requested
+     *     id present, each list sorted by display name
      */
     public function getStaffForSections(array $sectionIds, int $scoutYearId): array
     {
@@ -372,7 +373,8 @@ class SectionService
      * getSectionAnimes() for many sections in one pass.
      *
      * @param array<int, int> $sectionIds
-     * @return array<int, MemberProfile[]> keyed by section id, every requested id present, each list sorted by display name
+     * @return array<int, MemberProfile[]> keyed by section id, every requested
+     *     id present, each list sorted by display name
      */
     public function getAnimesForSections(array $sectionIds, int $scoutYearId): array
     {
@@ -412,7 +414,9 @@ class SectionService
         $stmt->execute([...$sectionIds, $scoutYearId]);
         $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
 
-        $profiles = $this->hydrateMemberProfiles(array_map(static fn(array $row): int => (int) $row['member_year_id'], $rows));
+        $profiles = $this->hydrateMemberProfiles(
+            array_map(static fn(array $row): int => (int) $row['member_year_id'], $rows)
+        );
         foreach ($rows as $row) {
             $profile = $profiles[(int) $row['member_year_id']] ?? null;
             if ($profile !== null) {
@@ -420,7 +424,11 @@ class SectionService
             }
         }
         foreach ($bySection as &$list) {
-            usort($list, static fn(MemberProfile $a, MemberProfile $b): int => strcasecmp($a->getDisplayName(), $b->getDisplayName()));
+            usort(
+                $list,
+                static fn(MemberProfile $a, MemberProfile $b): int
+                    => strcasecmp($a->getDisplayName(), $b->getDisplayName())
+            );
         }
         unset($list);
 

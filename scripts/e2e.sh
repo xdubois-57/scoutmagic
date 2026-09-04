@@ -121,22 +121,25 @@ E2E_ADMIN_EMAIL="${E2E_ADMIN_EMAIL:-admin@example.invalid}"
 # Generated per run rather than hardcoded — see this script's header. PHP
 # rather than openssl/urandom so the one interpreter this harness already
 # requires is the only thing it depends on, on macOS and Linux alike.
-E2E_ADMIN_PASSWORD="${E2E_ADMIN_PASSWORD:-$(php -r 'echo "E2e-" . bin2hex(random_bytes(16));')}"
+e2e_random_password() {
+    php -r 'echo "E2e-" . bin2hex(random_bytes(16));'
+}
+E2E_ADMIN_PASSWORD="${E2E_ADMIN_PASSWORD:-$(e2e_random_password)}"
 # The second, ordinary member — same rules as the admin above: an
 # .invalid address that can never be a real mailbox, and a password
 # generated fresh for every run.
 E2E_MEMBER_EMAIL="${E2E_MEMBER_EMAIL:-kaa@example.invalid}"
-E2E_MEMBER_PASSWORD="${E2E_MEMBER_PASSWORD:-$(php -r 'echo "E2e-" . bin2hex(random_bytes(16));')}"
+E2E_MEMBER_PASSWORD="${E2E_MEMBER_PASSWORD:-$(e2e_random_password)}"
 # The three role-bearing accounts — same rules again. They are always
 # provisioned, not only for a scan: a fixture that exists on one code path
 # and not another is a fixture nobody can reason about, and the cost is
 # three rows in a database that is dropped at teardown.
 E2E_INTENDANT_EMAIL="${E2E_INTENDANT_EMAIL:-chil@example.invalid}"
-E2E_INTENDANT_PASSWORD="${E2E_INTENDANT_PASSWORD:-$(php -r 'echo "E2e-" . bin2hex(random_bytes(16));')}"
+E2E_INTENDANT_PASSWORD="${E2E_INTENDANT_PASSWORD:-$(e2e_random_password)}"
 E2E_CHIEF_EMAIL="${E2E_CHIEF_EMAIL:-bagheera@example.invalid}"
-E2E_CHIEF_PASSWORD="${E2E_CHIEF_PASSWORD:-$(php -r 'echo "E2e-" . bin2hex(random_bytes(16));')}"
+E2E_CHIEF_PASSWORD="${E2E_CHIEF_PASSWORD:-$(e2e_random_password)}"
 E2E_UNIT_ADMIN_EMAIL="${E2E_UNIT_ADMIN_EMAIL:-akela@example.invalid}"
-E2E_UNIT_ADMIN_PASSWORD="${E2E_UNIT_ADMIN_PASSWORD:-$(php -r 'echo "E2e-" . bin2hex(random_bytes(16));')}"
+E2E_UNIT_ADMIN_PASSWORD="${E2E_UNIT_ADMIN_PASSWORD:-$(e2e_random_password)}"
 export E2E_DB_HOST E2E_DB_PORT E2E_DB_NAME E2E_DB_USER E2E_DB_PASSWORD
 export E2E_ADMIN_EMAIL E2E_ADMIN_PASSWORD
 export E2E_MEMBER_EMAIL E2E_MEMBER_PASSWORD

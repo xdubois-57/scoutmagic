@@ -261,12 +261,12 @@
                     return;
                 }
                 field.focus();
-                if (input && input.selectOnOpen) {
+                if (input?.selectOnOpen) {
                     field.select();
                 }
             }
 
-            var Modal = window.bootstrap && window.bootstrap.Modal;
+            var Modal = window.bootstrap?.Modal;
             var instance = null;
             var backdrop = null;
             if (Modal) {

@@ -542,16 +542,25 @@ if ($migrationIsPending) {
 <title>Mise à jour en cours…</title>
 <style nonce="__CSP_NONCE__">
   :root { color-scheme: light dark; }
-  body { font-family: system-ui, -apple-system, sans-serif; max-width: 32rem; margin: 4rem auto; padding: 0 1.5rem; text-align: center; }
+  body {
+    font-family: system-ui, -apple-system, sans-serif;
+    max-width: 32rem; margin: 4rem auto; padding: 0 1.5rem; text-align: center;
+  }
   h1 { font-size: 1.25rem; }
-  .bar-track { background: rgba(127, 127, 127, 0.25); border-radius: 999px; height: 0.75rem; overflow: hidden; margin: 1.5rem 0; }
+  .bar-track {
+    background: rgba(127, 127, 127, 0.25); border-radius: 999px;
+    height: 0.75rem; overflow: hidden; margin: 1.5rem 0;
+  }
   .bar-fill { background: #2f6f4f; height: 100%; width: 0%; transition: width 0.4s ease; }
   p.hint { opacity: 0.7; font-size: 0.9rem; }
 </style>
 </head>
 <body>
 <h1>Mise à jour du site en cours…</h1>
-<p>Merci de patienter, cette page se rechargera automatiquement une fois la mise à jour terminée. Vous pouvez aussi fermer cet onglet : la mise à jour reprendra à l'endroit où elle s'est arrêtée lors de votre prochaine visite.</p>
+<p>Merci de patienter, cette page se rechargera automatiquement une fois la
+mise à jour terminée. Vous pouvez aussi fermer cet onglet : la mise à jour
+reprendra à l'endroit où elle s'est arrêtée lors de votre prochaine
+visite.</p>
 <div class="bar-track"><div class="bar-fill" id="bar"></div></div>
 <p class="hint" id="hint">Démarrage…</p>
 <script nonce="__CSP_NONCE__">
@@ -622,7 +631,8 @@ $settingService->register('dkim_selector', 's2026', 'text', 'Sélecteur DKIM',
     'Identifiant technique de la clé DKIM, présent dans l\'enregistrement DNS correspondant.',
     null, '^[a-z0-9]+$', null, true, 60);
 $settingService->register('dmarc_report_email', '', 'email', 'Email rapports DMARC',
-    'Adresse à laquelle les fournisseurs de messagerie envoient un résumé périodique des emails reçus au nom du domaine.',
+    'Adresse à laquelle les fournisseurs de messagerie envoient un résumé périodique des emails reçus au nom du '
+        . 'domaine.',
     null, null, null, true, 70);
 $settingService->register('contact_email', '', 'email', 'Email de contact',
     'Adresse email affichée sur la page Contact.',
@@ -631,10 +641,12 @@ $settingService->register('site_version', '0.0.0', 'text', 'Version du site',
     'Version actuelle du site. Mise à jour automatiquement lors des releases.',
     null, null, null, false, 90);
 $settingService->register('journal_retention_days', '730', 'number', 'Rétention du journal (jours)',
-    'Durée de conservation des entrées du journal d\'événements. Les entrées plus anciennes sont automatiquement supprimées.',
+    'Durée de conservation des entrées du journal d\'événements. Les entrées plus anciennes sont automatiquement '
+        . 'supprimées.',
     null, '^[1-9][0-9]*$', null, true, 100);
 $settingService->register('update_github_owner', 'xdubois-57', 'text', 'Propriétaire du dépôt GitHub (mises à jour)',
-    'Compte/organisation GitHub du dépôt publiant les releases de mise à jour. À modifier uniquement si l\'unité utilise son propre fork.',
+    'Compte/organisation GitHub du dépôt publiant les releases de mise à jour. À modifier uniquement si l\'unité '
+        . 'utilise son propre fork.',
     null, null, null, true, 110);
 $settingService->register('update_github_repo', 'scoutmagic', 'text', 'Dépôt GitHub (mises à jour)',
     'Nom du dépôt GitHub publiant les releases de mise à jour.',
@@ -658,16 +670,19 @@ $settingService->register('update_dependencies_changed', '0', 'boolean', 'Dépen
     'Indique si composer.lock a changé entre la version installée et la dernière release connue. Géré automatiquement.',
     null, null, null, false, 117);
 $settingService->register('installed_version_notes', '', 'textarea', 'Notes de version (version installée)',
-    'Notes de version (ou message de commit en mode développement) de la version actuellement installée. Mis en cache et rafraîchi automatiquement lorsque la version installée change. Géré automatiquement.',
+    'Notes de version (ou message de commit en mode développement) de la version actuellement installée. Mis en '
+        . 'cache et rafraîchi automatiquement lorsque la version installée change. Géré automatiquement.',
     null, null, null, false, 999);
 $settingService->register('installed_version_notes_url', '', 'url', 'URL des notes de version (version installée)',
     'Lien vers la page GitHub (release ou commit) correspondant à la version installée. Géré automatiquement.',
     null, null, null, false, 999);
 $settingService->register('installed_version_notes_for', '', 'text', 'Version des notes ci-dessus',
-    'Version pour laquelle installed_version_notes a été mis en cache — sert uniquement à détecter qu\'un rafraîchissement est nécessaire après une mise à jour. Géré automatiquement.',
+    'Version pour laquelle installed_version_notes a été mis en cache — sert uniquement à détecter qu\'un '
+        . 'rafraîchissement est nécessaire après une mise à jour. Géré automatiquement.',
     null, null, null, false, 999);
 $settingService->register('backup_auto_frequency', 'monthly', 'select', 'Fréquence des sauvegardes automatiques',
-    'Fréquence à laquelle une sauvegarde complète du site (base de données et fichiers, sans la galerie photo) est générée automatiquement en arrière-plan. « Aucune » désactive la sauvegarde automatique.',
+    'Fréquence à laquelle une sauvegarde complète du site (base de données et fichiers, sans la galerie photo) '
+        . 'est générée automatiquement en arrière-plan. « Aucune » désactive la sauvegarde automatique.',
     null, null, ['none', 'daily', 'weekly', 'biweekly', 'monthly'], true, 118);
 $settingService->register('backup_auto_last_run', '', 'text', 'Dernière sauvegarde automatique',
     'Horodatage de la dernière sauvegarde automatique effectuée avec succès. Géré automatiquement.',
@@ -700,13 +715,15 @@ $settingService->register('auto_update_last_push_at', '', 'text', 'Dernière pou
     'Horodatage de la dernière poussée GitHub reçue et effectivement examinée par le webhook. Géré automatiquement.',
     null, null, null, false, 126);
 $settingService->register('auto_update_last_push_result', '', 'text', 'Résultat de la dernière poussée',
-    'Ce que le webhook a fait de cette poussée : « ok » si l\'installation a été programmée, sinon la raison du rejet. Géré automatiquement.',
+    'Ce que le webhook a fait de cette poussée : « ok » si l\'installation a été programmée, sinon la raison du '
+        . 'rejet. Géré automatiquement.',
     null, null, null, false, 127);
 $settingService->register('current_scout_year_id', '0', 'number', 'Année scoute publique (ID)',
     'Identifiant de l\'année scoute vue par tout le monde. Gérée depuis la page « Année scoute ».',
     null, '^[0-9]+$', null, false, 210);
 $settingService->register('staff_scout_year_id', '0', 'number', 'Année scoute du staff (ID)',
-    'Identifiant de l\'année scoute vue par les chefs et intendants. 0 si aucune. Gérée depuis la page « Année scoute ».',
+    'Identifiant de l\'année scoute vue par les chefs et intendants. 0 si aucune. Gérée depuis la page « Année '
+        . 'scoute ».',
     null, '^[0-9]+$', null, false, 220);
 $settingService->register('rgpd_generation_mode', 'default', 'select', 'Mode de génération RGPD',
     'Mode de génération du contenu de la page RGPD publique.',
@@ -722,8 +739,10 @@ $settingService->register('rgpd_custom_prompt', '', 'textarea', 'Prompt RGPD per
 // offset concept (module addendum: never touch that logic). Combined
 // with a scout year's start calendar year, e.g. default '30-09' + 2025 =
 // 2025-09-30.
-$settingService->register('section_document_reference_date', '30-09', 'text', 'Date de référence — documents de section',
-    'Jour et mois (JJ-MM) utilisés pour déterminer qui était actif dans quelle section une année scoute donnée, pour l\'accès aux documents de section.',
+$settingService->register(
+    'section_document_reference_date', '30-09', 'text', 'Date de référence — documents de section',
+    'Jour et mois (JJ-MM) utilisés pour déterminer qui était actif dans quelle section une année scoute donnée, '
+        . 'pour l\'accès aux documents de section.',
     null, '^(0[1-9]|[12]\d|3[01])-(0[1-9]|1[0-2])$', null, true, 250);
 // Scout year transition (Core\ScoutYear\ScoutYearTransitionService) — the
 // day the "Année scoute" page starts presenting the Desk encoding phase as
@@ -733,19 +752,33 @@ $settingService->register('section_document_reference_date', '30-09', 'text', 'D
 // transitions deliberately (a computed date cannot be told "not yet" by
 // the registration veto), and this parameter does not bring them back.
 $settingService->register('scout_year_desk_encoding_date', '08-15', 'text', 'Bascule vers l\'encodage dans Desk',
-    'Jour et mois (MM-JJ) à partir desquels la page « Année scoute » présente l\'encodage dans Desk comme la période en cours — jamais d\'année à indiquer, la même configuration se répète d\'une année scoute à l\'autre. Purement indicatif : cette date n\'active, ne bloque et ne déclenche jamais rien.',
+    'Jour et mois (MM-JJ) à partir desquels la page « Année scoute » présente l\'encodage dans Desk comme la '
+        . 'période en cours — jamais d\'année à indiquer, la même configuration se répète d\'une année scoute à '
+        . 'l\'autre. Purement indicatif : cette date n\'active, ne bloque et ne déclenche jamais rien.',
     null, '^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$', null, true, 252);
-$settingService->register('section_document_compression_enabled', '1', 'boolean', 'Compression des documents PDF de section',
-    'Compresse automatiquement les documents PDF de section en arrière-plan après leur ajout, si un outil de compression est disponible sur le serveur.',
+$settingService->register(
+    'section_document_compression_enabled', '1', 'boolean', 'Compression des documents PDF de section',
+    'Compresse automatiquement les documents PDF de section en arrière-plan après leur ajout, si un outil de '
+        . 'compression est disponible sur le serveur.',
     null, null, null, true, 251);
-$settingService->register('section_document_compression_quality', \Core\Pdf\PdfCompressor::QUALITY_BALANCED, 'select', 'Qualité de compression — documents de section',
+$settingService->register(
+    'section_document_compression_quality', \Core\Pdf\PdfCompressor::QUALITY_BALANCED, 'select',
+    'Qualité de compression — documents de section',
     'Niveau de compression appliqué aux documents PDF de section.',
-    null, null, [\Core\Pdf\PdfCompressor::QUALITY_MIN_SIZE, \Core\Pdf\PdfCompressor::QUALITY_BALANCED, \Core\Pdf\PdfCompressor::QUALITY_HIGH], true, 252);
-$settingService->register('section_document_compression_backend', \Core\Pdf\PdfCompressor::BACKEND_NONE, 'text', 'Outil de compression PDF détecté',
-    'Outil de compression PDF détecté automatiquement sur le serveur (ghostscript, qpdf, pdftocairo, ou none). Lecture seule — mis à jour automatiquement.',
+    null, null, [
+        \Core\Pdf\PdfCompressor::QUALITY_MIN_SIZE, \Core\Pdf\PdfCompressor::QUALITY_BALANCED,
+        \Core\Pdf\PdfCompressor::QUALITY_HIGH], true, 252,
+    );
+$settingService->register(
+    'section_document_compression_backend', \Core\Pdf\PdfCompressor::BACKEND_NONE, 'text',
+    'Outil de compression PDF détecté',
+    'Outil de compression PDF détecté automatiquement sur le serveur (ghostscript, qpdf, pdftocairo, ou none). '
+        . 'Lecture seule — mis à jour automatiquement.',
     null, null, null, false, 253);
-$settingService->register('section_document_oversize_warning_mb', '5', 'number', 'Seuil d\'avertissement — gros document de section',
-    'Taille (Mo) à partir de laquelle un avertissement s\'affiche avant l\'ajout d\'un document, uniquement lorsqu\'aucun outil de compression n\'est disponible sur le serveur.',
+$settingService->register(
+    'section_document_oversize_warning_mb', '5', 'number', 'Seuil d\'avertissement — gros document de section',
+    'Taille (Mo) à partir de laquelle un avertissement s\'affiche avant l\'ajout d\'un document, uniquement '
+        . 'lorsqu\'aucun outil de compression n\'est disponible sur le serveur.',
     null, '^[1-9][0-9]*$', null, true, 254);
 // Installable PWA (Lot 1) — theme_color/background_color feed both the
 // manifest and the maskable/icon-180 icons' own opaque backdrop
@@ -758,23 +791,27 @@ $settingService->register('pwa_theme_color', '#0d6efd', 'color', 'Couleur du th�
     'Couleur de la barre d\'état/du thème lorsque le site est installé comme application.',
     null, null, null, true, 255);
 $settingService->register('pwa_background_color', '#ffffff', 'color', 'Couleur de fond (PWA)',
-    'Couleur de fond affichée pendant le chargement de l\'application installée, et derrière l\'icône adaptative (maskable).',
+    'Couleur de fond affichée pendant le chargement de l\'application installée, et derrière l\'icône adaptative '
+        . '(maskable).',
     null, null, null, true, 256);
 $settingService->register('pwa_icon_version', '1', 'number', 'Version de l\'icône PWA',
-    'Incrémentée automatiquement à chaque nouvel envoi de logo — sert à invalider le cache navigateur/OS de l\'icône. Lecture seule.',
+    'Incrémentée automatiquement à chaque nouvel envoi de logo — sert à invalider le cache navigateur/OS de '
+        . 'l\'icône. Lecture seule.',
     null, null, null, false, 257);
 
 // Notification centre (Lot 2) — global defaults, overridable per account
 // for quiet hours (Core\Security\UserAccountRepository::
 // updateNotificationSettings()) via "Mon compte".
 $settingService->register('notifications_quiet_hours_start', '22:00', 'text', 'Heures calmes — début',
-    'Heure à partir de laquelle une notification push est retardée jusqu\'à la fin de la période calme (format HH:MM). Chaque membre peut définir ses propres heures dans "Mon compte".',
+    'Heure à partir de laquelle une notification push est retardée jusqu\'à la fin de la période calme (format '
+        . 'HH:MM). Chaque membre peut définir ses propres heures dans "Mon compte".',
     null, '^([01]\d|2[0-3]):[0-5]\d$', null, true, 258);
 $settingService->register('notifications_quiet_hours_end', '07:00', 'text', 'Heures calmes — fin',
     'Heure à laquelle les notifications push retardées par la période calme sont envoyées (format HH:MM).',
     null, '^([01]\d|2[0-3]):[0-5]\d$', null, true, 259);
 $settingService->register('notifications_retention_days', '90', 'number', 'Conservation des notifications (jours)',
-    'Une notification lue est supprimée automatiquement après ce délai. Une notification non lue n\'est jamais supprimée.',
+    'Une notification lue est supprimée automatiquement après ce délai. Une notification non lue n\'est jamais '
+        . 'supprimée.',
     null, null, null, true, 260);
 
 // Desk import retention, in scout years (Core\Import\ImportRetentionService,
@@ -785,7 +822,9 @@ $settingService->register('notifications_retention_days', '90', 'number', 'Conse
 $settingService->register(\Core\Import\ImportRetentionService::SETTING_KEY,
     (string) \Core\Import\ImportRetentionService::DEFAULT_YEARS, 'number',
     'Conservation des imports Desk (années scoutes)',
-    'Nombre d\'années scoutes pendant lesquelles un import Desk est conservé — sa ligne, son fichier CSV chiffré et l\'instantané du roster qu\'il a figé. La valeur 2 conserve l\'année en cours et la précédente. Au-delà, la saison entière est supprimée définitivement.',
+    'Nombre d\'années scoutes pendant lesquelles un import Desk est conservé — sa ligne, son fichier CSV chiffré '
+        . 'et l\'instantané du roster qu\'il a figé. La valeur 2 conserve l\'année en cours et la précédente. Au-delà, '
+        . 'la saison entière est supprimée définitivement.',
     null, null, null, true, 261);
 
 // Offline content caching (Lot 3) — how old a cached copy of a
@@ -794,7 +833,8 @@ $settingService->register(\Core\Import\ImportRetentionService::SETTING_KEY,
 // instead. Passed to public/sw.js via postMessage — never hardcoded
 // there (see base.html.twig).
 $settingService->register('offline_cache_staleness_days', '30', 'number', 'Péremption du contenu hors ligne (jours)',
-    'Au-delà de ce délai, une page mise en cache pour la consultation hors ligne n\'est plus affichée — la page hors ligne générique est montrée à la place plutôt qu\'un contenu obsolète.',
+    'Au-delà de ce délai, une page mise en cache pour la consultation hors ligne n\'est plus affichée — la page '
+        . 'hors ligne générique est montrée à la place plutôt qu\'un contenu obsolète.',
     null, null, null, true, 261);
 
 // Core\Security\HumanCheck — generic anti-bot protection for public forms
@@ -802,16 +842,21 @@ $settingService->register('offline_cache_staleness_days', '30', 'number', 'Pére
 // every integration point (magic-link request, news module public form
 // responses, and any future module reusing the component) at once.
 $settingService->register('human_check_min_delay_seconds', '3', 'number', 'Délai minimum avant soumission (secondes)',
-    'Une soumission de formulaire public reçue moins de X secondes après son affichage est rejetée (probable robot). Une valeur trop élevée finit par rejeter de vrais visiteurs.',
+    'Une soumission de formulaire public reçue moins de X secondes après son affichage est rejetée (probable '
+        . 'robot). Une valeur trop élevée finit par rejeter de vrais visiteurs.',
     null, '^\d+$', null, true, 270);
-$settingService->register('human_check_form_validity_seconds', '14400', 'number', 'Durée de validité d\'un formulaire (secondes)',
-    'Au-delà de ce délai après son affichage, un formulaire public est considéré expiré et sa soumission est rejetée — évite qu\'un onglet resté ouvert très longtemps soit rejoué indéfiniment.',
+$settingService->register(
+    'human_check_form_validity_seconds', '14400', 'number', 'Durée de validité d\'un formulaire (secondes)',
+    'Au-delà de ce délai après son affichage, un formulaire public est considéré expiré et sa soumission est '
+        . 'rejetée — évite qu\'un onglet resté ouvert très longtemps soit rejoué indéfiniment.',
     null, '^\d+$', null, true, 271);
-$settingService->register('human_check_rate_limit_window_minutes', '10', 'number', 'Fenêtre de limitation par IP (minutes)',
+$settingService->register(
+    'human_check_rate_limit_window_minutes', '10', 'number', 'Fenêtre de limitation par IP (minutes)',
     'Taille de la fenêtre glissante utilisée pour compter les soumissions de formulaires publics par adresse IP.',
     null, '^\d+$', null, true, 272);
 $settingService->register('human_check_rate_limit_max_attempts', '5', 'number', 'Soumissions maximum par IP',
-    'Nombre maximum de soumissions de formulaires publics autorisées pour une même adresse IP dans la fenêtre de limitation, au-delà duquel les soumissions suivantes sont rejetées.',
+    'Nombre maximum de soumissions de formulaires publics autorisées pour une même adresse IP dans la fenêtre de '
+        . 'limitation, au-delà duquel les soumissions suivantes sont rejetées.',
     null, '^\d+$', null, true, 273);
 
 // Usage statistics and support package (Core\Statistics, Core\Support —
@@ -822,7 +867,8 @@ $settingService->register('human_check_rate_limit_max_attempts', '5', 'number', 
 // page, which pairs the switch with the plain-language explanation of what
 // leaves the site, something a plain editable row cannot carry.
 $settingService->register('statistics_enabled', '1', 'boolean', 'Envoi automatique des statistiques d\'utilisation',
-    'Autorise l\'envoi quotidien d\'un rapport d\'utilisation agrégé vers ScoutMagic. Le rapport contient l\'adresse de ce site, jamais de donnée de membre. Géré depuis la page Support.',
+    'Autorise l\'envoi quotidien d\'un rapport d\'utilisation agrégé vers ScoutMagic. Le rapport contient '
+        . 'l\'adresse de ce site, jamais de donnée de membre. Géré depuis la page Support.',
     null, null, null, true, 280);
 // Rendered by no page at all — not by the Support page (Core\Http\Controller\
 // SupportController::index() says why) and not by the generic Réglages page
@@ -832,10 +878,12 @@ $settingService->register('statistics_enabled', '1', 'boolean', 'Envoi automatiq
 // already has the row, the exclusion list is what does the work, since
 // SettingRepository::upsert() only ever refreshes `default_value`.
 $settingService->register('statistics_destination', 'https://www.scoutmagic.be', 'url', 'Destination des statistiques',
-    'Adresse du site qui reçoit les rapports d\'utilisation. Fait de niveau projet, modifiable uniquement lors du déploiement d\'une installation réceptrice.',
+    'Adresse du site qui reçoit les rapports d\'utilisation. Fait de niveau projet, modifiable uniquement lors du '
+        . 'déploiement d\'une installation réceptrice.',
     null, null, null, false, 281);
 $settingService->register('statistics_installation_id', '', 'text', 'Identifiant de cette installation',
-    'Identifiant aléatoire attribué une seule fois à cette installation pour reconnaître ses rapports d\'utilisation. Il ne dérive d\'aucune donnée personnelle.',
+    'Identifiant aléatoire attribué une seule fois à cette installation pour reconnaître ses rapports '
+        . 'd\'utilisation. Il ne dérive d\'aucune donnée personnelle.',
     null, null, null, false, 282);
 $settingService->register('support_email', 'support@scoutmagic.be', 'email', 'Adresse du support ScoutMagic',
     'Adresse à laquelle envoyer une archive de support. Affichée sur la page Support.',
@@ -858,7 +906,8 @@ $settingService->register('support_package_file_id', '', 'text', 'Paquet de supp
     'Identifiant du fichier de l\'archive de support actuellement conservée. Renseigné automatiquement.',
     null, null, null, false, 288);
 $settingService->register('support_package_generated_at', '', 'text', 'Date de génération du paquet de support',
-    'Horodatage de génération de l\'archive de support conservée, utilisé pour sa purge automatique. Renseigné automatiquement.',
+    'Horodatage de génération de l\'archive de support conservée, utilisé pour sa purge automatique. Renseigné '
+        . 'automatiquement.',
     null, null, null, false, 289);
 // Support-ticket bookkeeping (roadmap IT-25). Three internal rows and no
 // table: what is kept locally is the reference of the last ticket, when it
@@ -884,14 +933,17 @@ $settingService->register('support_ticket_categories', '', 'text', 'Catégories 
 // reference it compares against was never written.
 // Tests\Architecture\SupportSettingsAreRegisteredTest now fails if a
 // sender gains a setting and this list does not.
-$settingService->register('support_last_ticket_archive_sent_at', '', 'text', "Date de transmission de la dernière archive",
+$settingService->register(
+    'support_last_ticket_archive_sent_at', '', 'text', "Date de transmission de la dernière archive",
     "Horodatage de la dernière archive de diagnostic transmise au support. Renseigné automatiquement.",
     null, null, null, false, 293);
-$settingService->register('support_last_ticket_archive_reference', '', 'text', "Ticket de la dernière archive transmise",
+$settingService->register(
+    'support_last_ticket_archive_reference', '', 'text', "Ticket de la dernière archive transmise",
     "Référence du ticket auquel la dernière archive de diagnostic a été jointe. Renseignée automatiquement.",
     null, null, null, false, 294);
 $settingService->register('support_last_mail_probe_at', '', 'text', "Date de la dernière sonde e-mail",
-    "Horodatage de la dernière sonde de diagnostic envoyée, qui porte aussi la limite d'une sonde par heure. Renseigné automatiquement.",
+    "Horodatage de la dernière sonde de diagnostic envoyée, qui porte aussi la limite d'une sonde par heure. "
+        . "Renseigné automatiquement.",
     null, null, null, false, 295);
 $settingService->register('support_last_mail_probe_key', '', 'text', "Clé de la dernière sonde e-mail",
     "Clé de corrélation de la dernière sonde de diagnostic envoyée, pour la citer au support. Renseignée "
@@ -1943,9 +1995,18 @@ if (AuthSession::isAuthenticated()) {
 // Register core routes
 // Public pages
 $router->addRoute('GET', '/', PageController::class, 'home', 'public', ['label' => 'Accueil', 'parents' => []]);
-$router->addRoute('GET', '/contact', PageController::class, 'contact', 'public', ['label' => 'Contact', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_NOTRE_UNITE)]]);
-$router->addRoute('GET', '/sections', PageController::class, 'sections', 'public', ['label' => 'Sections', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_NOTRE_UNITE)]]);
-$router->addRoute('GET', '/rgpd', PageController::class, 'rgpd', 'public', ['label' => 'Protection des données', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_NOTRE_UNITE)]]);
+$router->addRoute(
+    'GET', '/contact', PageController::class, 'contact', 'public',
+    ['label' => 'Contact', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_NOTRE_UNITE)]],
+);
+$router->addRoute(
+    'GET', '/sections', PageController::class, 'sections', 'public',
+    ['label' => 'Sections', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_NOTRE_UNITE)]],
+);
+$router->addRoute(
+    'GET', '/rgpd', PageController::class, 'rgpd', 'public',
+    ['label' => 'Protection des données', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_NOTRE_UNITE)]],
+);
 
 // Auth routes
 $router->addRoute('GET', '/login', AuthController::class, 'login', 'public', ['label' => 'Connexion', 'parents' => []]);
@@ -1953,21 +2014,31 @@ $router->addRoute('POST', '/login/magic-link', AuthController::class, 'requestMa
 $router->addRoute('POST', '/login/password', AuthController::class, 'loginWithPassword', 'public');
 $router->addRoute('GET', '/login/passkey/options', AuthController::class, 'passkeyOptions', 'public');
 $router->addRoute('POST', '/login/passkey/verify', AuthController::class, 'passkeyVerify', 'public');
-$router->addRoute('GET', '/auth/verify', AuthController::class, 'verifyMagicLink', 'public', ['label' => 'Connexion', 'parents' => []]);
+$router->addRoute(
+    'GET', '/auth/verify', AuthController::class, 'verifyMagicLink', 'public',
+    ['label' => 'Connexion', 'parents' => []],
+);
 $router->addRoute('GET', '/auth/poll/{id}', AuthController::class, 'pollMagicLink', 'public');
 $router->addRoute('POST', '/logout', AuthController::class, 'logout', 'identified');
 
 // Password reset ("Mot de passe oublié")
 $router->addRoute('POST', '/password-reset/request', PasswordResetController::class, 'request', 'public');
-$router->addRoute('GET', '/password-reset/{id}', PasswordResetController::class, 'show', 'public', ['label' => 'Nouveau mot de passe', 'parents' => []]);
+$router->addRoute(
+    'GET', '/password-reset/{id}', PasswordResetController::class, 'show', 'public',
+    ['label' => 'Nouveau mot de passe', 'parents' => []],
+);
 $router->addRoute('POST', '/password-reset/{id}/check', PasswordResetController::class, 'check', 'public');
 $router->addRoute('POST', '/password-reset/{id}', PasswordResetController::class, 'submit', 'public');
 
 // Account routes
-$router->addRoute('GET', '/account', AccountController::class, 'index', 'identified', ['label' => 'Mon compte', 'parents' => []]);
+$router->addRoute(
+    'GET', '/account', AccountController::class, 'index', 'identified', ['label' => 'Mon compte', 'parents' => []],
+);
 $router->addRoute('POST', '/account/profile', AccountController::class, 'updateProfile', 'identified');
 $router->addRoute('POST', '/account/password', AccountController::class, 'updatePassword', 'identified');
-$router->addRoute('GET', '/account/passkey/register-options', AccountController::class, 'passkeyRegisterOptions', 'identified');
+$router->addRoute(
+    'GET', '/account/passkey/register-options', AccountController::class, 'passkeyRegisterOptions', 'identified',
+);
 $router->addRoute('POST', '/account/passkey/register', AccountController::class, 'passkeyRegister', 'identified');
 $router->addRoute('POST', '/account/passkey/delete', AccountController::class, 'passkeyDelete', 'identified');
 $router->addRoute('POST', '/account/photo/delete', AccountController::class, 'deletePhoto', 'identified');
@@ -1975,16 +2046,45 @@ $router->addRoute('POST', '/api/push-subscription', PushSubscriptionController::
 $router->addRoute('DELETE', '/api/push-subscription', PushSubscriptionController::class, 'unsubscribe', 'identified');
 
 // Notification centre (Core\Notification, Lot 2)
-$router->addRoute('GET', '/notifications', \Core\Http\Controller\NotificationController::class, 'index', 'identified', ['label' => 'Notifications', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ANIMES)]]);
-$router->addRoute('POST', '/notifications/{id}/read', \Core\Http\Controller\NotificationController::class, 'markRead', 'identified');
-$router->addRoute('POST', '/notifications/mark-all-read', \Core\Http\Controller\NotificationController::class, 'markAllRead', 'identified');
-$router->addRoute('GET', '/api/notifications/unread-count', \Core\Http\Controller\NotificationController::class, 'unreadCount', 'identified');
-$router->addRoute('GET', '/notifications/preferences', \Core\Http\Controller\NotificationPreferenceController::class, 'index', 'identified');
-$router->addRoute('POST', '/notifications/preferences', \Core\Http\Controller\NotificationPreferenceController::class, 'updateChannel', 'identified');
-$router->addRoute('POST', '/notifications/quiet-hours', \Core\Http\Controller\NotificationPreferenceController::class, 'updateAccountSettings', 'identified');
-$router->addRoute('GET', '/config/notifications', \Core\Http\Controller\NotificationConfigController::class, 'index', 'superadmin', ['label' => 'Notifications', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
-$router->addRoute('POST', '/config/notifications/rotate-vapid', \Core\Http\Controller\NotificationConfigController::class, 'rotateVapid', 'superadmin');
-$router->addRoute('POST', '/config/notifications/test', \Core\Http\Controller\NotificationConfigController::class, 'sendTest', 'superadmin');
+$router->addRoute(
+    'GET', '/notifications', \Core\Http\Controller\NotificationController::class, 'index', 'identified',
+    ['label' => 'Notifications', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ANIMES)]],
+);
+$router->addRoute(
+    'POST', '/notifications/{id}/read', \Core\Http\Controller\NotificationController::class, 'markRead', 'identified',
+);
+$router->addRoute(
+    'POST', '/notifications/mark-all-read', \Core\Http\Controller\NotificationController::class, 'markAllRead',
+    'identified',
+);
+$router->addRoute(
+    'GET', '/api/notifications/unread-count', \Core\Http\Controller\NotificationController::class, 'unreadCount',
+    'identified',
+);
+$router->addRoute(
+    'GET', '/notifications/preferences', \Core\Http\Controller\NotificationPreferenceController::class, 'index',
+    'identified',
+);
+$router->addRoute(
+    'POST', '/notifications/preferences', \Core\Http\Controller\NotificationPreferenceController::class,
+    'updateChannel', 'identified',
+);
+$router->addRoute(
+    'POST', '/notifications/quiet-hours', \Core\Http\Controller\NotificationPreferenceController::class,
+    'updateAccountSettings', 'identified',
+);
+$router->addRoute(
+    'GET', '/config/notifications', \Core\Http\Controller\NotificationConfigController::class, 'index', 'superadmin',
+    ['label' => 'Notifications', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
+);
+$router->addRoute(
+    'POST', '/config/notifications/rotate-vapid', \Core\Http\Controller\NotificationConfigController::class,
+    'rotateVapid', 'superadmin',
+);
+$router->addRoute(
+    'POST', '/config/notifications/test', \Core\Http\Controller\NotificationConfigController::class, 'sendTest',
+    'superadmin',
+);
 
 // Configuration > E-mails (Core\Mail\Template, ARCHITECTURE.md §8.7bis)
 // — the inventory of every automatic e-mail, and the editor for the ones
@@ -1992,29 +2092,69 @@ $router->addRoute('POST', '/config/notifications/test', \Core\Http\Controller\No
 // the router matches an id-named placeholder against digits only
 // (SECURITY.md §35), and these ids are registry keys like
 // `rental.acknowledgement`.
-$router->addRoute('GET', '/config/emails', \Core\Http\Controller\EmailTemplateController::class, 'index', 'superadmin', ['label' => 'E-mails', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
-$router->addRoute('GET', '/config/emails/{template}', \Core\Http\Controller\EmailTemplateController::class, 'edit', 'superadmin', ['label' => 'Email', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)], 'ancestors' => [['label' => 'E-mails', 'path' => '/config/emails']]]);
-$router->addRoute('POST', '/config/emails/{template}/sujet', \Core\Http\Controller\EmailTemplateController::class, 'saveSubject', 'superadmin');
-$router->addRoute('POST', '/config/emails/{template}/corps', \Core\Http\Controller\EmailTemplateController::class, 'saveBody', 'superadmin');
-$router->addRoute('POST', '/config/emails/{template}/defaut', \Core\Http\Controller\EmailTemplateController::class, 'reset', 'superadmin');
-$router->addRoute('POST', '/config/emails/{template}/test', \Core\Http\Controller\EmailTemplateController::class, 'sendTest', 'superadmin');
+$router->addRoute(
+    'GET', '/config/emails', \Core\Http\Controller\EmailTemplateController::class, 'index', 'superadmin',
+    ['label' => 'E-mails', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
+);
+$router->addRoute(
+    'GET', '/config/emails/{template}', \Core\Http\Controller\EmailTemplateController::class,
+    'edit', 'superadmin',
+    ['label' => 'Email', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
+        'ancestors' => [['label' => 'E-mails', 'path' => '/config/emails']]]
+);
+$router->addRoute(
+    'POST', '/config/emails/{template}/sujet', \Core\Http\Controller\EmailTemplateController::class, 'saveSubject',
+    'superadmin',
+);
+$router->addRoute(
+    'POST', '/config/emails/{template}/corps', \Core\Http\Controller\EmailTemplateController::class, 'saveBody',
+    'superadmin',
+);
+$router->addRoute(
+    'POST', '/config/emails/{template}/defaut', \Core\Http\Controller\EmailTemplateController::class, 'reset',
+    'superadmin',
+);
+$router->addRoute(
+    'POST', '/config/emails/{template}/test', \Core\Http\Controller\EmailTemplateController::class, 'sendTest',
+    'superadmin',
+);
 
 // Member pages
-$router->addRoute('GET', '/members/{id}', MemberController::class, 'show', 'identified', ['label' => 'Membre', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ANIMES)]]);
+$router->addRoute(
+    'GET', '/members/{id}', MemberController::class, 'show', 'identified',
+    ['label' => 'Membre', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ANIMES)]],
+);
 $router->addRoute('POST', '/members/{id}/scout-year-offset', MemberController::class, 'updateScoutYearOffset', 'chief');
 $router->addRoute('POST', '/members/{id}/departure', MemberController::class, 'updateDeparture', 'admin');
 // Member page "Adresses email" — self-service only, no chief/admin route
 // exists for this (Core\Http\Controller\MemberEmailAddressController
 // re-verifies self access on every action regardless of role_min).
-$router->addRoute('POST', '/members/{id}/emails', \Core\Http\Controller\MemberEmailAddressController::class, 'add', 'identified');
-$router->addRoute('POST', '/members/{id}/emails/{email_id}/resend', \Core\Http\Controller\MemberEmailAddressController::class, 'resend', 'identified');
-$router->addRoute('POST', '/members/{id}/emails/{email_id}/reactivate', \Core\Http\Controller\MemberEmailAddressController::class, 'reactivate', 'identified');
-$router->addRoute('POST', '/members/{id}/emails/{email_id}/delete', \Core\Http\Controller\MemberEmailAddressController::class, 'delete', 'identified');
+$router->addRoute(
+    'POST', '/members/{id}/emails', \Core\Http\Controller\MemberEmailAddressController::class, 'add', 'identified',
+);
+$router->addRoute(
+    'POST', '/members/{id}/emails/{email_id}/resend', \Core\Http\Controller\MemberEmailAddressController::class,
+    'resend', 'identified',
+);
+$router->addRoute(
+    'POST', '/members/{id}/emails/{email_id}/reactivate', \Core\Http\Controller\MemberEmailAddressController::class,
+    'reactivate', 'identified',
+);
+$router->addRoute(
+    'POST', '/members/{id}/emails/{email_id}/delete', \Core\Http\Controller\MemberEmailAddressController::class,
+    'delete', 'identified',
+);
 // The confirmation link's target — public, unauthenticated, same reasoning
 // as /auth/verify and /password-reset/{id}. The GET only renders a confirm
 // page (prefetch-safe); the POST behind its button is what confirms.
-$router->addRoute('GET', '/members/emails/confirm/{id}', \Core\Http\Controller\MemberEmailAddressController::class, 'confirm', 'public');
-$router->addRoute('POST', '/members/emails/confirm/{id}', \Core\Http\Controller\MemberEmailAddressController::class, 'confirmPost', 'public');
+$router->addRoute(
+    'GET', '/members/emails/confirm/{id}', \Core\Http\Controller\MemberEmailAddressController::class, 'confirm',
+    'public',
+);
+$router->addRoute(
+    'POST', '/members/emails/confirm/{id}', \Core\Http\Controller\MemberEmailAddressController::class, 'confirmPost',
+    'public',
+);
 // The email-detail route (/members/{id}/emails/{recipient_id}) is
 // registered inside the mass_mail module block below (module-owned data,
 // core only ever links to it) — it doesn't exist at all when mass_mail is
@@ -2051,21 +2191,33 @@ $router->addRoute('POST', '/api/rich-text-content', EditableContentController::c
 // (a below-role topic 404s exactly like an unknown id). `parents` stays
 // empty on purpose: the help belongs to no menu, and a `parents` entry
 // that matches no MenuBuilder label renders as dead text (design.md §7.3).
-$router->addRoute('GET', '/aide', \Core\Http\Controller\HelpController::class, 'index', 'public', ['label' => 'Aide', 'parents' => []]);
+$router->addRoute(
+    'GET', '/aide', \Core\Http\Controller\HelpController::class, 'index', 'public',
+    ['label' => 'Aide', 'parents' => []],
+);
 // BEFORE /aide/{topic}, and this order is the whole wiring: Router::
 // resolve() keeps the FIRST route that matches, so the topic route
 // registered after it would otherwise swallow /aide/assistant and answer
 // 404 for a topic nobody wrote. Core\Help\HelpFrontMatterParser reserves
 // the id 'assistant' from the other side, so a topic can never claim it.
-$router->addRoute('GET', '/aide/assistant', \Core\Http\Controller\HelpAssistantController::class, 'page', 'chief', ['label' => 'Assistant', 'parents' => [], 'ancestors' => [['label' => 'Aide', 'path' => '/aide']]]);
-$router->addRoute('GET', '/aide/{topic}', \Core\Http\Controller\HelpController::class, 'show', 'public', ['label' => 'Aide', 'parents' => [], 'ancestors' => [['label' => 'Aide', 'path' => '/aide']]]);
+$router->addRoute(
+    'GET', '/aide/assistant', \Core\Http\Controller\HelpAssistantController::class, 'page', 'chief',
+    ['label' => 'Assistant', 'parents' => [], 'ancestors' => [['label' => 'Aide', 'path' => '/aide']]],
+);
+$router->addRoute(
+    'GET', '/aide/{topic}', \Core\Http\Controller\HelpController::class, 'show', 'public',
+    ['label' => 'Aide', 'parents' => [], 'ancestors' => [['label' => 'Aide', 'path' => '/aide']]],
+);
 // The endpoint both surfaces post to. role_min: chief like the page —
 // the local search stays public, the assistant does not (locked
 // decision D4).
 $router->addRoute('POST', '/api/aide/assistant', \Core\Http\Controller\HelpAssistantController::class, 'ask', 'chief');
 
 // Cookie consent
-$router->addRoute('GET', '/cookies', CookieController::class, 'preferences', 'public', ['label' => 'Préférences cookies', 'parents' => []]);
+$router->addRoute(
+    'GET', '/cookies', CookieController::class, 'preferences', 'public',
+    ['label' => 'Préférences cookies', 'parents' => []],
+);
 $router->addRoute('POST', '/cookies/save', CookieController::class, 'save', 'public');
 $router->addRoute('POST', '/cookies/accept-all', CookieController::class, 'acceptAll', 'public');
 $router->addRoute('POST', '/cookies/reject-all', CookieController::class, 'rejectAll', 'public');
@@ -2092,7 +2244,9 @@ $router->addRoute('GET', '/api/offline/manifest', OfflineController::class, 'man
 // 'chief' here is a floor, not the decision: Core\Audit\
 // AuditAccessResolver asks the owning module whether this visitor may
 // read THIS entity, and refuses any entity type nobody registered.
-$router->addRoute('GET', '/api/audit/{entity_type}/{entity_id}', \Core\Http\Controller\AuditController::class, 'page', 'chief');
+$router->addRoute(
+    'GET', '/api/audit/{entity_type}/{entity_id}', \Core\Http\Controller\AuditController::class, 'page', 'chief',
+);
 // Deployment/version check — see Core\Http\Controller\VersionController's
 // own docblock for why role_min is deliberately public here.
 $router->addRoute('GET', '/api/version', VersionController::class, 'index', 'public');
@@ -2105,7 +2259,10 @@ $router->addRoute('GET', '/s/{code}', ShortUrlController::class, 'resolve', 'pub
 // configuration mode; UploadController::isUploadAuthorized() is the real
 // authorization boundary per context (still effectively superadmin-only
 // for every context except member_photo — see that method's docblock).
-$router->addRoute('GET', '/upload', UploadController::class, 'index', 'identified', ['label' => 'Envoyer un fichier', 'parents' => []]);
+$router->addRoute(
+    'GET', '/upload', UploadController::class, 'index', 'identified',
+    ['label' => 'Envoyer un fichier', 'parents' => []],
+);
 $router->addRoute('POST', '/upload', UploadController::class, 'store', 'identified');
 
 // Installable PWA (Lot 1) — all public: a manifest, its icons, and the
@@ -2122,7 +2279,10 @@ $router->addRoute('GET', '/favicon.ico', \Core\Http\Controller\PwaController::cl
 $router->addRoute('GET', '/offline', \Core\Http\Controller\PwaController::class, 'offline', 'public');
 
 // Setup routes (admin, but bypassed when not initialized)
-$router->addRoute('GET', '/setup', SetupController::class, 'index', 'superadmin', ['label' => 'Installation & serveur', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
+$router->addRoute(
+    'GET', '/setup', SetupController::class, 'index', 'superadmin',
+    ['label' => 'Installation & serveur', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
+);
 $router->addRoute('POST', '/setup/verify-token', SetupController::class, 'verifyToken', 'superadmin');
 $router->addRoute('POST', '/setup/test-db', SetupController::class, 'testDatabase', 'superadmin');
 $router->addRoute('POST', '/setup/install-database', SetupController::class, 'installDatabase', 'superadmin');
@@ -2135,26 +2295,61 @@ $router->addRoute('POST', '/setup/generate-dkim-key', SetupController::class, 'g
 $router->addRoute('GET', '/setup/cron-status', SetupController::class, 'cronStatus', 'superadmin');
 
 // Import
-$router->addRoute('GET', '/admin/import', ImportController::class, 'index', 'admin', ['label' => 'Import Desk', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]]);
+$router->addRoute(
+    'GET', '/admin/import', ImportController::class, 'index', 'admin',
+    ['label' => 'Import Desk', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]],
+);
 $router->addRoute('POST', '/admin/import', ImportController::class, 'import', 'admin');
-$router->addRoute('GET', '/admin/import/historique', ImportController::class, 'history', 'admin', ['label' => 'Historique des imports', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)], 'ancestors' => [['label' => 'Import Desk', 'path' => '/admin/import']]]);
-$router->addRoute('GET', '/admin/import/{id}/rapport', ImportController::class, 'report', 'admin', ['label' => "Rapport d'import", 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)], 'ancestors' => [['label' => 'Import Desk', 'path' => '/admin/import'], ['label' => 'Historique des imports', 'path' => '/admin/import/historique']]]);
-$router->addRoute('GET', '/admin/points-attention', \Core\Http\Controller\AttentionController::class, 'index', 'admin', ['label' => "Points d'attention", 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]]);
-$router->addRoute('GET', '/admin/doublons', \Core\Http\Controller\DuplicateMemberController::class, 'index', 'admin', ['label' => 'Fiches en double', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)], 'ancestors' => [['label' => "Points d'attention", 'path' => '/admin/points-attention']]]);
-$router->addRoute('POST', '/admin/doublons/{id}/fusionner', \Core\Http\Controller\DuplicateMemberController::class, 'merge', 'admin');
-$router->addRoute('POST', '/admin/doublons/{id}/distinctes', \Core\Http\Controller\DuplicateMemberController::class, 'markDistinct', 'admin');
+$router->addRoute(
+    'GET', '/admin/import/historique', ImportController::class, 'history', 'admin',
+    ['label' => 'Historique des imports', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)],
+        'ancestors' => [['label' => 'Import Desk', 'path' => '/admin/import']]]
+);
+$router->addRoute(
+    'GET', '/admin/import/{id}/rapport', ImportController::class, 'report', 'admin',
+    ['label' => "Rapport d'import", 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)],
+        'ancestors' => [['label' => 'Import Desk', 'path' => '/admin/import'],
+            ['label' => 'Historique des imports', 'path' => '/admin/import/historique']]]
+);
+$router->addRoute(
+    'GET', '/admin/points-attention', \Core\Http\Controller\AttentionController::class, 'index', 'admin',
+    ['label' => "Points d'attention", 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]],
+);
+$router->addRoute(
+    'GET', '/admin/doublons', \Core\Http\Controller\DuplicateMemberController::class, 'index', 'admin',
+    ['label' => 'Fiches en double', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)],
+        'ancestors' => [['label' => "Points d'attention", 'path' => '/admin/points-attention']]]
+);
+$router->addRoute(
+    'POST', '/admin/doublons/{id}/fusionner', \Core\Http\Controller\DuplicateMemberController::class, 'merge',
+    'admin',
+);
+$router->addRoute(
+    'POST', '/admin/doublons/{id}/distinctes', \Core\Http\Controller\DuplicateMemberController::class, 'markDistinct',
+    'admin',
+);
 
 // Journal
-$router->addRoute('GET', '/admin/journal', JournalController::class, 'index', 'admin', ['label' => 'Journal', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]]);
+$router->addRoute(
+    'GET', '/admin/journal', JournalController::class, 'index', 'admin',
+    ['label' => 'Journal', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]],
+);
 
 // Scout year navigation and transition
-$router->addRoute('GET', '/admin/members', MemberSearchController::class, 'index', 'admin', ['label' => 'Membres', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]]);
+$router->addRoute(
+    'GET', '/admin/members', MemberSearchController::class, 'index', 'admin',
+    ['label' => 'Membres', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]],
+);
 $router->addRoute('GET', '/admin/members/export', MemberSearchController::class, 'export', 'admin');
 // Declared after /export on purpose. {id} only ever matches digits
 // (Router::placeholderPattern), so "export" could not be read as one —
 // but registration order is what the reader checks first, and the
 // neighbouring temporary-access routes below already depend on it.
-$router->addRoute('GET', '/admin/members/{id}', MemberSearchController::class, 'show', 'admin', ['label' => 'Membre', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)], 'ancestors' => [['label' => 'Membres', 'path' => '/admin/members']]]);
+$router->addRoute(
+    'GET', '/admin/members/{id}', MemberSearchController::class, 'show', 'admin',
+    ['label' => 'Membre', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)],
+        'ancestors' => [['label' => 'Membres', 'path' => '/admin/members']]]
+);
 // Temporary member override (ARCHITECTURE.md §8.42). The static "remove"
 // path is registered BEFORE the parameterised "add" one: Router::resolve()
 // is first-match-wins and both patterns are four segments deep, so
@@ -2166,14 +2361,24 @@ $router->addRoute('GET', '/admin/members/{id}', MemberSearchController::class, '
 // the temporary-access routes below whatever the registration order.
 $router->addRoute('POST', '/admin/members/{id}/notes', MemberSearchController::class, 'addNote', 'admin');
 $router->addRoute('POST', '/admin/members/{id}/notes/{note_id}', MemberSearchController::class, 'updateNote', 'admin');
-$router->addRoute('POST', '/admin/members/{id}/notes/{note_id}/delete', MemberSearchController::class, 'deleteNote', 'admin');
+$router->addRoute(
+    'POST', '/admin/members/{id}/notes/{note_id}/delete', MemberSearchController::class, 'deleteNote', 'admin',
+);
 // Private documents on a member's sheet (ARCHITECTURE.md §8.3's Staff
 // d'Unité bypass). Same `admin` floor as the page and as the bypass
 // itself — never `chief`.
-$router->addRoute('POST', '/admin/members/{id}/documents/{document_id}/renvoyer', MemberSearchController::class, 'resendDocument', 'admin');
-$router->addRoute('POST', '/admin/members/temporary-access/remove', TemporaryMemberController::class, 'remove', 'admin');
+$router->addRoute(
+    'POST', '/admin/members/{id}/documents/{document_id}/renvoyer', MemberSearchController::class, 'resendDocument',
+    'admin',
+);
+$router->addRoute(
+    'POST', '/admin/members/temporary-access/remove', TemporaryMemberController::class, 'remove', 'admin',
+);
 $router->addRoute('POST', '/admin/members/{id}/temporary-access', TemporaryMemberController::class, 'add', 'admin');
-$router->addRoute('GET', '/admin/scout-year', ScoutYearController::class, 'index', 'admin', ['label' => 'Année scoute', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]]);
+$router->addRoute(
+    'GET', '/admin/scout-year', ScoutYearController::class, 'index', 'admin',
+    ['label' => 'Année scoute', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]],
+);
 $router->addRoute('POST', '/admin/scout-year/preview', ScoutYearController::class, 'preview', 'admin');
 $router->addRoute('POST', '/admin/scout-year/clear-preview', ScoutYearController::class, 'clearPreview', 'admin');
 $router->addRoute('POST', '/admin/scout-year/activate-staff', ScoutYearController::class, 'activateStaff', 'admin');
@@ -2182,17 +2387,27 @@ $router->addRoute('POST', '/admin/scout-year/activate-public', ScoutYearControll
 $router->addRoute('POST', '/admin/scout-year/step', ScoutYearController::class, 'toggleStep', 'admin');
 
 // Settings
-$router->addRoute('GET', '/config/settings', SettingsController::class, 'index', 'superadmin', ['label' => 'Réglages', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
+$router->addRoute(
+    'GET', '/config/settings', SettingsController::class, 'index', 'superadmin',
+    ['label' => 'Réglages', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
+);
 $router->addRoute('POST', '/config/settings/update', SettingsController::class, 'update', 'superadmin');
 $router->addRoute('POST', '/config/settings/logo-delete', SettingsController::class, 'deleteLogo', 'superadmin');
-$router->addRoute('POST', '/config/settings/logo-notify-ios', SettingsController::class, 'notifyIosLogoUpdate', 'superadmin');
+$router->addRoute(
+    'POST', '/config/settings/logo-notify-ios', SettingsController::class, 'notifyIosLogoUpdate', 'superadmin',
+);
 
 // Support (Core\Statistics, Core\Support — ARCHITECTURE.md §8.47/§8.48)
-$router->addRoute('GET', '/config/support', SupportController::class, 'index', 'superadmin', ['label' => 'Support', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
+$router->addRoute(
+    'GET', '/config/support', SupportController::class, 'index', 'superadmin',
+    ['label' => 'Support', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
+);
 $router->addRoute('POST', '/config/support/statistics', SupportController::class, 'saveStatistics', 'superadmin');
 $router->addRoute('POST', '/config/support/measure', SupportController::class, 'startMeasurement', 'superadmin');
 $router->addRoute('POST', '/config/support/measure/stop', SupportController::class, 'stopMeasurement', 'superadmin');
-$router->addRoute('POST', '/config/support/statistics/test', SupportController::class, 'sendTestStatistics', 'superadmin');
+$router->addRoute(
+    'POST', '/config/support/statistics/test', SupportController::class, 'sendTestStatistics', 'superadmin',
+);
 $router->addRoute('POST', '/config/support/package', SupportController::class, 'generatePackage', 'superadmin');
 // One support ticket, sent now (roadmap IT-25). Same floor as the rest of
 // the page: a ticket carries this installation's identity, and who may
@@ -2204,22 +2419,49 @@ $router->addRoute('POST', '/config/support/ticket/archive', SupportController::c
 $router->addRoute('GET', '/api/support/package-status/{id}', SupportController::class, 'packageStatus', 'superadmin');
 
 // Scheduled actions
-$router->addRoute('GET', '/config/scheduled', ScheduledActionsController::class, 'index', 'superadmin', ['label' => 'Actions planifiées', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
-$router->addRoute('GET', '/config/maintenance', MaintenanceController::class, 'index', 'admin', ['label' => 'Maintenance', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
-$router->addRoute('POST', '/config/maintenance/backup/database', MaintenanceController::class, 'createDatabaseBackup', 'admin');
+$router->addRoute(
+    'GET', '/config/scheduled', ScheduledActionsController::class, 'index', 'superadmin',
+    ['label' => 'Actions planifiées', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
+);
+$router->addRoute(
+    'GET', '/config/maintenance', MaintenanceController::class, 'index', 'admin',
+    ['label' => 'Maintenance', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
+);
+$router->addRoute(
+    'POST', '/config/maintenance/backup/database', MaintenanceController::class, 'createDatabaseBackup', 'admin',
+);
 $router->addRoute('POST', '/config/maintenance/backup/full', MaintenanceController::class, 'createFullBackup', 'admin');
-$router->addRoute('POST', '/config/maintenance/backup/auto-frequency', MaintenanceController::class, 'updateAutoBackupFrequency', 'admin');
+$router->addRoute(
+    'POST', '/config/maintenance/backup/auto-frequency', MaintenanceController::class, 'updateAutoBackupFrequency',
+    'admin',
+);
 $router->addRoute('GET', '/api/maintenance/backup-status/{id}', MaintenanceController::class, 'backupStatus', 'admin');
-$router->addRoute('POST', '/config/maintenance/update/install', MaintenanceController::class, 'installUpdate', 'superadmin');
-$router->addRoute('POST', '/config/maintenance/update/check-now', MaintenanceController::class, 'checkForUpdatesNow', 'admin');
+$router->addRoute(
+    'POST', '/config/maintenance/update/install', MaintenanceController::class, 'installUpdate', 'superadmin',
+);
+$router->addRoute(
+    'POST', '/config/maintenance/update/check-now', MaintenanceController::class, 'checkForUpdatesNow', 'admin',
+);
 $router->addRoute('GET', '/api/maintenance/update-status/{id}', MaintenanceController::class, 'updateStatus', 'admin');
-$router->addRoute('POST', '/config/maintenance/reset/settings', MaintenanceController::class, 'resetSettings', 'superadmin');
+$router->addRoute(
+    'POST', '/config/maintenance/reset/settings', MaintenanceController::class, 'resetSettings', 'superadmin',
+);
 $router->addRoute('POST', '/config/maintenance/reset/full', MaintenanceController::class, 'fullReset', 'superadmin');
-$router->addRoute('POST', '/config/maintenance/reset/restore', MaintenanceController::class, 'restoreBackup', 'superadmin');
-$router->addRoute('POST', '/config/maintenance/restore-upload-chunk', MaintenanceController::class, 'restoreUploadChunk', 'superadmin');
+$router->addRoute(
+    'POST', '/config/maintenance/reset/restore', MaintenanceController::class, 'restoreBackup', 'superadmin',
+);
+$router->addRoute(
+    'POST', '/config/maintenance/restore-upload-chunk', MaintenanceController::class, 'restoreUploadChunk',
+    'superadmin',
+);
 $router->addRoute('GET', '/api/maintenance/reset-status/{id}', MaintenanceController::class, 'resetStatus', 'admin');
-$router->addRoute('POST', '/config/maintenance/auto-update/save', MaintenanceController::class, 'saveAutoUpdatePreferences', 'admin');
-$router->addRoute('POST', '/api/maintenance/webhook-secret', MaintenanceController::class, 'generateWebhookSecret', 'admin');
+$router->addRoute(
+    'POST', '/config/maintenance/auto-update/save', MaintenanceController::class, 'saveAutoUpdatePreferences',
+    'admin',
+);
+$router->addRoute(
+    'POST', '/api/maintenance/webhook-secret', MaintenanceController::class, 'generateWebhookSecret', 'admin',
+);
 // The only public, CSRF-free route in the codebase — GitHub is a machine
 // caller with no session; the HMAC-SHA256 signature (Core\Maintenance\
 // GitHubWebhookService::verifySignature()) is what authenticates it
@@ -2231,54 +2473,103 @@ $router->addRoute('POST', '/api/webhook/github', \Core\Http\Controller\WebhookCo
 // in the menu (see addPage() above) and widened to admin, same as the
 // /config-mode/* routes it links to — URL kept unchanged, nothing forces it
 // to change.
-$router->addRoute('GET', '/config/general', ConfigGeneralController::class, 'index', 'admin', ['label' => 'Édition du site', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]]);
+$router->addRoute(
+    'GET', '/config/general', ConfigGeneralController::class, 'index', 'admin',
+    ['label' => 'Édition du site', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]],
+);
 
 // Configuration > Modules — module registry (split out of Configuration
 // générale, ARCHITECTURE §7.1). Stays superadmin, in the Configuration menu.
-$router->addRoute('GET', '/config/modules', ConfigModulesController::class, 'index', 'superadmin', ['label' => 'Modules', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
+$router->addRoute(
+    'GET', '/config/modules', ConfigModulesController::class, 'index', 'superadmin',
+    ['label' => 'Modules', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
+);
 $router->addRoute('POST', '/config/modules/toggle', ConfigModulesController::class, 'toggleModule', 'superadmin');
 $router->addRoute('POST', '/config/modules/reorder', ConfigModulesController::class, 'reorderModules', 'superadmin');
 
 // Configuration > Badges — badge registry (split out of Configuration
 // générale, ARCHITECTURE §8.11). Stays superadmin, in the Configuration menu.
-$router->addRoute('GET', '/config/badges', ConfigBadgesController::class, 'index', 'superadmin', ['label' => 'Badges', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
+$router->addRoute(
+    'GET', '/config/badges', ConfigBadgesController::class, 'index', 'superadmin',
+    ['label' => 'Badges', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
+);
 $router->addRoute('POST', '/config/badges/add', ConfigBadgesController::class, 'addBadge', 'superadmin');
 $router->addRoute('POST', '/config/badges/update', ConfigBadgesController::class, 'updateBadge', 'superadmin');
-$router->addRoute('POST', '/config/badges/toggle-active', ConfigBadgesController::class, 'toggleBadgeActive', 'superadmin');
+$router->addRoute(
+    'POST', '/config/badges/toggle-active', ConfigBadgesController::class, 'toggleBadgeActive', 'superadmin',
+);
 $router->addRoute('POST', '/config/badges/delete', ConfigBadgesController::class, 'deleteBadge', 'superadmin');
 
 // Configuration > Comptes superadmin — the accounts holding is_super_admin,
 // the one administrative access that exists outside the Desk roster.
-$router->addRoute('GET', '/config/superadmins', SuperAdminAccountsController::class, 'index', 'superadmin', ['label' => 'Comptes superadmin', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
+$router->addRoute(
+    'GET', '/config/superadmins', SuperAdminAccountsController::class, 'index', 'superadmin',
+    ['label' => 'Comptes superadmin', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
+);
 $router->addRoute('POST', '/config/superadmins/add', SuperAdminAccountsController::class, 'add', 'superadmin');
 $router->addRoute('POST', '/config/superadmins/revoke', SuperAdminAccountsController::class, 'revoke', 'superadmin');
-$router->addRoute('POST', '/config/superadmins/toggle-active', SuperAdminAccountsController::class, 'toggleActive', 'superadmin');
+$router->addRoute(
+    'POST', '/config/superadmins/toggle-active', SuperAdminAccountsController::class, 'toggleActive', 'superadmin',
+);
 
 // RGPD configuration
-$router->addRoute('GET', '/config/rgpd', RgpdConfigController::class, 'index', 'superadmin', ['label' => 'RGPD', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
+$router->addRoute(
+    'GET', '/config/rgpd', RgpdConfigController::class, 'index', 'superadmin',
+    ['label' => 'RGPD', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
+);
 $router->addRoute('POST', '/config/rgpd/save', RgpdConfigController::class, 'save', 'superadmin');
 $router->addRoute('POST', '/config/rgpd/generate', RgpdConfigController::class, 'generate', 'superadmin');
 $router->addRoute('GET', '/config/rgpd/generate/status', RgpdConfigController::class, 'generateStatus', 'superadmin');
 $router->addRoute('POST', '/config/rgpd/reset', RgpdConfigController::class, 'reset', 'superadmin');
 
 // Staffs
-$router->addRoute('GET', '/chefs/staffs', StaffsController::class, 'index', 'intendant', ['label' => 'Staffs', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_CHEFS)]]);
+$router->addRoute(
+    'GET', '/chefs/staffs', StaffsController::class, 'index', 'intendant',
+    ['label' => 'Staffs', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_CHEFS)]],
+);
 $router->addRoute('POST', '/chefs/staffs/badge-toggle', StaffsController::class, 'toggleBadge', 'chief');
-$router->addRoute('GET', '/chefs/membres', \Core\Http\Controller\SectionRosterController::class, 'index', 'intendant', ['label' => 'Membres par section', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_CHEFS)]]);
-$router->addRoute('GET', '/chefs/membres/export', \Core\Http\Controller\SectionRosterController::class, 'export', 'intendant');
-$router->addRoute('POST', '/chefs/staffs/documents', \Core\Http\Controller\SectionDocumentController::class, 'add', 'chief');
-$router->addRoute('POST', '/chefs/staffs/documents/reorder', \Core\Http\Controller\SectionDocumentController::class, 'reorder', 'chief');
-$router->addRoute('POST', '/chefs/staffs/documents/delete', \Core\Http\Controller\SectionDocumentController::class, 'delete', 'chief');
-$router->addRoute('POST', '/chefs/staffs/documents/{id}', \Core\Http\Controller\SectionDocumentController::class, 'update', 'chief');
+$router->addRoute(
+    'GET', '/chefs/membres', \Core\Http\Controller\SectionRosterController::class, 'index', 'intendant',
+    ['label' => 'Membres par section', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_CHEFS)]],
+);
+$router->addRoute(
+    'GET', '/chefs/membres/export', \Core\Http\Controller\SectionRosterController::class, 'export', 'intendant',
+);
+$router->addRoute(
+    'POST', '/chefs/staffs/documents', \Core\Http\Controller\SectionDocumentController::class, 'add', 'chief',
+);
+$router->addRoute(
+    'POST', '/chefs/staffs/documents/reorder', \Core\Http\Controller\SectionDocumentController::class, 'reorder',
+    'chief',
+);
+$router->addRoute(
+    'POST', '/chefs/staffs/documents/delete', \Core\Http\Controller\SectionDocumentController::class, 'delete',
+    'chief',
+);
+$router->addRoute(
+    'POST', '/chefs/staffs/documents/{id}', \Core\Http\Controller\SectionDocumentController::class, 'update', 'chief',
+);
 
 // Functions configuration
-$router->addRoute('GET', '/config/functions', FunctionsController::class, 'index', 'superadmin', ['label' => 'Desk', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
+$router->addRoute(
+    'GET', '/config/functions', FunctionsController::class, 'index', 'superadmin',
+    ['label' => 'Desk', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
+);
 $router->addRoute('POST', '/config/functions/update', FunctionsController::class, 'update', 'superadmin');
 $router->addRoute('POST', '/config/functions/flags', FunctionsController::class, 'updateFlags', 'superadmin');
-$router->addRoute('POST', '/config/functions/section-name', FunctionsController::class, 'updateSectionName', 'superadmin');
-$router->addRoute('POST', '/config/functions/section-email', FunctionsController::class, 'updateSectionEmail', 'superadmin');
-$router->addRoute('POST', '/config/functions/section-visibility', FunctionsController::class, 'updateSectionVisibility', 'superadmin');
-$router->addRoute('POST', '/config/functions/section-color', FunctionsController::class, 'updateSectionColor', 'superadmin');
+$router->addRoute(
+    'POST', '/config/functions/section-name', FunctionsController::class, 'updateSectionName', 'superadmin',
+);
+$router->addRoute(
+    'POST', '/config/functions/section-email', FunctionsController::class, 'updateSectionEmail', 'superadmin',
+);
+$router->addRoute(
+    'POST', '/config/functions/section-visibility', FunctionsController::class, 'updateSectionVisibility',
+    'superadmin',
+);
+$router->addRoute(
+    'POST', '/config/functions/section-color', FunctionsController::class, 'updateSectionColor', 'superadmin',
+);
 $router->addRoute('POST', '/config/functions/branch-url', FunctionsController::class, 'updateBranchUrl', 'superadmin');
 
 // Load enabled modules (routes registered AFTER core routes so core takes priority)
@@ -2756,7 +3047,8 @@ $frontController->registerController(VersionController::class, new VersionContro
 $githubWebhookService = new \Core\Maintenance\GitHubWebhookService(
     $settingService, $schedulerService, $updateHistoryRepository, $journalService, dirname($storagePath)
 );
-$frontController->registerController(\Core\Http\Controller\WebhookController::class, new \Core\Http\Controller\WebhookController(
+$frontController->registerController(
+    \Core\Http\Controller\WebhookController::class, new \Core\Http\Controller\WebhookController(
     $twig, $githubWebhookService, $secretManager, $journalService
 ));
 $passwordResetController = new PasswordResetController($twig, $passwordResetService);
@@ -2780,10 +3072,18 @@ $frontController->registerController(StaffsController::class, new StaffsControll
     $twig, $sectionService, $memberService, $scoutYearResolver, $journalService, $badgeService,
     $unitStaffSectionService, $sectionDocumentService, $settingService, $sectionStaffAuthorizationService
 ));
-$frontController->registerController(\Core\Http\Controller\SectionRosterController::class, new \Core\Http\Controller\SectionRosterController(
-    $twig, $sectionService, $sectionRosterService, $memberExportRowBuilder, $memberExportService, $scoutYearResolver, $journalService
+$frontController->registerController(
+    \Core\Http\Controller\SectionRosterController::class, new \Core\Http\Controller\SectionRosterController(
+    $twig,
+    $sectionService,
+    $sectionRosterService,
+    $memberExportRowBuilder,
+    $memberExportService,
+    $scoutYearResolver,
+    $journalService,
 ));
-$frontController->registerController(\Core\Http\Controller\SectionDocumentController::class, new \Core\Http\Controller\SectionDocumentController(
+$frontController->registerController(
+    \Core\Http\Controller\SectionDocumentController::class, new \Core\Http\Controller\SectionDocumentController(
     $twig, $sectionDocumentService, $sectionStaffAuthorizationService, $scoutYearResolver, $journalService
 ));
 $frontController->registerController(ConfigModeController::class, new ConfigModeController($twig));
@@ -3301,7 +3601,8 @@ if ($isEnabled('inbound_mail')) {
     // long after MigrationRunner on the very request that would have
     // removed them. Same shape as member_section_periods_backfilled above.
     if ($settingService->get('inbound_mail_links_migrated') !== '1') {
-        $settingService->register('inbound_mail_links_migrated', '0', 'boolean', 'Associations de courrier reconstituées',
+        $settingService->register(
+            'inbound_mail_links_migrated', '0', 'boolean', 'Associations de courrier reconstituées',
             'Indique si les messages entrants antérieurs ont été rattachés à leurs objets via la table '
                 . 'd\'associations.',
             null, null, null, false, 999);
@@ -3537,7 +3838,11 @@ if ($isEnabled('finance')) {
     // the AI-assisted matching fallback degrades to rule-based-only
     // whenever it's null/unavailable.
     $financeReceiptMatchingService = new \Modules\Finance\Service\ReceiptMatchingService(
-        $financeAttachmentRepo, $financeTransactionRepo, $financeTransactionAttachmentRepo, $journalService, $llmConnectorForOthers
+        $financeAttachmentRepo,
+        $financeTransactionRepo,
+        $financeTransactionAttachmentRepo,
+        $journalService,
+        $llmConnectorForOthers,
     );
 
     // Optional dependency on the llm_connector module (ARCHITECTURE.md
@@ -3792,7 +4097,13 @@ if ($isEnabled('finance')) {
     $frontController->registerController(
         \Modules\Finance\Controller\ConfigRuleController::class,
         new \Modules\Finance\Controller\ConfigRuleController(
-            $twig, $financeCategoryRuleRepo, $financeCategoryRepo, $financeRuleEngine, $journalService, $financeService, $financeBulkCategorizationService
+            $twig,
+            $financeCategoryRuleRepo,
+            $financeCategoryRepo,
+            $financeRuleEngine,
+            $journalService,
+            $financeService,
+            $financeBulkCategorizationService,
         )
     );
     $frontController->registerController(
@@ -4051,7 +4362,12 @@ if ($isEnabled('mass_mail')) {
     );
 
     $massMailDraftForOthers = new \Modules\MassMail\Service\MergeDraftService(
-        $massMailService, $massMailAudienceRepo, $massMailAccessService, $memberService, $sectionService, $scoutYearService
+        $massMailService,
+        $massMailAudienceRepo,
+        $massMailAccessService,
+        $memberService,
+        $sectionService,
+        $scoutYearService,
     );
 
     $frontController->registerController(
@@ -4651,7 +4967,8 @@ if ($isEnabled('groups')) {
 
     // The home page's group-activity hook (§7.4) — resolved per request
     // through $moduleHooks, no PageController re-registration.
-    $moduleHooks->register(\Core\Module\HomeGroupActivityProvider::class, new \Modules\Groups\Service\HomeActivityService(
+    $moduleHooks->register(
+        \Core\Module\HomeGroupActivityProvider::class, new \Modules\Groups\Service\HomeActivityService(
         $groupsListService,
         $groupsContextFactory,
         $groupsReadRepo,
@@ -5277,14 +5594,24 @@ if ($isEnabled('registration')) {
         $encryptionService);
 
     $registrationSlotService = new \Modules\Registration\Service\SlotService(
-        $pdo, $encryptionService, $settingService, $registrationAgeBracketRepo, $registrationSlotCapacityRepo, $registrationRequestRepo
+        $pdo,
+        $encryptionService,
+        $settingService,
+        $registrationAgeBracketRepo,
+        $registrationSlotCapacityRepo,
+        $registrationRequestRepo,
     );
     $registrationService = new \Modules\Registration\Service\RegistrationService(
         $registrationRequestRepo, $registrationYearCodeRepo, $scoutYearResolver, $scoutYearService, $settingService,
         $mailService, $editableContentService, $journalService, $registrationBaseUrl, $registrationSiteName
     );
     $registrationSecondaryEmailService = new \Modules\Registration\Service\SecondaryEmailService(
-        $registrationSecondaryEmailRepo, $mailService, $emailTemplateRenderer, $journalService, $registrationBaseUrl, $registrationSiteName
+        $registrationSecondaryEmailRepo,
+        $mailService,
+        $emailTemplateRenderer,
+        $journalService,
+        $registrationBaseUrl,
+        $registrationSiteName,
     );
     $registrationTrackingService = new \Modules\Registration\Service\TrackingService(
         $registrationRequestRepo, $registrationSecondaryEmailRepo, $encryptionService
@@ -5311,7 +5638,12 @@ if ($isEnabled('registration')) {
     $registrationStatusService = new \Modules\Registration\Service\RequestStatusService($registrationRequestRepo,
         $journalService);
     $registrationEmailService = new \Modules\Registration\Service\RequestEmailService(
-        $registrationRequestRepo, $mailService, $editableContentService, $journalService, $registrationBaseUrl, $registrationSiteName
+        $registrationRequestRepo,
+        $mailService,
+        $editableContentService,
+        $journalService,
+        $registrationBaseUrl,
+        $registrationSiteName,
     );
     $registrationMigrationService = new \Modules\Registration\Service\MigrationService(
         $pdo, $registrationRequestRepo, $registrationSecondaryEmailRepo, $memberEmailRepository, $journalService
@@ -5355,7 +5687,12 @@ if ($isEnabled('registration')) {
 
     $registrationSectionTransferRepo = new \Modules\Registration\Repository\SectionTransferRepository($pdo);
     $registrationPassageService = new \Modules\Registration\Service\PassageService(
-        $pdo, $encryptionService, $sectionService, $registrationSectionTransferRepo, $registrationRequestRepo, $registrationAgeBracketRepo
+        $pdo,
+        $encryptionService,
+        $sectionService,
+        $registrationSectionTransferRepo,
+        $registrationRequestRepo,
+        $registrationAgeBracketRepo,
     );
     // PassageController is registered further down, once the projection
     // exists: IT-12's statistics box reads Api\ProjectedPopulationProvider,
@@ -6204,7 +6541,8 @@ if ($isEnabled('leadership')) {
         $leadershipResolver
     );
 
-    $moduleHooks->register(\Core\Module\FormationPathProvider::class, new \Modules\Leadership\Service\MemberFormationPathService(
+    $moduleHooks->register(
+        \Core\Module\FormationPathProvider::class, new \Modules\Leadership\Service\MemberFormationPathService(
         $leadershipRepository,
         $leadershipMappingRepository,
         $leadershipResolver
@@ -6349,7 +6687,11 @@ if (
     $memberPageService = new \Core\Member\MemberPageService(
         $sectionService, $memberService, $badgeRepository, $memberBadgeRepository, $ageBranchRepo,
         $memberDocumentService, $memberEmailService,
-        $sectionDocumentService, $moduleHooks, $massMailQueryForMember, $galleryAlbumProviderForMember, $calendarEventLookupForOthers
+        $sectionDocumentService,
+        $moduleHooks,
+        $massMailQueryForMember,
+        $galleryAlbumProviderForMember,
+        $calendarEventLookupForOthers,
     );
 
     $frontController->registerController(

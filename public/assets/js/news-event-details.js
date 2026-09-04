@@ -74,7 +74,7 @@
 
             event.preventDefault();
 
-            const ask = window.ScoutMagicConfirm && window.ScoutMagicConfirm.ask;
+            const ask = window.ScoutMagicConfirm?.ask;
             if (typeof ask !== 'function') {
                 // No dialog available (an offline page, a script that
                 // failed to load): let the save through rather than

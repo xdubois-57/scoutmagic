@@ -115,7 +115,7 @@
 
             // First click reveals the name field — naming the key is the
             // only chance to tell two authenticators apart later.
-            if (labelBox && labelBox.style.display === 'none') {
+            if (labelBox?.style.display === 'none') {
                 labelBox.style.display = 'block';
                 if (labelInput) {
                     labelInput.focus();
@@ -123,7 +123,7 @@
                 return;
             }
 
-            var deviceLabel = (labelInput && labelInput.value) || 'Clé sans nom';
+            var deviceLabel = labelInput?.value || 'Clé sans nom';
 
             var optRes = await api.getJson('/account/passkey/register-options');
             if (!optRes.ok || !optRes.data) {
@@ -160,13 +160,13 @@
                 device_label: deviceLabel
             });
 
-            if (res.data && res.data.success) {
+            if (res.data?.success) {
                 // A new key changes the list, its labels and its dates —
                 // the page re-renders rather than patching them by hand.
                 window.location.reload();
                 return;
             }
-            toastError((res.data && res.data.error) || 'L\'enregistrement a échoué.');
+            toastError(res.data?.error || 'L\'enregistrement a échoué.');
         });
     }
 
@@ -197,13 +197,13 @@
                 id: Number.parseInt(btn.dataset.id || '', 10)
             });
 
-            if (!res.ok || !res.data || !res.data.success) {
+            if (!res.ok || !res.data?.success) {
                 // role="alert" on this box, not a toast: a revocation the
                 // server refused is the one message on this page that
                 // must not scroll away unread.
                 var failure = 'La clé n\'a pas pu être supprimée. Rechargez la page et réessayez.';
                 if (errorBox) {
-                    errorBox.textContent = (res.data && res.data.error) || failure;
+                    errorBox.textContent = res.data?.error || failure;
                     errorBox.classList.remove('d-none');
                 }
                 return;

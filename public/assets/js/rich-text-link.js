@@ -51,9 +51,9 @@
             return null;
         }
 
-        var scheme = url.match(/^([a-z][a-z0-9+.-]*):/i);
+        var scheme = /^([a-z][a-z0-9+.-]*):/i.exec(url);
         if (scheme) {
-            return ALLOWED_SCHEMES.indexOf(scheme[1].toLowerCase()) === -1 ? null : url;
+            return ALLOWED_SCHEMES.includes(scheme[1].toLowerCase()) ? url : null;
         }
         // Site-relative and same-page links are already hrefs.
         if (url.startsWith('/') || url.startsWith('#')) {
@@ -72,7 +72,7 @@
      */
     function captureSelection() {
         var selection = window.getSelection();
-        return selection && selection.rangeCount > 0 ? selection.getRangeAt(0).cloneRange() : null;
+        return selection?.rangeCount > 0 ? selection.getRangeAt(0).cloneRange() : null;
     }
 
     /**

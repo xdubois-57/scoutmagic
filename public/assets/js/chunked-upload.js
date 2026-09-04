@@ -67,7 +67,7 @@
             formData.append('chunk_offset', String(offset));
             formData.append('last', isLast ? '1' : '0');
             if (opts.csrfToken) formData.append('_csrf_token', opts.csrfToken);
-            var extra = { ...(opts.fields || {}), ...(isLast ? (opts.lastFields || {}) : {}) };
+            var extra = { ...opts.fields, ...(isLast ? opts.lastFields : null) };
             Object.keys(extra).forEach(function (key) { formData.append(key, extra[key]); });
 
             return fetch(url, { method: 'POST', body: formData }).then(function (response) {

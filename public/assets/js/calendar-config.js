@@ -51,7 +51,7 @@
      * @returns {boolean}
      */
     function succeeded(res) {
-        return !!(res.data && res.data.success);
+        return !!(res.data?.success);
     }
 
     /**
@@ -62,7 +62,7 @@
      * @returns {string}
      */
     function failureMessage(res) {
-        return (res.data && res.data.error) || 'Erreur : réponse serveur invalide.';
+        return res.data?.error || 'Erreur : réponse serveur invalide.';
     }
 
     /** @param {{ok: boolean, status: number, data: any}} res */
@@ -106,7 +106,7 @@
             notificationsError.classList.add('d-none');
 
             var res = await api.postJson('/config/calendar/notifications', {
-                enabled: !!(notifyEnabled && notifyEnabled.checked),
+                enabled: !!(notifyEnabled?.checked),
                 days_before: Number.parseInt(valueOf('notify-days-before'), 10)
             });
             if (succeeded(res)) {

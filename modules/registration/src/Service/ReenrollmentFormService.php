@@ -140,7 +140,11 @@ class ReenrollmentFormService
     {
         foreach ($this->memberService->getLinkedMembers($email, $publicYearId) as $profile) {
             if ($profile->memberId === $memberId) {
-                return $this->passageService->animeMemberIdsAmong($publicYearId, [$memberId], includeLeaving: true) !== [];
+                return $this->passageService->animeMemberIdsAmong(
+                    $publicYearId,
+                    [$memberId],
+                    includeLeaving: true,
+                ) !== [];
             }
         }
 

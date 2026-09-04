@@ -76,7 +76,7 @@
             ...extra
         });
 
-        if (res.data && res.data.success) {
+        if (res.data?.success) {
             window.location.reload();
         } else {
             window.ScoutMagicToast.show(errorMessage(res), { variant: 'error' });

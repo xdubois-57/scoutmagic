@@ -108,7 +108,7 @@
 
         modalBody.textContent = 'Chargement…';
 
-        var Modal = window.bootstrap && window.bootstrap.Modal;
+        var Modal = window.bootstrap?.Modal;
         if (Modal) {
             Modal.getOrCreateInstance(modalElement).show();
         }
@@ -135,7 +135,7 @@
     // an on* attribute) — the selector shipped dead. The template keeps a
     // visible "Afficher" submit button as the no-JS path.
     var historyPeriod = /** @type {HTMLSelectElement|null} */ (document.getElementById('history-period'));
-    if (historyPeriod && historyPeriod.form) {
+    if (historyPeriod?.form) {
         historyPeriod.addEventListener('change', function () {
             historyPeriod.form.submit();
         });

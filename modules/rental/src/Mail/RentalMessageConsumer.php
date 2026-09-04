@@ -56,7 +56,10 @@ use Modules\Rental\Service\RentalDocumentService;
  * **A cancelled or archived booking still matches.** The correspondence
  * about why a stay fell through belongs on that stay.
  */
-class RentalMessageConsumer implements MessageConsumerInterface, ReferenceDirectory, \Modules\InboundMail\Api\PropositionListener
+class RentalMessageConsumer implements
+    MessageConsumerInterface,
+    ReferenceDirectory,
+    \Modules\InboundMail\Api\PropositionListener
 {
     public const CONSUMER_ID = 'rental';
 

@@ -68,7 +68,7 @@
         toast.appendChild(flex);
         ensureContainer().appendChild(toast);
 
-        var Toast = window.bootstrap && window.bootstrap.Toast;
+        var Toast = window.bootstrap?.Toast;
         if (Toast) {
             var instance = new Toast(toast, { delay: delayMs });
             toast.addEventListener('hidden.bs.toast', function () { toast.remove(); });

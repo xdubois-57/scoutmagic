@@ -101,7 +101,8 @@ class MemberSearchService
         );
 
         return array_map(
-            static fn(MemberSearchResult $r): MemberSearchResult => $r->withAddress($addresses[$r->memberYearId] ?? null),
+            static fn(MemberSearchResult $r): MemberSearchResult
+                => $r->withAddress($addresses[$r->memberYearId] ?? null),
             $rows
         );
     }

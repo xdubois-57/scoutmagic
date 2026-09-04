@@ -273,9 +273,24 @@ You are a model selection assistant for an LLM connector.
 
 Given the list of available models below, choose the best model for each of the following three tiers:
 
-1. cheap_model_id: the cheapest/small model suitable for simple, high-volume tasks. It should be the most economical choice.
-2. capable_model_id: a model that is noticeably better than the cheap choice for harder tasks, but still reasonably priced. Do NOT pick the most expensive option. Avoid models with "opus", "405b", "70b" or "72b" in the name unless there is no alternative.
-3. ocr_model_id: the best model for OCR of photographed shop receipts. It must understand images and extract text/structured data from low-quality receipt photos. It must remain cheap or at most average cost; never choose a costly/large model. Prefer the smallest vision-capable model. Avoid "large", "opus", "sonnet", or models with 70b/72b/405b in the name unless there is genuinely no cheaper alternative. IMPORTANT: this must be a general-purpose chat/vision model reachable through the same chat-completions API as every other tier — never a standalone document-OCR-only model (e.g. a model literally named "*-ocr-*" that belongs to a dedicated OCR API such as Mistral's /v1/ocr endpoint). Such models return empty or invalid output when called through chat completions, so having "ocr" in the name is not by itself a reason to pick a model — judge actual chat/vision capability instead.
+1. cheap_model_id: the cheapest/small model suitable for simple, high-volume
+tasks. It should be the most economical choice.
+2. capable_model_id: a model that is noticeably better than the cheap choice
+for harder tasks, but still reasonably priced. Do NOT pick the most expensive
+option. Avoid models with "opus", "405b", "70b" or "72b" in the name unless
+there is no alternative.
+3. ocr_model_id: the best model for OCR of photographed shop receipts. It must
+understand images and extract text/structured data from low-quality receipt
+photos. It must remain cheap or at most average cost; never choose a
+costly/large model. Prefer the smallest vision-capable model. Avoid "large",
+"opus", "sonnet", or models with 70b/72b/405b in the name unless there is
+genuinely no cheaper alternative. IMPORTANT: this must be a general-purpose
+chat/vision model reachable through the same chat-completions API as every
+other tier — never a standalone document-OCR-only model (e.g. a model
+literally named "*-ocr-*" that belongs to a dedicated OCR API such as
+Mistral's /v1/ocr endpoint). Such models return empty or invalid output when
+called through chat completions, so having "ocr" in the name is not by itself
+a reason to pick a model — judge actual chat/vision capability instead.
 
 Rules for your answer:
 1. Respond ONLY with a valid JSON object.
@@ -285,7 +300,9 @@ Rules for your answer:
 5. If none of the available models is clearly better for a tier, choose the smallest/cheapest available model.
 
 Example of a valid response:
-{"cheap_model_id": "claude-3-5-haiku-20241022", "capable_model_id": "claude-3-5-sonnet-20241022", "ocr_model_id": "claude-3-5-haiku-20241022"}
+{"cheap_model_id": "claude-3-5-haiku-20241022",
+ "capable_model_id": "claude-3-5-sonnet-20241022",
+ "ocr_model_id": "claude-3-5-haiku-20241022"}
 
 Available models: {$availableModels}
 PROMPT;

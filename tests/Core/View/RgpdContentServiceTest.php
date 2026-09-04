@@ -163,6 +163,12 @@ class RgpdContentServiceTest extends TestCase
         $service->generateWithAi('Instructions.');
 
         $this->assertIsString($captured);
+        // Whitespace-normalised: these assertions are about what the prompt
+        // SAYS, not where its lines happen to break, and the prompt is prose
+        // that gets re-wrapped. Matching the raw text made a sentence
+        // assertion fail the moment a line was folded.
+        $captured = (string) preg_replace('/\s+/u', ' ', $captured);
+
         $this->assertStringContainsString('Statistiques d\'utilisation et archive de diagnostic', $captured);
         $this->assertStringContainsString('jamais transmise automatiquement', $captured);
         $this->assertStringContainsString('ne le décris jamais comme anonyme', $captured);

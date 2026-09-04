@@ -89,15 +89,15 @@
      */
     function hasFunctionalConsent() {
         var cookies = document.cookie ? document.cookie.split(';') : [];
-        for (var i = 0; i < cookies.length; i++) {
-            var pair = cookies[i];
+        for (const pair of cookies) {
             var eq = pair.indexOf('=');
             if (eq === -1) continue;
             if (pair.slice(0, eq).trim() !== 'cookie_consent') continue;
             try {
                 var data = JSON.parse(decodeURIComponent(pair.slice(eq + 1).trim()));
-                return !!(data && data.functional);
-            } catch (e) {
+                return !!(data?.functional);
+            } catch {
+                // A malformed consent cookie is not consent.
                 return false;
             }
         }
@@ -108,7 +108,7 @@
     function forget() {
         try {
             localStorage.removeItem(STORAGE_KEY);
-        } catch (e) {
+        } catch {
             // Storage disabled or private browsing — nothing was stored.
         }
     }
@@ -135,7 +135,7 @@
             var stored = localStorage.getItem(STORAGE_KEY);
 
             return stored === null ? null : stored === '1';
-        } catch (e) {
+        } catch {
             // Storage disabled or private browsing — no answer, so the
             // screen gets to give one.
             return null;
@@ -212,9 +212,9 @@
         }
         panel.classList.remove('show');
         var toggles = document.querySelectorAll('.camps-map-toggle');
-        for (var i = 0; i < toggles.length; i++) {
-            toggles[i].setAttribute('aria-expanded', 'false');
-            toggles[i].classList.add('collapsed');
+        for (const toggle of toggles) {
+            toggle.setAttribute('aria-expanded', 'false');
+            toggle.classList.add('collapsed');
         }
     }
 

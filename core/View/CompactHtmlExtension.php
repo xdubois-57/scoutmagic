@@ -38,7 +38,12 @@ final class CompactHtmlExtension extends AbstractExtension
     {
         // Split on the preformatted elements; only the parts between them
         // are compacted, the elements themselves are copied verbatim.
-        $parts = preg_split('/(<(?:textarea|pre)\b[^>]*>.*?<\/(?:textarea|pre)>)/is', (string) $html, -1, PREG_SPLIT_DELIM_CAPTURE);
+        $parts = preg_split(
+            '/(<(?:textarea|pre)\b[^>]*>.*?<\/(?:textarea|pre)>)/is',
+            (string) $html,
+            -1,
+            PREG_SPLIT_DELIM_CAPTURE,
+        );
         if ($parts === false) {
             return (string) $html;
         }

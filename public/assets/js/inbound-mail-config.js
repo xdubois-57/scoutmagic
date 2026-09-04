@@ -42,7 +42,7 @@
      * @returns {boolean}
      */
     function succeeded(res) {
-        return !!(res.data && res.data.success);
+        return !!(res.data?.success);
     }
 
     /**
@@ -50,7 +50,7 @@
      * @returns {string}
      */
     function failureMessage(res) {
-        return (res.data && res.data.error) || 'Erreur : réponse serveur invalide.';
+        return res.data?.error || 'Erreur : réponse serveur invalide.';
     }
 
     /**
@@ -132,7 +132,7 @@
         foldersList.textContent = '';
 
         folders.forEach(function (folder) {
-            var isSelected = selected.indexOf(folder) !== -1;
+            var isSelected = selected.includes(folder);
             var row = buildFolderCheckbox(folder, isSelected);
             foldersList.appendChild(row);
         });
@@ -156,19 +156,6 @@
             checked.push(/** @type {HTMLInputElement} */ (cb).value);
         });
         foldersTextarea.value = checked.join('\n');
-    }
-
-    /** Reset the folder picker back to the textarea fallback. */
-    function hideFolderPicker() {
-        if (foldersPicker) {
-            foldersPicker.classList.add('d-none');
-        }
-        if (foldersList) {
-            foldersList.textContent = '';
-        }
-        if (foldersWrapper) {
-            foldersWrapper.classList.remove('d-none');
-        }
     }
 
     // ── Test connection ────────────────────────────────────────────────

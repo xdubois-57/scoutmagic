@@ -310,7 +310,7 @@ self.addEventListener('fetch', function (event) {
     // logo upload must equally miss until CACHE_NAME's own icon-version
     // bump has re-precached it. This is the actual cache-busting fix —
     // ignoreSearch here would silently undo it (see ARCHITECTURE §8.23).
-    if (ICON_URLS.indexOf(url.pathname) !== -1) {
+    if (ICON_URLS.includes(url.pathname)) {
         event.respondWith(
             caches.match(request).then(function (cached) {
                 return cached || fetch(request);
@@ -322,7 +322,7 @@ self.addEventListener('fetch', function (event) {
     // Rest of the app shell — cache-first, ignoreSearch so a request that
     // happens to carry a query string (none of these legitimately do)
     // still matches the precached bare-path entry.
-    if (APP_SHELL_BASE_URLS.indexOf(url.pathname) !== -1) {
+    if (APP_SHELL_BASE_URLS.includes(url.pathname)) {
         event.respondWith(
             caches.match(request, { ignoreSearch: true }).then(function (cached) {
                 return cached || fetch(request);
@@ -389,7 +389,7 @@ function handleNavigate(request, url, preloadResponse) {
     const network = startNetworkRequest(request, preloadResponse);
 
     return getOfflineConfig().then(function (config) {
-        if (!config || !config.consent || !isWhitelisted(url.pathname, config.whitelist)) {
+        if (!config?.consent || !isWhitelisted(url.pathname, config.whitelist)) {
             // Lot 1 behavior, unchanged: a failed navigation falls back to
             // the precached offline page instead of the browser's own
             // network-error interstitial — the one thing an installed,
@@ -428,14 +428,13 @@ function isWhitelisted(pathname, whitelist) {
     if (!whitelist) {
         return false;
     }
-    for (let i = 0; i < whitelist.length; i++) {
-        const entry = whitelist[i];
+    for (const entry of whitelist) {
         if (entry.match === 'child') {
             if (pathname.indexOf(entry.path) !== 0) {
                 continue;
             }
             const remainder = trimSlashes(pathname.slice(entry.path.length));
-            if (remainder !== '' && remainder.indexOf('/') === -1) {
+            if (remainder !== '' && !remainder.includes('/')) {
                 return true;
             }
         } else if (pathname === entry.path) {
@@ -461,7 +460,7 @@ function networkFirstWithCacheFallback(request, url, config, network) {
         // installed app does. READS below stay unconditional regardless:
         // a single tab visit must not blind the installed app's own
         // already-cached copy until its next page load.
-        if (response && response.ok && !response.redirected && config.standalone) {
+        if (response?.ok && !response.redirected && config.standalone) {
             const copy = response.clone();
             caches.open(cacheName).then(function (cache) { cache.put(request, copy); });
         }
@@ -566,16 +565,16 @@ self.addEventListener('push', function (event) {
 self.addEventListener('notificationclick', function (event) {
     event.notification.close();
 
-    const url = event.notification.data && event.notification.data.url;
+    const url = event.notification.data?.url;
     if (!url) {
         return;
     }
 
     event.waitUntil(
         self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (clientList) {
-            for (let i = 0; i < clientList.length; i++) {
-                if (clientList[i].url === url && 'focus' in clientList[i]) {
-                    return clientList[i].focus();
+            for (const client of clientList) {
+                if (client.url === url && 'focus' in client) {
+                    return client.focus();
                 }
             }
             if (self.clients.openWindow) {

@@ -71,14 +71,13 @@
     }
 
     function isWhitelisted(pathname) {
-        for (var i = 0; i < whitelist.length; i++) {
-            var entry = whitelist[i];
+        for (const entry of whitelist) {
             if (entry.match === 'child') {
                 if (pathname.indexOf(entry.path) !== 0) {
                     continue;
                 }
                 var remainder = trimSlashes(pathname.slice(entry.path.length));
-                if (remainder !== '' && remainder.indexOf('/') === -1) {
+                if (remainder !== '' && !remainder.includes('/')) {
                     return true;
                 }
             } else if (pathname === entry.path) {
@@ -245,7 +244,9 @@
                 return null;
             }
             return resolved.href;
-        } catch (e) {
+        } catch {
+            // URL() throws on an attribute that is not a URL at all, and
+            // that is not a link this can follow.
             return null;
         }
     }
@@ -291,7 +292,7 @@
     if (typeof originalFetch === 'function') {
         window.fetch = function (input, init) {
             var method = 'GET';
-            if (init && init.method) {
+            if (init?.method) {
                 method = init.method;
             } else if (input && typeof input === 'object' && /** @type {Request} */ (input).method) {
                 method = /** @type {Request} */ (input).method;

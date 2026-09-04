@@ -269,7 +269,7 @@
         }
 
         const res = await api.getJson(config.lookupUrl + '?q=' + encodeURIComponent(query));
-        if (!res.data || !res.data.success) {
+        if (!res.data?.success) {
             showMatches([]);
             showVerdict({ status: 'not_found' });
             return;
@@ -291,9 +291,9 @@
             used: used ? '1' : '0',
         });
 
-        if (!res.data || !res.data.success) {
-            window.ScoutMagicToast && window.ScoutMagicToast.show(
-                (res.data && res.data.error) || "L'entrée n'a pas pu être enregistrée. Vérifiez la connexion.",
+        if (!res.data?.success) {
+            window.ScoutMagicToast?.show(
+                res.data?.error || "L'entrée n'a pas pu être enregistrée. Vérifiez la connexion.",
                 { variant: 'error' }
             );
             return;
@@ -334,7 +334,7 @@
         if (!button) return;
 
         const res = await api.getJson(config.lookupUrl + '?response_id=' + encodeURIComponent(button.dataset.scanPick || ''));
-        if (res.data && res.data.success) {
+        if (res.data?.success) {
             showMatches([]);
             showVerdict(res.data.verdict);
         }

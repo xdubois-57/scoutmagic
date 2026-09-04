@@ -98,7 +98,7 @@
             var url = '/courrier/cibles?module=' + encodeURIComponent(module.value)
                 + '&q=' + encodeURIComponent(query);
             var res = await window.ScoutMagicApi.getJson(url);
-            render((res.data && res.data.success && res.data.targets) || []);
+            render((res.data?.success && res.data.targets) || []);
         }
 
         input.addEventListener('input', function () {

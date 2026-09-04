@@ -69,7 +69,7 @@
 
     async function search() {
         const res = await api.getJson('/news/scan/events?q=' + encodeURIComponent(input.value));
-        if (!res.data || !res.data.success) return;
+        if (!res.data?.success) return;
 
         results.innerHTML = res.data.events.length === 0
             ? '<p class="text-body-secondary fst-italic mb-0 px-1">Aucun évènement ne correspond.</p>'

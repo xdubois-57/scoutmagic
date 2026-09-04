@@ -272,7 +272,11 @@ class SqlParser
 
     private function parseForeignKeyDefinition(string $def): ?ForeignKeyDefinition
     {
-        $pattern = '/FOREIGN\s+KEY\s*\([`]?(\w+)[`]?\)\s*REFERENCES\s+[`]?(\w+)[`]?\s*\([`]?(\w+)[`]?\)(?:\s+ON\s+DELETE\s+(CASCADE|SET\s+NULL|NO\s+ACTION|RESTRICT))?(?:\s+ON\s+UPDATE\s+(CASCADE|SET\s+NULL|NO\s+ACTION|RESTRICT))?/i';
+        $referentialAction = '(CASCADE|SET\s+NULL|NO\s+ACTION|RESTRICT)';
+        $pattern = '/FOREIGN\s+KEY\s*\([`]?(\w+)[`]?\)\s*'
+            . 'REFERENCES\s+[`]?(\w+)[`]?\s*\([`]?(\w+)[`]?\)'
+            . '(?:\s+ON\s+DELETE\s+' . $referentialAction . ')?'
+            . '(?:\s+ON\s+UPDATE\s+' . $referentialAction . ')?/i';
 
         if (preg_match($pattern, $def, $m)) {
             $onDelete = isset($m[4]) && $m[4] !== '' ? strtoupper($m[4]) : null;
@@ -302,7 +306,11 @@ class SqlParser
     private function parseConstraintDefinition(string $def, array &$indexes, array &$foreignKeys): void
     {
         // Named foreign key constraint
-        $fkPattern = '/CONSTRAINT\s+[`]?(\w+)[`]?\s+FOREIGN\s+KEY\s*\([`]?(\w+)[`]?\)\s*REFERENCES\s+[`]?(\w+)[`]?\s*\([`]?(\w+)[`]?\)(?:\s+ON\s+DELETE\s+(CASCADE|SET\s+NULL|NO\s+ACTION|RESTRICT))?(?:\s+ON\s+UPDATE\s+(CASCADE|SET\s+NULL|NO\s+ACTION|RESTRICT))?/i';
+        $referentialAction = '(CASCADE|SET\s+NULL|NO\s+ACTION|RESTRICT)';
+        $fkPattern = '/CONSTRAINT\s+[`]?(\w+)[`]?\s+FOREIGN\s+KEY\s*\([`]?(\w+)[`]?\)\s*'
+            . 'REFERENCES\s+[`]?(\w+)[`]?\s*\([`]?(\w+)[`]?\)'
+            . '(?:\s+ON\s+DELETE\s+' . $referentialAction . ')?'
+            . '(?:\s+ON\s+UPDATE\s+' . $referentialAction . ')?/i';
 
         if (preg_match($fkPattern, $def, $m)) {
             $onDelete = isset($m[5]) && $m[5] !== '' ? strtoupper($m[5]) : null;
@@ -442,7 +450,8 @@ class SqlParser
         $sql = $this->removeComments($sql);
 
         $drops = [];
-        $pattern = '/ALTER\s+TABLE\s+[`]?(\w+)[`]?\s+DROP\s+(?:COLUMN\s+[`]?(\w+)[`]?|FOREIGN\s+KEY\s+[`]?(\w+)[`]?)/si';
+        $pattern = '/ALTER\s+TABLE\s+[`]?(\w+)[`]?\s+DROP\s+'
+            . '(?:COLUMN\s+[`]?(\w+)[`]?|FOREIGN\s+KEY\s+[`]?(\w+)[`]?)/si';
         if (preg_match_all($pattern, $sql, $matches, PREG_SET_ORDER)) {
             foreach ($matches as $m) {
                 if (($m[2] ?? '') !== '') {

@@ -514,7 +514,8 @@ class FinanceService
         }
 
         $eligible = $account->accountType === Account::TYPE_CASH
-            || ($account->iban !== null && $account->iban !== '' && $account->holderName !== null && $account->holderName !== '');
+            || ($account->iban !== null && $account->iban !== ''
+                && $account->holderName !== null && $account->holderName !== '');
 
         if ($eligible) {
             $this->accountRepository->updateStatus($id, Account::STATUS_ACTIVE);

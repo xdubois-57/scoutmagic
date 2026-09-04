@@ -49,7 +49,7 @@
     });
 
     function escapeAttr(value) {
-        return value.replace(/["\\]/g, '\\$&');
+        return value.replace(/["\\]/g, String.raw`\$&`);
     }
 
     document.querySelectorAll('.rich-text-field-edit-btn').forEach(function (btn) {

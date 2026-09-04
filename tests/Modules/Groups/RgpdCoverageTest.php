@@ -122,6 +122,9 @@ class RgpdCoverageTest extends TestCase
         $connector->method('complete')->willReturnCallback(
             function ($request) use (&$captured): LlmResponse {
                 $captured = (string) $request->systemPrompt . "\n" . $request->prompt;
+                // Folded to one line: these tests assert what the prompt SAYS,
+                // and a sentence must stay assertable across a re-wrap.
+                $captured = (string) preg_replace('/\s+/u', ' ', $captured);
                 return new LlmResponse('<p>ok</p>', null, 1, 1);
             }
         );

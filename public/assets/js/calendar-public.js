@@ -62,7 +62,7 @@
     }
 
     if (modalEl) {
-        var Modal = window.bootstrap && window.bootstrap.Modal;
+        var Modal = window.bootstrap?.Modal;
         var detailsModal = Modal ? new Modal(modalEl) : null;
 
         // Shared by both the month-grid bars and the « Prochains
@@ -157,14 +157,14 @@
                 function () { return api.postJson('/calendar/personal-token/regenerate', {}); }
             );
 
-            if (res.data && res.data.success) {
+            if (res.data?.success) {
                 // The new link has to replace the old one in the field,
                 // in the QR code and in the subscribe button.
                 window.location.reload();
                 return;
             }
             window.ScoutMagicToast.show(
-                (res.data && res.data.error) || 'Le lien n\'a pas pu être régénéré.',
+                res.data?.error || 'Le lien n\'a pas pu être régénéré.',
                 { variant: 'error' }
             );
         });

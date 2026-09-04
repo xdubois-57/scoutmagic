@@ -75,7 +75,10 @@ final class HelpSearchIndex
     public function forRole(Role $role): array
     {
         $cache = $this->cacheDirectory !== null
-            ? new \Core\Cache\SerializedFileCache($this->cacheDirectory . '/search_index_' . $role->value . '.cache', [])
+            ? new \Core\Cache\SerializedFileCache(
+                $this->cacheDirectory . '/search_index_' . $role->value . '.cache',
+                [],
+            )
             : null;
         $cached = $cache?->read(fn(mixed $value): bool => is_array($value)
             && ($value['key'] ?? null) === $this->cacheKey
@@ -91,7 +94,14 @@ final class HelpSearchIndex
     }
 
     /**
-     * @return array<int, array{id: string, title: string, summary: string, category: string, questions: array<int, string>, link: array{path: string, label: string}|null}>
+     * @return array<int, array{
+     *     id: string,
+     *     title: string,
+     *     summary: string,
+     *     category: string,
+     *     questions: array<int, string>,
+     *     link: array{path: string, label: string}|null
+     * }>
      */
     private function build(Role $role): array
     {

@@ -34,7 +34,7 @@
      * @returns {void}
      */
     function syncAriaChecked(control) {
-        if (window.ScoutMagicNav && window.ScoutMagicNav.syncSwitchAriaChecked) {
+        if (window.ScoutMagicNav?.syncSwitchAriaChecked) {
             window.ScoutMagicNav.syncSwitchAriaChecked(control);
         }
     }

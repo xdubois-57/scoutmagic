@@ -77,7 +77,7 @@
         if (selectedFunctions.length === 0) {
             return true;
         }
-        return selectedFunctions.indexOf(row.dataset.function || '') !== -1;
+        return selectedFunctions.includes(row.dataset.function || '');
     }
 
     /**
@@ -210,7 +210,7 @@
 
         list.addEventListener('change', function (e) {
             var target = /** @type {HTMLElement} */ (e.target);
-            if (target && target.classList.contains('attestations-line-check')) {
+            if (target?.classList.contains('attestations-line-check')) {
                 refresh();
             }
         });

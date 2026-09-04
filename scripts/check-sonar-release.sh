@@ -11,9 +11,8 @@ set -euo pipefail
 # A release is refused when, for the branch currently being released
 # (SONAR_BRANCH, default "main"):
 #   1. any unresolved SECURITY-impact issue is active, OR
-#   2. any unresolved issue at software-quality severity HIGH or BLOCKER
-#      (the only severity above HIGH in SonarQube's current model:
-#      INFO < LOW < MEDIUM < HIGH < BLOCKER) is active, OR
+#   2. ANY unresolved issue is active, except one that is Maintainability
+#      AND severity LOW AND tagged `convention` — all three together, OR
 #   3. any Security Hotspot is still awaiting triage (status TO_REVIEW —
 #      an unreviewed hotspot is an unresolved security question, treated
 #      the same as an active security finding), OR
@@ -160,6 +159,9 @@ php_get() {
     return $?
 }
 
+# How every list of issue keys is printed below.
+KEY_LINE='  %s\n'
+
 # --- 1. Confirm a SonarQube analysis exists for the exact commit being released ---
 # Fail closed if the branch has no analysis yet, or its most recent analysis
 # does not correspond to the local HEAD commit — this is exactly the "l'état
@@ -227,34 +229,65 @@ rm -f "${HOTSPOTS_FILE}"
 
 SECURITY_TOTAL=$((SECURITY_ISSUES_COUNT + HOTSPOTS_COUNT))
 
-# --- 5. Unresolved HIGH-severity issues (any software quality) ---
-HIGH_FILE="$(mktemp)"
-if ! sonar_get "/api/issues/search?componentKeys=$(php -r 'echo rawurlencode($argv[1]);' "${SONAR_PROJECT_KEY}")&branch=$(php -r 'echo rawurlencode($argv[1]);' "${SONAR_BRANCH}")&resolved=false&impactSeverities=HIGH&ps=100" > "${HIGH_FILE}"; then
-    rm -f "${HIGH_FILE}"
-    fail
-fi
-HIGH_COUNT="$(php_get "${HIGH_FILE}" '$d["paging"]["total"] ?? $d["total"] ?? 0')"
-HIGH_KEYS="$(php_get "${HIGH_FILE}" 'implode("\n", array_slice(array_column($d["issues"] ?? [], "key"), 0, 10))')"
-rm -f "${HIGH_FILE}"
+# --- 5. Every unresolved issue that is not an exempt convention nit ---
+#
+# The rule, in one sentence: EVERY unresolved SonarCloud finding blocks a
+# release, except one that is Maintainability AND severity LOW AND tagged
+# `convention`. All three conditions, together — a convention finding that
+# is MEDIUM blocks, and so does a LOW one that also impacts Reliability.
+#
+# Counted by FILTERING, never by subtracting one query from another. An
+# issue carries a LIST of impacts, and SonarCloud's
+# `impactSoftwareQualities=MAINTAINABILITY` matches an issue that has such
+# an impact among others — so "total minus (maintainability AND low AND
+# convention)" would quietly exempt an issue whose maintainability impact
+# is LOW while its reliability impact is MEDIUM. Every impact has to be
+# LOW maintainability for the exemption to hold, which only a per-issue
+# read can decide.
+BLOCKING_KEYS_FILE="$(mktemp)"
+BLOCKING_COUNT=0
+ISSUES_TOTAL=0
+PAGE=1
+while :; do
+    PAGE_FILE="$(mktemp)"
+    if ! sonar_get "/api/issues/search?componentKeys=$(php -r 'echo rawurlencode($argv[1]);' "${SONAR_PROJECT_KEY}")&branch=$(php -r 'echo rawurlencode($argv[1]);' "${SONAR_BRANCH}")&resolved=false&ps=500&p=${PAGE}" > "${PAGE_FILE}"; then
+        rm -f "${PAGE_FILE}" "${BLOCKING_KEYS_FILE}"
+        fail
+    fi
 
-# --- 6. Unresolved issues above HIGH (BLOCKER — the only higher level in the
-#         current software-quality severity model: INFO < LOW < MEDIUM < HIGH
-#         < BLOCKER). Kept as its own query so a future additional level
-#         above BLOCKER would need this list updated deliberately, not
-#         silently included or excluded. ---
-HIGHER_FILE="$(mktemp)"
-if ! sonar_get "/api/issues/search?componentKeys=$(php -r 'echo rawurlencode($argv[1]);' "${SONAR_PROJECT_KEY}")&branch=$(php -r 'echo rawurlencode($argv[1]);' "${SONAR_BRANCH}")&resolved=false&impactSeverities=BLOCKER&ps=100" > "${HIGHER_FILE}"; then
-    rm -f "${HIGHER_FILE}"
-    fail
-fi
-HIGHER_COUNT="$(php_get "${HIGHER_FILE}" '$d["paging"]["total"] ?? $d["total"] ?? 0')"
-HIGHER_KEYS="$(php_get "${HIGHER_FILE}" 'implode("\n", array_slice(array_column($d["issues"] ?? [], "key"), 0, 10))')"
-rm -f "${HIGHER_FILE}"
+    ISSUES_TOTAL="$(php_get "${PAGE_FILE}" '$d["paging"]["total"] ?? $d["total"] ?? 0')"
+    PAGE_SIZE="$(php_get "${PAGE_FILE}" 'count($d["issues"] ?? [])')"
+
+    php_get "${PAGE_FILE}" 'implode("\n", array_column(array_filter($d["issues"] ?? [], function ($i) {
+        $tags = $i["tags"] ?? [];
+        $impacts = $i["impacts"] ?? [];
+        if (!in_array("convention", $tags, true) || $impacts === []) {
+            return true;
+        }
+        foreach ($impacts as $im) {
+            if (($im["softwareQuality"] ?? "") !== "MAINTAINABILITY" || ($im["severity"] ?? "") !== "LOW") {
+                return true;
+            }
+        }
+        return false;
+    }), "key"))' >> "${BLOCKING_KEYS_FILE}"
+    printf '\n' >> "${BLOCKING_KEYS_FILE}"
+
+    rm -f "${PAGE_FILE}"
+
+    if [[ "${PAGE_SIZE}" -eq 0 ]] || [[ $((PAGE * 500)) -ge "${ISSUES_TOTAL}" ]]; then
+        break
+    fi
+    PAGE=$((PAGE + 1))
+done
+
+BLOCKING_COUNT="$(grep -c '[^[:space:]]' "${BLOCKING_KEYS_FILE}" || true)"
+BLOCKING_KEYS="$(grep '[^[:space:]]' "${BLOCKING_KEYS_FILE}" | head -10 || true)"
+rm -f "${BLOCKING_KEYS_FILE}"
 
 echo "Quality Gate: ${QUALITY_GATE_STATUS}"
 echo "Security findings: ${SECURITY_TOTAL}"
-echo "HIGH findings: ${HIGH_COUNT}"
-echo "Higher-severity findings: ${HIGHER_COUNT}"
+echo "Unresolved issues: ${ISSUES_TOTAL} (blocking: ${BLOCKING_COUNT}, exempt: $((ISSUES_TOTAL - BLOCKING_COUNT)) convention nits)"
 
 BLOCKED=0
 
@@ -264,19 +297,15 @@ fi
 if [[ "${SECURITY_TOTAL}" -gt 0 ]]; then
     BLOCKED=1
 fi
-if [[ "${HIGH_COUNT}" -gt 0 ]]; then
-    BLOCKED=1
-fi
-if [[ "${HIGHER_COUNT}" -gt 0 ]]; then
+if [[ "${BLOCKING_COUNT}" -gt 0 ]]; then
     BLOCKED=1
 fi
 
 if [[ "${BLOCKED}" -eq 1 ]]; then
     {
-        [[ -n "${SECURITY_ISSUES_KEYS}" ]] && { echo "Blocking security issues:"; printf '  %s\n' ${SECURITY_ISSUES_KEYS}; }
-        [[ -n "${HOTSPOTS_KEYS}" ]] && { echo "Unreviewed security hotspots:"; printf '  %s\n' ${HOTSPOTS_KEYS}; }
-        [[ -n "${HIGH_KEYS}" ]] && { echo "Blocking HIGH-severity issues:"; printf '  %s\n' ${HIGH_KEYS}; }
-        [[ -n "${HIGHER_KEYS}" ]] && { echo "Blocking BLOCKER-severity issues:"; printf '  %s\n' ${HIGHER_KEYS}; }
+        [[ -n "${SECURITY_ISSUES_KEYS}" ]] && { echo "Blocking security issues:"; printf "${KEY_LINE}" ${SECURITY_ISSUES_KEYS}; }
+        [[ -n "${HOTSPOTS_KEYS}" ]] && { echo "Unreviewed security hotspots:"; printf "${KEY_LINE}" ${HOTSPOTS_KEYS}; }
+        [[ -n "${BLOCKING_KEYS}" ]] && { echo "Blocking issues (first 10 of ${BLOCKING_COUNT}):"; printf "${KEY_LINE}" ${BLOCKING_KEYS}; }
         echo "See: ${SONAR_HOST_URL}/project/issues?id=$(php -r 'echo rawurlencode($argv[1]);' "${SONAR_PROJECT_KEY}")&branch=$(php -r 'echo rawurlencode($argv[1]);' "${SONAR_BRANCH}")&resolved=false"
     } >&2
     fail

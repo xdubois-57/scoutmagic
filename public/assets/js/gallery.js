@@ -44,7 +44,7 @@
 
         function preload(index) {
             var item = items[index];
-            if (item && item.type === 'photo') {
+            if (item?.type === 'photo') {
                 var img = new Image();
                 img.src = item.mediumUrl;
             }
@@ -178,7 +178,7 @@
                 }).then(function (result) {
                     return { file: file, success: true, media_id: result.data.media_id };
                 }).catch(function (err) {
-                    return { file: file, success: false, error: (err && err.message) || 'Erreur réseau.' };
+                    return { file: file, success: false, error: err?.message || 'Erreur réseau.' };
                 });
             }
             return new Promise(function (resolve) {
@@ -236,7 +236,7 @@
         }
 
         function handleFiles(fileList) {
-            if (!fileList || !fileList.length) return;
+            if (!fileList?.length) return;
             uploadAll(fileList);
         }
 
@@ -345,7 +345,7 @@
 
         function sync() {
             var checked = /** @type {HTMLInputElement} */ (document.querySelector('input[name="type"]:checked'));
-            var isExternal = !!checked && checked.value === 'external';
+            var isExternal = checked?.value === 'external';
 
             externalField.classList.toggle('d-none', !isExternal);
             if (externalInput) externalInput.required = isExternal;

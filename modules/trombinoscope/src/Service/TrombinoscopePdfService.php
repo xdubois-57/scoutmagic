@@ -92,7 +92,15 @@ class TrombinoscopePdfService
         }
         $this->photoEmbedder->prime($memberIds, $scoutYearId);
 
-        $cacheFile = $this->cacheFile($scoutYearId, $yearLabel, $unitName, $siteUrl, $showContacts, $sections, $staffBySection);
+        $cacheFile = $this->cacheFile(
+            $scoutYearId,
+            $yearLabel,
+            $unitName,
+            $siteUrl,
+            $showContacts,
+            $sections,
+            $staffBySection,
+        );
         if ($cacheFile !== null && is_file($cacheFile)) {
             $cached = @file_get_contents($cacheFile);
             if ($cached !== false && $cached !== '') {
@@ -212,7 +220,12 @@ class TrombinoscopePdfService
      * @param array<int, array{lead: ?MemberProfile, staff: MemberProfile[]}> $staffBySection
      * @return SectionView[]
      */
-    private function buildSectionViews(int $scoutYearId, bool $showContacts, array $sections, array $staffBySection): array
+    private function buildSectionViews(
+        int $scoutYearId,
+        bool $showContacts,
+        array $sections,
+        array $staffBySection,
+    ): array
     {
         $views = [];
         foreach ($sections as $section) {

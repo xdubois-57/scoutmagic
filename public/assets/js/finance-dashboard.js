@@ -43,7 +43,7 @@
      */
     function colorsFor(rows, ramp) {
         return rows.map(function (row, i) {
-            return ramp[i] || ramp[ramp.length - 1];
+            return ramp[i] || ramp.at(-1);
         });
     }
 

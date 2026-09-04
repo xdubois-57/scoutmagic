@@ -84,14 +84,17 @@ mysqld_binary() {
     return 1
 }
 
+# The separator drawn above and below every engine banner.
+RULE="=============================================================="
+
 run_suite() {
     local label="$1" host="$2" port="$3" name="$4" user="$5" password="$6"
     shift 6
 
     echo
-    echo "=============================================================="
+    echo "${RULE}"
     echo "engines: running the suite against ${label}"
-    echo "=============================================================="
+    echo "${RULE}"
 
     TEST_DB_HOST="${host}" TEST_DB_PORT="${port}" TEST_DB_NAME="${name}" \
     TEST_DB_USER="${user}" TEST_DB_PASSWORD="${password}" \
@@ -238,10 +241,10 @@ else
 fi
 
 echo
-echo "=============================================================="
+echo "${RULE}"
 echo "engines: MariaDB  ${MARIADB_STATUS}"
 echo "engines: MySQL    ${MYSQL_STATUS}"
-echo "=============================================================="
+echo "${RULE}"
 
 if [[ "${EXIT_CODE}" -ne 0 ]]; then
     echo "engines: NOT green on both engines."

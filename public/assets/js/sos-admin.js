@@ -95,7 +95,7 @@
      * @returns {boolean}
      */
     function succeeded(res) {
-        return !!(res.data && res.data.success);
+        return !!(res.data?.success);
     }
 
     /**
@@ -106,7 +106,7 @@
      * @returns {string}
      */
     function failureMessage(res) {
-        return (res.data && res.data.error) || 'Erreur : réponse serveur invalide.';
+        return res.data?.error || 'Erreur : réponse serveur invalide.';
     }
 
     /** @param {{ok: boolean, status: number, data: any}} res */
@@ -539,7 +539,9 @@
                 return;
             }
             transitionsList.innerHTML = await res.text();
-        } catch (err) {
+        } catch {
+            // A dropped connection and an unreadable body are the same
+            // failure from here, and get the same message as !res.ok.
             window.ScoutMagicToast.show('Erreur : réponse serveur invalide.', { variant: 'error' });
         }
     }

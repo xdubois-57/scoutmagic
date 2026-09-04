@@ -42,7 +42,10 @@ class TrombinoscopeController extends AbstractController
         private ScoutYearResolver $scoutYearResolver,
         private SettingService $settingService,
         private TrombinoscopePdfService $pdfService,
-        /** Optional so the many existing constructions keep working; without it every portrait resolves its own photo. */
+        /**
+         * Optional so the many existing constructions keep working; without
+         * it every portrait resolves its own photo.
+         */
         private ?\Core\Photo\MemberPhotoService $memberPhotoService = null
     ) {
     }

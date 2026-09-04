@@ -424,7 +424,8 @@ class SchedulerService
                     (string) $row['task_key'],
                     $row['reference'] !== null ? (string) $row['reference'] : null
                 );
-                $this->liveKeys[$key][(string) $row['status']] = ($this->liveKeys[$key][(string) $row['status']] ?? 0) + 1;
+                $status = (string) $row['status'];
+                $this->liveKeys[$key][$status] = ($this->liveKeys[$key][$status] ?? 0) + 1;
             }
         }
 
