@@ -12,6 +12,11 @@
 
 name: Claude review
 
+# Deny by default at the workflow level; the one job below grants itself
+# exactly what it needs. Without this, a job that ever forgets its own
+# `permissions:` block silently inherits the repository default.
+permissions: {}
+
 on:
   pull_request:
     # `opened` catches a pull request created ready for review;
@@ -66,10 +71,19 @@ jobs:
       id-token: write
 
     steps:
-      - uses: actions/checkout@v6
+      # Both actions are pinned to a commit rather than a tag, the
+      # convention ci.yml already uses for setup-php, setup-node and the
+      # SonarQube scanner. A tag moves; this job holds a Claude
+      # subscription token and `id-token: write`, so code arriving through
+      # a moved tag would run with both.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # Full history: the review reads the branch against its base.
           fetch-depth: 0
+          # The review only reads. Leaving the checkout credential in
+          # .git/config would hand it to every later step and into any
+          # artifact built from the workspace.
+          persist-credentials: false
 
       # KNOWN GAP, verified on this workflow's own pull request. The action
       # refuses to run when this file differs from the copy on the default
@@ -87,7 +101,7 @@ jobs:
       # What closes it is .github/CODEOWNERS plus "require review from code
       # owners" on main: a human has to approve a change to this file. If
       # that rule is ever relaxed, this gap reopens.
-      - uses: anthropics/claude-code-action@v1
+      - uses: anthropics/claude-code-action@d9a44dc489924665d246f0fd0508d102211be397 # v1
         with:
           # Authenticates against the maintainer's Claude subscription
           # rather than a metered API key. Generated with `claude
