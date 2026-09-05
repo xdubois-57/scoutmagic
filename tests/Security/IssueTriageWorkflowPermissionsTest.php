@@ -157,6 +157,52 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
     }
 
     /**
+     * The workflow has no checkout, so it does not `open` its skill — it
+     * asks Claude to fetch the file from `main` through the GitHub tools.
+     * That indirection has a failure mode nothing else covers: rename or
+     * move the file and the fetch returns nothing, while the job still
+     * runs, still authenticates, still has `issues: write`, and still
+     * ends `success`. Claude would triage the issue with no method at
+     * all — and since IT-03 that method is what decides whether an issue
+     * gets CLOSED, and with which reason.
+     *
+     * A green run proving nothing is the failure this repository keeps
+     * meeting (docs/quality-pipeline.md, last section), so the pairing is
+     * asserted here: every skill file the workflow names must exist.
+     */
+    public function testEverySkillTheWorkflowNamesExists(): void
+    {
+        $repoRoot = dirname(__DIR__, 2);
+        $referenced = [];
+
+        foreach ($this->lines() as $line) {
+            if (preg_match_all('/[`\s(](\.claude\/skills\/[A-Za-z0-9_\-\/]+\.md)/', $line, $matches) < 1) {
+                continue;
+            }
+
+            foreach ($matches[1] as $path) {
+                $referenced[$path] = true;
+            }
+        }
+
+        self::assertNotEmpty(
+            $referenced,
+            self::WORKFLOW . ' no longer names a skill file. Either the prompt stopped pointing at one — '
+            . 'in which case the triage has no method — or the reference changed shape and this test is '
+            . 'now checking nothing.',
+        );
+
+        foreach (array_keys($referenced) as $path) {
+            self::assertFileExists(
+                $repoRoot . '/' . $path,
+                self::WORKFLOW . ' tells Claude to fetch ' . $path . ', which does not exist. The job '
+                . 'would still run, still succeed, and triage the issue with no method — including the '
+                . 'decision to close it.',
+            );
+        }
+    }
+
+    /**
      * Every job-level `permissions:` block, as a map of what it grants.
      *
      * Scoped deliberately. The first version of this test scanned the
