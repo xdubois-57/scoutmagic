@@ -366,43 +366,63 @@ une cible pour ce script.
 
 ### 8.2 Résultat constaté sur une instance jetable
 
-> **Ces chiffres datent d'avant IT-18 et sont en attente d'une construction.**
-> Le lot qui a ajouté le calendrier, les actualités, les camps, les
-> inscriptions, les bannières, la galerie, les locations et la campagne de
-> paiement **n'a pas pu être construit** : `build.php` rejoue toute
+> **Ces chiffres sont maintenant constatés, et ils le restent.**
+> Ce lot n'avait jamais pu être construit : `build.php` rejoue toute
 > l'application contre une vraie base et prend `GET_LOCK('scoutmagic_schema_
 > migration')`, un verrou **serveur** MySQL, ce que la machine de
-> développement partagée sur laquelle ce lot a été écrit ne permettait pas.
-> Les lignes marquées **`à constater`** ci-dessous seront remplies à la
-> prochaine construction sur une instance jetable ; celles qui portent encore
-> un nombre sont celles qu'IT-18 ne touche pas, et elles restent vraies —
-> la population, les relevés et le lot de photos n'ont pas bougé. **Ne
-> devinez pas les valeurs manquantes** : un chiffre inventé dans cette table
-> est pire qu'une case vide, parce qu'il se lit comme une observation.
+> développement partagée sur laquelle il a été écrit ne permettait pas — et
+> la première construction réelle s'est arrêtée sur deux erreurs fatales
+> (§8.2.1). `Tests\Integration\ReferenceDatasetBuildTest` construit
+> désormais le jeu de données sur une instance jetable à chaque exécution
+> de la suite : les valeurs ci-dessous en viennent, à l'identique d'une
+> construction à l'autre. **Ne devinez toujours pas une valeur** : un
+> chiffre inventé dans cette table est pire qu'une case vide, parce qu'il
+> se lit comme une observation.
 
 | Contrôle | Valeur |
 |---|---|
-| Membres actifs | 178 / 180 / 180 |
-| Fonctions inédites | `à constater` — le vocabulaire réel en compte davantage qu'avant |
+| Membres actifs | 176 / 178 / 178 |
+| Fonctions inédites | 9 en A1, 0 en A2, 1 en A3 — le vocabulaire réel entre en une fois |
 | Fonctions confirmées | 9 (`UnitBlueprint::FUNCTIONS`), plus une laissée non confirmée : `Délégué de branche` |
-| Staff d'U (rôle admin confirmé) | un rattachement par membre de niveau unité et par année ; au moins trois par année, et les trois fonctions d'unité représentées |
-| Modules activés | `à constater` — tous ceux présents sur le disque |
-| Mouvements financiers importés | 125 pour les six relevés, `à constater` avec le septième |
+| Staff d'U (rôle admin confirmé) | 4 / 4 / 5 rattachements — un par membre de niveau unité et par année |
+| Modules activés | 22 — tous ceux présents sur le disque |
+| Mouvements financiers importés | 190 : 125 pour les six relevés commités, 65 pour le septième (la campagne) |
 | Doublons reconnus | 12 — les 2 comptes × 2 années × 3 lignes de recouvrement |
-| Catégories | `à constater` — les défauts, plus une par compte à IBAN |
-| Mouvements catégorisés | `à constater` |
-| Comptes de section complétés | 8 attendus, `à constater` |
-| Évènements de calendrier | `à constater` — de l'ordre de 600 (le rythme, §8.3) |
-| Articles / réponses de formulaire | 5 / 10 déclarés, `à constater` |
-| Lieux de camp / séjours | 5 / 12 déclarés, `à constater` |
-| Demandes d'inscription | 23 déclarées, `à constater` |
-| Lignes de campagne / créances | une par membre de A3, `à constater` |
-| Réservations | 7 déclarées, `à constater` |
+| Catégories | 10 — les défauts, plus une par compte à IBAN |
+| Mouvements catégorisés | 6 sur 190 — **et cela ne correspond pas au paragraphe ci-dessous**, qui n'en attend que 20 sans catégorie. Constaté, pas expliqué : la règle de libellé ne prend pas ce que ce texte dit qu'elle prend. À reprendre, sans toucher à cette ligne avant de savoir laquelle des deux a raison. |
+| Comptes de section complétés | 8 |
+| Évènements de calendrier | 520 (le rythme, §8.3) |
+| Articles / réponses de formulaire | 5 / 10 |
+| Lieux de camp / séjours | 5 / 12 |
+| Demandes d'inscription | 23 |
+| Lignes de campagne / créances | 178 / 195 — une ligne par membre de A3, et les créances des extras avec elles |
+| Réservations | 7 |
 | Sections | 8 + Staff d'U, `Iama Horizon` inactive |
 
 Les 20 mouvements non catégorisés des six relevés commités sont les
 cotisations à communication structurée : elles se réconcilient contre des
-créances attendues (§8.3), pas contre une règle de libellé.
+créances attendues (§8.3), pas contre une règle de libellé. **Voir la
+réserve de la ligne « Mouvements catégorisés » ci-dessus** : la
+construction n'observe pas ce que cette phrase décrit.
+
+### 8.2.1 Ce que la première construction réelle a trouvé
+
+Les deux erreurs fatales que rien n'avait pu voir avant, l'une après
+l'autre, dans du code commité, relu et publié. Elles disent quelle sorte de
+défaut ce répertoire produit, et pourquoi la construction est un test.
+
+- **`CampsSeeder`** passait à `CampService::create()` l'id de la section que
+  ce jeu de données vide en 2026-2027 et que
+  `MappingResolver::deactivateAllSections()` laisse donc inactive. Le
+  service valide les sections contre celles qui sont **actives**, quelles
+  que soient les dates du séjour : un séjour passé rattaché à une section
+  fermée depuis ne peut pas être créé par le service, et passer par le
+  service est la règle ici. Le séjour est allé à `rou1`, qui n'en avait
+  aucun.
+- **`CampaignSeeder::line()`** relisait la chaîne `d/m/Y` qu'elle venait de
+  formater. `\DateTimeImmutable` la lit comme `m/d/Y` : silencieusement la
+  mauvaise date dans la référence bancaire les douze premiers jours d'un
+  mois, et une `DateMalformedStringException` tous les autres jours.
 
 ### 8.3 Les extras, et le sous-ensemble couvert
 
