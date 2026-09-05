@@ -479,20 +479,63 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
             . 'never fail for an untriaged issue.',
         );
 
-        $gated = array_filter(
-            $lines,
-            static fn (string $line): bool =>
-                preg_match('/^\s+if:\s*steps\.first_check\.outputs\.landed\s*!=\s*.true./', $line) === 1,
+        // Each gate is bound to the STEP IT GUARDS, never counted. The
+        // workflow carries three such lines — the wait, the retry, the
+        // final check — so an assertion that merely counted two of them
+        // survived deleting the one that matters: the retry's. Ungated,
+        // the retry runs on every issue, and the suite stayed green while
+        // it did. A review found exactly that hole in the first version
+        // of this test, which is this file's own subject one level up —
+        // an audit stating a guarantee it is not making.
+        $steps = $this->stepBlocks(self::TRIAGE);
+        $gate = '/^\s+if:\s*steps\.first_check\.outputs\.landed\s*!=\s*.true./m';
+
+        $retry = array_filter(
+            $steps,
+            static fn (string $step): bool => preg_match('/^\s+id:\s*second_attempt\s*$/m', $step) === 1,
         );
 
-        self::assertGreaterThanOrEqual(
-            2,
-            count($gated),
-            self::TRIAGE . ' no longer gates both the retry and the final failure on '
-            . '`steps.first_check.outputs.landed`. Ungated, the retry triages every issue twice; '
-            . 'and a final check that runs unconditionally would fail the job on issues the first '
-            . 'attempt triaged perfectly well.',
+        self::assertCount(
+            1,
+            $retry,
+            self::TRIAGE . ' has no single step with `id: second_attempt`. That id is how the '
+            . 'retry is identified — here, and by the conditions that gate it on the check.',
         );
+
+        self::assertSame(
+            1,
+            preg_match($gate, (string) reset($retry)),
+            self::TRIAGE . ' does not gate the retry on `steps.first_check.outputs.landed`. '
+            . 'Ungated, it runs a second full triage of every issue, including every issue the '
+            . 'first attempt got right, and posts no second verdict only because the prompt '
+            . 'happens to re-check for one.',
+        );
+
+        // The step that can fail the job, found by what it does rather
+        // than by what it is called. Ungated it runs on every issue and
+        // fails the job on the ones the first attempt triaged perfectly
+        // well — and a red run that means nothing is read as no run at
+        // all within the week.
+        $failures = array_filter(
+            $steps,
+            static fn (string $step): bool => str_contains($step, 'exit 1'),
+        );
+
+        self::assertNotEmpty(
+            $failures,
+            self::TRIAGE . ' has no step that can fail the job — see '
+            . 'testThePerIssueTriageChecksWhetherTheVerdictActuallyLanded().',
+        );
+
+        foreach ($failures as $step) {
+            self::assertSame(
+                1,
+                preg_match($gate, $step),
+                self::TRIAGE . ' has a step that can fail the job without gating it on '
+                . '`steps.first_check.outputs.landed`. Every issue the first attempt triaged '
+                . 'correctly would end in a red run.',
+            );
+        }
     }
 
     /**
@@ -808,6 +851,65 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
 
             $blocks[] = $granted;
         }
+
+        return $blocks;
+    }
+
+    /**
+     * The job's steps, one string each, split on the `- ` that opens a
+     * step in the `steps:` list.
+     *
+     * What it exists for: an assertion about a step's `if:` has to be
+     * bound to THAT step. issue-triage.yml gates three steps on the same
+     * condition, so counting the gates tolerates losing any one of them —
+     * including the retry's, whose loss costs a second full triage of
+     * every issue that never needed one, silently.
+     *
+     * @return array<int, string>
+     */
+    private function stepBlocks(string $workflow): array
+    {
+        $blocks = [];
+        $current = null;
+        $indent = null;
+
+        foreach ($this->lines($workflow) as $line) {
+            // Everything before `steps:` is out of scope — `on:`'s own
+            // `- cron:` entries are list items too, and reading them as
+            // steps would bind an assertion to a trigger.
+            if ($current === null) {
+                if (preg_match('/^\s+steps:\s*$/', $line) === 1) {
+                    $current = [];
+                }
+
+                continue;
+            }
+
+            if (preg_match('/^(\s+)-\s+\S/', $line, $match) === 1
+                && ($indent === null || strlen($match[1]) === $indent)) {
+                $indent ??= strlen($match[1]);
+
+                if ($current !== []) {
+                    $blocks[] = implode("\n", $current);
+                }
+
+                $current = [$line];
+
+                continue;
+            }
+
+            $current[] = $line;
+        }
+
+        if ($current !== null && $current !== []) {
+            $blocks[] = implode("\n", $current);
+        }
+
+        self::assertNotEmpty(
+            $blocks,
+            $workflow . ' has no readable `steps:` list. Every assertion built on this helper '
+            . 'would check an empty set and pass over a workflow it never read.',
+        );
 
         return $blocks;
     }

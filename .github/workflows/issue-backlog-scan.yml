@@ -167,9 +167,10 @@ jobs:
             running carries `triage:pending` and looks untriaged to both
             agents at once — and neither sees the other's comment until
             both have posted one. An hour is comfortably longer than that
-            job's own fifteen-minute ceiling. Nothing is lost by waiting:
-            if that job did its work, the issue is already labelled, and
-            if it failed, this scan picks the issue up tomorrow night.
+            job's own twenty-five-minute ceiling, which covers its two
+            attempts. Nothing is lost by waiting: if that job did its
+            work, the issue is already labelled, and if both its attempts
+            failed, this scan picks the issue up tomorrow night.
 
             Sort the candidates OLDEST FIRST, by creation date, and take
             AT MOST THE FIRST FIVE. If there are fewer than five,
