@@ -15,9 +15,27 @@ have been read.
 `main` requires **conversation resolution before merging**. Every review
 thread must be resolved before the merge button unlocks, so an unanswered
 thread is not a loose end — it is a hard block. Resolving a thread is a
-claim that it was addressed: resolve the ones you fixed, and leave open,
-with a reply, the ones you are deliberately not fixing. Never resolve a
-thread to tidy the page.
+claim that it was addressed. Never resolve one to tidy the page.
+
+Which means resolution is also how an agent hands itself a merge. So:
+
+**Reply in the thread, then resolve it. Every time, including the trivial
+ones.** The reply says what changed and where — "`mb_substr` in
+`excerpt()`, plus an accented case in the test provider" — never a bare
+"fixed" or "done", which tells the maintainer nothing the resolution
+marker didn't. One factual line is the whole requirement; do not restate
+the finding back, and do not thank the reviewer.
+
+This is deliberate overhead, and here is what it buys: the only human on
+this repository is its maintainer, and the reviewer on the other side is a
+bot. Without that line, checking that a fix actually matches its finding
+means reading the diff by hand, on every thread. The line also outlives
+the code — it stays readable in the thread after the diff it describes has
+been rewritten.
+
+A thread you are **not** fixing gets the reply and stays **open**: say why
+in a sentence, and let the maintainer decide. Never resolve a finding you
+disagree with; disagreeing is not addressing.
 
 ## Review comments
 
@@ -106,8 +124,12 @@ gate, and even there an exempt finding is still a finding.
 
 ## What "done" means for a PR
 
-Green CI on the current head, no merge conflict, every review thread either
-resolved or answered, and the PR template's checklist honestly filled. A
-green PR with an open unanswered thread cannot merge, so it is not done.
+Green CI on the current head, no merge conflict, **no thread left without a
+reply**, and the PR template's checklist honestly filled. Threads you fixed
+are replied to and resolved; the ones still open are open on purpose, each
+carrying the sentence that says why, waiting on the maintainer.
+
+A green PR with a silent thread is not done — and a PR whose threads were
+all resolved without a word is worse, because it looks done.
 
 Do not merge. Merging is the maintainer's, always.
