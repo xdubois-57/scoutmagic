@@ -53,7 +53,21 @@ class LivePrefixGuardOnMysqlTest extends TestCase
                 [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
             );
         } catch (\Throwable $e) {
-            $this->markTestSkipped('No MySQL server: ' . $e->getMessage());
+            // Skip only where no server was ever configured — a developer's
+            // laptop with nothing on 3306. Where TEST_DB_* IS set, the
+            // configuration is a promise that a server is there, and a bad
+            // password or a refused connection is a failure to report, not
+            // a test to quietly drop.
+            //
+            // This test exists because a MySQL-only defect stayed green
+            // behind SQLite. Letting it skip itself on the one engine it
+            // was written for would rebuild that same blind spot, one
+            // level up: green, and proving nothing.
+            if (getenv('TEST_DB_HOST') === false) {
+                $this->markTestSkipped('No MySQL server configured (TEST_DB_HOST unset): ' . $e->getMessage());
+            }
+
+            throw $e;
         }
 
         $this->database = 'scoutmagic_prefix_' . bin2hex(random_bytes(6));

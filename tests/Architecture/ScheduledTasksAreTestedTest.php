@@ -150,8 +150,12 @@ class ScheduledTasksAreTestedTest extends TestCase
     {
         $short = substr((string) strrchr('\\' . $handler, '\\'), 1);
         $qualified = '/new\s+\\\\' . preg_quote($handler, '/') . '\s*\(/';
-        $imported = '/^\s*use\s+' . preg_quote($handler, '/') . '\s*(?:as\s+\w+\s*)?;/m';
-        $bare = '/new\s+' . preg_quote($short, '/') . '\s*\(/';
+        // The name a file actually writes is the alias when it renamed the
+        // import, and the short class name otherwise. Accepting `use ... as
+        // Alias` while still looking for `new Short(` would fail a test that
+        // is doing exactly the right thing — a rule that cries wolf is a rule
+        // somebody eventually deletes.
+        $imported = '/^\s*use\s+' . preg_quote($handler, '/') . '\s*(?:as\s+(\w+)\s*)?;/m';
 
         $files = new \RecursiveIteratorIterator(
             new \RecursiveDirectoryIterator($this->repositoryRoot() . '/tests', \FilesystemIterator::SKIP_DOTS)
@@ -168,8 +172,11 @@ class ScheduledTasksAreTestedTest extends TestCase
             if (preg_match($qualified, $source) === 1) {
                 return true;
             }
-            if (preg_match($imported, $source) === 1 && preg_match($bare, $source) === 1) {
-                return true;
+            if (preg_match($imported, $source, $alias) === 1) {
+                $written = ($alias[1] ?? '') !== '' ? $alias[1] : $short;
+                if (preg_match('/new\s+' . preg_quote($written, '/') . '\s*\(/', $source) === 1) {
+                    return true;
+                }
             }
         }
 
