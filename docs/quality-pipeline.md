@@ -160,7 +160,8 @@ the installable artifact and attaches it to a rolling **prerelease** tagged
 keeps the two update channels apart.
 
 `.github/workflows/issue-triage.yml` is not CI and gates nothing: it runs
-on `issues: [opened, reopened]` and answers the reporter. It is the one
+on `issues: [opened, reopened]` and answers the reporter — and on
+`issue_comment: [created]`, which is how the reporter answers back. It is the one
 workflow here that is triggered by a member of the public, which is why it
 holds `issues: write` and `id-token: write` and **nothing else** — no
 `contents`, no checkout, no path to `main` at all. Claude reads the code
@@ -204,10 +205,34 @@ investigation into this ran aground on a log that had discarded the
 evidence), and the issue keeps `triage:pending` so the nightly scan takes
 it regardless.
 
+**A `bug:needs-info` answer restarts it.** Asking the reporter a question
+was, until issue #176, a one-way door: no workflow here listened to
+comments, and the nightly scan skips `triage:done` — the label the
+question is filed under — so the reply reached nothing, however complete
+it was. A comment on an **open** issue carrying `bug:needs-info`, on
+something that is not a pull request, written by somebody who is not a bot
+and who is either the issue's own reporter or the repository owner, now
+sends that issue back to `triage:pending` (dropping `triage:done` and
+`bug:needs-info`) and re-triages it against everything it says now. The
+order matters: reset first, because `triage:done` left over from the first
+pass would make the verification below pass over a run that did nothing —
+and the reset **reads itself back** and fails the job when the labels did
+not move, because `gh api -X DELETE` cannot tell an absent label from an
+expired token. The bot exclusion is what stops the loop: the verdict this
+job posts is itself a comment. The reporter clause is what stops a
+passer-by — opening an issue costs a triage by design, taking one over does
+not — and it says `OWNER` rather than `MEMBER`/`COLLABORATOR` on purpose,
+since `author_association` is a relationship and not a permission: on an
+organisation-owned repository those two include the Read and Triage roles,
+which hold no write access at all. The prompt's duplicate guard is stated the same way for
+both cases: a verdict is a duplicate only when nothing has been said since
+it.
+
 `tests/Security/IssueTriageWorkflowPermissionsTest.php` asserts that
 shape: the labels read back, both halves of the predicate, the retry, its
-gate, the single shared prompt, and the two prompt clauses the retry
-depends on.
+gate, the single shared prompt, the two prompt clauses the retry depends
+on, and the comment trigger with each clause of its guard and the label
+reset that must precede the agent.
 
 `.github/workflows/issue-backlog-scan.yml` is the same triage, applied to
 the issues that workflow never saw: everything filed before it reached
@@ -525,9 +550,13 @@ stays a marker for a human eye that no workflow reads.
 same skill file — there is one taxonomy and one method, not two.
 
 The labels are also what the nightly scan **reads** to decide what is left
-to do: an issue carrying `triage:done` is never picked up again, and one
-carrying neither `triage:pending` nor `triage:done` is treated as never
-triaged. That makes an unlabelled issue self-healing — but it also means a
+to do: an issue carrying `triage:done` is never picked up by *the scan*
+again, and one carrying neither `triage:pending` nor `triage:done` is
+treated as never triaged. The one thing that puts a `triage:done` issue
+back in the queue is the reporter answering a `bug:needs-info` question,
+which `issue-triage.yml` handles by resetting the labels itself (above);
+that exception exists because the scan's rule made the question
+unanswerable. That makes an unlabelled issue self-healing — but it also means a
 label removed by hand puts an issue back in the queue, and it will be
 answered a second time.
 

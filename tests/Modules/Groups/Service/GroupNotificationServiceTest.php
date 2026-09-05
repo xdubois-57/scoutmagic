@@ -502,6 +502,69 @@ class GroupNotificationServiceTest extends TestCase
         $this->assertStringContainsString('réponse', $this->rows()[0]['body']);
     }
 
+    // ---- an author the group's own membership does not contain ----
+
+    /**
+     * Issue #158. A site admin posts in a group none of their own members
+     * belongs to — a Meute group while their children are at the Troupe.
+     * The message goes out, signed with a borrowed member
+     * (GroupAccessService::authorMemberIdFor()), and that member is not in
+     * this group's audience. Everyone answered them and they were never
+     * told: no notification, no error, nothing to notice.
+     */
+    public function testASiteAdminIsNotifiedOfRepliesToAPostSignedByABorrowedMember(): void
+    {
+        $post = $this->post('Le camp est confirmé.');
+        $reply = $this->reply($post->id, 'Merci !', accountId: self::ACTOR_ACCOUNT, memberId: 9);
+
+        $this->serviceWith($this->resolverForAuthorOutsideTheGroup(authorIsSiteAdmin: true))
+            ->replyReceived($this->group(), $post, $reply, self::ACTOR_ACCOUNT);
+
+        $rows = $this->rows();
+        $this->assertCount(1, $rows);
+        $this->assertSame(self::AUTHOR_ACCOUNT, $rows[0]['user_account_id']);
+        $this->assertSame('groups.reply_received', $rows[0]['type_id']);
+        // The deep link has to open for them, which is the whole reason
+        // the fallback is limited to an account that can read the group.
+        $this->assertSame('/groups/' . $this->groupId . '/posts/' . $post->id, $rows[0]['url']);
+    }
+
+    /**
+     * The regression the fix above must not cause, and the reason the
+     * membership filter exists at all: an ordinary author who has left the
+     * group is still not notified, because the notification would send
+     * them to a page that 404s for them.
+     */
+    public function testAnOrdinaryAuthorWhoLeftTheGroupIsStillNotNotified(): void
+    {
+        $post = $this->post('Le camp est confirmé.');
+        $reply = $this->reply($post->id, 'Merci !', accountId: self::ACTOR_ACCOUNT, memberId: 9);
+
+        $this->serviceWith($this->resolverForAuthorOutsideTheGroup(authorIsSiteAdmin: false))
+            ->replyReceived($this->group(), $post, $reply, self::ACTOR_ACCOUNT);
+
+        $this->assertSame([], $this->rows());
+    }
+
+    /**
+     * The same author, the same borrowed member, one item down: a reaction
+     * to a REPLY they wrote. Resolved from the reply's own two identities,
+     * so the answer cannot differ from the one a post gets.
+     */
+    public function testASiteAdminIsNotifiedOfAReactionToAReplySignedByABorrowedMember(): void
+    {
+        $post = $this->post('sujet');
+        $reply = $this->reply($post->id, 'ma réponse', accountId: self::AUTHOR_ACCOUNT, memberId: self::AUTHOR_MEMBER);
+
+        $this->serviceWith($this->resolverForAuthorOutsideTheGroup(authorIsSiteAdmin: true))
+            ->reactionOnReply($this->group(), $post, $reply, self::ACTOR_ACCOUNT, 1);
+
+        $rows = $this->rows();
+        $this->assertCount(1, $rows);
+        $this->assertSame(self::AUTHOR_ACCOUNT, $rows[0]['user_account_id']);
+        $this->assertSame('Réaction à votre réponse — Louveteaux', $rows[0]['title']);
+    }
+
     // ---- degradation ----
 
     /**
@@ -562,6 +625,22 @@ class GroupNotificationServiceTest extends TestCase
                 return array_values(array_filter($list, static fn(array $r): bool => !isset($flip[$r['userAccountId']])));
             }
         );
+
+        return $resolver;
+    }
+
+    /**
+     * A resolver for the one case the group's own membership cannot
+     * describe: the item's author is not in the group at all. What decides
+     * whether they still hear about their own message is then the account
+     * — a site admin can open every group, anybody else cannot.
+     */
+    private function resolverForAuthorOutsideTheGroup(bool $authorIsSiteAdmin): GroupRecipientResolver
+    {
+        $resolver = $this->createStub(GroupRecipientResolver::class);
+        $resolver->method('isCurrentMember')->willReturn(false);
+        $resolver->method('accountIdForMember')->willReturn(null);
+        $resolver->method('isSiteAdminAccount')->willReturn($authorIsSiteAdmin);
 
         return $resolver;
     }
