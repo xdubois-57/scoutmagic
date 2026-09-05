@@ -245,7 +245,7 @@ class ReportController extends AbstractController
         // exactly the reasoning restoreAction() applies (this class's own
         // docblock): they already know the group exists.
         if (!$this->accessService->canModerate($group, $context)) {
-            return new Response('Seul un modérateur du groupe peut consulter les signalements.', 403);
+            return $this->forbidden('Seul un modérateur du groupe peut consulter les signalements.', $request);
         }
 
         $reported = $this->reportService->reportedInGroup($group->id);
@@ -355,7 +355,7 @@ class ReportController extends AbstractController
         }
 
         if (!$this->accessService->canModerate($group, $context)) {
-            return new Response('Seul un modérateur du groupe peut masquer un contenu.', 403);
+            return $this->forbidden('Seul un modérateur du groupe peut masquer un contenu.', $request);
         }
 
         if (!$hide($group, (int) ($params[$idKey] ?? 0), $context)) {
@@ -397,10 +397,9 @@ class ReportController extends AbstractController
         // Which member the report is recorded under: the same resolution a
         // post or a reaction uses, so the UNIQUE (item, member) index
         // means one report per person and not one per account-member link.
-        $allowed = $this->accessService->memberIdsAllowedToPostAs($group, $context);
-        $memberId = $allowed[0] ?? 0;
-        if ($memberId === 0) {
-            return new Response('Aucun membre de ce groupe n\'est associé à votre compte.', 403);
+        $memberId = $this->accessService->authorMemberIdFor($group, $context);
+        if ($memberId === null) {
+            return $this->forbidden(GroupAccessService::NO_AUTHOR_MEMBER_MESSAGE, $request);
         }
 
         if (!$locate($group, (int) ($params[$idKey] ?? 0), $context, $memberId)) {
@@ -442,7 +441,7 @@ class ReportController extends AbstractController
         // not 404 — is right here: it reveals nothing they did not
         // already know.
         if (!$this->accessService->canModerate($group, $context)) {
-            return new Response('Seul un modérateur du groupe peut rétablir un contenu masqué.', 403);
+            return $this->forbidden('Seul un modérateur du groupe peut rétablir un contenu masqué.', $request);
         }
 
         $result = $restore($group, (int) ($params[$idKey] ?? 0), $context);

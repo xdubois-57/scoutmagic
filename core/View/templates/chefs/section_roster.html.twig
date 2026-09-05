@@ -38,9 +38,22 @@
         <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#movement-legend" aria-expanded="false" aria-controls="movement-legend">
             <i class="bi bi-info-circle" aria-hidden="true"></i> Légende des situations
         </button>
-        <a href="{{ export_url }}" class="btn btn-sm btn-primary">
-            <i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Exporter en Excel
-        </a>
+        <div class="d-flex flex-wrap gap-2">
+            {# The roll-call sheet, beside the spreadsheet it complements
+               rather than replaces: the .xlsx is the exhaustive list with
+               every contact, this one is the page you hold while calling
+               names — no coordinates at all on it. Outline, because
+               design.md §7.4 allows one primary per screen and the
+               exhaustive export is it. #}
+            {% if pdf_url %}
+                <a href="{{ pdf_url }}" class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-file-earmark-pdf" aria-hidden="true"></i> Feuille d'appel PDF
+                </a>
+            {% endif %}
+            <a href="{{ export_url }}" class="btn btn-sm btn-primary">
+                <i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Exporter en Excel
+            </a>
+        </div>
     </div>
 
     <div id="movement-legend" class="collapse mb-4">
@@ -103,7 +116,19 @@
                                         <td>
                                             <div class="d-flex flex-wrap align-items-center gap-2">
                                                 {% if can_view_member_link %}
-                                                    <a href="/members/{{ member.memberYearId }}" class="tap-target d-inline-flex align-items-center">
+                                                    {# /admin/members/{id}, the ADMINISTRATION sheet — internal notes,
+                                                       history, module blocks — and not /members/{id}, which is the page
+                                                       the member consults about themselves. This list is read by the
+                                                       Staff d'unité, and can_view_member_link is Role::ADMIN precisely
+                                                       because that is the destination's own role_min.
+
+                                                       The id is memberYearId, and BOTH routes take one: Core\Member\
+                                                       Controller\MemberSearchController::show() looks the parameter up
+                                                       with MemberYearRepository::findById() and then normalises onto the
+                                                       member's most recent annual row. Passing member.memberId here
+                                                       would not 404 — the two are both integers — it would silently open
+                                                       somebody else's sheet. #}
+                                                    <a href="/admin/members/{{ member.memberYearId }}" class="tap-target d-inline-flex align-items-center">
                                                         {{ member.lastName|normalize_name }}, {{ member.firstName|normalize_name }}{% if member.totem %} · {{ member.totem|normalize_totem }}{% endif %}
                                                     </a>
                                                 {% else %}

@@ -36,6 +36,129 @@ Before submitting any code:
 12. ☐ A change under `public/assets/js/` had its CodeQL results checked after pushing — see § CodeQL below. Nothing run locally sees `js/xss-through-dom`, and a value is not safe for having come from your own template.
 13. ☐ No unit data in a help-assistant prompt — not a member, not a section, not an amount, not aggregated, not anonymised. The assistant answers from help topics only (ARCHITECTURE.md §8.87), it has no tool-calling and no SQL, and the day it can reach the data every prompt injection in a topic or a member's name becomes an exfiltration path.
 
+## A problem you decide not to fix now becomes a GitHub issue
+
+The moment a real problem is identified and the decision is taken **not** to
+fix it in the change at hand, open an issue in `xdubois-57/scoutmagic` before
+that change is considered done. A commit message, a PR review thread, a
+walkthrough summary or a chat reply is not a backlog: nothing is ever read
+back out of them, and the next agent starts from a clean context. The issue is
+the only artefact that survives the session.
+
+This applies to any deliberately deferred finding, whatever found it: a review
+bot's report you verified and accepted but judged out of scope, a limitation
+you discovered yourself while implementing, a trap you documented in a comment
+rather than removed, a schema decision that is the repository owner's to make.
+
+### One exception, and it is absolute: a security vulnerability
+
+A deferred **security** finding does not become a public issue. Everything this
+rule asks an issue to contain — the symptom, the reproduction, the mechanism
+with the vulnerable code quoted, the precondition that triggers it — is exactly
+what an exploit needs, and a GitHub issue on a public repository publishes it to
+everyone, indexed, before the fix exists. That is the disclosure this project
+already refuses: `SECURITY.md` § Reporting a vulnerability says to report
+privately, *not via public GitHub issues*, and this rule does not get to
+contradict it.
+
+So a security finding you are not fixing now goes to the maintainer through that
+private channel, with the same completeness a good issue would have had. If a
+public trace is needed so the work is not forgotten, it may name the affected
+area and nothing else — no reproduction, no mechanism, no code.
+
+When you cannot tell whether a finding is a security one, treat it as one: the
+cost of a private report about an ordinary bug is an email, and the cost of a
+public issue about a real vulnerability cannot be taken back.
+
+It does **not** apply to a finding you fixed, nor to one you examined and
+rejected as incorrect — reply on the thread with the reasoning and leave no
+issue behind. Do not open issues for style preferences or for hypothetical
+problems you have not confirmed in the code.
+
+Verify before you file. Never open an issue from a bot's assertion alone: read
+the code, reproduce the reasoning, and file what you actually established. An
+issue that turns out to describe behaviour the code does not have is worse than
+no issue, because the next agent will act on it.
+
+### Say what kind of thing it is, in words and not only in a label
+
+Every issue states its nature on its **first line**, before anything else —
+one of these two, verbatim:
+
+- `**Type: bug**` — the site does something wrong.
+- `**Type: enhancement**` — the site behaves as designed; the design should be
+  better.
+
+That line is the part you always write, because it is the part a reader
+working from the issue body alone sees, and an issue whose nature has to be
+inferred from its prose gets triaged wrong. If you genuinely cannot tell which
+of the two it is, that is a sign you have not finished establishing the problem
+— go back to the code.
+
+The **labels** are a different matter, and mostly not yours. They are the
+issue's state, `scripts/sync-issue-labels.sh` is the taxonomy's only source,
+and `.claude/skills/triage` is what sets them: `issue-triage.yml` fires on
+every issue opened, including the one you just filed, and applies the verdict
+plus `triage:done`. So:
+
+- Apply `bug:confirmed` when you filed a defect — it means "A real defect,
+  understood", which is what this rule required you to establish before
+  filing. Nothing else needs to go on.
+- Apply **no** `bug:*` label to an enhancement. The taxonomy deliberately has
+  no verdict for a request that is neither a defect nor a misunderstanding
+  (`.claude/skills/triage/SKILL.md` § A feature request is not a bug); your
+  type line carries that meaning instead.
+- Never the older `bug` label, and never one you invent. `bug` "stays what it
+  has always been: something the maintainer applies by hand"
+  (`.github/ISSUE_TEMPLATE/bug.yml`), and a label outside the script's table
+  is a finding to state in the issue, not something to create at runtime.
+- Leave `triage:*` and `status:*` alone — the triage pass owns the first, the
+  maintainer the second.
+
+### Write it so it can be fixed from the issue alone
+
+Assume the only thing whoever picks this up has is the issue text and a fresh
+checkout of a later `main`. No session context, no PR thread open in another
+tab, no memory of this conversation, and no guarantee the line numbers still
+point where they did. Everything needed to make the fix has to be *in the
+issue*. A link is a courtesy; it is never where a required fact lives.
+
+Concretely, an issue must carry:
+
+- **The type line** and the matching label, as above.
+- **The symptom in user terms** — who is doing what, and what they see instead
+  of what they expect. Name the role (`intendant`, site admin, parent) and the
+  page or route, so the reader can picture it without the code.
+- **Reproduction**, as steps or as the exact precondition that triggers it
+  ("an account whose linked members are all outside the group"). If it can
+  only be reached by a state that is awkward to set up, say how to set it up.
+- **The mechanism**, with `file:line` references **and the relevant lines
+  quoted inline**. Quote them — line numbers drift, quoted code survives. Name
+  the commit you verified them against, so a reader who finds them moved knows
+  what to search for and how stale the reference is.
+- **The second-order effects**, if any (a cascade, a stale display, an audit
+  gap, a permission that silently widens) — these are what make a deferred
+  problem expensive later, and they are invisible to someone reading only the
+  symptom.
+- **The options, costed**, cheapest first, each saying what it does and does
+  not fix, whether it needs a schema migration, and which files it touches.
+  End with a recommendation; a reader who agrees can start immediately.
+- **What "done" looks like** — the behaviour that must hold afterwards and the
+  test that must exist to pin it. This repository requires a test for every
+  fix, so name where it goes (`tests/…`), or the issue is not finishable.
+- **The trail** — a link back to the PR or review thread where the decision to
+  defer was made, for context that is nice to have but that nothing in the fix
+  depends on.
+
+The bar to hold yourself to: could a competent agent, handed nothing but this
+issue, produce the fix and its test? If any answer lives only in your current
+context, it is missing from the issue.
+
+Then close the loop in both directions: the review thread or PR description
+names the issue number, and the issue links the thread. Leave the thread that
+raised it open when the decision is the owner's to make — resolving it hides
+the question they still have to answer.
+
 ## Exception messages that reach a visitor
 
 A caught exception's message is shown to a visitor **only** when its class

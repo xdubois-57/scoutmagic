@@ -53,6 +53,23 @@ describe('theme.js', () => {
         document.body.innerHTML = '';
     });
 
+    // The whole point of the offline page loading THIS file from its head:
+    // it has no inline nonce'd script to set the attribute (a nonce baked
+    // into a service-worker-precached response goes stale immediately), so
+    // the theme has to be applied by this script's own evaluation, before
+    // DOMContentLoaded and before the first paint. It used to be applied
+    // only on DOMContentLoaded, and pwa/offline.html.twig was served in
+    // light mode to every dark-mode reader.
+    it('applies the theme as soon as it is evaluated, before DOMContentLoaded', async () => {
+        stubMatchMedia(true);
+        document.documentElement.removeAttribute('data-bs-theme');
+
+        vi.resetModules();
+        await import('../../public/assets/js/theme.js');
+
+        expect(document.documentElement.getAttribute('data-bs-theme')).toBe('dark');
+    });
+
     it('defaults to automatique and applies light when the system has no dark preference', async () => {
         const theme = await boot();
 

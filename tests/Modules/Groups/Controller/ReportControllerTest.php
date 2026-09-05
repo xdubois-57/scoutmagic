@@ -11,6 +11,7 @@ use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Modules\Groups\Controller\ReportController;
+use Modules\Groups\Service\GroupAccessService;
 use Modules\Groups\Service\GroupSessionContextFactory;
 use PHPUnit\Framework\Attributes\Group;
 use Tests\Modules\Groups\GroupsTestHelper;
@@ -114,6 +115,42 @@ class ReportControllerTest extends GroupsControllerTestCase
 
         $this->assertSame(302, $response->getStatusCode());
         $this->assertSame(1, $this->replyReportCount());
+    }
+
+    /**
+     * Reporting resolves its author the same way posting and replying do,
+     * so the site-admin fallback has to hold here too — a report is a row
+     * keyed on the member, and the wrong one lands on the wrong person's
+     * report.
+     */
+    public function testASiteAdminReportsAsALinkedMemberTheGroupDoesNotHold(): void
+    {
+        $outsider = GroupsTestHelper::createMember($this->pdo, 'OUTSIDER');
+        $this->withCsrf([]);
+
+        $response = $this->controller([$outsider], self::OTHER_ACCOUNT, 'admin')
+            ->reportPost($this->request(), $this->params($this->postId));
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(1, $this->postReportCount());
+        // The count alone would pass on a report filed for someone else,
+        // which is the exact failure this fallback exists to prevent.
+        $this->assertSame($outsider, $this->postReportReporterId());
+    }
+
+    public function testAnAccountWithNoMemberCannotReportAndNothingIsWritten(): void
+    {
+        $this->withCsrf([]);
+
+        $response = $this->controller([], self::OTHER_ACCOUNT, 'admin')
+            ->reportPost($this->request(), $this->params($this->postId));
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertStringContainsString(
+            htmlspecialchars(GroupAccessService::NO_AUTHOR_MEMBER_MESSAGE, ENT_QUOTES, 'UTF-8'),
+            $response->getBody()
+        );
+        $this->assertSame(0, $this->postReportCount());
     }
 
     /**
@@ -744,5 +781,19 @@ class ReportControllerTest extends GroupsControllerTestCase
     private function replyReportCount(): int
     {
         return (int) $this->pdo->query('SELECT COUNT(*) FROM discussion_group_reply_reports')->fetchColumn();
+    }
+
+    /**
+     * The reporter of the single row a test has just written. Null when
+     * nothing was written, so a wrong call reads as a miss rather than as
+     * a match against a member id that happens to be 0.
+     */
+    private function postReportReporterId(): ?int
+    {
+        $found = $this->pdo
+            ->query('SELECT reporter_member_id FROM discussion_group_post_reports')
+            ->fetchColumn();
+
+        return $found === false ? null : (int) $found;
     }
 }

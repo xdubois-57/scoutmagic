@@ -160,7 +160,10 @@ class GroupMemberController extends AbstractController
             return new Response('Not Found', 404);
         }
         if (!$this->accessService->canModerate($group, $context)) {
-            return new Response('Seul un modérateur du groupe peut effectuer cette action.', 403);
+            // JSON, not forbidden(): every other return in this method is
+            // json(), so a refusal shaped by the caller's headers would
+            // hand an HTML page to something calling response.json().
+            return $this->json(['error' => 'Seul un modérateur du groupe peut effectuer cette action.'], 403);
         }
 
         $query = trim((string) $request->getQuery('q', ''));
@@ -333,7 +336,7 @@ class GroupMemberController extends AbstractController
         // its own French explanation, rather than silently 403-ing.
         $memberId = $this->leavingMemberId($group, $context);
         if ($memberId === null) {
-            return new Response('Aucun membre de ce groupe n\'est associé à votre compte.', 403);
+            return $this->forbidden(GroupAccessService::NO_AUTHOR_MEMBER_MESSAGE, $request);
         }
 
         $outcome = $this->membershipService->leave($group, $memberId, $context->userAccountId);
@@ -386,7 +389,7 @@ class GroupMemberController extends AbstractController
         }
 
         if (!$this->accessService->canModerate($group, $context)) {
-            return new Response('Seul un modérateur du groupe peut effectuer cette action.', 403);
+            return $this->forbidden('Seul un modérateur du groupe peut effectuer cette action.', $request);
         }
 
         return $action($group, $context);

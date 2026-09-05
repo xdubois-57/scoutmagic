@@ -15,6 +15,19 @@
        plain external script: no inline handler, no CSP nonce, since a
        nonce baked into a precached response would go stale the moment
        the server issues a new one on the next request. #}
+    {# Bootstrap 5.3 themes entirely off `data-bs-theme` on the root
+       element, and nothing here sets it: this page rendered in light mode for every
+       dark-mode reader, which — reached from an installed app in the
+       dark — is a white flash where the app used to be.
+
+       base.html.twig gets the attribute from a tiny inline nonce'd
+       script in its own head; that is exactly what this page cannot have
+       (see above). So theme.js itself is loaded here instead, from the
+       head and render-blocking, applying the preference before the first paint
+       rather than after it. It is already in the service worker's app
+       shell (APP_SHELL_BASE_URLS in public/sw.js), so it is there
+       offline, which is the only state this page is ever seen in. #}
+    <script src="{{ asset('/assets/js/theme.js') }}"></script>
     <link rel="stylesheet" href="{{ asset('/assets/vendor/bootstrap/css/bootstrap.min.css') }}">
     <link rel="stylesheet" href="{{ asset('/assets/vendor/bootstrap-icons/bootstrap-icons.min.css') }}">
     <link rel="stylesheet" href="{{ asset('/assets/css/app.css') }}">

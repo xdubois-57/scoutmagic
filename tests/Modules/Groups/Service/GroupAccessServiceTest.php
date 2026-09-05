@@ -385,6 +385,105 @@ class GroupAccessServiceTest extends TestCase
         $this->assertSame([$inGroup], $allowed);
     }
 
+    public function testAuthorMemberIsTheLinkedMemberThatBelongsToTheGroup(): void
+    {
+        $groupId = $this->sectionGroup();
+        $otherSection = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'CHILD2', $this->eclaireursId, $this->currentYearId);
+        $inGroup = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'CHILD1', $this->louveteauxId, $this->currentYearId);
+
+        // Deliberately not first in the account's own order: the member
+        // of THIS group is what signs, never simply the first link.
+        $this->assertSame(
+            $inGroup,
+            $this->access->authorMemberIdFor(
+                $this->groupRepo->findById($groupId),
+                $this->context([$otherSection, $inGroup])
+            )
+        );
+    }
+
+    /**
+     * The bug this fallback exists for: Staff d'U reads and moderates
+     * every group (canRead()'s admin bypass), so the composer was shown
+     * — and then every message was refused with "Aucun membre de ce
+     * groupe n'est associé à votre compte." because their own children
+     * are in another section.
+     */
+    public function testASiteAdminSignsWithTheirOwnMemberInAGroupThatDoesNotHoldIt(): void
+    {
+        $groupId = $this->sectionGroup();
+        $ownMember = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'ADMINCHILD', $this->eclaireursId, $this->currentYearId);
+
+        $this->assertSame(
+            $ownMember,
+            $this->access->authorMemberIdFor(
+                $this->groupRepo->findById($groupId),
+                $this->context([$ownMember], 'admin')
+            )
+        );
+    }
+
+    public function testASiteAdminMayPostInAGroupNoneOfTheirMembersBelongsTo(): void
+    {
+        $groupId = $this->sectionGroup();
+        $ownMember = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'ADMINCHILD', $this->eclaireursId, $this->currentYearId);
+
+        $this->assertTrue(
+            $this->access->canPost($this->groupRepo->findById($groupId), $this->context([$ownMember], 'admin'))->allowed
+        );
+    }
+
+    /**
+     * The composer must say this rather than be offered and then refuse
+     * the post: a post is recorded against a member, so an account linked
+     * to none cannot start a conversation.
+     */
+    public function testAnAccountWithNoMemberAtAllIsRefusedBeforeTheComposerIsOffered(): void
+    {
+        $groupId = $this->sectionGroup();
+
+        $permission = $this->access->canPost($this->groupRepo->findById($groupId), $this->context([], 'admin'));
+
+        $this->assertFalse($permission->allowed);
+        $this->assertSame(PostPermission::REASON_NO_MEMBER_IDENTITY, $permission->reason);
+        $this->assertNull($this->access->authorMemberIdFor($this->groupRepo->findById($groupId), $this->context([], 'admin')));
+    }
+
+    /**
+     * …but it may still ANSWER, and that distinction is the whole reason
+     * the refusal hangs off canPost() rather than canParticipate().
+     *
+     * canParticipate() also gates answering a poll, and an ACCOUNT-scoped
+     * ballot needs no member at all: Service\PollService::voterFor()
+     * records it under `a:{userAccountId}` with a null member_id. Putting
+     * the refusal on the shared permission took away a vote the schema
+     * was perfectly happy to record.
+     */
+    public function testAnAccountWithNoMemberMayStillAnswerAnAccountScopedPoll(): void
+    {
+        $groupId = $this->sectionGroup();
+
+        $permission = $this->access->canParticipate($this->groupRepo->findById($groupId), $this->context([], 'admin'));
+
+        $this->assertTrue($permission->allowed, 'canParticipate() is what gates voting, and a ballot needs no member');
+    }
+
+    public function testAnOrdinaryMemberOfAnotherSectionGetsNoAdminFallback(): void
+    {
+        $groupId = $this->sectionGroup();
+        $otherSection = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'CHILD2', $this->eclaireursId, $this->currentYearId);
+
+        // Not a reader of the group in the first place, so nothing to
+        // sign with either — the fallback is the admin bypass's twin and
+        // never widens to anybody else.
+        $this->assertNull(
+            $this->access->authorMemberIdFor(
+                $this->groupRepo->findById($groupId),
+                $this->context([$otherSection])
+            )
+        );
+    }
+
     // --- answering a member-scoped poll ---------------------------------
 
     /**

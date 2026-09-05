@@ -274,7 +274,7 @@ class ServiceWorkerPrecacheTest extends TestCase
      */
     public function testNetworkFirstWithCacheFallbackGatesTheWriteOnStandalone(): void
     {
-        preg_match('/function networkFirstWithCacheFallback\(request, url, config, network\) \{(.*?)\n\}/s', $this->swJs, $m);
+        preg_match('/function networkFirstWithCacheFallback\(request, url, config, network, event\) \{(.*?)\n\}/s', $this->swJs, $m);
         $this->assertNotEmpty($m, 'Could not locate networkFirstWithCacheFallback() in public/sw.js');
 
         $this->assertMatchesRegularExpression(
@@ -284,17 +284,163 @@ class ServiceWorkerPrecacheTest extends TestCase
     }
 
     /**
-     * The read path (cache.match() inside the .catch() fallback) must NOT
-     * be gated on config.standalone — a plain tab must still be able to
-     * read whatever the installed app already cached.
+     * The read path must NOT be gated on config.standalone — a plain tab
+     * must still be able to read whatever the installed app already
+     * cached.
+     *
+     * It lives in cachedCopy() rather than inline in a .catch() since the
+     * network gained a timeout: the same read now answers BOTH "the
+     * network failed" and "the network is taking too long", and having
+     * one function means the write gate can never drift onto only one of
+     * them.
      */
-    public function testNetworkFirstWithCacheFallbackReadsAreUnconditional(): void
+    public function testTheCachedReadPathIsUnconditional(): void
     {
-        preg_match('/function networkFirstWithCacheFallback\(request, url, config, network\) \{(.*?)\n\}/s', $this->swJs, $m);
+        preg_match('/function cachedCopy\(request, cacheName, config, reason\) \{(.*?)\n\}/s', $this->swJs, $m);
+        $this->assertNotEmpty($m, 'Could not locate cachedCopy() in public/sw.js');
+
+        $this->assertStringNotContainsString('config.standalone', $m[1]);
+        $this->assertStringContainsString('cache.match(request)', $m[1]);
+    }
+
+    /**
+     * A rejected navigation preload is retried as a plain fetch(), and a
+     * failed navigation gets one more attempt before the app declares
+     * itself offline.
+     *
+     * The preload is a request the browser made before this worker was
+     * awake; it fails for reasons that are not connectivity (the browser
+     * cancelling it, an HTTP/2 reset, an installed app resuming from
+     * frozen). Every one of those used to surface as "Pas de connexion"
+     * on a device that was online — the worst lie this page can tell, and
+     * exactly what was reported from the installed app.
+     */
+    public function testANetworkFailureIsRetriedBeforeDeclaringTheAppOffline(): void
+    {
+        preg_match('/function startNetworkRequest\(request, preloadResponse\) \{(.*?)\n\}/s', $this->swJs, $m);
+        $this->assertNotEmpty($m, 'Could not locate startNetworkRequest() in public/sw.js');
+        $this->assertStringContainsString('return fetch(request);', $m[1]);
+
+        preg_match('/function retryOnce\(request\) \{(.*?)\n\}/s', $this->swJs, $retry);
+        $this->assertNotEmpty($retry, 'Could not locate retryOnce() in public/sw.js');
+        // navigator.onLine is a reliable NO: a device in flight mode must
+        // skip the retry and get the offline page with no extra wait.
+        $this->assertStringContainsString('self.navigator?.onLine === false', $retry[1]);
+
+        preg_match('/function handleNavigate\(request, url, preloadResponse, event\) \{(.*?)\n\}/s', $this->swJs, $nav);
+        $this->assertNotEmpty($nav, 'Could not locate handleNavigate() in public/sw.js');
+        $this->assertStringContainsString('retryOnce(request)', $nav[1]);
+    }
+
+    /**
+     * A cached copy served on the timeout must not cancel the live
+     * request that is still running behind it.
+     *
+     * respondWith() settling ends the fetch event, and a worker whose
+     * event is done may be terminated at once — aborting the request
+     * mid-flight and losing the cache.put() it was about to make, so
+     * every later navigation would find the same stale copy and refresh
+     * nothing. The promise the reader is no longer waiting for is exactly
+     * the one that has to outlive their navigation.
+     */
+    public function testTheLiveRefreshOutlivesANavigationAnsweredFromTheCache(): void
+    {
+        preg_match(
+            '/function networkFirstWithCacheFallback\(request, url, config, network, event\) \{(.*?)\n\}/s',
+            $this->swJs,
+            $m
+        );
+        $this->assertNotEmpty($m, 'Could not locate networkFirstWithCacheFallback() in public/sw.js');
+        $this->assertStringContainsString('keepAlive(event, live)', $m[1]);
+
+        preg_match('/function keepAlive\(event, promise\) \{(.*?)\n\}/s', $this->swJs, $keep);
+        $this->assertNotEmpty($keep, 'Could not locate keepAlive() in public/sw.js');
+        $this->assertStringContainsString('event.waitUntil(promise)', $keep[1]);
+
+        // And the event has to reach it: the fetch handler is the only
+        // place that holds one.
+        $this->assertStringContainsString(
+            'handleNavigate(request, url, event.preloadResponse, event)',
+            $this->swJs
+        );
+    }
+
+    /**
+     * Both cache writes outlive the navigation, and both for the same
+     * reason: respondWith() settling ends the fetch event, and a worker
+     * whose event is done may be terminated before an unawaited
+     * cache.put() completes.
+     */
+    public function testEveryCacheWriteIsHeldOpenByTheFetchEvent(): void
+    {
+        preg_match(
+            '/function networkFirstWithCacheFallback\(request, url, config, network, event\) \{(.*?)\n\}/s',
+            $this->swJs,
+            $m
+        );
         $this->assertNotEmpty($m, 'Could not locate networkFirstWithCacheFallback() in public/sw.js');
 
-        preg_match('/\.catch\(function \(\) \{(.*)/s', $m[1], $catchBlock);
-        $this->assertNotEmpty($catchBlock, 'Could not locate the .catch() fallback block');
-        $this->assertStringNotContainsString('config.standalone', $catchBlock[1]);
+        // The slow path's refresh, and the fast path's own put().
+        $this->assertStringContainsString('keepAlive(event, live)', $m[1]);
+        $this->assertStringContainsString('keepAlive(event, caches.open(cacheName)', $m[1]);
+        // The invariant, not one spelling of its violation. Forbidding a
+        // single exact character sequence guards against nothing: a
+        // re-introduced fire-and-forget write with a line break, another
+        // variable name or an arrow function would walk straight past it.
+        // What must hold is that EVERY content-cache write in this function
+        // is an argument of keepAlive() — started and abandoned is the bug.
+        preg_match_all('/(.{0,24})caches\.open\(cacheName\)/s', $m[1], $writes);
+        $this->assertNotEmpty($writes[0], 'no content-cache write found to check');
+        foreach ($writes[1] as $before) {
+            $this->assertStringContainsString(
+                'keepAlive(event, ',
+                $before,
+                'a content-cache write is not held open by the fetch event'
+            );
+        }
+    }
+
+    /**
+     * A denied or evicted Cache Storage makes getOfflineConfig() reject,
+     * and an unguarded rejection would reject respondWith() — landing the
+     * installed app on the browser interstitial the precached page exists
+     * to replace.
+     */
+    public function testAnUnreadableOfflineConfigStillReachesTheOfflinePage(): void
+    {
+        preg_match('/function handleNavigate\(request, url, preloadResponse, event\) \{(.*?)\n\}/s', $this->swJs, $m);
+        $this->assertNotEmpty($m, 'Could not locate handleNavigate() in public/sw.js');
+
+        $this->assertStringContainsString('getOfflineConfig().catch(', $m[1]);
+    }
+
+    /**
+     * The offline fallback never resolves to undefined:
+     * respondWith(undefined) is a TypeError, and the installed app would
+     * then show the browser's own network-error interstitial — the one
+     * thing the precached page exists to replace.
+     */
+    public function testTheOfflineFallbackAlwaysProducesAResponse(): void
+    {
+        preg_match('/function offlinePage\(\) \{(.*?)\n\}/s', $this->swJs, $m);
+        $this->assertNotEmpty($m, 'Could not locate offlinePage() in public/sw.js');
+
+        $this->assertStringContainsString("caches.match('/offline')", $m[1]);
+        $this->assertStringContainsString('cached || generatedOfflinePage()', $m[1]);
+
+        // The Response it falls back to lives in its own function (Sonar
+        // will not have one nested here), so assert on that one too — the
+        // point being pinned is that SOMETHING real is always returned.
+        preg_match('/function generatedOfflinePage\(\) \{(.*?)\n\}/s', $this->swJs, $generated);
+        $this->assertNotEmpty($generated, 'Could not locate generatedOfflinePage() in public/sw.js');
+        $this->assertStringContainsString('new Response(', $generated[1]);
+        $this->assertStringContainsString('Pas de connexion', $generated[1]);
+
+        // caches.match() does not merely resolve to undefined when the
+        // shell cache is gone: it REJECTS when Cache Storage itself is
+        // denied (private browsing, blocked site data, a quota error).
+        // Unguarded, that rejection reaches respondWith() and produces
+        // the very interstitial this page replaces.
+        $this->assertMatchesRegularExpression('/caches\.match\(\x27\/offline\x27\)\s*\n?\s*\.catch\(/', $m[1]);
     }
 }
