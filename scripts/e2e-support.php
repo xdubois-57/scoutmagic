@@ -1853,6 +1853,52 @@ function e2e_merge_coverage(string $repoRoot, string $coverageDir, string $outpu
 }
 
 /**
+ * The command line that runs one cron pass — built apart from running it
+ * so it can be asserted without a provisioned instance.
+ *
+ * **The collector goes on this process too, when coverage is on.** It was
+ * left off, and the report said `public/cron.php` was 0 % covered — read
+ * as "nothing ever runs the cron entry point", which is the opposite of
+ * true: six scenarios run it seven times a run, top to bottom, against a
+ * real database. What was missing was the measurement, not the exercise.
+ *
+ * That blind spot was not confined to this one file. Everything a
+ * scheduled task reaches — the handlers, the services they call — runs
+ * inside THIS process, so none of it was credited either, and the layer
+ * the report showed as the least covered in the repository is precisely
+ * the layer the report could not see. A coverage number that is wrong in
+ * the direction of "untested" is the expensive kind: it sends the next
+ * person to write tests for code that has them, and hides the code that
+ * does not.
+ *
+ * Same four options scripts/e2e.sh gives `php -S`, for the same reasons —
+ * see its coverage block for why pcov.directory has to be `/`.
+ */
+function e2e_scheduler_command(string $instanceDir, ?string $coverageDir): string
+{
+    // The same maildrop redirection scripts/e2e.sh gives the web server
+    // (its `-d sendmail_path=...` on `php -S`): a task handler that sends
+    // mail — the mass-mail batch send above all — must land in the run's
+    // mailbox too, not shell out to a /usr/sbin/sendmail this container
+    // doesn't have. The inner quotes survive escapeshellarg on purpose:
+    // sendmail_path is run through sh, and the repo path may hold spaces.
+    $sendmailPath = 'sendmail_path=php \'' . dirname(__DIR__) . '/scripts/e2e-maildrop.php\'';
+    $command = escapeshellarg(PHP_BINARY)
+        . ' -d ' . escapeshellarg($sendmailPath);
+
+    if ($coverageDir !== null) {
+        $command .= ' -d ' . escapeshellarg(
+            'auto_prepend_file=' . dirname(__DIR__) . '/scripts/e2e-coverage-prepend.php'
+        )
+            . ' -d ' . escapeshellarg('pcov.enabled=1')
+            . ' -d ' . escapeshellarg('pcov.directory=/')
+            . ' -d ' . escapeshellarg('pcov.exclude=~/(vendor|node_modules)/~');
+    }
+
+    return $command . ' ' . escapeshellarg($instanceDir . '/public/cron.php');
+}
+
+/**
  * Runs the throwaway instance's OWN cron entry point once, exactly as a
  * host's crontab would — same `public/cron.php`, same instance config,
  * same Core\Scheduler\SchedulerRunner.
@@ -1874,16 +1920,11 @@ function e2e_merge_coverage(string $repoRoot, string $coverageDir, string $outpu
  */
 function e2e_run_scheduler(string $instanceDir): int
 {
-    // The same maildrop redirection scripts/e2e.sh gives the web server
-    // (its `-d sendmail_path=...` on `php -S`): a task handler that sends
-    // mail — the mass-mail batch send above all — must land in the run's
-    // mailbox too, not shell out to a /usr/sbin/sendmail this container
-    // doesn't have. The inner quotes survive escapeshellarg on purpose:
-    // sendmail_path is run through sh, and the repo path may hold spaces.
-    $sendmailPath = 'sendmail_path=php \'' . dirname(__DIR__) . '/scripts/e2e-maildrop.php\'';
-    $command = escapeshellarg(PHP_BINARY)
-        . ' -d ' . escapeshellarg($sendmailPath)
-        . ' ' . escapeshellarg($instanceDir . '/public/cron.php') . ' 2>&1';
+    $coverageDir = getenv('E2E_COVERAGE_DIR');
+    $command = e2e_scheduler_command(
+        $instanceDir,
+        is_string($coverageDir) && $coverageDir !== '' && is_dir($coverageDir) ? $coverageDir : null
+    ) . ' 2>&1';
     $output = [];
     $exitCode = 0;
     exec($command, $output, $exitCode);

@@ -103,6 +103,21 @@ declare(strict_types=1);
 function e2e_coverage_map_instance_paths(array $data): array
 {
     $documentRoot = $_SERVER['DOCUMENT_ROOT'] ?? '';
+
+    // A cron pass has no document root: scripts/e2e-support.php's
+    // run-scheduler executes the instance's public/cron.php on the CLI,
+    // where $_SERVER['DOCUMENT_ROOT'] is simply absent. Without this the
+    // whole pass — the entry point and everything a scheduled task
+    // reaches through it — was recorded against the temporary instance
+    // path and dropped by the merge, so the report read 0 % for code that
+    // seven passes a run execute from end to end.
+    if (!is_string($documentRoot) || $documentRoot === '') {
+        $instanceDir = getenv('E2E_INSTANCE_DIR');
+        $documentRoot = is_string($instanceDir) && $instanceDir !== ''
+            ? $instanceDir . '/public'
+            : '';
+    }
+
     $instancePublic = is_string($documentRoot) && $documentRoot !== '' ? realpath($documentRoot) : false;
     if ($instancePublic === false) {
         return $data;
