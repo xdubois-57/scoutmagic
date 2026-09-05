@@ -333,6 +333,32 @@ class SectionRosterPdfServiceTest extends TestCase
         $this->assertFileExists($recent);
     }
 
+    /**
+     * Two filters are two documents, and neither supersedes the other.
+     * Scoping the same-year purge to the year alone deleted "Toutes" the
+     * moment a section sheet was written, so a chief alternating filters
+     * paid a full render every time — exactly what this cache exists to
+     * avoid.
+     */
+    public function testWritingOneFiltersSheetKeepsAnothersOnDisk(): void
+    {
+        $service = $this->service($this->cacheDirectory);
+        $sections = [$this->section(7, 'A')];
+
+        $service->generate(1, '2026-2027', 'U', '', $sections, $this->roster(7), null);
+        $service->generate(1, '2026-2027', 'U', '', $sections, $this->roster(7), 7);
+
+        $this->assertCount(
+            2,
+            glob($this->cacheDirectory . '/section-roster/*.pdf') ?: [],
+            'the all-sections sheet and the section sheet coexist'
+        );
+
+        // And the same filter written again still supersedes itself.
+        $service->generate(1, '2026-2027', 'U', '', [$this->section(7, 'B')], $this->roster(7), 7);
+        $this->assertCount(2, glob($this->cacheDirectory . '/section-roster/*.pdf') ?: []);
+    }
+
     public function testNoTemporaryFileSurvivesAWrite(): void
     {
         $this->service($this->cacheDirectory)

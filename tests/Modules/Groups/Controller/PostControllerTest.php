@@ -621,6 +621,13 @@ class PostControllerTest extends TestCase
         $response = $this->controller([$this->memberId])->linkPreview($this->linkPreviewRequest(), $this->params());
 
         $this->assertSame(403, $response->getStatusCode());
+        // JSON, and asserted rather than assumed: linkPreviewRequest()
+        // deliberately sends no X-Requested-With, so a refusal shaped by
+        // the caller's headers would hand an HTML page to the composer's
+        // own fetch(). Every state canPost() denies here is an ordinary
+        // one — a closed group, a past year, an incomplete profile.
+        $this->assertSame('application/json', $response->getHeaders()['Content-Type']);
+        $this->assertArrayHasKey('error', json_decode($response->getBody(), true));
     }
 
     public function testLinkPreviewReturnsANullUrlWhenTheDraftHasNoLinkWithoutCallingTheFetcher(): void

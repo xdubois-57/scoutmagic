@@ -206,6 +206,24 @@ describe('sw.js: networkFirstWithCacheFallback()', () => {
         await vi.waitFor(() => expect(caches.stores.get(cacheName)?.size).toBe(1));
     });
 
+    /**
+     * The fast path settles respondWith() the instant the live response is
+     * returned, so its cache write needs the event held open exactly as
+     * the slow path's refresh does — otherwise the page is never cached
+     * and the next offline visit finds nothing.
+     */
+    it('holds the event open for the cache write on the fast path too', async () => {
+        const caches = createCachesFake();
+        global.caches = caches;
+        global.fetch = vi.fn(() => Promise.resolve(makeResponse('<body>live</body>')));
+        const event = { waitUntil: vi.fn() };
+
+        await sw.networkFirstWithCacheFallback(request, url, config, undefined, event);
+
+        expect(event.waitUntil).toHaveBeenCalledTimes(1);
+        await vi.waitFor(() => expect(caches.stores.get(cacheName)?.size).toBe(1));
+    });
+
     it('does NOT write to cache from a plain browser tab (standalone false)', async () => {
         const caches = createCachesFake();
         global.caches = caches;
@@ -360,6 +378,27 @@ describe('sw.js: handleNavigate()', () => {
         const res = await sw.handleNavigate(request, url);
 
         expect(res.body ?? await res.text()).toContain('offline');
+    });
+
+    /**
+     * Cache Storage can be denied or evicted outright, and getOfflineConfig()
+     * rejects when it is. Letting that through would reject respondWith()
+     * and land the installed app on the browser's own network-error
+     * interstitial — the one thing the precached page exists to replace.
+     */
+    it('still answers when the offline configuration cannot be read at all', async () => {
+        const offline = makeResponse('<body>offline</body>');
+        global.caches = {
+            open: vi.fn(() => Promise.reject(new Error('storage denied'))),
+            match: vi.fn(() => Promise.resolve(offline)),
+        };
+        global.fetch = vi.fn(() => Promise.reject(new Error('offline')));
+        global.self = { navigator: { onLine: false } };
+
+        const res = await sw.handleNavigate(request, url, undefined);
+
+        expect(res).toBe(offline);
+        delete global.self;
     });
 
     // The end-to-end shape of the bug: a child-matched member page must take

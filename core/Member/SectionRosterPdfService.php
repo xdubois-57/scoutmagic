@@ -134,7 +134,7 @@ class SectionRosterPdfService
         $pdf = $dompdf->output();
 
         if ($cacheFile !== null) {
-            $this->store($cacheFile, $pdf, $scoutYearId);
+            $this->store($cacheFile, $pdf, $scoutYearId, $selectedSectionId);
         }
 
         return $pdf;
@@ -252,9 +252,25 @@ class SectionRosterPdfService
             $composition,
             $layoutStat !== false ? [$layoutStat['mtime'], $layoutStat['size']] : null,
         ]);
-        $signature = hash('sha256', (string) $payload);
+        if ($payload === false) {
+            // No signature, no cache. `(string) false` is '', and
+            // hash('sha256', '') is the same digest for every document of
+            // the year — two filters would land on one file and the
+            // second reader would be served the first one's list, which
+            // is the single failure this cache may not have. A member
+            // name is decrypted database text, so malformed UTF-8 is not
+            // hypothetical.
+            return null;
+        }
+        $signature = hash('sha256', $payload);
 
-        return $this->cacheDirectory . '/section-roster/' . $scoutYearId . '-' . $signature . '.pdf';
+        // The filter is in the NAME, not only in the signature, so the
+        // same-year purge below can be scoped to it: without that, writing
+        // section B's sheet deleted "Toutes" and section A's, and a chief
+        // alternating filters paid a full render every time — exactly what
+        // this cache exists to avoid.
+        return $this->cacheDirectory . '/section-roster/'
+            . $this->cachePrefix($scoutYearId, $selectedSectionId) . '-' . $signature . '.pdf';
     }
 
     /**
@@ -262,7 +278,7 @@ class SectionRosterPdfService
      * make the replacement atomic: there is no instant at which a
      * concurrent reader could pick up a truncated document.
      */
-    private function store(string $cacheFile, string $pdf, int $scoutYearId): void
+    private function store(string $cacheFile, string $pdf, int $scoutYearId, ?int $selectedSectionId): void
     {
         $directory = dirname($cacheFile);
         if (!is_dir($directory) && !@mkdir($directory, 0755, true) && !is_dir($directory)) {
@@ -270,11 +286,14 @@ class SectionRosterPdfService
         }
 
         // Two purges, and the second is the one that bounds retention.
-        // This year's superseded copies go because they are superseded;
-        // every year's expired ones go because a document holding names
-        // may not outlive CACHE_TTL_DAYS, and a season nobody prints
-        // again would otherwise keep its sheet on disk indefinitely.
-        foreach (glob($directory . '/' . $scoutYearId . '-*.pdf') ?: [] as $stale) {
+        // The superseded copies of THIS year AND THIS FILTER go because
+        // they are superseded — scoped to the filter, since the sheets of
+        // two different filters are two different documents and neither
+        // supersedes the other. Every year's and every filter's expired
+        // ones go because a document holding names may not outlive
+        // CACHE_TTL_DAYS, and a season nobody prints again would
+        // otherwise keep its sheet on disk indefinitely.
+        foreach (glob($directory . '/' . $this->cachePrefix($scoutYearId, $selectedSectionId) . '-*.pdf') ?: [] as $stale) {
             @unlink($stale);
         }
         $this->purgeExpired($directory);
@@ -286,8 +305,18 @@ class SectionRosterPdfService
     }
 
     /**
-     * Every cached sheet past CACHE_TTL_DAYS, whatever year it belongs
-     * to. Runs on each write rather than as a scheduled task: this
+     * What a cached sheet's name starts with: the year and the filter it
+     * was printed for. Two filters are two documents, so this is what the
+     * same-year purge must match on rather than the year alone.
+     */
+    private function cachePrefix(int $scoutYearId, ?int $selectedSectionId): string
+    {
+        return $scoutYearId . '-' . ($selectedSectionId ?? 'all');
+    }
+
+    /**
+     * Every cached sheet past CACHE_TTL_DAYS, whatever year or filter it
+     * belongs to. Runs on each write rather than as a scheduled task: this
      * directory is only ever written by this service, so the moment it
      * grows is exactly the moment to sweep it.
      */

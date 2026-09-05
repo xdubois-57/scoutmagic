@@ -306,6 +306,45 @@ class ServiceWorkerPrecacheTest extends TestCase
     }
 
     /**
+     * Both cache writes outlive the navigation, and both for the same
+     * reason: respondWith() settling ends the fetch event, and a worker
+     * whose event is done may be terminated before an unawaited
+     * cache.put() completes.
+     */
+    public function testEveryCacheWriteIsHeldOpenByTheFetchEvent(): void
+    {
+        preg_match(
+            '/function networkFirstWithCacheFallback\(request, url, config, network, event\) \{(.*?)\n\}/s',
+            $this->swJs,
+            $m
+        );
+        $this->assertNotEmpty($m, 'Could not locate networkFirstWithCacheFallback() in public/sw.js');
+
+        // The slow path's refresh, and the fast path's own put().
+        $this->assertStringContainsString('keepAlive(event, live)', $m[1]);
+        $this->assertStringContainsString('keepAlive(event, caches.open(cacheName)', $m[1]);
+        $this->assertStringNotContainsString(
+            'caches.open(cacheName).then(function (cache) { cache.put(request, copy); });',
+            $m[1],
+            'the fire-and-forget write is what this replaces'
+        );
+    }
+
+    /**
+     * A denied or evicted Cache Storage makes getOfflineConfig() reject,
+     * and an unguarded rejection would reject respondWith() — landing the
+     * installed app on the browser interstitial the precached page exists
+     * to replace.
+     */
+    public function testAnUnreadableOfflineConfigStillReachesTheOfflinePage(): void
+    {
+        preg_match('/function handleNavigate\(request, url, preloadResponse, event\) \{(.*?)\n\}/s', $this->swJs, $m);
+        $this->assertNotEmpty($m, 'Could not locate handleNavigate() in public/sw.js');
+
+        $this->assertStringContainsString('getOfflineConfig().catch(', $m[1]);
+    }
+
+    /**
      * The offline fallback never resolves to undefined:
      * respondWith(undefined) is a TypeError, and the installed app would
      * then show the browser's own network-error interstitial — the one

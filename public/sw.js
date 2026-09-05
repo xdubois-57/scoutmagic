@@ -482,7 +482,16 @@ function offlinePage() {
 function handleNavigate(request, url, preloadResponse, event) {
     const network = startNetworkRequest(request, preloadResponse);
 
-    return getOfflineConfig().then(function (config) {
+    return getOfflineConfig().catch(function () {
+        // Cache Storage can be denied or evicted outright, and both
+        // caches.open() and cache.match() reject when it is. Letting that
+        // rejection through would reject respondWith() and land the
+        // installed app on the browser's own network-error interstitial —
+        // the one thing offlinePage() exists to replace. No config simply
+        // means no cached copy to offer, which the branch below already
+        // handles.
+        return null;
+    }).then(function (config) {
         if (!config?.consent || !isWhitelisted(url.pathname, config.whitelist)) {
             // Lot 1 behavior: a failed navigation falls back to the
             // precached offline page. There is nothing cached to serve
@@ -616,7 +625,15 @@ function networkFirstWithCacheFallback(request, url, config, network, event) {
         // already-cached copy until its next page load.
         if (response?.ok && !response.redirected && config.standalone) {
             const copy = response.clone();
-            caches.open(cacheName).then(function (cache) { cache.put(request, copy); });
+            // Kept alive for the same reason the slow path's refresh is:
+            // on the fast path respondWith() settles the instant this
+            // response is returned, and a worker whose event is done may
+            // be terminated before caches.open() and cache.put() finish —
+            // so the page is never cached and the next offline visit
+            // finds nothing.
+            keepAlive(event, caches.open(cacheName).then(function (cache) {
+                return cache.put(request, copy);
+            }).catch(function () {}));
         }
         return response;
     });
