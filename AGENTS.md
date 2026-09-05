@@ -89,26 +89,31 @@ one of these two, verbatim:
 - `**Type: enhancement**` — the site behaves as designed; the design should be
   better.
 
-Apply the matching label as well — `bug:confirmed` or `enhancement`. Both,
-always: the label is what a human filters on, the line is what a reader working
-from the issue body alone sees, and an issue whose nature has to be inferred
-from its prose gets triaged wrong. If you genuinely cannot tell which it is,
-that is a sign you have not finished establishing the problem — go back to the
-code.
+That line is the part you always write, because it is the part a reader
+working from the issue body alone sees, and an issue whose nature has to be
+inferred from its prose gets triaged wrong. If you genuinely cannot tell which
+of the two it is, that is a sign you have not finished establishing the problem
+— go back to the code.
 
-Two labels are **not** yours to apply here, and both for the same reason —
-they would say something untrue about the issue:
+The **labels** are a different matter, and mostly not yours. They are the
+issue's state, `scripts/sync-issue-labels.sh` is the taxonomy's only source,
+and `.claude/skills/triage` is what sets them: `issue-triage.yml` fires on
+every issue opened, including the one you just filed, and applies the verdict
+plus `triage:done`. So:
 
-- Not `bug` (the older label). `scripts/sync-issue-labels.sh` owns the triage
-  taxonomy, and `.github/ISSUE_TEMPLATE/bug.yml` states what is left outside
-  it: the older `bug` label "stays what it has always been: something the
-  maintainer applies by hand".
-- Not `triage:pending`, which the issue forms apply and which means *never
-  analysed*. An issue filed under this rule is verified before it is written —
-  that is what the section above demands — so it arrives with its analysis in
-  its body, and `bug:confirmed` ("A real defect, understood") is the accurate
-  state. Leave the rest of the `triage:*` and `status:*` set to the triage pass
-  and to the maintainer.
+- Apply `bug:confirmed` when you filed a defect — it means "A real defect,
+  understood", which is what this rule required you to establish before
+  filing. Nothing else needs to go on.
+- Apply **no** `bug:*` label to an enhancement. The taxonomy deliberately has
+  no verdict for a request that is neither a defect nor a misunderstanding
+  (`.claude/skills/triage/SKILL.md` § A feature request is not a bug); your
+  type line carries that meaning instead.
+- Never the older `bug` label, and never one you invent. `bug` "stays what it
+  has always been: something the maintainer applies by hand"
+  (`.github/ISSUE_TEMPLATE/bug.yml`), and a label outside the script's table
+  is a finding to state in the issue, not something to create at runtime.
+- Leave `triage:*` and `status:*` alone — the triage pass owns the first, the
+  maintainer the second.
 
 ### Write it so it can be fixed from the issue alone
 
