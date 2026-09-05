@@ -39,17 +39,26 @@ disagree with; disagreeing is not addressing.
 
 ## Review comments
 
-**A bot finding is a bug report, not an opinion.** Codex
-(`chatgpt-codex-connector[bot]`) reviews every PR here and posts inline
-comments with a P-badge. Verify the finding against the code, then fix it.
-"It's stylistic" is a conclusion you reach after reading the code, never a
-reason to skip reading it.
+**A bot finding is a bug report, not an opinion.** An AI reviewer runs on
+every pull request here. *Which* one is a setting the maintainer can change
+in an afternoon, so read it off the PR — an author whose login ends in
+`[bot]`, posting inline comments — rather than off a vendor name written
+here, which is the kind of detail that goes stale without anyone noticing.
+Verify what it reports against the code, then fix it. "It's stylistic" is a
+conclusion you reach after reading the code, never a reason to skip reading
+it.
 
-The failure mode this repo has already lived through is the opposite one:
-a finding that reads like a nit and is a real defect. Codex's first review
-on this repo caught `strlen`/`substr` used where every neighbour used
-`mb_strlen`/`mb_substr` — a one-word diff, and invalid UTF-8 in a
-user-facing French label. Judge the consequence, not the size of the patch.
+**Its severity label orders your work; it does not settle anything.**
+Whatever scale the current reviewer emits — P1/P2, high/low, a coloured
+badge — it is that model's guess at importance. Whether a finding is real,
+and what it would actually break, is yours to establish against the code.
+
+The failure mode this repo has already lived through is the opposite of a
+false alarm: a finding that reads like a nit and is a real defect. The
+first bot review on this repository caught `strlen`/`substr` used where
+every neighbour used `mb_strlen`/`mb_substr` — a one-word diff, and invalid
+UTF-8 in a user-facing French label. Judge the consequence, not the size of
+the patch.
 
 **Reply in the language of the thread.** Reviews arrive in English; the
 maintainer writes French. Match whoever you are answering.
