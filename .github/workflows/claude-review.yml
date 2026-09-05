@@ -1,12 +1,14 @@
-# Second-opinion review by Claude on every pull request, alongside the
-# CodeRabbit review that runs from .coderabbit.yaml.
+# Second-opinion review by Claude on every pull request and every push to
+# one, alongside the CodeRabbit review that runs from .coderabbit.yaml.
 #
 # Nobody has to remember to ask for it: GitHub runs this on the pull_request
 # event, so it happens whether or not anyone thinks of it. That is the whole
 # point — a reviewer you have to summon is a reviewer you forget to summon
 # on the pull request that needed it.
 #
-# Each run spends the Claude subscription behind CLAUDE_CODE_OAUTH_TOKEN.
+# Each run spends the Claude subscription behind CLAUDE_CODE_OAUTH_TOKEN,
+# and `synchronize` below means one run per push rather than one per pull
+# request. That is the deliberate price of a review that is never stale.
 
 name: Claude review
 
@@ -14,17 +16,23 @@ on:
   pull_request:
     # `opened` catches a pull request created ready for review;
     # `ready_for_review` catches one that started as a draft; `reopened`
-    # catches one brought back. `labeled` is not an automatic trigger — it
-    # is the manual lever below, for asking again.
+    # catches one brought back; `synchronize` catches every push to an open
+    # one. `labeled` is not an automatic trigger — it is the manual lever
+    # below, for asking again without pushing.
     #
-    # `synchronize` is deliberately absent: it would run a fresh review on
-    # every push, which is the setting we turned off for CodeRabbit in
-    # .coderabbit.yaml for the same reason. Add it here only if you want a
-    # review per push and are willing to pay for it.
-    types: [opened, ready_for_review, reopened, labeled]
+    # `synchronize` is what makes the review current rather than a snapshot
+    # of the pull request's first commit: a diff reviewed at open and then
+    # pushed to five times is a diff nobody read. It differs from the
+    # CodeRabbit side on purpose — that one reviews once, because it is the
+    # permanent reviewer and its free tier has an hourly ceiling; this one
+    # is the gate, and a gate that checks a stale diff is not a gate.
+    types: [opened, ready_for_review, reopened, labeled, synchronize]
 
 # A second trigger while a run is in flight replaces it rather than paying
-# for both.
+# for both — which matters more with `synchronize`: pushing three commits in
+# a minute pays for one review of the last state, not three of intermediate
+# ones. The cancelled run belongs to the superseded commit, so it never
+# leaves a red check on the commit that matters.
 concurrency:
   group: claude-review-${{ github.event.pull_request.number }}
   cancel-in-progress: true
@@ -73,6 +81,13 @@ jobs:
           # from a fork, so this job cannot review an outside contribution
           # — the same hole SonarCloud has here, and it is recorded in
           # .claude/skills/steward/SKILL.md.
+          #
+          # This check is REQUIRED on main, which turns that hole into a
+          # hard consequence: a pull request from a fork cannot merge,
+          # because the check it needs can never report. Accepted
+          # deliberately — there are no forks today, and an unreviewed
+          # merge is the worse failure. Reopening the repository to outside
+          # contributions means revisiting it.
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           plugin_marketplaces: "https://github.com/anthropics/claude-code.git"
           plugins: "code-review@claude-code-plugins"
