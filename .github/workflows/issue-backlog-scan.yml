@@ -127,6 +127,31 @@ jobs:
       # NOTHING ELSE. Not contents, not pull-requests. See the header.
 
     env:
+      # THE CANDIDATE PREDICATE LIVES HERE, ONCE, BECAUSE IT IS USED
+      # THREE TIMES — same reasoning as the prompt below, and with a
+      # sharper edge. The job's verdict is `candidates - remaining`
+      # measured against what it selected, and that subtraction is only
+      # meaningful while all three counts select the SAME population. Edit
+      # the label rule in two of three copies and the job compares
+      # different populations, reports a wrong verdict, and reports it
+      # without an error: a scan that cleared its five could go red, or
+      # one that cleared none could go green.
+      #
+      # `env.CUTOFF` is jq reading the step's own environment rather than
+      # the string being interpolated into the filter. That keeps the
+      # one-hour cutoff a step INPUT — captured once by the `before` step
+      # and passed to the other two — instead of a second thing to keep in
+      # step with this one.
+      CANDIDATE_FILTER: |
+        .[]
+        | select(.pull_request == null)
+        | select(.created_at < env.CUTOFF)
+        | (.labels | map(.name)) as $names
+        | select(($names | index("triage:pending") != null)
+              or (($names | index("triage:pending") == null)
+                  and ($names | index("triage:done") == null)))
+        | .number
+
       # THE PROMPT LIVES HERE, ONCE, BECAUSE IT IS USED TWICE — same
       # reasoning as issue-triage.yml. The two attempts must be given
       # identical instructions, and GitHub Actions has no YAML anchors, so
@@ -258,7 +283,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          cutoff="$(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ)"
+          # Exported, not interpolated: CANDIDATE_FILTER reads it as
+          # jq's `env.CUTOFF`, and the two later steps receive the same
+          # value through their own step-level `env:`.
+          export CUTOFF="$(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ)"
 
           # `/issues` returns pull requests too — they carry no triage
           # label, so every open pull request would count as an untriaged
@@ -271,15 +299,7 @@ jobs:
           # count on stdout, so the pipeline form yields a number for a
           # read that failed. `set -e` fails this step instead.
           listing="$(gh api "repos/${GITHUB_REPOSITORY}/issues?state=open&per_page=100" \
-            --paginate \
-            --jq ".[]
-                  | select(.pull_request == null)
-                  | select(.created_at < \"${cutoff}\")
-                  | (.labels | map(.name)) as \$names
-                  | select((\$names | index(\"triage:pending\") != null)
-                        or ((\$names | index(\"triage:pending\") == null)
-                            and (\$names | index(\"triage:done\") == null)))
-                  | .number")"
+            --paginate --jq "${CANDIDATE_FILTER}")"
 
           candidates="$(printf '%s\n' "${listing}" | grep -c '[0-9]' || true)"
 
@@ -289,7 +309,7 @@ jobs:
           [ "${expected}" -le 5 ] || expected=5
 
           echo "Candidates awaiting triage: ${candidates} (this run should clear ${expected})."
-          echo "cutoff=${cutoff}" >> "${GITHUB_OUTPUT}"
+          echo "cutoff=${CUTOFF}" >> "${GITHUB_OUTPUT}"
           echo "candidates=${candidates}" >> "${GITHUB_OUTPUT}"
           echo "expected=${expected}" >> "${GITHUB_OUTPUT}"
 
@@ -366,15 +386,7 @@ jobs:
           # the agent's writes a minute ago, which is precisely the case
           # the retry exists for. The final check is the strict one.
           if ! listing="$(gh api "repos/${GITHUB_REPOSITORY}/issues?state=open&per_page=100" \
-            --paginate \
-            --jq ".[]
-                  | select(.pull_request == null)
-                  | select(.created_at < \"${CUTOFF}\")
-                  | (.labels | map(.name)) as \$names
-                  | select((\$names | index(\"triage:pending\") != null)
-                        or ((\$names | index(\"triage:pending\") == null)
-                            and (\$names | index(\"triage:done\") == null)))
-                  | .number")"; then
+            --paginate --jq "${CANDIDATE_FILTER}")"; then
             echo "Could not count the remaining backlog; treating the run as incomplete."
             echo "landed=false" >> "${GITHUB_OUTPUT}"
             exit 0
@@ -456,20 +468,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          # No `|| echo -1` here, unlike the first check: this step
+          # No tolerance here, unlike the first check: this step
           # decides the job's verdict, so a count that fails must fail the
           # job rather than be reported as a backlog nobody drained — or,
           # worse, as one somebody did.
           listing="$(gh api "repos/${GITHUB_REPOSITORY}/issues?state=open&per_page=100" \
-            --paginate \
-            --jq ".[]
-                  | select(.pull_request == null)
-                  | select(.created_at < \"${CUTOFF}\")
-                  | (.labels | map(.name)) as \$names
-                  | select((\$names | index(\"triage:pending\") != null)
-                        or ((\$names | index(\"triage:pending\") == null)
-                            and (\$names | index(\"triage:done\") == null)))
-                  | .number")"
+            --paginate --jq "${CANDIDATE_FILTER}")"
 
           remaining="$(printf '%s\n' "${listing}" | grep -c '[0-9]' || true)"
 

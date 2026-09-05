@@ -512,9 +512,81 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
             );
         }
 
+        // ONE predicate, in the job's `env:`, used by all three counts.
+        // The verdict is `candidates - remaining`, and that subtraction
+        // is only meaningful while all three select the same population:
+        // edit the label rule in two copies of three and the job compares
+        // different populations, reports a wrong verdict, and reports it
+        // with no error at all. A review pointed out that the earlier
+        // shape — the same filter written out in each step — was one
+        // careless edit away from exactly that.
+        $filter = implode("\n", $this->blockScalar(self::BACKLOG_SCAN, 'CANDIDATE_FILTER') ?? []);
+
+        self::assertNotSame(
+            '',
+            trim($filter),
+            self::BACKLOG_SCAN . ' has no `CANDIDATE_FILTER:` block. The three counts that decide '
+            . 'this job\'s verdict have to select the same population, and a job-level `env:` entry '
+            . 'is the only shape in which they cannot drift apart.',
+        );
+
+        self::assertStringContainsString(
+            '.pull_request == null',
+            $filter,
+            self::BACKLOG_SCAN . ' counts untriaged issues without excluding pull requests. '
+            . 'GitHub\'s `/issues` endpoint returns both, and a pull request carries no triage '
+            . 'label — so every open one counts as an untriaged issue and the job fails every '
+            . 'night demanding the agent triage things that are not issues.',
+        );
+
+        self::assertStringContainsString(
+            'env.CUTOFF',
+            $filter,
+            self::BACKLOG_SCAN . "'s candidate filter no longer reads the cutoff from the step's "
+            . 'environment. Interpolating it into the filter instead makes the cutoff a second '
+            . 'thing to keep in step with this one, which is what defining the filter once was for.',
+        );
+
+        self::assertStringContainsString(
+            'index("triage:pending")',
+            $filter,
+            self::BACKLOG_SCAN . "'s candidate filter no longer selects on `triage:pending`. That "
+            . 'label is what an untriaged issue carries; without it the counts measure something '
+            . 'else and the subtraction between them means nothing.',
+        );
+
+        // NO run script may spell the predicate out. That is the
+        // invariant keeping the three counts identical, and it is
+        // asserted over the scripts rather than by counting occurrences
+        // in the file: a copy written inside a shell string carries
+        // escaped quotes, which a literal count misses — as the first
+        // version of this assertion did.
+        //
+        // Shell COMMENTS are stripped first. The steps explain in prose
+        // that a failed run leaves the issues carrying `triage:pending`,
+        // and an assertion that fired on the sentence explaining the rule
+        // would be deleted for being noisy — which is how this file loses
+        // an audit. The same reasoning as testItNeverChecksThe\
+        // RepositoryOut() matching `uses:` lines rather than prose.
+        foreach ($scripts as $script) {
+            $code = implode("\n", array_filter(
+                explode("\n", $script),
+                static fn (string $line): bool => preg_match('/^\s*#/', $line) !== 1,
+            ));
+
+            self::assertStringNotContainsString(
+                'triage:pending',
+                $code,
+                self::BACKLOG_SCAN . ' spells the candidate predicate out inside a step instead of '
+                . 'reading `${CANDIDATE_FILTER}`. A second copy is free to drift from the first, '
+                . 'and the job would then subtract one population from another and call the answer '
+                . 'a verdict — with no error anywhere.',
+            );
+        }
+
         $counts = array_filter(
             $scripts,
-            static fn (string $script): bool => str_contains($script, 'triage:pending'),
+            static fn (string $script): bool => str_contains($script, 'CANDIDATE_FILTER'),
         );
 
         self::assertGreaterThanOrEqual(
@@ -524,27 +596,19 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
             . 'after it are both needed, since only the difference is meaningful.',
         );
 
-        foreach ($counts as $script) {
-            self::assertStringContainsString(
-                '.pull_request == null',
-                $script,
-                self::BACKLOG_SCAN . ' counts untriaged issues without excluding pull requests. '
-                . 'GitHub\'s `/issues` endpoint returns both, and a pull request carries no triage '
-                . 'label — so every open one counts as an untriaged issue and the job fails every '
-                . 'night demanding the agent triage things that are not issues.',
-            );
-        }
-
+        // The cutoff captured BEFORE the agent, passed to the steps that
+        // count after it. Recomputing "an hour ago" afterwards moves the
+        // one-hour boundary mid-run: an issue that was fifty-nine minutes
+        // old at the start joins the candidate set at the end, and the
+        // job goes red over an issue it never selected.
         self::assertNotEmpty(
             array_filter(
                 $this->lines(self::BACKLOG_SCAN),
                 static fn (string $line): bool =>
                     preg_match('/^\s+CUTOFF:\s*\$\{\{\s*steps\.before\.outputs\.cutoff\s*\}\}\s*$/', $line) === 1,
             ),
-            self::BACKLOG_SCAN . ' no longer reuses the cutoff captured before the agent ran. '
-            . 'Recomputing "an hour ago" afterwards lets an issue that was fifty-nine minutes old at '
-            . 'the start join the candidate set at the end, and the job goes red over an issue it '
-            . 'never selected.',
+            self::BACKLOG_SCAN . ' no longer reuses the cutoff captured before the agent ran, so '
+            . 'the count that decides the verdict can include an issue the run never selected.',
         );
 
         self::assertNotEmpty(
@@ -650,7 +714,7 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
         self::assertNotEmpty(
             $failures,
             $workflow . ' has no step that can fail the job — see '
-            . 'testThePerIssueTriageChecksWhetherTheVerdictActuallyLanded().',
+            . 'testItChecksItsOwnOutcomeAndCanFailForIt().',
         );
 
         foreach ($failures as $step) {
@@ -908,12 +972,43 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
      */
     private function promptLines(string $workflow): array
     {
-        $prompt = [];
+        $prompt = $this->blockScalar($workflow, 'prompt|[A-Z][A-Z_]*_PROMPT');
+
+        self::assertNotNull(
+            $prompt,
+            $workflow . ' has no `prompt: |` or `…_PROMPT: |` block. The workflow runs in '
+            . 'automation mode, so without one it tells the model nothing — and this test would '
+            . 'silently check an empty set.',
+        );
+
+        return $prompt;
+    }
+
+    /**
+     * The lines of the first block scalar whose key matches $keyPattern,
+     * or null when the file has none.
+     *
+     * Shared by promptLines() and by the assertions about the backlog
+     * scan's `CANDIDATE_FILTER`, because both are the same problem: a
+     * string this repository deliberately writes ONCE under a job-level
+     * `env:` so that the two agent attempts, or the three counting steps,
+     * cannot be given subtly different versions of it. GitHub Actions
+     * supports no YAML anchors, so that entry is the only shape in which
+     * they cannot drift.
+     *
+     * Returns null rather than failing: what a missing block means
+     * differs between callers, and each says so in its own words.
+     *
+     * @return array<int, string>|null
+     */
+    private function blockScalar(string $workflow, string $keyPattern): ?array
+    {
+        $block = [];
         $indent = null;
 
         foreach ($this->lines($workflow) as $line) {
             if ($indent === null) {
-                if (preg_match('/^(\s+)(?:prompt|[A-Z][A-Z_]*_PROMPT):\s*\|/', $line, $match) === 1) {
+                if (preg_match('/^(\s+)(?:' . $keyPattern . '):\s*\|/', $line, $match) === 1) {
                     $indent = strlen($match[1]);
                 }
 
@@ -921,9 +1016,9 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
             }
 
             // A blank line belongs to the scalar; the block ends at the
-            // first non-blank line no deeper than the `prompt:` key.
+            // first non-blank line no deeper than the key.
             if (trim($line) === '') {
-                $prompt[] = $line;
+                $block[] = $line;
 
                 continue;
             }
@@ -932,17 +1027,10 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
                 break;
             }
 
-            $prompt[] = $line;
+            $block[] = $line;
         }
 
-        self::assertNotNull(
-            $indent,
-            $workflow . ' has no `prompt: |` or `TRIAGE_PROMPT: |` block. The workflow runs in '
-            . 'automation mode, so without one it tells the model nothing — and this test would '
-            . 'silently check an empty set.',
-        );
-
-        return $prompt;
+        return $indent === null ? null : $block;
     }
 
     /**
