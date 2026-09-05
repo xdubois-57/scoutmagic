@@ -125,6 +125,14 @@ jobs:
     #   the verdict this job posts is itself a comment on the issue, and
     #   a verdict that is again `bug:needs-info` would otherwise wake the
     #   job that wrote it, forever.
+    # - The comment comes from the person who was ASKED — the issue's own
+    #   reporter — or from somebody who can write to this repository. Any
+    #   passer-by with a GitHub account may comment here, and without
+    #   this clause any of them could strip the verdict labels off
+    #   somebody else's report and spend a triage doing it, as many times
+    #   as they cared to type. Opening an issue already costs a triage
+    #   and that is the design; taking one over is not. Matched on the
+    #   user ID rather than the login, which can be renamed and reused.
     # - The issue is open (a closed one is not waiting for anything) and
     #   is not a pull request — `issue_comment` fires on both, and a
     #   review conversation is not a report.
@@ -136,6 +144,11 @@ jobs:
         github.event.issue.state == 'open'
         && !github.event.issue.pull_request
         && github.event.comment.user.type != 'Bot'
+        && (
+          github.event.comment.user.id == github.event.issue.user.id
+          || contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'),
+                      github.event.comment.author_association)
+        )
         && contains(github.event.issue.labels.*.name, 'bug:needs-info')
       )
 

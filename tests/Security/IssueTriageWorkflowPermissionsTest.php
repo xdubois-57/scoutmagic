@@ -500,6 +500,13 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
             "github.event.comment.user.type != 'Bot'"
                 => 'THE LOOP STOP: the verdict this job posts is itself a comment on the issue, so '
                 . 'without this a `bug:needs-info` verdict wakes the job that wrote it, forever',
+            'github.event.comment.user.id == github.event.issue.user.id'
+                => 'the comment must come from the person who was ASKED; without it any passer-by '
+                . "with a GitHub account can strip the verdict labels off somebody else's report and "
+                . 'spend a triage doing it, as often as they care to type',
+            'fromJSON(\'["OWNER", "MEMBER", "COLLABORATOR"]\')'
+                => 'the maintainer answering on somebody else\'s report is the other legitimate '
+                . 'case, and it is recognised by write access rather than by being the reporter',
             "github.event.issue.state == 'open'"
                 => 'a closed issue is waiting for nothing',
             '!github.event.issue.pull_request'
