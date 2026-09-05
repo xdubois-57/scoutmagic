@@ -151,7 +151,14 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 // self-directed HTTP hop, for the reason spelled out in
                 // Task\InstallUpdateHandler at the same point.
                 $source = (string) ($payload['source'] ?? 'server');
-                $this->scheduleMigrationResume($context, $safetyBackupId, $source, $requestedBy);
+                $this->scheduleMigrationResume(
+                    $context,
+                    $safetyBackupId,
+                    $source,
+                    $requestedBy,
+                    $safetyDbDump,
+                    $safetyZip
+                );
 
                 return;
             } catch (\Throwable $restoreError) {
@@ -162,7 +169,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
             $context->journal->log(
                 'core',
                 'backup_restore_failed',
-                'info',
+                'warning',
                 'Échec de la sauvegarde de sécurité préalable à la restauration',
                 ['error' => $e->getMessage()],
                 $requestedBy
@@ -206,6 +213,16 @@ class RestoreBackupHandler implements TaskHandlerInterface
         $safetyBackupId = (int) ($payload['safety_backup_id'] ?? 0);
         $source = (string) ($payload['source'] ?? 'server');
 
+        // Carried across the restore that replaced the database — see
+        // scheduleMigrationResume(). Read before anything else so that a
+        // failure at any point below still has them.
+        $carriedDbDump = is_string($payload['safety_db_dump_path'] ?? null)
+            ? (string) $payload['safety_db_dump_path']
+            : null;
+        $carriedZip = is_string($payload['safety_zip_path'] ?? null)
+            ? (string) $payload['safety_zip_path']
+            : null;
+
         try {
             $migrationRunner = new MigrationRunner(
                 $context->connection,
@@ -216,25 +233,33 @@ class RestoreBackupHandler implements TaskHandlerInterface
             $migrationResult = $migrationRunner->migrate(SchemaFiles::all($basePath));
 
             if (!$migrationResult->complete) {
-                $this->scheduleMigrationResume($context, $safetyBackupId, $source, $requestedBy);
+                $this->scheduleMigrationResume(
+                    $context,
+                    $safetyBackupId,
+                    $source,
+                    $requestedBy,
+                    $carriedDbDump,
+                    $carriedZip
+                );
                 return;
             }
 
             $this->finishRestore($context, $backupRepository, $fileRepository, $source, $requestedBy);
         } catch (\Throwable $migrationError) {
-            $safetyBackup = $safetyBackupId > 0 ? $backupRepository->findById($safetyBackupId) : null;
-            $safetyDbDumpFile = $safetyBackup !== null && $safetyBackup->dbDumpFileId !== null
-                ? $fileRepository->findById($safetyBackup->dbDumpFileId)
-                : null;
-            $safetyZipFile = $safetyBackup !== null && $safetyBackup->fileId !== null
-                ? $fileRepository->findById($safetyBackup->fileId)
-                : null;
+            [$safetyDbDumpPath, $safetyZipPath] = self::resolveSafetyCopy(
+                $carriedDbDump,
+                $carriedZip,
+                $safetyBackupId,
+                $backupRepository,
+                $fileRepository,
+                $context->storagePath
+            );
 
-            if ($safetyDbDumpFile === null || $safetyZipFile === null) {
+            if ($safetyDbDumpPath === null || $safetyZipPath === null) {
                 $context->journal->log(
                     'core',
                     'backup_restore_failed',
-                    'info',
+                    'warning',
                     'Échec de la migration lors de la reprise d\'une restauration, sans sauvegarde de sécurité '
                         . 'disponible pour restauration',
                     ['error' => $migrationError->getMessage()],
@@ -255,12 +280,65 @@ class RestoreBackupHandler implements TaskHandlerInterface
             $this->rollbackToSafetyBackup(
                 $context,
                 $backupService,
-                $context->storagePath . '/' . $safetyDbDumpFile->relativePath,
-                $context->storagePath . '/' . $safetyZipFile->relativePath,
+                $safetyDbDumpPath,
+                $safetyZipPath,
                 $requestedBy,
                 $migrationError
             );
         }
+    }
+
+    /**
+     * Where the safety copy's two files are — from the payload if the
+     * pass that queued this one carried them, from the `backups` row
+     * otherwise.
+     *
+     * The order matters and is the whole point. A path travels in the
+     * payload and outlives the database; a row id is resolved against
+     * whatever database the restore has just put in place, which is not
+     * the one the id was minted in. The id path is kept only for a pass
+     * queued before this file carried paths at all — an installation
+     * upgraded between a restore and its own resume — and it is checked
+     * against the disk like any other.
+     *
+     * Public and static because it is pure resolution — no state, and
+     * the one decision in this file that a test can put under a
+     * magnifying glass without a database to restore first. The same
+     * seam Task\SyncMailboxesHandler::intervalSeconds() and
+     * Modules\Registration\Task\ReenrollmentCampaignHandler::handOver()
+     * already are.
+     *
+     * @return array{0: string|null, 1: string|null}
+     */
+    public static function resolveSafetyCopy(
+        ?string $carriedDbDump,
+        ?string $carriedZip,
+        int $safetyBackupId,
+        BackupRepository $backupRepository,
+        FileRepository $fileRepository,
+        string $storagePath
+    ): array {
+        if ($carriedDbDump !== null && $carriedZip !== null
+            && is_file($carriedDbDump) && is_file($carriedZip)
+        ) {
+            return [$carriedDbDump, $carriedZip];
+        }
+
+        $backup = $safetyBackupId > 0 ? $backupRepository->findById($safetyBackupId) : null;
+        if ($backup === null || $backup->dbDumpFileId === null || $backup->fileId === null) {
+            return [null, null];
+        }
+
+        $dumpFile = $fileRepository->findById($backup->dbDumpFileId);
+        $zipFile = $fileRepository->findById($backup->fileId);
+        if ($dumpFile === null || $zipFile === null) {
+            return [null, null];
+        }
+
+        $dumpPath = $storagePath . '/' . $dumpFile->relativePath;
+        $zipPath = $storagePath . '/' . $zipFile->relativePath;
+
+        return is_file($dumpPath) && is_file($zipPath) ? [$dumpPath, $zipPath] : [null, null];
     }
 
     /**
@@ -272,13 +350,31 @@ class RestoreBackupHandler implements TaskHandlerInterface
         TaskContext $context,
         int $safetyBackupId,
         string $source,
-        ?int $requestedBy
+        ?int $requestedBy,
+        ?string $safetyDbDump = null,
+        ?string $safetyZip = null
     ): void
     {
         $schedulerService = new SchedulerService(new SchedulerRepository($context->connection->getPdo()));
         $schedulerService->scheduleAfter('core', 'restore_backup', 0, [
             'resume_migration' => true,
+            // **The paths, not only the id.** The restore that just ran
+            // replaced the database — `backups` and `files` included — so
+            // by the time this payload is read, the row recording the
+            // safety copy is whatever the RESTORED database has under
+            // that id, which is another backup or nothing at all. The
+            // rollback then reports « aucune sauvegarde de sécurité n'a pu
+            // être restaurée automatiquement, une intervention manuelle
+            // est nécessaire » with a perfectly usable copy sitting on
+            // disk beside it.
+            //
+            // The two files outlive any database, so they are what the
+            // resume pass is given. The id stays for the pass queued by an
+            // installation upgraded mid-restore, whose payload predates
+            // this and has nothing else to go on.
             'safety_backup_id' => $safetyBackupId,
+            'safety_db_dump_path' => $safetyDbDump,
+            'safety_zip_path' => $safetyZip,
             'source' => $source,
         ], null, $requestedBy);
     }
@@ -333,7 +429,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
         $context->journal->log(
             'core',
             'backup_restore_failed',
-            'info',
+            'warning',
             'Échec de la restauration',
             ['error' => $error->getMessage()],
             $requestedBy
@@ -345,7 +441,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
             $context->journal->log(
                 'core',
                 'backup_restore_rolled_back',
-                'info',
+                'warning',
                 'Restauration automatique de l\'état précédent effectuée après échec de restauration',
                 [],
                 $requestedBy
@@ -356,7 +452,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
             $context->journal->log(
                 'core',
                 'backup_restore_rollback_failed',
-                'info',
+                'error',
                 'La restauration automatique après échec a elle-même échoué',
                 ['error' => $rollbackError->getMessage()],
                 $requestedBy

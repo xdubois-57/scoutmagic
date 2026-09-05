@@ -177,16 +177,24 @@ class ReenrollmentConfigController extends AbstractController
         // A manual reminder is its own occurrence, so its reference
         // carries the moment it was asked for: two clicks a week apart are
         // two reminders, two clicks in one second are one.
-        $this->schedulerService->schedule(
+        //
+        // **Through seed(), not schedule().** That was the intent from the
+        // start and the code did not have it: `schedule()` inserts
+        // unconditionally, so two clicks in the same minute left two rows
+        // under the same reference — and two reminders in every silent
+        // family's inbox. `seed()` stands down when a row of that
+        // reference is already queued or running, which is precisely the
+        // sentence above.
+        $this->schedulerService->seed(
             'registration',
             'send_reenrollment_emails',
+            'manual:' . $campaignKey . ':' . (new \DateTimeImmutable())->format('Y-m-d-H-i'),
             new \DateTimeImmutable(),
             [
                 'type' => ReenrollmentCampaignService::EMAIL_REMINDER_1,
                 'campaign' => $campaignKey,
                 'after_key' => 0,
-            ],
-            'manual:' . $campaignKey . ':' . (new \DateTimeImmutable())->format('Y-m-d-H-i')
+            ]
         );
 
         $this->journalService->log(
@@ -204,14 +212,20 @@ class ReenrollmentConfigController extends AbstractController
         return $this->redirect(self::PAGE_URL);
     }
 
+    /**
+     * The same hand-over the scheduled clock performs, through the same
+     * guard — a chef who closes the campaign, notices, re-opens it and
+     * closes it again owes the families ONE closing e-mail, not two.
+     *
+     * Written out here as a second `schedule()` call, it was two.
+     */
     private function queueEmails(string $type, string $campaignKey): void
     {
-        $this->schedulerService->schedule(
-            'registration',
-            'send_reenrollment_emails',
-            new \DateTimeImmutable(),
-            ['type' => $type, 'campaign' => $campaignKey, 'after_key' => 0],
-            $type . ':' . $campaignKey
+        \Modules\Registration\Task\ReenrollmentCampaignHandler::handOver(
+            $this->schedulerService,
+            $this->campaign,
+            $type,
+            $campaignKey
         );
     }
 }

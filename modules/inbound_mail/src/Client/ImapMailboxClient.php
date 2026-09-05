@@ -354,8 +354,13 @@ class ImapMailboxClient implements IncomingMailboxClientInterface
     private static function safeReason(\Throwable $e): string
     {
         $class = $e::class;
-        $short = substr($class, (int) strrpos($class, '\\') + 1);
+        // A class in the global namespace has no backslash at all, and
+        // `strrpos()` answers false there — cast to 0, plus one, and the
+        // name lost its first letter: a mail host that refused a login
+        // was reported to the superadmin as « untimeException », and a
+        // PHP Error as « rror ».
+        $separator = strrpos($class, '\\');
 
-        return $short;
+        return $separator === false ? $class : substr($class, $separator + 1);
     }
 }
