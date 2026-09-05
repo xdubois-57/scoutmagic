@@ -146,3 +146,96 @@ jobs:
           # frontmatter: the action starts the inline-comment MCP server
           # only when claude_args names that tool.
           claude_args: '--allowedTools "mcp__github_inline_comment__create_inline_comment"'
+
+  # WHY THIS JOB EXISTS. The review above posts inline comments when it finds
+  # something and stays silent when it does not — so a green `Claude review`
+  # with no comments is ambiguous between "read the diff, found nothing" and
+  # "declined to read the diff", which is exactly the gap documented at
+  # length on the job above. Silence read as approval is the failure mode
+  # docs/quality-pipeline.md exists to record.
+  #
+  # The code-review skill would say so itself: given `--comment` and no
+  # findings it posts "No issues found" through `gh pr comment`. That needs
+  # `pull-requests: write`, and the review job deliberately does not have it.
+  # Granting it there would be worse than the silence: the same skill stops
+  # early when "Claude has already commented on this PR", so its own summary
+  # comment would suppress the review of every later push — undoing the
+  # per-push guarantee `synchronize` was added for. This job is therefore a
+  # separate one, so the write permission never reaches the step that runs
+  # Claude, and its comment is authored by the workflow rather than by
+  # Claude, so it cannot trip that rule.
+  #
+  # The duration is the load-bearing part. A workflow-mismatch skip exits
+  # `success` in about fifteen seconds; a real review takes minutes. Reading
+  # the clock is what turns "green" into a statement about whether anything
+  # was read, without anyone opening the run log.
+  status:
+    name: Claude review status
+    needs: review
+    # `always()` so a failed or cancelled review still says so rather than
+    # leaving the previous run's comment standing. A draft pull request
+    # skips the review job, and this one goes with it.
+    if: always() && needs.review.result != 'skipped'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    permissions:
+      pull-requests: write
+
+    steps:
+      - name: Post or update the review status comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REVIEW_RESULT: ${{ needs.review.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # The marker identifies this workflow's own comment so each run
+          # rewrites it instead of adding another. It is invisible in the
+          # rendered comment.
+          MARKER: "<!-- claude-review-status -->"
+        run: |
+          set -euo pipefail
+
+          # One run, at most two jobs — no pagination needed.
+          jobs_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs")"
+          started="$(jq -r '[.jobs[] | select(.name == "Claude review")][0].started_at // ""' <<< "${jobs_json}")"
+          finished="$(jq -r '[.jobs[] | select(.name == "Claude review")][0].completed_at // ""' <<< "${jobs_json}")"
+
+          seconds=-1
+          if [[ -n "${started}" && -n "${finished}" && "${finished}" != "null" ]]; then
+            seconds=$(( $(date -u -d "${finished}" +%s) - $(date -u -d "${started}" +%s) ))
+          fi
+
+          if [[ "${seconds}" -ge 0 ]]; then
+            elapsed="$(printf '%dm %02ds' $((seconds / 60)) $((seconds % 60)))"
+          else
+            elapsed="unknown"
+          fi
+
+          # A skip and a clean review are both `success`; only the clock
+          # separates them. 60 s is far above the ~15 s a skip takes and far
+          # below the minutes a review takes, so neither case lands near it.
+          if [[ "${REVIEW_RESULT}" != "success" ]]; then
+            verdict="**The review did not complete** (\`${REVIEW_RESULT}\`). Nothing was reviewed — treat this pull request as unread by Claude."
+          elif [[ "${seconds}" -ge 0 && "${seconds}" -lt 60 ]]; then
+            verdict="**Green without a review.** The job succeeded in ${elapsed}, which is the signature of the action declining to run — it does that when this workflow file differs from the copy on \`main\`. Read the diff yourself, or merge the workflow change first and re-run."
+          else
+            verdict="**Reviewed, nothing to report.** Findings, when there are any, arrive as inline comments on the diff rather than here; this comment is only the proof that the reviewer ran."
+          fi
+
+          body="$(printf '%s\n\n## Claude review\n\n%s\n\n| | |\n|---|---|\n| Commit | `%s` |\n| Job result | `%s` |\n| Took | %s |\n| Run | %s |\n\nPosted by `.github/workflows/claude-review.yml`, rewritten in place on every run. See `docs/quality-pipeline.md` for what each layer does and does not prove.\n' \
+            "${MARKER}" "${verdict}" "${HEAD_SHA}" "${REVIEW_RESULT}" "${elapsed}" "${RUN_URL}")"
+
+          jq -n --arg body "${body}" '{body: $body}' > payload.json
+
+          existing="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --paginate \
+            --jq ".[] | select(.body | contains(\"${MARKER}\")) | .id" | head -n 1 || true)"
+
+          if [[ -n "${existing}" ]]; then
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${existing}" --input payload.json >/dev/null
+            echo "Updated status comment ${existing}."
+          else
+            gh api -X POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --input payload.json >/dev/null
+            echo "Created the status comment."
+          fi
