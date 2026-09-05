@@ -40,8 +40,6 @@ use Webklex\PHPIMAP\Folder;
  *   rejection of the credential just tried. This client is allowed to
  *   report the exception's CLASS and nothing it wrote, because the value
  *   lands in a database column a page renders.
- *
- * @group database
  */
 class ImapClientBehaviourTest extends TestCase
 {
