@@ -1,3 +1,5 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+#
 # CodeRabbit — AI review configuration for this repository.
 #
 # The rules themselves live in AGENTS.md, ARCHITECTURE.md, SECURITY.md and
@@ -6,7 +8,10 @@
 # not become one: a duplicated rule drifts from its original, and the
 # original wins.
 #
-# Schema: https://docs.coderabbit.ai/reference/yaml-template
+# The schema line above is load-bearing, not decoration: an editor with the
+# YAML language server validates against it, and a key CodeRabbit does not
+# recognise is otherwise ignored in silence — `tools` sat at the root here
+# for one commit, doing nothing, until a review said so.
 
 language: en-US
 
@@ -47,6 +52,14 @@ reviews:
     # ledger itself is noise.
     - "!phpstan-baseline.neon"
     - "!js-typecheck-baseline.json"
+
+  tools:
+    # PHPStan is a blocking CI gate here, run with phpstan.neon and the
+    # accepted debt in phpstan-baseline.neon. A second run that does not
+    # read that baseline would report long-accepted findings as new on
+    # every PR.
+    phpstan:
+      enabled: false
 
   path_instructions:
     - path: "**/*.php"
@@ -129,10 +142,3 @@ reviews:
         reproduction table describes. Changing a job's name, its commands,
         its database engine or its environment variables makes that table
         wrong — say so, naming the row that goes stale.
-
-tools:
-  # PHPStan is a blocking CI gate here, run with phpstan.neon and the
-  # accepted debt in phpstan-baseline.neon. A second run that does not read
-  # that baseline would report long-accepted findings as new on every PR.
-  phpstan:
-    enabled: false
