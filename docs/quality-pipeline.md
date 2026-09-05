@@ -158,7 +158,11 @@ the installable artifact and attaches it to a rolling **prerelease** tagged
 `releases/latest`, which excludes prereleases, and that single fact is what
 keeps the two update channels apart.
 
-`.github/workflows/claude-review.yml` is the AI reviewer; see below.
+`.github/workflows/claude-review.yml` is the AI reviewer; see below. It
+carries two jobs: `Claude review`, which reads the diff, and `Claude review
+status`, which posts the comment saying what that check's green means. They
+are separate jobs so that the write permission the second one needs never
+reaches the step that runs Claude.
 
 The steward skill (`.claude/skills/steward/SKILL.md`) maps each job to the
 local command that reproduces it, and records which ones cannot be
@@ -189,6 +193,13 @@ via `CLAUDE_CODE_OAUTH_TOKEN`. Runs on open, ready-for-review, reopen and
 **every push**; the `claude-review` label asks for a pass without one. Read
 the header of that file before changing it: it documents a gap that matters
 and is not obvious.
+
+It reports findings as inline comments and says nothing when it finds
+nothing, so a second job, **`Claude review status`**, posts one comment per
+pull request — rewritten in place on every run — stating whether the review
+ran, was skipped, or failed. Without it, a green check and no comment means
+either "read it, found nothing" or "declined to read it", and only the run
+log tells you which.
 
 **SonarQube Cloud** — posts a Quality Gate on each pull request. It is
 skipped entirely on pull requests from forks, because `SONAR_TOKEN` is not
@@ -376,7 +387,9 @@ nothing**:
 - `Claude review` exits **success** when it refuses to run over a
   workflow-file mismatch, so the check is green in about fifteen seconds
   having reviewed nothing — and that happens precisely on a pull request
-  editing the reviewer.
+  editing the reviewer. This is the one on the list with a reader attached:
+  the `Claude review status` comment names which of the two a green check
+  was, judged on the run's duration.
 - A `CODEOWNERS` entry naming a non-collaborator is **ignored silently**, so
   a protection rule can be enabled, appear active, and match nothing.
 - A local reproduction that runs on the wrong database engine, or without
