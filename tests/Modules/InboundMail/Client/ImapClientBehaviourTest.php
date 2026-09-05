@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Modules\InboundMail\Client;
 
 use Modules\InboundMail\Client\ImapMailboxClient;
+use Core\Http\ErrorHandler;
 use Modules\InboundMail\Client\MailboxConnectionException;
 use Modules\InboundMail\Mailbox\MailboxCredentials;
 use Modules\InboundMail\Mailbox\ProviderType;
@@ -226,6 +227,57 @@ class ImapClientBehaviourTest extends TestCase
         $this->expectExceptionMessage('Le dossier demandé est introuvable sur le serveur.');
 
         $client->folderState('Archives 2019');
+    }
+
+    /**
+     * The chained cause is deliberate, and this is what makes it safe.
+     *
+     * Keeping the library's exception as `$previous` is a documented
+     * choice — an operator debugging a hostile IMAP host needs the
+     * server's own words. The objection to it is real and worth pinning:
+     * `UserFacingException` says a cause "carries the detail to the
+     * journal", and §7.9 forbids personal data there. If both were true
+     * of this chain, the mailbox address and the password inside that
+     * cause would land in a table any chef d'unité can read.
+     *
+     * They are not, and the reason is mechanical rather than a matter of
+     * care. `ErrorHandler` writes exactly two things: `describe()`, built
+     * from the OUTER exception's class and message — already sanitized to
+     * a bare class name — and `sanitizeTrace()`, built from `getTrace()`.
+     * **`getTrace()` does not traverse `getPrevious()`.** No frame of it
+     * carries a previous exception's message, and the handler has no
+     * other spelling that would.
+     *
+     * So the cause reaches a stack trace and the PHP error log, where an
+     * operator with server access already sees everything, and never the
+     * site journal. That is a property of the handler, not of this class,
+     * which is why it is asserted against the handler's real output: a
+     * future rewrite of `describe()` that reached for `(string) $e` — the
+     * spelling that DOES append "Next …" with every previous message —
+     * would break this test rather than quietly start logging passwords.
+     */
+    public function testTheChainedCauseNeverReachesTheJournal(): void
+    {
+        $secret = 'chene2026';
+        $account = 'chef@unite.be';
+        $cause = new \Webklex\PHPIMAP\Exceptions\ConnectionFailedException(
+            sprintf('LOGIN failed for %s: invalid password "%s"', $account, $secret)
+        );
+
+        $client = new ImapMailboxClient($this->managerThrowing($cause));
+
+        try {
+            $client->connect($this->mailbox(), $this->credentials());
+            $this->fail('The connection should have failed.');
+        } catch (MailboxConnectionException $e) {
+            $this->assertSame($cause, $e->getPrevious(), 'The cause is kept — that is the point being made safe.');
+
+            $journalled = ErrorHandler::describe($e) . ' ' . implode(' ', ErrorHandler::sanitizeTrace($e));
+
+            $this->assertStringNotContainsString($secret, $journalled, 'A password in the journal is the whole fear.');
+            $this->assertStringNotContainsString($account, $journalled);
+            $this->assertStringNotContainsString('LOGIN failed', $journalled);
+        }
     }
 
     // ── harness ───────────────────────────────────────────────────────
