@@ -364,6 +364,20 @@ self.addEventListener('fetch', function (event) {
 });
 
 /**
+ * How long a navigation waits for the network before a cached copy of the
+ * SAME page is served instead (networkFirstWithCacheFallback() below).
+ *
+ * Only ever reached when there IS such a copy, and it never cancels the
+ * network request: that one keeps running and refreshes the cache for
+ * next time. So the choice is not "fresh or stale", it is "this page,
+ * labelled « Version hors ligne du … », now" against "a blank screen
+ * until a bad link finally answers". Five seconds is long enough that a
+ * merely slow-but-working connection still wins the race and serves the
+ * live page.
+ */
+const NETWORK_TIMEOUT_MS = 5000;
+
+/**
  * The network request for a navigation, started NOW — before the offline
  * configuration has been read — so that reading it costs the navigation
  * nothing. `preloadResponse` (event.preloadResponse, see activate) is
@@ -373,6 +387,15 @@ self.addEventListener('fetch', function (event) {
  * is observed once here so an early failure never surfaces as an
  * unhandled rejection; every consumer attaches its own handling.
  *
+ * A REJECTED preload is retried as a plain fetch() rather than taken as
+ * proof of being offline. The preload is a request the browser made
+ * before this worker was even awake, and it fails for reasons that have
+ * nothing to do with connectivity — the browser cancelling it, an
+ * HTTP/2 stream reset, an installed app resuming from frozen with the
+ * radio not yet up. Every one of those used to surface as "Pas de
+ * connexion" on a device that was online, which is the worst possible
+ * lie for this page to tell.
+ *
  * @param {Request} request
  * @param {Promise<Response|undefined>|undefined} preloadResponse
  * @returns {Promise<Response>}
@@ -380,9 +403,67 @@ self.addEventListener('fetch', function (event) {
 function startNetworkRequest(request, preloadResponse) {
     const network = Promise.resolve(preloadResponse).then(function (preloaded) {
         return preloaded || fetch(request);
+    }).catch(function (error) {
+        if (preloadResponse === undefined) {
+            throw error;
+        }
+
+        return fetch(request);
     });
     network.catch(function () {});
     return network;
+}
+
+/**
+ * A last attempt before this navigation is declared offline.
+ *
+ * One retry, and only when the browser itself still believes there is a
+ * connection (navigator.onLine is a reliable NO and an unreliable yes —
+ * which is exactly the way round this needs it: a device in flight mode
+ * skips the retry and gets the offline page instantly, while a device
+ * that thinks it is online gets one more chance before being told
+ * otherwise).
+ *
+ * The case this exists for is the installed app resuming from frozen: the
+ * first fetch after the OS thaws it can fail outright, milliseconds
+ * before the same request would have succeeded. Showing "Pas de
+ * connexion" for that is a bug, not a network condition.
+ *
+ * @param {Request} request
+ * @returns {Promise<Response>}
+ */
+function retryOnce(request) {
+    if (self.navigator && self.navigator.onLine === false) {
+        return Promise.reject(new Error('offline'));
+    }
+
+    return fetch(request);
+}
+
+/**
+ * The precached offline page — the fallback of last resort, and the one
+ * thing an installed, standalone app must be able to show instead of the
+ * browser's own network-error interstitial, since there is no browser
+ * chrome to explain that one.
+ *
+ * Never resolves to undefined: respondWith(undefined) is a TypeError and
+ * the app would fall back to exactly the interstitial this avoids, so a
+ * shell cache that has been purged out from under this call still gets a
+ * real (minimal, French) Response.
+ *
+ * @returns {Promise<Response>}
+ */
+function offlinePage() {
+    return caches.match('/offline').then(function (cached) {
+        return cached || new Response(
+            '<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">'
+                + '<meta name="viewport" content="width=device-width, initial-scale=1.0">'
+                + '<title>Hors ligne</title></head><body><h1>Pas de connexion</h1>'
+                + '<p>Cette page n\'est pas disponible hors ligne. Vérifiez votre connexion puis réessayez.</p>'
+                + '</body></html>',
+            { status: 503, headers: { 'Content-Type': 'text/html; charset=UTF-8' } }
+        );
+    });
 }
 
 function handleNavigate(request, url, preloadResponse) {
@@ -390,14 +471,13 @@ function handleNavigate(request, url, preloadResponse) {
 
     return getOfflineConfig().then(function (config) {
         if (!config?.consent || !isWhitelisted(url.pathname, config.whitelist)) {
-            // Lot 1 behavior, unchanged: a failed navigation falls back to
-            // the precached offline page instead of the browser's own
-            // network-error interstitial — the one thing an installed,
-            // standalone app must never show, since there's no browser
-            // chrome to explain it.
-            return network.catch(function () {
-                return caches.match('/offline');
-            });
+            // Lot 1 behavior: a failed navigation falls back to the
+            // precached offline page. There is nothing cached to serve
+            // for a page outside the whitelist, so the one thing left to
+            // try before saying so is the request itself, once more.
+            return network
+                .catch(function () { return retryOnce(request); })
+                .catch(function () { return offlinePage(); });
         }
 
         return networkFirstWithCacheFallback(request, url, config, network);
@@ -444,10 +524,48 @@ function isWhitelisted(pathname, whitelist) {
     return false;
 }
 
+/**
+ * The cached copy of this page, banner and all — or null when there is
+ * none, or the one there is has aged past the configured threshold (a
+ * copy older than that is worse than the offline page: it looks current
+ * and is not).
+ *
+ * @param {Request} request
+ * @param {string} cacheName
+ * @param {{staleness_days?: number}} config
+ * @param {string} reason 'offline' | 'slow' — what the banner says
+ * @returns {Promise<Response|null>}
+ */
+function cachedCopy(request, cacheName, config, reason) {
+    return caches.open(cacheName).then(function (cache) {
+        return cache.match(request);
+    }).then(function (cached) {
+        if (!cached) {
+            return null;
+        }
+
+        const dateHeader = cached.headers.get('date');
+        const ageMs = dateHeader ? Date.now() - new Date(dateHeader).getTime() : Infinity;
+        const stalenessDays = config.staleness_days || 7;
+        if (ageMs > stalenessDays * 24 * 60 * 60 * 1000) {
+            return null;
+        }
+
+        return injectOfflineBanner(cached, dateHeader, reason);
+    });
+}
+
 function networkFirstWithCacheFallback(request, url, config, network) {
     const cacheName = CONTENT_CACHE_PREFIX + config.account_scope + '-' + config.version;
 
-    return (network || fetch(request)).then(function (response) {
+    // The live attempt, with its cache write attached. It is NEVER
+    // cancelled by the timeout below: when a cached copy is served in its
+    // place, this one keeps running and refreshes that copy for next
+    // time, so a slow connection still makes progress instead of only
+    // making the reader wait.
+    const live = (network || fetch(request)).catch(function () {
+        return retryOnce(request);
+    }).then(function (response) {
         // response.redirected (e.g. an identified-only page bounced to
         // /login because the session had actually expired) must never be
         // cached under the original whitelisted URL — that would silently
@@ -465,22 +583,49 @@ function networkFirstWithCacheFallback(request, url, config, network) {
             caches.open(cacheName).then(function (cache) { cache.put(request, copy); });
         }
         return response;
-    }).catch(function () {
-        return caches.open(cacheName).then(function (cache) {
-            return cache.match(request);
-        }).then(function (cached) {
-            if (!cached) {
-                return caches.match('/offline');
+    });
+    live.catch(function () {});
+
+    // Three outcomes, and the third is the one this race exists for.
+    // The timer is cleared as soon as the race settles: a pending one
+    // would keep this worker awake for five seconds after every single
+    // navigation it already answered.
+    let timer = null;
+
+    return Promise.race([
+        live.then(
+            function (response) { return { state: 'live', response: response }; },
+            function () { return { state: 'failed' }; }
+        ),
+        new Promise(function (resolve) {
+            timer = setTimeout(function () { resolve({ state: 'slow' }); }, NETWORK_TIMEOUT_MS);
+        }),
+    ]).then(function (outcome) {
+        if (timer !== null) {
+            clearTimeout(timer);
+        }
+
+        if (outcome.state === 'live') {
+            return outcome.response;
+        }
+
+        if (outcome.state === 'failed') {
+            return cachedCopy(request, cacheName, config, 'offline').then(function (cached) {
+                return cached || offlinePage();
+            });
+        }
+
+        // Still waiting after NETWORK_TIMEOUT_MS. A cached copy of this
+        // very page is worth more than a blank screen that may still be
+        // blank in another ten seconds — it says what it is, and the live
+        // request above is still running to replace it. With nothing
+        // cached there is nothing better to do than keep waiting.
+        return cachedCopy(request, cacheName, config, 'slow').then(function (cached) {
+            if (cached) {
+                return cached;
             }
 
-            const dateHeader = cached.headers.get('date');
-            const ageMs = dateHeader ? Date.now() - new Date(dateHeader).getTime() : Infinity;
-            const stalenessDays = config.staleness_days || 7;
-            if (ageMs > stalenessDays * 24 * 60 * 60 * 1000) {
-                return caches.match('/offline');
-            }
-
-            return injectOfflineBanner(cached, dateHeader);
+            return live.catch(function () { return offlinePage(); });
         });
     });
 }
@@ -491,10 +636,10 @@ function networkFirstWithCacheFallback(request, url, config, network) {
 // HTML is served whether the request succeeds live or is replayed from
 // cache — only the service worker, at serve time, knows which one this
 // is and how old the cached copy actually is.
-function injectOfflineBanner(response, dateHeader) {
+function injectOfflineBanner(response, dateHeader, reason) {
     return response.text().then(function (html) {
         const banner = '<div class="alert alert-warning text-center small rounded-0 mb-0 border-start-0 border-end-0" role="status">'
-            + formatOfflineTimestamp(dateHeader) + '</div>';
+            + formatOfflineTimestamp(dateHeader, reason) + '</div>';
         const injected = html.replace(/<body([^>]*)>/i, '<body$1>' + banner);
 
         return new Response(injected, {
@@ -505,16 +650,23 @@ function injectOfflineBanner(response, dateHeader) {
     });
 }
 
-function formatOfflineTimestamp(dateHeader) {
+function formatOfflineTimestamp(dateHeader, reason) {
+    // Two different things happened and the reader deserves to be told
+    // which: the connection is gone, or it is merely too slow to wait for
+    // (the live request is still running behind this copy — see
+    // networkFirstWithCacheFallback()). "Version hors ligne" on a device
+    // that is plainly online reads as a bug in the app.
+    const lead = reason === 'slow' ? 'Réseau lent — version enregistrée' : 'Version hors ligne';
+
     if (!dateHeader) {
-        return 'Version hors ligne';
+        return lead;
     }
 
     const months = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
     const d = new Date(dateHeader);
     const minutes = String(d.getMinutes()).padStart(2, '0');
 
-    return 'Version hors ligne du ' + d.getDate() + ' ' + months[d.getMonth()] + ', ' + d.getHours() + ' h ' + minutes;
+    return lead + ' du ' + d.getDate() + ' ' + months[d.getMonth()] + ', ' + d.getHours() + ' h ' + minutes;
 }
 
 self.addEventListener('push', function (event) {
@@ -595,6 +747,10 @@ self.addEventListener('notificationclick', function (event) {
 globalThis.ScoutMagicServiceWorkerInternals = {
     isWhitelisted: isWhitelisted,
     formatOfflineTimestamp: formatOfflineTimestamp,
+    cachedCopy: cachedCopy,
+    offlinePage: offlinePage,
+    retryOnce: retryOnce,
+    NETWORK_TIMEOUT_MS: NETWORK_TIMEOUT_MS,
     injectOfflineBanner: injectOfflineBanner,
     networkFirstWithCacheFallback: networkFirstWithCacheFallback,
     handleNavigate: handleNavigate,

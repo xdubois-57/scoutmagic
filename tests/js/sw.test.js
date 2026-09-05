@@ -9,7 +9,7 @@
 // its top-level code and registers its install/activate/fetch/message/push
 // handlers against jsdom's window. That is harmless: nothing in this spec
 // dispatches those events, and no top-level statement touches caches.
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import '../../public/sw.js';
 
 const sw = globalThis.ScoutMagicServiceWorkerInternals;
@@ -423,6 +423,26 @@ describe('sw.js: startNetworkRequest()', () => {
         expect(await (await navigation).text()).toBe('<body>live</body>');
     });
 
+    // The reported bug, at its source: a rejected preload is NOT proof of
+    // being offline. The browser made that request before this worker was
+    // even awake, and it fails for reasons that are not connectivity.
+    it('retries with a plain fetch() when the browser preload rejects', async () => {
+        global.fetch = vi.fn(() => Promise.resolve(makeResponse('<body>fetched</body>')));
+
+        const res = await sw.startNetworkRequest(request, Promise.reject(new Error('preload cancelled')));
+
+        expect(await res.text()).toBe('<body>fetched</body>');
+        expect(fetch).toHaveBeenCalledWith(request);
+    });
+
+    it('does not double-fetch when there was no preload to fail', async () => {
+        global.fetch = vi.fn(() => Promise.reject(new Error('offline')));
+
+        await expect(sw.startNetworkRequest(request, undefined)).rejects.toThrow();
+
+        expect(fetch).toHaveBeenCalledTimes(1);
+    });
+
     it('hands a preloaded response through handleNavigate on the whitelisted path too', async () => {
         const url = new URL('https://example.test/members/12');
         const req = { url: url.href, mode: 'navigate' };
@@ -436,5 +456,160 @@ describe('sw.js: startNetworkRequest()', () => {
 
         expect(res).toBe(preloaded);
         expect(fetch).not.toHaveBeenCalled();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// retryOnce — one more attempt before the app calls itself offline
+// ---------------------------------------------------------------------------
+describe('sw.js: retryOnce()', () => {
+    const request = { url: 'https://example.test/groups/3', mode: 'navigate' };
+
+    afterEach(() => {
+        delete global.self;
+    });
+
+    it('tries the request again when the browser still believes it is online', async () => {
+        global.self = { navigator: { onLine: true } };
+        global.fetch = vi.fn(() => Promise.resolve(makeResponse('<body>second try</body>')));
+
+        const res = await sw.retryOnce(request);
+
+        expect(await res.text()).toBe('<body>second try</body>');
+    });
+
+    // navigator.onLine is a reliable NO: flight mode must reach the
+    // offline page immediately, not after a doomed extra round trip.
+    it('does not retry at all when the device is known to be offline', async () => {
+        global.self = { navigator: { onLine: false } };
+        global.fetch = vi.fn();
+
+        await expect(sw.retryOnce(request)).rejects.toThrow();
+
+        expect(fetch).not.toHaveBeenCalled();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// A failed navigation gets that second attempt before /offline is shown
+// ---------------------------------------------------------------------------
+describe('sw.js: handleNavigate() retries before showing the offline page', () => {
+    const url = new URL('https://example.test/groups/3');
+    const request = { url: url.href, mode: 'navigate' };
+
+    afterEach(() => {
+        delete global.self;
+    });
+
+    it('serves the page a retry succeeds in fetching, not "Pas de connexion"', async () => {
+        global.self = { navigator: { onLine: true } };
+        global.caches = createCachesFake({ 'app-shell': { '/offline': makeResponse('<body>offline</body>') } });
+        let attempt = 0;
+        global.fetch = vi.fn(() => {
+            attempt++;
+            return attempt === 1
+                ? Promise.reject(new Error('resumed from frozen'))
+                : Promise.resolve(makeResponse('<body>live</body>'));
+        });
+
+        const res = await sw.handleNavigate(request, url, undefined);
+
+        expect(await res.text()).toBe('<body>live</body>');
+        expect(fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('still shows the offline page when the retry fails too', async () => {
+        global.self = { navigator: { onLine: true } };
+        const offline = makeResponse('<body>offline</body>');
+        global.caches = createCachesFake({ 'app-shell': { '/offline': offline } });
+        global.fetch = vi.fn(() => Promise.reject(new Error('offline')));
+
+        const res = await sw.handleNavigate(request, url, undefined);
+
+        expect(res).toBe(offline);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// offlinePage — respondWith(undefined) is a TypeError, so never undefined
+// ---------------------------------------------------------------------------
+describe('sw.js: offlinePage()', () => {
+    it('returns the precached page when it is there', async () => {
+        const offline = makeResponse('<body>offline</body>');
+        global.caches = createCachesFake({ 'app-shell': { '/offline': offline } });
+
+        expect(await sw.offlinePage()).toBe(offline);
+    });
+
+    // A shell cache purged out from under this call must not turn into
+    // the browser's own network-error interstitial — the very thing the
+    // precached page exists to replace in an installed app.
+    it('builds a minimal French page when the shell cache has nothing', async () => {
+        global.caches = createCachesFake();
+
+        const res = await sw.offlinePage();
+
+        expect(res).toBeTruthy();
+        expect(res.body).toContain('Pas de connexion');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// The slow network: a cached copy beats a blank screen
+// ---------------------------------------------------------------------------
+describe('sw.js: networkFirstWithCacheFallback() on a slow network', () => {
+    const url = new URL('https://example.test/members/12');
+    const request = { url: url.href, mode: 'navigate' };
+    const config = { account_scope: 'acct1', version: '1.2.3', staleness_days: 7, standalone: true };
+    const cacheName = 'content-acct1-1.2.3';
+
+    beforeEach(() => {
+        vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it('serves the cached copy, labelled as such, rather than waiting out a hanging request', async () => {
+        const cached = makeResponse('<body>cached</body>', { headers: { date: new Date().toUTCString() } });
+        global.caches = createCachesFake({ [cacheName]: { [request.url]: cached } });
+        // Never settles: the reader would otherwise stare at a blank
+        // screen for as long as the connection stays bad.
+        global.fetch = vi.fn(() => new Promise(() => {}));
+
+        const navigation = sw.networkFirstWithCacheFallback(request, url, config);
+        await vi.advanceTimersByTimeAsync(sw.NETWORK_TIMEOUT_MS + 10);
+        const res = await navigation;
+
+        expect(res.body).toContain('cached</body>');
+        // And it says which of the two things happened: the device is not
+        // offline, the network is slow, and the live request is still on.
+        expect(res.body).toContain('Réseau lent');
+    });
+
+    it('keeps waiting when there is nothing cached to show instead', async () => {
+        global.caches = createCachesFake({ 'app-shell': { '/offline': makeResponse('<body>offline</body>') } });
+        let release;
+        global.fetch = vi.fn(() => new Promise((resolve) => { release = resolve; }));
+
+        const navigation = sw.networkFirstWithCacheFallback(request, url, config);
+        await vi.advanceTimersByTimeAsync(sw.NETWORK_TIMEOUT_MS + 10);
+        release(makeResponse('<body>late but live</body>'));
+
+        expect(await (await navigation).text()).toBe('<body>late but live</body>');
+    });
+
+    it('lets a merely slow-but-answering network win the race', async () => {
+        const cached = makeResponse('<body>cached</body>', { headers: { date: new Date().toUTCString() } });
+        global.caches = createCachesFake({ [cacheName]: { [request.url]: cached } });
+        global.fetch = vi.fn(() => new Promise((resolve) => {
+            setTimeout(() => resolve(makeResponse('<body>live</body>')), sw.NETWORK_TIMEOUT_MS - 1000);
+        }));
+
+        const navigation = sw.networkFirstWithCacheFallback(request, url, config);
+        await vi.advanceTimersByTimeAsync(sw.NETWORK_TIMEOUT_MS + 10);
+
+        expect(await (await navigation).text()).toBe('<body>live</body>');
     });
 });

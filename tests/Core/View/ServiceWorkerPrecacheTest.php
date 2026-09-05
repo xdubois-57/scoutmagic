@@ -224,17 +224,66 @@ class ServiceWorkerPrecacheTest extends TestCase
     }
 
     /**
-     * The read path (cache.match() inside the .catch() fallback) must NOT
-     * be gated on config.standalone — a plain tab must still be able to
-     * read whatever the installed app already cached.
+     * The read path must NOT be gated on config.standalone — a plain tab
+     * must still be able to read whatever the installed app already
+     * cached.
+     *
+     * It lives in cachedCopy() rather than inline in a .catch() since the
+     * network gained a timeout: the same read now answers BOTH "the
+     * network failed" and "the network is taking too long", and having
+     * one function means the write gate can never drift onto only one of
+     * them.
      */
-    public function testNetworkFirstWithCacheFallbackReadsAreUnconditional(): void
+    public function testTheCachedReadPathIsUnconditional(): void
     {
-        preg_match('/function networkFirstWithCacheFallback\(request, url, config, network\) \{(.*?)\n\}/s', $this->swJs, $m);
-        $this->assertNotEmpty($m, 'Could not locate networkFirstWithCacheFallback() in public/sw.js');
+        preg_match('/function cachedCopy\(request, cacheName, config, reason\) \{(.*?)\n\}/s', $this->swJs, $m);
+        $this->assertNotEmpty($m, 'Could not locate cachedCopy() in public/sw.js');
 
-        preg_match('/\.catch\(function \(\) \{(.*)/s', $m[1], $catchBlock);
-        $this->assertNotEmpty($catchBlock, 'Could not locate the .catch() fallback block');
-        $this->assertStringNotContainsString('config.standalone', $catchBlock[1]);
+        $this->assertStringNotContainsString('config.standalone', $m[1]);
+        $this->assertStringContainsString('cache.match(request)', $m[1]);
+    }
+
+    /**
+     * A rejected navigation preload is retried as a plain fetch(), and a
+     * failed navigation gets one more attempt before the app declares
+     * itself offline.
+     *
+     * The preload is a request the browser made before this worker was
+     * awake; it fails for reasons that are not connectivity (the browser
+     * cancelling it, an HTTP/2 reset, an installed app resuming from
+     * frozen). Every one of those used to surface as "Pas de connexion"
+     * on a device that was online — the worst lie this page can tell, and
+     * exactly what was reported from the installed app.
+     */
+    public function testANetworkFailureIsRetriedBeforeDeclaringTheAppOffline(): void
+    {
+        preg_match('/function startNetworkRequest\(request, preloadResponse\) \{(.*?)\n\}/s', $this->swJs, $m);
+        $this->assertNotEmpty($m, 'Could not locate startNetworkRequest() in public/sw.js');
+        $this->assertStringContainsString('return fetch(request);', $m[1]);
+
+        preg_match('/function retryOnce\(request\) \{(.*?)\n\}/s', $this->swJs, $retry);
+        $this->assertNotEmpty($retry, 'Could not locate retryOnce() in public/sw.js');
+        // navigator.onLine is a reliable NO: a device in flight mode must
+        // skip the retry and get the offline page with no extra wait.
+        $this->assertStringContainsString('self.navigator.onLine === false', $retry[1]);
+
+        preg_match('/function handleNavigate\(request, url, preloadResponse\) \{(.*?)\n\}/s', $this->swJs, $nav);
+        $this->assertNotEmpty($nav, 'Could not locate handleNavigate() in public/sw.js');
+        $this->assertStringContainsString('retryOnce(request)', $nav[1]);
+    }
+
+    /**
+     * The offline fallback never resolves to undefined:
+     * respondWith(undefined) is a TypeError, and the installed app would
+     * then show the browser's own network-error interstitial — the one
+     * thing the precached page exists to replace.
+     */
+    public function testTheOfflineFallbackAlwaysProducesAResponse(): void
+    {
+        preg_match('/function offlinePage\(\) \{(.*?)\n\}/s', $this->swJs, $m);
+        $this->assertNotEmpty($m, 'Could not locate offlinePage() in public/sw.js');
+
+        $this->assertStringContainsString("caches.match('/offline')", $m[1]);
+        $this->assertStringContainsString('cached || new Response(', $m[1]);
     }
 }
