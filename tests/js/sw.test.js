@@ -373,6 +373,15 @@ describe('sw.js: handleNavigate()', () => {
     const url = new URL('https://example.test/members/12');
     const request = { url: url.href, mode: 'navigate' };
 
+    // Cleanup that a failing expectation cannot skip. Deleting the stub on
+    // the last line of a test means a single real failure leaves
+    // `self.navigator.onLine === false` set for everything after it —
+    // retryOnce() then refuses to fetch in unrelated tests, and one failure
+    // becomes a cascade that buries its own cause.
+    afterEach(() => {
+        delete global.self;
+    });
+
     function seedConfig(config) {
         const stored = config === null ? {} : {
             'offline-config': { 'https://offline-config.internal/v1': { json: () => Promise.resolve(config) } },
@@ -426,7 +435,6 @@ describe('sw.js: handleNavigate()', () => {
         const res = await sw.handleNavigate(request, url, undefined);
 
         expect(res).toBe(offline);
-        delete global.self;
     });
 
     // The end-to-end shape of the bug: a child-matched member page must take
@@ -464,6 +472,28 @@ describe('sw.js: startNetworkRequest()', () => {
 
         expect(await res.text()).toBe('<body>fetched</body>');
         expect(fetch).toHaveBeenCalledWith(request);
+    });
+
+    // A preload that resolves to nothing sends this into fetch(). When THAT
+    // fetch fails, the failure belongs to retryOnce() — firing a second
+    // identical request here first only spends another round trip on the
+    // connection that just failed.
+    it('does not fire a second fetch when the fallback one fails', async () => {
+        global.fetch = vi.fn(() => Promise.reject(new Error('offline')));
+
+        await expect(sw.startNetworkRequest(request, Promise.resolve(undefined))).rejects.toThrow('offline');
+        expect(fetch).toHaveBeenCalledTimes(1);
+    });
+
+    // The case the guard exists for stays intact: the PRELOAD itself failed,
+    // nothing was fetched, so fetch() is the first attempt and not a second.
+    it('still falls back to fetch() when the preload promise rejects', async () => {
+        global.fetch = vi.fn(() => Promise.resolve(makeResponse('<body>fetched</body>')));
+
+        const res = await sw.startNetworkRequest(request, Promise.reject(new Error('preload failed')));
+
+        expect(await res.text()).toBe('<body>fetched</body>');
+        expect(fetch).toHaveBeenCalledTimes(1);
     });
 
     it('fetches when there is no preload promise at all', async () => {

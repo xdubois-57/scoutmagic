@@ -319,7 +319,12 @@ class SectionRosterHtmlBuilder
      */
     private function color(string $color): string
     {
-        return preg_match('/^#[0-9A-Fa-f]{3,8}$/', $color) === 1 ? $color : self::MUTED;
+        // Exactly six digits. `{3,8}` also let `#12345` and `#1234567`
+        // through, and neither is a colour: the browser-friendly short
+        // forms are three or six, and dompdf reads six. A malformed value
+        // that reaches the attribute silently drops the colour from the
+        // banner and the border, which is worse than falling back.
+        return preg_match('/^#[0-9A-Fa-f]{6}$/', $color) === 1 ? $color : self::MUTED;
     }
 
     private function today(): string

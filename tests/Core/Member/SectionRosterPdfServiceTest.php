@@ -262,6 +262,36 @@ class SectionRosterPdfServiceTest extends TestCase
      * Two filters are two different documents, and confusing them would
      * serve the wrong list — the one failure this cache must not have.
      */
+    /**
+     * The one branch cacheFile() documents as its reason for existing: a
+     * payload json_encode() cannot encode. It has to be reached through
+     * the SECTION name, not a member name — normalizeName() turns
+     * malformed UTF-8 into '' long before it could get near the payload,
+     * while buildViews() copies the section name across untouched.
+     *
+     * No signature, no cache: hashing '' would give every document of the
+     * year one file name, and the second filter printed would be served
+     * the first one's sheet.
+     */
+    public function testAnUnencodableSectionNameIsNotCachedAtAll(): void
+    {
+        $service = $this->service($this->cacheDirectory);
+
+        $pdf = $service->generate(
+            1,
+            '2026-2027',
+            'U',
+            '',
+            [$this->section(7, "A\xB1")],
+            $this->roster(7, [], [], [$this->row('Ayoute', 'Dounia')])
+        );
+
+        // Still rendered — the document is produced, it is only never
+        // written down under a name that could collide.
+        $this->assertStringStartsWith('%PDF', $pdf);
+        $this->assertSame([], glob($this->cacheDirectory . '/section-roster/*.pdf') ?: []);
+    }
+
     public function testTheSectionFilterIsPartOfTheCacheKey(): void
     {
         $service = $this->service($this->cacheDirectory);

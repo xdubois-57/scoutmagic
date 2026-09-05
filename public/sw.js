@@ -405,10 +405,24 @@ const NETWORK_TIMEOUT_MS = 5000;
  * @returns {Promise<Response>}
  */
 function startNetworkRequest(request, preloadResponse) {
+    // What the catch below needs to know is not whether a preload was
+    // OFFERED but whether the fallback fetch has already been made. A
+    // preload promise that resolves undefined (no preload for this
+    // navigation) sends us into fetch() in the `then`; if THAT fetch
+    // rejects, `preloadResponse !== undefined` was still true and the
+    // catch fired a second, identical request — one extra round trip on
+    // exactly the connection that just failed, before retryOnce() gets
+    // its turn.
+    let fetched = false;
     const network = Promise.resolve(preloadResponse).then(function (preloaded) {
-        return preloaded || fetch(request);
+        if (preloaded) {
+            return preloaded;
+        }
+
+        fetched = true;
+        return fetch(request);
     }).catch(function (error) {
-        if (preloadResponse === undefined) {
+        if (fetched || preloadResponse === undefined) {
             throw error;
         }
 

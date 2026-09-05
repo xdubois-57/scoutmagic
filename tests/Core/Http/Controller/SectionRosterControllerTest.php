@@ -385,7 +385,9 @@ class SectionRosterControllerTest extends TestCase
     {
         $branchId = $this->createBranch('LOU', 'Louveteaux', 20);
         $sectionA = $this->createSection('LOU01', $branchId, 'Section A');
-        $this->createSection('LOU02', $branchId, 'Section B');
+        $sectionB = $this->createSection('LOU02', $branchId, 'Section B');
+        $this->createMemberInSection($sectionA, 'Alice', 'chief');
+        $this->createMemberInSection($sectionB, 'Bob', 'chief');
 
         $request = new Request('GET', '/chefs/membres/pdf', ['section' => (string) $sectionA], [], [], []);
         $response = $this->controller->pdf($request, []);
@@ -394,6 +396,25 @@ class SectionRosterControllerTest extends TestCase
             'filename="appel-2025-2026-section-a.pdf"',
             $response->getHeaders()['Content-Disposition']
         );
+
+        // The filename alone proves nothing: naming the file from the filter
+        // while handing every section to the renderer would still pass, and
+        // that is precisely the failure a roll-call sheet must not have — a
+        // chief prints Section A and walks off with Section B's names too.
+        // One section per sheet, so page count is the perimeter.
+        $this->assertSame(1, $this->pageCountOf($response->getBody()), 'the filtered sheet must carry one section');
+
+        $all = $this->controller->pdf(new Request('GET', '/chefs/membres/pdf', [], [], [], []), []);
+        $this->assertSame(2, $this->pageCountOf($all->getBody()), 'unfiltered, both sections are printed');
+    }
+
+    /**
+     * dompdf writes one `/Type /Page` object per page (and one `/Type
+     * /Pages` for the tree, which the negative lookahead excludes).
+     */
+    private function pageCountOf(string $pdf): int
+    {
+        return preg_match_all('~/Type\s*/Page(?!s)~', $pdf);
     }
 
     public function testPdfWithoutAFilterNamesNoSection(): void

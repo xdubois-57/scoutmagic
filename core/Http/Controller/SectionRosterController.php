@@ -231,6 +231,14 @@ class SectionRosterController extends AbstractController
 
         return (new Response($pdf))
             ->setHeader('Content-Type', 'application/pdf')
+            // The sheet is member names in the clear, and neither Response
+            // nor the .xlsx sibling sets a cache directive of its own — so
+            // without this a shared browser, a proxy or a disk cache keeps
+            // the roster of a section long after the session that was
+            // allowed to see it has ended. `no-store` and not `no-cache`:
+            // the point is that it is never written down, not that it is
+            // revalidated.
+            ->setHeader('Cache-Control', 'private, no-store')
             ->setHeader(
                 'Content-Disposition',
                 'attachment; filename="' . $this->pdfService->fileName($effectiveYear->label, $sectionName) . '"'

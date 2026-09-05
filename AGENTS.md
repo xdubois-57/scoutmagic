@@ -50,6 +50,26 @@ bot's report you verified and accepted but judged out of scope, a limitation
 you discovered yourself while implementing, a trap you documented in a comment
 rather than removed, a schema decision that is the repository owner's to make.
 
+### One exception, and it is absolute: a security vulnerability
+
+A deferred **security** finding does not become a public issue. Everything this
+rule asks an issue to contain — the symptom, the reproduction, the mechanism
+with the vulnerable code quoted, the precondition that triggers it — is exactly
+what an exploit needs, and a GitHub issue on a public repository publishes it to
+everyone, indexed, before the fix exists. That is the disclosure this project
+already refuses: `SECURITY.md` § Reporting a vulnerability says to report
+privately, *not via public GitHub issues*, and this rule does not get to
+contradict it.
+
+So a security finding you are not fixing now goes to the maintainer through that
+private channel, with the same completeness a good issue would have had. If a
+public trace is needed so the work is not forgotten, it may name the affected
+area and nothing else — no reproduction, no mechanism, no code.
+
+When you cannot tell whether a finding is a security one, treat it as one: the
+cost of a private report about an ordinary bug is an email, and the cost of a
+public issue about a real vulnerability cannot be taken back.
+
 It does **not** apply to a finding you fixed, nor to one you examined and
 rejected as incorrect — reply on the thread with the reasoning and leave no
 issue behind. Do not open issues for style preferences or for hypothetical

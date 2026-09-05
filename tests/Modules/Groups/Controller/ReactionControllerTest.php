@@ -11,6 +11,7 @@ use Modules\Groups\Controller\ReactionController;
 use Modules\Groups\Repository\PostMediaRepository;
 use Modules\Groups\Repository\ReactionRepository;
 use Modules\Groups\Service\GroupActivityService;
+use Modules\Groups\Service\GroupAccessService;
 use Modules\Groups\Service\GroupSessionContextFactory;
 use Modules\Groups\Service\PostAuthorResolver;
 use Modules\Groups\Service\PostMediaService;
@@ -294,6 +295,51 @@ class ReactionControllerTest extends GroupsControllerTestCase
         $response = $this->controller([$this->memberId])->react($this->request(), $this->params($this->postId));
 
         $this->assertSame(400, $response->getStatusCode());
+    }
+
+    /**
+     * The site-admin author fallback, at the route rather than in the
+     * service. GroupAccessServiceTest proves authorMemberIdFor() picks a
+     * linked member when the group holds none of them; what this proves is
+     * that the reaction is actually RECORDED under that member — the
+     * controller used to resolve its own identifier, and a reaction with
+     * the wrong one lands on the wrong row of the UNIQUE (item, member)
+     * index or nowhere at all.
+     */
+    public function testASiteAdminReactsAsALinkedMemberTheGroupDoesNotHold(): void
+    {
+        $outsider = GroupsTestHelper::createMember($this->pdo, 'OUTSIDER');
+        $this->withCsrf(['reaction' => 'heart']);
+
+        $response = $this->controller([$outsider], self::OTHER_ACCOUNT, 'admin')
+            ->react($this->request(), $this->params($this->postId));
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('heart', $this->postReactionKey($outsider));
+    }
+
+    /**
+     * The other half: nothing to sign with means the refusal, and it must
+     * happen BEFORE the service is reached — a null member id written to
+     * discussion_group_post_reactions is a fatal, not a 403.
+     */
+    public function testAnAccountWithNoMemberAtAllIsRefusedBeforeAnythingIsWritten(): void
+    {
+        $this->withCsrf(['reaction' => 'heart']);
+
+        $response = $this->controller([], self::OTHER_ACCOUNT, 'admin')
+            ->react($this->request(), $this->params($this->postId));
+
+        $this->assertSame(403, $response->getStatusCode());
+        // The 403 page is Twig-rendered, so the apostrophe in the message
+        // arrives escaped — assert what actually reaches the reader.
+        $this->assertStringContainsString(
+            htmlspecialchars(GroupAccessService::NO_AUTHOR_MEMBER_MESSAGE, ENT_QUOTES, 'UTF-8'),
+            $response->getBody()
+        );
+        $this->assertSame(0, (int) $this->pdo->query(
+            'SELECT COUNT(*) FROM discussion_group_post_reactions'
+        )->fetchColumn());
     }
 
     /**

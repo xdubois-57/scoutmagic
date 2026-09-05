@@ -8,6 +8,7 @@ use Core\Member\Movement\MemberMovementStatus;
 use Core\Member\Pdf\RosterMemberView;
 use Core\Member\Pdf\RosterSectionView;
 use Core\Member\Pdf\SectionRosterHtmlBuilder;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -102,6 +103,33 @@ class SectionRosterHtmlBuilderTest extends TestCase
         $html = $this->build([$this->section('Louveteaux 1', 'red; background:url(x)')]);
 
         $this->assertStringNotContainsString('url(x)', $html);
+        $this->assertStringContainsString('#6c757d', $html);
+    }
+
+    /**
+     * A hex string of the wrong length is not a colour either, and it is
+     * the likelier accident than an injection attempt: a hand-edited row,
+     * an import that dropped a character. Emitted, it silently strips the
+     * colour from the banner and the border instead of falling back.
+     *
+     * @return array<string, array{string}>
+     */
+    public static function malformedHexProvider(): array
+    {
+        return [
+            'five digits' => ['#12345'],
+            'seven digits' => ['#1234567'],
+            'three digits' => ['#123'],
+            'eight digits' => ['#12345678'],
+        ];
+    }
+
+    #[DataProvider('malformedHexProvider')]
+    public function testAHexColourOfTheWrongLengthFallsBackToo(string $color): void
+    {
+        $html = $this->build([$this->section('Louveteaux 1', $color)]);
+
+        $this->assertStringNotContainsString($color, $html);
         $this->assertStringContainsString('#6c757d', $html);
     }
 

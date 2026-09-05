@@ -323,11 +323,21 @@ class ServiceWorkerPrecacheTest extends TestCase
         // The slow path's refresh, and the fast path's own put().
         $this->assertStringContainsString('keepAlive(event, live)', $m[1]);
         $this->assertStringContainsString('keepAlive(event, caches.open(cacheName)', $m[1]);
-        $this->assertStringNotContainsString(
-            'caches.open(cacheName).then(function (cache) { cache.put(request, copy); });',
-            $m[1],
-            'the fire-and-forget write is what this replaces'
-        );
+        // The invariant, not one spelling of its violation. Forbidding a
+        // single exact character sequence guards against nothing: a
+        // re-introduced fire-and-forget write with a line break, another
+        // variable name or an arrow function would walk straight past it.
+        // What must hold is that EVERY content-cache write in this function
+        // is an argument of keepAlive() — started and abandoned is the bug.
+        preg_match_all('/(.{0,24})caches\.open\(cacheName\)/s', $m[1], $writes);
+        $this->assertNotEmpty($writes[0], 'no content-cache write found to check');
+        foreach ($writes[1] as $before) {
+            $this->assertStringContainsString(
+                'keepAlive(event, ',
+                $before,
+                'a content-cache write is not held open by the fetch event'
+            );
+        }
     }
 
     /**
