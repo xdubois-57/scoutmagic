@@ -381,8 +381,19 @@ an error.
   What it protected against is real and is now caught one step later:
   two pull requests, each green alone, whose combination is not. CI runs on
   every push to `main` (`ci.yml`), so that combination is tested — after it
-  lands rather than before. The alternative that keeps the guarantee without
-  the stall is a merge queue, and it is not free here: it needs every
+  lands rather than before, which means somebody has to answer for the
+  window in between. **The maintainer does**, on the failure notification
+  GitHub sends for a red run on `main`, and the answer is forward: the
+  second pull request's author fixes it in a new pull request, the way any
+  other red `main` is handled here. Not a revert by default — the two
+  changes are both wanted, and reverting the one that merged second
+  punishes an ordering nobody chose. Revert only when the fix is not
+  quick and `main` has to be green for a release. The window is small by
+  construction: it opens only when two pull requests are in flight at once,
+  which on a repository with one maintainer means a burst, and it closes at
+  the next push.
+  The alternative that keeps the guarantee without the stall is a merge
+  queue, and it is not free here: it needs every
   gating check to report on `merge_group`, and `Claude review` is bound to a
   pull request (its prompt names `github.event.pull_request.number`) while
   CodeQL runs as GitHub-managed default setup that this repository cannot

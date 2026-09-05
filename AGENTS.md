@@ -395,15 +395,21 @@ merge-ready is where your work stops and you say so.
 
 With it, arm **auto-merge** rather than watching the pull request:
 
-```
+```shell
 gh pr merge <number> --squash --auto
 ```
 
 Where `gh` is not installed — a Claude Code session running on the web has
-no GitHub CLI — the same thing is the GitHub MCP server's
-`enable_pr_auto_merge` with `mergeMethod: SQUASH`. It fails with *"Auto-merge
-is not enabled for this repository"* if the setting below ever gets turned
-off, which is the one error worth recognising rather than working around.
+no GitHub CLI — use the GitHub MCP server's `enable_pr_auto_merge` with
+`mergeMethod: SQUASH`, which is what armed #168. Not every build of that
+server exposes it; when it is missing, say so and hand the maintainer the
+`gh` line above.
+
+**`merge_pull_request` is not the fallback.** It merges immediately, which
+is a different act from arming: it lands the pull request whether or not
+the checks have finished. Reaching for it because the auto-merge tool was
+not there would turn "arm this and let the ruleset decide" into "merge it
+now", unreviewed and untested, on an instruction that said neither.
 
 GitHub then merges the moment the ruleset on `main` is satisfied, and the
 instruction is carried out without the maintainer being called back. Polling

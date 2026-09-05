@@ -273,12 +273,14 @@ want.
 
 Carry it out by **arming auto-merge**, not by watching the checks:
 
-```
+```shell
 gh pr merge <number> --squash --auto
 ```
 
 or, with no GitHub CLI on the box (a session running on the web), the
-GitHub MCP server's `enable_pr_auto_merge` with `mergeMethod: SQUASH`.
+GitHub MCP server's `enable_pr_auto_merge` with `mergeMethod: SQUASH`. If
+your build of that server has neither, say so — **never** substitute
+`merge_pull_request`, which merges on the spot instead of arming.
 
 Confirm first what you would confirm before merging by hand — no open
 thread, the checklist honestly filled, nothing of your own left unfiled —

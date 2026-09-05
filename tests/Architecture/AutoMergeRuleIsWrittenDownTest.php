@@ -69,7 +69,7 @@ final class AutoMergeRuleIsWrittenDownTest extends TestCase
         $rules = self::agentRules();
 
         $this->assertStringContainsString(
-            'only authorization to merge',
+            "The maintainer's instruction is the only authorization to merge",
             $rules,
             'the sentence that keeps auto-merge from becoming a self-service merge button is gone'
         );
@@ -82,12 +82,22 @@ final class AutoMergeRuleIsWrittenDownTest extends TestCase
     public function testTheRuleNamesTheCommandThatArmsIt(): void
     {
         foreach (['AGENTS.md', '.claude/skills/steward/SKILL.md'] as $file) {
+            // The whole line, not its pieces: `gh pr merge` without
+            // `--auto` is the command that merges on the spot, and an
+            // assertion satisfied by either one would not notice the
+            // difference.
             $this->assertStringContainsString(
-                'gh pr merge',
+                'gh pr merge <number> --squash --auto',
                 self::read($file),
                 $file . ' no longer names the command that arms auto-merge'
             );
-            $this->assertStringContainsString('--auto', self::read($file), $file);
+            // The trap the same files warn about, pinned here because it
+            // is the mistake an agent makes when the tool is missing.
+            $this->assertStringContainsString(
+                'merge_pull_request',
+                self::read($file),
+                $file . ' no longer warns that merge_pull_request merges instead of arming'
+            );
         }
     }
 
@@ -106,10 +116,18 @@ final class AutoMergeRuleIsWrittenDownTest extends TestCase
                 $contents,
                 $file . ' no longer records that auto-merge can be turned off with no notice'
             );
+            // Both halves. A push from an account without write access is
+            // the one nobody expects, so an assertion that only covered
+            // the base-branch change would let it go.
             $this->assertStringContainsString(
                 'base branch',
                 $contents,
-                $file . ' no longer names what disarms it'
+                $file . ' no longer names the base-branch change as disarming it'
+            );
+            $this->assertStringContainsString(
+                'without write access',
+                $contents,
+                $file . ' no longer names the non-write push as disarming it'
             );
         }
     }
@@ -124,6 +142,9 @@ final class AutoMergeRuleIsWrittenDownTest extends TestCase
 
         $this->assertStringContainsString('### Auto-merge', $map);
         $this->assertStringContainsString('Settings → General → Pull Requests', $map);
+        // The state, not just the location: the section is worth nothing
+        // to a reader who cannot tell whether the box is meant to be on.
+        $this->assertStringContainsString('Allow auto-merge — enabled', $map);
     }
 
     /**
@@ -140,5 +161,8 @@ final class AutoMergeRuleIsWrittenDownTest extends TestCase
         // What replaces the guarantee, without which the entry is just a
         // preference rather than a trade somebody made.
         $this->assertStringContainsString('every push to `main`', $map);
+        // And who answers when that later run goes red, without which the
+        // trade names a safety net nobody is holding.
+        $this->assertStringContainsString('**The maintainer does**', $map);
     }
 }
