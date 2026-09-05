@@ -36,6 +36,45 @@ Before submitting any code:
 12. ☐ A change under `public/assets/js/` had its CodeQL results checked after pushing — see § CodeQL below. Nothing run locally sees `js/xss-through-dom`, and a value is not safe for having come from your own template.
 13. ☐ No unit data in a help-assistant prompt — not a member, not a section, not an amount, not aggregated, not anonymised. The assistant answers from help topics only (ARCHITECTURE.md §8.87), it has no tool-calling and no SQL, and the day it can reach the data every prompt injection in a topic or a member's name becomes an exfiltration path.
 
+## A problem you decide not to fix now becomes a GitHub issue
+
+The moment a real problem is identified and the decision is taken **not** to
+fix it in the change at hand, open an issue in `xdubois-57/scoutmagic` before
+that change is considered done. A commit message, a PR review thread, a
+walkthrough summary or a chat reply is not a backlog: nothing is ever read
+back out of them, and the next agent starts from a clean context. The issue is
+the only artefact that survives the session.
+
+This applies to any deliberately deferred finding, whatever found it: a review
+bot's report you verified and accepted but judged out of scope, a limitation
+you discovered yourself while implementing, a trap you documented in a comment
+rather than removed, a schema decision that is the repository owner's to make.
+
+It does **not** apply to a finding you fixed, nor to one you examined and
+rejected as incorrect — reply on the thread with the reasoning and leave no
+issue behind. Do not open issues for style preferences or for hypothetical
+problems you have not confirmed in the code.
+
+Verify before you file. Never open an issue from a bot's assertion alone: read
+the code, reproduce the reasoning, and file what you actually established. An
+issue that turns out to describe behaviour the code does not have is worse than
+no issue, because the next agent will act on it.
+
+An issue that is worth filing is worth filing properly. It must carry:
+
+- the symptom in user terms — what someone using the site actually sees;
+- the mechanism, with `file:line` references you checked against the current
+  code, and the relevant lines quoted;
+- the second-order effects, if any (a cascade, a stale display, an audit gap) —
+  these are what make a deferred problem expensive later;
+- the options, costed, with the cheapest one named first and a recommendation;
+- a link back to the PR or review thread where the decision to defer was made.
+
+Then close the loop in both directions: the review thread or PR description
+names the issue number, and the issue links the thread. Label it `bug` or
+`enhancement`. Leave the thread that raised it open when the decision is the
+owner's to make — resolving it hides the question they still have to answer.
+
 ## Exception messages that reach a visitor
 
 A caught exception's message is shown to a visitor **only** when its class
