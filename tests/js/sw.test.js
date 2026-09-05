@@ -588,6 +588,39 @@ describe('sw.js: networkFirstWithCacheFallback() on a slow network', () => {
         expect(res.body).toContain('Réseau lent');
     });
 
+    /**
+     * The reader stops waiting; the refresh must not. respondWith()
+     * settling ends the fetch event, and a worker whose event is done may
+     * be terminated at once — which would abort the live request and lose
+     * the cache.put() it was about to make.
+     */
+    it('holds the fetch event open for the refresh it no longer answers with', async () => {
+        const cached = makeResponse('<body>cached</body>', { headers: { date: new Date().toUTCString() } });
+        global.caches = createCachesFake({ [cacheName]: { [request.url]: cached } });
+        global.fetch = vi.fn(() => new Promise(() => {}));
+        const event = { waitUntil: vi.fn() };
+
+        const navigation = sw.networkFirstWithCacheFallback(request, url, config, undefined, event);
+        await vi.advanceTimersByTimeAsync(sw.NETWORK_TIMEOUT_MS + 10);
+        await navigation;
+
+        expect(event.waitUntil).toHaveBeenCalledTimes(1);
+        expect(event.waitUntil.mock.calls[0][0]).toBeInstanceOf(Promise);
+    });
+
+    it('does not fail the navigation when the event can no longer be extended', async () => {
+        const cached = makeResponse('<body>cached</body>', { headers: { date: new Date().toUTCString() } });
+        global.caches = createCachesFake({ [cacheName]: { [request.url]: cached } });
+        global.fetch = vi.fn(() => new Promise(() => {}));
+        // What a real worker throws once the event is already settled.
+        const event = { waitUntil: vi.fn(() => { throw new Error('InvalidStateError'); }) };
+
+        const navigation = sw.networkFirstWithCacheFallback(request, url, config, undefined, event);
+        await vi.advanceTimersByTimeAsync(sw.NETWORK_TIMEOUT_MS + 10);
+
+        expect((await navigation).body).toContain('cached</body>');
+    });
+
     it('keeps waiting when there is nothing cached to show instead', async () => {
         global.caches = createCachesFake({ 'app-shell': { '/offline': makeResponse('<body>offline</body>') } });
         let release;

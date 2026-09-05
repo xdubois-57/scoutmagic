@@ -23,10 +23,14 @@ final class PostPermission
     public const REASON_INCOMPLETE_PROFILE = 'incomplete_profile';
 
     /**
-     * The account has no member to sign a write with — anywhere, not just
-     * in this group. Every write in the module is recorded against a
-     * member, so this is the one refusal the member cannot lift from the
-     * page: only a responsable rattaching the account can.
+     * The account has no member to sign a POST with — anywhere, not just
+     * in this group. It is the one refusal the member cannot lift from
+     * the page: only a responsable rattaching the account can.
+     *
+     * Carried by canPost() alone, never by canParticipate(): an
+     * account-scoped ballot is recorded under the login with a null
+     * member_id, so a session with no member may still answer a poll
+     * even though it cannot write a message.
      */
     public const REASON_NO_MEMBER_IDENTITY = 'no_member_identity';
 

@@ -143,8 +143,8 @@ class SectionRosterHtmlBuilder
         // in one `<tr><td>` moved to the next page entire and left the
         // header alone on a blank sheet. Rows it splits between happily,
         // and repeats the `<thead>` above them.
-        $rows = $this->groupRows('Animateurs', $section->animateurs, $section->color, $density, false)
-            . $this->groupRows('Animés', $section->animes, $section->color, $density, true);
+        $rows = $this->groupRows('Animateurs', $section->leaders, $section->color, $density, false)
+            . $this->groupRows('Animés', $section->youthMembers, $section->color, $density, true);
 
         return '<table class="sheet' . ($pageBreak ? ' page-break' : '') . '">'
             . '<thead>'
@@ -196,13 +196,9 @@ class SectionRosterHtmlBuilder
 
     private function counts(RosterSectionView $section): string
     {
-        $animateurs = count($section->animateurs);
-        $animes = count($section->animes);
-        $notable = $section->notableCount();
-
-        return $this->plural($animateurs, 'animateur') . ' · '
-            . $this->plural($animes, 'animé') . ' · '
-            . $this->plural($notable, 'mouvement');
+        return $this->plural(count($section->leaders), 'animateur') . ' · '
+            . $this->plural(count($section->youthMembers), 'animé') . ' · '
+            . $this->plural($section->notableCount(), 'mouvement');
     }
 
     private function plural(int $count, string $noun): string

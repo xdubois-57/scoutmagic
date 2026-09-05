@@ -359,7 +359,11 @@ self.addEventListener('fetch', function (event) {
     // keeps SECURITY.md's file-access rule true for the service worker.
     // Navigations get the one exception below.
     if (request.mode === 'navigate') {
-        event.respondWith(handleNavigate(request, url, event.preloadResponse));
+        // The event itself travels down: when the timeout below serves a
+        // cached copy, the live request that is still running has to be
+        // kept alive with waitUntil() or the worker may be terminated the
+        // moment respondWith() settles — see networkFirstWithCacheFallback().
+        event.respondWith(handleNavigate(request, url, event.preloadResponse, event));
     }
 });
 
@@ -466,7 +470,7 @@ function offlinePage() {
     });
 }
 
-function handleNavigate(request, url, preloadResponse) {
+function handleNavigate(request, url, preloadResponse, event) {
     const network = startNetworkRequest(request, preloadResponse);
 
     return getOfflineConfig().then(function (config) {
@@ -480,8 +484,31 @@ function handleNavigate(request, url, preloadResponse) {
                 .catch(function () { return offlinePage(); });
         }
 
-        return networkFirstWithCacheFallback(request, url, config, network);
+        return networkFirstWithCacheFallback(request, url, config, network, event);
     });
+}
+
+/**
+ * Keep this fetch event alive until the given promise settles.
+ *
+ * Optional and defensive on both counts. The event is absent in the unit
+ * tests, and `waitUntil()` throws InvalidStateError once an event is no
+ * longer extendable — neither is a reason to fail the navigation that
+ * has already been answered.
+ *
+ * @param {FetchEvent|undefined} event
+ * @param {Promise<unknown>} promise
+ */
+function keepAlive(event, promise) {
+    if (!event || typeof event.waitUntil !== 'function') {
+        return;
+    }
+
+    try {
+        event.waitUntil(promise);
+    } catch (e) {
+        // Already settled — nothing left to extend.
+    }
 }
 
 // Third implementation of ONE rule, and the two others are the reference:
@@ -555,7 +582,7 @@ function cachedCopy(request, cacheName, config, reason) {
     });
 }
 
-function networkFirstWithCacheFallback(request, url, config, network) {
+function networkFirstWithCacheFallback(request, url, config, network, event) {
     const cacheName = CONTENT_CACHE_PREFIX + config.account_scope + '-' + config.version;
 
     // The live attempt, with its cache write attached. It is NEVER
@@ -622,6 +649,15 @@ function networkFirstWithCacheFallback(request, url, config, network) {
         // cached there is nothing better to do than keep waiting.
         return cachedCopy(request, cacheName, config, 'slow').then(function (cached) {
             if (cached) {
+                // Answering from the cache settles respondWith(), and a
+                // worker whose event is done may be terminated at once —
+                // which would abort the live request mid-flight and lose
+                // the cache.put() it was going to make. The promise the
+                // reader is no longer waiting for is exactly the one that
+                // has to outlive their navigation, or every later visit
+                // finds the same stale copy and refreshes nothing.
+                keepAlive(event, live);
+
                 return cached;
             }
 
@@ -748,6 +784,7 @@ globalThis.ScoutMagicServiceWorkerInternals = {
     isWhitelisted: isWhitelisted,
     formatOfflineTimestamp: formatOfflineTimestamp,
     cachedCopy: cachedCopy,
+    keepAlive: keepAlive,
     offlinePage: offlinePage,
     retryOnce: retryOnce,
     NETWORK_TIMEOUT_MS: NETWORK_TIMEOUT_MS,

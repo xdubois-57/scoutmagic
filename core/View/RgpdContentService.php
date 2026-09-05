@@ -440,6 +440,14 @@ corriger ou supprimer une note, y compris celle d'un autre, afin qu'une note éc
 personne puisse disparaître ; (g) qu'elles sont rattachées à la **personne** et non à une année scoute, et sont donc
 conservées tant que la fiche du membre existe, disparaissant avec elle. Ne les confonds jamais avec les notes internes
 du module Inscriptions, qui portent sur une demande d'inscription et non sur un membre.
+4septies. **Documents générés conservés temporairement (fonctionnalité core, PAS un module)** : Section 3.1 doit
+conserver que certains documents imprimables sont fabriqués à la demande — la feuille d'appel par section, le
+trombinoscope imprimable — et que le fichier obtenu est **gardé quelques jours sur le serveur** afin de ne pas être
+refabriqué à chaque téléchargement ; qu'il contient les mêmes noms que la page dont il est issu, en clair, puisque
+c'est un document destiné à être imprimé ; qu'il est rangé hors de la zone accessible par le web et n'est jamais
+servi autrement que par la page qui l'a demandé ; et qu'il est **supprimé automatiquement au plus tard après sept
+jours**, ainsi que dès qu'une nouvelle version le remplace. Ne présente jamais cette copie comme un archivage : c'est
+un cache, sa durée est courte et son effacement n'attend aucune demande.
 5. **Modules actifs uniquement** : Retirer les sections des modules INACTIFS (comparer avec liste modules actifs)
 6. **Personnalisation obligatoire** : Remplacer {$unitName} et {$contactEmail} partout. Ne JAMAIS laisser de
 placeholder générique

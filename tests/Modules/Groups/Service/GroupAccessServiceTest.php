@@ -435,8 +435,8 @@ class GroupAccessServiceTest extends TestCase
 
     /**
      * The composer must say this rather than be offered and then refuse
-     * the post: every write is recorded against a member, so an account
-     * linked to none cannot write anywhere.
+     * the post: a post is recorded against a member, so an account linked
+     * to none cannot start a conversation.
      */
     public function testAnAccountWithNoMemberAtAllIsRefusedBeforeTheComposerIsOffered(): void
     {
@@ -447,6 +447,25 @@ class GroupAccessServiceTest extends TestCase
         $this->assertFalse($permission->allowed);
         $this->assertSame(PostPermission::REASON_NO_MEMBER_IDENTITY, $permission->reason);
         $this->assertNull($this->access->authorMemberIdFor($this->groupRepo->findById($groupId), $this->context([], 'admin')));
+    }
+
+    /**
+     * …but it may still ANSWER, and that distinction is the whole reason
+     * the refusal hangs off canPost() rather than canParticipate().
+     *
+     * canParticipate() also gates answering a poll, and an ACCOUNT-scoped
+     * ballot needs no member at all: Service\PollService::voterFor()
+     * records it under `a:{userAccountId}` with a null member_id. Putting
+     * the refusal on the shared permission took away a vote the schema
+     * was perfectly happy to record.
+     */
+    public function testAnAccountWithNoMemberMayStillAnswerAnAccountScopedPoll(): void
+    {
+        $groupId = $this->sectionGroup();
+
+        $permission = $this->access->canParticipate($this->groupRepo->findById($groupId), $this->context([], 'admin'));
+
+        $this->assertTrue($permission->allowed, 'canParticipate() is what gates voting, and a ballot needs no member');
     }
 
     public function testAnOrdinaryMemberOfAnotherSectionGetsNoAdminFallback(): void

@@ -256,13 +256,14 @@ class SectionRosterControllerTest extends TestCase
         AuthSession::login(1, 'admin@test.be', 'admin');
         $branchId = $this->createBranch('LOU', 'Louveteaux', 20);
         $sectionId = $this->createSection('LOU01', $branchId, 'Ma section');
+        $spare = $this->pdo->prepare('INSERT INTO members (desk_id) VALUES (?)');
         for ($i = 0; $i < 6; $i++) {
-            $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('SPARE_" . uniqid() . "')");
+            $spare->execute(['SPARE_' . uniqid()]);
         }
         $memberYearId = $this->createMemberInSection($sectionId, 'Alice', 'chief');
-        $memberId = (int) $this->pdo->query(
-            'SELECT member_id FROM member_years WHERE id = ' . $memberYearId
-        )->fetchColumn();
+        $lookup = $this->pdo->prepare('SELECT member_id FROM member_years WHERE id = ?');
+        $lookup->execute([$memberYearId]);
+        $memberId = (int) $lookup->fetchColumn();
         $this->assertNotSame($memberId, $memberYearId, 'the fixture must not let the two ids coincide');
 
         $request = new Request('GET', '/chefs/membres', [], [], [], []);

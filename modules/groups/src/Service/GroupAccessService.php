@@ -91,6 +91,35 @@ class GroupAccessService
             return $participation;
         }
 
+        // A post is recorded against a member (discussion_group_posts.
+        // author_member_id, NOT NULL), so a session with no member to
+        // record against cannot start a conversation here however wide
+        // its role is — and the composer must say that instead of being
+        // offered and then refusing the message.
+        //
+        // HERE and not in canParticipate(), and the difference is not a
+        // detail: canParticipate() is also what gates answering a poll,
+        // and an ACCOUNT-scoped ballot needs no member at all — Service\
+        // PollService::voterFor() records it under `a:{userAccountId}`
+        // with a null member_id. Refusing on the shared permission took
+        // that vote away from a session the schema was perfectly happy
+        // to record. The rule is therefore attached to the operation
+        // whose column actually requires a member, never to the
+        // permission every write shares.
+        //
+        // For a member of the group this is unreachable: canRead() passes
+        // on exactly the membership authorMemberIdFor() resolves. What it
+        // really answers is the site admin who reaches a group through
+        // the implicit-moderator bypass with no member of their own
+        // anywhere — the one case where the two ever disagree.
+        if ($this->authorMemberIdFor($group, $context) === null) {
+            return PostPermission::deny(
+                PostPermission::REASON_NO_MEMBER_IDENTITY,
+                'Aucun membre n\'est associé à votre compte : vos messages ne peuvent être signés par personne. '
+                    . 'Demandez à un responsable de rattacher votre compte à un membre.'
+            );
+        }
+
         if ($group->postingPolicy === DiscussionGroup::POSTING_MODERATORS && !$this->canModerate($group, $context)) {
             return PostPermission::deny(
                 PostPermission::REASON_MODERATORS_ONLY,
@@ -143,27 +172,6 @@ class GroupAccessService
                 'Renseignez votre prénom et votre nom pour pouvoir publier : ils accompagnent chacun de vos messages.',
                 '/account',
                 'Mon compte'
-            );
-        }
-
-        // Last, because it is the only one that cannot be fixed from the
-        // page it refuses. Every write in this module is recorded against
-        // a member (discussion_group_posts.author_member_id and its
-        // NOT NULL twins on replies, reactions, reads and reports), so a
-        // session with no member to record against cannot write here
-        // however wide its role is — and the composer must say that
-        // instead of being offered and then refusing the post.
-        //
-        // For a member of the group this is unreachable: canRead() above
-        // passes on exactly the membership authorMemberIdFor() resolves.
-        // What it really answers is the site admin who reaches a group
-        // through the implicit-moderator bypass with no member of their
-        // own anywhere — the one case where the two used to disagree.
-        if ($this->authorMemberIdFor($group, $context) === null) {
-            return PostPermission::deny(
-                PostPermission::REASON_NO_MEMBER_IDENTITY,
-                'Aucun membre n\'est associé à votre compte : vos messages ne peuvent être signés par personne. '
-                    . 'Demandez à un responsable de rattacher votre compte à un membre.'
             );
         }
 

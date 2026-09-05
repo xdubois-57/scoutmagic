@@ -35,15 +35,21 @@ final class RosterSectionView
      *        every consumer can rely on it. Recomputing would print a
      *        different colour from the one on screen for any unit that has
      *        customised a section.
-     * @param RosterMemberView[] $animateurs
-     * @param RosterMemberView[] $animes
+     * @param RosterMemberView[] $leaders the section's animateurs
+     * @param RosterMemberView[] $youthMembers the section's animés
+     *
+     * The two groups are named in English like every other identifier in
+     * this codebase (AGENTS.md § Language), even though the sheet prints
+     * their headings as « Animateurs » and « Animés » and the roster's own
+     * array keys — pre-existing data shape, not identifiers introduced
+     * here — still spell them in French.
      */
     public function __construct(
         public readonly string $name,
         public readonly string $branchName,
         public readonly string $color,
-        public readonly array $animateurs,
-        public readonly array $animes
+        public readonly array $leaders,
+        public readonly array $youthMembers
     ) {
     }
 
@@ -55,7 +61,7 @@ final class RosterSectionView
     public function notableCount(): int
     {
         $count = 0;
-        foreach (array_merge($this->animateurs, $this->animes) as $member) {
+        foreach (array_merge($this->leaders, $this->youthMembers) as $member) {
             if ($member->movement->isNotable()) {
                 $count++;
             }
@@ -67,6 +73,6 @@ final class RosterSectionView
     /** The longest of the two groups — what decides how tightly the sheet packs. */
     public function largestGroupSize(): int
     {
-        return max(count($this->animateurs), count($this->animes));
+        return max(count($this->leaders), count($this->youthMembers));
     }
 }

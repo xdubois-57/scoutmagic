@@ -27,16 +27,16 @@ class SectionRosterHtmlBuilderTest extends TestCase
     }
 
     /**
-     * @param RosterMemberView[] $animateurs
-     * @param RosterMemberView[] $animes
+     * @param RosterMemberView[] $leaders
+     * @param RosterMemberView[] $youthMembers
      */
     private function section(
         string $name,
         string $color = '#198754',
-        array $animateurs = [],
-        array $animes = []
+        array $leaders = [],
+        array $youthMembers = []
     ): RosterSectionView {
-        return new RosterSectionView($name, 'Louveteaux', $color, $animateurs, $animes);
+        return new RosterSectionView($name, 'Louveteaux', $color, $leaders, $youthMembers);
     }
 
     /** @param RosterSectionView[] $sections */

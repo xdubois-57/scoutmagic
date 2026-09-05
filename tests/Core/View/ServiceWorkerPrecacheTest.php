@@ -214,7 +214,7 @@ class ServiceWorkerPrecacheTest extends TestCase
      */
     public function testNetworkFirstWithCacheFallbackGatesTheWriteOnStandalone(): void
     {
-        preg_match('/function networkFirstWithCacheFallback\(request, url, config, network\) \{(.*?)\n\}/s', $this->swJs, $m);
+        preg_match('/function networkFirstWithCacheFallback\(request, url, config, network, event\) \{(.*?)\n\}/s', $this->swJs, $m);
         $this->assertNotEmpty($m, 'Could not locate networkFirstWithCacheFallback() in public/sw.js');
 
         $this->assertMatchesRegularExpression(
@@ -267,9 +267,42 @@ class ServiceWorkerPrecacheTest extends TestCase
         // skip the retry and get the offline page with no extra wait.
         $this->assertStringContainsString('self.navigator.onLine === false', $retry[1]);
 
-        preg_match('/function handleNavigate\(request, url, preloadResponse\) \{(.*?)\n\}/s', $this->swJs, $nav);
+        preg_match('/function handleNavigate\(request, url, preloadResponse, event\) \{(.*?)\n\}/s', $this->swJs, $nav);
         $this->assertNotEmpty($nav, 'Could not locate handleNavigate() in public/sw.js');
         $this->assertStringContainsString('retryOnce(request)', $nav[1]);
+    }
+
+    /**
+     * A cached copy served on the timeout must not cancel the live
+     * request that is still running behind it.
+     *
+     * respondWith() settling ends the fetch event, and a worker whose
+     * event is done may be terminated at once — aborting the request
+     * mid-flight and losing the cache.put() it was about to make, so
+     * every later navigation would find the same stale copy and refresh
+     * nothing. The promise the reader is no longer waiting for is exactly
+     * the one that has to outlive their navigation.
+     */
+    public function testTheLiveRefreshOutlivesANavigationAnsweredFromTheCache(): void
+    {
+        preg_match(
+            '/function networkFirstWithCacheFallback\(request, url, config, network, event\) \{(.*?)\n\}/s',
+            $this->swJs,
+            $m
+        );
+        $this->assertNotEmpty($m, 'Could not locate networkFirstWithCacheFallback() in public/sw.js');
+        $this->assertStringContainsString('keepAlive(event, live)', $m[1]);
+
+        preg_match('/function keepAlive\(event, promise\) \{(.*?)\n\}/s', $this->swJs, $keep);
+        $this->assertNotEmpty($keep, 'Could not locate keepAlive() in public/sw.js');
+        $this->assertStringContainsString('event.waitUntil(promise)', $keep[1]);
+
+        // And the event has to reach it: the fetch handler is the only
+        // place that holds one.
+        $this->assertStringContainsString(
+            'handleNavigate(request, url, event.preloadResponse, event)',
+            $this->swJs
+        );
     }
 
     /**

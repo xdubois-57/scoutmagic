@@ -38,9 +38,31 @@ use Dompdf\Options;
  * local, in hands that are not all the staff's. The trombinoscope has a
  * setting for that; this one does not need one, because it never carries
  * the data.
+ *
+ * What it does carry is names, so the disk cache has a stated retention
+ * rather than an open-ended one — see CACHE_TTL_DAYS, and the "Durée de
+ * conservation" rule Core\View\RgpdContentService states for generated
+ * documents.
  */
 class SectionRosterPdfService
 {
+    /**
+     * How long a rendered sheet may sit in the cache directory.
+     *
+     * The cache holds member names in the clear — that is what a PDF is —
+     * so its retention has to be a stated number rather than "until
+     * something replaces it". Purging only the same year's superseded
+     * copies, which is what the printable trombinoscope does, leaves last
+     * season's sheet on disk for ever the day nobody prints that year
+     * again.
+     *
+     * A week: long enough that a rentrée weekend printing the same sheet
+     * repeatedly still pays for one render, short enough that a document
+     * nobody has asked for in seven days is simply gone. Re-rendering
+     * after that costs about a second.
+     */
+    private const CACHE_TTL_DAYS = 7;
+
     public function __construct(
         private SectionRosterHtmlBuilder $htmlBuilder,
         /**
@@ -159,8 +181,8 @@ class SectionRosterPdfService
                 color: (string) ($section['color'] ?? ''),
                 // The intendants bucket is deliberately dropped here and
                 // nowhere else: see Pdf\RosterSectionView.
-                animateurs: array_map($this->toMemberView(...), $buckets['animateurs']),
-                animes: array_map($this->toMemberView(...), $buckets['animes'])
+                leaders: array_map($this->toMemberView(...), $buckets['animateurs']),
+                youthMembers: array_map($this->toMemberView(...), $buckets['animes'])
             );
         }
 
@@ -202,7 +224,7 @@ class SectionRosterPdfService
         $composition = [];
         foreach ($views as $view) {
             $people = [];
-            foreach ([$view->animateurs, $view->animes] as $group) {
+            foreach ([$view->leaders, $view->youthMembers] as $group) {
                 $names = [];
                 foreach ($group as $member) {
                     $names[] = [$member->lastName, $member->firstName, $member->totem, $member->movement->value];
@@ -242,12 +264,37 @@ class SectionRosterPdfService
         if (!is_dir($directory) && !@mkdir($directory, 0755, true) && !is_dir($directory)) {
             return;
         }
+
+        // Two purges, and the second is the one that bounds retention.
+        // This year's superseded copies go because they are superseded;
+        // every year's expired ones go because a document holding names
+        // may not outlive CACHE_TTL_DAYS, and a season nobody prints
+        // again would otherwise keep its sheet on disk indefinitely.
         foreach (glob($directory . '/' . $scoutYearId . '-*.pdf') ?: [] as $stale) {
             @unlink($stale);
         }
+        $this->purgeExpired($directory);
+
         $tmp = $cacheFile . '.' . bin2hex(random_bytes(4)) . '.tmp';
         if (@file_put_contents($tmp, $pdf) === false || !@rename($tmp, $cacheFile)) {
             @unlink($tmp);
+        }
+    }
+
+    /**
+     * Every cached sheet past CACHE_TTL_DAYS, whatever year it belongs
+     * to. Runs on each write rather than as a scheduled task: this
+     * directory is only ever written by this service, so the moment it
+     * grows is exactly the moment to sweep it.
+     */
+    private function purgeExpired(string $directory): void
+    {
+        $deadline = time() - (self::CACHE_TTL_DAYS * 24 * 60 * 60);
+        foreach (glob($directory . '/*.pdf') ?: [] as $file) {
+            $modified = @filemtime($file);
+            if ($modified !== false && $modified < $deadline) {
+                @unlink($file);
+            }
         }
     }
 

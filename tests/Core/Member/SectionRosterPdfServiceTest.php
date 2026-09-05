@@ -298,6 +298,41 @@ class SectionRosterPdfServiceTest extends TestCase
         $this->assertCount(2, glob($this->cacheDirectory . '/section-roster/*.pdf') ?: []);
     }
 
+    /**
+     * The cache holds member names in the clear, so its retention is a
+     * stated number rather than "until something replaces it". Purging
+     * only the same year's superseded copies would leave last season's
+     * sheet on disk for ever the day nobody prints that year again.
+     */
+    public function testASheetOlderThanTheRetentionIsPurgedWhateverYearItBelongsTo(): void
+    {
+        $service = $this->service($this->cacheDirectory);
+        $service->generate(1, '2026-2027', 'U', '', [$this->section(7, 'A')], $this->roster(7));
+
+        $old = glob($this->cacheDirectory . '/section-roster/*.pdf')[0];
+        touch($old, time() - (8 * 24 * 60 * 60));
+
+        // Another year entirely, so the same-year purge cannot be what
+        // removes it.
+        $service->generate(2, '2027-2028', 'U', '', [$this->section(7, 'A')], $this->roster(7));
+
+        $this->assertFileDoesNotExist($old);
+        $this->assertCount(1, glob($this->cacheDirectory . '/section-roster/*.pdf') ?: []);
+    }
+
+    public function testASheetWithinTheRetentionSurvivesAnotherYearsWrite(): void
+    {
+        $service = $this->service($this->cacheDirectory);
+        $service->generate(1, '2026-2027', 'U', '', [$this->section(7, 'A')], $this->roster(7));
+
+        $recent = glob($this->cacheDirectory . '/section-roster/*.pdf')[0];
+        touch($recent, time() - (6 * 24 * 60 * 60));
+
+        $service->generate(2, '2027-2028', 'U', '', [$this->section(7, 'A')], $this->roster(7));
+
+        $this->assertFileExists($recent);
+    }
+
     public function testNoTemporaryFileSurvivesAWrite(): void
     {
         $this->service($this->cacheDirectory)
