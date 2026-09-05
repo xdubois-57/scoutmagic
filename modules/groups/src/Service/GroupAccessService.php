@@ -38,6 +38,18 @@ use Modules\Groups\Repository\GroupSectionRepository;
  */
 class GroupAccessService
 {
+    /**
+     * The one sentence for "nothing here can sign this write" —
+     * authorMemberIdFor() below returning null, checked again by every
+     * action that needs an author member.
+     *
+     * Reaching it means the composer was rendered on a state
+     * canParticipate() refuses, which it no longer is: it is the
+     * belt-and-braces server-side twin of that refusal, not the way a
+     * member is meant to learn about it.
+     */
+    public const NO_AUTHOR_MEMBER_MESSAGE = 'Aucun membre de ce groupe n\'est associé à votre compte.';
+
     public function __construct(
         private GroupMemberRepository $memberRepository,
         private GroupSectionRepository $sectionRepository,
@@ -134,6 +146,27 @@ class GroupAccessService
             );
         }
 
+        // Last, because it is the only one that cannot be fixed from the
+        // page it refuses. Every write in this module is recorded against
+        // a member (discussion_group_posts.author_member_id and its
+        // NOT NULL twins on replies, reactions, reads and reports), so a
+        // session with no member to record against cannot write here
+        // however wide its role is — and the composer must say that
+        // instead of being offered and then refusing the post.
+        //
+        // For a member of the group this is unreachable: canRead() above
+        // passes on exactly the membership authorMemberIdFor() resolves.
+        // What it really answers is the site admin who reaches a group
+        // through the implicit-moderator bypass with no member of their
+        // own anywhere — the one case where the two used to disagree.
+        if ($this->authorMemberIdFor($group, $context) === null) {
+            return PostPermission::deny(
+                PostPermission::REASON_NO_MEMBER_IDENTITY,
+                'Aucun membre n\'est associé à votre compte : vos messages ne peuvent être signés par personne. '
+                    . 'Demandez à un responsable de rattacher votre compte à un membre.'
+            );
+        }
+
         return PostPermission::allow();
     }
 
@@ -192,6 +225,47 @@ class GroupAccessService
         }
 
         return $allowed;
+    }
+
+    /**
+     * The single member a write from this session is recorded against —
+     * the one value every NOT NULL `*_member_id` column in this module
+     * needs, resolved in one place instead of `…PostAs($group,
+     * $context)[0] ?? 0` repeated in five controllers.
+     *
+     * Normally that is the first of this account's own members that
+     * belongs to the group, exactly as before.
+     *
+     * A **site admin** falls back to the first member the account is
+     * linked to at all, in group or not. Staff d'U is an implicit
+     * moderator of every group (canPost()'s own docblock says so), yet
+     * the composer it was shown refused every message with "Aucun membre
+     * de ce groupe n'est associé à votre compte." the moment their own
+     * children were in another section — the bypass let them in and the
+     * author resolution shut the door behind them.
+     *
+     * Nothing is mis-signed by the fallback: a post is signed by the
+     * ACCOUNT that wrote it (Service\PostAuthorResolver — "the account is
+     * the human"), and author_member_id is bookkeeping the reader never
+     * sees, carrying read state, "vu par" and the rate limit. It is the
+     * admin's own member either way, never somebody else's, and only a
+     * role that already reads and moderates the group reaches it.
+     *
+     * Null when the account has no member at all — canParticipate()
+     * refuses on exactly that, so the composer is never offered.
+     */
+    public function authorMemberIdFor(DiscussionGroup $group, GroupSessionContext $context): ?int
+    {
+        $allowed = $this->memberIdsAllowedToPostAs($group, $context);
+        if ($allowed !== []) {
+            return $allowed[0];
+        }
+
+        if ($context->isSiteAdmin()) {
+            return $context->linkedMemberIds[0] ?? null;
+        }
+
+        return null;
     }
 
     /**

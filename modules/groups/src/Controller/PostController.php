@@ -213,7 +213,7 @@ class PostController extends AbstractController
         // all refused here, not merely hidden in the UI.
         $permission = $this->accessService->canPost($group, $context);
         if (!$permission->allowed) {
-            return new Response($permission->message, 403);
+            return $this->forbidden($permission->message, $request);
         }
 
         $body = (string) $request->getBody('body', '');
@@ -281,10 +281,9 @@ class PostController extends AbstractController
         // the read state, "vu par"), and is resolved here rather than
         // asked for: whichever of this account's members belongs to this
         // group.
-        $allowed = $this->accessService->memberIdsAllowedToPostAs($group, $context);
-        $authorMemberId = $allowed[0] ?? 0;
-        if ($authorMemberId === 0 || $context->userAccountId === null) {
-            return new Response('Aucun membre de ce groupe n\'est associé à votre compte.', 403);
+        $authorMemberId = $this->accessService->authorMemberIdFor($group, $context);
+        if ($authorMemberId === null || $context->userAccountId === null) {
+            return $this->forbidden(GroupAccessService::NO_AUTHOR_MEMBER_MESSAGE, $request);
         }
 
         try {
@@ -401,13 +400,12 @@ class PostController extends AbstractController
 
         $permission = $this->accessService->canPost($group, $context);
         if (!$permission->allowed) {
-            return new Response($permission->message, 403);
+            return $this->forbidden($permission->message, $request);
         }
 
-        $allowed = $this->accessService->memberIdsAllowedToPostAs($group, $context);
-        $memberId = $allowed[0] ?? 0;
-        if ($memberId === 0) {
-            return new Response('Aucun membre de ce groupe n\'est associé à votre compte.', 403);
+        $memberId = $this->accessService->authorMemberIdFor($group, $context);
+        if ($memberId === null) {
+            return $this->forbidden(GroupAccessService::NO_AUTHOR_MEMBER_MESSAGE, $request);
         }
 
         $url = PostLinkService::firstUrlIn((string) $request->getBody('body', ''));

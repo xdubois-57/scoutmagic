@@ -277,6 +277,33 @@ markup around it is a template that has to remember to escape it.
 The controller side is `$this->guardCsrf($request, '/where/to/go/back')`
 — see `AbstractController`; the guard is never called by the router.
 
+## Refusing: `notFound()` and `forbidden()`
+
+A refusal is a page, never a sentence served as the whole document.
+
+```php
+return $this->notFound();                                  // errors/404
+return $this->forbidden('Seul un modérateur…', $request);   // errors/403
+```
+
+`new Response('Seul un modérateur…', 403)` renders that sentence as the
+entire body: no stylesheet, no theme, no navigation, no way back. In the
+**installed PWA** there is no browser chrome either, so what the member
+actually gets is one black line on a white page — in the middle of a
+dark-mode session. That is what these two helpers exist to stop; the
+message itself is worth keeping and is passed straight through to the
+page.
+
+Pass `$request` whenever the route is also reachable by `fetch()`. The
+refusal then comes back as `{"error": "…"}` with the 403, which is what
+every AJAX caller in `public/assets/js/` already knows how to show inline
+— and what stops a script falling back to a full form submit and
+replacing the whole page with the refusal.
+
+The message is French, a full sentence, and says what happened
+(`AGENTS.md` § Language). `forbidden()` with no message falls back to the
+site's general "Vous n'avez pas les permissions nécessaires…".
+
 ## Selection components: select bar and nav rail
 
 The site has **two** selection components, for two genuinely different

@@ -29,6 +29,13 @@ abstract class AbstractController
      */
     public const SESSION_EXPIRED_MESSAGE = 'Votre session a expiré. Rechargez la page et réessayez.';
 
+    /**
+     * What errors/403.html.twig says when a refusal carries no sentence
+     * of its own. Kept here rather than only in the template so the JSON
+     * shape of the same refusal says exactly the same thing.
+     */
+    public const FORBIDDEN_MESSAGE = "Vous n'avez pas les permissions nécessaires pour accéder à cette page.";
+
     public function __construct(protected Environment $twig)
     {
     }
@@ -152,6 +159,50 @@ abstract class AbstractController
     protected function notFound(): Response
     {
         return $this->render('errors/404.html.twig')->setStatusCode(404);
+    }
+
+    /**
+     * The site's own 403 page, carrying the ONE French sentence that says
+     * why — the twin of notFound() above, and the answer to a refusal a
+     * visitor can actually read.
+     *
+     * A plain `new Response('…', 403)` renders that sentence as the whole
+     * document: no stylesheet, no theme, no navigation. In the installed
+     * PWA, where there is no browser chrome either, that is a bare black
+     * sentence on a white page — in the middle of a dark-mode session,
+     * with no way back other than the phone's gesture. The message is
+     * worth keeping; the plain-text body never was.
+     *
+     * Pass $request whenever the route is also reachable by fetch(): the
+     * refusal then comes back as `{error: …}` + 403, which every AJAX
+     * caller in this codebase already knows how to show inline. Without
+     * it — or from a plain form POST — the HTML page is rendered instead.
+     */
+    protected function forbidden(string $message = '', ?Request $request = null): Response
+    {
+        if ($request !== null && $this->expectsJson($request)) {
+            return $this->json(['error' => $message !== '' ? $message : self::FORBIDDEN_MESSAGE], 403);
+        }
+
+        return $this->render('errors/403.html.twig', ['message' => $message])->setStatusCode(403);
+    }
+
+    /**
+     * Does this caller want its refusal as JSON rather than as a page?
+     *
+     * Both spellings of the header this codebase actually sends are
+     * accepted (`XMLHttpRequest` and `fetch` — see public/assets/js/), as
+     * is an explicit `Accept: application/json`, so a refusal never
+     * depends on which of the two idioms a given script happened to use.
+     */
+    private function expectsJson(Request $request): bool
+    {
+        $requestedWith = (string) $request->getServer('HTTP_X_REQUESTED_WITH', '');
+        if ($requestedWith === 'XMLHttpRequest' || $requestedWith === 'fetch') {
+            return true;
+        }
+
+        return str_contains((string) $request->getServer('HTTP_ACCEPT', ''), 'application/json');
     }
 
     /**

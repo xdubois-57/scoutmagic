@@ -23,6 +23,14 @@ final class PostPermission
     public const REASON_INCOMPLETE_PROFILE = 'incomplete_profile';
 
     /**
+     * The account has no member to sign a write with — anywhere, not just
+     * in this group. Every write in the module is recorded against a
+     * member, so this is the one refusal the member cannot lift from the
+     * page: only a responsable rattaching the account can.
+     */
+    public const REASON_NO_MEMBER_IDENTITY = 'no_member_identity';
+
+    /**
      * The group publishes by moderators only (discussion_groups.
      * posting_policy). The only refusal here that still leaves the member
      * every other way of taking part — commenting, reacting, answering a
