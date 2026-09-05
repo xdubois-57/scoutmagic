@@ -119,6 +119,7 @@ does not:
 | `Authorization matrix` | `./scripts/dast.sh --profile=standard` |
 | `Dynamic scan (passive)` | `./scripts/dast.sh --profile=passive` |
 | `security` | `composer audit` |
+| `Claude review` | no local equivalent — read the findings on the PR; see below |
 | `SonarQube Cloud` | no local equivalent — read the bot's PR comment |
 | `Analyze (…)` (CodeQL) | no local equivalent — see `AGENTS.md` § CodeQL |
 
@@ -141,6 +142,14 @@ cannot show you:
   before scanning anything. CI pulls `ghcr.io/zaproxy/zaproxy:stable` in a
   step of its own; do the same first, or you cannot tell a missing
   prerequisite from the failure you came to reproduce.
+
+**A green `Claude review` does not always mean a review happened.** The
+action refuses to run when `.github/workflows/claude-review.yml` differs
+from the copy on `main` — sound, since a pull request could otherwise
+rewrite the reviewer and use its token — but it then exits *success*. So on
+a pull request that edits that file, the check goes green in about fifteen
+seconds having reviewed nothing. The run's duration is the tell, and the
+job log says so in as many words. Everywhere else, green means reviewed.
 
 **Before believing a green PHPUnit run, check the database was there.** The
 database-backed tests `markTestSkipped` when the server does not answer, so
