@@ -180,7 +180,15 @@ jobs:
     timeout-minutes: 5
 
     permissions:
+      # Posting and rewriting the status comment. This is the permission the
+      # review job above deliberately does not have.
       pull-requests: write
+      # Reading the review job's timestamps through
+      # /actions/runs/{run_id}/jobs. That endpoint answers without this on a
+      # public repository, which is why the job worked before this line was
+      # added — but the day this repository turns private it would stop, and
+      # a dependency on being public is not one to leave undeclared.
+      actions: read
 
     steps:
       - name: Post or update the review status comment
