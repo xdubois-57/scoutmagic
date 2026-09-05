@@ -20,7 +20,7 @@ catches what, and what each one cannot see.
 | **Dynamic scan** | CI; release gate | Over-permissive routes, what the running app actually answers | Logic the scan does not reach |
 | **CodeQL** | CI, GitHub-managed | Taint flows into DOM sinks | Non-JavaScript defects |
 | **SonarQube Cloud** | CI; release gate | Quality, duplication, security hotspots | Intent |
-| **AI triage** | Every issue opened or reopened | Whether a report is a real defect, and the one fact a blocked report is missing | Anything only a running installation shows — it reads the code but reproduces nothing, changes nothing, and gates nothing |
+| **AI triage** | Every issue opened or reopened | Whether a report is a real defect, the one fact a blocked report is missing, and the workaround when the behaviour is correct | Anything only a running installation shows — it reads the code but reproduces nothing, changes nothing, and gates nothing |
 | **AI review** | Pull requests it is eligible for — not drafts, and `Claude review` not on forks | Cross-file reasoning, stale documentation, intent mismatches | Nothing reliably — it is a reader, not a gate |
 | **Release gates** | `scripts/release.sh` | Deployment state, security advisories, dependency freshness, Sonar, PHPStan + the full PHPUnit suite, `e2e:full`, both DAST profiles | What the AI reviewers read — intent, cross-file reasoning, stale docs. It reads CodeQL's open alerts but runs no scan of its own |
 
@@ -369,6 +369,14 @@ name exactly.
 it applies `triage:done` plus exactly one `bug:*` verdict and removes
 `triage:pending`. It never applies or removes `status:accepted`, which
 stays a marker for a human eye that no workflow reads.
+
+**`bug:not-a-bug` is the one label that closes an issue** — with reason
+`not planned`, never `completed`, since nothing was completed and the
+release notes read that field. Every other outcome leaves the issue open.
+The skill makes that verdict expensive on purpose: it may only be reached
+when the workaround can be written for the reporter without jargon, and
+when it cannot, the interface misled a competent user and the verdict
+becomes `bug:confirmed` about the interface instead.
 
 One gap, recorded rather than papered over: **a feature request has no
 verdict.** `feature.yml` opens issues with `triage:pending` like `bug.yml`,

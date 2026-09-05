@@ -157,6 +157,102 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
     }
 
     /**
+     * The workflow has no checkout, so it does not `open` its skill — it
+     * asks Claude to fetch the file from `main` through the GitHub tools.
+     * That indirection has a failure mode nothing else covers: rename or
+     * move the file and the fetch returns nothing, while the job still
+     * runs, still authenticates, still has `issues: write`, and still
+     * ends `success`. Claude would triage the issue with no method at
+     * all — and since IT-03 that method is what decides whether an issue
+     * gets CLOSED, and with which reason.
+     *
+     * A green run proving nothing is the failure this repository keeps
+     * meeting (docs/quality-pipeline.md, last section), so the pairing is
+     * asserted here: every skill file the workflow names must exist.
+     */
+    public function testEverySkillTheWorkflowNamesExists(): void
+    {
+        $repoRoot = dirname(__DIR__, 2);
+        $referenced = [];
+
+        // The PROMPT only, never the whole file. That file's header
+        // discusses the skill by name twice, so scanning every line — as
+        // this first did — would keep passing after the path was deleted
+        // from the prompt, reporting success over a workflow that no
+        // longer loads anything. A check with that hole is worse than no
+        // check: it states a guarantee it is not making.
+        foreach ($this->promptLines() as $line) {
+            if (preg_match_all('/(\.claude\/skills\/[A-Za-z0-9_\-\/]+\.md)/', $line, $matches) < 1) {
+                continue;
+            }
+
+            foreach ($matches[1] as $path) {
+                $referenced[$path] = true;
+            }
+        }
+
+        self::assertNotEmpty(
+            $referenced,
+            self::WORKFLOW . "'s prompt no longer names a skill file. Either it stopped pointing at one "
+            . '— in which case the triage runs with no method, including no rule about closing — or the '
+            . 'reference changed shape and this test is now checking nothing.',
+        );
+
+        foreach (array_keys($referenced) as $path) {
+            self::assertFileExists(
+                $repoRoot . '/' . $path,
+                self::WORKFLOW . ' tells Claude to fetch ' . $path . ', which does not exist. The job '
+                . 'would still run, still succeed, and triage the issue with no method — including the '
+                . 'decision to close it.',
+            );
+        }
+    }
+
+    /**
+     * The lines of the step's `prompt:` block scalar — what the model is
+     * actually told, with the file's own commentary about it left out.
+     *
+     * @return array<int, string>
+     */
+    private function promptLines(): array
+    {
+        $prompt = [];
+        $indent = null;
+
+        foreach ($this->lines() as $line) {
+            if ($indent === null) {
+                if (preg_match('/^(\s+)prompt:\s*\|/', $line, $match) === 1) {
+                    $indent = strlen($match[1]);
+                }
+
+                continue;
+            }
+
+            // A blank line belongs to the scalar; the block ends at the
+            // first non-blank line no deeper than the `prompt:` key.
+            if (trim($line) === '') {
+                $prompt[] = $line;
+
+                continue;
+            }
+
+            if (preg_match('/^(\s*)\S/', $line, $depth) === 1 && strlen($depth[1]) <= $indent) {
+                break;
+            }
+
+            $prompt[] = $line;
+        }
+
+        self::assertNotNull(
+            $indent,
+            self::WORKFLOW . ' has no `prompt: |` block. The workflow runs in automation mode, so without '
+            . 'one it tells the model nothing — and this test would silently check an empty set.',
+        );
+
+        return $prompt;
+    }
+
+    /**
      * Every job-level `permissions:` block, as a map of what it grants.
      *
      * Scoped deliberately. The first version of this test scanned the
