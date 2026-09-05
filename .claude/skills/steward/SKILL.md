@@ -154,9 +154,16 @@ seconds having reviewed nothing.
 You no longer have to open the run to find that out: the `Claude review
 status` job posts one comment on the pull request, rewritten on every run,
 saying which of the three happened — reviewed, skipped without reviewing,
-or did not complete. It decides from the review job's duration, since a
-skip and a clean review are both `success` and only the clock separates
-them. Read that comment; it is the answer the check alone cannot give.
+or did not complete. It reads the action's own `conclusion` output, which
+is empty exactly when the action returned before running Claude. Read that
+comment; it is the answer the check alone cannot give.
+
+**Its `Took` row is information, not evidence.** That comment used to
+decide on duration — under a minute meant a skip — and it was wrong
+routinely, because a review with nothing to report finishes in about the
+same time as a refusal. It announced "green without a review" over reviews
+that had read the whole diff (issue #159). If you meet an older comment
+still phrased that way, trust the `Claude ran` row, not the clock.
 
 **Before believing a green PHPUnit run, check the database was there.** The
 database-backed tests `markTestSkipped` when the server does not answer, so
