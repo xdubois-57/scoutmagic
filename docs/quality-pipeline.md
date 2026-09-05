@@ -20,6 +20,7 @@ catches what, and what each one cannot see.
 | **Dynamic scan** | CI; release gate | Over-permissive routes, what the running app actually answers | Logic the scan does not reach |
 | **CodeQL** | CI, GitHub-managed | Taint flows into DOM sinks | Non-JavaScript defects |
 | **SonarQube Cloud** | CI; release gate | Quality, duplication, security hotspots | Intent |
+| **AI triage** | Every issue opened or reopened | Whether a report is a real defect, and the one fact a blocked report is missing | The code — it never changes any, and it is a reader of issues, not a gate |
 | **AI review** | Pull requests it is eligible for — not drafts, and `Claude review` not on forks | Cross-file reasoning, stale documentation, intent mismatches | Nothing reliably — it is a reader, not a gate |
 | **Release gates** | `scripts/release.sh` | Deployment state, security advisories, dependency freshness, Sonar, PHPStan + the full PHPUnit suite, `e2e:full`, both DAST profiles | What the AI reviewers read — intent, cross-file reasoning, stale docs. It reads CodeQL's open alerts but runs no scan of its own |
 
@@ -157,6 +158,16 @@ the installable artifact and attaches it to a rolling **prerelease** tagged
 `dev-latest`. The prerelease flag is an invariant — the stable channel reads
 `releases/latest`, which excludes prereleases, and that single fact is what
 keeps the two update channels apart.
+
+`.github/workflows/issue-triage.yml` is not CI and gates nothing: it runs
+on `issues: [opened, reopened]` and answers the reporter. It is the one
+workflow here that is triggered by a member of the public, which is why it
+holds `issues: write` and `id-token: write` and **nothing else** — no
+`contents`, no checkout, no path to `main` at all. Claude reads the code
+through the GitHub MCP tools; a checkout is only ever needed in order to
+write. Its judgement lives in `.claude/skills/triage/SKILL.md`, reviewed
+like code, and the workflow fetches that file from `main` rather than from
+a working copy it does not have.
 
 `.github/workflows/claude-review.yml` is the AI reviewer; see below. It
 carries two jobs: `Claude review`, which reads the diff, and `Claude review
@@ -353,6 +364,20 @@ happen.
 `claude-review` — adding it to a pull request asks `claude-review.yml` for a
 fresh pass without pushing a commit. The workflow's job guard matches this
 name exactly.
+
+`.github/workflows/issue-triage.yml` **writes** part of the taxonomy below:
+it applies `triage:done` plus exactly one `bug:*` verdict and removes
+`triage:pending`. It never applies or removes `status:accepted`, which
+stays a marker for a human eye that no workflow reads.
+
+One gap, recorded rather than papered over: **a feature request has no
+verdict.** `feature.yml` opens issues with `triage:pending` like `bug.yml`,
+but the three verdicts are all about defects, and `bug:not-a-bug` is the
+label that will later mean *closed as not planned* — the wrong end for a
+request the maintainer may want to keep. Such an issue therefore gets
+`triage:done` and no `bug:*` label at all. Closing that gap means a new
+label, which means a decision about what it would be for; inventing one at
+runtime is exactly what the script below exists to prevent.
 
 The issue triage taxonomy — `triage:*`, `bug:*`, `status:accepted` — is the
 one part of this section that *is* reproducible from the repository:
