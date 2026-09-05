@@ -257,15 +257,33 @@ jobs:
           # `Task` (work handed to a process that outlives this turn) and
           # `ScheduleWakeup` (a promise to come back).
           #
-          # `Bash`, `Write`, `Edit` and `NotebookEdit` are denied for a
-          # different reason, and the same transcript is why. This file
-          # used to claim the agent "holds no shell and no file tools"
-          # because --allowedTools named only the GitHub MCP server. That
-          # claim was FALSE: --allowedTools is a permission allowlist, not
-          # the tool surface, and the transcript shows the agent running
-          # `date` and `ls /home/runner/work/...` quite happily. Denying
-          # them makes the sentence true instead of deleting it — and this
-          # job reads untrusted public text, so the difference matters.
+          # The rest of the list is denied for a different reason, and the
+          # same transcript is why. This file used to claim the agent
+          # "holds no shell and no file tools" because --allowedTools
+          # named only the GitHub MCP server. That claim was FALSE:
+          # --allowedTools is a permission ALLOWLIST, not the tool
+          # surface, and the transcript shows the agent running `date` and
+          # `ls /home/runner/work/...` quite happily. Denying them makes
+          # the sentence true instead of deleting it.
+          #
+          # `Read`, `Glob` and `Grep` belong on that list too, and the
+          # tempting reason to leave them off is wrong. "There is no
+          # checkout, so there is nothing to read" confuses an empty
+          # REPOSITORY with an empty FILESYSTEM: the runner still has
+          # `/home/runner/.claude/`, the action's own `_temp` directory,
+          # and `/proc/self/environ`, which is where this job's tokens
+          # live. Every word of the issue that reaches this agent was
+          # typed by a member of the public, and secret masking applies to
+          # the LOG, not to an issue comment the agent writes. The agent
+          # reads code through the GitHub tools — 15 `get_file_contents`
+          # calls in that same transcript, not one from disk — so denying
+          # these costs the triage nothing.
+          #
+          # `WebFetch` and `WebSearch` are deliberately NOT denied. With
+          # the above gone, the agent's context holds only public things —
+          # this prompt, public issue bodies, public code — so a fetch
+          # leaks nothing that is not already published, and a reporter
+          # who links to a page is a case the skill file expects.
           #
           # --allowedTools is what STARTS the GitHub MCP server: the action
           # launches it only when claude_args names a tool from it (the
@@ -287,7 +305,7 @@ jobs:
           # net and became a plausible cause. 60 is still far below
           # anything that could quietly become expensive, and the timeout
           # above remains the hard stop.
-          claude_args: '--disallowedTools "Agent,Task,ScheduleWakeup,Bash,Write,Edit,NotebookEdit" --allowedTools "mcp__github" --max-turns 60'
+          claude_args: '--disallowedTools "Agent,Task,ScheduleWakeup,Bash,Read,Glob,Grep,Write,Edit,NotebookEdit" --allowedTools "mcp__github" --max-turns 60'
 
       # The assertion this job was missing. Everything above can succeed
       # while achieving nothing; only the labels on the issue say whether
@@ -372,7 +390,7 @@ jobs:
           # print one, and GitHub masks registered secrets in logs anyway.
           show_full_output: true
 
-          claude_args: '--disallowedTools "Agent,Task,ScheduleWakeup,Bash,Write,Edit,NotebookEdit" --allowedTools "mcp__github" --max-turns 60'
+          claude_args: '--disallowedTools "Agent,Task,ScheduleWakeup,Bash,Read,Glob,Grep,Write,Edit,NotebookEdit" --allowedTools "mcp__github" --max-turns 60'
 
       # The point of the whole exercise: an issue nobody triaged must not
       # look like an issue somebody did. This step is the only thing in

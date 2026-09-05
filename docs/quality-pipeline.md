@@ -665,11 +665,17 @@ nothing**:
   in the prompt. It stayed unexplainable for three rounds of fixes because
   no run kept its transcript.
 - **`--allowedTools` is a permission allowlist, not the tool surface.**
-  Naming only the GitHub MCP server does *not* take `Bash` away — a
-  transcript caught the agent running `date` and `ls` on the runner while
-  both workflow files claimed it "holds no shell". Only
-  `--disallowedTools` makes that claim true. An untrue security comment is
-  worse than none: it is the one somebody relies on.
+  Naming only the GitHub MCP server does *not* take `Bash`, `Read`, `Glob`
+  or `Grep` away — a transcript caught the agent running `date` and `ls`
+  on the runner while both workflow files claimed it "holds no shell".
+  Only `--disallowedTools` makes that claim true. An untrue security
+  comment is worse than none: it is the one somebody relies on. And "there
+  is no checkout, so there is nothing to read" is not a reason to leave the
+  read tools out: an empty *repository* is not an empty *filesystem* —
+  `/home/runner/.claude/`, the action's `_temp` directory and
+  `/proc/self/environ` are all still there, the last being where these
+  jobs' tokens live, and secret masking covers the log rather than an issue
+  comment the agent writes.
 - **`claude-code-action` exits 0 on an agent that did nothing.** The step
   reports success whenever the agent's turn ends normally, and an agent
   that read the issue, gave up and said so ended normally. No timeout, no

@@ -879,8 +879,18 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
                 );
             }
 
-            // The tools both files claim the agent does not hold.
-            foreach (['Bash', 'Write', 'Edit'] as $tool) {
+            // The tools both files claim the agent does not hold. The
+            // READ half of this list is the half that looks safe to omit
+            // — "there is no checkout, so there is nothing to read" —
+            // and that confuses an empty repository with an empty
+            // filesystem. The runner still carries
+            // `/home/runner/.claude/`, the action's `_temp` directory and
+            // `/proc/self/environ`, which is where this job's tokens are;
+            // and GitHub's secret masking covers the LOG, not an issue
+            // comment the agent writes. On a job whose every input is
+            // typed by a member of the public, that is the difference
+            // between a hardening detail and a disclosure path.
+            foreach (['Bash', 'Read', 'Glob', 'Grep', 'Write', 'Edit', 'NotebookEdit'] as $tool) {
                 self::assertContains(
                     $tool,
                     $listed,
@@ -888,7 +898,8 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
                     . 'Both workflows tell the reader the agent holds no shell and no file tools, '
                     . 'and `--allowedTools` does not make that true — a transcript caught the agent '
                     . 'running `date` and `ls` on the runner. An untrue security comment is worse '
-                    . 'than none: it is the one somebody relies on.',
+                    . 'than none: it is the one somebody relies on. The agent reads code through '
+                    . 'the GitHub tools, never from disk, so denying these costs the triage nothing.',
                 );
             }
         }
