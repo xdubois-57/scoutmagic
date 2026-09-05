@@ -240,7 +240,10 @@ class SectionRosterPdfService
         $layout = (string) realpath(__DIR__ . '/Pdf/SectionRosterHtmlBuilder.php');
         $layoutStat = $layout !== '' ? @stat($layout) : false;
 
-        $signature = hash('sha256', (string) json_encode([
+        // Encoded first rather than inline in hash(): two arguments opening
+        // on the same line as a multi-line array is the one shape this
+        // file's linter asks not to be written.
+        $payload = json_encode([
             $scoutYearId,
             $yearLabel,
             $unitName,
@@ -248,7 +251,8 @@ class SectionRosterPdfService
             $selectedSectionId,
             $composition,
             $layoutStat !== false ? [$layoutStat['mtime'], $layoutStat['size']] : null,
-        ]));
+        ]);
+        $signature = hash('sha256', (string) $payload);
 
         return $this->cacheDirectory . '/section-roster/' . $scoutYearId . '-' . $signature . '.pdf';
     }

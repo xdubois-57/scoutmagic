@@ -265,7 +265,7 @@ class ServiceWorkerPrecacheTest extends TestCase
         $this->assertNotEmpty($retry, 'Could not locate retryOnce() in public/sw.js');
         // navigator.onLine is a reliable NO: a device in flight mode must
         // skip the retry and get the offline page with no extra wait.
-        $this->assertStringContainsString('self.navigator.onLine === false', $retry[1]);
+        $this->assertStringContainsString('self.navigator?.onLine === false', $retry[1]);
 
         preg_match('/function handleNavigate\(request, url, preloadResponse, event\) \{(.*?)\n\}/s', $this->swJs, $nav);
         $this->assertNotEmpty($nav, 'Could not locate handleNavigate() in public/sw.js');

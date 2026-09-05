@@ -2538,7 +2538,11 @@ $router->addRoute(
 // The roll-call sheet. Same role as the page it prints — it carries less
 // than the page does, not more: no contact of any kind reaches it.
 $router->addRoute(
-    'GET', '/chefs/membres/pdf', \Core\Http\Controller\SectionRosterController::class, 'pdf', 'intendant',
+    'GET',
+    '/chefs/membres/pdf',
+    \Core\Http\Controller\SectionRosterController::class,
+    'pdf',
+    'intendant',
 );
 $router->addRoute(
     'POST', '/chefs/staffs/documents', \Core\Http\Controller\SectionDocumentController::class, 'add', 'chief',

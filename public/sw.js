@@ -437,7 +437,16 @@ function startNetworkRequest(request, preloadResponse) {
  * @returns {Promise<Response>}
  */
 function retryOnce(request) {
-    if (self.navigator && self.navigator.onLine === false) {
+    // `self.navigator?.onLine === false` rather than the `X && X.y` form,
+    // and the two are genuinely equivalent HERE — which is not something
+    // to assume in this file. `X && X.y` may only become `X?.y` where the
+    // result is tested for truth; in front of a comparison `undefined`
+    // satisfies (`!== '1'`, say) they differ exactly where it matters,
+    // and that mistake has already shipped once in this codebase. The
+    // comparison here is `=== false`, which `undefined` does not satisfy,
+    // so a missing navigator takes the same branch either way: not known
+    // to be offline, so try.
+    if (self.navigator?.onLine === false) {
         return Promise.reject(new Error('offline'));
     }
 
