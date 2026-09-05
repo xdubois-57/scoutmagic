@@ -204,14 +204,20 @@ class ReenrollmentConfigController extends AbstractController
         return $this->redirect(self::PAGE_URL);
     }
 
+    /**
+     * The same hand-over the scheduled clock performs, through the same
+     * guard — a chef who closes the campaign, notices, re-opens it and
+     * closes it again owes the families ONE closing e-mail, not two.
+     *
+     * Written out here as a second `schedule()` call, it was two.
+     */
     private function queueEmails(string $type, string $campaignKey): void
     {
-        $this->schedulerService->schedule(
-            'registration',
-            'send_reenrollment_emails',
-            new \DateTimeImmutable(),
-            ['type' => $type, 'campaign' => $campaignKey, 'after_key' => 0],
-            $type . ':' . $campaignKey
+        \Modules\Registration\Task\ReenrollmentCampaignHandler::handOver(
+            $this->schedulerService,
+            $this->campaign,
+            $type,
+            $campaignKey
         );
     }
 }

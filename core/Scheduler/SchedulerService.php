@@ -319,6 +319,21 @@ class SchedulerService
     }
 
     /**
+     * Whether a batched hand-over is still in flight — see
+     * SchedulerRepository::hasLiveStartingWith() for why the reference is
+     * matched on its start rather than in full.
+     *
+     * Deliberately NOT served from the cached live-key snapshot: that
+     * snapshot exists so a composition root can ask about a hundred exact
+     * references without a hundred queries, and a prefix has no key to
+     * look up in it. A caller asking this asks about one hand-over.
+     */
+    public function hasLiveStartingWith(string $moduleId, string $taskKey, string $prefix): bool
+    {
+        return $this->repository->hasLiveStartingWith($moduleId, $taskKey, $prefix);
+    }
+
+    /**
      * Cancel a scheduled action.
      */
     public function cancel(int $actionId): void

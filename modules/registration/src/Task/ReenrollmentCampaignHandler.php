@@ -23,10 +23,14 @@ use Modules\Registration\Service\ReenrollmentCampaignService;
  * visits, so a handler may run many times in a day or not at all, and
  * everything it does has to be safe to attempt again.
  *
- * **Every action is guarded by a marker keyed on the campaign's own close
- * date.** Two runs on the same day open the campaign once and queue each
- * e-mail once; a run that arrives late still does what it should, and a
- * run after a manual close does nothing.
+ * **Every action is guarded, and the guard is what makes the hourly
+ * rhythm safe.** Opening and closing are keyed on the campaign's own
+ * close date; the two reminders, which change no state of their own, are
+ * keyed on the hand-over instead (see handOver() — that guard was
+ * described here long before it existed, and its absence sent one
+ * reminder per cron pass). Two runs on the same day open the campaign
+ * once and hand over each e-mail once; a run that arrives late still does
+ * what it should, and a run after a manual close does nothing.
  *
  * **No catch-up on the dates themselves.** A missed opening is missed
  * (roadmap IT-15): a campaign that opened four days late would send an
@@ -74,7 +78,7 @@ class ReenrollmentCampaignHandler implements TaskHandlerInterface
                 'Campagne de réinscription ouverte automatiquement',
                 ['campaign' => $openingKey]
             );
-            $this->queue($scheduler, ReenrollmentCampaignService::EMAIL_OPENING, $openingKey);
+            self::handOver($scheduler, $campaign, ReenrollmentCampaignService::EMAIL_OPENING, $openingKey);
         }
 
         $campaignKey = $campaign->currentCampaignKey($now);
@@ -97,7 +101,7 @@ class ReenrollmentCampaignHandler implements TaskHandlerInterface
             if (!$campaign->isOpen()) {
                 continue;
             }
-            $this->queue($scheduler, $reminder, $campaignKey);
+            self::handOver($scheduler, $campaign, $reminder, $campaignKey);
         }
 
         // ── closing ──────────────────────────────────────────────────
@@ -113,27 +117,60 @@ class ReenrollmentCampaignHandler implements TaskHandlerInterface
                 'Campagne de réinscription clôturée automatiquement',
                 ['campaign' => $campaignKey]
             );
-            $this->queue($scheduler, ReenrollmentCampaignService::EMAIL_CLOSING, $campaignKey);
+            self::handOver($scheduler, $campaign, ReenrollmentCampaignService::EMAIL_CLOSING, $campaignKey);
         }
     }
 
     /**
-     * Hands one e-mail type to the sending task, unless it has already
-     * been handed over for this campaign.
+     * Hands one e-mail type to the sending task — once per campaign.
      *
-     * The marker is written HERE rather than by the sender: the sender
-     * runs in batches and would otherwise have to decide, on each batch,
-     * whether it is the one that finishes the job.
+     * **This used to hand it over every time it was asked**, and this
+     * handler is asked HOURLY. An opening and a closing survived that,
+     * because each is guarded by the marker written the moment the
+     * campaign changes state; the two reminders had no such moment, so a
+     * reminder's day produced one hand-over per cron pass — up to
+     * twenty-four copies of the same e-mail to every silent family in the
+     * unit. The docblock here described the guard; the code did not have
+     * it.
+     *
+     * Two questions make one hand-over, and both are needed:
+     *
+     * - has this e-mail already GONE OUT for this campaign? That is the
+     *   sender's marker, written when the last batch finishes.
+     * - is it going out right NOW? A unit of more than twenty-five
+     *   families is a chain of batches, whose continuations carry a
+     *   cursor in their reference — so the question is about the whole
+     *   chain, not about its first row, which is `done` long before the
+     *   last one runs.
+     *
+     * A manual reminder deliberately bypasses both: it carries its own
+     * `manual:` reference, and a chef asking for one has answered the
+     * question themselves (Controller\ReenrollmentConfigController).
      */
-    private function queue(SchedulerService $scheduler, string $type, string $campaignKey): void
-    {
+    public static function handOver(
+        SchedulerService $scheduler,
+        ReenrollmentCampaignService $campaign,
+        string $type,
+        string $campaignKey
+    ): bool {
+        if ($campaign->alreadyDone(ReenrollmentCampaignService::emailMarker($type), $campaignKey)) {
+            return false;
+        }
+
+        $reference = $type . ':' . $campaignKey;
+        if ($scheduler->hasLiveStartingWith('registration', 'send_reenrollment_emails', $reference)) {
+            return false;
+        }
+
         $scheduler->schedule(
             'registration',
             'send_reenrollment_emails',
             new \DateTimeImmutable(),
             ['type' => $type, 'campaign' => $campaignKey, 'after_key' => 0],
-            $type . ':' . $campaignKey
+            $reference
         );
+
+        return true;
     }
 
     public static function campaignService(TaskContext $context): ReenrollmentCampaignService

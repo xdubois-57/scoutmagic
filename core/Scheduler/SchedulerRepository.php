@@ -77,6 +77,36 @@ class SchedulerRepository
     }
 
     /**
+     * Whether a BATCHED chain is alive, matched on the start of its
+     * reference rather than the whole of it.
+     *
+     * hasLive() above answers for a chain whose rows all carry the same
+     * reference. A batched hand-over does not work that way: its first
+     * row is `<what>`, and each continuation `<what>:<cursor>`, precisely
+     * so that re-running one batch cannot queue the same batch twice. The
+     * whole of it is still ONE hand-over, and asking hasLive() about the
+     * first row alone answers "no" the moment batch one is done — which
+     * is how a caller polling every hour starts a second copy of a
+     * hand-over that is merely halfway through.
+     *
+     * The prefix is matched literally: LIKE metacharacters in it are
+     * escaped, so a reference is never read as a pattern.
+     */
+    public function hasLiveStartingWith(string $moduleId, string $taskKey, string $prefix): bool
+    {
+        $escaped = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $prefix);
+
+        $stmt = $this->pdo->prepare(
+            "SELECT 1 FROM scheduled_actions
+             WHERE module_id = ? AND task_key = ? AND reference LIKE ? ESCAPE '\\'
+               AND status IN ('pending', 'processing') LIMIT 1"
+        );
+        $stmt->execute([$moduleId, $taskKey, $escaped . '%']);
+
+        return $stmt->fetchColumn() !== false;
+    }
+
+    /**
      * Collapse a chain back to a single queued row, keeping the one that
      * runs first.
      *
