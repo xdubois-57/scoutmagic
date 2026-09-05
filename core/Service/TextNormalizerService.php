@@ -89,6 +89,36 @@ class TextNormalizerService
     }
 
     /**
+     * A one-line preview of a longer text: whitespace collapsed, cut to
+     * `$maxLength` at the last word boundary before it, ellipsis appended.
+     *
+     * Four call sites grew their own private `truncate()` over time (a
+     * poster caption, a rental settlement note, a group notification, an
+     * error-handler payload), each a few lines and each slightly different
+     * about where the cut lands. This is the one they share from now on:
+     * an excerpt is a display concern, and display concerns live here.
+     *
+     * The cut lands on a word boundary rather than mid-word — an excerpt is
+     * read by a human, and "Sortie de la sect…" is a better line in a list
+     * than "Sortie de la se…".
+     */
+    public static function excerpt(string $raw, int $maxLength): string
+    {
+        $text = trim(preg_replace('/\s+/u', ' ', $raw) ?? $raw);
+        if ($text === '' || strlen($text) <= $maxLength) {
+            return $text;
+        }
+
+        $cut = substr($text, 0, $maxLength);
+        $lastSpace = strrpos($cut, ' ');
+        if ($lastSpace !== false) {
+            $cut = substr($cut, 0, $lastSpace);
+        }
+
+        return rtrim($cut) . '…';
+    }
+
+    /**
      * Name particles that stay lowercase when they are not the first word.
      *
      * @var array<int, string>

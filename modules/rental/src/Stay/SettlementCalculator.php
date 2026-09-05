@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Stay;
 
+use Core\Service\TextNormalizerService;
 use Modules\Rental\Pricing\PriceLine;
 use Modules\Rental\Pricing\PriceQuote;
 use Modules\Rental\Pricing\RentalFee;
@@ -252,8 +253,6 @@ final class SettlementCalculator
 
     private static function truncate(string $text, int $length): string
     {
-        $text = trim(preg_replace('/\s+/u', ' ', $text) ?? $text);
-
-        return mb_strlen($text) <= $length ? $text : rtrim(mb_substr($text, 0, $length)) . '…';
+        return TextNormalizerService::excerpt($text, $length);
     }
 }

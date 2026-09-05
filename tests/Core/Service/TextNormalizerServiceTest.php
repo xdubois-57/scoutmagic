@@ -153,6 +153,28 @@ class TextNormalizerServiceTest extends TestCase
         $this->assertSame('eeae', TextNormalizerService::fold('ÉÈÆ'));
     }
 
+    /**
+     * @dataProvider excerptProvider
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('excerptProvider')]
+    public function testExcerpt(string $input, int $maxLength, string $expected): void
+    {
+        $this->assertSame($expected, TextNormalizerService::excerpt($input, $maxLength));
+    }
+
+    /** @return array<string, array{string, int, string}> */
+    public static function excerptProvider(): array
+    {
+        return [
+            'shorter than the limit' => ['A short note', 40, 'A short note'],
+            'exactly the limit' => ['Twelve chars', 12, 'Twelve chars'],
+            'cut on a word boundary' => ['The stay was settled on time', 15, 'The stay was…'],
+            'collapse whitespace' => ["Two   lines\n  of  text", 40, 'Two lines of text'],
+            'trim' => ['  padded  ', 40, 'padded'],
+            'empty' => ['', 40, ''],
+        ];
+    }
+
     /** Two spellings of one place fold together — the duplicate detector's job. */
     public function testTwoSpellingsOfOnePlaceFoldTogether(): void
     {
