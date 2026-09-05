@@ -15,10 +15,14 @@ import '../../public/sw.js';
 const sw = globalThis.ScoutMagicServiceWorkerInternals;
 
 // Minimal Cache Storage fake. Keyed by cache name; each cache stores
-// Request-or-string -> Response. Enough for open/match/put/keys/delete.
+// Request-or-string -> Response. Enough for open/match/put/keys/delete,
+// plus the one option the app-shell branch depends on: `ignoreSearch`,
+// which the real Cache Storage uses to resolve `/assets/js/api.js?v=X`
+// onto the bare `/assets/js/api.js` entry the precache wrote.
 function createCachesFake(seed = {}) {
     const stores = new Map(Object.entries(seed).map(([k, v]) => [k, new Map(Object.entries(v))]));
     const keyOf = (req) => (typeof req === 'string' ? req : req.url);
+    const withoutQuery = (key) => key.split('?')[0];
 
     function cacheFor(name) {
         if (!stores.has(name)) stores.set(name, new Map());
@@ -34,10 +38,18 @@ function createCachesFake(seed = {}) {
     return {
         stores,
         open: vi.fn((name) => Promise.resolve(cacheFor(name))),
-        match: vi.fn((req) => {
+        match: vi.fn((req, options = {}) => {
             for (const store of stores.values()) {
                 const hit = store.get(keyOf(req));
                 if (hit) return Promise.resolve(hit);
+            }
+            if (options.ignoreSearch) {
+                const bare = withoutQuery(keyOf(req));
+                for (const store of stores.values()) {
+                    for (const [key, hit] of store) {
+                        if (withoutQuery(key) === bare) return Promise.resolve(hit);
+                    }
+                }
             }
             return Promise.resolve(undefined);
         }),
@@ -436,5 +448,130 @@ describe('sw.js: startNetworkRequest()', () => {
 
         expect(res).toBe(preloaded);
         expect(fetch).not.toHaveBeenCalled();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// App-shell freshness — the two rules the `?v=` cache-buster cannot enforce
+// on its own. Reproduces the production bug: an install put a new page in
+// front of the previous /assets/js/api.js, and Configuration > Maintenance
+// died on « window.ScoutMagicApi.pollSlot is not a function ».
+// ---------------------------------------------------------------------------
+describe('sw.js: precacheRequests()', () => {
+    beforeEach(() => {
+        global.Request = class {
+            constructor(url, init = {}) {
+                this.url = url;
+                this.cache = init.cache;
+            }
+        };
+    });
+
+    it('fetches every precached URL past the browser HTTP cache', () => {
+        const requests = sw.precacheRequests();
+
+        expect(requests).toHaveLength(sw.APP_SHELL_URLS.length);
+        expect(requests.every((request) => request.cache === 'reload')).toBe(true);
+    });
+
+    it('precaches api.js — the file whose stale copy broke the maintenance page', () => {
+        const urls = sw.precacheRequests().map((request) => request.url);
+
+        expect(urls).toContain('/assets/js/api.js');
+    });
+
+    it('keeps each URL as its own cache key, query string included', () => {
+        const urls = sw.precacheRequests().map((request) => request.url);
+
+        expect(urls).toEqual(sw.APP_SHELL_URLS);
+        expect(urls.some((url) => url.includes('?v='))).toBe(true);
+    });
+});
+
+describe('sw.js: isSupersededShellRequest()', () => {
+    it('accepts a request carrying no version at all (/offline, /favicon.ico)', () => {
+        expect(sw.isSupersededShellRequest(new URL('https://example.test/offline'))).toBe(false);
+    });
+
+    it('accepts the version this worker itself precached', () => {
+        expect(sw.isSupersededShellRequest(
+            new URL('https://example.test/assets/js/api.js?v=' + sw.VERSION)
+        )).toBe(false);
+    });
+
+    it('rejects any other version — the page is from a build this worker never saw', () => {
+        expect(sw.isSupersededShellRequest(
+            new URL('https://example.test/assets/js/api.js?v=1.0.42-abcdef1234')
+        )).toBe(true);
+    });
+});
+
+describe('sw.js: appShellResponse()', () => {
+    const cachedApi = () => makeResponse('window.ScoutMagicApi = { postJson: 1 };');
+    const liveApi = () => makeResponse('window.ScoutMagicApi = { postJson: 1, pollSlot: 1 };');
+
+    function shellCache(entry = cachedApi()) {
+        return createCachesFake({
+            'app-shell-dev-icons-1': { 'https://example.test/assets/js/api.js': entry },
+        });
+    }
+
+    function requestFor(query) {
+        const url = new URL('https://example.test/assets/js/api.js' + query);
+        return { request: { url: url.href }, url };
+    }
+
+    it('serves the precached copy, ignoreSearch, for its own version', async () => {
+        global.caches = shellCache();
+        global.fetch = vi.fn();
+        const { request, url } = requestFor('?v=' + sw.VERSION);
+
+        const res = await sw.appShellResponse(request, url);
+
+        expect(await res.text()).toContain('postJson: 1 }');
+        expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('falls through to the network when nothing is precached', async () => {
+        global.caches = createCachesFake();
+        global.fetch = vi.fn(() => Promise.resolve(liveApi()));
+        const { request, url } = requestFor('');
+
+        expect(await (await sw.appShellResponse(request, url)).text()).toContain('pollSlot');
+    });
+
+    it('goes to the network for a version it never precached, rather than serve the old script', async () => {
+        global.caches = shellCache();
+        global.fetch = vi.fn(() => Promise.resolve(liveApi()));
+        const { request, url } = requestFor('?v=1.0.42-abcdef1234');
+
+        const res = await sw.appShellResponse(request, url);
+
+        expect(await res.text()).toContain('pollSlot');
+        expect(fetch).toHaveBeenCalledWith(request);
+    });
+
+    it('still answers offline from the cache when that network attempt fails', async () => {
+        global.caches = shellCache();
+        global.fetch = vi.fn(() => Promise.reject(new Error('offline')));
+        const { request, url } = requestFor('?v=1.0.42-abcdef1234');
+
+        expect(await (await sw.appShellResponse(request, url)).text()).toContain('postJson: 1 }');
+    });
+
+    it('prefers the cached copy over a 404 from a half-written deploy', async () => {
+        global.caches = shellCache();
+        global.fetch = vi.fn(() => Promise.resolve(makeResponse('nope', { ok: false, status: 404 })));
+        const { request, url } = requestFor('?v=1.0.42-abcdef1234');
+
+        expect(await (await sw.appShellResponse(request, url)).text()).toContain('postJson: 1 }');
+    });
+
+    it('returns the network failure when the cache holds nothing either', async () => {
+        global.caches = createCachesFake();
+        global.fetch = vi.fn(() => Promise.reject(new Error('offline')));
+        const { request, url } = requestFor('?v=1.0.42-abcdef1234');
+
+        await expect(sw.appShellResponse(request, url)).rejects.toThrow('offline');
     });
 });

@@ -116,11 +116,71 @@ class ServiceWorkerPrecacheTest extends TestCase
         $this->assertStringNotContainsString('ignoreSearch', $m[1]);
     }
 
+    /**
+     * The counterpart to the icon rule above: none of the base app-shell
+     * URLs legitimately carries a query string, so a lookup for one that
+     * does must still resolve onto the precached bare-path entry. The
+     * branch itself now delegates to appShellResponse(), which is where
+     * the ignoreSearch lookup lives.
+     */
     public function testAppShellBaseFetchHandlerStillUsesIgnoreSearch(): void
     {
         preg_match('/if \(APP_SHELL_BASE_URLS\.includes\(url\.pathname\)\) \{(.*?)\n    \}/s', $this->swJs, $m);
         $this->assertNotEmpty($m, 'Could not locate the APP_SHELL_BASE_URLS fetch-handler branch in public/sw.js');
-        $this->assertStringContainsString('ignoreSearch', $m[1]);
+        $this->assertStringContainsString('appShellResponse(request, url)', $m[1]);
+
+        preg_match('/function cachedShell\(request\) \{(.*?)\n\}/s', $this->swJs, $lookup);
+        $this->assertNotEmpty($lookup, 'Could not locate cachedShell() in public/sw.js');
+        $this->assertStringContainsString('ignoreSearch', $lookup[1]);
+    }
+
+    /**
+     * §2.6, and a real production bug: cache.addAll() fetches the BARE
+     * app-shell URLs — no `?v=` on any of them — and a bare
+     * /assets/js/api.js is a URL no page ever requests, so the only thing
+     * that ever writes it into the browser's own HTTP cache is a previous
+     * precache. Served with a far-future lifetime (or heuristic freshness
+     * off Last-Modified), that entry is then reused: the new cache
+     * generation is filled with the PREVIOUS release's bytes, and
+     * ignoreSearch serves them whatever `?v=` the page asks for. The
+     * symptom was Configuration > Maintenance loading new markup against
+     * the old api.js and dying on « window.ScoutMagicApi.pollSlot is not
+     * a function » — an uncaught error, so every later block of
+     * maintenance.js (update channel, branch selector, install form)
+     * never ran at all.
+     */
+    public function testPrecacheBypassesTheBrowserHttpCache(): void
+    {
+        preg_match('/function precacheRequests\(\) \{(.*?)\n\}/s', $this->swJs, $m);
+        $this->assertNotEmpty($m, 'Could not locate precacheRequests() in public/sw.js');
+        $this->assertStringContainsString('APP_SHELL_URLS.map', $m[1]);
+        $this->assertStringContainsString("new Request(url, { cache: 'reload' })", $m[1]);
+
+        preg_match("/self\.addEventListener\('install', function \(event\) \{(.*?)\n\}\);/s", $this->swJs, $install);
+        $this->assertNotEmpty($install, 'Could not locate the install() handler in public/sw.js');
+        $this->assertStringContainsString('cache.addAll(precacheRequests())', $install[1]);
+    }
+
+    /**
+     * The other half of the same bug: on the first page load after an
+     * install the controlling worker is still the previous one, so
+     * cache-first hands the previous build's script to the new build's
+     * markup. A `?v=` this worker never precached must go to the network
+     * — with the cache kept as the offline fallback, so nothing regresses
+     * when there is no network to go to.
+     */
+    public function testAShellVersionThisWorkerNeverPrecachedBypassesTheCache(): void
+    {
+        preg_match('/function isSupersededShellRequest\(url\) \{(.*?)\n\}/s', $this->swJs, $m);
+        $this->assertNotEmpty($m, 'Could not locate isSupersededShellRequest() in public/sw.js');
+        $this->assertStringContainsString("url.searchParams.get('v')", $m[1]);
+        $this->assertStringContainsString('requested !== VERSION', $m[1]);
+
+        preg_match('/function appShellResponse\(request, url\) \{(.*?)\n\}/s', $this->swJs, $branch);
+        $this->assertNotEmpty($branch, 'Could not locate appShellResponse() in public/sw.js');
+        $this->assertStringContainsString('isSupersededShellRequest(url)', $branch[1]);
+        $this->assertStringContainsString('fetch(request)', $branch[1]);
+        $this->assertStringContainsString('cachedShell(request)', $branch[1]);
     }
 
     /**
