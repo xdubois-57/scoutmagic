@@ -54,11 +54,21 @@ user-facing French label. Judge the consequence, not the size of the patch.
 **Reply in the language of the thread.** Reviews arrive in English; the
 maintainer writes French. Match whoever you are answering.
 
-Fix and push: nits, renames, a missing test, a one-function correction,
-anything a bot found. Reply with a proposal instead of pushing, and let the
-author decide: multi-file refactors, a schema or `Api\` contract change,
-open-ended design feedback from a human. When you cannot tell which a human
-reviewer's ask is, treat it as the larger one.
+**Two questions, and size answers before identity.**
+
+Fix and push, whoever raised it: nits, renames, a missing test, a
+one-function correction.
+
+Propose and let the maintainer decide — however the ask arrived, and
+however confident the reviewer sounds: a multi-file refactor, a schema
+change, anything touching a module's `Api\` contract (`ARCHITECTURE.md`
+§7.5), open-ended design feedback. **That a bot raised it changes nothing
+here.** A bot finding is a bug report worth acting on, and it is still not
+a licence to make a change this size on your own: verify it, then bring a
+proposal.
+
+Identity only breaks a tie. When you cannot size a human reviewer's ask,
+treat it as the larger one.
 
 ## A red check — which local command reproduces it
 
@@ -68,13 +78,22 @@ Run the one that matches; do not run the whole battery for a lint failure.
 |---|---|
 | `test` | `vendor/bin/phpstan analyse` then `vendor/bin/phpunit` |
 | `database-mariadb` | `vendor/bin/phpunit` (the session hook already exports `TEST_DB_*`) |
-| `javascript-tests` | `npm run typecheck` then `npm test` |
+| `javascript-tests` | `npm ci`, `npm run typecheck`, `npm run test:coverage` |
 | `End-to-end (browser)` | `npm run e2e` |
 | `Authorization matrix` | `./scripts/dast.sh --profile=standard` |
 | `Dynamic scan (passive)` | `./scripts/dast.sh --profile=passive` |
 | `security` | `composer audit` (this job runs that alone — `npm audit` is a release gate, not a CI check) |
 | `SonarQube Cloud` | no local equivalent — read the bot's PR comment |
 | `Analyze (…)` (CodeQL) | no local equivalent — see `AGENTS.md` § CodeQL |
+
+The `javascript-tests` row is CI's own three steps, in order, and the two
+easy ones to drop both hide a real failure. `npm ci` is what fails on a
+`package.json` and `package-lock.json` that have drifted apart — an
+already-installed `node_modules/` never exercises that, so run it whenever
+you touched either file. `npm run test:coverage` rather than `npm test`
+because collection is part of the job: it is what writes
+`coverage/js/lcov.info` for the `sonarqube` job, and it can fail on its own
+with every spec passing. `npm test` is for iterating, not for concluding.
 
 ### The engine trap, which runs the opposite way locally
 
