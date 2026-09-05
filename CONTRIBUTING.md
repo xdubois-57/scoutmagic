@@ -7,6 +7,9 @@ Thank you for considering contributing to this project.
 1. Read [ARCHITECTURE.md](ARCHITECTURE.md) in full — every contribution must conform to it.
 2. Read [SECURITY.md](SECURITY.md) — apply the security checklist to every PR.
 3. Read [AGENTS.md](AGENTS.md) — these rules apply to all contributors, human or AI.
+4. [docs/quality-pipeline.md](docs/quality-pipeline.md) maps the whole pipeline —
+   tests, CI, code review, the release gates, and the GitHub settings none of it
+   works without. Read it once; come back to it when a check surprises you.
 
 ## Key rules
 
