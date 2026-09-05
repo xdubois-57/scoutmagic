@@ -120,6 +120,7 @@ does not:
 | `Dynamic scan (passive)` | `./scripts/dast.sh --profile=passive` |
 | `security` | `composer audit` |
 | `Claude review` | no local equivalent — read the findings on the PR; see below |
+| `Claude review status` | no local equivalent — it posts the comment that says what the green above means |
 | `SonarQube Cloud` | no local equivalent — read the bot's PR comment |
 | `Analyze (…)` (CodeQL) | no local equivalent — see `AGENTS.md` § CodeQL |
 
@@ -148,8 +149,14 @@ action refuses to run when `.github/workflows/claude-review.yml` differs
 from the copy on `main` — sound, since a pull request could otherwise
 rewrite the reviewer and use its token — but it then exits *success*. So on
 a pull request that edits that file, the check goes green in about fifteen
-seconds having reviewed nothing. The run's duration is the tell, and the
-job log says so in as many words. Everywhere else, green means reviewed.
+seconds having reviewed nothing.
+
+You no longer have to open the run to find that out: the `Claude review
+status` job posts one comment on the pull request, rewritten on every run,
+saying which of the three happened — reviewed, skipped without reviewing,
+or did not complete. It decides from the review job's duration, since a
+skip and a clean review are both `success` and only the clock separates
+them. Read that comment; it is the answer the check alone cannot give.
 
 **Before believing a green PHPUnit run, check the database was there.** The
 database-backed tests `markTestSkipped` when the server does not answer, so
