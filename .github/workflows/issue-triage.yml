@@ -126,13 +126,27 @@ jobs:
     #   a verdict that is again `bug:needs-info` would otherwise wake the
     #   job that wrote it, forever.
     # - The comment comes from the person who was ASKED — the issue's own
-    #   reporter — or from somebody who can write to this repository. Any
-    #   passer-by with a GitHub account may comment here, and without
-    #   this clause any of them could strip the verdict labels off
-    #   somebody else's report and spend a triage doing it, as many times
-    #   as they cared to type. Opening an issue already costs a triage
-    #   and that is the design; taking one over is not. Matched on the
-    #   user ID rather than the login, which can be renamed and reused.
+    #   reporter — or from the repository OWNER. Any passer-by with a
+    #   GitHub account may comment here, and without this clause any of
+    #   them could strip the verdict labels off somebody else's report
+    #   and spend a triage doing it, as many times as they cared to type.
+    #   Opening an issue already costs a triage and that is the design;
+    #   taking one over is not. Matched on the user ID rather than the
+    #   login, which can be renamed and reused.
+    #
+    #   `OWNER` and nothing else, deliberately. `author_association` is a
+    #   relationship, NOT a permission: `MEMBER` and `COLLABORATOR` say
+    #   somebody belongs to the owning organisation or was invited here,
+    #   which on an organisation-owned repository includes the Read and
+    #   Triage roles — no write access at all, and `allowed_non_write_users`
+    #   below means the action would not stop them either. Today this
+    #   repository is owned by an account, has exactly one collaborator
+    #   (that owner, as admin), so `OWNER` is the maintainer and the two
+    #   readings coincide. The day it moves to an organisation they stop
+    #   coinciding, and the failure would be silent — so the narrow one
+    #   is written down. Widening this to real write access means asking
+    #   `/repos/{owner}/{repo}/collaborators/{user}/permission`, which is
+    #   an API call and therefore a step, not a job condition.
     # - The issue is open (a closed one is not waiting for anything) and
     #   is not a pull request — `issue_comment` fires on both, and a
     #   review conversation is not a report.
@@ -146,8 +160,7 @@ jobs:
         && github.event.comment.user.type != 'Bot'
         && (
           github.event.comment.user.id == github.event.issue.user.id
-          || contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'),
-                      github.event.comment.author_association)
+          || github.event.comment.author_association == 'OWNER'
         )
         && contains(github.event.issue.labels.*.name, 'bug:needs-info')
       )
@@ -296,18 +309,47 @@ jobs:
           gh api "repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}/labels" \
             -X POST -f 'labels[]=triage:pending' --silent
 
-          # A label that is already absent is a 404 here, and that is a
-          # fine outcome for "make sure it is gone" — the state after the
-          # call is what matters, not whether this call is what produced
-          # it.
           for label in 'triage:done' 'bug:needs-info'; do
             # The colon is encoded rather than sent raw: it is legal in a
-            # path segment and GitHub accepts both, but a DELETE that
-            # failed on the encoding would be swallowed by the `||` below
-            # and leave the label sitting there.
+            # path segment and GitHub accepts both, but a DELETE failing
+            # on the encoding is exactly the kind of thing that must not
+            # pass for "the label was not there anyway".
+            #
+            # A DELETE of an absent label is a 404, which is a fine
+            # outcome here and the reason this call is allowed to fail at
+            # all. It is NOT the only reason it can fail — an expired
+            # token, a secondary rate limit and a dropped connection all
+            # land here too — so the failure is noted and then settled by
+            # reading the labels back, below.
             gh api "repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}/labels/${label//:/%3A}" \
-              -X DELETE --silent || echo "Label ${label} was not on the issue."
+              -X DELETE --silent \
+              || echo "Removing ${label} did not succeed; the state is checked below."
           done
+
+          # THE CALLS ARE NOT THE OUTCOME. Every one of them can report
+          # success while the issue ends up in the wrong state, and this
+          # workflow exists because a run that achieved nothing used to
+          # end green. So the state is read back, and it decides.
+          #
+          # No `|| true` on this read: a label list this job cannot
+          # obtain is a job that does not know what it did, and the
+          # agent below must not run on an issue whose state it cannot
+          # trust. The reporter's answer keeps its `bug:needs-info`, the
+          # nightly scan is unaffected, and the failure is visible in the
+          # Actions tab rather than silently rewritten.
+          state="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}/labels" \
+            --jq 'map(.name)
+                  | if (index("triage:pending") != null)
+                       and (index("triage:done") == null)
+                       and (index("bug:needs-info") == null)
+                    then "reset" else "stale" end')"
+
+          if [ "${state}" != "reset" ]; then
+            echo "::error title=Issue was not sent back to triage::Issue #${ISSUE_NUMBER} still \
+            carries a triage label it should have lost, or lost the triage:pending it should have \
+            gained. The re-triage is stopped here rather than run against a state it cannot trust."
+            exit 1
+          fi
 
           echo "Issue #${ISSUE_NUMBER} is back in triage: the reporter answered."
 

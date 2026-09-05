@@ -211,14 +211,20 @@ comments, and the nightly scan skips `triage:done` — the label the
 question is filed under — so the reply reached nothing, however complete
 it was. A comment on an **open** issue carrying `bug:needs-info`, on
 something that is not a pull request, written by somebody who is not a bot
-and who is either the issue's own reporter or somebody with write access,
-now sends that issue back to `triage:pending` (dropping `triage:done` and
+and who is either the issue's own reporter or the repository owner, now
+sends that issue back to `triage:pending` (dropping `triage:done` and
 `bug:needs-info`) and re-triages it against everything it says now. The
 order matters: reset first, because `triage:done` left over from the first
-pass would make the verification below pass over a run that did nothing.
-The bot exclusion is what stops the loop — the verdict this job posts is
-itself a comment. The reporter clause is what stops a passer-by: opening an
-issue costs a triage by design, taking one over does not. The prompt's duplicate guard is stated the same way for
+pass would make the verification below pass over a run that did nothing —
+and the reset **reads itself back** and fails the job when the labels did
+not move, because `gh api -X DELETE` cannot tell an absent label from an
+expired token. The bot exclusion is what stops the loop: the verdict this
+job posts is itself a comment. The reporter clause is what stops a
+passer-by — opening an issue costs a triage by design, taking one over does
+not — and it says `OWNER` rather than `MEMBER`/`COLLABORATOR` on purpose,
+since `author_association` is a relationship and not a permission: on an
+organisation-owned repository those two include the Read and Triage roles,
+which hold no write access at all. The prompt's duplicate guard is stated the same way for
 both cases: a verdict is a duplicate only when nothing has been said since
 it.
 

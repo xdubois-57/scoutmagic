@@ -424,16 +424,18 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
      */
     public function testThePerIssueTriageReadsBothHalvesOfTheVerdictBack(): void
     {
-        // The label-READING scripts, which is what `--jq` picks out: the
-        // same workflow also WRITES labels, in the step that sends an
-        // answered `bug:needs-info` issue back to `triage:pending` before
-        // re-triaging it, and that step is asserted on its own below.
-        // Demanding the verdict predicate of it would be demanding that a
-        // write be a read.
+        // The scripts that read the labels back to decide whether a
+        // VERDICT landed — which is what `landed=` picks out. The same
+        // workflow reads labels for a different question too: the step
+        // that sends an answered `bug:needs-info` issue back to
+        // `triage:pending` checks its own reset the same careful way, and
+        // its predicate is deliberately the mirror image of this one.
+        // Demanding the verdict predicate of that step would be demanding
+        // that it assert the state it exists to undo.
         $checks = array_filter(
             $this->runScripts(self::TRIAGE),
             static fn (string $script): bool => str_contains($script, '/labels')
-                && str_contains($script, '--jq'),
+                && str_contains($script, 'landed='),
         );
 
         self::assertNotEmpty(
@@ -504,9 +506,12 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
                 => 'the comment must come from the person who was ASKED; without it any passer-by '
                 . "with a GitHub account can strip the verdict labels off somebody else's report and "
                 . 'spend a triage doing it, as often as they care to type',
-            'fromJSON(\'["OWNER", "MEMBER", "COLLABORATOR"]\')'
-                => 'the maintainer answering on somebody else\'s report is the other legitimate '
-                . 'case, and it is recognised by write access rather than by being the reporter',
+            "github.event.comment.author_association == 'OWNER'"
+                => "the maintainer answering on somebody else's report is the other legitimate case, "
+                . 'and it is recognised as the repository OWNER and nothing weaker — '
+                . '`author_association` is a relationship and not a permission, so `MEMBER` and '
+                . '`COLLABORATOR` would admit the Read and Triage roles of an organisation-owned '
+                . 'repository, which hold no write access at all',
             "github.event.issue.state == 'open'"
                 => 'a closed issue is waiting for nothing',
             '!github.event.issue.pull_request'
@@ -561,6 +566,32 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
                     . 'left behind says the reporter still owes an answer they have already given.',
                 );
             }
+        }
+
+        // And it must READ ITS OWN RESULT. `gh api -X DELETE` on a label
+        // that is not there is a 404 — which is a fine outcome for "make
+        // sure it is gone" and the reason the call may fail at all — but
+        // an expired token, a secondary rate limit and a dropped
+        // connection fail identically. Tolerating the first three means
+        // running the agent against an issue that still says
+        // `bug:needs-info`, and the next comment starts the whole thing
+        // over. The calls are not the outcome; the labels are.
+        foreach ($writes as $script) {
+            self::assertStringContainsString(
+                'index("triage:pending") != null',
+                $script,
+                self::TRIAGE . ' resets the labels without reading them back. Every call in that '
+                . 'step can report success while the issue ends up in the wrong state, which is the '
+                . 'exact failure this workflow was rewritten to stop reporting as green.',
+            );
+
+            self::assertStringContainsString(
+                'exit 1',
+                $script,
+                self::TRIAGE . ' reads the reset back but cannot fail on it. A check that only '
+                . 'prints is a check the agent runs straight past, against a state nothing has '
+                . 'established.',
+            );
         }
 
         $lines = $this->lines(self::TRIAGE);
@@ -830,11 +861,26 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
             . 'happens to re-check for one.',
         );
 
-        // The step that can fail the job, found by what it does rather
-        // than by what it is called. Ungated it runs on every issue and
-        // fails the job on the ones the first attempt triaged perfectly
-        // well — and a red run that means nothing is read as no run at
-        // all within the week.
+        // Every step that can fail the job, found by what it does rather
+        // than by what it is called. Ungated, such a step runs on every
+        // issue and fails the job on the ones that went perfectly well —
+        // and a red run that means nothing is read as no run at all
+        // within the week.
+        //
+        // TWO gates qualify, because there are two honest reasons to go
+        // red here and they are not the same reason:
+        //
+        //   - the verdict check, gated on the retry's own condition: it
+        //     fails when two attempts left the issue untriaged;
+        //   - the label reset, gated on the comment trigger: it fails
+        //     when an answered issue could not be put back to
+        //     `triage:pending`, which is the one case where continuing
+        //     would run the agent against a state nothing established.
+        //
+        // Both are conditional on something. What this refuses is a step
+        // that can redden a run it has no business judging.
+        $reset = '/^\s+if:\s*github\.event_name == .issue_comment.\s*$/m';
+
         $failures = array_filter(
             $steps,
             static fn (string $step): bool => str_contains($step, 'exit 1'),
@@ -847,12 +893,11 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
         );
 
         foreach ($failures as $step) {
-            self::assertSame(
-                1,
-                preg_match($gate, $step),
-                $workflow . ' has a step that can fail the job without gating it on '
-                . '`steps.first_check.outputs.landed`. Every issue the first attempt triaged '
-                . 'correctly would end in a red run.',
+            self::assertTrue(
+                preg_match($gate, $step) === 1 || preg_match($reset, $step) === 1,
+                $workflow . ' has a step that can fail the job while gated on neither '
+                . '`steps.first_check.outputs.landed` nor the comment trigger. Every issue the '
+                . 'first attempt triaged correctly would end in a red run.',
             );
         }
     }

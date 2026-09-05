@@ -78,9 +78,9 @@ Three things follow:
 
 Most comments never reach you at all, and the workflow's filter is why: a
 comment only wakes a triage on an open issue carrying `bug:needs-info`,
-written by the reporter themselves or by somebody with write access to the
-repository. A conversation between humans on an answered report is not a
-triage, and a passer-by cannot take one over.
+written by the reporter themselves or by the repository owner. A
+conversation between humans on an answered report is not a triage, and a
+passer-by cannot take one over.
 
 ## Order of work
 
