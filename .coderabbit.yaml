@@ -24,9 +24,12 @@ tone_instructions: >-
 reviews:
   profile: assertive
 
-  # A "request changes" review would block the merge button on top of the
-  # branch protection already in force. Findings arrive as comments; the
-  # maintainer decides what blocks.
+  # Left off deliberately. Enabling it lets CodeRabbit submit formal GitHub
+  # review events: it holds a "changes requested" until every thread is
+  # resolved, the checks pass and the newest commit has been reviewed, and
+  # only then submits an approval. That approval could satisfy a required
+  # review on `main`, which is not a decision a reviewer should make here.
+  # Off, findings arrive as comments and the maintainer decides what blocks.
   request_changes_workflow: false
 
   auto_review:
@@ -142,3 +145,17 @@ reviews:
         reproduction table describes. Changing a job's name, its commands,
         its database engine or its environment variables makes that table
         wrong — say so, naming the row that goes stale.
+
+knowledge_base:
+  code_guidelines:
+    # CodeRabbit reads AGENTS.md and CLAUDE.md on its own, and nothing else
+    # by default — so the three files this configuration's header calls the
+    # source of truth were invisible to the reviewer citing them. The
+    # path_instructions above point at `ARCHITECTURE.md 7.5` and
+    # `design.md section 7`; these patterns are what let it follow the
+    # reference instead of guessing at it.
+    filePatterns:
+      - "/ARCHITECTURE.md"
+      - "/SECURITY.md"
+      - "/design.md"
+      - "/CONTRIBUTING.md"

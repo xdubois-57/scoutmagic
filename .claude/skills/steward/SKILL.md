@@ -40,7 +40,7 @@ disagree with; disagreeing is not addressing.
 ## Review comments
 
 **A bot finding is a bug report, not an opinion.** An AI reviewer runs on
-every pull request here. *Which* one is a setting the maintainer can change
+every non-draft pull request here. *Which* one is a setting the maintainer can change
 in an afternoon, so read it off the PR — an author whose login ends in
 `[bot]`, posting inline comments — rather than off a vendor name written
 here, which is the kind of detail that goes stale without anyone noticing.
