@@ -103,7 +103,19 @@
                                         <td>
                                             <div class="d-flex flex-wrap align-items-center gap-2">
                                                 {% if can_view_member_link %}
-                                                    <a href="/members/{{ member.memberYearId }}" class="tap-target d-inline-flex align-items-center">
+                                                    {# /admin/members/{id}, the ADMINISTRATION sheet — internal notes,
+                                                       history, module blocks — and not /members/{id}, which is the page
+                                                       the member consults about themselves. This list is read by the
+                                                       Staff d'unité, and can_view_member_link is Role::ADMIN precisely
+                                                       because that is the destination's own role_min.
+
+                                                       The id is memberYearId, and BOTH routes take one: Core\Member\
+                                                       Controller\MemberSearchController::show() looks the parameter up
+                                                       with MemberYearRepository::findById() and then normalises onto the
+                                                       member's most recent annual row. Passing member.memberId here
+                                                       would not 404 — the two are both integers — it would silently open
+                                                       somebody else's sheet. #}
+                                                    <a href="/admin/members/{{ member.memberYearId }}" class="tap-target d-inline-flex align-items-center">
                                                         {{ member.lastName|normalize_name }}, {{ member.firstName|normalize_name }}{% if member.totem %} · {{ member.totem|normalize_totem }}{% endif %}
                                                     </a>
                                                 {% else %}

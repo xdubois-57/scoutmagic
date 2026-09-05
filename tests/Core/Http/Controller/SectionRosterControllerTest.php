@@ -185,7 +185,7 @@ class SectionRosterControllerTest extends TestCase
         $request = new Request('GET', '/chefs/membres', [], [], [], []);
         $response = $this->controller->index($request, []);
 
-        $this->assertStringContainsString('href="/members/' . $memberYearId . '"', $response->getBody());
+        $this->assertStringContainsString('href="/admin/members/' . $memberYearId . '"', $response->getBody());
     }
 
     public function testMemberNameIsNotALinkForChiefRole(): void
@@ -198,7 +198,7 @@ class SectionRosterControllerTest extends TestCase
         $request = new Request('GET', '/chefs/membres', [], [], [], []);
         $response = $this->controller->index($request, []);
 
-        $this->assertStringNotContainsString('href="/members/' . $memberYearId . '"', $response->getBody());
+        $this->assertStringNotContainsString('href="/admin/members/' . $memberYearId . '"', $response->getBody());
     }
 
     public function testMemberNameIsNotALinkForIntendantRole(): void
@@ -211,7 +211,7 @@ class SectionRosterControllerTest extends TestCase
         $request = new Request('GET', '/chefs/membres', [], [], [], []);
         $response = $this->controller->index($request, []);
 
-        $this->assertStringNotContainsString('href="/members/' . $memberYearId . '"', $response->getBody());
+        $this->assertStringNotContainsString('href="/admin/members/' . $memberYearId . '"', $response->getBody());
     }
 
     public function testMemberNameIsALinkForSuperadminRole(): void
@@ -224,7 +224,66 @@ class SectionRosterControllerTest extends TestCase
         $request = new Request('GET', '/chefs/membres', [], [], [], []);
         $response = $this->controller->index($request, []);
 
-        $this->assertStringContainsString('href="/members/' . $memberYearId . '"', $response->getBody());
+        $this->assertStringContainsString('href="/admin/members/' . $memberYearId . '"', $response->getBody());
+    }
+
+    /**
+     * The identifier, pinned — not merely the presence of a link.
+     *
+     * `/admin/members/{id}` takes a **member_years.id**: Core\Member\
+     * Controller\MemberSearchController::show() resolves the parameter
+     * through MemberYearRepository::findById() and then normalises onto
+     * the member's most recent annual row. members.id and member_years.id
+     * are both integers, so the wrong one does not 404 — it silently
+     * opens somebody else's sheet, which is the failure this test exists
+     * to catch and which no "there is an <a href> somewhere" assertion
+     * would ever see.
+     *
+     * The fixture pushes the two sequences apart on purpose: in a fresh
+     * database they advance in lock-step, so the member created here has
+     * members.id and member_years.id equal and the assertion below would
+     * hold for either value. Six spare `members` rows first, and they
+     * cannot be confused again.
+     */
+    public function testTheMemberLinkCarriesTheMemberYearIdAndNotTheMemberId(): void
+    {
+        AuthSession::login(1, 'admin@test.be', 'admin');
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 20);
+        $sectionId = $this->createSection('LOU01', $branchId, 'Ma section');
+        for ($i = 0; $i < 6; $i++) {
+            $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('SPARE_" . uniqid() . "')");
+        }
+        $memberYearId = $this->createMemberInSection($sectionId, 'Alice', 'chief');
+        $memberId = (int) $this->pdo->query(
+            'SELECT member_id FROM member_years WHERE id = ' . $memberYearId
+        )->fetchColumn();
+        $this->assertNotSame($memberId, $memberYearId, 'the fixture must not let the two ids coincide');
+
+        $request = new Request('GET', '/chefs/membres', [], [], [], []);
+        $body = $this->controller->index($request, [])->getBody();
+
+        $this->assertStringContainsString('href="/admin/members/' . $memberYearId . '"', $body);
+        $this->assertStringNotContainsString('href="/admin/members/' . $memberId . '"', $body);
+    }
+
+    /**
+     * And never the member's own page: /members/{id} is what a member
+     * consults about themselves, with none of the internal notes, history
+     * or module blocks the Staff d'unité opens this list to reach.
+     */
+    public function testTheMemberLinkIsNotTheMembersOwnPage(): void
+    {
+        AuthSession::login(1, 'admin@test.be', 'admin');
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 20);
+        $sectionId = $this->createSection('LOU01', $branchId, 'Ma section');
+        $memberYearId = $this->createMemberInSection($sectionId, 'Alice', 'chief');
+
+        $request = new Request('GET', '/chefs/membres', [], [], [], []);
+
+        $this->assertStringNotContainsString(
+            'href="/members/' . $memberYearId . '"',
+            $this->controller->index($request, [])->getBody()
+        );
     }
 
     public function testUsesThePreviewYearWhenSetForAnAdmin(): void
