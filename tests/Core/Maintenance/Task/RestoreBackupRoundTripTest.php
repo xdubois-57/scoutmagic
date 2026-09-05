@@ -309,6 +309,198 @@ class RestoreBackupRoundTripTest extends TestCase
         );
     }
 
+    // ── the pass that comes after ─────────────────────────────────────
+
+    /**
+     * The migration runs on a LATER pass, and that pass is where a
+     * failure still has to be undoable. It is also the pass with no
+     * database of its own to look anything up in — see
+     * `RestoreBackupHandler::resolveSafetyCopy()`.
+     */
+    public function testAResumedPassThatMigratesCleanlyFinishesTheRestore(): void
+    {
+        $this->resume($this->safetyCopyOnDisk());
+
+        $types = $this->journalTypes();
+        $this->assertContains('backup_restored', $types);
+    }
+
+    /**
+     * The decision the fix is made of, on its own: where the resumed pass
+     * looks for the safety copy, and in what order.
+     *
+     * The order is the whole point. A path travels in the payload and
+     * outlives the database; a row id is resolved against whatever
+     * database the restore has just put in place, which is not the one
+     * the id was minted in.
+     */
+    public function testThePathsCarriedInThePayloadAreWhatTheRollbackUses(): void
+    {
+        $safety = $this->safetyCopyOnDisk();
+
+        [$dump, $zip] = RestoreBackupHandler::resolveSafetyCopy(
+            $safety['safety_db_dump_path'],
+            $safety['safety_zip_path'],
+            // An id that resolves to nothing, which is the normal state
+            // after a restore replaced the `backups` table.
+            999999,
+            new BackupRepository($this->pdo()),
+            new FileRepository($this->pdo()),
+            $this->storagePath
+        );
+
+        $this->assertSame($safety['safety_db_dump_path'], $dump);
+        $this->assertSame($safety['safety_zip_path'], $zip);
+    }
+
+    /**
+     * A pass queued before this file carried paths at all — an
+     * installation upgraded between a restore and its own resume. The row
+     * is the only thing it has, and it is checked against the disk like
+     * anything else.
+     */
+    public function testWithoutPathsItStillFindsACopyTheRowCanPointAt(): void
+    {
+        $backupId = $this->takeServerBackup();
+
+        [$dump, $zip] = RestoreBackupHandler::resolveSafetyCopy(
+            null,
+            null,
+            $backupId,
+            new BackupRepository($this->pdo()),
+            new FileRepository($this->pdo()),
+            $this->storagePath
+        );
+
+        // That backup registered a dump but no file archive, so it cannot
+        // serve as a safety copy — and saying so is the point.
+        $this->assertNull($dump);
+        $this->assertNull($zip);
+    }
+
+    /**
+     * A path in the payload that no longer names a file is not an answer:
+     * the fallback has to be tried rather than a missing file handed to
+     * the restorer.
+     */
+    public function testAPathThatNoLongerExistsIsNotTakenForACopy(): void
+    {
+        [$dump, $zip] = RestoreBackupHandler::resolveSafetyCopy(
+            $this->storagePath . '/parti.sql',
+            $this->storagePath . '/parti.zip',
+            0,
+            new BackupRepository($this->pdo()),
+            new FileRepository($this->pdo()),
+            $this->storagePath
+        );
+
+        $this->assertNull($dump);
+        $this->assertNull($zip);
+    }
+
+    public function testHalfACopyIsNoCopy(): void
+    {
+        $safety = $this->safetyCopyOnDisk();
+
+        [$dump, $zip] = RestoreBackupHandler::resolveSafetyCopy(
+            $safety['safety_db_dump_path'],
+            null,
+            0,
+            new BackupRepository($this->pdo()),
+            new FileRepository($this->pdo()),
+            $this->storagePath
+        );
+
+        $this->assertNull($dump, 'Restoring a database without its files is not putting anything back.');
+        $this->assertNull($zip);
+    }
+
+    /**
+     * The resumed pass, failing after its migration — which is where the
+     * safety copy stops being paperwork and becomes the only way back.
+     */
+    public function testAResumedPassThatFailsPutsTheInstallationBackFromTheCarriedPaths(): void
+    {
+        $this->setUnitName('Unité du Chêne');
+        $safety = $this->safetyCopyOnDisk();
+        $this->makeTheTailOfTheResumedPassFail();
+
+        $this->resume($safety);
+
+        $this->assertSame(
+            'Unité du Chêne',
+            $this->unitName(),
+            'The copy is what the operator is trusting; it has to be usable from this pass.'
+        );
+        $this->assertContains('backup_restore_rolled_back', $this->journalTypes());
+    }
+
+    /**
+     * The case the fix exists for, end to end: the row recording the
+     * safety copy was replaced by the restore, so there is nothing to
+     * look up — and the rollback still works, from the payload alone.
+     */
+    public function testTheRollbackWorksWithNoRowLeftToLookUp(): void
+    {
+        $this->setUnitName('Unité du Chêne');
+        $safety = $this->safetyCopyOnDisk();
+        $this->makeTheTailOfTheResumedPassFail();
+
+        // An id that resolves to nothing: the normal state once the
+        // restore has replaced the table the id was minted in.
+        $this->resume($safety, 999999);
+
+        $this->assertSame('Unité du Chêne', $this->unitName());
+        $this->assertContains('backup_restore_rolled_back', $this->journalTypes());
+    }
+
+    public function testWithNeitherPathsNorRowTheOperatorIsToldPlainlyAndLoudly(): void
+    {
+        $this->makeTheTailOfTheResumedPassFail();
+
+        $this->resume(['safety_db_dump_path' => null, 'safety_zip_path' => null], 999999);
+
+        $failed = array_values(array_filter(
+            (new JournalRepository($this->pdo()))->search(),
+            static fn (array $e): bool => $e['event_type'] === 'backup_restore_failed'
+        ));
+
+        $this->assertNotSame([], $failed, 'Silence here is an installation nobody knows is half-migrated.');
+        $this->assertSame('warning', $failed[0]['level'], 'It asks for a human; it is not routine information.');
+    }
+
+    /**
+     * Makes the resumed pass fail after its migration, in a way that is
+     * not contrived: this pass runs against a database the restore has
+     * just replaced, and the tail of it walks the older backups to purge
+     * them — over the `files` table, which a restored-but-not-yet-migrated
+     * schema may well not have.
+     */
+    private function makeTheTailOfTheResumedPassFail(): void
+    {
+        $backups = new BackupRepository($this->pdo());
+        $files = new FileRepository($this->pdo());
+
+        // More than the five the purge keeps, each pointing at a file, so
+        // the purge actually reaches for the table.
+        for ($i = 0; $i < 7; $i++) {
+            $fileId = $files->create(
+                'maintenance/vieux_' . $i . '.zip',
+                'sauvegarde.zip',
+                'application/zip',
+                10,
+                'admin',
+                null,
+                null
+            );
+            $backups->markCompleted($backups->create('database', null), $fileId, $fileId);
+        }
+
+        $this->pdo()->exec('SET FOREIGN_KEY_CHECKS = 0');
+        $this->pdo()->exec('DROP TABLE files');
+        $this->pdo()->exec('SET FOREIGN_KEY_CHECKS = 1');
+    }
+
     // ── harness ───────────────────────────────────────────────────────
 
     /**
@@ -317,6 +509,44 @@ class RestoreBackupRoundTripTest extends TestCase
     private function restore(array $payload): void
     {
         (new RestoreBackupHandler())->handle($payload, $this->context());
+    }
+
+    /**
+     * @param array<string, mixed> $safety
+     */
+    private function resume(array $safety, int $safetyBackupId = 1): void
+    {
+        (new RestoreBackupHandler())->handle(
+            ['resume_migration' => true, 'source' => 'server', 'safety_backup_id' => $safetyBackupId] + $safety,
+            $this->context()
+        );
+    }
+
+    /**
+     * A safety copy as the initial attempt leaves one: two real files, and
+     * the payload keys that point at them.
+     *
+     * @return array{safety_db_dump_path: string, safety_zip_path: string}
+     */
+    private function safetyCopyOnDisk(): array
+    {
+        $service = new BackupService($this->connection, $this->storagePath, dirname($this->storagePath));
+
+        return [
+            'safety_db_dump_path' => $service->createDatabaseDump(),
+            'safety_zip_path' => $service->createFileBackup(true),
+        ];
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function journalTypes(): array
+    {
+        return array_map(
+            static fn (array $entry): string => (string) $entry['event_type'],
+            (new JournalRepository($this->pdo()))->search()
+        );
     }
 
     /**

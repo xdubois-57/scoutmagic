@@ -246,7 +246,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
 
             $this->finishRestore($context, $backupRepository, $fileRepository, $source, $requestedBy);
         } catch (\Throwable $migrationError) {
-            [$safetyDbDumpPath, $safetyZipPath] = $this->resolveSafetyCopy(
+            [$safetyDbDumpPath, $safetyZipPath] = self::resolveSafetyCopy(
                 $carriedDbDump,
                 $carriedZip,
                 $safetyBackupId,
@@ -301,9 +301,16 @@ class RestoreBackupHandler implements TaskHandlerInterface
      * upgraded between a restore and its own resume — and it is checked
      * against the disk like any other.
      *
+     * Public and static because it is pure resolution — no state, and
+     * the one decision in this file that a test can put under a
+     * magnifying glass without a database to restore first. The same
+     * seam Task\SyncMailboxesHandler::intervalSeconds() and
+     * Modules\Registration\Task\ReenrollmentCampaignHandler::handOver()
+     * already are.
+     *
      * @return array{0: string|null, 1: string|null}
      */
-    private function resolveSafetyCopy(
+    public static function resolveSafetyCopy(
         ?string $carriedDbDump,
         ?string $carriedZip,
         int $safetyBackupId,
