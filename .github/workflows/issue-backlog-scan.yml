@@ -20,8 +20,8 @@
 # context. If anything, the case for keeping this job away from the
 # repository is stronger here.
 #
-# THREE GITHUB BEHAVIOURS THIS FILE IS SHAPED BY. None of them produces an
-# error; all three produce silence, which is why they are written down.
+# FOUR GITHUB BEHAVIOURS THIS FILE IS SHAPED BY. None of them produces an
+# error; all four produce silence, which is why they are written down.
 #
 #   1. A `schedule:` trigger only ever runs from the DEFAULT BRANCH. This
 #      file does nothing at all on a pull request branch — editing the
@@ -39,17 +39,6 @@
 #      — the fix is to re-enable the workflow in the Actions tab, and any
 #      push resets the clock.
 #
-#   3a. `claude-code-action` EXITS 0 ON AN AGENT THAT DID NOTHING. The
-#      step reports success whenever the agent's turn ends normally, and
-#      "read the backlog, triaged one of four, stopped" is a normal end.
-#      Observed on this job's very first run (2026-09-05, dispatched by
-#      hand after it merged): four candidates, one handled, 29 turns of a
-#      180-turn budget, `success`, and three reporters left waiting with
-#      nothing anywhere saying so. issue-triage.yml met the same failure
-#      on the per-issue side and answers it the same way — see the four
-#      steps below. A scan that cannot report what it left undone is not
-#      a safety net; it is a second place for issues to disappear.
-#
 #   3. A scheduled run is ATTRIBUTED TO THE LAST ACCOUNT THAT TOUCHED THE
 #      CRON LINE — not to whoever merged, and not to a repository owner.
 #      `github.actor` on a schedule event is that account. The action
@@ -60,6 +49,17 @@
 #      check for exactly this reason (it is also what makes the per-issue
 #      workflow work for members of the public), but the rule to remember
 #      is simpler: the cron line is edited by a human account.
+#
+#   4. `claude-code-action` EXITS 0 ON AN AGENT THAT DID NOTHING. The
+#      step reports success whenever the agent's turn ends normally, and
+#      "read the backlog, triaged one of four, stopped" is a normal end.
+#      Observed on this job's very first run (2026-09-05, dispatched by
+#      hand the moment it merged): four candidates, one handled, 29 turns
+#      of a 180-turn budget, `success`, and three reporters left waiting
+#      with nothing anywhere saying so. issue-triage.yml met the same
+#      failure on the per-issue side and answers it the same way — see
+#      the steps below. A scan that cannot report what it left undone is
+#      not a safety net; it is a second place for issues to disappear.
 
 name: Issue backlog scan
 
@@ -107,10 +107,6 @@ jobs:
     name: Triage the oldest untriaged issues
     runs-on: ubuntu-latest
 
-    # Five issues, each taking what one triage takes, plus the search that
-    # finds them. A ceiling, not a target — it pairs with --max-turns
-    # below the same way issue-triage.yml's does: the timeout bounds the
-    # wall clock, --max-turns bounds the work.
     # Two attempts at five issues each, plus the searches that find them
     # and the counting either side. A ceiling, not a target — it pairs
     # with --max-turns below the same way issue-triage.yml's does: the

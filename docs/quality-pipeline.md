@@ -249,7 +249,7 @@ real backlog posts a comment on every untriaged issue at once, which is
 both a large bill and a bad morning for whoever filed them. A backlog is
 drained over nights.
 
-Three GitHub behaviours shape that file, and all three fail *silently* —
+Four GitHub behaviours shape that file, and all four fail *silently* —
 they are in the list at the end of this document for that reason, and
 repeated in the file's own header because that is where somebody editing it
 will be looking.
