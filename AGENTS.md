@@ -411,15 +411,34 @@ backlog » — and it is a standing instruction, not a one-off. It means:
    arming auto-merge still holds without exception: every check green on
    the current head, every review thread answered, the template's checklist
    honestly filled.
-5. **Close the loop through the pull request**, not by hand: the body names
-   each issue with a closing keyword (`Closes #158`), so merging closes
-   them and the issue carries the link to what fixed it.
+5. **Attach the pull request to the issue.** The body names each issue with
+   a closing keyword — `Closes #158`, one per issue — which is what puts
+   the pull request in that issue's *Development* section and makes the
+   issue say what is fixing it. A PR number mentioned in prose links
+   nothing. Do this when the PR is opened, not afterwards.
+6. **Close the issue once the fix is on `main`.** The closing keyword does
+   it on merge; your job is to *verify* it did, on each issue, and to close
+   any that stayed open by hand (`state_reason: completed` — the fix
+   shipped). An accepted issue whose fix is merged and which is still open
+   is the backlog lying about itself.
+
+**Do not wait for the maintainer at any point of this.** Not to start, not
+to merge, not to close. The instruction covers the whole sequence — fix,
+open, merge to `main`, close the issue — and asking for a confirmation
+already given is how a backlog stays a backlog. Report what you did
+afterwards; do not ask for permission during. This overrides nothing in
+§ Merging a pull request about what must be TRUE before you merge (every
+check green on the current head, every review thread answered, the
+checklist honestly filled) — it settles only who decides, and that was
+settled when the instruction was given. A red pipeline is still work, never
+a question to bring back.
 
 An accepted issue you end up **not** fixing is not silently dropped:
 finish the others, and say on that issue what stopped you — the same
 standard as § A problem you decide not to fix now becomes a GitHub issue.
 Scaling the work down is the maintainer's call, and they can only make it
-if they know.
+if they know. That is the one thing this instruction sends back to them,
+and it goes on the issue, after the rest has shipped.
 
 ## Merging a pull request
 
@@ -427,6 +446,11 @@ if they know.
 nothing substitutes for it — not a green pipeline, not this file, not your
 reading of what they would probably want. Without it, green and
 merge-ready is where your work stops and you say so.
+
+« Fixe le backlog » **is** that instruction, standing, for the pull request
+that fixes the accepted issues — see § "Fix the backlog" above, which also
+says not to come back for a second confirmation of it. Everything below
+still applies to that pull request unchanged.
 
 With it, arm **auto-merge** rather than watching the pull request:
 
