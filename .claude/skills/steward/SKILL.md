@@ -86,7 +86,7 @@ other job does. That is a starting point, not a transcript. `ci.yml` is the
 only exact account of a job, and when the red step looks like setup rather
 than a test, go read it there before trusting anything below.
 
-Two things every row assumes, because CI does them and a warm container
+Three things every row assumes, because CI does them and a warm container
 does not:
 
 - **Dependencies installed the way CI installs them** — every PHP job runs
