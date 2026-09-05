@@ -267,8 +267,36 @@ everything finally went green, not because the maintainer seems likely to
 agree. Green and merge-ready is where your work stops and you say so.
 
 When the maintainer explicitly asks you to merge, that instruction is the
-authorization and you carry it out: confirm every check is green on the
-current head, that no thread is open, and that the PR is actually
-mergeable, then merge — matching how this repository merges rather than
-inventing a style. Nothing else substitutes for that instruction: not the
-PR's state, not this file, not your own reading of what they would want.
+authorization and you carry it out. Nothing else substitutes for it: not
+the PR's state, not this file, not your own reading of what they would
+want.
+
+Carry it out by **arming auto-merge**, not by watching the checks:
+
+```shell
+gh pr merge <number> --squash --auto
+```
+
+or, with no GitHub CLI on the box (a session running on the web), the
+GitHub MCP server's `enable_pr_auto_merge` with `mergeMethod: SQUASH`. If
+your build of that server has neither, say so — **never** substitute
+`merge_pull_request`, which merges on the spot instead of arming.
+
+Confirm first what you would confirm before merging by hand, because arming
+it *is* merging: **every check green on the current head**, no open thread,
+the checklist honestly filled, nothing of your own left unfiled. Then GitHub
+lands it the moment the ruleset is satisfied, whether or not you are still
+here. If everything is already green the same command merges immediately.
+
+The CI confirmation is not a formality the ruleset would catch for you. Only
+`Claude review` is a required context, and the `code_scanning` rule waits on
+CodeQL and SonarCloud alone — so a red `database-mariadb`, `Authorization
+matrix` or `Dynamic scan (passive)` blocks nothing. Arm on one of those and
+GitHub merges it.
+
+Do not poll the PR instead. That is what cost #152 four CI cycles and three
+interruptions on 2026-09-05, and it is why auto-merge is enabled at all
+(AGENTS.md § Merging a pull request, `docs/quality-pipeline.md`
+§ Auto-merge). Two failure modes to know: auto-merge never updates a branch
+that has fallen behind `main`, and it is disarmed in silence by a change of
+base branch or a push from an account without write access.

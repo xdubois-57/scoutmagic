@@ -365,9 +365,68 @@ an error.
   itself a merge.
 - **Require status checks to pass.** A check only appears in GitHub's list
   after it has run at least once, so add each one after its first run, not
-  before.
+  before. `Claude review` is the one required context.
+- **Require branches to be up to date before merging** — *deliberately off.*
+  It is the sub-option of the rule above, and turning it on again brings back
+  the failure it was turned off for: with it on, a pull request must be even
+  with `main` at the moment of merging, so every push to `main` invalidates
+  every open pull request and each one has to re-run a fifteen-minute CI
+  before it can land. A single agent never notices; a burst does. On
+  2026-09-05 five pull requests landed on `main` within the hour, and #152
+  lost four consecutive CI cycles to it — each time green, each time stale
+  again before the merge call, and each recovery needed a human to be told.
+  GitHub reports that state as `Required status check "Claude review" is
+  expected`, which reads like a check that never ran rather than a branch
+  that fell behind.
+  What it protected against is real and is now caught one step later:
+  two pull requests, each green alone, whose combination is not. CI runs on
+  every push to `main` (`ci.yml`), so that combination is tested — after it
+  lands rather than before, which means somebody has to answer for the
+  window in between. **The maintainer does**, on the failure notification
+  GitHub sends for a red run on `main`, and the answer is forward: the
+  second pull request's author fixes it in a new pull request, the way any
+  other red `main` is handled here. Not a revert by default — the two
+  changes are both wanted, and reverting the one that merged second
+  punishes an ordering nobody chose. Revert only when the fix is not
+  quick and `main` has to be green for a release. The window is small by
+  construction: it opens only when two pull requests are in flight at once,
+  which on a repository with one maintainer means a burst, and it closes at
+  the next push.
+  The alternative that keeps the guarantee without the stall is a merge
+  queue, and it is not free here: it needs every
+  gating check to report on `merge_group`, and `Claude review` is bound to a
+  pull request (its prompt names `github.event.pull_request.number`) while
+  CodeQL runs as GitHub-managed default setup that this repository cannot
+  give a trigger to. Revisit it if the combination failure ever actually
+  bites.
 - **Require review from Code Owners** — *not enabled, and not currently
   enableable.* See below.
+
+### Auto-merge
+
+*Settings → General → Pull Requests*
+
+**Allow auto-merge — enabled.** It is what lets an agent carry out
+"merge this" without sitting on the pull request: GitHub merges the moment
+the ruleset above is satisfied, and nothing has to be watched or asked
+again. It grants nothing — a pull request with auto-merge armed still
+merges only when every rule passes — so the checklist in AGENTS.md
+§ Merging a pull request is about *when an agent may arm it*, never about
+what it lets through.
+
+Note what turns it off again: **a push by someone without write access, or
+a change of base branch, disarms auto-merge silently.** Nothing announces
+it. A pull request that was going to land and then simply did not is the
+first thing to check.
+
+And note what it does *not* wait for. The required-check list is one
+context, `Claude review`, and the `code_scanning` rule above waits on CodeQL
+and SonarCloud — so `database-mariadb`, `Authorization matrix` and
+`Dynamic scan (passive)` gate nothing at all. An armed pull request whose
+`database-mariadb` is red still merges. Widening the required list would fix
+that at the source; until then the gate is the person or agent arming it,
+which is why AGENTS.md § Merging a pull request puts "every check green on
+the current head" first among the things to confirm.
 
 ### Private vulnerability reporting
 
@@ -475,10 +534,13 @@ a fork. On such a pull request:
   than a workflow — whether it reviews a given fork pull request is its own
   setting, not something this repository controls.
 
-If `Claude review` is ever made a *required* status check, a pull request
-from a fork becomes permanently unmergeable, since the check can never
-report. That is a governance decision about accepting outside
-contributions, not a configuration detail.
+`Claude review` **is** a required status check on `main` — the only one —
+so a pull request from a fork is permanently unmergeable here: the check it
+needs can never report. That is live, not hypothetical, and it is a
+governance decision about accepting outside contributions rather than a
+configuration detail. Reopening the repository to outside contributions
+means revisiting it; `.github/workflows/claude-review.yml` carries the same
+note next to the token it depends on.
 
 ## The failure mode this repository keeps meeting
 
@@ -509,6 +571,9 @@ nothing**:
 - The release **Security gate passes on a permission gap**: denied access to
   the CodeQL or Dependabot alert API is a warning, not a refusal, so a
   release can be published with those two sources never consulted.
+- **Auto-merge is disarmed in silence** by a push from someone without write
+  access or by a change of base branch. The pull request simply stops being
+  on its way to `main`, looking exactly like one nobody has merged yet.
 - **An issue form's label is dropped in silence when the label does not
   exist.** GitHub creates the issue anyway — no error on it, nothing in any
   log — so a report arrives with no triage state and looks exactly like one
