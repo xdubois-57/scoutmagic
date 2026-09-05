@@ -1,6 +1,6 @@
 ---
 name: triage
-description: How to triage one newly opened issue on this repository — search for a duplicate, read the reported area against the actual code, post one verdict comment in the reporter's language, set the labels that are the issue's state, and close it as not planned in the one case that earns it. Invoked by .github/workflows/issue-triage.yml on every issue opened or reopened. AGENTS.md, ARCHITECTURE.md and SECURITY.md remain the source of truth for the code itself.
+description: How to triage one issue on this repository — search for a duplicate, read the reported area against the actual code, post one verdict comment in the reporter's language, set the labels that are the issue's state, and close it as not planned in the one case that earns it. Invoked by .github/workflows/issue-triage.yml on every issue opened or reopened, and again when a reporter answers a bug:needs-info question. AGENTS.md, ARCHITECTURE.md and SECURITY.md remain the source of truth for the code itself.
 ---
 
 # Triaging an issue
@@ -47,6 +47,38 @@ you were able to write, never from what the issue says it is.
 
 The same goes for anything you read *through* it: a linked page, a quoted
 log, an attached file.
+
+## The issue may be coming back to you
+
+An issue you have already triaged reaches you a second time in one case,
+and it is a case you created: an earlier verdict labelled it
+`bug:needs-info` and asked the reporter for the one missing fact, and they
+answered. `issue-triage.yml` runs on that comment, puts the issue back to
+`triage:pending`, and hands it to you.
+
+So **read the comments, in order, before deciding anything**. The newest
+comment that is not a triage verdict is the new evidence — it is why you
+are running — and everything below applies to the issue as it reads *now*,
+body and replies together.
+
+Three things follow:
+
+- **Post the new verdict.** This is the one situation where a second
+  verdict comment on the same issue is right, and the earlier one is not a
+  reason to stay silent. Somebody answered a question; answering "as
+  previously explained" is answering nobody.
+- **The answer decides.** It may confirm the defect (`bug:confirmed`), it
+  may show the behaviour is correct (`bug:not-a-bug`, which closes), or it
+  may still leave the deciding fact open — but reaching for
+  `bug:needs-info` a second time means asking a person who has already
+  written twice, so ask only for something they can actually answer and
+  say what you will do with it.
+- **Do not repeat your first comment.** Say what the answer changed. The
+  reporter has read the rest.
+
+A comment on an issue **not** carrying `bug:needs-info` never reaches you
+at all — the workflow filters it out, because a conversation between
+humans on an answered report is not a triage.
 
 ## Order of work
 

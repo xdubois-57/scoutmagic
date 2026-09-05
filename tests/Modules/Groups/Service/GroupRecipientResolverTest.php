@@ -282,6 +282,50 @@ class GroupRecipientResolverTest extends TestCase
         );
     }
 
+    /**
+     * The same derivation asked about one account, which is what
+     * Service\GroupNotificationService can afford on a path that runs on
+     * every reply (issue #158): a site admin who wrote in a group none of
+     * their members belongs to can still open it, so they are still told
+     * about the answers.
+     */
+    public function testASingleAccountIsRecognisedAsASiteAdmin(): void
+    {
+        $adminAccountId = $this->createAccount('admin@test.be');
+        $memberAccountId = $this->createAccount('parent@test.be');
+
+        $roleResolver = $this->createStub(RoleResolver::class);
+        $roleResolver->method('resolve')->willReturnCallback(
+            static fn(string $email): string => $email === 'admin@test.be' ? 'admin' : 'identified'
+        );
+
+        $resolver = $this->resolver($roleResolver);
+
+        $this->assertTrue($resolver->isSiteAdminAccount($adminAccountId));
+        $this->assertFalse($resolver->isSiteAdminAccount($memberAccountId));
+    }
+
+    /**
+     * Same escape hatch, same safe direction as the list above: with no
+     * resolver nobody is treated as a site admin, so the notification path
+     * under-notifies rather than notifying somebody about a group that
+     * would 404 for them.
+     */
+    public function testWithoutARoleResolverNoAccountIsASiteAdmin(): void
+    {
+        $adminAccountId = $this->createAccount('admin@test.be');
+
+        $this->assertFalse($this->resolver()->isSiteAdminAccount($adminAccountId));
+    }
+
+    public function testAnAccountThatDoesNotExistIsNotASiteAdmin(): void
+    {
+        $roleResolver = $this->createStub(RoleResolver::class);
+        $roleResolver->method('resolve')->willReturn('admin');
+
+        $this->assertFalse($this->resolver($roleResolver)->isSiteAdminAccount(4242));
+    }
+
     // ---- fixtures ----
 
     private function resolver(?RoleResolver $roleResolver = null): GroupRecipientResolver

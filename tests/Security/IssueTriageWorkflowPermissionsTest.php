@@ -424,9 +424,16 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
      */
     public function testThePerIssueTriageReadsBothHalvesOfTheVerdictBack(): void
     {
+        // The label-READING scripts, which is what `--jq` picks out: the
+        // same workflow also WRITES labels, in the step that sends an
+        // answered `bug:needs-info` issue back to `triage:pending` before
+        // re-triaging it, and that step is asserted on its own below.
+        // Demanding the verdict predicate of it would be demanding that a
+        // write be a read.
         $checks = array_filter(
             $this->runScripts(self::TRIAGE),
-            static fn (string $script): bool => str_contains($script, '/labels'),
+            static fn (string $script): bool => str_contains($script, '/labels')
+                && str_contains($script, '--jq'),
         );
 
         self::assertNotEmpty(
@@ -447,6 +454,121 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
                 );
             }
         }
+    }
+
+    /**
+     * The half of "ask the reporter a question" that was missing until
+     * issue #176: reading the answer.
+     *
+     * The triage's own `bug:needs-info` verdict used to be a dead end.
+     * Nothing here listened to `issue_comment`, and the nightly scan
+     * skips `triage:done` by design — the label the question is filed
+     * under — so a reporter who answered was answering nobody, whatever
+     * they wrote.
+     *
+     * Every clause of the guard is asserted because every one of them is
+     * load-bearing, and the one that matters most is the bot exclusion:
+     * the verdict this job posts is itself a comment, so without it a
+     * `bug:needs-info` verdict wakes the job that wrote it, forever.
+     */
+    public function testAnAnsweredNeedsInfoIssueIsTriagedAgain(): void
+    {
+        $file = implode("\n", $this->lines(self::TRIAGE));
+
+        self::assertSame(
+            1,
+            preg_match('/^  issue_comment:\n    types: \[created\]$/m', $file),
+            self::TRIAGE . ' no longer triggers on `issue_comment: [created]`. A reporter answering '
+            . 'the one question this pipeline is allowed to ask then reaches nothing at all, which '
+            . 'is what issue #176 was: the verdict says `bug:needs-info` and the issue never moves '
+            . 'again.',
+        );
+
+        $guard = $this->jobCondition(self::TRIAGE);
+
+        self::assertNotNull(
+            $guard,
+            self::TRIAGE . ' has no job-level `if:`. With the comment trigger and no guard, every '
+            . 'comment on every issue — and on every pull request — spends a triage.',
+        );
+
+        $clauses = [
+            "contains(github.event.issue.labels.*.name, 'bug:needs-info')"
+                => 'a comment only re-triages an issue that is waiting for an answer; on any other '
+                . 'issue it is a conversation between humans, and re-triaging posts a second verdict '
+                . 'on a report already answered',
+            "github.event.comment.user.type != 'Bot'"
+                => 'THE LOOP STOP: the verdict this job posts is itself a comment on the issue, so '
+                . 'without this a `bug:needs-info` verdict wakes the job that wrote it, forever',
+            "github.event.issue.state == 'open'"
+                => 'a closed issue is waiting for nothing',
+            '!github.event.issue.pull_request'
+                => '`issue_comment` fires on pull requests too, and a review conversation is not a '
+                . 'report',
+        ];
+
+        foreach ($clauses as $clause => $why) {
+            self::assertStringContainsString(
+                $clause,
+                $guard,
+                self::TRIAGE . ' no longer guards the comment trigger with `' . $clause . '` — '
+                . $why . '.',
+            );
+        }
+    }
+
+    /**
+     * And the state change that must happen BEFORE the agent, not after.
+     *
+     * `triage:done` on the issue is what the two verification steps read
+     * as "a verdict landed". On a re-triage it is already there from the
+     * first pass, so a run that wrote nothing at all would verify as a
+     * success — the precise failure mode this whole file exists to refuse.
+     * Sending the issue back to `triage:pending` first is what makes the
+     * check mean something again, and it is also what hands the issue to
+     * the nightly scan if both attempts here fail.
+     */
+    public function testAnAnsweredIssueIsSentBackToPendingBeforeTheAgentRuns(): void
+    {
+        $writes = array_filter(
+            $this->runScripts(self::TRIAGE),
+            static fn (string $script): bool => str_contains($script, "labels[]=triage:pending"),
+        );
+
+        self::assertNotEmpty(
+            $writes,
+            self::TRIAGE . ' never puts `triage:pending` back on an issue it re-triages. The '
+            . 'verification steps then read the `triage:done` left by the FIRST pass and call a run '
+            . 'that wrote nothing a success — and nothing hands the issue to the nightly scan when '
+            . 'this job fails.',
+        );
+
+        foreach ($writes as $script) {
+            foreach (['triage:done', 'bug:needs-info'] as $stale) {
+                self::assertStringContainsString(
+                    $stale,
+                    $script,
+                    self::TRIAGE . ' puts `triage:pending` back but never removes `' . $stale . '`. '
+                    . 'An issue carrying `triage:pending` and `triage:done` at once is the '
+                    . 'half-finished state the verification steps cannot read, and `bug:needs-info` '
+                    . 'left behind says the reporter still owes an answer they have already given.',
+                );
+            }
+        }
+
+        $lines = $this->lines(self::TRIAGE);
+        $flip = $this->firstLineMatching($lines, '/labels\[\]=triage:pending/');
+        $agent = $this->firstLineMatching($lines, '/uses:\s*anthropics\/claude-code-action/');
+
+        self::assertNotNull($flip, 'The label reset disappeared between two assertions.');
+        self::assertNotNull($agent, self::TRIAGE . ' no longer runs the agent at all.');
+        self::assertLessThan(
+            $agent,
+            $flip,
+            self::TRIAGE . ' resets the labels AFTER the agent has run. The reset exists so the '
+            . 'verification steps can tell a verdict that landed from one that did not; done '
+            . 'afterwards it erases the very thing they read.',
+        );
     }
 
     /**
@@ -1341,6 +1463,66 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
         }
 
         return $scripts;
+    }
+
+    /**
+     * The job-level `if:` condition, as one string, or null when the
+     * workflow has none.
+     *
+     * Written for the folded scalar the condition is spelled with — a
+     * multi-line guard is the only readable way to write four clauses —
+     * and it accepts a one-line `if:` too, so a future rewrite to either
+     * shape is asserted rather than silently unread.
+     */
+    private function jobCondition(string $workflow): ?string
+    {
+        $condition = null;
+        $indent = null;
+
+        foreach ($this->lines($workflow) as $line) {
+            if ($indent !== null) {
+                if (trim($line) === '') {
+                    continue;
+                }
+
+                if (preg_match('/^(\s*)\S/', $line, $depth) === 1 && strlen($depth[1]) <= $indent) {
+                    break;
+                }
+
+                $condition .= ' ' . trim($line);
+
+                continue;
+            }
+
+            if (preg_match('/^(\s+)if:\s*(.*)$/', $line, $match) === 1) {
+                $inline = trim($match[2]);
+                if ($inline !== '' && !in_array($inline, ['>-', '>', '|', '|-'], true)) {
+                    return $inline;
+                }
+
+                $indent = strlen($match[1]);
+                $condition = '';
+            }
+        }
+
+        return $condition;
+    }
+
+    /**
+     * The index of the first line matching $pattern, or null — how the
+     * order of two steps is asserted without parsing YAML.
+     *
+     * @param array<int, string> $lines
+     */
+    private function firstLineMatching(array $lines, string $pattern): ?int
+    {
+        foreach ($lines as $index => $line) {
+            if (preg_match($pattern, $line) === 1) {
+                return $index;
+            }
+        }
+
+        return null;
     }
 
     /**

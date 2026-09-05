@@ -274,32 +274,63 @@ class GroupRecipientResolver
      */
     private function siteAdminAccountIds(): array
     {
-        $currentYearId = $this->scoutYearService?->getCurrentYear()['id'] ?? null;
-        if ($this->roleResolver === null || $currentYearId === null) {
+        // Answered before the account sweep rather than once per account:
+        // with no resolver nobody can be a site admin, and listing every
+        // account to be told that N times is a query for nothing.
+        if ($this->roleResolver === null) {
             return [];
         }
 
         $ids = [];
         foreach ($this->userAccountRepository->findAllIds() as $accountId) {
-            try {
-                $account = $this->userAccountRepository->findById($accountId);
-            } catch (DecryptionException) {
-                // One unreadable account (e.g. predating a key rotation)
-                // must never cost every moderator their notification —
-                // same posture as NotificationService::findAccountSafely().
-                continue;
-            }
-            if ($account === null) {
-                continue;
-            }
-
-            $role = Role::fromString($this->roleResolver->resolve($account->email, $currentYearId));
-            if ($role->hasAccess(Role::ADMIN)) {
+            if ($this->isSiteAdminAccount($accountId)) {
                 $ids[] = $accountId;
             }
         }
 
         return $ids;
+    }
+
+    /**
+     * The same question about ONE account, which is what a notification
+     * path can afford: one role resolution instead of the O(accounts)
+     * sweep above.
+     *
+     * Public because Service\GroupNotificationService needs exactly this
+     * and nothing else. A site admin reads every group without holding a
+     * row in any of them — Service\GroupAccessService::canRead() answers
+     * `true` on that alone — so "this account can still open the group"
+     * and "this account is a site admin" are the same question for
+     * somebody the group's own membership does not contain. Asking it
+     * here rather than re-deriving the bypass in the notification service
+     * is what keeps the two from disagreeing about who may be notified.
+     *
+     * Degrades to `false` when built without the resolver (a narrow unit
+     * test, never the composition root), the same escape hatch and the
+     * same safe direction as siteAdminAccountIds(): under-notifying.
+     */
+    public function isSiteAdminAccount(int $userAccountId): bool
+    {
+        $currentYearId = $this->scoutYearService?->getCurrentYear()['id'] ?? null;
+        if ($this->roleResolver === null || $currentYearId === null) {
+            return false;
+        }
+
+        try {
+            $account = $this->userAccountRepository->findById($userAccountId);
+        } catch (DecryptionException) {
+            // One unreadable account (e.g. predating a key rotation) must
+            // never cost every moderator their notification — same
+            // posture as NotificationService::findAccountSafely().
+            return false;
+        }
+
+        if ($account === null) {
+            return false;
+        }
+
+        return Role::fromString($this->roleResolver->resolve($account->email, $currentYearId))
+            ->hasAccess(Role::ADMIN);
     }
 
     /**

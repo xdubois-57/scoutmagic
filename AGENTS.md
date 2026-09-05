@@ -299,6 +299,7 @@ An alert that is genuinely a false positive is dismissed in the Security tab wit
 - Use Bootstrap 5 components before writing custom CSS.
 - Never duplicate a Bootstrap component in custom CSS.
 - **Production frontend assets still require no build step.** No Sass, no webpack, no application bundler, no transpiler — `public/assets/js/*.js` is always plain, unbundled browser JavaScript, loaded via a classic `<script src="...">` tag, exactly as before. Any new vendored front-end library goes under `public/assets/vendor/<name>/` and must be added to `scripts/release.sh`'s dependency freshness gate (a new `check_vendored_asset_freshness` call — see that function's docblock) in the same change.
+- **A vendored file never points at a source map that is not served.** A minified distribution ends with a `sourceMappingURL` comment naming a `.map` file that this repository does not ship, and the browser requests it on every page: issue #167 was three 404s in every visitor's console, on a site nobody was debugging. When vendoring or re-vendoring a library, strip that trailing comment (or copy the `.map` next to the file — either is correct, this repository strips). `tests/Core/View/VendoredAssetSourceMapsTest.php` fails on the next dangling reference, which is the only thing that will notice.
 - **npm/Node are permitted, but strictly as development/test tooling** — narrowly reconciling this repo's older, blanket "no npm" rule. `package.json`/`package-lock.json`/`node_modules/` exist solely to run TypeScript's `checkJs` static analysis (`tsconfig.json`, `scripts/js-typecheck.mjs`, § Static analysis above) and the two Node-based test stacks — Vitest (`tests/js/`) and Playwright (`tests/e2e/`, ARCHITECTURE.md § 15) — locally and in CI; none of it is ever required to run, build, or deploy ScoutMagic itself, and none of it ships in a release artifact (`scripts/release.sh` excludes it, and `node_modules/`/`coverage/`/`tests/e2e/` output are gitignored — see `.gitignore`). **A browser automation runtime is test infrastructure, not frontend architecture**: Playwright downloads a Chromium binary to *drive* the site the way a visitor's browser does, and compiles, bundles, transpiles, and minifies exactly nothing — `public/assets/js/*.js` is still shipped byte-for-byte as written, loaded by a plain `<script src="...">`. The same is true of `tsc`: `--noEmit` means it only reads `public/assets/js/*.js` and reports, it never writes a compiled/transpiled copy anywhere, and TypeScript itself never becomes the production source language. Do not let this permission creep into introducing an actual frontend build pipeline (bundler, Sass compiler, transpiler) — that remains banned unless this architecture is deliberately revisited.
 - Touch targets: 44px is a comfort goal for small controls (icon-only buttons, `.btn-sm`, checkbox labels), handled centrally in `app.css`'s `pointer: coarse` block — never a universal minimum, and never via inline `min-height` styles in templates. WCAG 2.2 AA requires 24×24; Bootstrap's 38px defaults pass. Do not inflate standard inputs to 44px. See `design.md` §7.2.
 - UI conventions (lexicon, back navigation, button variants, feedback, page structure, empty states) live in `design.md` §7 and are enforced by `tests/Core/View/UxConventionsTest.php` — read §7 before adding any template.
@@ -385,6 +386,40 @@ All email sent via `MailService::send()`. Never send email directly. The service
 ## Scheduler
 
 Use `SchedulerService` for any delayed or timed action. Never use `sleep()`, cron-specific code, or ad-hoc timing logic. Declare task handlers in `module.json`.
+
+## "Fix the backlog" — what that instruction asks for, exactly
+
+The maintainer asks for this in French — « fixe le backlog », « répare le
+backlog » — and it is a standing instruction, not a one-off. It means:
+
+1. **Go through the issues reported on GitHub** in `xdubois-57/scoutmagic`.
+2. **Take every OPEN issue carrying `status:accepted`.** That label, and
+   only that label, selects the work. It is applied by hand and means the
+   maintainer has decided the work is to be done; nothing automatic ever
+   applies it (`.claude/skills/triage/SKILL.md` § 5 forbids it), which is
+   what makes it a decision rather than an opinion. `bug:confirmed` alone
+   selects nothing — a confirmed defect nobody has accepted is still a
+   backlog item, not an instruction.
+3. **Fix them** — every one of them, under the rules in this file: a test
+   alongside each fix, `vendor/bin/phpstan analyse` before committing PHP,
+   `npm run typecheck` before committing `public/assets/js/`, French
+   interface and English code.
+4. **Open a pull request and merge it.** The instruction to fix the backlog
+   IS the authorization to merge that § Merging a pull request requires —
+   it is the maintainer saying "do the work and land it", and coming back
+   to ask again is not diligence. Everything that section requires *before*
+   arming auto-merge still holds without exception: every check green on
+   the current head, every review thread answered, the template's checklist
+   honestly filled.
+5. **Close the loop through the pull request**, not by hand: the body names
+   each issue with a closing keyword (`Closes #158`), so merging closes
+   them and the issue carries the link to what fixed it.
+
+An accepted issue you end up **not** fixing is not silently dropped:
+finish the others, and say on that issue what stopped you — the same
+standard as § A problem you decide not to fix now becomes a GitHub issue.
+Scaling the work down is the maintainer's call, and they can only make it
+if they know.
 
 ## Merging a pull request
 

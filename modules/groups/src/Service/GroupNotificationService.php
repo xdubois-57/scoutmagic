@@ -180,8 +180,14 @@ class GroupNotificationService
 
         $this->send(
             self::TYPE_REACTION_RECEIVED,
-            fn(): array => $this->recipientsForMember(
+            // The author's two identities, not the member alone: a site
+            // admin's reply is signed with a borrowed member that is not
+            // in this group, and asking membership alone would tell them
+            // nothing about a reaction to their own words (issue #158,
+            // same fallback as recipientsForAuthorOf() above).
+            fn(): array => $this->recipientsForAuthor(
                 $reply->authorMemberId,
+                $reply->authorUserAccountId,
                 $group,
                 $actorUserAccountId,
                 $effectiveScoutYearId
@@ -375,11 +381,11 @@ class GroupNotificationService
         return $item . ' de ce groupe a été ' . $verb . ' et attend votre relecture.';
     }
     /**
-     * The post's author as a recipient list, minus the actor. Built from
-     * the group's own audience rather than from the author's account id
-     * alone, so an author who has since left the group is not notified
-     * about a group they can no longer open — the deep link would 404 for
-     * them.
+     * The post's author as a recipient list, minus the actor — the
+     * group's own audience first, so an author who has since left is not
+     * notified about a group they can no longer open (the deep link would
+     * 404 for them). See recipientsForAuthor() for the one author that
+     * rule cannot describe.
      *
      * @return array<int, array{userAccountId: int, memberId: ?int}>
      */
@@ -389,7 +395,74 @@ class GroupNotificationService
         int $actorUserAccountId,
         int $effectiveScoutYearId
     ): array {
-        return $this->recipientsForMember($post->authorMemberId, $group, $actorUserAccountId, $effectiveScoutYearId);
+        return $this->recipientsForAuthor(
+            $post->authorMemberId,
+            $post->authorUserAccountId,
+            $group,
+            $actorUserAccountId,
+            $effectiveScoutYearId
+        );
+    }
+
+    /**
+     * An item's author as a recipient list, from the two identities every
+     * row in this module carries: the member whose membership opens the
+     * group, and the ACCOUNT that actually typed (schema.sql:168-176).
+     *
+     * Membership is asked first and answers almost always — see
+     * recipientsForMember() for why it is the right question.
+     *
+     * The account is the fallback for the one case where it is not, and
+     * issue #158 is what it is for. A site admin posting in a group none
+     * of their own members belongs to signs the message with a BORROWED
+     * member (Service\GroupAccessService::authorMemberIdFor(), the
+     * fallback PR #152 added so the composer stops refusing them): a
+     * member of theirs, but one with no relation to this group. That
+     * member is not in the group's audience, so the membership question
+     * answers "nobody" and the author of the message was never told
+     * anyone had replied to it.
+     *
+     * The membership filter is not wrong — it is what stops an author who
+     * has LEFT the group being sent to a page that would 404 for them.
+     * Its reasoning simply does not hold for a site admin, who can open
+     * every group (Service\GroupAccessService::canRead()). So the
+     * fallback is exactly as wide as that: an account the group's own
+     * membership does not contain is notified only when it can still open
+     * the group, which today means only a site admin. An ordinary author
+     * who left is filtered out here as before.
+     *
+     * `memberId: null` because there is no membership to attach — the
+     * shape dispatch() already takes for a site admin (see
+     * GroupRecipientResolver::moderatorsFor()).
+     *
+     * @return array<int, array{userAccountId: int, memberId: ?int}>
+     */
+    private function recipientsForAuthor(
+        int $authorMemberId,
+        int $authorUserAccountId,
+        DiscussionGroup $group,
+        int $actorUserAccountId,
+        int $effectiveScoutYearId
+    ): array {
+        $byMembership = $this->recipientsForMember(
+            $authorMemberId,
+            $group,
+            $actorUserAccountId,
+            $effectiveScoutYearId
+        );
+        if ($byMembership !== []) {
+            return $byMembership;
+        }
+
+        if ($authorUserAccountId === $actorUserAccountId) {
+            return [];
+        }
+
+        if (!$this->recipientResolver->isSiteAdminAccount($authorUserAccountId)) {
+            return [];
+        }
+
+        return [['userAccountId' => $authorUserAccountId, 'memberId' => null]];
     }
 
     /**
