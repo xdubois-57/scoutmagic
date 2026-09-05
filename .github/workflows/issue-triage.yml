@@ -64,14 +64,22 @@ jobs:
       # NOTHING ELSE. Not contents, not pull-requests. See the header.
 
     steps:
-      # Pinned to a commit rather than a tag, the convention ci.yml and
-      # claude-review.yml already use. A tag moves; this job holds a Claude
-      # subscription token, so code arriving through a moved tag would run
-      # with it.
+      # Pinned to a COMMIT, the convention ci.yml uses. A tag moves; this
+      # job holds a Claude subscription token, so code arriving through a
+      # moved tag would run with it.
+      #
+      # The commit is what `v1` dereferences to today. claude-review.yml
+      # pins `d9a44dc4899…` for the same version, which is the annotated
+      # TAG OBJECT rather than the commit inside it — GitHub resolves that
+      # too (that workflow runs), and a tag object's SHA is content-
+      # addressed so it is equally immutable, but it is off-convention and
+      # a reader cannot tell the two apart by looking. This one names the
+      # commit; claude-review.yml is worth the same one-line change, in a
+      # change of its own.
       #
       # No actions/checkout step precedes this one, and that is not an
       # omission — see the header.
-      - uses: anthropics/claude-code-action@d9a44dc489924665d246f0fd0508d102211be397 # v1
+      - uses: anthropics/claude-code-action@d75b94d5ad426cb8546e6628b6f5f19b84e5cce1 # v1
         id: claude
         with:
           # Same subscription token as claude-review.yml, generated with

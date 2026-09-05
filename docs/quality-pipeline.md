@@ -20,7 +20,7 @@ catches what, and what each one cannot see.
 | **Dynamic scan** | CI; release gate | Over-permissive routes, what the running app actually answers | Logic the scan does not reach |
 | **CodeQL** | CI, GitHub-managed | Taint flows into DOM sinks | Non-JavaScript defects |
 | **SonarQube Cloud** | CI; release gate | Quality, duplication, security hotspots | Intent |
-| **AI triage** | Every issue opened or reopened | Whether a report is a real defect, and the one fact a blocked report is missing | The code — it never changes any, and it is a reader of issues, not a gate |
+| **AI triage** | Every issue opened or reopened | Whether a report is a real defect, and the one fact a blocked report is missing | Anything only a running installation shows — it reads the code but reproduces nothing, changes nothing, and gates nothing |
 | **AI review** | Pull requests it is eligible for — not drafts, and `Claude review` not on forks | Cross-file reasoning, stale documentation, intent mismatches | Nothing reliably — it is a reader, not a gate |
 | **Release gates** | `scripts/release.sh` | Deployment state, security advisories, dependency freshness, Sonar, PHPStan + the full PHPUnit suite, `e2e:full`, both DAST profiles | What the AI reviewers read — intent, cross-file reasoning, stale docs. It reads CodeQL's open alerts but runs no scan of its own |
 
@@ -308,7 +308,7 @@ change to either.
 | Secret | Used by | Without it |
 |---|---|---|
 | `SONAR_TOKEN` | the `sonarqube` CI job, `check-sonar-release.sh` | no Quality Gate on pull requests; the release gate fails closed |
-| `CLAUDE_CODE_OAUTH_TOKEN` | `claude-review.yml` | the review job fails at authentication |
+| `CLAUDE_CODE_OAUTH_TOKEN` | `claude-review.yml`, `issue-triage.yml` | the review job fails at authentication, and no issue is ever triaged |
 
 `CLAUDE_CODE_OAUTH_TOKEN` is generated with `claude setup-token` and spends
 a Claude subscription rather than a metered API key. It is tied to the

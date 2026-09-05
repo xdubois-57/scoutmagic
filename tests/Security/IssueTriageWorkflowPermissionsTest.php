@@ -53,30 +53,22 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
 
     public function testItGrantsNothingBeyondIssuesAndIdToken(): void
     {
-        $granted = [];
+        $blocks = $this->indentedPermissionBlocks();
 
-        foreach ($this->lines() as $line) {
-            // `  issues: write`, `      contents: read` — a permission
-            // grant is a bare `key: read|write|none` line. The workflow's
-            // own `permissions: {}` and every other key (`name:`, `on:`)
-            // fail this shape and are ignored.
-            if (preg_match('/^\s+([a-z][a-z-]*):\s*(read|write|none)\s*$/', $line, $m) !== 1) {
-                continue;
-            }
-
-            [, $key, $value] = $m;
-
-            // `none` grants nothing and is never a widening.
-            if ($value !== 'none') {
-                $granted[$key] = $value;
-            }
-        }
+        // Exactly one job, so exactly one job-level block. Two would mean
+        // a job this test has never looked at.
+        self::assertCount(
+            1,
+            $blocks,
+            self::WORKFLOW . ' has ' . count($blocks) . ' job-level `permissions:` blocks; this test '
+            . 'reads one. A second job means a second permission surface nobody is checking.',
+        );
 
         self::assertSame(
             self::ALLOWED_PERMISSIONS,
-            $granted,
+            $blocks[0],
             "The triage job's permissions changed. This job reads an issue body written by the public "
-            . "and must keep no path to the repository: `contents` in particular would give one. "
+            . 'and must keep no path to the repository: `contents` in particular would give one. '
             . 'If a new permission is genuinely needed, change ALLOWED_PERMISSIONS here in the same '
             . 'commit and say why in the pull request.',
         );
@@ -105,35 +97,135 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
 
     public function testItStillDeniesEverythingAtTheWorkflowLevel(): void
     {
-        // Without this, a job that forgets its own `permissions:` block
-        // inherits the repository default — which is how a workflow ends
-        // up with write access nobody granted it on purpose.
-        self::assertContains(
-            'permissions: {}',
-            array_map('trim', $this->lines()),
-            self::WORKFLOW . ' no longer denies permissions at the workflow level.',
+        // Column zero, not merely somewhere: a nested `permissions: {}`
+        // inside a job denies that job and says nothing about the file's
+        // default, which is the whole point of this assertion. Trimming
+        // before comparing — as this test first did — accepted the wrong
+        // one as the right one.
+        $atTopLevel = array_filter(
+            $this->lines(),
+            static fn (string $line): bool => preg_match('/^permissions:\s*\{\s*\}\s*$/', $line) === 1,
+        );
+
+        self::assertCount(
+            1,
+            $atTopLevel,
+            self::WORKFLOW . ' must carry exactly one `permissions: {}` at column zero. Without it, a '
+            . 'job that forgets its own `permissions:` block inherits the repository default — which '
+            . 'is how a workflow ends up with write access nobody granted it on purpose.',
         );
     }
 
-    public function testTheActionIsPinnedToACommitRatherThanATag(): void
+    /**
+     * Named for what it can actually check. A 40-character hex object SHA
+     * is immutable whether it names a commit or an annotated tag object,
+     * and telling those apart means resolving the object against the
+     * remote — which a unit test does not get to do. What it does check is
+     * that no reference is a movable ref, which is the property that
+     * matters: this job holds a Claude subscription token, so code
+     * arriving through a moved `v1` would run with it.
+     */
+    public function testEveryActionReferenceIsPinnedToAnImmutableObject(): void
     {
-        $pinned = false;
+        $references = 0;
 
-        foreach ($this->lines() as $line) {
+        foreach ($this->lines() as $number => $line) {
             if (!str_contains($line, 'anthropics/claude-code-action@')) {
                 continue;
             }
 
-            // A tag moves and this job holds a Claude subscription token,
-            // so code arriving through a moved tag would run with it.
-            $pinned = preg_match('/anthropics\/claude-code-action@[0-9a-f]{40}\b/', $line) === 1;
+            ++$references;
+
+            // Asserted per reference rather than accumulated into one
+            // flag: a later pinned line used to overwrite an earlier
+            // unpinned one, so a second, movable reference passed.
+            self::assertSame(
+                1,
+                preg_match('/anthropics\/claude-code-action@[0-9a-f]{40}(\s|$)/', $line),
+                'Line ' . ($number + 1) . ' of ' . self::WORKFLOW . ' does not pin '
+                . 'anthropics/claude-code-action to a 40-character object SHA, the convention '
+                . 'ci.yml already follows.',
+            );
         }
 
-        self::assertTrue(
-            $pinned,
-            self::WORKFLOW . ' must pin anthropics/claude-code-action to a 40-character commit SHA, '
-            . 'the convention ci.yml and claude-review.yml already follow.',
+        self::assertGreaterThan(
+            0,
+            $references,
+            self::WORKFLOW . ' no longer references anthropics/claude-code-action at all — this test '
+            . 'would otherwise pass over nothing.',
         );
+    }
+
+    /**
+     * Every job-level `permissions:` block, as a map of what it grants.
+     *
+     * Scoped deliberately. The first version of this test scanned the
+     * whole file for `key: read|write|none` lines, which had two holes a
+     * review found: an inline `permissions: { contents: write }` granted
+     * something no line of that shape would show, and two unrelated
+     * `issues: write` / `id-token: write` lines anywhere in the file could
+     * reconstruct the expected set while the real block said something
+     * else. Both are refused here — an inline mapping fails outright, and
+     * only the lines indented inside the block are read.
+     *
+     * @return array<int, array<string, string>>
+     */
+    private function indentedPermissionBlocks(): array
+    {
+        $lines = $this->lines();
+        $blocks = [];
+
+        foreach ($lines as $index => $line) {
+            if (preg_match('/^(\s+)permissions:(.*)$/', $line, $m) !== 1) {
+                continue;
+            }
+
+            [, $indent, $rest] = $m;
+
+            // An inline mapping is legal YAML and unreadable here, so it
+            // is refused rather than skipped — skipping it is exactly how
+            // a grant would pass unseen.
+            self::assertSame(
+                '',
+                trim($rest),
+                'The job-level `permissions:` in ' . self::WORKFLOW . ' is written inline. Write it as '
+                . 'an indented block, one `key: value` per line, so this audit can read what it grants.',
+            );
+
+            $granted = [];
+
+            for ($i = $index + 1; $i < count($lines); $i++) {
+                $next = $lines[$i];
+
+                if (trim($next) === '' || preg_match('/^\s*#/', $next) === 1) {
+                    continue;
+                }
+
+                // The block ends at the first line no deeper than the
+                // `permissions:` key itself.
+                if (preg_match('/^(\s*)\S/', $next, $n) === 1 && strlen($n[1]) <= strlen($indent)) {
+                    break;
+                }
+
+                if (preg_match('/^\s+([a-z][a-z-]*):\s*(read|write|none)\s*$/', $next, $g) === 1) {
+                    // `none` grants nothing and is never a widening.
+                    if ($g[2] !== 'none') {
+                        $granted[$g[1]] = $g[2];
+                    }
+
+                    continue;
+                }
+
+                self::fail(
+                    'Unreadable line inside the `permissions:` block of ' . self::WORKFLOW . ': '
+                    . trim($next) . ' — this audit fails closed rather than ignore what it cannot parse.',
+                );
+            }
+
+            $blocks[] = $granted;
+        }
+
+        return $blocks;
     }
 
     /**
