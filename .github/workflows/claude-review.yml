@@ -1,0 +1,249 @@
+# Second-opinion review by Claude on every pull request and every push to
+# one, alongside the CodeRabbit review that runs from .coderabbit.yaml.
+#
+# Nobody has to remember to ask for it: GitHub runs this on the pull_request
+# event, so it happens whether or not anyone thinks of it. That is the whole
+# point — a reviewer you have to summon is a reviewer you forget to summon
+# on the pull request that needed it.
+#
+# Each run spends the Claude subscription behind CLAUDE_CODE_OAUTH_TOKEN,
+# and `synchronize` below means one run per push rather than one per pull
+# request. That is the deliberate price of a review that is never stale.
+
+name: Claude review
+
+# Deny by default at the workflow level; the one job below grants itself
+# exactly what it needs. Without this, a job that ever forgets its own
+# `permissions:` block silently inherits the repository default.
+permissions: {}
+
+on:
+  pull_request:
+    # `opened` catches a pull request created ready for review;
+    # `ready_for_review` catches one that started as a draft; `reopened`
+    # catches one brought back; `synchronize` catches every push to an open
+    # one. `labeled` is not an automatic trigger — it is the manual lever
+    # below, for asking again without pushing.
+    #
+    # `synchronize` is what makes the review current rather than a snapshot
+    # of the pull request's first commit: a diff reviewed at open and then
+    # pushed to five times is a diff nobody read. It differs from the
+    # CodeRabbit side on purpose — that one reviews once, because it is the
+    # permanent reviewer and its free tier has an hourly ceiling; this one
+    # is the gate, and a gate that checks a stale diff is not a gate.
+    types: [opened, ready_for_review, reopened, labeled, synchronize]
+
+# A second trigger while a run is in flight replaces it rather than paying
+# for both — which matters more with `synchronize`: pushing three commits in
+# a minute pays for one review of the last state, not three of intermediate
+# ones. The cancelled run belongs to the superseded commit, so it never
+# leaves a red check on the commit that matters.
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: Claude review
+    # Two guards, and the second is what keeps `labeled` from turning every
+    # label into a review: on a label event, only `claude-review` qualifies.
+    # Adding that label to an already-reviewed pull request is how you ask
+    # for a fresh pass without pushing.
+    #
+    # Drafts are skipped — the diff is still moving, and CodeRabbit skips
+    # them too. `ready_for_review` picks the pull request up the moment it
+    # stops being one.
+    if: >-
+      github.event.pull_request.draft == false &&
+      (github.event.action != 'labeled' || github.event.label.name == 'claude-review')
+    runs-on: ubuntu-latest
+
+    # A runaway run costs subscription usage for nothing. The review itself
+    # takes a few minutes; this is a ceiling, not a target.
+    timeout-minutes: 20
+
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      # Required by the action's default GitHub App authentication — it is
+      # what lets it post inline comments without a token of its own.
+      id-token: write
+
+    steps:
+      # Both actions are pinned to a commit rather than a tag, the
+      # convention ci.yml already uses for setup-php, setup-node and the
+      # SonarQube scanner. A tag moves; this job holds a Claude
+      # subscription token and `id-token: write`, so code arriving through
+      # a moved tag would run with both.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          # Full history: the review reads the branch against its base.
+          fetch-depth: 0
+          # The review only reads. Leaving the checkout credential in
+          # .git/config would hand it to every later step and into any
+          # artifact built from the workspace.
+          persist-credentials: false
+
+      # KNOWN GAP, verified on this workflow's own pull request. The action
+      # refuses to run when this file differs from the copy on the default
+      # branch — a sound precaution, since otherwise a pull request could
+      # rewrite the reviewer and do as it liked with the token. But it exits
+      # `success`, not `neutral` or failure.
+      #
+      # As a REQUIRED check that inverts the guarantee in one case: a pull
+      # request that edits this file gets a green `Claude review` without any
+      # review having happened — and that is the pull request you would most
+      # want read. Two consequences worth knowing rather than rediscovering:
+      # a green check here proves a review ran only when this file is
+      # untouched, and the first run after any change to it is a skip.
+      #
+      # What would close it is .github/CODEOWNERS plus "require review from
+      # code owners" on main: a human approving any change to this file.
+      # Both halves have to actually hold, and CODEOWNERS named a user who
+      # was not a collaborator until the commit that added this note —
+      # GitHub ignores such an entry in silence, so the rule matched
+      # nothing at all.
+      #
+      # THE SECOND HALF IS NOT ENABLED, and cannot be while this repository
+      # has one collaborator. GitHub forbids approving your own pull
+      # request, so a sole maintainer who is also the sole code owner could
+      # never satisfy the rule: every pull request would be permanently
+      # unmergeable. Adding yourself to the ruleset's bypass list would
+      # restore merging and protect against nobody.
+      #
+      # So the gap is open, and its saving grace is that it currently has
+      # no attacker: opening a pull request here requires write access, and
+      # exactly one account has it. Enable the rule the day a second person
+      # gets write access — that is when a code owner distinct from the
+      # author exists, and when the gap acquires someone who could use it.
+      # Until then the tell is the clock: a green `Claude review` that took
+      # about fifteen seconds reviewed nothing.
+      - uses: anthropics/claude-code-action@d9a44dc489924665d246f0fd0508d102211be397 # v1
+        with:
+          # Authenticates against the maintainer's Claude subscription
+          # rather than a metered API key. Generated with `claude
+          # setup-token` and stored as a repository secret.
+          #
+          # GitHub withholds secrets from runs triggered by a pull request
+          # from a fork, so this job cannot review an outside contribution
+          # — the same hole SonarCloud has here, and it is recorded in
+          # .claude/skills/steward/SKILL.md.
+          #
+          # This check is REQUIRED on main, which turns that hole into a
+          # hard consequence: a pull request from a fork cannot merge,
+          # because the check it needs can never report. Accepted
+          # deliberately — there are no forks today, and an unreviewed
+          # merge is the worse failure. Reopening the repository to outside
+          # contributions means revisiting it.
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          plugin_marketplaces: "https://github.com/anthropics/claude-code.git"
+          plugins: "code-review@claude-code-plugins"
+          prompt: "/code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}"
+          # --comment is what puts the findings on the pull request; without
+          # it they are written to the run log and nobody reads them. The
+          # --allowedTools line is not redundant with the skill's own
+          # frontmatter: the action starts the inline-comment MCP server
+          # only when claude_args names that tool.
+          claude_args: '--allowedTools "mcp__github_inline_comment__create_inline_comment"'
+
+  # WHY THIS JOB EXISTS. The review above posts inline comments when it finds
+  # something and stays silent when it does not — so a green `Claude review`
+  # with no comments is ambiguous between "read the diff, found nothing" and
+  # "declined to read the diff", which is exactly the gap documented at
+  # length on the job above. Silence read as approval is the failure mode
+  # docs/quality-pipeline.md exists to record.
+  #
+  # The code-review skill would say so itself: given `--comment` and no
+  # findings it posts "No issues found" through `gh pr comment`. That needs
+  # `pull-requests: write`, and the review job deliberately does not have it.
+  # Granting it there would be worse than the silence: the same skill stops
+  # early when "Claude has already commented on this PR", so its own summary
+  # comment would suppress the review of every later push — undoing the
+  # per-push guarantee `synchronize` was added for. This job is therefore a
+  # separate one, so the write permission never reaches the step that runs
+  # Claude, and its comment is authored by the workflow rather than by
+  # Claude, so it cannot trip that rule.
+  #
+  # The duration is the load-bearing part. A workflow-mismatch skip exits
+  # `success` in about fifteen seconds; a real review takes minutes. Reading
+  # the clock is what turns "green" into a statement about whether anything
+  # was read, without anyone opening the run log.
+  status:
+    name: Claude review status
+    needs: review
+    # `always()` so a failed or cancelled review still says so rather than
+    # leaving the previous run's comment standing. A draft pull request
+    # skips the review job, and this one goes with it.
+    if: always() && needs.review.result != 'skipped'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    permissions:
+      # Posting and rewriting the status comment. This is the permission the
+      # review job above deliberately does not have.
+      pull-requests: write
+      # Reading the review job's timestamps through
+      # /actions/runs/{run_id}/jobs. That endpoint answers without this on a
+      # public repository, which is why the job worked before this line was
+      # added — but the day this repository turns private it would stop, and
+      # a dependency on being public is not one to leave undeclared.
+      actions: read
+
+    steps:
+      - name: Post or update the review status comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REVIEW_RESULT: ${{ needs.review.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # The marker identifies this workflow's own comment so each run
+          # rewrites it instead of adding another. It is invisible in the
+          # rendered comment.
+          MARKER: "<!-- claude-review-status -->"
+        run: |
+          set -euo pipefail
+
+          # One run, at most two jobs — no pagination needed.
+          jobs_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs")"
+          started="$(jq -r '[.jobs[] | select(.name == "Claude review")][0].started_at // ""' <<< "${jobs_json}")"
+          finished="$(jq -r '[.jobs[] | select(.name == "Claude review")][0].completed_at // ""' <<< "${jobs_json}")"
+
+          seconds=-1
+          if [[ -n "${started}" && -n "${finished}" && "${finished}" != "null" ]]; then
+            seconds=$(( $(date -u -d "${finished}" +%s) - $(date -u -d "${started}" +%s) ))
+          fi
+
+          if [[ "${seconds}" -ge 0 ]]; then
+            elapsed="$(printf '%dm %02ds' $((seconds / 60)) $((seconds % 60)))"
+          else
+            elapsed="unknown"
+          fi
+
+          # A skip and a clean review are both `success`; only the clock
+          # separates them. 60 s is far above the ~15 s a skip takes and far
+          # below the minutes a review takes, so neither case lands near it.
+          if [[ "${REVIEW_RESULT}" != "success" ]]; then
+            verdict="**The review did not complete** (\`${REVIEW_RESULT}\`). Nothing was reviewed — treat this pull request as unread by Claude."
+          elif [[ "${seconds}" -ge 0 && "${seconds}" -lt 60 ]]; then
+            verdict="**Green without a review.** The job succeeded in ${elapsed}, which is the signature of the action declining to run — it does that when this workflow file differs from the copy on \`main\`. Read the diff yourself, or merge the workflow change first and re-run."
+          else
+            verdict="**Reviewed, nothing to report.** Findings, when there are any, arrive as inline comments on the diff rather than here; this comment is only the proof that the reviewer ran."
+          fi
+
+          body="$(printf '%s\n\n## Claude review\n\n%s\n\n| | |\n|---|---|\n| Commit | `%s` |\n| Job result | `%s` |\n| Took | %s |\n| Run | %s |\n\nPosted by `.github/workflows/claude-review.yml`, rewritten in place on every run. See `docs/quality-pipeline.md` for what each layer does and does not prove.\n' \
+            "${MARKER}" "${verdict}" "${HEAD_SHA}" "${REVIEW_RESULT}" "${elapsed}" "${RUN_URL}")"
+
+          jq -n --arg body "${body}" '{body: $body}' > payload.json
+
+          existing="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --paginate \
+            --jq ".[] | select(.body | contains(\"${MARKER}\")) | .id" | head -n 1 || true)"
+
+          if [[ -n "${existing}" ]]; then
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${existing}" --input payload.json >/dev/null
+            echo "Updated status comment ${existing}."
+          else
+            gh api -X POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --input payload.json >/dev/null
+            echo "Created the status comment."
+          fi
