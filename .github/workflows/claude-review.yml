@@ -62,6 +62,24 @@ jobs:
     # takes a few minutes; this is a ceiling, not a target.
     timeout-minutes: 20
 
+    # THE ONE FACT THE STATUS JOB BELOW NEEDS, and it comes from the action
+    # rather than from a guess. In anthropics/claude-code-action's
+    # src/entrypoints/run.ts, the workflow-validation refusal does
+    #
+    #     core.setOutput("skipped_due_to_workflow_validation_mismatch", "true");
+    #     return;                                    // line 182
+    #     ...
+    #     core.setOutput("conclusion", claudeResult.conclusion);   // line 315
+    #
+    # so `conclusion` is EMPTY when the action declined to run and carries
+    # `success`/`failure` once Claude has actually run. (The mismatch output
+    # itself is internal to the action — action.yml does not re-export it —
+    # which is why this reads the presence of `conclusion` instead.)
+    #
+    # Empty therefore means "nothing was reviewed", with no clock involved.
+    outputs:
+      conclusion: ${{ steps.claude.outputs.conclusion }}
+
     permissions:
       contents: read
       pull-requests: read
@@ -117,9 +135,14 @@ jobs:
       # exactly one account has it. Enable the rule the day a second person
       # gets write access — that is when a code owner distinct from the
       # author exists, and when the gap acquires someone who could use it.
-      # Until then the tell is the clock: a green `Claude review` that took
-      # about fifteen seconds reviewed nothing.
+      # Until then the tell is the `Claude review status` comment below,
+      # which reads the action's own `conclusion` output and says outright
+      # whether Claude ran. It used to read the clock, and got it wrong
+      # often enough to warrant issue #159 — see that job for why.
       - uses: anthropics/claude-code-action@d9a44dc489924665d246f0fd0508d102211be397 # v1
+        # The id is load-bearing: it is what lets the job above export
+        # this step's `conclusion` output to the status job.
+        id: claude
         with:
           # Authenticates against the maintainer's Claude subscription
           # rather than a metered API key. Generated with `claude
@@ -165,10 +188,26 @@ jobs:
   # Claude, and its comment is authored by the workflow rather than by
   # Claude, so it cannot trip that rule.
   #
-  # The duration is the load-bearing part. A workflow-mismatch skip exits
-  # `success` in about fifteen seconds; a real review takes minutes. Reading
-  # the clock is what turns "green" into a statement about whether anything
-  # was read, without anyone opening the run log.
+  # HOW IT TELLS THE TWO APART, and why it no longer reads the clock.
+  #
+  # This job used to decide on the review job's duration: under 60 seconds
+  # meant a skip, over it meant a review. That was wrong often enough to be
+  # worse than useless, and issue #159 is the report. The premise — "a real
+  # review takes minutes" — only holds when the review has findings to
+  # write. A clean review posts nothing and finishes in about 20 seconds of
+  # model time; measured across twelve consecutive runs on this repository,
+  # those land between 55 and 70 seconds of job time, straddling the
+  # threshold. So the verdict on a review that found nothing was close to a
+  # coin flip, and it announced "green without a review" over a review that
+  # had genuinely run, cost real subscription usage, and read the whole diff.
+  #
+  # The signal it uses now is the action's own `conclusion` output, which is
+  # empty exactly when the action returned before running Claude — see the
+  # review job's `outputs:` block for the two lines of run.ts that make that
+  # true. Deterministic, and it stays right whatever a review costs.
+  #
+  # The duration is still reported. It is informative — a reader can see
+  # what the run spent — but it decides nothing.
   status:
     name: Claude review status
     needs: review
@@ -197,6 +236,9 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           REVIEW_RESULT: ${{ needs.review.result }}
+          # Empty when the action declined to run at all; `success` or
+          # `failure` once Claude has run. This is the verdict's source.
+          REVIEW_CONCLUSION: ${{ needs.review.outputs.conclusion }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           # The marker identifies this workflow's own comment so each run
           # rewrites it instead of adding another. It is invisible in the
@@ -221,19 +263,25 @@ jobs:
             elapsed="unknown"
           fi
 
-          # A skip and a clean review are both `success`; only the clock
-          # separates them. 60 s is far above the ~15 s a skip takes and far
-          # below the minutes a review takes, so neither case lands near it.
+          # A skip and a clean review are both `success`, so the job result
+          # alone cannot separate them — but the action's `conclusion` can:
+          # it is set only after Claude has run. An empty value is read as
+          # "not reviewed", which is the safe direction: this comment must
+          # never claim a review that did not happen.
           if [[ "${REVIEW_RESULT}" != "success" ]]; then
             verdict="**The review did not complete** (\`${REVIEW_RESULT}\`). Nothing was reviewed — treat this pull request as unread by Claude."
-          elif [[ "${seconds}" -ge 0 && "${seconds}" -lt 60 ]]; then
-            verdict="**Green without a review.** The job succeeded in ${elapsed}, which is the signature of the action declining to run — it does that when this workflow file differs from the copy on \`main\`. Read the diff yourself, or merge the workflow change first and re-run."
+          elif [[ -z "${REVIEW_CONCLUSION}" ]]; then
+            verdict="**Green without a review.** The job succeeded without the action ever running Claude — it declines when this workflow file differs from the copy on \`main\`. Read the diff yourself, or merge the workflow change first and re-run."
           else
             verdict="**Reviewed, nothing to report.** Findings, when there are any, arrive as inline comments on the diff rather than here; this comment is only the proof that the reviewer ran."
           fi
 
-          body="$(printf '%s\n\n## Claude review\n\n%s\n\n| | |\n|---|---|\n| Commit | `%s` |\n| Job result | `%s` |\n| Took | %s |\n| Run | %s |\n\nPosted by `.github/workflows/claude-review.yml`, rewritten in place on every run. See `docs/quality-pipeline.md` for what each layer does and does not prove.\n' \
-            "${MARKER}" "${verdict}" "${HEAD_SHA}" "${REVIEW_RESULT}" "${elapsed}" "${RUN_URL}")"
+          # `-` rather than an empty cell: a blank there reads as a
+          # rendering accident, and this row is the one the verdict rests on.
+          conclusion_cell="${REVIEW_CONCLUSION:--}"
+
+          body="$(printf '%s\n\n## Claude review\n\n%s\n\n| | |\n|---|---|\n| Commit | `%s` |\n| Job result | `%s` |\n| Claude ran | `%s` |\n| Took | %s |\n| Run | %s |\n\nPosted by `.github/workflows/claude-review.yml`, rewritten in place on every run. The verdict comes from the job'"'"'s result and the action'"'"'s own `conclusion` output, never from the duration. See `docs/quality-pipeline.md` for what each layer does and does not prove.\n' \
+            "${MARKER}" "${verdict}" "${HEAD_SHA}" "${REVIEW_RESULT}" "${conclusion_cell}" "${elapsed}" "${RUN_URL}")"
 
           jq -n --arg body "${body}" '{body: $body}' > payload.json
 
