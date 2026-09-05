@@ -253,10 +253,111 @@ self.addEventListener('message', function (event) {
     }
 });
 
+// --- App-shell freshness: the two rules the `?v=` cannot enforce on its own ---
+//
+// Every APP_SHELL_BASE_URLS entry is matched with `ignoreSearch` (see the
+// fetch handler), so the `?v=` that Twig's asset() appends to every
+// `<link>` and `<script>` — Core\Maintenance\AssetVersion — busts the
+// browser's own HTTP cache but can never bust THIS one: a cached copy
+// answers whatever version the page asks for. CACHE_NAME is the only
+// invalidation there is, and it only works if the copies precached under
+// a new name are genuinely new, and if the worker holding the old ones
+// stops answering for the new build. Neither was true, and production
+// showed it: an install left a NEW page in front of the PREVIOUS
+// /assets/js/api.js, Configuration > Maintenance threw
+// « window.ScoutMagicApi.pollSlot is not a function » on load, and since
+// an uncaught error ends the whole script, every block of maintenance.js
+// after it — the update channel, the branch selector, the install form —
+// simply never ran.
+//
+// Rule 1, here: precache over the network, never out of the HTTP cache.
+// cache.addAll() fetches the BARE urls (no `?v=` — that is what the fetch
+// handler matches on), and a bare /assets/js/api.js is a URL no page ever
+// requests: the only thing that ever writes it into the HTTP cache is a
+// previous precache. /assets/** is served to be cached — a far-future
+// lifetime where the host configures one, heuristic freshness off
+// Last-Modified where it does not — so that entry gets reused and the new
+// cache generation is filled with the OLD bytes, which `ignoreSearch`
+// then serves for as long as the HTTP entry lives. `cache: 'reload'` is
+// what makes an install fetch the file rather than a memory of it.
+function precacheRequests() {
+    return APP_SHELL_URLS.map(function (url) {
+        return new Request(url, { cache: 'reload' });
+    });
+}
+
+// Rule 2: a shell asset asked for under a version this worker does not
+// know is not this worker's to answer out of cache. That is the first
+// page load after an install — the page is new, the controlling worker is
+// still the previous one (a new worker installs and claims, but never
+// before the requests the loading page has already issued), and
+// cache-first hands the previous build's script to the new build's
+// markup. Network-first for exactly that mismatch closes the window; the
+// steady state is untouched, since `?v=` equal to VERSION — every request
+// a settled install makes — stays cache-first.
+/**
+ * @param {URL} url
+ * @returns {boolean}
+ */
+function isSupersededShellRequest(url) {
+    const requested = url.searchParams.get('v');
+
+    return requested !== null && requested !== VERSION;
+}
+
+/**
+ * @param {Request} request
+ * @returns {Promise<Response|undefined>}
+ */
+function cachedShell(request) {
+    return caches.match(request, { ignoreSearch: true });
+}
+
+/**
+ * The app-shell branch of the fetch handler: cache-first for the version
+ * this worker precached, network-first with the cache as the offline
+ * fallback for any other. Offline never regresses — a failed network
+ * still ends on whatever copy is in hand.
+ *
+ * @param {Request} request
+ * @param {URL} url
+ * @returns {Promise<Response>}
+ */
+function appShellResponse(request, url) {
+    if (!isSupersededShellRequest(url)) {
+        return cachedShell(request).then(function (cached) {
+            return cached || fetch(request);
+        });
+    }
+
+    return fetch(request).then(
+        function (response) {
+            if (response && response.ok) {
+                return response;
+            }
+
+            // A 404 or a 5xx from a half-written deploy is worth less
+            // than the copy already in hand.
+            return cachedShell(request).then(function (cached) {
+                return cached || response;
+            });
+        },
+        function (error) {
+            return cachedShell(request).then(function (cached) {
+                if (cached) {
+                    return cached;
+                }
+
+                throw error;
+            });
+        }
+    );
+}
+
 self.addEventListener('install', function (event) {
     event.waitUntil(
         caches.open(CACHE_NAME).then(function (cache) {
-            return cache.addAll(APP_SHELL_URLS);
+            return cache.addAll(precacheRequests());
         })
     );
     self.skipWaiting();
@@ -319,15 +420,12 @@ self.addEventListener('fetch', function (event) {
         return;
     }
 
-    // Rest of the app shell — cache-first, ignoreSearch so a request that
-    // happens to carry a query string (none of these legitimately do)
-    // still matches the precached bare-path entry.
+    // Rest of the app shell — ignoreSearch so a request that carries a
+    // query string still matches the precached bare-path entry, and
+    // cache-first for everything except a `?v=` this worker does not
+    // recognise (appShellResponse, and the two rules above it).
     if (APP_SHELL_BASE_URLS.includes(url.pathname)) {
-        event.respondWith(
-            caches.match(request, { ignoreSearch: true }).then(function (cached) {
-                return cached || fetch(request);
-            })
-        );
+        event.respondWith(appShellResponse(request, url));
         return;
     }
 
@@ -852,6 +950,11 @@ self.addEventListener('notificationclick', function (event) {
 // rather than global) and call the real implementations directly instead
 // of reimplementing their logic in a test-only copy.
 globalThis.ScoutMagicServiceWorkerInternals = {
+    precacheRequests: precacheRequests,
+    isSupersededShellRequest: isSupersededShellRequest,
+    appShellResponse: appShellResponse,
+    VERSION: VERSION,
+    APP_SHELL_URLS: APP_SHELL_URLS,
     isWhitelisted: isWhitelisted,
     formatOfflineTimestamp: formatOfflineTimestamp,
     cachedCopy: cachedCopy,
