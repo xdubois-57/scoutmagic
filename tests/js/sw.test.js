@@ -707,6 +707,25 @@ describe('sw.js: a Cache Storage that rejects instead of missing', () => {
         expect(await sw.networkFirstWithCacheFallback(request, url, config)).toBe(offline);
     });
 
+    // The banner injection reads the cached body, and that read can fail
+    // too. It is part of reading the cache, so it must land on the offline
+    // page rather than escape into respondWith().
+    it('treats a cached copy whose body cannot be read as no copy at all', async () => {
+        const offline = makeResponse('<body>offline page</body>');
+        const unreadable = makeResponse('<body>cached</body>', { headers: { date: new Date().toUTCString() } });
+        unreadable.text = () => Promise.reject(new Error('storage read failed'));
+        global.caches = {
+            open: vi.fn(() => Promise.resolve({
+                match: vi.fn(() => Promise.resolve(unreadable)),
+                put: vi.fn(() => Promise.resolve()),
+            })),
+            match: vi.fn(() => Promise.resolve(offline)),
+        };
+        global.fetch = vi.fn(() => Promise.reject(new Error('offline')));
+
+        expect(await sw.networkFirstWithCacheFallback(request, url, config)).toBe(offline);
+    });
+
     // Both reads broken at once: the last resort is the generated page,
     // and it must still be a real Response — respondWith(undefined) is a
     // TypeError, which is the interstitial all over again.

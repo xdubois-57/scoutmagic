@@ -12,6 +12,7 @@ use Modules\Gallery\Api\DelegatedMedia;
 use Modules\Gallery\Api\GalleryException;
 use Modules\Groups\Controller\ReplyController;
 use Modules\Groups\Repository\PostMediaRepository;
+use Modules\Groups\Service\GroupAccessService;
 use Modules\Groups\Service\GroupActivityService;
 use Modules\Groups\Service\GroupSessionContextFactory;
 use Modules\Groups\Service\PostAuthorResolver;
@@ -155,6 +156,47 @@ class ReplyControllerTest extends GroupsControllerTestCase
         $this->assertSame('Bien reçu', $replies[0]->body);
         $this->assertSame(self::AUTHOR_ACCOUNT, $replies[0]->authorUserAccountId);
         $this->assertSame($this->memberId, $replies[0]->authorMemberId);
+    }
+
+    /**
+     * The site-admin author fallback on the reply path. The reaction and
+     * post paths have their own; a reply writes its own author_member_id
+     * row, so it needs its own proof that the borrowed member is the one
+     * actually recorded.
+     */
+    public function testASiteAdminRepliesAsALinkedMemberTheGroupDoesNotHold(): void
+    {
+        $outsider = GroupsTestHelper::createMember($this->pdo, 'OUTSIDER');
+        $this->withCsrf(['body' => 'Vu, merci']);
+
+        $response = $this->controller([$outsider], self::OTHER_ACCOUNT, 'admin')
+            ->create($this->request(), $this->params($this->postId));
+
+        $this->assertSame(302, $response->getStatusCode());
+        $replies = $this->replyRepo->findPage($this->postId, 10);
+        $this->assertCount(1, $replies);
+        $this->assertSame($outsider, $replies[0]->authorMemberId);
+    }
+
+    /**
+     * And the refusal, before anything is written. author_member_id is NOT
+     * NULL, so a null reaching the insert is a fatal rather than a 403 —
+     * and the media is attached BEFORE the reply row, so a refusal that
+     * came too late would leave an orphaned upload behind.
+     */
+    public function testAnAccountWithNoMemberCannotReplyAndNothingIsWritten(): void
+    {
+        $this->withCsrf(['body' => 'Vu, merci']);
+
+        $response = $this->controller([], self::OTHER_ACCOUNT, 'admin')
+            ->create($this->request(), $this->params($this->postId));
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertStringContainsString(
+            htmlspecialchars(GroupAccessService::NO_AUTHOR_MEMBER_MESSAGE, ENT_QUOTES, 'UTF-8'),
+            $response->getBody()
+        );
+        $this->assertSame(0, $this->replyRepo->countForPost($this->postId));
     }
 
     /**

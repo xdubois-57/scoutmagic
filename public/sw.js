@@ -739,7 +739,13 @@ function cachedCopy(request, cacheName, config, reason) {
             return null;
         }
 
-        return injectOfflineBanner(cached, dateHeader, reason);
+        // The banner injection reads the body, and `cached.text()` can
+        // reject for the same reasons the open/match guard above exists
+        // for — a storage error part-way through, a revoked quota. That
+        // read is part of reading the cache, so it falls under the same
+        // invariant: a copy that cannot be read is not a copy.
+        return injectOfflineBanner(cached, dateHeader, reason)
+            .catch(function () { return null; });
     });
 }
 

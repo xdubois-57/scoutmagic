@@ -373,6 +373,10 @@ class SectionRosterControllerTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertSame('application/pdf', $response->getHeaders()['Content-Type']);
+        // The one header whose loss is silent: the sheet is member names in
+        // the clear, and nothing else stops a shared browser or a proxy
+        // keeping it after the session that was allowed to see it ends.
+        $this->assertSame('private, no-store', $response->getHeaders()['Cache-Control']);
         $this->assertStringStartsWith('%PDF-', $response->getBody());
         $this->assertSame((string) strlen($response->getBody()), $response->getHeaders()['Content-Length']);
     }

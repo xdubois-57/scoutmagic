@@ -295,10 +295,19 @@ message itself is worth keeping and is passed straight through to the
 page.
 
 Pass `$request` whenever the route is also reachable by `fetch()`. The
-refusal then comes back as `{"error": "…"}` with the 403, which is what
-every AJAX caller in `public/assets/js/` already knows how to show inline
-— and what stops a script falling back to a full form submit and
-replacing the whole page with the refusal.
+refusal then comes back as `{"error": "…"}` with the 403 instead of a
+page, which is what a caller that reads `data.error` shows inline — the
+group composer (`groups.js`) is the one that does.
+
+The other callers there branch on `response.ok` alone (the delete and
+moderation forms, the reaction form) and fall back to a real
+`form.submit()` on any failure, JSON body or not. That fallback is no
+longer the bug it was: a genuine form submit carries no
+`X-Requested-With`, so `forbidden()` answers it with the site's themed
+403 page rather than the bare text body that started all this. It is
+still a whole-page navigation, so a route worth answering inline needs
+its caller taught to read `error` — passing `$request` alone does not do
+it.
 
 The message is French, a full sentence, and says what happened
 (`AGENTS.md` § Language). `forbidden()` with no message falls back to the
