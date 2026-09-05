@@ -78,9 +78,11 @@ class ScheduledTasksAreTestedTest extends TestCase
                     continue;
                 }
 
-                $handler = (string) $task['handler'];
-                $short = substr((string) strrchr($handler, '\\'), 1);
-                $cases[$moduleId . ' / ' . $task['key']] = [$moduleId, (string) $task['key'], $short];
+                $cases[$moduleId . ' / ' . $task['key']] = [
+                    $moduleId,
+                    (string) $task['key'],
+                    (string) $task['handler'],
+                ];
             }
         }
 
@@ -126,7 +128,7 @@ class ScheduledTasksAreTestedTest extends TestCase
     public function testTheRuleItselfWouldNoticeAnUntestedHandler(): void
     {
         $this->assertFalse(
-            $this->isConstructedInATest('AHandlerNobodyEverWrote'),
+            $this->isConstructedInATest('Modules\\Nowhere\\Task\\AHandlerNobodyEverWrote'),
             'A check that passes for a class that does not exist checks nothing.'
         );
     }
@@ -135,10 +137,21 @@ class ScheduledTasksAreTestedTest extends TestCase
      * Searched across tests/ excluding the end-to-end suite: a browser
      * scenario exercises a task through a whole instance, which is
      * valuable and is not what this rule asks for.
+     *
+     * **Matched on the whole class name, not on its last segment.** Two
+     * modules declare a `PurgeRateLimitHandler`, so a rule that compared
+     * short names would let one module's test satisfy the other module's
+     * obligation — a green rule protecting nothing. A file counts when it
+     * either constructs the fully qualified name, or imports exactly this
+     * class and constructs the short one; importing a namesake from
+     * elsewhere therefore does not count.
      */
     private function isConstructedInATest(string $handler): bool
     {
-        $pattern = '/new\s+\\\\?' . preg_quote($handler, '/') . '\s*\(/';
+        $short = substr((string) strrchr('\\' . $handler, '\\'), 1);
+        $qualified = '/new\s+\\\\' . preg_quote($handler, '/') . '\s*\(/';
+        $imported = '/^\s*use\s+' . preg_quote($handler, '/') . '\s*(?:as\s+\w+\s*)?;/m';
+        $bare = '/new\s+' . preg_quote($short, '/') . '\s*\(/';
 
         $files = new \RecursiveIteratorIterator(
             new \RecursiveDirectoryIterator($this->repositoryRoot() . '/tests', \FilesystemIterator::SKIP_DOTS)
@@ -151,7 +164,11 @@ class ScheduledTasksAreTestedTest extends TestCase
             if (str_contains($file->getPathname(), DIRECTORY_SEPARATOR . 'e2e' . DIRECTORY_SEPARATOR)) {
                 continue;
             }
-            if (preg_match($pattern, (string) file_get_contents($file->getPathname())) === 1) {
+            $source = (string) file_get_contents($file->getPathname());
+            if (preg_match($qualified, $source) === 1) {
+                return true;
+            }
+            if (preg_match($imported, $source) === 1 && preg_match($bare, $source) === 1) {
                 return true;
             }
         }

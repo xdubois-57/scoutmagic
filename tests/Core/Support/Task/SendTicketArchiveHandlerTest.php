@@ -94,6 +94,13 @@ class SendTicketArchiveHandlerTest extends TestCase
 
     public function testItComesBackAMinuteLaterRatherThanImmediately(): void
     {
+        // Derived from the constant, not from the number in it: a delay
+        // raised to an hour is as much a regression as one lowered to
+        // zero, and only an upper bound catches the first.
+        $notAfter = (new \DateTimeImmutable(
+            '+' . (SendTicketArchiveHandler::RETRY_SECONDS + 30) . ' seconds'
+        ))->format('Y-m-d H:i:s');
+
         (new SendTicketArchiveHandler())->handle(['reference' => self::REFERENCE], $this->context());
 
         $runAt = (string) $this->pdo
@@ -105,6 +112,7 @@ class SendTicketArchiveHandlerTest extends TestCase
             $runAt,
             'A generation takes minutes; looking again at once only spends the queue.'
         );
+        $this->assertLessThanOrEqual($notAfter, $runAt);
     }
 
     public function testAnAttemptItCannotReadCountsAsTheFirst(): void

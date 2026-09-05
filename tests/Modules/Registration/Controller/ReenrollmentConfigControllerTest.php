@@ -279,11 +279,13 @@ class ReenrollmentConfigControllerTest extends TestCase
         $this->campaign->open();
         $this->save(['is_open' => '0']);
 
-        $references = array_column($this->queued(), 'reference');
-        $this->assertSame(
-            $references,
-            array_unique($references),
-            'The queue reference is what keeps a twice-closed campaign to one closing e-mail.'
+        // The row count, not the uniqueness of what the rows carry:
+        // array_unique() collapses duplicates in PHP before the assertion
+        // sees them, and an empty queue has no duplicates either.
+        $this->assertCount(
+            1,
+            $this->queued(),
+            'The hand-over guard is what keeps a twice-closed campaign to one closing e-mail.'
         );
     }
 
@@ -344,8 +346,7 @@ class ReenrollmentConfigControllerTest extends TestCase
         $this->remind();
         $this->remind();
 
-        $references = array_column($this->queued(), 'reference');
-        $this->assertCount(1, array_unique($references));
+        $this->assertCount(1, $this->queued(), 'Two clicks, one reminder — counted in rows.');
     }
 
     // ── the boundary ──────────────────────────────────────────────────

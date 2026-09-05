@@ -10,6 +10,12 @@ namespace Core\Scheduler;
 
 class SchedulerRepository
 {
+    /**
+     * The LIKE escape character, same choice as
+     * Modules\Groups\Support\SearchTerm — see hasLiveStartingWith().
+     */
+    private const LIKE_ESCAPE = '!';
+
     public function __construct(private \PDO $pdo)
     {
     }
@@ -91,14 +97,27 @@ class SchedulerRepository
      *
      * The prefix is matched literally: LIKE metacharacters in it are
      * escaped, so a reference is never read as a pattern.
+     *
+     * **`!`, not a backslash**, and the difference is not stylistic: a
+     * backslash escape character has to be written `ESCAPE '\\'` in the
+     * SQL text, and MySQL reads the backslash inside that literal as
+     * escaping the closing quote — a syntax error, on every real
+     * installation. SQLite does not, so a test suite backed by SQLite
+     * calls this happily and says nothing. `Modules\Groups\Support\
+     * SearchTerm` reached the same conclusion before this and uses the
+     * same character; see the MySQL-backed test beside this method.
      */
     public function hasLiveStartingWith(string $moduleId, string $taskKey, string $prefix): bool
     {
-        $escaped = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $prefix);
+        $escaped = str_replace(
+            [self::LIKE_ESCAPE, '%', '_'],
+            [self::LIKE_ESCAPE . self::LIKE_ESCAPE, self::LIKE_ESCAPE . '%', self::LIKE_ESCAPE . '_'],
+            $prefix
+        );
 
         $stmt = $this->pdo->prepare(
             "SELECT 1 FROM scheduled_actions
-             WHERE module_id = ? AND task_key = ? AND reference LIKE ? ESCAPE '\\'
+             WHERE module_id = ? AND task_key = ? AND reference LIKE ? ESCAPE '" . self::LIKE_ESCAPE . "'
                AND status IN ('pending', 'processing') LIMIT 1"
         );
         $stmt->execute([$moduleId, $taskKey, $escaped . '%']);

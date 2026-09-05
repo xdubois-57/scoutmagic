@@ -163,6 +163,10 @@ class NotificationFanOutTest extends TestCase
     #[\PHPUnit\Framework\Attributes\DataProvider('bothHalves')]
     public function testTheFollowUpRunsAtTheNextTickRatherThanLater(string $half): void
     {
+        // Both bounds: an action queued in the PAST would satisfy an upper
+        // bound alone, and would be a follow-up the scheduler runs before
+        // the batch it follows.
+        $notBefore = (new \DateTimeImmutable('-1 second'))->format('Y-m-d H:i:s');
         $service = $this->serviceAttempting([1]);
 
         $this->handle($half, ['notification_ids' => [1, 2]], $service);
@@ -171,6 +175,7 @@ class NotificationFanOutTest extends TestCase
             ->query("SELECT run_at FROM scheduled_actions WHERE task_key = '" . $this->taskKey($half) . "'")
             ->fetchColumn();
 
+        $this->assertGreaterThanOrEqual($notBefore, $runAt);
         $this->assertLessThanOrEqual(
             (new \DateTimeImmutable('+5 seconds'))->format('Y-m-d H:i:s'),
             $runAt,

@@ -499,9 +499,9 @@ class SendReenrollmentEmailsHandlerTest extends TestCase
             "INSERT OR IGNORE INTO functions (desk_code, label, role) VALUES ('identified', 'Fn', 'identified')"
         );
         $functionId = (int) $this->pdo->query("SELECT id FROM functions WHERE desk_code = 'identified'")->fetchColumn();
-        $branchId = (int) $this->pdo
-            ->query('SELECT age_branch_id FROM sections WHERE id = ' . $this->sectionId)
-            ->fetchColumn();
+        $branchStatement = $this->pdo->prepare('SELECT age_branch_id FROM sections WHERE id = ?');
+        $branchStatement->execute([$this->sectionId]);
+        $branchId = (int) $branchStatement->fetchColumn();
 
         $stmt = $this->pdo->prepare(
             'INSERT INTO member_functions (member_year_id, function_id, section_id, age_branch_id, is_main_function)
