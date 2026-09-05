@@ -199,10 +199,14 @@ if grep -q '^PATCH bug:confirmed b60205' "${WRITE_LOG}"; then
 else
     fail "the colour is put back"
 fi
-if grep -q '^PATCH triage:done ' "${WRITE_LOG}"; then
-    pass "the description is put back"
+# The value, not just the fact of a write: a PATCH that sent an empty or
+# wrong description would satisfy "a PATCH happened" and leave the label
+# exactly as broken as it was.
+managed_description="$(grep -oE '"triage:done\|[^|]*\|[^"]*"' "${SYNC_SCRIPT}" | sed -e 's/^"//' -e 's/"$//' | cut -d'|' -f3)"
+if [[ "$(jq -r '.["triage:done"].description' "${LABEL_STATE}")" == "${managed_description}" ]]; then
+    pass "the description is put back, to the value the table carries"
 else
-    fail "the description is put back"
+    fail "the description is put back, to the value the table carries"
 fi
 
 # ---------------------------------------------------------------------------
@@ -243,22 +247,36 @@ assert_eq "$(wc -c < "${WRITE_LOG}" | tr -d ' ')" "0" "it refused before writing
 
 # ---------------------------------------------------------------------------
 echo
-echo "A form declaring labels as a YAML block sequence is refused, not skipped"
+echo "Every labels: shape the check cannot read is refused, not skipped"
 # ---------------------------------------------------------------------------
-# Silently skipping it would leave the cross-check above reporting success
-# over a file it never read — the failure mode where a green result and no
-# result look identical.
-printf 'name: Bug\nlabels:\n  - triage:pending\n' > "${FORMS}/bug.yml"
-if output="$(run_sync)"; then
-    fail "the run should have refused"
-else
-    pass "the run refuses"
-fi
-if grep -q 'block sequence' <<< "${output}"; then
-    pass "it says why, naming the file"
-else
-    fail "it says why, naming the file"
-fi
+# GitHub's schema accepts more than the one-line flow sequence this script
+# greps for, and each extra shape is a way to smuggle a label past the
+# cross-check above: it would report success over a declaration it never
+# saw — the failure mode where a green result and no result look identical.
+#
+# The multiline flow sequence is not hypothetical. It slipped through, the
+# sync ran, and `priority:high` went unreported; CodeRabbit found it on the
+# pull request that introduced this file.
+for shape in "block sequence:name: Bug\nlabels:\n  - triage:pending\n" \
+             "multiline flow sequence:name: Bug\nlabels: [\n  \"triage:pending\",\n  \"priority:high\"\n]\n" \
+             "comma-delimited string:name: Bug\nlabels: triage:pending, priority:high\n"; do
+    shape_name="${shape%%:*}"
+    # shellcheck disable=SC2059
+    printf "${shape#*:}" > "${FORMS}/bug.yml"
+    : > "${WRITE_LOG}"
+
+    if output="$(run_sync)"; then
+        fail "a ${shape_name} is refused"
+    else
+        pass "a ${shape_name} is refused"
+    fi
+    if grep -q 'cannot read' <<< "${output}"; then
+        pass "  it says why, naming the file"
+    else
+        fail "  it says why, naming the file"
+    fi
+    assert_eq "$(wc -c < "${WRITE_LOG}" | tr -d ' ')" "0" "  it refused before writing anything"
+done
 
 # ---------------------------------------------------------------------------
 echo

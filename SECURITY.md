@@ -4,10 +4,16 @@ This document defines the non-negotiable security requirements for the project. 
 
 ## Reporting a vulnerability
 
-Report security vulnerabilities privately — not via public GitHub issues — by contacting the
-maintainer directly. Include enough detail to reproduce the issue. There is no guaranteed
-response time; this project is maintained on a volunteer basis, and fixes are made as time
-allows.
+Report security vulnerabilities privately — not via public GitHub issues — through **GitHub's
+private vulnerability reporting**: the *Report a vulnerability* button on this repository's
+[Security tab](https://github.com/xdubois-57/scoutmagic/security), which opens an advisory
+visible only to the maintainer. Failing that, contact the maintainer directly. Include enough
+detail to reproduce the issue. There is no guaranteed response time; this project is maintained
+on a volunteer basis, and fixes are made as time allows.
+
+That button exists only while *Private vulnerability reporting* is enabled in the repository's
+settings, and nothing here can check that it is — see `docs/quality-pipeline.md` § The GitHub
+configuration this all depends on.
 
 ## Avertissement
 

@@ -6,17 +6,23 @@
 # The cost is real and worth stating — someone with a report that fits
 # neither form has to pick the closer one. That is a better failure than a
 # report nobody can act on.
+#
+# The security link points at SECURITY.md rather than straight at
+# /security/advisories/new, because that form exists only while private
+# vulnerability reporting is enabled in the repository's settings — which
+# nothing in this repository can check. SECURITY.md always renders, and it
+# names the button plus the fallback. One extra hop against a dead end for
+# the one reporter who must not fall back on a public issue.
 blank_issues_enabled: false
 
 contact_links:
   - name: Faille de sécurité
     url: https://github.com/xdubois-57/scoutmagic/blob/main/SECURITY.md
     about: >-
-      Une vulnérabilité ne se signale jamais dans un ticket public. Contactez
-      le mainteneur en privé — la marche à suivre est dans SECURITY.md.
+      Jamais dans un ticket public. Utilisez le bouton « Report a vulnerability »
+      de l'onglet Security ; SECURITY.md explique la marche à suivre.
   - name: Question sur l'utilisation du site
     url: https://github.com/xdubois-57/scoutmagic/blob/main/README.md
     about: >-
-      L'aide est intégrée au site : le bouton « ? » de la barre de
-      navigation ouvre l'aide de la page affichée, et /aide en donne la
-      liste complète. Le README décrit l'installation et l'hébergement.
+      L'aide est dans le site : le bouton « ? » ouvre celle de la page affichée,
+      et /aide en donne la liste. Le README décrit l'installation.

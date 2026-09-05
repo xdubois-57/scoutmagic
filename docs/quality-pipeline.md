@@ -329,6 +329,19 @@ an error.
 - **Require review from Code Owners** — *not enabled, and not currently
   enableable.* See below.
 
+### Private vulnerability reporting
+
+*Settings → Code security → Private vulnerability reporting*
+
+`SECURITY.md` and `.github/ISSUE_TEMPLATE/config.yml` both send a reporter to
+the *Report a vulnerability* button on the Security tab. That button exists
+only while this setting is on, and when it is off there is no error and no
+check — the reporter simply does not find it, and the alternative on offer
+is "contact the maintainer directly" with no address. Blank issues are
+disabled, so the path that a stuck reporter would otherwise fall back on
+(open a public issue about a vulnerability) is the one thing that must not
+happen.
+
 ### Labels
 
 `claude-review` — adding it to a pull request asks `claude-review.yml` for a

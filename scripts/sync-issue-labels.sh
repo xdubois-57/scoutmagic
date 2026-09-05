@@ -108,33 +108,47 @@ known_label() {
     return 1
 }
 
-# The forms write `labels: ["a", "b"]` — YAML's flow sequence, on one line.
-# A block sequence parses to the same thing in YAML and to nothing here, so
-# it is refused rather than skipped: skipping it would leave the check
-# below reporting success over a file it never read, which is the failure
-# mode where a green result and no result look identical.
+# This is a `grep`, not a YAML parser, and GitHub's schema accepts more
+# shapes than a grep can read: a block sequence (`labels:` then indented
+# `- ` items), a flow sequence broken over several lines, and a plain
+# comma-delimited string are all valid `labels:` and all mean something.
 #
-# This guard runs in the main shell on purpose. Inside a function called
+# So rather than try to read each shape, every `labels:` line is required
+# to be the ONE shape this can read — a complete flow sequence, opened and
+# closed on its own line — and anything else is refused by name. Refusing
+# is the whole point: a shape this skips leaves the check below reporting
+# success over a declaration it never saw, which is the failure mode where
+# a green result and no result look identical. A multiline flow sequence
+# did exactly that until CodeRabbit found it on this pull request — the
+# sync ran, and an unknown label went unreported.
+#
+# The guard runs in the main shell on purpose. Inside a function called
 # through process substitution, its `exit` would have ended the subshell
 # and left the script running — the check silently disabled by the very
-# input it exists to catch. (It did, until this test caught it.)
+# input it exists to catch. (It did, until the test caught it.)
+DECLARED=""
 if [[ -d "${FORM_DIR}" ]]; then
-    BLOCK_FORM="$(grep -lE '^labels:[[:space:]]*$' "${FORM_DIR}"/*.yml 2>/dev/null || true)"
-    if [[ -n "${BLOCK_FORM}" ]]; then
-        echo "ERROR: these issue forms declare labels as a block sequence, which this check cannot read:" >&2
-        echo "${BLOCK_FORM}" >&2
-        echo "Write them inline — labels: [\"a\", \"b\"] — or teach this script to parse YAML." >&2
-        exit 1
-    fi
+    for form in "${FORM_DIR}"/*.yml; do
+        [[ -e "${form}" ]] || continue
 
-    DECLARED="$(grep -hoE '^labels:[[:space:]]*\[[^]]*\]' "${FORM_DIR}"/*.yml 2>/dev/null \
-        | sed -e 's/^labels:[[:space:]]*\[//' -e 's/\]$//' \
-        | tr ',' '\n' \
-        | sed -e 's/^[[:space:]]*"*//' -e "s/^[[:space:]]*'*//" -e 's/"*[[:space:]]*$//' -e "s/'*[[:space:]]*\$//" \
-        | grep -v '^[[:space:]]*$' \
-        | sort -u || true)"
-else
-    DECLARED=""
+        # Every top-level `labels:` in the file. A form field's own key is
+        # `label:` and is indented, so `^labels:` matches only this one.
+        while IFS= read -r line; do
+            if [[ ! "${line}" =~ ^labels:[[:space:]]*\[[^][]*\][[:space:]]*$ ]]; then
+                echo "ERROR: ${form} declares labels in a shape this check cannot read:" >&2
+                echo "  ${line}" >&2
+                echo "Write the whole list inline on one line — labels: [\"a\", \"b\"] — so the check below can see it." >&2
+                echo "A block sequence, a flow sequence split over several lines and a comma-delimited string are all valid YAML that this would silently skip." >&2
+                exit 1
+            fi
+
+            DECLARED+="$(sed -e 's/^labels:[[:space:]]*\[//' -e 's/\][[:space:]]*$//' <<< "${line}" \
+                | tr ',' '\n' \
+                | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'\$//" \
+                | grep -v '^[[:space:]]*$' || true)"$'\n'
+        done < <(grep -E '^labels:' "${form}" || true)
+    done
+    DECLARED="$(sort -u <<< "${DECLARED}")"
 fi
 
 UNKNOWN=""
