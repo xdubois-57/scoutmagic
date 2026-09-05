@@ -51,6 +51,7 @@ Deux conséquences, qui sont la raison d'être de cette approche :
 ```
 tests/fixtures/reference-dataset/
   README.md              ce fichier
+  autoload.php           l'autoloader des deux points d'entrée CLI (§3)
   generate.php           point d'entrée CLI du générateur (+ --check)
   DatasetGenerator.php   produit tous les fichiers générés, en mémoire
   UnitBlueprint.php      LA TABLE : sections, effectifs, fonctions, viviers
@@ -97,9 +98,13 @@ morceaux quand le jeu de données a grossi : un `*Blueprint` **décrit**, un
 ```
 
 Les classes sont autochargées par l'entrée `autoload-dev` de `composer.json`
-(`Tests\Fixtures\ReferenceDataset\`) : elles n'existent donc pas du tout dans
-une installation `composer install --no-dev`, en plus de ne jamais entrer dans
-l'artefact de release.
+(`Tests\Fixtures\ReferenceDataset\`), qui n'existe que dans un checkout de
+développement : `composer install --no-dev --optimize-autoloader` — ce que
+produit tout artefact — ne la conserve pas. Les deux points d'entrée CLI
+chargent donc `autoload.php` de ce répertoire plutôt que `vendor/autoload.php`
+directement : il enregistre ce mapping lui-même, pour que le builder tourne
+aussi sur une installation où on a copié ce répertoire (§8.0). Cela ne change
+rien à l'artefact de release, qui n'en contient toujours rien.
 
 ## 4. Le lot de photos
 
@@ -281,6 +286,31 @@ utilisateur, et il ne fusionne rien. Trois sorties : repartir d'une
 installation vierge, restaurer la sauvegarde prise juste après la première
 construction (§11), ou **`--reset`**, qui vide l'installation ciblée avant de
 construire (§8.4).
+
+### 8.0 Sur une installation déployée, pas seulement dans un checkout
+
+Le builder cible aussi bien un checkout de développement qu'une
+installation en place (`--root=`, ou simplement le répertoire dans lequel
+on l'a copié). Deux conséquences du §2, à ne pas découvrir sur le serveur :
+
+- **L'artefact ne contient rien d'ici** — `tests/*` est exclu, et une
+  vérification post-zip refuse tout artefact contenant `reference-dataset`.
+  Le répertoire se copie donc à la main sur l'installation, en entier :
+  les classes, mais aussi les exports Desk, les relevés et les photos que
+  le build rejoue.
+- **`Tests\Fixtures\ReferenceDataset\` n'est pas dans l'autoloader de
+  l'installation.** Ce mapping vit dans l'`autoload-dev` de
+  `composer.json`, que `composer install --no-dev --optimize-autoloader`
+  (`scripts/build-artifact.sh`) ne conserve pas. C'est `autoload.php` de ce
+  répertoire — et non `vendor/autoload.php` directement — que les deux
+  points d'entrée chargent pour cette raison : il enregistre le mapping
+  lui-même. Sans lui, `build.php` s'arrêtait sur
+  `Class "Tests\Fixtures\ReferenceDataset\InstanceContext" not found`.
+  Voir `Tests\Integration\ReferenceDatasetAutoloadTest`.
+
+Rappel du §8 : les comptes créés ont des mots de passe publiés dans ce
+README. Une installation qui sert à autre chose qu'à des essais n'est pas
+une cible pour ce script.
 
 ### 8.1 Ce qu'il fait, dans cet ordre
 

@@ -48,7 +48,7 @@ if (PHP_SAPI !== 'cli') {
     exit;
 }
 
-require_once __DIR__ . '/../../../vendor/autoload.php';
+require_once __DIR__ . '/autoload.php';
 
 use Tests\Fixtures\ReferenceDataset\DatasetGenerator;
 use Tests\Fixtures\ReferenceDataset\DemoAccounts;
