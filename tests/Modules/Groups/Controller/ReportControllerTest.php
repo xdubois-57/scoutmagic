@@ -133,6 +133,9 @@ class ReportControllerTest extends GroupsControllerTestCase
 
         $this->assertSame(302, $response->getStatusCode());
         $this->assertSame(1, $this->postReportCount());
+        // The count alone would pass on a report filed for someone else,
+        // which is the exact failure this fallback exists to prevent.
+        $this->assertSame($outsider, $this->postReportReporterId());
     }
 
     public function testAnAccountWithNoMemberCannotReportAndNothingIsWritten(): void
@@ -778,5 +781,19 @@ class ReportControllerTest extends GroupsControllerTestCase
     private function replyReportCount(): int
     {
         return (int) $this->pdo->query('SELECT COUNT(*) FROM discussion_group_reply_reports')->fetchColumn();
+    }
+
+    /**
+     * The reporter of the single row a test has just written. Null when
+     * nothing was written, so a wrong call reads as a miss rather than as
+     * a match against a member id that happens to be 0.
+     */
+    private function postReportReporterId(): ?int
+    {
+        $found = $this->pdo
+            ->query('SELECT reporter_member_id FROM discussion_group_post_reports')
+            ->fetchColumn();
+
+        return $found === false ? null : (int) $found;
     }
 }

@@ -332,8 +332,16 @@ class SectionRosterHtmlBuilder
         return (new \DateTimeImmutable())->format('d/m/Y');
     }
 
+    /**
+     * ENT_SUBSTITUTE is not decoration: without it, one malformed byte
+     * anywhere in the string makes htmlspecialchars() return '', so a
+     * section name imported from a mis-encoded file disappears from the
+     * sheet entirely instead of losing the single character at fault.
+     * Core\View\TextLinker escapes with the same pair, for the same
+     * reason.
+     */
     private function escape(string $text): string
     {
-        return htmlspecialchars($text, ENT_QUOTES, 'UTF-8');
+        return htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     }
 }

@@ -202,7 +202,11 @@ abstract class AbstractController
             return true;
         }
 
-        return str_contains((string) $request->getServer('HTTP_ACCEPT', ''), 'application/json');
+        // Media types are case-insensitive (RFC 9110 8.3.1), and the header
+        // is the caller's, not ours: `Application/JSON` has to count.
+        $accept = strtolower((string) $request->getServer('HTTP_ACCEPT', ''));
+
+        return str_contains($accept, 'application/json');
     }
 
     /**

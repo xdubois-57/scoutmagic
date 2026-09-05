@@ -60,6 +60,21 @@ class SectionRosterHtmlBuilderTest extends TestCase
         return (string) preg_replace('~<style>.*?</style>~s', '', $this->build($sections));
     }
 
+    /**
+     * Section names are copied from the import untouched — normalizeName()
+     * only ever sees member names — so a file saved as Latin-1 can put a
+     * lone malformed byte in one. Escaped without ENT_SUBSTITUTE, that one
+     * byte makes htmlspecialchars() return '' and the whole name leaves
+     * the sheet: the animateur is handed a roll call with a blank title.
+     */
+    public function testAMalformedByteInASectionNameCostsOnlyThatCharacter(): void
+    {
+        $html = $this->buildBody([$this->section("Zephyrs \xB1 Astral")]);
+
+        $this->assertStringContainsString('Zephyrs', $html);
+        $this->assertStringContainsString('Astral', $html);
+    }
+
     public function testEachSectionGetsItsOwnSheet(): void
     {
         $html = $this->build([
@@ -194,7 +209,7 @@ class SectionRosterHtmlBuilderTest extends TestCase
             ]
         )]);
 
-        // Four in the legend plus one on Dounia's row; Basile has none.
+        // Once in the legend plus once on Dounia's row; Basile has none.
         $this->assertSame(2, substr_count($html, MemberMovementStatus::NEW->label()));
         $this->assertStringNotContainsString(MemberMovementStatus::CONTINUING->label(), $html);
     }
