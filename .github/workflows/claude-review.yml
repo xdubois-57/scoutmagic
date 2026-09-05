@@ -71,6 +71,22 @@ jobs:
           # Full history: the review reads the branch against its base.
           fetch-depth: 0
 
+      # KNOWN GAP, verified on this workflow's own pull request. The action
+      # refuses to run when this file differs from the copy on the default
+      # branch — a sound precaution, since otherwise a pull request could
+      # rewrite the reviewer and do as it liked with the token. But it exits
+      # `success`, not `neutral` or failure.
+      #
+      # As a REQUIRED check that inverts the guarantee in one case: a pull
+      # request that edits this file gets a green `Claude review` without any
+      # review having happened — and that is the pull request you would most
+      # want read. Two consequences worth knowing rather than rediscovering:
+      # a green check here proves a review ran only when this file is
+      # untouched, and the first run after any change to it is a skip.
+      #
+      # What closes it is .github/CODEOWNERS plus "require review from code
+      # owners" on main: a human has to approve a change to this file. If
+      # that rule is ever relaxed, this gap reopens.
       - uses: anthropics/claude-code-action@v1
         with:
           # Authenticates against the maintainer's Claude subscription
