@@ -246,6 +246,18 @@ jobs:
         stop silently, and do not treat a partial pass as a finished
         one.
 
+        DO THE WORK YOURSELF, IN THIS TURN. There is no later: this
+        is a one-shot run, and when your turn ends the process exits.
+        Do not hand an issue's analysis to a subagent and wait for it,
+        do not schedule a wake-up, do not end your turn intending to
+        come back — whatever you have not written to GitHub by then is
+        thrown away, and those reporters get silence. This is not
+        hypothetical: a run of this job did exactly that, delegated
+        three issues, said it would be notified when the researchers
+        finished, and ended. If you find yourself about to say you will
+        continue once something completes, that is the moment to post
+        the comment and set the labels instead.
+
         These issues can be months old. Read the code as it is on
         `main` today before deciding: a defect that was real when it
         was reported may have been fixed since, in which case say so
@@ -350,6 +362,39 @@ jobs:
           # step must be given the identical string.
           prompt: ${{ env.SCAN_PROMPT }}
 
+          # --disallowedTools IS THE FIX FOR THE ONE FAILURE THAT CAUSED
+          # ALL THE OTHERS, and it took a preserved transcript to find.
+          #
+          # On 2026-09-05 a backlog scan with three issues waiting spawned
+          # three `Agent` subagents — one per issue, told to research and
+          # report back — then called `ScheduleWakeup` and ended its turn
+          # with: "No need to schedule a wakeup — I'll be notified
+          # automatically when each research agent completes."
+          #
+          # There is no later. This is a one-shot run: the turn ends, the
+          # process exits, whatever the subagents found is discarded, and
+          # three reporters get nothing. Sixteen turns of a 300-turn
+          # budget, `subtype: success`, `is_error: false`, zero permission
+          # denials, not one write call — which is exactly the green,
+          # silent, unexplainable failure this pipeline kept producing.
+          # It is intermittent because it depends on the model choosing to
+          # delegate, which is why two issues in three went untriaged
+          # rather than all of them.
+          #
+          # So the tools that assume a "later" are denied: `Agent` and
+          # `Task` (work handed to a process that outlives this turn) and
+          # `ScheduleWakeup` (a promise to come back).
+          #
+          # `Bash`, `Write`, `Edit` and `NotebookEdit` are denied for a
+          # different reason, and the same transcript is why. This file
+          # used to claim the agent "holds no shell and no file tools"
+          # because --allowedTools named only the GitHub MCP server. That
+          # claim was FALSE: --allowedTools is a permission allowlist, not
+          # the tool surface, and the transcript shows the agent running
+          # `date` and `ls /home/runner/work/...` quite happily. Denying
+          # them makes the sentence true instead of deleting it — and this
+          # job reads untrusted public text, so the difference matters.
+          #
           # --allowedTools is what STARTS the GitHub MCP server: the
           # action launches it only when claude_args names a tool from it.
           # The breadth costs nothing — the token above carries
@@ -362,7 +407,7 @@ jobs:
           # this job does the same work five times over in one context. It
           # is still a ceiling well below anything that could quietly
           # become expensive.
-          claude_args: '--allowedTools "mcp__github" --max-turns 300'
+          claude_args: '--disallowedTools "Agent,Task,ScheduleWakeup,Bash,Write,Edit,NotebookEdit" --allowedTools "mcp__github" --max-turns 300'
 
       # The assertion this job was missing. Everything above can succeed
       # while achieving nothing; only the backlog itself says whether any
@@ -444,12 +489,14 @@ jobs:
           # away. What it prints here is the agent's own output over
           # public inputs: public issues' titles and bodies, public code
           # read through the GitHub tools, and the prompt above. The agent
-          # holds no shell and no file tools — `--allowedTools` names the
-          # GitHub MCP server alone — so it cannot read a secret to print
-          # one, and GitHub masks registered secrets in logs regardless.
+          # holds no shell and no file tools — `--disallowedTools` below
+          # denies them, which is what actually makes that true;
+          # `--allowedTools` alone did not, and a transcript of this very
+          # step is how that was found out — so it cannot read a secret to
+          # print one, and GitHub masks registered secrets in logs anyway.
           show_full_output: true
 
-          claude_args: '--allowedTools "mcp__github" --max-turns 300'
+          claude_args: '--disallowedTools "Agent,Task,ScheduleWakeup,Bash,Write,Edit,NotebookEdit" --allowedTools "mcp__github" --max-turns 300'
 
       # The point of the whole exercise: a backlog nobody drained must not
       # look like one somebody did. This step is the only thing in the
