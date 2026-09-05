@@ -60,20 +60,64 @@ the code, reproduce the reasoning, and file what you actually established. An
 issue that turns out to describe behaviour the code does not have is worse than
 no issue, because the next agent will act on it.
 
-An issue that is worth filing is worth filing properly. It must carry:
+### Say what kind of thing it is, in words and not only in a label
 
-- the symptom in user terms — what someone using the site actually sees;
-- the mechanism, with `file:line` references you checked against the current
-  code, and the relevant lines quoted;
-- the second-order effects, if any (a cascade, a stale display, an audit gap) —
-  these are what make a deferred problem expensive later;
-- the options, costed, with the cheapest one named first and a recommendation;
-- a link back to the PR or review thread where the decision to defer was made.
+Every issue states its nature on its **first line**, before anything else:
+
+> **Type: bug** — the site does something wrong.
+
+> **Type: enhancement** — the site behaves as designed; the design should be
+> better.
+
+Apply the matching `bug` or `enhancement` label as well. Both, always: the
+label is what a human filters on, the line is what a reader working from the
+issue body alone sees, and an issue whose nature has to be inferred from its
+prose gets triaged wrong. If you genuinely cannot tell which it is, that is a
+sign you have not finished establishing the problem — go back to the code.
+
+### Write it so it can be fixed from the issue alone
+
+Assume the only thing whoever picks this up has is the issue text and a fresh
+checkout of a later `main`. No session context, no PR thread open in another
+tab, no memory of this conversation, and no guarantee the line numbers still
+point where they did. Everything needed to make the fix has to be *in the
+issue*. A link is a courtesy; it is never where a required fact lives.
+
+Concretely, an issue must carry:
+
+- **The type line** and the matching label, as above.
+- **The symptom in user terms** — who is doing what, and what they see instead
+  of what they expect. Name the role (`intendant`, site admin, parent) and the
+  page or route, so the reader can picture it without the code.
+- **Reproduction**, as steps or as the exact precondition that triggers it
+  ("an account whose linked members are all outside the group"). If it can
+  only be reached by a state that is awkward to set up, say how to set it up.
+- **The mechanism**, with `file:line` references **and the relevant lines
+  quoted inline**. Quote them — line numbers drift, quoted code survives. Name
+  the commit you verified them against, so a reader who finds them moved knows
+  what to search for and how stale the reference is.
+- **The second-order effects**, if any (a cascade, a stale display, an audit
+  gap, a permission that silently widens) — these are what make a deferred
+  problem expensive later, and they are invisible to someone reading only the
+  symptom.
+- **The options, costed**, cheapest first, each saying what it does and does
+  not fix, whether it needs a schema migration, and which files it touches.
+  End with a recommendation; a reader who agrees can start immediately.
+- **What "done" looks like** — the behaviour that must hold afterwards and the
+  test that must exist to pin it. This repository requires a test for every
+  fix, so name where it goes (`tests/…`), or the issue is not finishable.
+- **The trail** — a link back to the PR or review thread where the decision to
+  defer was made, for context that is nice to have but that nothing in the fix
+  depends on.
+
+The bar to hold yourself to: could a competent agent, handed nothing but this
+issue, produce the fix and its test? If any answer lives only in your current
+context, it is missing from the issue.
 
 Then close the loop in both directions: the review thread or PR description
-names the issue number, and the issue links the thread. Label it `bug` or
-`enhancement`. Leave the thread that raised it open when the decision is the
-owner's to make — resolving it hides the question they still have to answer.
+names the issue number, and the issue links the thread. Leave the thread that
+raised it open when the decision is the owner's to make — resolving it hides
+the question they still have to answer.
 
 ## Exception messages that reach a visitor
 
