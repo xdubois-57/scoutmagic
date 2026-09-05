@@ -665,7 +665,7 @@ class PostController extends AbstractController
             GroupSessionContext $context
         ) use ($request) {
             if (!$this->accessService->canModerate($group, $context)) {
-                return $this->forbidden('Seul un modérateur du groupe peut épingler un message.', $request);
+                return $this->forbidden('Seul un modérateur du groupe peut désépingler un message.', $request);
             }
 
             $this->postService->unpin($post);

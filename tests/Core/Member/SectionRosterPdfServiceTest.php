@@ -320,6 +320,55 @@ class SectionRosterPdfServiceTest extends TestCase
         $this->assertCount(1, glob($this->cacheDirectory . '/section-roster/*.pdf') ?: []);
     }
 
+    /**
+     * The sweep on write cannot be the only deadline. A sheet whose inputs
+     * never change is never rewritten, so nothing would ever pass over it
+     * and it would be served back for ever — a retention that only holds
+     * when somebody happens to print something else is not a retention.
+     */
+    public function testAnExpiredSheetIsNeitherServedNorKept(): void
+    {
+        $service = $this->service($this->cacheDirectory);
+        $args = [1, '2026-2027', 'U', '', [$this->section(7, 'A')], $this->roster(7)];
+        $service->generate(...$args);
+
+        $cached = glob($this->cacheDirectory . '/section-roster/*.pdf')[0];
+        // A marker, so a re-render is distinguishable from a cache read.
+        file_put_contents($cached, '%PDF-cached');
+        touch($cached, time() - (8 * 24 * 60 * 60));
+
+        $again = $service->generate(...$args);
+
+        $this->assertNotSame('%PDF-cached', $again);
+        $this->assertStringStartsWith('%PDF', $again);
+    }
+
+    public function testASheetWithinTheRetentionIsStillServedFromDisk(): void
+    {
+        $service = $this->service($this->cacheDirectory);
+        $args = [1, '2026-2027', 'U', '', [$this->section(7, 'A')], $this->roster(7)];
+        $service->generate(...$args);
+
+        $cached = glob($this->cacheDirectory . '/section-roster/*.pdf')[0];
+        file_put_contents($cached, '%PDF-cached');
+        touch($cached, time() - (6 * 24 * 60 * 60));
+
+        $this->assertSame('%PDF-cached', $service->generate(...$args));
+    }
+
+    /**
+     * These files are member names in the clear. The reference deployment
+     * is shared hosting, where a traversable parent means another local
+     * account reads whatever the mode allows.
+     */
+    public function testTheCacheDirectoryIsReadableByItsOwnerAlone(): void
+    {
+        $this->service($this->cacheDirectory)
+            ->generate(1, '2026-2027', 'U', '', [$this->section(7, 'A')], $this->roster(7));
+
+        $this->assertSame(0700, fileperms($this->cacheDirectory . '/section-roster') & 0777);
+    }
+
     public function testASheetWithinTheRetentionSurvivesAnotherYearsWrite(): void
     {
         $service = $this->service($this->cacheDirectory);

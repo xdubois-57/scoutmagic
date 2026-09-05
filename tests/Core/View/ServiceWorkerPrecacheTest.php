@@ -356,6 +356,14 @@ class ServiceWorkerPrecacheTest extends TestCase
         $this->assertNotEmpty($m, 'Could not locate offlinePage() in public/sw.js');
 
         $this->assertStringContainsString("caches.match('/offline')", $m[1]);
-        $this->assertStringContainsString('cached || new Response(', $m[1]);
+        $this->assertStringContainsString('cached || generated()', $m[1]);
+        $this->assertStringContainsString('new Response(', $m[1]);
+
+        // caches.match() does not merely resolve to undefined when the
+        // shell cache is gone: it REJECTS when Cache Storage itself is
+        // denied (private browsing, blocked site data, a quota error).
+        // Unguarded, that rejection reaches respondWith() and produces
+        // the very interstitial this page replaces.
+        $this->assertMatchesRegularExpression('/caches\.match\(\x27\/offline\x27\)\s*\n?\s*\.catch\(/', $m[1]);
     }
 }

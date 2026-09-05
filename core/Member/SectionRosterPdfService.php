@@ -115,9 +115,19 @@ class SectionRosterPdfService
         // new one is written.
         $cacheFile = $this->cacheFile($scoutYearId, $yearLabel, $unitName, $siteUrl, $selectedSectionId, $views);
         if ($cacheFile !== null && is_file($cacheFile)) {
-            $cached = @file_get_contents($cacheFile);
-            if ($cached !== false && $cached !== '') {
-                return $cached;
+            // The deadline is enforced HERE and not only in store(): a
+            // document whose inputs never change is never rewritten, so
+            // purgeExpired() would never run over it and a sheet full of
+            // names would be served for ever. A stated retention that only
+            // holds when somebody happens to print something else is not a
+            // retention.
+            if ($this->hasExpired($cacheFile)) {
+                @unlink($cacheFile);
+            } else {
+                $cached = @file_get_contents($cacheFile);
+                if ($cached !== false && $cached !== '') {
+                    return $cached;
+                }
             }
         }
 
@@ -281,7 +291,18 @@ class SectionRosterPdfService
     private function store(string $cacheFile, string $pdf, int $scoutYearId, ?int $selectedSectionId): void
     {
         $directory = dirname($cacheFile);
-        if (!is_dir($directory) && !@mkdir($directory, 0755, true) && !is_dir($directory)) {
+
+        // 0700, not 0755: this directory holds PDFs of member names, which
+        // puts it with Core\Security\SecretManager and Core\Support\
+        // SupportPackageService rather than with the image variants. The
+        // reference deployment is shared hosting, where a traversable
+        // parent means another local account can read them. Fail closed —
+        // no enforceable permission, no cache, and the document is simply
+        // rendered every time.
+        if (!is_dir($directory) && !@mkdir($directory, 0700, true) && !is_dir($directory)) {
+            return;
+        }
+        if (!@chmod($directory, 0700)) {
             return;
         }
 
@@ -322,13 +343,26 @@ class SectionRosterPdfService
      */
     private function purgeExpired(string $directory): void
     {
-        $deadline = time() - (self::CACHE_TTL_DAYS * 24 * 60 * 60);
         foreach (glob($directory . '/*.pdf') ?: [] as $file) {
-            $modified = @filemtime($file);
-            if ($modified !== false && $modified < $deadline) {
+            if ($this->hasExpired($file)) {
                 @unlink($file);
             }
         }
+    }
+
+    /**
+     * Whether a cached sheet has outlived CACHE_TTL_DAYS. One definition
+     * for the sweep on write and the check on read, so the two can never
+     * come to disagree about what "expired" means.
+     *
+     * A file whose mtime cannot be read counts as expired: unknown age is
+     * not an argument for keeping personal data.
+     */
+    private function hasExpired(string $file): bool
+    {
+        $modified = @filemtime($file);
+
+        return $modified === false || $modified < time() - (self::CACHE_TTL_DAYS * 24 * 60 * 60);
     }
 
     private function slug(string $value): string

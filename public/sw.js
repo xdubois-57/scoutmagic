@@ -467,8 +467,8 @@ function retryOnce(request) {
  * @returns {Promise<Response>}
  */
 function offlinePage() {
-    return caches.match('/offline').then(function (cached) {
-        return cached || new Response(
+    const generated = function () {
+        return new Response(
             '<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">'
                 + '<meta name="viewport" content="width=device-width, initial-scale=1.0">'
                 + '<title>Hors ligne</title></head><body><h1>Pas de connexion</h1>'
@@ -476,7 +476,17 @@ function offlinePage() {
                 + '</body></html>',
             { status: 503, headers: { 'Content-Type': 'text/html; charset=UTF-8' } }
         );
-    });
+    };
+
+    // caches.match() does not only resolve to undefined when nothing is
+    // stored: it REJECTS outright when Cache Storage itself is denied
+    // (private browsing, site data blocked, a quota error). A rejection
+    // here would propagate all the way to respondWith() and show the
+    // browser's network-error interstitial — precisely what this function
+    // exists to replace — so a broken cache is read as an empty one.
+    return caches.match('/offline')
+        .catch(function () { return null; })
+        .then(function (cached) { return cached || generated(); });
 }
 
 function handleNavigate(request, url, preloadResponse, event) {
@@ -582,8 +592,14 @@ function isWhitelisted(pathname, whitelist) {
  * @returns {Promise<Response|null>}
  */
 function cachedCopy(request, cacheName, config, reason) {
+    // Same reason as offlinePage(): both caches.open() and cache.match()
+    // reject when Cache Storage is unavailable, and every caller of this
+    // function feeds respondWith(). A cache that cannot be read holds no
+    // copy — which is what "no cached copy" already means here.
     return caches.open(cacheName).then(function (cache) {
         return cache.match(request);
+    }).catch(function () {
+        return null;
     }).then(function (cached) {
         if (!cached) {
             return null;
@@ -592,7 +608,12 @@ function cachedCopy(request, cacheName, config, reason) {
         const dateHeader = cached.headers.get('date');
         const ageMs = dateHeader ? Date.now() - new Date(dateHeader).getTime() : Infinity;
         const stalenessDays = config.staleness_days || 7;
-        if (ageMs > stalenessDays * 24 * 60 * 60 * 1000) {
+        // An unparseable Date header gives NaN and a future-dated one a
+        // negative age, and neither is greater than the threshold — so a
+        // bare `ageMs > threshold` would call both of them fresh and serve
+        // a copy of unknown age as if it were current. Anything that is
+        // not a real, non-negative age is treated as too old.
+        if (!(ageMs >= 0) || ageMs > stalenessDays * 24 * 60 * 60 * 1000) {
             return null;
         }
 

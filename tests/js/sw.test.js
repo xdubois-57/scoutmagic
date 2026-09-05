@@ -312,6 +312,34 @@ describe('sw.js: networkFirstWithCacheFallback()', () => {
         expect(await sw.networkFirstWithCacheFallback(request, url, config)).toBe(offline);
     });
 
+    // NaN is not > anything, so a bare `ageMs > threshold` would call an
+    // unparseable date fresh and serve a copy of entirely unknown age.
+    it('treats a cached copy with an unparseable Date header as stale', async () => {
+        const offline = makeResponse('<body>offline page</body>');
+        global.caches = createCachesFake({
+            [cacheName]: { [request.url]: makeResponse('<body>bad date</body>', { headers: { date: 'not a date' } }) },
+            'app-shell': { '/offline': offline },
+        });
+        global.fetch = vi.fn(() => Promise.reject(new Error('offline')));
+
+        expect(await sw.networkFirstWithCacheFallback(request, url, config)).toBe(offline);
+    });
+
+    // A negative age is not > the threshold either. A clock that jumped
+    // backwards (or a server dating into the future) must not make an
+    // arbitrarily old copy look current.
+    it('treats a future-dated cached copy as stale', async () => {
+        const ahead = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toUTCString();
+        const offline = makeResponse('<body>offline page</body>');
+        global.caches = createCachesFake({
+            [cacheName]: { [request.url]: makeResponse('<body>ahead</body>', { headers: { date: ahead } }) },
+            'app-shell': { '/offline': offline },
+        });
+        global.fetch = vi.fn(() => Promise.reject(new Error('offline')));
+
+        expect(await sw.networkFirstWithCacheFallback(request, url, config)).toBe(offline);
+    });
+
     it('defaults to a 7-day window when staleness_days is absent', async () => {
         const old = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toUTCString();
         const offline = makeResponse('<body>offline page</body>');
@@ -587,6 +615,67 @@ describe('sw.js: offlinePage()', () => {
         global.caches = createCachesFake();
 
         const res = await sw.offlinePage();
+
+        expect(res).toBeTruthy();
+        expect(res.body).toContain('Pas de connexion');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Cache Storage itself can be unavailable — private browsing, site data
+// blocked, a quota error. Every read below feeds respondWith(), so a
+// rejection that escapes lands the installed app on the browser's own
+// network-error interstitial. A cache that cannot be read holds nothing.
+// ---------------------------------------------------------------------------
+describe('sw.js: a Cache Storage that rejects instead of missing', () => {
+    const url = new URL('https://example.test/members/12');
+    const request = { url: url.href, mode: 'navigate' };
+    const config = { account_scope: 'acct1', version: '1.2.3', staleness_days: 7, standalone: true };
+
+    it('still builds the offline page when caches.match() rejects', async () => {
+        global.caches = { match: vi.fn(() => Promise.reject(new Error('SecurityError'))) };
+
+        const res = await sw.offlinePage();
+
+        expect(res.body).toContain('Pas de connexion');
+    });
+
+    it('answers the navigation when caches.open() rejects', async () => {
+        const offline = makeResponse('<body>offline page</body>');
+        global.caches = {
+            open: vi.fn(() => Promise.reject(new Error('QuotaExceededError'))),
+            match: vi.fn(() => Promise.resolve(offline)),
+        };
+        global.fetch = vi.fn(() => Promise.reject(new Error('offline')));
+
+        expect(await sw.networkFirstWithCacheFallback(request, url, config)).toBe(offline);
+    });
+
+    it('answers the navigation when cache.match() rejects', async () => {
+        const offline = makeResponse('<body>offline page</body>');
+        global.caches = {
+            open: vi.fn(() => Promise.resolve({
+                match: vi.fn(() => Promise.reject(new Error('SecurityError'))),
+                put: vi.fn(() => Promise.resolve()),
+            })),
+            match: vi.fn(() => Promise.resolve(offline)),
+        };
+        global.fetch = vi.fn(() => Promise.reject(new Error('offline')));
+
+        expect(await sw.networkFirstWithCacheFallback(request, url, config)).toBe(offline);
+    });
+
+    // Both reads broken at once: the last resort is the generated page,
+    // and it must still be a real Response — respondWith(undefined) is a
+    // TypeError, which is the interstitial all over again.
+    it('never resolves to undefined when nothing at all can be read', async () => {
+        global.caches = {
+            open: vi.fn(() => Promise.reject(new Error('SecurityError'))),
+            match: vi.fn(() => Promise.reject(new Error('SecurityError'))),
+        };
+        global.fetch = vi.fn(() => Promise.reject(new Error('offline')));
+
+        const res = await sw.networkFirstWithCacheFallback(request, url, config);
 
         expect(res).toBeTruthy();
         expect(res.body).toContain('Pas de connexion');
