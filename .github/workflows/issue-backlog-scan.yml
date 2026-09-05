@@ -185,20 +185,30 @@ jobs:
 
             Then, for each of those issues in turn, oldest first:
 
-              1. Re-read the issue, as it is NOW rather than as your
-                 search returned it, and check whether it already has a
-                 triage verdict comment on it. Two things put one there
-                 between the search and this moment: a previous run that
-                 commented and then failed before setting the labels, and
-                 the per-issue workflow finishing while this scan was
-                 working through the issues ahead of this one. Both leave
-                 an issue that looks untriaged and is not. If such a
-                 comment is there, do not post a second one — set the
-                 labels the existing verdict implies and move on.
-              2. Otherwise triage it exactly as the skill file describes:
-                 one comment, in the reporter's language, and the labels.
-              3. Then move to the next issue. Do not batch the comments,
-                 and do not summarise several issues in one comment.
+              1. Triage it exactly as the skill file describes — read it,
+                 read the code, reach the verdict, decide the comment and
+                 the labels. WRITE NOTHING YET.
+              2. Then, as the LAST THING YOU DO BEFORE WRITING ANYTHING,
+                 re-read the issue as it is at this moment rather than as
+                 your search returned it, and check whether it already
+                 carries a triage verdict comment or the `triage:done`
+                 label. If it does, DISCARD the comment you just prepared
+                 — do not post a second verdict. Set the labels the
+                 existing verdict implies, if they are not already there,
+                 and move on.
+
+                 This check goes here, immediately before the write, and
+                 not earlier. Step 1 takes minutes: it reads the issue,
+                 searches for duplicates and reads code. A verdict landing
+                 inside that window is exactly the case this guards
+                 against — a reopened issue that fires the per-issue
+                 workflow while this scan is working, or that workflow
+                 running late. A check performed before step 1 would look
+                 correct and cover nothing.
+              3. Otherwise post the one comment, in the reporter's
+                 language, then set the labels. Then move to the next
+                 issue. Do not batch the comments, and do not summarise
+                 several issues in one comment.
 
             These issues can be months old. Read the code as it is on
             `main` today before deciding: a defect that was real when it

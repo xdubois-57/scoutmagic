@@ -429,6 +429,20 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
             . 'issue-triage.yml is triaging those already, and the two jobs hold no lock in common, '
             . 'so both can decide an issue is untriaged and both can post a verdict on it.',
         );
+
+        // The floor covers the ordinary overlap. It does not cover a
+        // reopened issue, which fires the per-issue workflow on an issue
+        // of any age, nor that workflow running late. What covers those is
+        // WHERE the verdict check sits: triage takes minutes, so a check
+        // performed before that work looks correct and covers nothing.
+        self::assertSame(
+            1,
+            preg_match('/before writing anything/i', $prompt),
+            self::BACKLOG_SCAN . "'s prompt no longer re-checks for an existing verdict immediately "
+            . 'before it writes. Moved any earlier, that check spans the minutes the triage itself '
+            . 'takes, and a verdict landing inside that window still produces a second comment on '
+            . "somebody's report.",
+        );
     }
 
     /**
