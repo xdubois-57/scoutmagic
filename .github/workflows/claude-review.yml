@@ -280,7 +280,7 @@ jobs:
           # rendering accident, and this row is the one the verdict rests on.
           conclusion_cell="${REVIEW_CONCLUSION:--}"
 
-          body="$(printf '%s\n\n## Claude review\n\n%s\n\n| | |\n|---|---|\n| Commit | `%s` |\n| Job result | `%s` |\n| Claude ran | `%s` |\n| Took | %s |\n| Run | %s |\n\nPosted by `.github/workflows/claude-review.yml`, rewritten in place on every run. The verdict is read from the action'"'"'s own `conclusion` output, not from the duration — see `docs/quality-pipeline.md` for what each layer does and does not prove.\n' \
+          body="$(printf '%s\n\n## Claude review\n\n%s\n\n| | |\n|---|---|\n| Commit | `%s` |\n| Job result | `%s` |\n| Claude ran | `%s` |\n| Took | %s |\n| Run | %s |\n\nPosted by `.github/workflows/claude-review.yml`, rewritten in place on every run. The verdict comes from the job'"'"'s result and the action'"'"'s own `conclusion` output, never from the duration. See `docs/quality-pipeline.md` for what each layer does and does not prove.\n' \
             "${MARKER}" "${verdict}" "${HEAD_SHA}" "${REVIEW_RESULT}" "${conclusion_cell}" "${elapsed}" "${RUN_URL}")"
 
           jq -n --arg body "${body}" '{body: $body}' > payload.json
