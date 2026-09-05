@@ -79,6 +79,23 @@ The default RGPD content is defined in `Core\View\RgpdContentService::getDefault
 
 This is not optional. A PR that adds personal data processing without updating the RGPD documentation is incomplete.
 
+## Pipeline documentation maintenance
+
+`docs/quality-pipeline.md` is the map of everything between a change and production: the test layers and what each is blind to, the CI jobs, the AI reviewers, `scripts/release.sh`'s gates, and the GitHub configuration that lives outside this repository. It is kept current the same way the RGPD content above is — as part of the change, not afterwards.
+
+Update it in the same PR when you:
+
+- Add, rename or remove a CI job, or change its commands, its database engine, or its environment. `.claude/skills/steward/SKILL.md` carries the narrower reproduction table and goes stale from the same change; both, or neither.
+- Add or remove a release gate, a `--skip-*` flag, or change the order the gates run in.
+- Change which AI reviewer runs, or a setting of one that alters *when* it reviews or *what* it can read — the trigger list, the quota, the guideline files it loads.
+- Add or remove a PHPUnit testsuite, a Vitest directory, an E2E tier, or a DAST profile.
+- Depend on a new piece of GitHub configuration: a secret, an App, a ruleset rule, a label, a CODEOWNERS entry, a required status check. **This is the part with no other home** — none of it is in the repository, and nothing warns you when it is missing or wrong.
+
+Two rules about how it is written:
+
+- **It points, it does not copy.** The rule itself lives in this file, `ARCHITECTURE.md`, `SECURITY.md`, `CONTRIBUTING.md` or `design.md`; the map only says which layer covers what. A rule restated there drifts from its original, and the original wins. If you find yourself pasting a rule into it, put the rule in its own file and link it.
+- **A check that can be green without having run belongs in its last section.** That failure mode has cost this project real time more than once — tests that skip rather than fail, a review job that exits success when it declines to run, a CODEOWNERS entry ignored in silence. When you find another, write it down there; it is the one part of that document nothing else in the repository records.
+
 ## Module creation checklist
 
 When creating a new module:

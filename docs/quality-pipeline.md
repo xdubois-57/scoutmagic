@@ -1,0 +1,356 @@
+# The quality pipeline
+
+Everything that stands between a change and production: what runs, where,
+what it actually proves, and the GitHub configuration none of it works
+without.
+
+This document **points**; it does not copy. `AGENTS.md`, `ARCHITECTURE.md`,
+`SECURITY.md`, `CONTRIBUTING.md` and `design.md` remain the source of truth
+for the rules themselves — a rule restated here would drift from its
+original, and the original wins. What follows is the map: which layer
+catches what, and what each one cannot see.
+
+## The layers, and what each is for
+
+| Layer | Runs | Catches | Blind to |
+|---|---|---|---|
+| **Static analysis** | Locally, before each commit; CI | Signature drift, unresolved identifiers, wrong argument counts | Anything that only shows at runtime |
+| **Unit & integration tests** | Locally; CI (two engines) | Behaviour, RBAC boundaries, architecture invariants | The application failing to boot at all |
+| **End-to-end** | CI; release gate | The app not booting, a broken composition root | Everything a browser does not exercise |
+| **Dynamic scan** | CI; release gate | Over-permissive routes, what the running app actually answers | Logic the scan does not reach |
+| **CodeQL** | CI, GitHub-managed | Taint flows into DOM sinks | Non-JavaScript defects |
+| **SonarQube Cloud** | CI; release gate | Quality, duplication, security hotspots | Intent |
+| **AI review** | On every pull request | Cross-file reasoning, stale documentation, intent mismatches | Nothing reliably — it is a reader, not a gate |
+| **Release gates** | `scripts/release.sh` | Everything above, plus production state and dependency freshness | — |
+
+No single layer is trusted alone, and the ones that overlap do so on
+purpose: the `test` job and `database-mariadb` run the same suite against
+different database engines, and that difference is the point.
+
+## Tests
+
+### PHP — PHPUnit
+
+Six suites, registered in `phpunit.xml`: `Core`, `Modules`, `Bootstrap`,
+`Security`, `Integration`, `Architecture`.
+
+**A new test directory must be added to `phpunit.xml` in the same change.**
+`vendor/bin/phpunit` runs the suites that file lists and nothing else, so an
+unlisted directory is one nobody runs — which is exactly what happened to
+`tests/Security/` and `tests/Integration/` for months.
+
+`tests/Architecture` is not a formality. `ModuleBoundariesTest` fails the
+build on the first reference from outside a module to anything but its
+`Api\` namespace, and `ModuleSchemaBoundariesTest` on a foreign key crossing
+module tables. Both are absolute (`ARCHITECTURE.md` §7.5).
+
+### The two database engines
+
+Production runs **MariaDB 10.11**. CI runs the suite twice:
+
+- `test` — **MySQL 8**, with coverage, feeding SonarQube
+- `database-mariadb` — **MariaDB 10.11**, the whole suite, no coverage
+
+They disagree on how `INFORMATION_SCHEMA` reports column defaults, display
+widths and `CURRENT_TIMESTAMP`, which is why `SchemaIntrospector` reads the
+server version. `npm run test:engines` runs both locally.
+
+The asymmetry that matters: **code correct on MySQL and wrong on MariaDB
+reaches production**, because the `test` job is green. That is why
+`database-mariadb` runs the *whole* suite rather than `--group=database` —
+the day someone adds a database-backed test without that group, the narrow
+version would miss it silently.
+
+### The skip that looks like a pass
+
+Database-backed tests call `markTestSkipped` when no server answers. They do
+not fail. So `vendor/bin/phpunit` on a machine with no database returns
+green **having skipped exactly the tests that needed one**, and nothing in
+the output says the run proved less than it looks.
+
+Inside a Claude Code remote session the `SessionStart` hook has started
+MariaDB and exported `TEST_DB_*`; in a local checkout that hook exits at its
+first line. Read the skipped count before believing a green run.
+
+### JavaScript — Vitest
+
+`tests/js/`, one `<name>.test.js` per script under `public/assets/js/`.
+Required for deterministic browser logic reasonably decoupled from its DOM;
+not for a thin script that only wires two elements together. Specs import
+the real production file — never a copy of its logic.
+
+### End-to-end — Playwright
+
+`tests/e2e/`, one command: `npm run e2e`. It provisions a throwaway install
+and database, serves it through the real `public/index.php`, and drives it
+with headless Chromium. It exists to catch what PHPUnit structurally cannot:
+**the application failing to boot at all.**
+
+Two tiers, `full` a strict superset of `confidence`:
+
+- `npm run e2e` — the confidence tier, every scenario not tagged `@full`. CI
+  runs this on every push. Budget: measured at 481 s; treat 12 minutes as
+  the ceiling and re-examine the tier's contents rather than raise it.
+- `npm run e2e:full` — everything, including the per-module boot matrix.
+  `scripts/release.sh` runs this.
+
+A new scenario lands in `confidence` by default. Relegate one to `full` only
+when it is costly *by nature*, never because it is slow through inefficiency
+and never to get a flaky test out of CI's way.
+
+**CI sets `E2E_COVERAGE=1`, and that changes behaviour, not just reporting**
+— coverage slows every request enough to alter timing. The Calendrier click
+in `tests/e2e/specs/rental-management.spec.js` documents a failure that
+surfaced only under it. Reproduce a red `e2e-tests` with the flag on.
+
+### Dynamic scan — OWASP ZAP
+
+`scripts/dast.sh`, profiles `passive`, `standard`, `deep`, `audit`.
+`tests/dast/` holds the ZAP plans — configuration, not tests: nothing there
+runs under PHPUnit and it needs no `<testsuite>` entry.
+
+Two profiles run in CI:
+
+- `--profile=standard` → the **authorization matrix**: every route replayed
+  as every role, each answer compared to the `role_min` it declares. An
+  over-permissive route fails the commit that introduced it.
+- `--profile=passive` → ZAP's passive rules over the browser suite.
+
+Both need Docker and a pulled `ghcr.io/zaproxy/zaproxy:stable`;
+`scripts/dast.sh` refuses to download a missing image and exits before
+scanning, so a missing prerequisite looks nothing like the failure you came
+to reproduce.
+
+### Static analysis
+
+`vendor/bin/phpstan analyse` before **every** commit touching PHP, and
+`npm run typecheck` before every commit touching `public/assets/js/`.
+Passing tests is a different guarantee: PHPStan's scope covers `core/`,
+`modules/` and both `public/` entry points precisely because a composition
+root is where a signature change goes unnoticed until every request 500s.
+
+Both carry a baseline — `phpstan-baseline.neon`,
+`js-typecheck-baseline.json` — holding accepted pre-existing debt. A clean
+run means no *new* finding. **Never add a finding of your own to a
+baseline**; regenerating one is for deliberately accepting existing debt,
+never for hiding what you just introduced.
+
+## Continuous integration
+
+`.github/workflows/ci.yml`, on every push to `main` and every pull request
+against it.
+
+| Job | What it runs | Engine |
+|---|---|---|
+| `test` | `phpstan analyse --memory-limit=512M`, then `phpunit --coverage-clover --log-junit` | MySQL 8 |
+| `database-mariadb` | the whole PHPUnit suite | MariaDB 10.11 |
+| `javascript-tests` | `npm ci`, `npm run typecheck`, `npm run test:coverage` | — |
+| `End-to-end (browser)` | `npm run e2e` with `E2E_COVERAGE=1` | MySQL 8 |
+| `Authorization matrix` | `./scripts/dast.sh --profile=standard` | MySQL 8 |
+| `Dynamic scan (passive)` | `./scripts/dast.sh --profile=passive` | MySQL 8 |
+| `security` | `composer install`, then `composer audit` | — |
+| `SonarQube Cloud` | scanner + Quality Gate, consuming the coverage artifacts | — |
+| `Analyze (…)` | CodeQL, GitHub-managed default setup | — |
+
+`.github/workflows/dev-build.yml` is separate: every push to `main` builds
+the installable artifact and attaches it to a rolling **prerelease** tagged
+`dev-latest`. The prerelease flag is an invariant — the stable channel reads
+`releases/latest`, which excludes prereleases, and that single fact is what
+keeps the two update channels apart.
+
+`.github/workflows/claude-review.yml` is the AI reviewer; see below.
+
+The steward skill (`.claude/skills/steward/SKILL.md`) maps each job to the
+local command that reproduces it, and records which ones cannot be
+reproduced locally at all. Changing a job's name, commands, engine or
+environment makes that table wrong — update it in the same change.
+
+## Code review
+
+Three readers, none of which blocks a merge on its own judgement.
+
+**CodeRabbit** — configured in `.coderabbit.yaml`, free on this public
+repository. Reviews **once, when a pull request opens**;
+`auto_incremental_review` is off, because a pull request that answers its
+own review takes several corrective pushes and re-reviewing each one buys
+little while spending an hourly quota (10 included reviews per hour, and
+this repository has exhausted it in a busy morning). Ask for another pass
+with `@coderabbitai review`. `request_changes_workflow` is off so it cannot
+submit an approval that would satisfy a required review. Its
+`path_instructions` point it at the rules a diff can break here without any
+check noticing, and `knowledge_base.code_guidelines.filePatterns` is what
+lets it actually open `ARCHITECTURE.md`, `SECURITY.md`, `design.md` and
+`CONTRIBUTING.md` — the built-in defaults cover `AGENTS.md` and `CLAUDE.md`
+and not those.
+
+**Claude review** — `.github/workflows/claude-review.yml`, running
+`anthropics/claude-code-action` against the maintainer's Claude subscription
+via `CLAUDE_CODE_OAUTH_TOKEN`. Runs on open, ready-for-review, reopen and
+**every push**; the `claude-review` label asks for a pass without one. Read
+the header of that file before changing it: it documents a gap that matters
+and is not obvious.
+
+**SonarQube Cloud** — posts a Quality Gate on each pull request. It is
+skipped entirely on pull requests from forks, because `SONAR_TOKEN` is not
+exposed to those runs. Absence of the comment there is not a failure.
+
+## Releases
+
+`scripts/release.sh [--minor|--major] --notes-file <path>`.
+
+**Fix first, release later.** Before running it, resolve every open GitHub
+security item: CodeQL alerts, Dependabot alerts, and active SonarQube Cloud
+findings. The gates below are the final check, not the fix.
+
+Seven gates, all fail-closed, all run **before** any commit or tag:
+
+| Gate | What it checks |
+|---|---|
+| **Deployment** | production is on the previous release and answers `GET /api/version` |
+| **Security** | `composer audit`, `npm audit`, open CodeQL findings, open Dependabot alerts |
+| **Dependency freshness** | `composer outdated --direct`, and every vendored front-end library against its upstream release |
+| **SonarQube Cloud** | `scripts/check-sonar-release.sh` — see below |
+| **Tests** | PHPStan + the complete PHPUnit suite (no group excluded), `npm run typecheck`, `npm run test:coverage` |
+| **End-to-end** | `npm run e2e:full`, including the `@full` per-module boot matrix |
+| **Dynamic scan** | `dast.sh --profile=standard` then `--profile=passive` |
+
+The four fast gates run first and in parallel; the three slow ones are
+launched with dependencies between them. Every one fails closed on a missing
+prerequisite — an unreachable database, no `node_modules/`, no Docker, no
+ZAP image — rather than silently doing less.
+
+**The SonarQube release rule, in one sentence:** 100% of findings must be
+fixed, except those that are *all three at once* — software quality
+`MAINTAINABILITY`, severity `LOW`, and tagged `convention`. An issue carries
+a *list* of impacts and is exempt only when every one of them qualifies; an
+issue with no impacts at all is not exempt.
+
+**Bypass flags** (`--skip-security-gate`, `--skip-tests-gate`,
+`--skip-e2e-gate`, `--skip-dast-gate`, `--skip-dependency-check`,
+`--skip-deployment-check`, `--skip-sonar-gate`) exist for genuine
+emergencies. Each prints a warning naming exactly what was not checked.
+Using one to route around a real finding is how a release ships a known
+defect.
+
+After the gates pass, the script bumps `VERSION`, commits, tags `vX.Y.Z`,
+builds the installable artifact through `scripts/build-artifact.sh`, and
+publishes a GitHub release with that artifact and `bootstrap/bootstrap.php`.
+
+**Release notes are mandatory when releasing from Claude**: write a French
+Markdown file and pass `--notes-file`. The auto-generated commit list is for
+manual releases only.
+
+## The GitHub configuration this all depends on
+
+None of it lives in the repository, and nothing warns you when it is
+missing or wrong. Verify after any change to the repository's settings.
+
+### Repository secrets
+
+*Settings → Secrets and variables → Actions*
+
+| Secret | Used by | Without it |
+|---|---|---|
+| `SONAR_TOKEN` | the `sonarqube` CI job, `check-sonar-release.sh` | no Quality Gate on pull requests; the release gate fails closed |
+| `CLAUDE_CODE_OAUTH_TOKEN` | `claude-review.yml` | the review job fails at authentication |
+
+`CLAUDE_CODE_OAUTH_TOKEN` is generated with `claude setup-token` and spends
+a Claude subscription rather than a metered API key. It is tied to the
+person who generated it.
+
+### GitHub Apps
+
+- **CodeRabbit** — installed on this repository, which is what makes the
+  free open-source plan apply. `.coderabbit.yaml` configures it; the app
+  installation is what runs it.
+- **Claude** — installed for `claude-code-action`'s default authentication.
+
+Nothing in the repository installs either. A missing app means silence, not
+an error.
+
+### Branch ruleset on `main`
+
+*Settings → Rules → Rulesets*
+
+- **Require a pull request before merging.**
+- **Require conversation resolution before merging.** Every review thread —
+  including a bot's — must be resolved before the merge button unlocks.
+  This is what makes an AI reviewer's finding a hard blocker rather than a
+  suggestion, and it is why an agent resolving a thread silently is handing
+  itself a merge.
+- **Require status checks to pass.** A check only appears in GitHub's list
+  after it has run at least once, so add each one after its first run, not
+  before.
+- **Require review from Code Owners** — *not enabled, and not currently
+  enableable.* See below.
+
+### Labels
+
+`claude-review` — adding it to a pull request asks `claude-review.yml` for a
+fresh pass without pushing a commit. The workflow's job guard matches this
+name exactly.
+
+### CODEOWNERS
+
+`.github/CODEOWNERS` must name an account that actually has write access.
+**GitHub ignores an entry naming anyone else, in silence** — no error, no
+warning on a pull request, no failing check. This file named a
+non-collaborator for its entire existence, so every rule in it matched
+nothing.
+
+`Require review from Code Owners` cannot be enabled while this repository
+has a single collaborator: GitHub forbids approving your own pull request,
+so the sole code owner who is also the sole author could never satisfy it,
+and every pull request would be permanently unmergeable. Adding that account
+to the ruleset's bypass list would restore merging and protect against
+nobody. **Enable it the day a second person gets write access** — the same
+day the protections it provides start having something to protect against.
+
+### CodeQL
+
+GitHub-managed default setup (*Settings → Code security*), not a workflow in
+this repository. It produces the `Analyze (…)` checks. Its findings live in
+the Security tab, and a green check means the scan **ran**, not that it
+found nothing — `AGENTS.md` § CodeQL covers how to read them and what to do
+after a push touching `public/assets/js/`.
+
+### What forks cannot have
+
+GitHub withholds secrets from workflow runs triggered by a pull request from
+a fork. On such a pull request:
+
+- **SonarQube Cloud is skipped** — the job's `if:` condition says so
+  explicitly.
+- **Claude review cannot run** — no `CLAUDE_CODE_OAUTH_TOKEN`.
+- **CodeRabbit is unaffected by the secret rule**, being a GitHub App rather
+  than a workflow — whether it reviews a given fork pull request is its own
+  setting, not something this repository controls.
+
+If `Claude review` is ever made a *required* status check, a pull request
+from a fork becomes permanently unmergeable, since the check can never
+report. That is a governance decision about accepting outside
+contributions, not a configuration detail.
+
+## The failure mode this repository keeps meeting
+
+Red is not the danger. Every layer above is loud when it fails. What has
+actually gone wrong here, repeatedly, is **something green that proved
+nothing**:
+
+- Database-backed tests **skip** rather than fail without a server, so
+  `phpunit` is green having tested none of them.
+- `Claude review` exits **success** when it refuses to run over a
+  workflow-file mismatch, so the check is green in about fifteen seconds
+  having reviewed nothing — and that happens precisely on a pull request
+  editing the reviewer.
+- A `CODEOWNERS` entry naming a non-collaborator is **ignored silently**, so
+  a protection rule can be enabled, appear active, and match nothing.
+- A local reproduction that runs on the wrong database engine, or without
+  the flag CI sets, **cannot go red** for the failure it is meant to
+  reproduce.
+
+The habit that catches these is cheap: ask what a green result would look
+like if the thing had not run at all. When the answer is "the same", the
+signal is not a signal. Where that distinction is known, it is written down
+next to the thing it concerns — in the steward skill, in
+`claude-review.yml`'s header, and here.
