@@ -282,11 +282,17 @@ GitHub MCP server's `enable_pr_auto_merge` with `mergeMethod: SQUASH`. If
 your build of that server has neither, say so — **never** substitute
 `merge_pull_request`, which merges on the spot instead of arming.
 
-Confirm first what you would confirm before merging by hand — no open
-thread, the checklist honestly filled, nothing of your own left unfiled —
-because arming it *is* merging. Then GitHub lands it the moment the ruleset
-is satisfied, whether or not you are still here. If everything is already
-green the same command merges immediately.
+Confirm first what you would confirm before merging by hand, because arming
+it *is* merging: **every check green on the current head**, no open thread,
+the checklist honestly filled, nothing of your own left unfiled. Then GitHub
+lands it the moment the ruleset is satisfied, whether or not you are still
+here. If everything is already green the same command merges immediately.
+
+The CI confirmation is not a formality the ruleset would catch for you. Only
+`Claude review` is a required context, and the `code_scanning` rule waits on
+CodeQL and SonarCloud alone — so a red `database-mariadb`, `Authorization
+matrix` or `Dynamic scan (passive)` blocks nothing. Arm on one of those and
+GitHub merges it.
 
 Do not poll the PR instead. That is what cost #152 four CI cycles and three
 interruptions on 2026-09-05, and it is why auto-merge is enabled at all

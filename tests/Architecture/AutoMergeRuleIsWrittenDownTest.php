@@ -133,6 +133,37 @@ final class AutoMergeRuleIsWrittenDownTest extends TestCase
     }
 
     /**
+     * The step that stops auto-merge from landing a red pull request.
+     *
+     * Only `Claude review` is a required context, and the `code_scanning`
+     * rule waits on CodeQL and SonarCloud — so `database-mariadb`,
+     * `Authorization matrix` and `Dynamic scan (passive)` gate nothing.
+     * A first draft of this rule listed the thread and checklist items and
+     * left CI out, which would have let an agent arm a pull request whose
+     * database job was red and walk away. The ruleset will not catch that;
+     * only the instruction will.
+     */
+    public function testTheRuleRequiresGreenChecksBeforeArming(): void
+    {
+        foreach (['AGENTS.md', '.claude/skills/steward/SKILL.md'] as $file) {
+            $contents = self::read($file);
+
+            $this->assertStringContainsString(
+                'every check green on the current head',
+                strtolower($contents),
+                $file . ' no longer tells an agent to confirm CI before arming auto-merge'
+            );
+            // The reason, without which the step reads as belt-and-braces
+            // and gets dropped by the next person tightening the prose.
+            $this->assertStringContainsString(
+                'database-mariadb',
+                $contents,
+                $file . ' no longer names a check the ruleset does not require'
+            );
+        }
+    }
+
+    /**
      * The setting lives in the repository's settings, where no diff shows
      * it — the category docs/quality-pipeline.md exists to carry.
      */

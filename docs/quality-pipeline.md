@@ -419,6 +419,15 @@ a change of base branch, disarms auto-merge silently.** Nothing announces
 it. A pull request that was going to land and then simply did not is the
 first thing to check.
 
+And note what it does *not* wait for. The required-check list is one
+context, `Claude review`, and the `code_scanning` rule above waits on CodeQL
+and SonarCloud — so `database-mariadb`, `Authorization matrix` and
+`Dynamic scan (passive)` gate nothing at all. An armed pull request whose
+`database-mariadb` is red still merges. Widening the required list would fix
+that at the source; until then the gate is the person or agent arming it,
+which is why AGENTS.md § Merging a pull request puts "every check green on
+the current head" first among the things to confirm.
+
 ### Private vulnerability reporting
 
 *Settings → Code security → Private vulnerability reporting*
@@ -525,10 +534,13 @@ a fork. On such a pull request:
   than a workflow — whether it reviews a given fork pull request is its own
   setting, not something this repository controls.
 
-If `Claude review` is ever made a *required* status check, a pull request
-from a fork becomes permanently unmergeable, since the check can never
-report. That is a governance decision about accepting outside
-contributions, not a configuration detail.
+`Claude review` **is** a required status check on `main` — the only one —
+so a pull request from a fork is permanently unmergeable here: the check it
+needs can never report. That is live, not hypothetical, and it is a
+governance decision about accepting outside contributions rather than a
+configuration detail. Reopening the repository to outside contributions
+means revisiting it; `.github/workflows/claude-review.yml` carries the same
+note next to the token it depends on.
 
 ## The failure mode this repository keeps meeting
 

@@ -418,11 +418,23 @@ CI cycles and three interruptions on #152, and auto-merge is the answer
 this repository chose (`docs/quality-pipeline.md` § Auto-merge).
 
 Arming it is *merging*, so everything that must be true before a merge must
-be true before you arm it: every review thread replied to and resolved on
-purpose rather than to clear the way, the PR template's checklist honestly
-filled, and no finding of your own left unfiled. What you must never do is
-arm it and walk away from a pull request you have not finished — auto-merge
-does not wait for you to come back.
+be true before you arm it:
+
+- **Every check green on the current head.** Not "the required one" —
+  every one. The ruleset requires a single context, `Claude review`, so
+  GitHub will happily land a pull request whose `database-mariadb`,
+  `Authorization matrix` or `Dynamic scan (passive)` is red: none of the
+  three is required, and none feeds the `code_scanning` rule that waits on
+  CodeQL and SonarCloud. The gate that stops that is you, before you arm.
+- **Every review thread replied to and resolved on purpose**, rather than
+  resolved to clear the way.
+- **The PR template's checklist honestly filled**, and no finding of your
+  own left unfiled.
+
+What you must never do is arm it and walk away from a pull request you have
+not finished — auto-merge does not wait for you to come back. If a check is
+still running, either wait for it or say you are arming on an incomplete
+pipeline and why.
 
 Two things it does not do, and both have bitten this project. It does
 **not** update a branch that has fallen behind `main` — the ruleset does not
