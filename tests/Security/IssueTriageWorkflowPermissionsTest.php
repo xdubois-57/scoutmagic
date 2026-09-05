@@ -352,47 +352,80 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
     }
 
     /**
-     * A run of the per-issue workflow that triaged nothing at all used to
-     * end `success`, and that was the loudest signal anybody got.
+     * A run of either workflow that triaged nothing at all used to end
+     * `success`, and that was the loudest signal anybody got.
      *
      * On 2026-09-05 four issues opened within nine minutes (#172–#175)
-     * produced four green runs and four issues still carrying
+     * produced four green per-issue runs and four issues still carrying
      * `triage:pending`. #172 got its verdict comment and never got its
      * labels; the other three got neither, inside their turn budget, with
-     * no timeout and no permission denial. `claude-code-action` exits 0
-     * whenever the agent's turn ends normally, and "ended normally having
-     * written nothing" is a normal end — so the job could not tell the two
-     * apart, and neither could anybody reading the Actions tab.
+     * no timeout and no permission denial. The backlog scan — the safety
+     * net for exactly that — then met the same failure on its own first
+     * run: four candidates, one handled, 29 turns of a 180-turn budget,
+     * `success`. `claude-code-action` exits 0 whenever the agent's turn
+     * ends normally, and "ended normally having written nothing" is a
+     * normal end, so neither job could tell the two apart and neither
+     * could anybody reading the Actions tab.
      *
-     * What tells them apart is the issue itself: `triage:done` present and
-     * `triage:pending` gone. The labels are the state
-     * (docs/quality-pipeline.md § Labels), so reading them back is the
-     * only assertion available that a reporter actually got an answer.
+     * What tells them apart is GitHub's own state — the labels on the
+     * issue, the size of the backlog — read back after the agent. Hence
+     * the two properties asserted here for both workflows: a shell step
+     * that asks GitHub what actually happened, and a way for the job to
+     * fail when the answer is "nothing". What each one reads is asserted
+     * per workflow below, because the two measure different things.
      *
-     * This is the habit at the end of that document, applied to the
-     * workflow that most needed it: ask what a green result would look
-     * like if the thing had not run at all. Delete this check and the
-     * answer goes back to "the same".
+     * This is the habit at the end of docs/quality-pipeline.md, applied
+     * to the two workflows that most needed it: ask what a green result
+     * would look like if the thing had not run at all. Delete these
+     * checks and the answer goes back to "the same".
      */
-    public function testThePerIssueTriageChecksWhetherTheVerdictActuallyLanded(): void
+    #[DataProvider('issueWorkflows')]
+    public function testItChecksItsOwnOutcomeAndCanFailForIt(string $workflow): void
     {
-        $scripts = $this->runScripts(self::TRIAGE);
+        $scripts = $this->runScripts($workflow);
 
         self::assertNotEmpty(
             $scripts,
-            self::TRIAGE . ' runs no shell script of its own. The agent step cannot report a triage '
+            $workflow . ' runs no shell script of its own. The agent step cannot report a triage '
             . 'that did not happen — it exits 0 on an agent that wrote nothing — so without a step '
             . 'that reads the outcome back, the job cannot fail for the one reason it exists.',
         );
 
-        // The scripts that read the labels back, found by what they call
-        // rather than by what they say. An earlier version of this test
-        // searched every script for the two label names and passed a
-        // mutation that gutted the check but left it named in an error
-        // message — the same hole the header of promptLines() describes,
-        // met again three tests later.
+        self::assertNotEmpty(
+            array_filter($scripts, static fn (string $script): bool => str_contains($script, 'gh api')),
+            $workflow . ' no longer asks GitHub what actually happened. Its own step outcomes cannot '
+            . 'answer that question: they are `success` either way.',
+        );
+
+        self::assertNotEmpty(
+            array_filter($scripts, static fn (string $script): bool => str_contains($script, 'exit 1')),
+            $workflow . ' checks its outcome and does nothing with the answer. A job that knows the '
+            . 'reporter was never answered and still reports success is the defect this check was '
+            . 'added for, one step further along.',
+        );
+    }
+
+    /**
+     * What the per-issue job reads back, and why both halves of it.
+     *
+     * `triage:done` present is the agent saying it reached a verdict; the
+     * ABSENCE of `triage:pending` is what stops the nightly scan triaging
+     * the issue all over again. An issue carrying both is the
+     * half-finished state #172 was left in — a careful, correct, published
+     * verdict comment that every other part of this pipeline reads as an
+     * issue nobody opened — and a check testing only the first half would
+     * have called it triaged.
+     *
+     * Asserted as the expression that decides, never as the label names
+     * somewhere in the file. An earlier version searched the scripts for
+     * the two names and passed a mutation that gutted the predicate but
+     * left `triage:pending` in an error message: the exact hole the header
+     * of promptLines() describes, met again three tests later.
+     */
+    public function testThePerIssueTriageReadsBothHalvesOfTheVerdictBack(): void
+    {
         $checks = array_filter(
-            $scripts,
+            $this->runScripts(self::TRIAGE),
             static fn (string $script): bool => str_contains($script, '/labels'),
         );
 
@@ -403,13 +436,6 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
             . 'gave up on.',
         );
 
-        // Both halves of the verdict, asserted as the expression that
-        // decides rather than as the label names anywhere in the file.
-        // `triage:done` is the agent saying it reached a verdict; the
-        // ABSENCE of `triage:pending` is what stops the nightly scan
-        // triaging the issue all over again. An issue carrying both is
-        // the half-finished state #172 was left in, and a check that
-        // tested only the first would have called it triaged.
         foreach ($checks as $script) {
             foreach (['index("triage:done") != null', 'index("triage:pending") == null'] as $half) {
                 self::assertStringContainsString(
@@ -421,12 +447,175 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
                 );
             }
         }
+    }
+
+    /**
+     * What the backlog scan reads back, which cannot be "the backlog is
+     * empty": the cap is five a night by design, so a backlog of two
+     * hundred leaves a hundred and ninety-five behind and that is a
+     * COMPLETE run. The only honest measure is what the run cleared
+     * against what it selected, which is why the candidates are counted
+     * before the agent as well as after.
+     *
+     * Two details in that counting are load-bearing, and both fail
+     * silently when wrong:
+     *
+     * `/issues` returns PULL REQUESTS as well as issues. They carry no
+     * triage label, so without `.pull_request == null` every open pull
+     * request counts as an untriaged issue — the job would then demand the
+     * agent triage things that are not issues and fail every night for it.
+     *
+     * The cutoff is captured ONCE, before the agent, and reused after. It
+     * has to be: candidates exclude issues opened in the last hour, so an
+     * issue fifty-nine minutes old when the run starts is sixty-five
+     * minutes old when it ends. Recomputing "an hour ago" afterwards would
+     * let that issue join the set mid-run and read as work the agent
+     * failed to do — a red run for an issue that was never selected.
+     */
+    public function testTheBacklogScanMeasuresItselfAgainstWhatItSelected(): void
+    {
+        $scripts = $this->runScripts(self::BACKLOG_SCAN);
+
+        // The step that counts BEFORE the agent, bound to its id rather
+        // than to a count of scripts that mention a label. Counting was
+        // not enough: deleting this step left the two later counts in
+        // place, so `>= 2` still held while every output it feeds —
+        // `cutoff`, `candidates`, `expected` — became the empty string.
+        $before = array_filter(
+            $this->stepBlocks(self::BACKLOG_SCAN),
+            static fn (string $step): bool => preg_match('/^\s+id:\s*before\s*$/m', $step) === 1,
+        );
+
+        self::assertCount(
+            1,
+            $before,
+            self::BACKLOG_SCAN . ' has no single step with `id: before`. The backlog has to be '
+            . 'counted before the agent as well as after: the cap is five a night, so "issues '
+            . 'remain" is the normal outcome and only the difference says whether the run did what '
+            . 'it selected.',
+        );
+
+        // The WRITE to `$GITHUB_OUTPUT`, not the name appearing anywhere
+        // in the script. Every one of these is also a shell variable in
+        // that same step (`cutoff="$(date …)"`), so a substring match
+        // found the assignment and passed while the output it publishes
+        // had been deleted.
+        foreach (['cutoff', 'candidates', 'expected'] as $output) {
+            self::assertSame(
+                1,
+                preg_match('/^\s*echo\s+"' . $output . '=.*GITHUB_OUTPUT/m', (string) reset($before)),
+                self::BACKLOG_SCAN . ' no longer publishes `' . $output . '` to $GITHUB_OUTPUT from '
+                . 'its `before` step. Every later step reads it through `steps.before.outputs`, and '
+                . 'a missing output is the empty string in GitHub Actions, not an error — so the '
+                . 'arithmetic that decides the job\'s verdict would silently be done against '
+                . 'nothing.',
+            );
+        }
+
+        // ONE predicate, in the job's `env:`, used by all three counts.
+        // The verdict is `candidates - remaining`, and that subtraction
+        // is only meaningful while all three select the same population:
+        // edit the label rule in two copies of three and the job compares
+        // different populations, reports a wrong verdict, and reports it
+        // with no error at all. A review pointed out that the earlier
+        // shape — the same filter written out in each step — was one
+        // careless edit away from exactly that.
+        $filter = implode("\n", $this->blockScalar(self::BACKLOG_SCAN, 'CANDIDATE_FILTER') ?? []);
+
+        self::assertNotSame(
+            '',
+            trim($filter),
+            self::BACKLOG_SCAN . ' has no `CANDIDATE_FILTER:` block. The three counts that decide '
+            . 'this job\'s verdict have to select the same population, and a job-level `env:` entry '
+            . 'is the only shape in which they cannot drift apart.',
+        );
+
+        self::assertStringContainsString(
+            '.pull_request == null',
+            $filter,
+            self::BACKLOG_SCAN . ' counts untriaged issues without excluding pull requests. '
+            . 'GitHub\'s `/issues` endpoint returns both, and a pull request carries no triage '
+            . 'label — so every open one counts as an untriaged issue and the job fails every '
+            . 'night demanding the agent triage things that are not issues.',
+        );
+
+        self::assertStringContainsString(
+            'env.CUTOFF',
+            $filter,
+            self::BACKLOG_SCAN . "'s candidate filter no longer reads the cutoff from the step's "
+            . 'environment. Interpolating it into the filter instead makes the cutoff a second '
+            . 'thing to keep in step with this one, which is what defining the filter once was for.',
+        );
+
+        self::assertStringContainsString(
+            'index("triage:pending")',
+            $filter,
+            self::BACKLOG_SCAN . "'s candidate filter no longer selects on `triage:pending`. That "
+            . 'label is what an untriaged issue carries; without it the counts measure something '
+            . 'else and the subtraction between them means nothing.',
+        );
+
+        // NO run script may spell the predicate out. That is the
+        // invariant keeping the three counts identical, and it is
+        // asserted over the scripts rather than by counting occurrences
+        // in the file: a copy written inside a shell string carries
+        // escaped quotes, which a literal count misses — as the first
+        // version of this assertion did.
+        //
+        // Shell COMMENTS are stripped first. The steps explain in prose
+        // that a failed run leaves the issues carrying `triage:pending`,
+        // and an assertion that fired on the sentence explaining the rule
+        // would be deleted for being noisy — which is how this file loses
+        // an audit. The same reasoning as testItNeverChecksThe\
+        // RepositoryOut() matching `uses:` lines rather than prose.
+        foreach ($scripts as $script) {
+            $code = implode("\n", array_filter(
+                explode("\n", $script),
+                static fn (string $line): bool => preg_match('/^\s*#/', $line) !== 1,
+            ));
+
+            self::assertStringNotContainsString(
+                'triage:pending',
+                $code,
+                self::BACKLOG_SCAN . ' spells the candidate predicate out inside a step instead of '
+                . 'reading `${CANDIDATE_FILTER}`. A second copy is free to drift from the first, '
+                . 'and the job would then subtract one population from another and call the answer '
+                . 'a verdict — with no error anywhere.',
+            );
+        }
+
+        $counts = array_filter(
+            $scripts,
+            static fn (string $script): bool => str_contains($script, 'CANDIDATE_FILTER'),
+        );
+
+        self::assertGreaterThanOrEqual(
+            2,
+            count($counts),
+            self::BACKLOG_SCAN . ' counts the backlog fewer than twice — before the agent and '
+            . 'after it are both needed, since only the difference is meaningful.',
+        );
+
+        // The cutoff captured BEFORE the agent, passed to the steps that
+        // count after it. Recomputing "an hour ago" afterwards moves the
+        // one-hour boundary mid-run: an issue that was fifty-nine minutes
+        // old at the start joins the candidate set at the end, and the
+        // job goes red over an issue it never selected.
+        self::assertNotEmpty(
+            array_filter(
+                $this->lines(self::BACKLOG_SCAN),
+                static fn (string $line): bool =>
+                    preg_match('/^\s+CUTOFF:\s*\$\{\{\s*steps\.before\.outputs\.cutoff\s*\}\}\s*$/', $line) === 1,
+            ),
+            self::BACKLOG_SCAN . ' no longer reuses the cutoff captured before the agent ran, so '
+            . 'the count that decides the verdict can include an issue the run never selected.',
+        );
 
         self::assertNotEmpty(
-            array_filter($scripts, static fn (string $script): bool => str_contains($script, 'exit 1')),
-            self::TRIAGE . ' checks its outcome and does nothing with the answer. A job that knows '
-            . 'the reporter was never answered and still reports success is the defect this check '
-            . 'was added for, one step further along.',
+            array_filter($scripts, static fn (string $script): bool => str_contains($script, 'EXPECTED')),
+            self::BACKLOG_SCAN . ' no longer compares what it cleared against what it selected. '
+            . 'Comparing against an empty backlog instead would fail every run on a repository with '
+            . 'more than five untriaged issues, which is the state the cap exists to produce.',
         );
     }
 
@@ -443,10 +632,11 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
      * hold each other up: drop the re-check and this retry starts posting
      * a second verdict on somebody's report.
      */
-    public function testThePerIssueTriageTriesAgainBeforeGivingUp(): void
+    #[DataProvider('issueWorkflows')]
+    public function testItTriesAgainBeforeGivingUp(string $workflow): void
     {
         $attempts = array_filter(
-            $this->lines(self::TRIAGE),
+            $this->lines($workflow),
             static fn (string $line): bool =>
                 preg_match('/^\s+uses:\s*anthropics\/claude-code-action@/', $line) === 1,
         );
@@ -454,7 +644,7 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
         self::assertCount(
             2,
             $attempts,
-            self::TRIAGE . ' invokes the agent ' . count($attempts) . ' time(s); it must be twice — '
+            $workflow . ' invokes the agent ' . count($attempts) . ' time(s); it must be twice — '
             . 'an attempt and one retry. With a single attempt the workflow can report that an issue '
             . 'went untriaged but can do nothing about it, and the reporter waits for the nightly '
             . 'backlog scan instead of minutes.',
@@ -466,14 +656,14 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
         // precisely the case that needs retrying. An unconditional retry
         // would also pay for a second full triage of every issue the
         // first attempt got right.
-        $lines = $this->lines(self::TRIAGE);
+        $lines = $this->lines($workflow);
 
         self::assertNotEmpty(
             array_filter(
                 $lines,
                 static fn (string $line): bool => preg_match('/^\s+id:\s*first_check\s*$/', $line) === 1,
             ),
-            self::TRIAGE . ' has no step with `id: first_check`. Deleting the step that reads the '
+            $workflow . ' has no step with `id: first_check`. Deleting the step that reads the '
             . 'labels back leaves the retry gated on an output nothing produces — which in GitHub '
             . 'Actions is an empty string, not an error, so every run would retry and the job would '
             . 'never fail for an untriaged issue.',
@@ -487,7 +677,7 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
         // it did. A review found exactly that hole in the first version
         // of this test, which is this file's own subject one level up —
         // an audit stating a guarantee it is not making.
-        $steps = $this->stepBlocks(self::TRIAGE);
+        $steps = $this->stepBlocks($workflow);
         $gate = '/^\s+if:\s*steps\.first_check\.outputs\.landed\s*!=\s*.true./m';
 
         $retry = array_filter(
@@ -498,14 +688,14 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
         self::assertCount(
             1,
             $retry,
-            self::TRIAGE . ' has no single step with `id: second_attempt`. That id is how the '
+            $workflow . ' has no single step with `id: second_attempt`. That id is how the '
             . 'retry is identified — here, and by the conditions that gate it on the check.',
         );
 
         self::assertSame(
             1,
             preg_match($gate, (string) reset($retry)),
-            self::TRIAGE . ' does not gate the retry on `steps.first_check.outputs.landed`. '
+            $workflow . ' does not gate the retry on `steps.first_check.outputs.landed`. '
             . 'Ungated, it runs a second full triage of every issue, including every issue the '
             . 'first attempt got right, and posts no second verdict only because the prompt '
             . 'happens to re-check for one.',
@@ -523,15 +713,15 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
 
         self::assertNotEmpty(
             $failures,
-            self::TRIAGE . ' has no step that can fail the job — see '
-            . 'testThePerIssueTriageChecksWhetherTheVerdictActuallyLanded().',
+            $workflow . ' has no step that can fail the job — see '
+            . 'testItChecksItsOwnOutcomeAndCanFailForIt().',
         );
 
         foreach ($failures as $step) {
             self::assertSame(
                 1,
                 preg_match($gate, $step),
-                self::TRIAGE . ' has a step that can fail the job without gating it on '
+                $workflow . ' has a step that can fail the job without gating it on '
                 . '`steps.first_check.outputs.landed`. Every issue the first attempt triaged '
                 . 'correctly would end in a red run.',
             );
@@ -551,28 +741,29 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
      * rather than left to whoever next edits one of the two steps. It is
      * also what lets promptLines() keep reading one prompt per workflow.
      */
-    public function testBothTriageAttemptsAreGivenTheSamePrompt(): void
+    #[DataProvider('issueWorkflows')]
+    public function testBothAttemptsAreGivenTheSamePrompt(string $workflow): void
     {
         $inputs = array_values(array_filter(
-            $this->lines(self::TRIAGE),
+            $this->lines($workflow),
             static fn (string $line): bool => preg_match('/^\s+prompt:\s*\S/', $line) === 1,
         ));
 
         self::assertCount(
             2,
             $inputs,
-            self::TRIAGE . ' passes ' . count($inputs) . ' `prompt:` input(s); one per agent step is '
+            $workflow . ' passes ' . count($inputs) . ' `prompt:` input(s); one per agent step is '
             . 'two. A step given no prompt runs in mention mode and triages nothing at all.',
         );
 
         foreach ($inputs as $line) {
             self::assertSame(
                 1,
-                preg_match('/^\s+prompt:\s*\$\{\{\s*env\.TRIAGE_PROMPT\s*\}\}\s*$/', $line),
-                self::TRIAGE . ' writes a prompt inline on an agent step instead of referencing '
-                . '`${{ env.TRIAGE_PROMPT }}`. Two inline copies drift, and the one that drifts is '
-                . 'the retry — the attempt nobody reads, because it only runs when something has '
-                . 'already gone wrong.',
+                preg_match('/^\s+prompt:\s*\$\{\{\s*env\.[A-Z][A-Z_]*_PROMPT\s*\}\}\s*$/', $line),
+                $workflow . ' writes a prompt inline on an agent step instead of referencing the '
+                . 'job-level `${{ env.…_PROMPT }}` entry. Two inline copies drift, and the one that '
+                . 'drifts is the retry — the attempt nobody reads, because it only runs when '
+                . 'something has already gone wrong.',
             );
         }
     }
@@ -729,29 +920,95 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
     }
 
     /**
+     * The scan's own half-finished failure, in the prompt rather than in
+     * the job. On its first run it selected four candidates, triaged one,
+     * and ended its turn — 29 turns of a 180-turn budget, so nothing
+     * stopped it; it simply treated one issue as the task.
+     *
+     * The verification step catches that afterwards and the retry repairs
+     * it, but both cost a full second pass over the backlog. This clause
+     * is the cheap half of the fix: say that the list is the task, and
+     * that an issue analysed but left carrying `triage:pending` is
+     * indistinguishable from one never opened — which is exactly what the
+     * next scan will pay to analyse again.
+     */
+    public function testTheBacklogScanPromptRefusesToStopHalfway(): void
+    {
+        $prompt = implode(' ', array_map('trim', $this->promptLines(self::BACKLOG_SCAN)));
+
+        self::assertSame(
+            1,
+            preg_match('/finish the list/i', $prompt),
+            self::BACKLOG_SCAN . "'s prompt no longer tells the agent to finish the issues it "
+            . 'selected. Its first run triaged one candidate of four and ended successfully; '
+            . 'without this clause the job relies entirely on the verification step noticing, and '
+            . 'pays for a whole second pass every time it does.',
+        );
+
+        self::assertSame(
+            1,
+            preg_match('/do not end your turn/i', $prompt),
+            self::BACKLOG_SCAN . "'s prompt no longer forbids ending the turn on an issue still "
+            . 'carrying `triage:pending`. The labels are the state: an issue analysed and left '
+            . 'unlabelled reads exactly like one nobody opened, to the maintainer and to the next '
+            . 'scan alike.',
+        );
+    }
+
+    /**
      * The lines of the block scalar holding the prompt — what the model is
      * actually told, with the file's own commentary about it left out.
      *
-     * Two spellings, because the two workflows differ in one respect that
-     * is not cosmetic. The backlog scan runs the agent once and writes its
-     * prompt inline under `prompt: |`. The per-issue workflow runs the
-     * agent TWICE — an attempt and a retry — and both must be given the
-     * identical string, so it defines it once under the job's
-     * `TRIAGE_PROMPT: |` and references that from each step. GitHub
-     * Actions supports no YAML anchors, so a job-level `env:` entry is the
-     * only way one prompt reaches two steps; testBothTriageAttemptsAre\
-     * GivenTheSamePrompt() is what holds that shape in place.
+     * Two spellings. Both workflows run the agent TWICE — an attempt and
+     * a retry — and both attempts must be given the identical string, so
+     * each defines its prompt once under a job-level `env:` entry
+     * (`TRIAGE_PROMPT`, `SCAN_PROMPT`) and references it from each step.
+     * GitHub Actions supports no YAML anchors, so that is the only way
+     * one prompt reaches two steps; testBothAttemptsAreGivenTheSame\
+     * Prompt() is what holds the shape in place. `prompt: |` is still
+     * accepted for a workflow that invokes the agent once.
      *
      * @return array<int, string>
      */
     private function promptLines(string $workflow): array
     {
-        $prompt = [];
+        $prompt = $this->blockScalar($workflow, 'prompt|[A-Z][A-Z_]*_PROMPT');
+
+        self::assertNotNull(
+            $prompt,
+            $workflow . ' has no `prompt: |` or `…_PROMPT: |` block. The workflow runs in '
+            . 'automation mode, so without one it tells the model nothing — and this test would '
+            . 'silently check an empty set.',
+        );
+
+        return $prompt;
+    }
+
+    /**
+     * The lines of the first block scalar whose key matches $keyPattern,
+     * or null when the file has none.
+     *
+     * Shared by promptLines() and by the assertions about the backlog
+     * scan's `CANDIDATE_FILTER`, because both are the same problem: a
+     * string this repository deliberately writes ONCE under a job-level
+     * `env:` so that the two agent attempts, or the three counting steps,
+     * cannot be given subtly different versions of it. GitHub Actions
+     * supports no YAML anchors, so that entry is the only shape in which
+     * they cannot drift.
+     *
+     * Returns null rather than failing: what a missing block means
+     * differs between callers, and each says so in its own words.
+     *
+     * @return array<int, string>|null
+     */
+    private function blockScalar(string $workflow, string $keyPattern): ?array
+    {
+        $block = [];
         $indent = null;
 
         foreach ($this->lines($workflow) as $line) {
             if ($indent === null) {
-                if (preg_match('/^(\s+)(?:prompt|TRIAGE_PROMPT):\s*\|/', $line, $match) === 1) {
+                if (preg_match('/^(\s+)(?:' . $keyPattern . '):\s*\|/', $line, $match) === 1) {
                     $indent = strlen($match[1]);
                 }
 
@@ -759,9 +1016,9 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
             }
 
             // A blank line belongs to the scalar; the block ends at the
-            // first non-blank line no deeper than the `prompt:` key.
+            // first non-blank line no deeper than the key.
             if (trim($line) === '') {
-                $prompt[] = $line;
+                $block[] = $line;
 
                 continue;
             }
@@ -770,17 +1027,10 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
                 break;
             }
 
-            $prompt[] = $line;
+            $block[] = $line;
         }
 
-        self::assertNotNull(
-            $indent,
-            $workflow . ' has no `prompt: |` or `TRIAGE_PROMPT: |` block. The workflow runs in '
-            . 'automation mode, so without one it tells the model nothing — and this test would '
-            . 'silently check an empty set.',
-        );
-
-        return $prompt;
+        return $indent === null ? null : $block;
     }
 
     /**

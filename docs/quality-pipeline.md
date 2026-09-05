@@ -206,7 +206,31 @@ the issues that workflow never saw: everything filed before it reached
 `main`, and everything whose run was lost to a cancelled job or a failed
 one. It runs at 03:17 UTC, takes the **oldest five** open issues carrying
 `triage:pending` or no triage label at all, and runs the same skill file on
-each. Same permissions, same absence of a checkout, same reasoning.
+each. Same permissions, same absence of a checkout, same reasoning — **and
+the same verification, retry and red run**, because it met the same failure
+the first time it ran.
+
+That is worth stating plainly, since this file is where somebody will look
+for it. Dispatched by hand the moment it merged, with four issues waiting,
+the scan triaged **one** of them and ended `success` after 29 turns of a
+180-turn budget. Nothing stopped it; it treated one issue as the task. A
+safety net that reports success over three reporters it never answered is
+not a safety net, it is a second place for issues to disappear — so it now
+counts the candidates **before** the agent runs, counts them again after,
+and compares what the run cleared against what it selected.
+
+Against what it *selected*, never against an empty backlog: the cap is five
+a night by design, so a backlog of two hundred leaves a hundred and
+ninety-five behind and that is a complete run. Two details in that counting
+fail silently when wrong, and both are asserted in
+`tests/Security/IssueTriageWorkflowPermissionsTest.php`. GitHub's `/issues`
+endpoint **returns pull requests too**, and a pull request carries no
+triage label — so without excluding them every open pull request counts as
+an untriaged issue and the job goes red every night demanding the agent
+triage things that are not issues. And the one-hour cutoff is captured
+**once**, before the agent, then reused: recomputing it afterwards would
+let an issue that was fifty-nine minutes old at the start join the
+candidate set at the end and read as work the agent failed to do.
 
 The minute is 17 and not 0 on purpose: GitHub defers and drops scheduled
 jobs under load, and load peaks at the top of the hour. A dropped run is a
@@ -225,7 +249,7 @@ real backlog posts a comment on every untriaged issue at once, which is
 both a large bill and a bad morning for whoever filed them. A backlog is
 drained over nights.
 
-Three GitHub behaviours shape that file, and all three fail *silently* —
+Four GitHub behaviours shape that file, and all four fail *silently* —
 they are in the list at the end of this document for that reason, and
 repeated in the file's own header because that is where somebody editing it
 will be looking.
@@ -624,10 +648,18 @@ nothing**:
   reports success whenever the agent's turn ends normally, and an agent
   that read the issue, gave up and said so ended normally. No timeout, no
   `error_max_turns`, no permission denial, no annotation — a green tick on
-  an issue nobody answered. Worse, the transcript that would say why is
-  discarded unless `show_full_output` is on. This is why
-  `issue-triage.yml` reads the issue's labels back instead of trusting its
-  own step, and why its retry prints in full.
+  an issue nobody answered. It applies just as much to an agent that did
+  *part* of the job: the backlog scan's first run triaged one candidate of
+  four and reported success. Worse, the transcript that would say why is
+  discarded unless `show_full_output` is on. This is why both issue
+  workflows read GitHub's own state back instead of trusting their own
+  step, and why both retries print in full.
+- **A missing step output is the empty string, not an error.** Delete the
+  step that publishes `steps.before.outputs.expected` and every expression
+  reading it silently becomes `''` — comparisons still evaluate, shell
+  arithmetic still runs, and the job decides its verdict against nothing.
+  Nothing in GitHub Actions warns about a reference to an output no step
+  produces.
 - A **scheduled job is deferred or dropped under load**, most of all at
   the top of the hour where every `0 *` cron fires at once. Nothing
   reports the drop; the run simply never happens. This is why
