@@ -1,0 +1,162 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+#
+# CodeRabbit — AI review configuration for this repository.
+#
+# The rules themselves live in AGENTS.md, ARCHITECTURE.md, SECURITY.md and
+# design.md. What follows points the reviewer at the ones a diff can violate
+# without any check noticing — it is not a second copy of them, and it must
+# not become one: a duplicated rule drifts from its original, and the
+# original wins.
+#
+# The schema line above is load-bearing, not decoration: an editor with the
+# YAML language server validates against it, and a key CodeRabbit does not
+# recognise is otherwise ignored in silence — `tools` sat at the root here
+# for one commit, doing nothing, until a review said so.
+
+language: en-US
+
+# 250 characters is the documented ceiling for this field.
+tone_instructions: >-
+  Be direct and specific. Name the consequence a defect has, not the rule it
+  breaks. No praise, no preamble, no restating the diff. When you are unsure
+  a finding is real, say so rather than asserting it.
+
+reviews:
+  profile: assertive
+
+  # Left off deliberately. Enabling it lets CodeRabbit submit formal GitHub
+  # review events: it holds a "changes requested" until every thread is
+  # resolved, the checks pass and the newest commit has been reviewed, and
+  # only then submits an approval. That approval could satisfy a required
+  # review on `main`, which is not a decision a reviewer should make here.
+  # Off, findings arrive as comments and the maintainer decides what blocks.
+  request_changes_workflow: false
+
+  auto_review:
+    enabled: true
+
+    # Review once, when the pull request opens — not again on every push.
+    # A PR that answers its own review can take five or six corrective
+    # pushes, and re-reviewing each one buys little while consuming the
+    # free tier's hourly budget. Ask for another pass explicitly with
+    # `@coderabbitai review`, or `@coderabbitai full review` to start over.
+    auto_incremental_review: false
+
+    drafts: false
+
+  path_filters:
+    # Generated or vendored: nothing here is written by hand, so a review
+    # comment on it has no author to reach.
+    - "!composer.lock"
+    - "!package-lock.json"
+    - "!public/assets/vendor/**"
+    # Accepted pre-existing debt, by construction. AGENTS.md § Static
+    # analysis governs what may enter these; a line-by-line review of the
+    # ledger itself is noise.
+    - "!phpstan-baseline.neon"
+    - "!js-typecheck-baseline.json"
+
+  tools:
+    # PHPStan is a blocking CI gate here, run with phpstan.neon and the
+    # accepted debt in phpstan-baseline.neon. A second run that does not
+    # read that baseline would report long-accepted findings as new on
+    # every PR.
+    phpstan:
+      enabled: false
+
+  path_instructions:
+    - path: "**/*.php"
+      instructions: >-
+        Identifiers, comments and docblocks are English. Layering is
+        Controller -> Service -> Repository: no SQL in a Controller, no
+        business logic in a Controller or a View, no $_SESSION/$_POST access
+        in a Service. Every SQL statement is prepared; concatenating a value
+        into SQL is a defect regardless of where the value came from.
+        Personal and banking data live in BLOB columns encrypted through
+        EncryptionService, decrypted only in the Repository layer, and never
+        appear in a log line, an exception message or the journal.
+        Flag any string that can reach a visitor unless its exception class
+        implements Core\Exception\UserFacingException; everything else is
+        wrapped through UserFacingMessage::from() with a French fallback.
+
+    - path: "modules/**/*.php"
+      instructions: >-
+        A module is reachable from outside only through its Api\ namespace
+        (ARCHITECTURE.md 7.5). Importing another module's Service\,
+        Repository\ or Task\ class is a build failure with no exceptions, so
+        report it as one. Cross-module capabilities are nullable Api\
+        constructor dependencies that degrade gracefully when the other
+        module is absent or disabled — a hard dependency is a defect even
+        when it currently works.
+
+    - path: "**/module.json"
+      instructions: >-
+        Every route declares role_min. Every route carrying a label declares
+        menu_group. Every cookie the module sets is declared with category,
+        French purpose and duration; every automatic e-mail is declared with
+        a French description of when it goes out. Every setting has a
+        non-null description.
+
+    - path: "**/*.html.twig"
+      instructions: >-
+        All text a user sees is French — an English label is a defect, not a
+        detail. Every form carries a CSRF token. Rich text is sanitised
+        before storage, not at render time. File links go through the
+        file_url() helper rather than a raw path. Check the UI conventions
+        in design.md section 7 (lexicon, back navigation, button variants,
+        empty states) before suggesting a change to structure.
+
+    - path: "public/assets/js/**/*.js"
+      instructions: >-
+        Plain browser JavaScript, loaded by a classic script tag: no import
+        of a bundler, transpiler or framework, and no new runtime
+        dependency. Scrutinise every value reaching src, href, action,
+        formaction, srcdoc, innerHTML, outerHTML, insertAdjacentHTML,
+        location, window.open, eval, or setTimeout/setInterval with a
+        string. A value is not safe for having come from the page's own
+        template — a template renders user-controlled content. Validate at
+        the sink, never at the call sites.
+
+    - path: "**/*.sql"
+      instructions: >-
+        schema.sql is the complete current state, never an incremental
+        migration. Table and column names are English snake_case. Member
+        data carries scout_year_id unless it genuinely is not year-scoped.
+        Personal data columns are BLOB, with a blind index alongside any
+        encrypted field needing exact-match search. A module table must
+        never carry a foreign key into another module's table. Changing an
+        existing index's columns is silently a no-op on installed sites —
+        indexes are matched by name only, so a redefinition needs a new
+        name.
+
+    - path: "tests/**"
+      instructions: >-
+        A new test directory must be registered as a testsuite in
+        phpunit.xml in the same change, or nothing runs it. A bug fix
+        carries a test that reproduces the bug. A new route carries an
+        integration test proving the RBAC boundary: allowed at role_min,
+        denied one level below. Database-backed tests skip rather than fail
+        when no server answers, so a test that can silently skip its whole
+        point is worth flagging.
+
+    - path: ".github/workflows/**"
+      instructions: >-
+        This workflow is the specification that .claude/skills/steward's
+        reproduction table describes. Changing a job's name, its commands,
+        its database engine or its environment variables makes that table
+        wrong — say so, naming the row that goes stale.
+
+knowledge_base:
+  code_guidelines:
+    # These four supplement CodeRabbit's built-in guideline patterns rather
+    # than replacing them: the defaults already cover AGENTS.md and
+    # CLAUDE.md among others, and none of the four below. Without these
+    # entries, files this configuration's own header calls the source of
+    # truth were invisible to the reviewer citing them — the
+    # path_instructions above point at `ARCHITECTURE.md 7.5` and
+    # `design.md section 7`, references it could not follow.
+    filePatterns:
+      - "/ARCHITECTURE.md"
+      - "/SECURITY.md"
+      - "/design.md"
+      - "/CONTRIBUTING.md"
