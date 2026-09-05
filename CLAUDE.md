@@ -12,6 +12,11 @@ which checks to run for which kind of change.
 `.claude/skills/steward/SKILL.md` covers pull request events specifically:
 review comments, a red CI job, which local command reproduces which check.
 
+[`docs/quality-pipeline.md`](docs/quality-pipeline.md) is the wider map:
+every test layer and what it is blind to, the CI jobs, the two AI
+reviewers, the release gates, and the GitHub configuration that lives
+outside this repository and that nothing warns you about when it is wrong.
+
 ## The three that catch people out
 
 - **English code, French interface.** A French variable name or an English
