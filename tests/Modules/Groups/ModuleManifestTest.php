@@ -184,7 +184,7 @@ class ModuleManifestTest extends TestCase
     public function testItCachesTheGroupListOfflineButNeverAGroupsConversation(): void
     {
         $this->assertSame(
-            [['path' => '/groups', 'label' => 'Groupes', 'match' => 'exact', 'role_min' => 'identified']],
+            [['path' => '/groups', 'label' => 'Groupes', 'match' => 'exact', 'role_min' => 'identified', 'prefetch' => true]],
             $this->manifest->offline
         );
 

@@ -188,7 +188,9 @@ class OfflineManifestServiceTest extends TestCase
         $manifest = $this->buildService()->buildManifest(Role::CHIEF, null);
 
         $this->assertContains('/chiefs/stats', $manifest['pages']);
-        $this->assertContains('/chefs/staffs', $manifest['pages']);
+        // Whitelisted for a chief, but declared prefetch: false in
+        // OfflineWhitelist — cached on a visit, never pre-downloaded.
+        $this->assertNotContains('/chefs/staffs', $manifest['pages']);
     }
 
     public function testIdentifiedRoleNeverGetsAChiefOnlyPage(): void
@@ -360,5 +362,20 @@ class OfflineManifestServiceTest extends TestCase
 
         $this->assertSame(array_unique($manifest['images']), array_values($manifest['images']));
         $this->assertSame(array_unique($manifest['pages']), array_values($manifest['pages']));
+    }
+
+    public function testAnEntryDeclaredPrefetchFalseIsWhitelistedButNeverInTheManifest(): void
+    {
+        $this->offlineWhitelist->registerModuleEntries('member_stats', [
+            ['path' => '/chiefs/stats', 'label' => 'Statistiques', 'match' => 'exact', 'role_min' => 'chief', 'prefetch' => false],
+        ]);
+
+        $manifest = $this->buildService()->buildManifest(Role::CHIEF, null);
+
+        $this->assertNotContains('/chiefs/stats', $manifest['pages']);
+        $this->assertNotContains('/chefs/staffs', $manifest['pages'], 'the core Staffs page is prefetch: false too');
+        $this->assertContains('/', $manifest['pages']);
+        $this->assertTrue($this->offlineWhitelist->isPathWhitelisted('/chiefs/stats'));
+        $this->assertTrue($this->offlineWhitelist->isPathWhitelisted('/chefs/staffs'));
     }
 }

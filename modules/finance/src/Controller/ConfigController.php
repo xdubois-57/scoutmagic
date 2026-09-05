@@ -63,7 +63,13 @@ class ConfigController extends AbstractController
             return;
         }
 
-        $this->schedulerService->schedule('finance', 'purge_old_movements', new \DateTimeImmutable('+1 month'), [], 'monthly');
+        $this->schedulerService->schedule(
+            'finance',
+            'purge_old_movements',
+            new \DateTimeImmutable('+1 month'),
+            [],
+            'monthly',
+        );
     }
 
     /**
@@ -80,7 +86,13 @@ class ConfigController extends AbstractController
             return;
         }
 
-        $this->schedulerService->schedule('finance', 'reconcile_receivables', new \DateTimeImmutable('tomorrow 04:00'), [], 'nightly');
+        $this->schedulerService->schedule(
+            'finance',
+            'reconcile_receivables',
+            new \DateTimeImmutable('tomorrow 04:00'),
+            [],
+            'nightly',
+        );
     }
 
     /**

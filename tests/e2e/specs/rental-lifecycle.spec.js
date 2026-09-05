@@ -89,6 +89,7 @@ import { openSectionEditor } from '../support/section-editor.js';
 import { pngBuffer } from '../support/png.js';
 import { scaled } from '../support/timeouts.js';
 import { waitOutHumanCheckDelay } from '../support/human-check.js';
+import { waitForServerResponse } from '../support/response.js';
 
 /** A date far enough out to clear any notice period the asset declares. */
 function isoDaysFromNow(days) {
@@ -447,7 +448,7 @@ function bookingUrl(page) {
  * @param {import('@playwright/test').Locator} button the submit to press
  */
 async function submitAndReload(page, action, button) {
-    const posted = page.waitForResponse(
+    const posted = waitForServerResponse(page, 
         (response) => response.url().endsWith(action) && response.request().method() === 'POST',
     );
     await button.click();

@@ -55,7 +55,7 @@
      */
     function release(form) {
         var button = submitButtonOf(form);
-        if (button === null || button.dataset.idleLabel === undefined) {
+        if (button?.dataset.idleLabel === undefined) {
             return;
         }
 
@@ -72,12 +72,12 @@
         var scope = root || document;
         var forms = scope.querySelectorAll(SELECTOR);
 
-        for (var i = 0; i < forms.length; i++) {
+        for (const form of forms) {
             (function (/** @type {HTMLFormElement} */ form) {
                 form.addEventListener('submit', function () {
                     markBusy(form);
                 });
-            })(/** @type {HTMLFormElement} */ (forms[i]));
+            })(/** @type {HTMLFormElement} */ (form));
         }
 
         // Back-button: a page restored from the browser's cache comes back
@@ -86,8 +86,8 @@
             if (!(/** @type {PageTransitionEvent} */ (event)).persisted) {
                 return;
             }
-            for (var j = 0; j < forms.length; j++) {
-                release(/** @type {HTMLFormElement} */ (forms[j]));
+            for (const form of forms) {
+                release(/** @type {HTMLFormElement} */ (form));
             }
         });
     }

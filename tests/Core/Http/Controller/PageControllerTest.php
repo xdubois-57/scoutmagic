@@ -682,6 +682,16 @@ class PageControllerTest extends TestCase
                 }
                 return null;
             }
+
+            public function getResponsables(array $sectionIds, int $scoutYearId): array
+            {
+                $byId = [];
+                foreach ($sectionIds as $id) {
+                    $byId[$id] = $this->getResponsable($id, $scoutYearId);
+                }
+
+                return $byId;
+            }
         };
 
         $controller = new PageController(

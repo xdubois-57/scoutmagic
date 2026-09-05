@@ -7,6 +7,7 @@ namespace Tests\Core\Http\Controller;
 use Core\Config\AppConfig;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
+use Core\Debug\MeasurementWindow;
 use Core\Http\Controller\SupportController;
 use Core\Http\FrontController;
 use Core\Http\Request;
@@ -139,6 +140,7 @@ class SupportControllerTest extends TestCase
 {
     private \PDO $pdo;
     private SupportController $controller;
+    private MeasurementWindow $measurementWindow;
     private SettingService $settings;
     private SettingRepository $settingRepository;
     private Environment $twig;
@@ -233,7 +235,8 @@ class SupportControllerTest extends TestCase
                 '1.0.33'
             ),
             $ticketIdentity,
-            $archiveSender
+            $archiveSender,
+            measurementWindow: $this->measurementWindow = new MeasurementWindow($this->projectRoot . '/storage/temp/measure_until')
         );
 
         $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index, is_super_admin) VALUES (?, ?, 1)');
@@ -297,6 +300,64 @@ class SupportControllerTest extends TestCase
         $_POST['_csrf_token'] = $token;
 
         return $token;
+    }
+
+    // ── The measurement window (CHANTIER-performance §6) ────────────────
+
+    public function testThePageOffersToMeasureAndSaysWhatItRecordsAndWhatItCannot(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/config/support', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Mesurer une lenteur', $body);
+        $this->assertStringContainsString('Mesurer pendant 5 minutes', $body);
+        $this->assertStringContainsString('pour tous les comptes', $body);
+        $this->assertStringContainsString('le réseau et l\'appareil du visiteur ne sont pas mesurés', $body);
+        $this->assertStringContainsString('data-confirm=', $body);
+        $this->assertStringNotContainsString('Mesure en cours', $body);
+    }
+
+    public function testStartingOpensTheWindowJournalsItAndComesBackToThePage(): void
+    {
+        $this->issueCsrfToken();
+        $request = new Request('POST', '/config/support/measure', [], ['_csrf_token' => $_POST['_csrf_token']], [], []);
+
+        $response = $this->controller->startMeasurement($request, []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/config/support', $response->getHeaders()['Location'] ?? null);
+        $this->assertTrue($this->measurementWindow->isOpen());
+        $this->assertLessThanOrEqual(5 * 60, $this->measurementWindow->expiresAt()->getTimestamp() - time());
+        $this->assertSame(['measurement_window_opened'], $this->journalEventTypes());
+
+        $body = $this->controller->index(new Request('GET', '/config/support', [], [], [], []), [])->getBody();
+        $this->assertStringContainsString('Mesure en cours jusqu', $body);
+        $this->assertStringContainsString('Arrêter la mesure', $body);
+    }
+
+    public function testStartingWithoutTheTokenChangesNothing(): void
+    {
+        $request = new Request('POST', '/config/support/measure', [], [], [], []);
+
+        $this->controller->startMeasurement($request, []);
+
+        $this->assertFalse($this->measurementWindow->isOpen());
+        $this->assertSame([], $this->journalEventTypes());
+    }
+
+    public function testStoppingClosesTheWindowAndTheNextArchiveIsStillAnnounced(): void
+    {
+        $this->measurementWindow->open(5);
+        $this->measurementWindow->recordRequest();
+        $this->issueCsrfToken();
+        $request = new Request('POST', '/config/support/measure/stop', [], ['_csrf_token' => $_POST['_csrf_token']], [], []);
+
+        $this->controller->stopMeasurement($request, []);
+
+        $this->assertFalse($this->measurementWindow->isOpen());
+        $this->assertSame(['measurement_window_closed'], $this->journalEventTypes());
+        $body = $this->controller->index(new Request('GET', '/config/support', [], [], [], []), [])->getBody();
+        $this->assertStringContainsString('La dernière mesure a enregistré 1 requête(s)', $body);
+        $this->assertStringContainsString('Mesurer pendant 5 minutes', $body);
     }
 
     // ── The support ticket (roadmap IT-25) ─────────────────────────────

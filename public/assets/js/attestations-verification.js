@@ -77,7 +77,7 @@
         if (selectedFunctions.length === 0) {
             return true;
         }
-        return selectedFunctions.indexOf(row.dataset.function || '') !== -1;
+        return selectedFunctions.includes(row.dataset.function || '');
     }
 
     /**
@@ -113,7 +113,7 @@
         var total = rows.length;
         var selected = rows.filter(function (row) {
             var box = checkboxOf(row);
-            return box !== null && box.checked;
+            return box?.checked === true;
         }).length;
 
         if (visibleEl) {
@@ -140,7 +140,7 @@
 
         return tickable.length > 0 && tickable.every(function (row) {
             var box = checkboxOf(row);
-            return box !== null && box.checked;
+            return box?.checked === true;
         });
     }
 
@@ -210,7 +210,7 @@
 
         list.addEventListener('change', function (e) {
             var target = /** @type {HTMLElement} */ (e.target);
-            if (target && target.classList.contains('attestations-line-check')) {
+            if (target?.classList.contains('attestations-line-check')) {
                 refresh();
             }
         });

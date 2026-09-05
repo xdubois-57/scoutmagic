@@ -76,7 +76,7 @@
             }
 
             var res = await window.ScoutMagicApi.getJson(url);
-            render((res.data && res.data.success && res.data.receivables) || []);
+            render((res.data?.success && res.data.receivables) || []);
         }
 
         search.addEventListener('input', function () {

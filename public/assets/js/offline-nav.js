@@ -71,14 +71,13 @@
     }
 
     function isWhitelisted(pathname) {
-        for (var i = 0; i < whitelist.length; i++) {
-            var entry = whitelist[i];
+        for (const entry of whitelist) {
             if (entry.match === 'child') {
                 if (pathname.indexOf(entry.path) !== 0) {
                     continue;
                 }
                 var remainder = trimSlashes(pathname.slice(entry.path.length));
-                if (remainder !== '' && remainder.indexOf('/') === -1) {
+                if (remainder !== '' && !remainder.includes('/')) {
                     return true;
                 }
             } else if (pathname === entry.path) {
@@ -89,6 +88,8 @@
     }
 
     var PAGE_MESSAGE = "Cette page n'est pas disponible hors ligne.";
+    var PROBE_URL = '/api/version';
+    var PROBE_TIMEOUT_MS = 1500;
     var ACTION_MESSAGE = 'Cette action nécessite une connexion.';
 
     var modalEl = document.getElementById('offline-dialog');
@@ -99,8 +100,12 @@
     // navigation, never a redirect — form fields the visitor already
     // filled in stay filled in, since the only thing that ran was
     // event.preventDefault() below.
+    function canShowDialog() {
+        return !!modalEl && typeof bootstrap !== 'undefined';
+    }
+
     function showDialog(message) {
-        if (!modalEl || typeof bootstrap === 'undefined') {
+        if (!canShowDialog()) {
             return;
         }
         if (modalMessageEl) {
@@ -182,6 +187,15 @@
     // the .offline-link-disabled class already being applied), so a link
     // inserted into the DOM after the last applyState() run is covered
     // just the same.
+    //
+    // A refused click is never a silent one. `navigator.onLine === false`
+    // is only a hint — an installed app thawed by the OS reports it for a
+    // while after the network is back — so the click is cancelled, the
+    // network is asked once (a short HEAD to /api/version), and the page
+    // is opened after all if it answers; the dialog is shown only when it
+    // does not. And if the dialog could not be shown at all (no markup,
+    // no Bootstrap yet), nothing is cancelled: letting the browser fail
+    // visibly beats a tap that does nothing.
     document.addEventListener('click', function (event) {
         if (navigator.onLine) {
             return;
@@ -191,17 +205,82 @@
             return;
         }
         var path = link.getAttribute('href').split('?')[0].split('#')[0];
-        if (!isWhitelisted(path)) {
-            event.preventDefault();
-            showDialog(PAGE_MESSAGE);
+        if (isWhitelisted(path) || !canShowDialog()) {
+            return;
         }
+        var href = sameOriginUrl(link.getAttribute('href'));
+        if (href === null) {
+            // "/" is also how a protocol-relative "//elsewhere/…" starts;
+            // that one is the browser's to refuse or follow, never a URL
+            // this script hands to location.assign() itself.
+            return;
+        }
+        event.preventDefault();
+        probeConnectivity().then(function (reachable) {
+            if (reachable) {
+                window.location.assign(href);
+            } else {
+                showDialog(PAGE_MESSAGE);
+            }
+        });
     }, true);
+
+    /**
+     * The one URL this script ever navigates to on its own, validated at
+     * the sink: resolved against the page, and accepted only when it stays
+     * on this origin over http(s). A relative path always does; anything
+     * else (another host, another scheme) is not this script's to open.
+     *
+     * @param {string|null} attribute the link's href attribute as written
+     * @returns {string|null} the resolved URL, or null when it may not be used
+     */
+    function sameOriginUrl(attribute) {
+        if (!attribute) {
+            return null;
+        }
+        try {
+            var resolved = new URL(attribute, window.location.href);
+            if ((resolved.protocol !== 'http:' && resolved.protocol !== 'https:') || resolved.origin !== window.location.origin) {
+                return null;
+            }
+            return resolved.href;
+        } catch {
+            // URL() throws on an attribute that is not a URL at all, and
+            // that is not a link this can follow.
+            return null;
+        }
+    }
+
+    /**
+     * Is the server actually reachable right now? One HEAD, never cached,
+     * bounded by PROBE_TIMEOUT_MS; any answer at all — even an error
+     * status — means the network is there. Uses the original fetch, not
+     * the wrapper below (a HEAD is not a GET, and the wrapper would refuse
+     * it while offline).
+     * @returns {Promise<boolean>}
+     */
+    function probeConnectivity() {
+        if (typeof originalFetch !== 'function') {
+            return Promise.resolve(false);
+        }
+        var controller = typeof AbortController === 'function' ? new AbortController() : null;
+        var timer = controller ? setTimeout(function () { controller.abort(); }, PROBE_TIMEOUT_MS) : null;
+        return originalFetch.call(window, PROBE_URL, { method: 'HEAD', cache: 'no-store', signal: controller ? controller.signal : undefined })
+            .then(function () { return true; })
+            .catch(function () { return false; })
+            .then(function (reachable) {
+                if (timer !== null) {
+                    clearTimeout(timer);
+                }
+                return reachable;
+            });
+    }
 
     // Layer 1b: forms. No whitelist check — a form submission always
     // needs the network (there is no "safe, cacheable" form action),
     // so every one is blocked while offline, unconditionally.
     document.addEventListener('submit', function (event) {
-        if (navigator.onLine) {
+        if (navigator.onLine || !canShowDialog()) {
             return;
         }
         event.preventDefault();
@@ -213,7 +292,7 @@
     if (typeof originalFetch === 'function') {
         window.fetch = function (input, init) {
             var method = 'GET';
-            if (init && init.method) {
+            if (init?.method) {
                 method = init.method;
             } else if (input && typeof input === 'object' && /** @type {Request} */ (input).method) {
                 method = /** @type {Request} */ (input).method;

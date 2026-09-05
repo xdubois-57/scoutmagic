@@ -43,7 +43,10 @@ class LinkFetchThrottleService
         // Piggybacked on the one write this table gets, same as gallery's
         // gallery_link_preview_cache (see that table's own comment for
         // why a dedicated scheduled task is not worth it here either).
-        $this->repository->purgeOlderThan((new \DateTimeImmutable('-' . self::RETENTION_MINUTES . ' minutes'))->format('Y-m-d H:i:s'));
+        $this->repository->purgeOlderThan(
+            (new \DateTimeImmutable('-' . self::RETENTION_MINUTES . ' minutes'))
+                ->format('Y-m-d H:i:s')
+        );
 
         $withinLimit = $this->repository->countSince($memberId, $since) < self::LIMIT;
         $this->repository->record($memberId);

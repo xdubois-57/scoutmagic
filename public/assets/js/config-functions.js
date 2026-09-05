@@ -56,7 +56,7 @@
      * @param {{ok: boolean, status: number, data: any}} res
      */
     function toastError(res) {
-        var message = (res.data && res.data.error) || 'Erreur : réponse serveur invalide.';
+        var message = res.data?.error || 'Erreur : réponse serveur invalide.';
         window.ScoutMagicToast.show(message, { variant: 'error' });
     }
 
@@ -75,7 +75,7 @@
         return api.withDisabled(/** @type {HTMLInputElement} */ (/** @type {unknown} */ (control)), function () {
             return api.postJson(url, body);
         }).then(function (res) {
-            if (res.data && res.data.success) {
+            if (res.data?.success) {
                 return res.data;
             }
             toastError(res);

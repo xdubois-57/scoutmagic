@@ -210,7 +210,11 @@ class ExistingStayMatcherTest extends TestCase
     {
         $root = dirname(__DIR__, 4);
         $page = (string) file_get_contents($root . '/core/View/rgpd_default.html');
-        $prompt = (string) file_get_contents($root . '/core/View/RgpdContentService.php');
+        $prompt = (string) preg_replace(
+            '/\s+/u',
+            ' ',
+            (string) file_get_contents($root . '/core/View/RgpdContentService.php')
+        );
 
         foreach (['page' => $page, 'prompt' => $prompt] as $where => $text) {
             $this->assertStringContainsString(

@@ -95,6 +95,11 @@ class OfflineManifestService
                 continue;
             }
 
+            if (!OfflineWhitelist::isPrefetched($entry)) {
+                // Whitelisted (a visit caches it), never pre-downloaded.
+                continue;
+            }
+
             $pages[] = $entry['path'];
 
             match ($entry['path']) {
@@ -136,7 +141,9 @@ class OfflineManifestService
 
         $staffDirectoryProvider = $this->hooks?->getOptional(StaffDirectoryProvider::class);
         if ($hasTrombinoscope && $staffDirectoryProvider !== null) {
-            foreach ($staffDirectoryProvider->getAllEligibleStaffMemberIds($scoutYearId) as $memberId) {
+            $staffMemberIds = $staffDirectoryProvider->getAllEligibleStaffMemberIds($scoutYearId);
+            $this->memberPhotoService->primeFileIds($staffMemberIds, $scoutYearId);
+            foreach ($staffMemberIds as $memberId) {
                 $this->addImage($images, $this->memberPhotoService->resolveFileId($memberId, $scoutYearId), 'thumb');
             }
         }

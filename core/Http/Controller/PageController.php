@@ -135,11 +135,22 @@ class PageController extends AbstractController
         $groups = $this->sectionRepository->findAllGroupedByBranch();
         $scoutYearId = $this->scoutYearService->getCurrentYear()['id'];
 
-        // Resolved once for the whole page, not once per section.
+        // Resolved once for the whole page, in one pass for every section:
+        // the per-section version hydrated the whole staff of each section
+        // (151 statements for twelve sections) to show one name apiece.
         $responsableProvider = $this->hooks?->getOptional(SectionResponsableProvider::class);
+        $sectionIds = [];
+        foreach ($groups as $group) {
+            foreach ($group['sections'] as $section) {
+                $sectionIds[] = (int) $section['id'];
+            }
+        }
+        $responsables = $responsableProvider !== null && $sectionIds !== []
+            ? $responsableProvider->getResponsables($sectionIds, $scoutYearId)
+            : [];
         foreach ($groups as &$group) {
             foreach ($group['sections'] as &$section) {
-                $section['responsable'] = $responsableProvider?->getResponsable($section['id'], $scoutYearId);
+                $section['responsable'] = $responsables[(int) $section['id']] ?? null;
             }
             unset($section);
         }

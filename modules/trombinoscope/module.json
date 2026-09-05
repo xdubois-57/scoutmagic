@@ -45,7 +45,8 @@
       "path": "/trombinoscope",
       "label": "Trombinoscope",
       "match": "exact",
-      "role_min": "identified"
+      "role_min": "identified",
+      "prefetch": false
     }
   ]
 }

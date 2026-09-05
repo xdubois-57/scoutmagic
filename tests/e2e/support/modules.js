@@ -13,6 +13,7 @@
 // steps it owns disappear, and specs/optional-module-dependencies.spec.js
 // takes one away to watch another module degrade around its absence.
 import { expect } from '@playwright/test';
+import { waitForServerResponse } from './response.js';
 
 /**
  * The switch for one module, addressed the way the page labels it for
@@ -35,7 +36,7 @@ export async function toggleModule(page, moduleName, enabled) {
 
     const toggle = moduleToggle(page, moduleName);
     await Promise.all([
-        page.waitForResponse((response) => response.url().includes('/config/modules/toggle')),
+        waitForServerResponse(page, (response) => response.url().includes('/config/modules/toggle')),
         enabled ? toggle.check() : toggle.uncheck(),
     ]);
     await page.waitForLoadState('domcontentloaded');

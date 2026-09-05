@@ -19,7 +19,7 @@ class SchedulerService
      * differently: rearm() asks « is one QUEUED », seed() asks « is this
      * chain alive at all ».
      *
-     * @var array<string, array<string, true>>|null key => set of statuses
+     * @var array<string, array<string, int>>|null key => rows per live status
      */
     private ?array $liveKeys = null;
 
@@ -90,7 +90,7 @@ class SchedulerService
             // in a migration is what heals an installation that already
             // accumulated them — see SchedulerRepository::
             // collapsePending() and seed() below for how they got there.
-            $this->collapse($moduleId, $taskKey, $reference);
+            $this->collapseIfDuplicated($moduleId, $taskKey, $reference);
 
             return false;
         }
@@ -186,7 +186,7 @@ class SchedulerService
         array $payload = []
     ): bool {
         if ($this->hasLiveChain($moduleId, $taskKey, $reference)) {
-            $this->collapse($moduleId, $taskKey, $reference);
+            $this->collapseIfDuplicated($moduleId, $taskKey, $reference);
 
             return false;
         }
@@ -228,6 +228,25 @@ class SchedulerService
     }
 
     /**
+     * collapse(), unless the snapshot already proves there is nothing to
+     * collapse. Without the cache the answer is not known, so the repository
+     * is asked as before (one SELECT, the cron path). With it, the snapshot
+     * counts the pending rows per triple, and a chain with exactly one is
+     * left alone: this guard runs from public/index.php for every recurring
+     * task on every page load, and used to cost one SELECT per task — 25 of
+     * the ~60 statements a page paid before its controller ran — to find,
+     * every time, that there was nothing to delete.
+     */
+    private function collapseIfDuplicated(string $moduleId, string $taskKey, string $reference): void
+    {
+        if ($this->cachePendingRearms && ($this->statusesOf($moduleId, $taskKey, $reference)['pending'] ?? 0) < 2) {
+            return;
+        }
+
+        $this->collapse($moduleId, $taskKey, $reference);
+    }
+
+    /**
      * Back to one queued row, keeping the one that runs first.
      *
      * Cheap in the ordinary case — the guard above already established
@@ -265,7 +284,8 @@ class SchedulerService
         );
 
         if ($this->liveKeys !== null) {
-            $this->liveKeys[$this->liveKey($moduleId, $taskKey, $reference)]['pending'] = true;
+            $key = $this->liveKey($moduleId, $taskKey, $reference);
+            $this->liveKeys[$key]['pending'] = ($this->liveKeys[$key]['pending'] ?? 0) + 1;
         }
 
         return $id;
@@ -379,7 +399,7 @@ class SchedulerService
             return $this->find($moduleId, $taskKey, $reference) !== null;
         }
 
-        return isset($this->statusesOf($moduleId, $taskKey, $reference)['pending']);
+        return ($this->statusesOf($moduleId, $taskKey, $reference)['pending'] ?? 0) > 0;
     }
 
     private function hasLiveChain(string $moduleId, string $taskKey, string $reference): bool
@@ -392,7 +412,7 @@ class SchedulerService
     }
 
     /**
-     * @return array<string, true> the statuses this triple is live in
+     * @return array<string, int> how many rows this triple has per live status
      */
     private function statusesOf(string $moduleId, string $taskKey, string $reference): array
     {
@@ -404,7 +424,8 @@ class SchedulerService
                     (string) $row['task_key'],
                     $row['reference'] !== null ? (string) $row['reference'] : null
                 );
-                $this->liveKeys[$key][(string) $row['status']] = true;
+                $status = (string) $row['status'];
+                $this->liveKeys[$key][$status] = ($this->liveKeys[$key][$status] ?? 0) + 1;
             }
         }
 

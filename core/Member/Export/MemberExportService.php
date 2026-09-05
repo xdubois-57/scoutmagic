@@ -44,6 +44,9 @@ final class MemberExportService
         $spreadsheet = $this->buildSpreadsheet($rows, $viewerRole, $sheetTitle);
 
         $writer = new Xlsx($spreadsheet);
+        // Every cell is written explicitly typed: there is no formula to
+        // evaluate, and the evaluation pass is not free.
+        $writer->setPreCalculateFormulas(false);
         ob_start();
         $writer->save('php://output');
         $output = (string) ob_get_clean();
@@ -73,6 +76,19 @@ final class MemberExportService
             foreach ($fields as $index => $field) {
                 $column = $index + 1;
                 $this->writeCell($sheet, $column, $excelRow, $field, $row);
+            }
+        }
+
+        // One number format per DATE COLUMN, applied to the whole range at
+        // once. It used to be set cell by cell, and PhpSpreadsheet creates
+        // and registers a style object each time: for a large unit that
+        // was most of the 2.8 s the export took.
+        $lastDataRow = count($rows) + 1;
+        foreach ($fields as $index => $field) {
+            if ($field->type === MemberExportField::TYPE_DATE && $lastDataRow >= 2) {
+                $columnLetter = Coordinate::stringFromColumnIndex($index + 1);
+                $sheet->getStyle($columnLetter . '2:' . $columnLetter . $lastDataRow)
+                    ->getNumberFormat()->setFormatCode('dd/mm/yyyy');
             }
         }
 
@@ -139,8 +155,6 @@ final class MemberExportService
                     return;
                 }
                 $sheet->setCellValueExplicit([$column, $row], ExcelDate::PHPToExcel($date), DataType::TYPE_NUMERIC);
-                $coordinate = Coordinate::stringFromColumnIndex($column) . $row;
-                $sheet->getStyle($coordinate)->getNumberFormat()->setFormatCode('dd/mm/yyyy');
                 return;
 
             case MemberExportField::TYPE_TEXT:

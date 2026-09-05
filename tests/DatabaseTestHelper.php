@@ -51,9 +51,13 @@ class DatabaseTestHelper
     /**
      * Create an in-memory SQLite database with all core tables.
      */
-    public static function createTestDatabase(): \PDO
+    /**
+     * @param \PDO|null $pdo an already-opened SQLite connection to build the schema on —
+     *                       a Core\Database\InstrumentedPdo when a test counts statements
+     */
+    public static function createTestDatabase(?\PDO $pdo = null): \PDO
     {
-        $pdo = new \PDO('sqlite::memory:');
+        $pdo ??= new \PDO('sqlite::memory:');
         $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
         $pdo->setAttribute(\PDO::ATTR_DEFAULT_FETCH_MODE, \PDO::FETCH_ASSOC);
 

@@ -59,6 +59,26 @@ class StaffPhotoEmbedder
     }
 
     /**
+     * Resolve every portrait's file id in one query before dataUriFor() is
+     * asked member by member.
+     *
+     * @param array<int, int> $memberIds
+     */
+    public function prime(array $memberIds, int $scoutYearId): void
+    {
+        $this->memberPhotoService->primeFileIds($memberIds, $scoutYearId);
+    }
+
+    /**
+     * The file id behind a member's portrait, or null — what the PDF's
+     * cache signature is built from, without decoding a single image.
+     */
+    public function fileIdFor(int $memberId, int $scoutYearId): ?int
+    {
+        return $this->memberPhotoService->resolveFileId($memberId, $scoutYearId);
+    }
+
+    /**
      * @return ?string `data:image/jpeg;base64,…`, or null when this member
      *         has no usable photo for that scout year.
      */

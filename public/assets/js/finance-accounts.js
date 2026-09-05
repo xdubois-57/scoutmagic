@@ -151,7 +151,7 @@
         );
         await api.withDisabled(submitBtn, async () => {
             var res = await api.postJson('/config/finance/accounts', payload);
-            if (res.data && res.data.success) {
+            if (res.data?.success) {
                 window.location.reload();
             } else {
                 errorBox.textContent = errorMessage(res);
@@ -167,7 +167,7 @@
      */
     async function postAccountAction(action, id) {
         var res = await api.postJson('/config/finance/accounts', { action: action, id: id });
-        if (res.data && res.data.success) {
+        if (res.data?.success) {
             window.location.reload();
         } else {
             window.ScoutMagicToast.show(errorMessage(res), { variant: 'error' });

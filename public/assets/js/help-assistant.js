@@ -39,7 +39,9 @@
             window.sessionStorage.removeItem(PENDING_QUESTION_KEY);
 
             return typeof pending === 'string' ? pending : '';
-        } catch (e) {
+        } catch {
+            // sessionStorage disabled or partitioned away — no pending
+            // question, which is the same as never having stored one.
             return '';
         }
     }
@@ -280,7 +282,7 @@
             // help-search.js re-enabling its button.
             scope.dispatchEvent(new CustomEvent('scoutmagic:help-assistant-idle', { bubbles: true }));
 
-            if (!res.ok || !res.data || res.data.success !== true) {
+            if (!res.ok || res.data?.success !== true) {
                 // The server's own sentence when it wrote one — every
                 // refusal this endpoint produces is French and meant for
                 // the reader (quota, connector absent, provider failure).

@@ -41,7 +41,10 @@ class Connection
         if ($this->pdo === null) {
             $dsn = sprintf('mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4', $this->host, $this->port, $this->dbName);
 
-            $this->pdo = new \PDO($dsn, $this->user, $this->password, [
+            // InstrumentedPdo: the same \PDO, plus a tally of every statement
+            // executed and the time it took (Core\Database\QueryCounter), which
+            // a ?debug=1 timeline stamps on each of its checkpoints.
+            $this->pdo = new InstrumentedPdo($dsn, $this->user, $this->password, [
                 \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
                 \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
                 \PDO::ATTR_EMULATE_PREPARES => false,

@@ -52,7 +52,7 @@
      * @returns {string}
      */
     function generateErrorHtml(res) {
-        var message = res.data && res.data.error
+        var message = res.data?.error
             ? escapeHtml(res.data.error)
             : 'Erreur : réponse serveur invalide.';
         return '<span class="text-danger"><i class="bi bi-exclamation-circle"></i> ' + message + '</span>';
@@ -87,7 +87,7 @@
     function saveMode(mode, content, prompt, callback) {
         api.postJson('/config/rgpd/save', { mode: mode, content: content, prompt: prompt })
             .then(function (res) {
-                if (callback) callback(!!(res.data && res.data.success), res.data);
+                if (callback) callback(!!(res.data?.success), res.data);
             });
     }
 
@@ -110,7 +110,7 @@
         return api.getJson('/config/rgpd/generate/status').then(function (res) {
             var data = res.data;
 
-            if (!data || data.success !== true) {
+            if (data?.success !== true) {
                 stopGenerationTimer();
                 generateStatus.innerHTML = generateErrorHtml(res);
                 generateBtn.disabled = false;
@@ -159,7 +159,7 @@
 
         return api.postJson('/config/rgpd/generate', { prompt: prompt })
             .then(function (res) {
-                if (!res.data || res.data.success !== true) {
+                if (res.data?.success !== true) {
                     stopGenerationTimer();
                     generateStatus.innerHTML = generateErrorHtml(res);
                     generateBtn.disabled = false;
@@ -193,7 +193,7 @@
             if (mode === 'default') {
                 // Reset to default content, then persist mode + content
                 api.postJson('/config/rgpd/reset', {}).then(function (res) {
-                    if (res.data && res.data.success) {
+                    if (res.data?.success) {
                         preview.innerHTML = res.data.content;
                         saveMode('default', res.data.content, '', function () {
                             // Silent save
@@ -203,7 +203,7 @@
             } else if (mode === 'ai') {
                 // Reset to default first, then auto-generate if prompt exists
                 api.postJson('/config/rgpd/reset', {}).then(function (res) {
-                    if (res.data && res.data.success) {
+                    if (res.data?.success) {
                         preview.innerHTML = res.data.content;
 
                         // Auto-generate if prompt exists
@@ -277,7 +277,7 @@
     var modalFooter = document.querySelector('#richTextEditorModal .modal-footer');
     if (modalFooter) {
         var defaultSaveBtn = document.getElementById('richTextEditorSave');
-        if (defaultSaveBtn && defaultSaveBtn.parentNode) {
+        if (defaultSaveBtn?.parentNode) {
             defaultSaveBtn.parentNode.insertBefore(customSaveBtn, defaultSaveBtn);
         }
     }
@@ -298,7 +298,7 @@
         if (!confirmed) return;
 
         api.postJson('/config/rgpd/reset', {}).then(function (res) {
-            if (res.data && res.data.success) {
+            if (res.data?.success) {
                 preview.innerHTML = res.data.content;
                 saveMode(getMode(), res.data.content, aiPromptTextarea.value, function () {
                     // Silent save

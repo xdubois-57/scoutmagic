@@ -63,7 +63,7 @@
     function updateFriendWishes(branchLabel) {
         if (!friendWishesZone) return;
 
-        var offers = branchLabel !== null && friendWishBranchLabels.indexOf(branchLabel) !== -1;
+        var offers = branchLabel !== null && friendWishBranchLabels.includes(branchLabel);
         friendWishesZone.classList.toggle('d-none', !offers);
     }
 

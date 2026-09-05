@@ -32,8 +32,16 @@ write_default_fake_curl() {
     local quality_gate_status="$2"
     local security_issues_total="$3"
     local hotspots_total="$4"
-    local high_total="$5"
-    local higher_total="$6"
+    # $5/$6 used to be the HIGH and BLOCKER counts, back when the gate had
+    # a severity floor. It has none any more (see AGENTS.md § The rule, in
+    # one sentence), so they are now the total and the body of the single
+    # paged "every unresolved issue" query. Existing call sites pass 0 0,
+    # which still means "nothing to report".
+    local all_issues_total="$5"
+    local all_issues_json="${6:-[]}"
+    if [[ "${all_issues_json}" == "0" ]]; then
+        all_issues_json="[]"
+    fi
     # Optional: a raw JSON array of {"status":..., "metricKey":...} objects,
     # as SonarQube Cloud's project_status response carries per-condition
     # detail — drives the coverage-only carve-out tests below. Defaults to
@@ -68,11 +76,13 @@ case "\$url" in
     */issues/search*impactSoftwareQualities=SECURITY*)
         printf '{"paging":{"total":${security_issues_total}},"issues":[]}' > "\${out_file}"
         ;;
-    */issues/search*impactSeverities=HIGH*)
-        printf '{"paging":{"total":${high_total}},"issues":[]}' > "\${out_file}"
-        ;;
-    */issues/search*impactSeverities=BLOCKER*)
-        printf '{"paging":{"total":${higher_total}},"issues":[]}' > "\${out_file}"
+    */issues/search*)
+        # The gate's own paging query: every unresolved issue, filtered
+        # in the script by the exemption rule. \${all_issues_json} is a
+        # raw JSON array of issue objects, so a test can hand the gate
+        # findings with real tags and impacts and see which ones it
+        # decides are blocking.
+        printf '{"paging":{"total":${all_issues_total}},"issues":${all_issues_json}}' > "\${out_file}"
         ;;
     *)
         printf '{}' > "\${out_file}"
@@ -131,13 +141,67 @@ echo "2b. Unreviewed security hotspot -> BLOCK"
 write_default_fake_curl "${HEAD_SHA}" "OK" 0 1 0 0
 run_case "unreviewed hotspot" 1
 
-echo "3. HIGH finding active -> BLOCK"
-write_default_fake_curl "${HEAD_SHA}" "OK" 0 0 1 0
-run_case "active HIGH finding" 1
+# ---------------------------------------------------------------
+# The exemption rule, which is the whole point of this gate.
+#
+# AGENTS.md § The rule, in one sentence: 100% of findings must be fixed,
+# EXCEPT those that are MAINTAINABILITY *and* LOW *and* tagged
+# `convention` — all three at once. Each case below removes exactly one
+# of the three conditions and asserts the finding blocks, because "two
+# out of three" is the mistake this rule invites.
+# ---------------------------------------------------------------
+issue_json() {
+    local tags="$1"
+    local impacts="$2"
+    printf '[{"key":"AY-1","rule":"php:S103","tags":%s,"impacts":%s}]' "${tags}" "${impacts}"
+}
+MAINT_LOW='[{"softwareQuality":"MAINTAINABILITY","severity":"LOW"}]'
+CONVENTION='["convention"]'
 
-echo "4. Finding above HIGH (BLOCKER) active -> BLOCK"
-write_default_fake_curl "${HEAD_SHA}" "OK" 0 0 0 1
-run_case "active BLOCKER finding" 1
+echo "3. The exempt finding: MAINTAINABILITY + LOW + convention -> PASS"
+write_default_fake_curl "${HEAD_SHA}" "OK" 0 0 1 "$(issue_json "${CONVENTION}" "${MAINT_LOW}")"
+run_case "maintainability/low/convention is exempt" 0
+
+echo "3a. Same finding without the convention tag -> BLOCK"
+write_default_fake_curl "${HEAD_SHA}" "OK" 0 0 1 "$(issue_json '["design"]' "${MAINT_LOW}")"
+run_case "maintainability/low, no convention tag" 1
+
+echo "3b. Same finding with no tags at all -> BLOCK"
+write_default_fake_curl "${HEAD_SHA}" "OK" 0 0 1 "$(issue_json '[]' "${MAINT_LOW}")"
+run_case "maintainability/low, untagged" 1
+
+echo "3c. convention + MAINTAINABILITY but MEDIUM -> BLOCK"
+write_default_fake_curl "${HEAD_SHA}" "OK" 0 0 1 \
+    "$(issue_json "${CONVENTION}" '[{"softwareQuality":"MAINTAINABILITY","severity":"MEDIUM"}]')"
+run_case "convention nit at MEDIUM" 1
+
+echo "3d. convention + LOW but RELIABILITY -> BLOCK"
+write_default_fake_curl "${HEAD_SHA}" "OK" 0 0 1 \
+    "$(issue_json "${CONVENTION}" '[{"softwareQuality":"RELIABILITY","severity":"LOW"}]')"
+run_case "convention nit impacting reliability" 1
+
+echo "3e. MIXED impacts: maintainability/LOW *and* reliability/MEDIUM -> BLOCK"
+# The case a count subtraction would get wrong. This finding satisfies the
+# exemption on one of its impacts and not on the other; one impact outside
+# the exemption is enough to block.
+write_default_fake_curl "${HEAD_SHA}" "OK" 0 0 1 \
+    "$(issue_json "${CONVENTION}" '[{"softwareQuality":"MAINTAINABILITY","severity":"LOW"},{"softwareQuality":"RELIABILITY","severity":"MEDIUM"}]')"
+run_case "mixed impacts, one outside the exemption" 1
+
+echo "3f. convention-tagged finding carrying NO impacts -> BLOCK"
+# Absence of evidence is not an exemption.
+write_default_fake_curl "${HEAD_SHA}" "OK" 0 0 1 "$(issue_json "${CONVENTION}" '[]')"
+run_case "convention nit with no impacts declared" 1
+
+echo "3g. An exempt finding alongside a blocking one -> BLOCK"
+write_default_fake_curl "${HEAD_SHA}" "OK" 0 0 2 \
+    '[{"key":"AY-1","tags":["convention"],"impacts":'"${MAINT_LOW}"'},{"key":"AY-2","tags":["convention"],"impacts":[{"softwareQuality":"MAINTAINABILITY","severity":"HIGH"}]}]'
+run_case "the exempt one does not hide the other" 1
+
+echo "3h. Two exempt findings and nothing else -> PASS"
+write_default_fake_curl "${HEAD_SHA}" "OK" 0 0 2 \
+    '[{"key":"AY-1","tags":["convention"],"impacts":'"${MAINT_LOW}"'},{"key":"AY-2","tags":["convention","brain-overload"],"impacts":'"${MAINT_LOW}"'}]'
+run_case "several exempt findings still pass" 0
 
 echo "5. Only non-blocking findings (Quality Gate OK, no security/HIGH/BLOCKER) -> PASS"
 write_default_fake_curl "${HEAD_SHA}" "OK" 0 0 0 0

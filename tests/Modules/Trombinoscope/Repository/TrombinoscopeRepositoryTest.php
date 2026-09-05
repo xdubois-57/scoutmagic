@@ -170,4 +170,39 @@ class TrombinoscopeRepositoryTest extends TestCase
 
         $this->assertSame([$memberId], $ids);
     }
+
+    public function testGetEligibleStaffForSectionsAnswersEverySectionInOneCall(): void
+    {
+        $stmt = $this->pdo->prepare('INSERT INTO sections (desk_code, age_branch_id) VALUES (?, ?)');
+        $stmt->execute(['ECL02', (int) $this->pdo->query('SELECT age_branch_id FROM sections WHERE id = ' . $this->sectionId)->fetchColumn()]);
+        $otherSectionId = (int) $this->pdo->lastInsertId();
+        $stmt->execute(['ECL03', (int) $this->pdo->query('SELECT age_branch_id FROM sections WHERE id = ' . $this->sectionId)->fetchColumn()]);
+        $emptySectionId = (int) $this->pdo->lastInsertId();
+
+        $leadFn = $this->createFunction('RESP', 'admin');
+        $this->pdo->prepare('INSERT INTO trombinoscope_function_flags (function_id, is_lead) VALUES (?, 1)')->execute([$leadFn]);
+        $chiefFn = $this->createFunction('CHEF', 'chief');
+        $animeFn = $this->createFunction('ANIME', 'identified');
+
+        $lead = $this->createStaffMember('D1', $leadFn, $this->sectionId);
+        $chief = $this->createStaffMember('D2', $chiefFn, $this->sectionId);
+        $other = $this->createStaffMember('D3', $chiefFn, $otherSectionId);
+        $this->createStaffMember('D4', $animeFn, $otherSectionId);
+        $this->createStaffMember('D5', $chiefFn, $otherSectionId, active: false);
+
+        $result = $this->repository->getEligibleStaffForSections([$this->sectionId, $otherSectionId, $emptySectionId], $this->scoutYearId);
+
+        $this->assertSame([$this->sectionId, $otherSectionId, $emptySectionId], array_keys($result));
+        $this->assertSame([
+            ['member_year_id' => $lead, 'is_lead' => true],
+            ['member_year_id' => $chief, 'is_lead' => false],
+        ], $result[$this->sectionId]);
+        $this->assertSame([['member_year_id' => $other, 'is_lead' => false]], $result[$otherSectionId]);
+        $this->assertSame([], $result[$emptySectionId]);
+        $this->assertSame(
+            $this->repository->getEligibleStaffForSection($this->sectionId, $this->scoutYearId),
+            $result[$this->sectionId],
+            'the batch answers exactly what the per-section query answers'
+        );
+    }
 }

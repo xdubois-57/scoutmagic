@@ -106,4 +106,70 @@ final class HelpSearchIndexTest extends TestCase
 
         $this->assertStringNotContainsString('ne doit pas voyager', $encoded);
     }
+
+    public function testMemoizesThePerRoleEntriesUnderTheGivenKey(): void
+    {
+        $dir = $this->makeTopicDir();
+        $this->writeTopic($dir, 'journal', [
+            'title' => 'Consulter le journal',
+            'summary' => 'Qui a fait quoi.',
+            'category' => "Espace chefs d'U",
+            'role_min' => 'admin',
+            'paths' => '/admin/journal',
+            'question' => ['Comment savoir qui a changé une section ?'],
+        ]);
+        $cacheDir = sys_get_temp_dir() . '/scoutmagic-search-index-' . bin2hex(random_bytes(4));
+        $router = new Router();
+        $router->addRoute('GET', '/admin/journal', HelpController::class, 'index', 'admin', ['label' => 'Journal', 'parents' => []]);
+        $build = fn(string $key): HelpSearchIndex => new HelpSearchIndex(
+            new HelpService(new HelpRegistry($dir)),
+            new HelpPageLinkResolver($router),
+            $cacheDir,
+            $key
+        );
+
+        try {
+            $first = $build('1.0.0|news')->forRole(Role::ADMIN);
+            $this->assertCount(1, $first);
+            $this->assertFileExists($cacheDir . '/search_index_admin.cache');
+
+            // The corpus changes underneath; the same key still answers from the cache…
+            $this->writeTopic($dir, 'second', [
+                'title' => 'Second sujet',
+                'summary' => 'Une phrase.',
+                'category' => "Espace chefs d'U",
+                'role_min' => 'admin',
+                'paths' => '/admin/journal',
+                'question' => ['Une question ?'],
+            ]);
+            $this->assertSame($first, $build('1.0.0|news')->forRole(Role::ADMIN));
+            // …and a new key (a release, another module set) rebuilds.
+            $this->assertCount(2, $build('1.0.1|news')->forRole(Role::ADMIN));
+            // Each role has its own file: a public visitor never gets the admin's list.
+            $this->assertSame([], $build('1.0.1|news')->forRole(Role::PUBLIC));
+        } finally {
+            foreach (glob($cacheDir . '/*') ?: [] as $file) {
+                @unlink($file);
+            }
+            @rmdir($cacheDir);
+        }
+    }
+
+    public function testWithoutACacheDirectoryEveryCallRebuilds(): void
+    {
+        $dir = $this->makeTopicDir();
+        $index = $this->index($dir);
+        $this->assertSame([], $index->forRole(Role::ADMIN));
+
+        $this->writeTopic($dir, 'journal', [
+            'title' => 'Consulter le journal',
+            'summary' => 'Qui a fait quoi.',
+            'category' => "Espace chefs d'U",
+            'role_min' => 'admin',
+            'paths' => '/admin/journal',
+            'question' => ['Comment ?'],
+        ]);
+
+        $this->assertCount(1, $this->index($dir)->forRole(Role::ADMIN));
+    }
 }

@@ -39,6 +39,7 @@ import { expect, test } from '@playwright/test';
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { autoConfirm } from '../support/confirm-dialog.js';
 import { loginAsAdmin } from '../support/admin-login.js';
+import { waitForServerResponse } from '../support/response.js';
 
 const BANNER_TEXT = `Grand nettoyage du local samedi ${Date.now()}`;
 
@@ -105,7 +106,7 @@ test('a banner is created via the modal (or rolled back on dismiss), and its rol
     // The compensating delete's body is never read by the page (its fetch
     // is deliberately fire-and-forget), so this waits on the response
     // status only; the reload below asserts the actual effect.
-    const rollback = page.waitForResponse((response) => response.url().includes('/config/banner/delete'));
+    const rollback = waitForServerResponse(page, (response) => response.url().includes('/config/banner/delete'));
     // The dialog's only dismissal is its header ✕ (Bootstrap's .btn-close,
     // which the shared partial gives no accessible name).
     await modal.locator('.btn-close').click();
@@ -137,7 +138,7 @@ test('a banner is created via the modal (or rolled back on dismiss), and its rol
     // nothing.
     await page.goto('/config/banner', { waitUntil: 'load' });
     const bannerRow = page.locator('#banner-list [data-id]', { hasText: BANNER_TEXT });
-    const roleSave = page.waitForResponse((response) => response.url().includes('/config/banner/role-min'));
+    const roleSave = waitForServerResponse(page, (response) => response.url().includes('/config/banner/role-min'));
     await bannerRow.getByLabel('Visibilité minimale').selectOption('chief');
     expect((await roleSave).ok()).toBe(true);
 
@@ -156,7 +157,7 @@ test('a banner is created via the modal (or rolled back on dismiss), and its rol
 
         // Opened to the public, the same visitor now gets it.
         await page.goto('/config/banner', { waitUntil: 'load' });
-        const publicSave = page.waitForResponse((response) => response.url().includes('/config/banner/role-min'));
+        const publicSave = waitForServerResponse(page, (response) => response.url().includes('/config/banner/role-min'));
         await page.locator('#banner-list [data-id]', { hasText: BANNER_TEXT })
             .getByLabel('Visibilité minimale').selectOption('public');
         expect((await publicSave).ok()).toBe(true);

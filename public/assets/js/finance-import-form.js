@@ -33,7 +33,7 @@
 
     function updateBalanceRequirement() {
         var option = accountSelect.options[accountSelect.selectedIndex];
-        var isFirstImport = !!option && option.dataset.firstImport === '1';
+        var isFirstImport = option?.dataset.firstImport === '1';
 
         balanceInput.required = isFirstImport;
         balanceHint.textContent = isFirstImport ? REQUIRED_HINT : OPTIONAL_HINT;

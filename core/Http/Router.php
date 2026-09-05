@@ -51,7 +51,15 @@ class Router
      *   this is the one call every route in the application goes through — see
      *   getModuleForPath() for what happened when it was not.
      */
-    public function addRoute(string $method, string $path, string $controllerClass, string $action, string $roleMin, ?array $breadcrumb = null, ?string $moduleId = null): void
+    public function addRoute(
+        string $method,
+        string $path,
+        string $controllerClass,
+        string $action,
+        string $roleMin,
+        ?array $breadcrumb = null,
+        ?string $moduleId = null,
+    ): void
     {
         // Required, not defaulted. SECURITY.md §3 promises "a route without
         // role_min is rejected at load time", and ModuleManifest enforces

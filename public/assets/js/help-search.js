@@ -53,7 +53,7 @@
     // (folded to « ou »), « quand » and « pourquoi » are in it because a
     // `question:` line opens with one of them; « tou » is there because
     // de-suffixing turns « tous » into it.
-    var STOP_WORDS = [
+    var STOP_WORDS = new Set([
         'a', 'au', 'aux', 'avec', 'ce', 'ces', 'cet', 'cette', 'comment', 'dans',
         'de', 'des', 'du', 'elle', 'en', 'est', 'et', 'eux', 'il', 'ils', 'je',
         'la', 'le', 'les', 'leur', 'lui', 'ma', 'mais', 'mes', 'mon', 'ne', 'nos',
@@ -61,7 +61,7 @@
         'pourquoi', 'qu', 'quand', 'que', 'qui', 'quoi', 'sa', 'se', 'ses', 'son',
         'sont', 'sur', 'ta', 'te', 'tes', 'toi', 'ton', 'tou', 'tous', 'tout',
         'toute', 'toutes', 'tu', 'un', 'une', 'vos', 'votre', 'vous', 'y'
-    ];
+    ]);
 
     /**
      * Lowercased with the diacritics stripped, so "médaille" and
@@ -111,9 +111,8 @@
     function tokenize(value) {
         var tokens = [];
         var raw = normalize(value).split(/[^a-z0-9]+/);
-        for (var i = 0; i < raw.length; i++) {
-            var token = raw[i];
-            if (token === '' || STOP_WORDS.indexOf(token) !== -1) {
+        for (const token of raw) {
+            if (token === '' || STOP_WORDS.has(token)) {
                 continue;
             }
             tokens.push(stem(token));
@@ -152,8 +151,7 @@
      */
     function scoreTermAgainstField(term, words, weight) {
         var best = 0;
-        for (var i = 0; i < words.length; i++) {
-            var word = words[i];
+        for (const word of words) {
             if (word === term) {
                 return weight;
             }
@@ -209,7 +207,7 @@
     function scoreTerm(term, prepared) {
         var best = 0;
         for (var field in FIELD_WEIGHTS) {
-            if (!Object.prototype.hasOwnProperty.call(FIELD_WEIGHTS, field)) {
+            if (!Object.hasOwn(FIELD_WEIGHTS, field)) {
                 continue;
             }
             best = Math.max(best, scoreTermAgainstField(term, prepared.fields[field], FIELD_WEIGHTS[field]));
@@ -226,8 +224,8 @@
      * @returns {boolean}
      */
     function matchesAnywhere(term, prepared) {
-        for (var i = 0; i < prepared.length; i++) {
-            if (scoreTerm(term, prepared[i]) > 0) {
+        for (const entry of prepared) {
+            if (scoreTerm(term, entry) > 0) {
                 return true;
             }
         }
@@ -254,8 +252,8 @@
         }
 
         var prepared = [];
-        for (var p = 0; p < index.length; p++) {
-            prepared.push(prepare(index[p]));
+        for (const topic of index) {
+            prepared.push(prepare(topic));
         }
 
         // A term NO topic carries is a word the corpus does not use, and
@@ -266,9 +264,9 @@
         // other topics DO carry and this one does not, and that one still
         // counts against it.
         var terms = [];
-        for (var t = 0; t < typed.length; t++) {
-            if (matchesAnywhere(typed[t], prepared)) {
-                terms.push(typed[t]);
+        for (const term of typed) {
+            if (matchesAnywhere(term, prepared)) {
+                terms.push(term);
             }
         }
         if (terms.length === 0) {
@@ -278,12 +276,12 @@
         var needed = requiredCoverage(terms.length);
         var scored = [];
 
-        for (var i = 0; i < prepared.length; i++) {
+        for (const candidate of prepared) {
             var score = 0;
             var covered = 0;
 
-            for (var k = 0; k < terms.length; k++) {
-                var best = scoreTerm(terms[k], prepared[i]);
+            for (const term of terms) {
+                var best = scoreTerm(term, candidate);
                 if (best > 0) {
                     covered++;
                     score += best;
@@ -291,7 +289,7 @@
             }
 
             if (covered >= needed) {
-                scored.push({ entry: prepared[i].entry, score: score, title: normalize(prepared[i].entry.title) });
+                scored.push({ entry: candidate.entry, score: score, title: normalize(candidate.entry.title) });
             }
         }
 

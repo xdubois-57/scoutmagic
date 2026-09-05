@@ -41,7 +41,7 @@
                 '#mmt-table tbody tr[data-status]'
             )).forEach(function (row) {
                 var matchesSearch = !search
-                    || (row.dataset.search || '').indexOf(search) !== -1;
+                    || (row.dataset.search || '').includes(search);
                 var matchesStatus = !status || row.dataset.status === status;
                 row.classList.toggle('d-none', !(matchesSearch && matchesStatus));
             });
@@ -60,7 +60,7 @@
                 return api.postJson('/mass-mail/recipients/' + btn.dataset.id + '/resend', {});
             });
 
-            if (res.data && res.data.success) {
+            if (res.data?.success) {
                 // The row's status, its timestamps and the counters at
                 // the top of the page all move — the page re-renders
                 // rather than being patched by hand.
@@ -70,7 +70,7 @@
             window.ScoutMagicToast.show(
                 res.status === 0
                     ? 'Erreur réseau.'
-                    : (res.data && res.data.error) || 'Erreur.',
+                    : res.data?.error || 'Erreur.',
                 { variant: 'error' }
             );
         });

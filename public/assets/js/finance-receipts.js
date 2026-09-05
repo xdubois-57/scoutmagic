@@ -169,7 +169,7 @@
         const res = await window.ScoutMagicApi.getJson('/finance/receipts/search?account_id='
             + encodeURIComponent(currentAccountId)
             + '&q=' + encodeURIComponent(q) + '&pending=' + pending + '&page=' + page);
-        if (res.data && res.data.success) {
+        if (res.data?.success) {
             renderReceipts(res.data);
         }
     }
@@ -255,10 +255,10 @@
                     return;
                 }
                 const res = await window.ScoutMagicApi.postJson('/finance/receipts/' + /** @type {HTMLElement} */ (btn).dataset.id, {}, { method: 'DELETE' });
-                if (res.data && res.data.success) {
+                if (res.data?.success) {
                     fetchReceipts(currentPage);
                 } else {
-                    window.ScoutMagicToast.show((res.data && res.data.error) || 'Une erreur est survenue.', { variant: 'error' });
+                    window.ScoutMagicToast.show(res.data?.error || 'Une erreur est survenue.', { variant: 'error' });
                 }
             });
         });
@@ -287,7 +287,7 @@
         const data = res.data;
         const results = document.getElementById('associate-results');
         results.innerHTML = '';
-        if (!data || !data.success || data.movements.length === 0) {
+        if (!data?.success || data.movements.length === 0) {
             results.innerHTML = '<p class="text-body-secondary fst-italic mb-0">Aucun résultat.</p>';
             return;
         }
@@ -310,8 +310,8 @@
                 { account_id: select.value }
             );
 
-            if (!res.data || !res.data.success) {
-                window.ScoutMagicToast.show((res.data && res.data.error) || 'Une erreur est survenue.', { variant: 'error' });
+            if (!res.data?.success) {
+                window.ScoutMagicToast.show(res.data?.error || 'Une erreur est survenue.', { variant: 'error' });
                 return;
             }
 
@@ -329,7 +329,7 @@
 
     async function associateWithMovement(movementId) {
         const res = await window.ScoutMagicApi.postJson('/finance/receipts/' + currentAttachmentId + '/associate', { transaction_ids: [movementId] });
-        if (res.data && res.data.success) {
+        if (res.data?.success) {
             // A plain `if`, not the side-effect ternary this used to be:
             // main fixed that as a SonarQube reliability finding (S2201),
             // and the fix applies unchanged to the shared-toolbox version
@@ -339,7 +339,7 @@
             }
             fetchReceipts(currentPage);
         } else {
-            window.ScoutMagicToast.show((res.data && res.data.error) || 'Une erreur est survenue.', { variant: 'error' });
+            window.ScoutMagicToast.show(res.data?.error || 'Une erreur est survenue.', { variant: 'error' });
         }
     }
 
@@ -351,7 +351,7 @@
         const data = res.data;
         const list = document.getElementById('movements-list');
         list.innerHTML = '';
-        if (!data || !data.success || data.movements.length === 0) {
+        if (!data?.success || data.movements.length === 0) {
             list.innerHTML = '<p class="text-body-secondary fst-italic mb-0">Aucun mouvement lié.</p>';
         } else {
             data.movements.forEach(m => {

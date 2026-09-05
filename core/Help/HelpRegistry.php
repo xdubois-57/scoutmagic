@@ -163,6 +163,16 @@ class HelpRegistry
      * would pin a stale index forever — same rationale as TwigFactory's
      * always-on auto_reload.
      */
+    /**
+     * The directory derived data about this corpus may be memoized in, or
+     * null when nothing may be cached (a checkout, no numbered VERSION —
+     * the same rule as the registry's own index cache).
+     */
+    public function cacheDirectory(): ?string
+    {
+        return $this->cacheUsable() ? $this->cacheDirectory : null;
+    }
+
     private function cacheUsable(): bool
     {
         return $this->cacheDirectory !== null

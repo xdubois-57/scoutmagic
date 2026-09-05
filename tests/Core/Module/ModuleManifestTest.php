@@ -785,6 +785,7 @@ class ModuleManifestTest extends TestCase
         $this->assertSame('Mon module', $manifest->offline[0]['label']);
         $this->assertSame('exact', $manifest->offline[0]['match']);
         $this->assertSame('public', $manifest->offline[0]['role_min']);
+        $this->assertTrue($manifest->offline[0]['prefetch'], 'pre-downloaded at launch unless declared otherwise');
     }
 
     public function testOfflineEntryAcceptsExplicitChildMatch(): void
@@ -1229,5 +1230,24 @@ class ModuleManifestTest extends TestCase
                 'default_on_role_min' => 'chief',
             ]],
         ]);
+    }
+
+    public function testOfflineEntryMayOptOutOfThePrefetch(): void
+    {
+        $manifest = ModuleManifest::fromArray($this->baseManifestData([
+            ['path' => '/heavy', 'label' => 'Lourd', 'match' => 'exact', 'role_min' => 'chief', 'prefetch' => false],
+        ]));
+
+        $this->assertFalse($manifest->offline[0]['prefetch']);
+    }
+
+    public function testOfflineEntryPrefetchMustBeABoolean(): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage("offline[0] prefetch must be a boolean");
+
+        ModuleManifest::fromArray($this->baseManifestData([
+            ['path' => '/heavy', 'label' => 'Lourd', 'match' => 'exact', 'role_min' => 'chief', 'prefetch' => 'non'],
+        ]));
     }
 }

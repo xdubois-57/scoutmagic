@@ -71,6 +71,7 @@ class SectionRosterControllerTest extends TestCase
         $twig = new Environment(new FilesystemLoader($templateDir), ['cache' => false, 'autoescape' => 'html']);
         // asset() is what base.html.twig references every static file through
         // (Core\View\TwigFactory); the bare path is enough for a test render.
+        $twig->addExtension(new \Core\View\CompactHtmlExtension());
         $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
         $twig->addGlobal('site_name', 'Test');
         $twig->addGlobal('is_authenticated', true);

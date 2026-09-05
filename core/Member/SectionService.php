@@ -355,6 +355,87 @@ class SectionService
     }
 
     /**
+     * getSectionStaff() for many sections in one pass — one query for the
+     * member years, one hydration for everybody — for the callers that
+     * loop over every section of the unit (the groups module's invite
+     * picker, the camps module's « réservé par » list).
+     *
+     * @param array<int, int> $sectionIds
+     * @return array<int, MemberProfile[]> keyed by section id, every requested
+     *     id present, each list sorted by display name
+     */
+    public function getStaffForSections(array $sectionIds, int $scoutYearId): array
+    {
+        return $this->profilesBySection($sectionIds, $scoutYearId, staff: true);
+    }
+
+    /**
+     * getSectionAnimes() for many sections in one pass.
+     *
+     * @param array<int, int> $sectionIds
+     * @return array<int, MemberProfile[]> keyed by section id, every requested
+     *     id present, each list sorted by display name
+     */
+    public function getAnimesForSections(array $sectionIds, int $scoutYearId): array
+    {
+        return $this->profilesBySection($sectionIds, $scoutYearId, staff: false);
+    }
+
+    /**
+     * @param array<int, int> $sectionIds
+     * @return array<int, MemberProfile[]>
+     */
+    private function profilesBySection(array $sectionIds, int $scoutYearId, bool $staff): array
+    {
+        $sectionIds = array_values(array_unique(array_map('intval', $sectionIds)));
+        $bySection = array_fill_keys($sectionIds, []);
+        if ($sectionIds === []) {
+            return $bySection;
+        }
+
+        $placeholders = implode(', ', array_fill(0, count($sectionIds), '?'));
+        // Two literal statements, the same role split as getSectionStaff()
+        // and getSectionAnimeMemberYearIds() — never a filter built from a
+        // string.
+        $sql = $staff
+            ? "SELECT DISTINCT mf.section_id, mf.member_year_id
+             FROM member_functions mf
+             JOIN member_years my ON mf.member_year_id = my.id
+             JOIN functions f ON mf.function_id = f.id
+             WHERE mf.section_id IN ({$placeholders}) AND my.scout_year_id = ? AND my.is_active = 1
+               AND f.role IN ('chief', 'admin')"
+            : "SELECT DISTINCT mf.section_id, mf.member_year_id
+             FROM member_functions mf
+             JOIN member_years my ON mf.member_year_id = my.id
+             JOIN functions f ON mf.function_id = f.id
+             WHERE mf.section_id IN ({$placeholders}) AND my.scout_year_id = ? AND my.is_active = 1
+               AND f.role NOT IN ('chief', 'admin', 'intendant')";
+        $stmt = $this->connection->getPdo()->prepare($sql);
+        $stmt->execute([...$sectionIds, $scoutYearId]);
+        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+
+        $profiles = $this->hydrateMemberProfiles(
+            array_map(static fn(array $row): int => (int) $row['member_year_id'], $rows)
+        );
+        foreach ($rows as $row) {
+            $profile = $profiles[(int) $row['member_year_id']] ?? null;
+            if ($profile !== null) {
+                $bySection[(int) $row['section_id']][] = $profile;
+            }
+        }
+        foreach ($bySection as &$list) {
+            usort(
+                $list,
+                static fn(MemberProfile $a, MemberProfile $b): int
+                    => strcasecmp($a->getDisplayName(), $b->getDisplayName())
+            );
+        }
+        unset($list);
+
+        return $bySection;
+    }
+
+    /**
      * The member_year ids behind getSectionAnimes() — THE definition of
      * "animé of this section" (see getSectionAnimes()'s own doc comment
      * for the role-filter history), selectable without paying the full

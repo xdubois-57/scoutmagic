@@ -106,4 +106,26 @@ class MemberPhotoRepositoryTest extends TestCase
         $count = (int) $this->pdo->query('SELECT COUNT(*) FROM member_photos')->fetchColumn();
         $this->assertSame(1, $count);
     }
+
+    public function testFindFileIdsForManyMembersAnswersEachFromItsMostRecentEarlierYear(): void
+    {
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK2')");
+        $secondMemberId = (int) $this->pdo->lastInsertId();
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK3')");
+        $memberWithoutPhoto = (int) $this->pdo->lastInsertId();
+        $futureYearId = $this->createScoutYear('2026-2027', '2026-09-01');
+
+        $this->repository->upsert($this->memberId, $this->yearOldId, $this->fileIdA, null);
+        $this->repository->upsert($this->memberId, $this->yearMidId, $this->fileIdB, null);
+        $this->repository->upsert($secondMemberId, $this->yearNewId, $this->fileIdA, null);
+        $this->repository->upsert($secondMemberId, $futureYearId, $this->fileIdB, null);
+
+        $result = $this->repository->findFileIdsForYearOrEarlier(
+            [$this->memberId, $secondMemberId, $memberWithoutPhoto, $this->memberId],
+            $this->yearNewId
+        );
+
+        $this->assertSame([$this->memberId => $this->fileIdB, $secondMemberId => $this->fileIdA], $result);
+        $this->assertSame([], $this->repository->findFileIdsForYearOrEarlier([], $this->yearNewId));
+    }
 }

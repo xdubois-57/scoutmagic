@@ -69,7 +69,12 @@ class MigrationService
                 }
                 if ($this->memberEmailRepository->findByMemberAndEmail($memberId, $secondaryEmail->email) === null) {
                     $this->memberEmailRepository->create(
-                        $memberId, $secondaryEmail->email, MemberEmail::SOURCE_MANUAL, MemberEmail::STATUS_VALID, null, null
+                        $memberId,
+                        $secondaryEmail->email,
+                        MemberEmail::SOURCE_MANUAL,
+                        MemberEmail::STATUS_VALID,
+                        null,
+                        null
                     );
                 }
             }

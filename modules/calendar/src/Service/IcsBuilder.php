@@ -111,7 +111,10 @@ class IcsBuilder implements \Modules\Calendar\Api\IcsFeedBuilderInterface
     {
         $lines = ['BEGIN:VEVENT'];
         $lines[] = $this->property('UID', "cal-event-{$event->id}@scoutmagic");
-        $lines[] = $this->property('DTSTAMP', $this->formatUtc(new \DateTimeImmutable('now', new \DateTimeZone('UTC'))));
+        $lines[] = $this->property(
+            'DTSTAMP',
+            $this->formatUtc(new \DateTimeImmutable('now', new \DateTimeZone('UTC'))),
+        );
 
         if ($event->isAllDay()) {
             $endDate = $event->endDate ?? $event->startDate;
@@ -175,7 +178,10 @@ class IcsBuilder implements \Modules\Calendar\Api\IcsFeedBuilderInterface
     {
         $lines = ['BEGIN:VEVENT'];
         $lines[] = $this->property('UID', $event->uid);
-        $lines[] = $this->property('DTSTAMP', $this->formatUtc(new \DateTimeImmutable('now', new \DateTimeZone('UTC'))));
+        $lines[] = $this->property(
+            'DTSTAMP',
+            $this->formatUtc(new \DateTimeImmutable('now', new \DateTimeZone('UTC'))),
+        );
 
         if ($event->isAllDay()) {
             // DTEND for an all-day event is exclusive per RFC 5545 — the

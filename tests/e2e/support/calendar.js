@@ -61,28 +61,51 @@ export async function expectRendersAsACalendar(grid) {
     const days = week.locator('.daygrid-day');
     await expect(days).toHaveCount(7);
 
-    // Both boxes read together, and retried until both answer.
+    // Both boxes measured in ONE page evaluation, and retried until the
+    // cells are there to measure.
     //
-    // boundingBox() is a one-shot measurement, and on the rental pages
-    // this grid is LIVE: public/assets/js/rental-calendar.js replaces
+    // On the rental pages this grid is LIVE:
+    // public/assets/js/rental-calendar.js replaces
     // #rental-calendar-fragment's innerHTML when a month is paged or an
-    // estimate recomputed, so the cell measured a millisecond ago can be
-    // detached by the time the next line asks for its neighbour, and
-    // boundingBox() then answers null. Measuring the two separately, even
-    // straight after a toBeVisible(), is therefore a race — one that fails
-    // as "expect(second).not.toBeNull()" and reads as a broken calendar
-    // when the calendar is fine. Polling the PAIR is what makes the
-    // comparison below a comparison of two cells that coexisted.
+    // estimate recomputed. Two separate boundingBox() calls are two
+    // separate round trips to the browser, so the cell measured a
+    // millisecond ago can be detached — answering null — by the time the
+    // next line asks for its neighbour.
+    //
+    // Polling the pair until both answer fixes the null half and NOT the
+    // other half, which is the one that actually cost time: two non-null
+    // rectangles can still come from two DIFFERENT renders, and then the
+    // comparison below is between cells that never coexisted. That is how
+    // this read « two days of one week must share a row » as 8 px apart,
+    // intermittently, and only under scripts/dast.sh — where every request
+    // crosses ZAP and a TLS terminator, so the window between the two
+    // round trips is widest. The browser suite passed the same spec in the
+    // same run, which is what says it was never the calendar.
+    //
+    // evaluateAll() runs once inside the page: both rectangles come out of
+    // the same layout pass, and a re-render cannot slip between them.
     /** @type {{first: {x: number, y: number, height: number}, second: {x: number}}} */
     let box;
     await expect
         .poll(async () => {
-            const first = await days.nth(0).boundingBox();
-            const second = await days.nth(1).boundingBox();
-            if (first === null || second === null) {
+            // ONE evaluation in the page, so both rectangles come from
+            // the same layout pass.
+            const pair = await days.evaluateAll((nodes) => {
+                if (nodes.length < 2) {
+                    return null;
+                }
+                const a = nodes[0].getBoundingClientRect();
+                const b = nodes[1].getBoundingClientRect();
+
+                return {
+                    first: { x: a.x, y: a.y, height: a.height },
+                    second: { x: b.x, y: b.y },
+                };
+            });
+            if (pair === null) {
                 return false;
             }
-            box = { first, second };
+            box = pair;
 
             return true;
         }, { message: "the week's first two day cells must both be laid out at the same moment" })
@@ -124,12 +147,24 @@ export async function expectRendersAsAnEventCalendar(container) {
     let box;
     await expect
         .poll(async () => {
-            const first = await days.nth(0).boundingBox();
-            const second = await days.nth(1).boundingBox();
-            if (first === null || second === null) {
+            // ONE evaluation in the page, so both rectangles come from
+            // the same layout pass.
+            const pair = await days.evaluateAll((nodes) => {
+                if (nodes.length < 2) {
+                    return null;
+                }
+                const a = nodes[0].getBoundingClientRect();
+                const b = nodes[1].getBoundingClientRect();
+
+                return {
+                    first: { x: a.x, y: a.y, height: a.height },
+                    second: { x: b.x, y: b.y },
+                };
+            });
+            if (pair === null) {
                 return false;
             }
-            box = { first, second };
+            box = pair;
 
             return true;
         }, { message: "the week's first two day cells must both be laid out at the same moment" })

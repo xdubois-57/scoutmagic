@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Finance\Service;
 
+use Core\Service\TextNormalizerService;
 use Core\Security\Role;
 use Modules\Finance\Repository\AccountRepository;
 use Modules\Finance\Repository\ExpectedReceivable;
@@ -201,8 +202,10 @@ class ReceivableSearchService
      */
     private static function fold(string $value): string
     {
-        $folded = @iconv('UTF-8', 'ASCII//TRANSLIT', mb_strtolower(trim($value)));
-
-        return $folded === false ? mb_strtolower(trim($value)) : $folded;
+        // The core helper, for the reason its own docblock gives:
+        // iconv('ASCII//TRANSLIT') answers differently depending on the C
+        // library, so this search ignored accents on glibc and quietly
+        // stopped doing so on macOS and musl.
+        return TextNormalizerService::fold($value);
     }
 }

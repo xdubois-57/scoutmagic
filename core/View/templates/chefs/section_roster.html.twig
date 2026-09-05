@@ -65,6 +65,10 @@
         } only %}
     {% endif %}
 
+    {# compact_html: a large unit renders hundreds of rows here, and the
+       indentation alone weighed more than the data (1.6 Ko per row). Safe:
+       nothing preformatted or editable sits inside these blocks. #}
+    {% apply compact_html %}
     {% for block in section_blocks %}
         <section class="mb-5">
             <div class="d-flex align-items-center gap-2 mb-3">
@@ -143,4 +147,5 @@
             {% endfor %}
         </section>
     {% endfor %}
+    {% endapply %}
 {% endblock %}

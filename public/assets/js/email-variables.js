@@ -106,7 +106,7 @@
      * @param {string} text
      */
     function copy(text) {
-        if (navigator.clipboard && navigator.clipboard.writeText) {
+        if (navigator.clipboard?.writeText) {
             navigator.clipboard.writeText(text).then(function () {
                 window.ScoutMagicToast.show('« ' + text +' » copié — collez-le dans le message.');
             }).catch(function () {

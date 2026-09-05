@@ -93,11 +93,34 @@ class TrombinoscopePdfServiceTest extends TestCase
             {
                 return $this->staff[$sectionId] ?? ['lead' => null, 'staff' => []];
             }
+
+            public function getSectionStaffForSections(array $sectionIds, int $scoutYearId): array
+            {
+                $result = [];
+                foreach ($sectionIds as $id) {
+                    $result[$id] = $this->getSectionStaff($id, $scoutYearId);
+                }
+
+                return $result;
+            }
         };
 
         $embedder = new class extends StaffPhotoEmbedder {
             public function __construct()
             {
+            }
+
+            public function prime(array $memberIds, int $scoutYearId): void
+            {
+            }
+
+
+            public function fileIdFor(int $memberId, int $scoutYearId): ?int
+
+            {
+
+                return null;
+
             }
 
             public function dataUriFor(int $memberId, int $scoutYearId): ?string
@@ -223,5 +246,86 @@ class TrombinoscopePdfServiceTest extends TestCase
 
         $this->assertStringStartsWith('%PDF-', $pdf);
         $this->assertSame(1, $this->pageCount($pdf));
+    }
+
+    /**
+     * With a cache directory, the document is rendered once and served
+     * from disk while its inputs hold; any input change is a different
+     * file name, so a stale copy cannot exist.
+     */
+    public function testTheDocumentIsRenderedOnceAndServedFromTheCacheUntilAnInputChanges(): void
+    {
+        $cacheDir = sys_get_temp_dir() . '/scoutmagic-trombi-pdf-' . bin2hex(random_bytes(4));
+        $staff = ['1' => ['lead' => $this->profile(10, 'Akela', 'Akela', 'Akela'), 'staff' => []]];
+        $sections = [['id' => 1, 'desk_code' => 'LOU', 'name' => 'Louveteaux', 'branch_name' => 'Louveteaux', 'color' => '#00aa00', 'email' => null, 'sort_order' => 20]];
+        $sectionService = new class($sections) extends SectionService {
+            public function __construct(private array $sections)
+            {
+            }
+
+            public function getAllWithBranches(bool $includeHidden = false): array
+            {
+                return $this->sections;
+            }
+        };
+        $trombinoscopeService = new class($staff) extends TrombinoscopeService {
+            public function __construct(private array $staff)
+            {
+            }
+
+            public function getSectionStaffForSections(array $sectionIds, int $scoutYearId): array
+            {
+                $result = [];
+                foreach ($sectionIds as $id) {
+                    $result[$id] = $this->staff[$id] ?? ['lead' => null, 'staff' => []];
+                }
+
+                return $result;
+            }
+        };
+        $embedder = new class extends StaffPhotoEmbedder {
+            public int $renders = 0;
+
+            public function __construct()
+            {
+            }
+
+            public function prime(array $memberIds, int $scoutYearId): void
+            {
+            }
+
+            public function fileIdFor(int $memberId, int $scoutYearId): ?int
+            {
+                return 42;
+            }
+
+            public function dataUriFor(int $memberId, int $scoutYearId): ?string
+            {
+                $this->renders++;
+
+                return null;
+            }
+        };
+        $service = new TrombinoscopePdfService($trombinoscopeService, $sectionService, $embedder, new TrombinoscopeHtmlBuilder(), $cacheDir);
+
+        try {
+            $first = $service->generate(1, '2025-2026', 'Unité', 'www.example.invalid', true);
+            $this->assertSame(1, $embedder->renders);
+            $this->assertCount(1, glob($cacheDir . '/trombinoscope/1-*.pdf') ?: []);
+
+            $second = $service->generate(1, '2025-2026', 'Unité', 'www.example.invalid', true);
+            $this->assertSame($first, $second);
+            $this->assertSame(1, $embedder->renders, 'served from disk, no portrait re-encoded');
+
+            $service->generate(1, '2025-2026', 'Unité', 'www.example.invalid', false);
+            $this->assertSame(2, $embedder->renders, 'a different setting is a different document');
+            $this->assertCount(1, glob($cacheDir . '/trombinoscope/1-*.pdf') ?: [], 'the superseded copy is removed');
+        } finally {
+            foreach (glob($cacheDir . '/trombinoscope/*') ?: [] as $file) {
+                @unlink($file);
+            }
+            @rmdir($cacheDir . '/trombinoscope');
+            @rmdir($cacheDir);
+        }
     }
 }

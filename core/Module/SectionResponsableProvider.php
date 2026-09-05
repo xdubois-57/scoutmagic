@@ -26,4 +26,13 @@ interface SectionResponsableProvider
      * given scout year, or null when none is configured.
      */
     public function getResponsable(int $sectionId, int $scoutYearId): ?MemberProfile;
+
+    /**
+     * getResponsable() for many sections at once — what a page listing
+     * every section asks, so it costs one pass rather than one per section.
+     *
+     * @param array<int, int> $sectionIds
+     * @return array<int, ?MemberProfile> keyed by section id, every requested id present
+     */
+    public function getResponsables(array $sectionIds, int $scoutYearId): array;
 }

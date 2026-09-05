@@ -373,3 +373,68 @@ describe('sw.js: handleNavigate()', () => {
         await vi.waitFor(() => expect(caches.open).toHaveBeenCalledWith('content-a-1'));
     });
 });
+
+// ---------------------------------------------------------------------------
+// startNetworkRequest — the navigation's fetch starts before the config read
+// ---------------------------------------------------------------------------
+describe('sw.js: startNetworkRequest()', () => {
+    const request = { url: 'https://example.test/calendar', mode: 'navigate' };
+
+    it('uses the response the browser preloaded and never fetches again', async () => {
+        const preloaded = makeResponse('<body>preloaded</body>');
+        global.fetch = vi.fn();
+
+        const res = await sw.startNetworkRequest(request, Promise.resolve(preloaded));
+
+        expect(res).toBe(preloaded);
+        expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('falls back to fetch() when preload resolves to nothing (unsupported, or not used)', async () => {
+        global.fetch = vi.fn(() => Promise.resolve(makeResponse('<body>fetched</body>')));
+
+        const res = await sw.startNetworkRequest(request, Promise.resolve(undefined));
+
+        expect(await res.text()).toBe('<body>fetched</body>');
+        expect(fetch).toHaveBeenCalledWith(request);
+    });
+
+    it('fetches when there is no preload promise at all', async () => {
+        global.fetch = vi.fn(() => Promise.resolve(makeResponse('<body>fetched</body>')));
+
+        await sw.startNetworkRequest(request, undefined);
+
+        expect(fetch).toHaveBeenCalledWith(request);
+    });
+
+    it('is started before the offline configuration has been read, so the read costs the navigation nothing', async () => {
+        global.fetch = vi.fn(() => Promise.resolve(makeResponse('<body>live</body>')));
+        let releaseConfig;
+        const configRead = new Promise((resolve) => { releaseConfig = resolve; });
+        global.caches = { open: vi.fn(() => configRead), match: vi.fn(() => Promise.resolve(undefined)) };
+        const url = new URL(request.url);
+
+        const navigation = sw.handleNavigate(request, url, undefined);
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(fetch).toHaveBeenCalledWith(request);
+
+        releaseConfig({ match: () => Promise.resolve(undefined) });
+        expect(await (await navigation).text()).toBe('<body>live</body>');
+    });
+
+    it('hands a preloaded response through handleNavigate on the whitelisted path too', async () => {
+        const url = new URL('https://example.test/members/12');
+        const req = { url: url.href, mode: 'navigate' };
+        global.caches = createCachesFake({
+            'offline-config': { 'https://offline-config.internal/v1': { json: () => Promise.resolve({ consent: true, whitelist: [{ path: '/members/', match: 'child' }], account_scope: 'a', version: '1', standalone: true }) } },
+        });
+        global.fetch = vi.fn();
+        const preloaded = makeResponse('<body>member</body>');
+
+        const res = await sw.handleNavigate(req, url, Promise.resolve(preloaded));
+
+        expect(res).toBe(preloaded);
+        expect(fetch).not.toHaveBeenCalled();
+    });
+});

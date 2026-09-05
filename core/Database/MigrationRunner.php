@@ -85,7 +85,13 @@ class MigrationRunner
         private SchemaComparator $comparator,
         private SqlParser $parser,
         private int $timeBudgetSeconds = 20,
-        private ?JournalService $journal = null
+        private ?JournalService $journal = null,
+        /**
+         * Where computeSchemaHash() may keep its last answer (a directory,
+         * typically storage/temp). Null — every CLI and test caller —
+         * means the files are read and hashed every time, as before.
+         */
+        private ?string $hashCacheDirectory = null
     ) {
     }
 
@@ -535,14 +541,43 @@ class MigrationRunner
      */
     private function computeSchemaHash(array $schemaFiles): string
     {
-        $content = '';
+        // public/index.php asks isPending() on every request, and the
+        // answer used to cost reading and hashing every schema file — 23
+        // of them, 2.6 ms — each time. The hash only changes when a file
+        // does, so it is kept beside a signature of the files' mtime and
+        // size and recomputed the moment one of them differs. A deploy
+        // rewrites the files (new mtime), an edit changes the size or the
+        // mtime: both invalidate. Only the content hash is ever stored in
+        // the settings table, so a stale cache can only ever cost one
+        // recomputation, never a skipped migration.
+        $signature = [];
+        $files = [];
         foreach ($schemaFiles as $file) {
-            $content .= (is_file($file) ? file_get_contents($file) : '') . "\x00";
-            $dropsFile = dirname($file) . '/drops.sql';
-            $content .= (is_file($dropsFile) ? file_get_contents($dropsFile) : '') . "\x00";
+            foreach ([$file, dirname($file) . '/drops.sql'] as $candidate) {
+                $files[] = $candidate;
+                $stat = is_file($candidate) ? @stat($candidate) : false;
+                $signature[$candidate] = $stat !== false ? [$stat['mtime'], $stat['size']] : null;
+            }
         }
 
-        return hash('sha256', $content);
+        $cache = $this->hashCacheDirectory !== null
+            ? new \Core\Cache\SerializedFileCache($this->hashCacheDirectory . '/schema_hash.cache', [])
+            : null;
+        $cached = $cache?->read(static fn(mixed $value): bool => is_array($value)
+            && isset($value['signature'], $value['hash'])
+            && is_string($value['hash']));
+        if ($cached !== null && $cached['signature'] === $signature) {
+            return $cached['hash'];
+        }
+
+        $content = '';
+        foreach ($files as $file) {
+            $content .= (is_file($file) ? file_get_contents($file) : '') . "\x00";
+        }
+        $hash = hash('sha256', $content);
+        $cache?->write(['signature' => $signature, 'hash' => $hash]);
+
+        return $hash;
     }
 
     /**

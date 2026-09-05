@@ -77,12 +77,13 @@ class BadgeService
      */
     public function syncSectionReferentBadges(): void
     {
+        $badgesBySection = $this->badgeRepository->findAllByReferentSection();
         foreach ($this->sectionService->getAllWithBranches(includeHidden: true) as $section) {
             if ($section['desk_code'] === UnitStaffSectionService::DESK_CODE) {
                 continue;
             }
 
-            $badge = $this->badgeRepository->findByReferentSectionId($section['id']);
+            $badge = $badgesBySection[(int) $section['id']] ?? null;
             $expectedName = self::REFERENT_PREFIX . ($section['name'] ?? $section['desk_code']);
 
             if ($badge === null) {

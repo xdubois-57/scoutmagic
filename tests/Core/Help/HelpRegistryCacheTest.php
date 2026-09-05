@@ -100,4 +100,11 @@ class HelpRegistryCacheTest extends TestCase
 
         $this->assertArrayHasKey('premier', $this->registry('1.0.0')->all());
     }
+
+    public function testTheCacheDirectoryIsOnlyHandedOutWhenCachingIsUsable(): void
+    {
+        $this->assertSame($this->cacheDir, $this->registry('1.0.0')->cacheDirectory());
+        $this->assertNull($this->registry('dev')->cacheDirectory());
+        $this->assertNull((new HelpRegistry($this->topicsDir, new HelpFrontMatterParser()))->cacheDirectory());
+    }
 }

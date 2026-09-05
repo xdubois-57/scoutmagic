@@ -40,6 +40,24 @@ class BadgeRepository
         return $row !== false ? $this->hydrate($row) : null;
     }
 
+    /**
+     * Every referent badge, keyed by its section — one query for the sync
+     * that runs on every Staffs page load, instead of one per section.
+     *
+     * @return array<int, Badge>
+     */
+    public function findAllByReferentSection(): array
+    {
+        $stmt = $this->pdo->query('SELECT * FROM badges WHERE referent_section_id IS NOT NULL');
+        $byId = [];
+        foreach ($stmt === false ? [] : $stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $badge = $this->hydrate($row);
+            $byId[(int) $badge->referentSectionId] ??= $badge;
+        }
+
+        return $byId;
+    }
+
     public function findByReferentSectionId(int $sectionId): ?Badge
     {
         $stmt = $this->pdo->prepare('SELECT * FROM badges WHERE referent_section_id = ?');

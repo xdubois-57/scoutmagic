@@ -28,7 +28,7 @@
     // (async load, permission denied, save failure) and fires none, so
     // aria-checked would otherwise go stale for a screen reader.
     function syncAriaChecked() {
-        if (window.ScoutMagicNav && window.ScoutMagicNav.syncSwitchAriaChecked) {
+        if (window.ScoutMagicNav?.syncSwitchAriaChecked) {
             window.ScoutMagicNav.syncSwitchAriaChecked(toggle);
         }
     }
@@ -109,7 +109,7 @@
                     // A transport failure or an HTTP error page both land
                     // here as a data-less envelope — same outcome as a
                     // server-refused subscription.
-                    if (!result.data || !result.data.success) {
+                    if (!result.data?.success) {
                         toggle.checked = false;
                         syncAriaChecked();
                         if (errorNotice) errorNotice.classList.remove('d-none');

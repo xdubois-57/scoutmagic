@@ -687,7 +687,8 @@
       "path": "/previsions",
       "label": "Prévisions",
       "match": "exact",
-      "role_min": "chief"
+      "role_min": "chief",
+      "prefetch": false
     }
   ],
   "emails": [

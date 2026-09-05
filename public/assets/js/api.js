@@ -55,11 +55,11 @@
      * @returns {Promise<{ok: boolean, status: number, data: any}>}
      */
     function postJson(url, body, options) {
-        var method = (options && options.method) || 'POST';
+        var method = options?.method || 'POST';
         return fetch(url, {
             method: method,
             headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken() },
-            body: JSON.stringify({ ...(body || {}), _csrf_token: csrfToken() })
+            body: JSON.stringify({ ...body, _csrf_token: csrfToken() })
         }).then(function (res) {
             return res.json().then(
                 function (data) { return { ok: res.ok, status: res.status, data: data }; },
@@ -114,7 +114,7 @@
      * alt=/title=/data-* attributes, where a bare textContent→innerHTML
      * round-trip lets a filename with a quote break out (audit M16).
      *
-     * @param {unknown} value
+     * @param {string|number|boolean|null|undefined} value
      * @returns {string}
      */
     function escapeHtml(value) {

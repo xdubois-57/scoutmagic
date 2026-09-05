@@ -38,6 +38,18 @@ final class HelpSearchIndex
     public function __construct(
         private readonly HelpService $helpService,
         private readonly HelpPageLinkResolver $pageLinks,
+        /**
+         * Directory the per-role entries are memoized in, or null to build
+         * them on every call. HelpRegistry hands over its own (null on a
+         * checkout, where nothing may be cached across deploys).
+         */
+        private readonly ?string $cacheDirectory = null,
+        /**
+         * What the memoized entries depend on besides the role: the
+         * installed version and the enabled modules, as one string. A
+         * different key means a rebuild.
+         */
+        private readonly string $cacheKey = '',
     ) {
     }
 
@@ -61,6 +73,37 @@ final class HelpSearchIndex
      * >
      */
     public function forRole(Role $role): array
+    {
+        $cache = $this->cacheDirectory !== null
+            ? new \Core\Cache\SerializedFileCache(
+                $this->cacheDirectory . '/search_index_' . $role->value . '.cache',
+                [],
+            )
+            : null;
+        $cached = $cache?->read(fn(mixed $value): bool => is_array($value)
+            && ($value['key'] ?? null) === $this->cacheKey
+            && is_array($value['entries'] ?? null));
+        if ($cached !== null) {
+            return $cached['entries'];
+        }
+
+        $entries = $this->build($role);
+        $cache?->write(['key' => $this->cacheKey, 'entries' => $entries]);
+
+        return $entries;
+    }
+
+    /**
+     * @return array<int, array{
+     *     id: string,
+     *     title: string,
+     *     summary: string,
+     *     category: string,
+     *     questions: array<int, string>,
+     *     link: array{path: string, label: string}|null
+     * }>
+     */
+    private function build(Role $role): array
     {
         $entries = [];
         foreach ($this->helpService->listForRole($role) as $category => $topics) {

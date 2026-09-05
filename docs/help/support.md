@@ -7,7 +7,7 @@ role_min: superadmin
 question: Comment envoyer un diagnostic à celui qui nous dépanne ?
 question: Où voir combien le site est utilisé ?
 paths: /config/support
-related: support-sondes-email, mises-a-jour, installation-serveur
+related: support-mesure, support-sondes-email, mises-a-jour, installation-serveur
 ---
 
 La page Support regroupe deux choses distinctes : le rapport

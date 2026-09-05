@@ -120,7 +120,7 @@
                 + '&preferred=' + encodeURIComponent(picker.dataset.preferred || '');
 
             var res = await window.ScoutMagicApi.getJson(url);
-            render((res.data && res.data.success && res.data.stays) || []);
+            render((res.data?.success && res.data.stays) || []);
         }
 
         search.addEventListener('input', function () {

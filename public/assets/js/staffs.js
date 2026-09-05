@@ -64,7 +64,7 @@
      * @returns {void}
      */
     function toastError(res, fallback) {
-        var message = (res.data && res.data.error) || fallback;
+        var message = res.data?.error || fallback;
         window.ScoutMagicToast.show(message, { variant: 'error' });
     }
 
@@ -88,7 +88,7 @@
                 title: titleInput.value,
                 description: descriptionInput.value
             }).then(function (res) {
-                if (!res.data || !res.data.success) {
+                if (!res.data?.success) {
                     toastError(res, 'Erreur.');
                 }
             });
@@ -103,11 +103,11 @@
     // it never blocks the upload, it only offers to shrink the file first
     // via iLovePDF or an offline alternative.
     var data = window.ScoutMagicApi.pageData('staffs-data');
-    if (fileInput && data && data.oversizeWarningEnabled) {
+    if (fileInput && data?.oversizeWarningEnabled) {
         var thresholdBytes = (data.oversizeWarningMb || 5) * 1024 * 1024;
 
         fileInput.addEventListener('change', async function () {
-            var file = fileInput.files && fileInput.files[0];
+            var file = fileInput.files?.[0];
             if (!file || file.size <= thresholdBytes) {
                 return;
             }
@@ -138,7 +138,7 @@
         }
 
         var memberYearId = Number.parseInt(wrapper.dataset.memberYearId, 10);
-        if (!(memberYearId > 0)) {
+        if (!Number.isInteger(memberYearId) || memberYearId <= 0) {
             return;
         }
 
@@ -166,14 +166,14 @@
                 badge_id: Number.parseInt(badgeId, 10)
             });
 
-            if (res.data && res.data.success) {
+            if (res.data?.success) {
                 previousSelected = nextSelected;
                 return;
             }
             // Revert the optimistic state select-bar.js already applied,
             // then say why. setSelected deliberately does not re-dispatch
             // select-bar:change (see select-bar.js), so this cannot loop.
-            if (window.SelectBar && window.SelectBar.setSelected) {
+            if (window.SelectBar?.setSelected) {
                 window.SelectBar.setSelected(picker.id, badgeId, !assigned);
             }
             toastError(res, 'Erreur.');

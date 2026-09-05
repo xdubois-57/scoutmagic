@@ -36,7 +36,7 @@
 // api.js.
 (function () {
     // Everything a link in a scout unit's page legitimately points at.
-    var ALLOWED_SCHEMES = ['http', 'https', 'mailto', 'tel'];
+    var ALLOWED_SCHEMES = new Set(['http', 'https', 'mailto', 'tel']);
 
     /**
      * Turns what the visitor typed into an href, or null if it is not one
@@ -51,9 +51,9 @@
             return null;
         }
 
-        var scheme = url.match(/^([a-z][a-z0-9+.-]*):/i);
+        var scheme = /^([a-z][a-z0-9+.-]*):/i.exec(url);
         if (scheme) {
-            return ALLOWED_SCHEMES.indexOf(scheme[1].toLowerCase()) === -1 ? null : url;
+            return ALLOWED_SCHEMES.has(scheme[1].toLowerCase()) ? url : null;
         }
         // Site-relative and same-page links are already hrefs.
         if (url.startsWith('/') || url.startsWith('#')) {
@@ -72,7 +72,7 @@
      */
     function captureSelection() {
         var selection = window.getSelection();
-        return selection && selection.rangeCount > 0 ? selection.getRangeAt(0).cloneRange() : null;
+        return selection?.rangeCount > 0 ? selection.getRangeAt(0).cloneRange() : null;
     }
 
     /**

@@ -308,4 +308,43 @@ class MemberSearchServiceTest extends TestCase
         $this->assertNull($this->service->findById($this->yearId, $id));
         $this->assertNotNull($this->service->findById($this->otherYearId, $id));
     }
+
+    private function insertAddress(int $memberYearId, string $street, string $city): void
+    {
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_addresses (member_year_id, address_type, street_encrypted, city_encrypted) VALUES (?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            $memberYearId,
+            'Domicile',
+            $this->enc->encrypt($street, 'member_addresses.street'),
+            $this->enc->encrypt($city, 'member_addresses.city'),
+        ]);
+    }
+
+    public function testANameSearchStillShowsTheAddressOfWhatItFound(): void
+    {
+        $my = $this->insertMember('Louis', 'Dubois');
+        $this->insertAddress($my, 'Rue de la Station', 'Wavre');
+        $this->insertAddress($this->insertMember('Emma', 'Lambert'), 'Avenue des Tilleuls', 'Lasne');
+
+        $results = $this->service->search($this->yearId, 'dubois');
+
+        $this->assertCount(1, $results);
+        $this->assertStringContainsString('Rue de la Station', (string) $results[0]->addressText);
+        $this->assertStringContainsString('Rue de la Station', (string) $this->service->findById($this->yearId, $my)->addressText);
+    }
+
+    public function testAnAddressSearchStillFindsTheMemberThroughTheAddressPass(): void
+    {
+        $this->insertAddress($this->insertMember('Louis', 'Dubois'), 'Rue de la Station', 'Wavre');
+        $this->insertAddress($this->insertMember('Emma', 'Lambert'), 'Avenue des Tilleuls', 'Lasne');
+
+        $results = $this->service->search($this->yearId, 'tilleuls');
+
+        $this->assertCount(1, $results);
+        $this->assertSame('Emma', $results[0]->firstName);
+        // And a name search afterwards, in the same request, answers from the address-bearing rows.
+        $this->assertStringContainsString('Wavre', (string) $this->service->search($this->yearId, 'dubois')[0]->addressText);
+    }
 }

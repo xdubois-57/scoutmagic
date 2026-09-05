@@ -22,6 +22,7 @@ class LoginPageTest extends TestCase
         ]);
         // asset() is what base.html.twig references every static file through
         // (Core\View\TwigFactory); the bare path is enough for a test render.
+        $this->twig->addExtension(new \Core\View\CompactHtmlExtension());
         $this->twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
         $this->twig->addGlobal('site_name', 'Test Scout');
         $this->twig->addGlobal('is_authenticated', false);

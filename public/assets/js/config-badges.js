@@ -44,13 +44,13 @@
      * @param {{ok: boolean, status: number, data: any}} res
      */
     function toastError(res) {
-        var message = (res.data && res.data.error) || 'Erreur : réponse serveur invalide.';
+        var message = res.data?.error || 'Erreur : réponse serveur invalide.';
         window.ScoutMagicToast.show(message, { variant: 'error' });
     }
 
     /** @param {{ok: boolean, status: number, data: any}} res */
     function isSuccess(res) {
-        return !!(res.data && res.data.success);
+        return !!(res.data?.success);
     }
 
     badgeRows.forEach(function (row) {
@@ -94,7 +94,7 @@
                     // and tell assistive technology about it (no `change`
                     // event fires for a programmatic revert).
                     activeInput.checked = !activeInput.checked;
-                    if (window.ScoutMagicNav && window.ScoutMagicNav.syncSwitchAriaChecked) {
+                    if (window.ScoutMagicNav?.syncSwitchAriaChecked) {
                         window.ScoutMagicNav.syncSwitchAriaChecked(activeInput);
                     }
                 });

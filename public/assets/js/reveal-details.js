@@ -27,14 +27,14 @@
         if (spec.startsWith('next:')) {
             var next = trigger.nextElementSibling;
             var selector = spec.slice(5);
-            return next && next.matches(selector) ? next : null;
+            return next?.matches(selector) ? next : null;
         }
         return trigger.querySelector(spec);
     }
 
     document.addEventListener('click', function (event) {
         var target = /** @type {HTMLElement|null} */ (event.target);
-        if (!target || !target.closest) {
+        if (!target?.closest) {
             return;
         }
 

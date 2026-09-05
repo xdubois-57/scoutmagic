@@ -43,6 +43,32 @@ class MemberSearchResult
     /**
      * Two-letter initials: first letter of first name + first letter of last name.
      */
+    /**
+     * The same row with its address filled in — results are built without
+     * one first (Repository\MemberSearchRepository::findAllForYear()) and
+     * only the rows that matched get theirs.
+     */
+    public function withAddress(?string $addressText): self
+    {
+        return new self(
+            $this->memberYearId,
+            $this->memberId,
+            $this->scoutYearId,
+            $this->scoutYearLabel,
+            $this->scoutYearStartDate,
+            $this->firstName,
+            $this->lastName,
+            $this->totem,
+            $this->email,
+            $this->phone,
+            $this->mobile,
+            $this->sectionName,
+            $this->functionLabel,
+            $addressText,
+            $this->isActive
+        );
+    }
+
     public function initials(): string
     {
         $f = $this->firstName !== '' ? mb_substr($this->firstName, 0, 1, 'UTF-8') : '';

@@ -30,8 +30,9 @@ class ConfigBreadcrumbRoutesTest extends TestCase
      */
     private function breadcrumbForGetRoute(string $path): array
     {
-        $pattern = '/\$router->addRoute\(\'GET\',\s*\'' . preg_quote($path, '/') . '\',[^;]*?'
-            . '\[\'label\' => \'([^\']+)\', \'parents\' => \[([^\]]+)\]\]\);/';
+        $pattern = '/\$router->addRoute\(\s*\'GET\'\s*,\s*\'' . preg_quote($path, '/') . '\'\s*,[^;]*?'
+            . '\[\s*\'label\'\s*=>\s*\'([^\']+)\'\s*,\s*\'parents\'\s*=>\s*\[([^\]]+)\]\s*,?\s*\]'
+            . '\s*,?\s*\)\s*;/';
         $this->assertMatchesRegularExpression($pattern, $this->indexPhp, "No breadcrumb found for GET {$path}");
 
         preg_match($pattern, $this->indexPhp, $matches);

@@ -42,7 +42,7 @@
     // unconditional regardless of this flag — see that function's own
     // comment.
     function isStandalone() {
-        return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
+        return window.matchMedia?.('(display-mode: standalone)').matches
             || window.navigator.standalone === true;
     }
 

@@ -246,7 +246,13 @@ class NewsController extends AbstractController
 
         try {
             $fileId = $this->uploadHandler->handle(
-                $uploadedFile, 'news/images', self::IMAGE_ALLOWED_MIMES, self::IMAGE_MAX_SIZE_BYTES, 'public', 'news', AuthSession::getUserAccountId()
+                $uploadedFile,
+                'news/images',
+                self::IMAGE_ALLOWED_MIMES,
+                self::IMAGE_MAX_SIZE_BYTES,
+                'public',
+                'news',
+                AuthSession::getUserAccountId()
             );
         } catch (UploadException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
@@ -719,7 +725,13 @@ class NewsController extends AbstractController
 
         try {
             $fileId = $this->uploadHandler->handle(
-                $uploadedFile, 'news/images', self::IMAGE_ALLOWED_MIMES, self::IMAGE_MAX_SIZE_BYTES, $roleMin, 'news', $accountId
+                $uploadedFile,
+                'news/images',
+                self::IMAGE_ALLOWED_MIMES,
+                self::IMAGE_MAX_SIZE_BYTES,
+                $roleMin,
+                'news',
+                $accountId
             );
 
             // Same generate-at-upload pipeline as the core photo contexts
@@ -1075,7 +1087,13 @@ class NewsController extends AbstractController
             'send_response_digest',
             SendResponseDigestHandler::REFERENCE
         ) === null) {
-            $this->schedulerService->schedule('news', 'send_response_digest', new \DateTimeImmutable('+1 day'), [], SendResponseDigestHandler::REFERENCE);
+            $this->schedulerService->schedule(
+                'news',
+                'send_response_digest',
+                new \DateTimeImmutable('+1 day'),
+                [],
+                SendResponseDigestHandler::REFERENCE,
+            );
         }
     }
 

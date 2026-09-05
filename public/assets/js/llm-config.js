@@ -204,8 +204,8 @@
         return api.postJson('/config/llm/providers/' + encodeURIComponent(providerId) + '/test', {})
             .then(function (res) {
                 var data = res.data;
-                if (!data || !data.success) {
-                    showAlert('danger', escapeHtml((data && data.error) || 'Erreur.'));
+                if (!data?.success) {
+                    showAlert('danger', escapeHtml(data?.error || 'Erreur.'));
                     return;
                 }
                 updateSummary(data);
@@ -268,8 +268,8 @@
             api_key: inputEl('provider-api-key').value
         }).then(function (res) {
             var data = res.data;
-            if (!data || !data.success) {
-                showAlert('danger', escapeHtml((data && data.error) || 'Erreur.'));
+            if (!data?.success) {
+                showAlert('danger', escapeHtml(data?.error || 'Erreur.'));
                 return undefined;
             }
 

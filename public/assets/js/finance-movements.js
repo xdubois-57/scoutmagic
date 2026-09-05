@@ -162,10 +162,10 @@
             comment: inputEl('md-comment').value,
             fiscal_year_id: Number.parseInt(selectEl('md-fiscal-year').value, 10)
         }, { method: 'PATCH' });
-        if (res.data && res.data.success) {
+        if (res.data?.success) {
             window.location.reload();
         } else {
-            toastError(res.data && res.data.error);
+            toastError(res.data?.error);
         }
     });
 
@@ -194,7 +194,7 @@
         const data = res.data;
         const list = el('attachments-list');
         list.innerHTML = '';
-        if (!data || !data.success || !Array.isArray(data.attachments) || data.attachments.length === 0) {
+        if (!data?.success || !Array.isArray(data.attachments) || data.attachments.length === 0) {
             list.innerHTML = '<p class="text-body-secondary fst-italic mb-0">Aucun reçu associé.</p>';
             return;
         }
@@ -292,10 +292,10 @@
                 body: formData
             });
             const data = await res.json().catch(() => null);
-            if (data && data.success) {
+            if (data?.success) {
                 window.location.reload();
             } else {
-                errorBox.textContent = (data && data.error) || 'Une erreur est survenue.';
+                errorBox.textContent = data?.error || 'Une erreur est survenue.';
                 errorBox.classList.remove('d-none');
             }
         });
@@ -309,10 +309,10 @@
         const res = await api.postJson('/finance/receipts/' + attachmentId + '/associate', {
             transaction_ids: [movementId]
         });
-        if (res.data && res.data.success) {
+        if (res.data?.success) {
             window.location.reload();
         } else {
-            toastError(res.data && res.data.error);
+            toastError(res.data?.error);
         }
     }
 

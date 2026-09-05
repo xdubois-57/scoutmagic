@@ -66,7 +66,7 @@
 
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.addEventListener('message', function (event) {
-            if (event.data && event.data.type === 'push-received') {
+            if (event.data?.type === 'push-received') {
                 if (typeof event.data.unreadCount === 'number') {
                     render(event.data.unreadCount);
                 } else {
