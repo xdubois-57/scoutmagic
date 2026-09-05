@@ -60,6 +60,34 @@ final class ReferenceDatasetBuildTest extends TestCase
     /** Nothing ever listens on it — the instance only writes it into a base URL. */
     private const INSTANCE_PORT = 8099;
 
+    /**
+     * One fixed query per table this test counts. PDO cannot bind an
+     * identifier, so a `rowCount($table)` helper can only build its SQL by
+     * concatenation — which AGENTS.md § Security checklist rules out
+     * without exception, and which a static analyser flags whether or not
+     * the caller happens to pass a literal today. Written out, the SQL is
+     * constant, and a table renamed out from under this test fails on a
+     * missing key here rather than deep inside a PDO error.
+     *
+     * @var array<string, string>
+     */
+    private const COUNT_QUERIES = [
+        'camp_places' => 'SELECT COUNT(*) FROM camp_places',
+        'camp_camps' => 'SELECT COUNT(*) FROM camp_camps',
+        'camp_camp_sections' => 'SELECT COUNT(*) FROM camp_camp_sections',
+        'calendar_events' => 'SELECT COUNT(*) FROM calendar_events',
+        'news_articles' => 'SELECT COUNT(*) FROM news_articles',
+        'registration_requests' => 'SELECT COUNT(*) FROM registration_requests',
+        'banners' => 'SELECT COUNT(*) FROM banners',
+        'gallery_albums' => 'SELECT COUNT(*) FROM gallery_albums',
+        'rental_assets' => 'SELECT COUNT(*) FROM rental_assets',
+        'rental_bookings' => 'SELECT COUNT(*) FROM rental_bookings',
+        'member_badges' => 'SELECT COUNT(*) FROM member_badges',
+        'member_photos' => 'SELECT COUNT(*) FROM member_photos',
+        'finance_campaign_rows' => 'SELECT COUNT(*) FROM finance_campaign_rows',
+        'finance_expected_receivables' => 'SELECT COUNT(*) FROM finance_expected_receivables',
+    ];
+
     private static string $instanceRoot = '';
 
     private static string $buildOutput = '';
@@ -233,7 +261,12 @@ final class ReferenceDatasetBuildTest extends TestCase
 
     private function rowCount(string $table): int
     {
-        return (int) $this->pdo()->query('SELECT COUNT(*) FROM `' . $table . '`')->fetchColumn();
+        $sql = self::COUNT_QUERIES[$table] ?? null;
+        if ($sql === null) {
+            self::fail('No counting query declared for ' . $table . '.');
+        }
+
+        return (int) $this->pdo()->query($sql)->fetchColumn();
     }
 
     /** @return list<array<string, mixed>> */
@@ -305,11 +338,17 @@ final class ReferenceDatasetBuildTest extends TestCase
      */
     private static function runProcess(array $arguments, array $environment): array
     {
-        $descriptors = [1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
+        // `2>&1` rather than a second pipe: draining one pipe to EOF and
+        // only then the other deadlocks as soon as the child fills the
+        // one nobody is reading — and a failing build.php writes a PHP
+        // fatal to stderr while stdout is still open, which is precisely
+        // the case this test exists to observe. One stream cannot fill
+        // behind the other's back, and the two were being concatenated
+        // anyway.
         $pipes = [];
         $process = proc_open(
-            implode(' ', array_map('escapeshellarg', $arguments)),
-            $descriptors,
+            implode(' ', array_map('escapeshellarg', $arguments)) . ' 2>&1',
+            [1 => ['pipe', 'w']],
             $pipes,
             self::repositoryRoot(),
             $environment + getenv(),
@@ -319,9 +358,8 @@ final class ReferenceDatasetBuildTest extends TestCase
             return [-1, 'Could not start ' . ($arguments[1] ?? '')];
         }
 
-        $output = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
+        $output = (string) stream_get_contents($pipes[1]);
         fclose($pipes[1]);
-        fclose($pipes[2]);
 
         return [proc_close($process), $output];
     }

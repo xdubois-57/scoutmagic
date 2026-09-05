@@ -79,7 +79,14 @@ final class ReferenceDatasetAutoloadTest extends TestCase
     private function probeInSubprocess(): string
     {
         $repositoryRoot = dirname(__DIR__, 2);
-        $script = tempnam(sys_get_temp_dir(), 'reference-dataset-autoload-') . '.php';
+        // No `.php` appended: tempnam() CREATES the file it names, so a
+        // suffixed path writes and deletes a second file and leaves the
+        // reservation behind on every run. The CLI does not care about the
+        // extension.
+        $script = tempnam(sys_get_temp_dir(), 'reference-dataset-autoload-');
+        if ($script === false) {
+            self::fail('Could not create the autoload probe script.');
+        }
 
         file_put_contents($script, <<<PHP
         <?php
