@@ -2535,6 +2535,11 @@ $router->addRoute(
 $router->addRoute(
     'GET', '/chefs/membres/export', \Core\Http\Controller\SectionRosterController::class, 'export', 'intendant',
 );
+// The roll-call sheet. Same role as the page it prints — it carries less
+// than the page does, not more: no contact of any kind reaches it.
+$router->addRoute(
+    'GET', '/chefs/membres/pdf', \Core\Http\Controller\SectionRosterController::class, 'pdf', 'intendant',
+);
 $router->addRoute(
     'POST', '/chefs/staffs/documents', \Core\Http\Controller\SectionDocumentController::class, 'add', 'chief',
 );
@@ -3081,6 +3086,14 @@ $frontController->registerController(
     $memberExportService,
     $scoutYearResolver,
     $journalService,
+    new \Core\Member\SectionRosterPdfService(
+        new \Core\Member\Pdf\SectionRosterHtmlBuilder(),
+        // The rendered document is kept here until its inputs change —
+        // the same disk cache, and the same atomic replacement, as the
+        // printable trombinoscope's.
+        $storagePath . '/temp'
+    ),
+    $settingService,
 ));
 $frontController->registerController(
     \Core\Http\Controller\SectionDocumentController::class, new \Core\Http\Controller\SectionDocumentController(

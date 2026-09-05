@@ -19,6 +19,8 @@ use Core\Member\Movement\MemberMovementClassifierService;
 use Core\Member\Movement\MemberMovementRepository;
 use Core\Member\MemberEmailRepository;
 use Core\Member\SectionRosterRepository;
+use Core\Member\Pdf\SectionRosterHtmlBuilder;
+use Core\Member\SectionRosterPdfService;
 use Core\Member\SectionRosterService;
 use Core\Member\SectionService;
 use Core\ScoutYear\ScoutYearResolver;
@@ -95,7 +97,11 @@ class SectionRosterControllerTest extends TestCase
             $exportRowBuilder,
             $exportService,
             $scoutYearResolver,
-            $journalService
+            $journalService,
+            // Null cache directory: every call renders, which is what
+            // Core\Member\SectionRosterPdfService documents it for.
+            new SectionRosterPdfService(new SectionRosterHtmlBuilder()),
+            $settingService
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -351,6 +357,105 @@ class SectionRosterControllerTest extends TestCase
         $this->assertContains('Alice', $names);
         $this->assertNotContains('Bob', $names);
         unlink($path);
+    }
+
+    // --- the roll-call sheet -------------------------------------------
+
+    public function testPdfReturnsARealPdfDocument(): void
+    {
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 20);
+        $sectionId = $this->createSection('LOU01', $branchId, 'Ma section');
+        $this->createMemberInSection($sectionId, 'Alice', 'chief');
+
+        $request = new Request('GET', '/chefs/membres/pdf', [], [], [], []);
+        $response = $this->controller->pdf($request, []);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('application/pdf', $response->getHeaders()['Content-Type']);
+        $this->assertStringStartsWith('%PDF-', $response->getBody());
+        $this->assertSame((string) strlen($response->getBody()), $response->getHeaders()['Content-Length']);
+    }
+
+    /**
+     * The sheet prints what is being looked at: the button carries the
+     * picker's own filter, so both must resolve the same perimeter.
+     */
+    public function testPdfRespectsTheSectionFilterAndNamesItInTheFile(): void
+    {
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 20);
+        $sectionA = $this->createSection('LOU01', $branchId, 'Section A');
+        $this->createSection('LOU02', $branchId, 'Section B');
+
+        $request = new Request('GET', '/chefs/membres/pdf', ['section' => (string) $sectionA], [], [], []);
+        $response = $this->controller->pdf($request, []);
+
+        $this->assertStringContainsString(
+            'filename="appel-2025-2026-section-a.pdf"',
+            $response->getHeaders()['Content-Disposition']
+        );
+    }
+
+    public function testPdfWithoutAFilterNamesNoSection(): void
+    {
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 20);
+        $this->createSection('LOU01', $branchId, 'Section A');
+
+        $request = new Request('GET', '/chefs/membres/pdf', [], [], [], []);
+        $response = $this->controller->pdf($request, []);
+
+        $this->assertStringContainsString(
+            'filename="appel-2025-2026.pdf"',
+            $response->getHeaders()['Content-Disposition']
+        );
+    }
+
+    /**
+     * Counters, never a name — the same rule the spreadsheet export's own
+     * entry already follows (AGENTS.md § Security checklist).
+     */
+    public function testPdfIsJournaledWithCountersAndNoPersonalData(): void
+    {
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 20);
+        $sectionId = $this->createSection('LOU01', $branchId, 'Ma section');
+        $this->createMemberInSection($sectionId, 'Alice', 'chief');
+
+        $this->controller->pdf(new Request('GET', '/chefs/membres/pdf', [], [], [], []), []);
+
+        $row = $this->pdo->query(
+            "SELECT * FROM event_log WHERE event_type = 'section_roster_pdf_exported'"
+        )->fetch(\PDO::FETCH_ASSOC);
+        $this->assertNotFalse($row);
+        $context = json_decode((string) $row['context'], true);
+        $this->assertSame(1, $context['section_count']);
+        $this->assertSame(1, $context['member_count']);
+        $this->assertStringNotContainsStringIgnoringCase('Alice', (string) $row['context']);
+        $this->assertStringNotContainsStringIgnoringCase('Alice', (string) $row['description']);
+    }
+
+    public function testThePageOffersTheSheetBesideTheSpreadsheet(): void
+    {
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 20);
+        $this->createSection('LOU01', $branchId, 'Ma section');
+
+        $body = $this->controller->index(new Request('GET', '/chefs/membres', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('href="/chefs/membres/pdf"', $body);
+        $this->assertStringContainsString("Feuille d'appel PDF", $body);
+        $this->assertStringContainsString('href="/chefs/membres/export"', $body);
+    }
+
+    public function testTheSheetButtonCarriesTheSelectedSection(): void
+    {
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 20);
+        $sectionA = $this->createSection('LOU01', $branchId, 'Section A');
+        $this->createSection('LOU02', $branchId, 'Section B');
+
+        $request = new Request('GET', '/chefs/membres', ['section' => (string) $sectionA], [], [], []);
+
+        $this->assertStringContainsString(
+            'href="/chefs/membres/pdf?section=' . $sectionA . '"',
+            $this->controller->index($request, [])->getBody()
+        );
     }
 
     private function createBranch(string $code, string $label, int $sortOrder): int
