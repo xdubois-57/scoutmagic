@@ -285,7 +285,13 @@ final class CampaignSeeder
     private function line(int $position, int $amountCents, string $communication, int $serial, string $counterparty = 'VIREMENT FAMILLE'): StatementDraft
     {
         $day = CampaignBlueprint::FIRST_PAYMENT_DAY + ($position % CampaignBlueprint::PAYMENT_SPREAD_DAYS);
-        $date = (new \DateTimeImmutable(ExtrasBlueprint::dateIn(CampaignBlueprint::YEAR, $day)))->format('d/m/Y');
+        // Kept as a date object as well as the `d/m/Y` string the statement
+        // carries: `d/m/Y` is not a format PHP can read back. The reference
+        // below used to re-parse it, which \DateTimeImmutable reads as
+        // `m/d/Y` — silently the wrong date for the first twelve days of a
+        // month, and a DateMalformedStringException for every other day.
+        $stamp = new \DateTimeImmutable(ExtrasBlueprint::dateIn(CampaignBlueprint::YEAR, $day));
+        $date = $stamp->format('d/m/Y');
 
         return new StatementDraft(
             date: $date,
@@ -298,7 +304,7 @@ final class CampaignSeeder
             // 9-prefixed serials, well clear of the 1000/2000/7000 bands
             // BankStatementBuilder uses, so no line of this file can ever be
             // mistaken for a repeat of a committed one.
-            reference: sprintf('%s9%09d', (new \DateTimeImmutable($date))->format('ymd'), $serial),
+            reference: sprintf('%s9%09d', $stamp->format('ymd'), $serial),
         );
     }
 
