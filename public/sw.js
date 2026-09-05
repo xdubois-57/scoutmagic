@@ -480,6 +480,12 @@ self.addEventListener('fetch', function (event) {
 const NETWORK_TIMEOUT_MS = 5000;
 
 /**
+ * How far a cached copy may appear to come from the future before it stops
+ * counting as fresh. Ordinary device/server clock drift, not a real age.
+ */
+const CLOCK_SKEW_TOLERANCE_MS = 5 * 60 * 1000;
+
+/**
  * The network request for a navigation, started NOW — before the offline
  * configuration has been read — so that reading it costs the navigation
  * nothing. `preloadResponse` (event.preloadResponse, see activate) is
@@ -734,7 +740,15 @@ function cachedCopy(request, cacheName, config, reason) {
         // fresh and served a copy of unknown age as if it were current.
         // Every comparison below is false for NaN, so only a real,
         // non-negative age inside the window survives.
-        const fresh = ageMs >= 0 && ageMs <= stalenessDays * 24 * 60 * 60 * 1000;
+        // `ageMs` subtracts a SERVER clock (the Date header) from a DEVICE
+        // clock, so a phone running a few minutes slow makes a copy cached
+        // seconds ago look negative-aged. Rejecting every negative age
+        // therefore threw away perfectly good copies and showed the offline
+        // page instead — on exactly the devices where clock drift is
+        // ordinary. The guard is bounded rather than dropped: a copy dated
+        // days ahead is still of unknown age and still refused.
+        const fresh = ageMs >= -CLOCK_SKEW_TOLERANCE_MS
+            && ageMs <= stalenessDays * 24 * 60 * 60 * 1000;
         if (!fresh) {
             return null;
         }

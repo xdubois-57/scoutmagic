@@ -14,6 +14,13 @@ import '../../public/sw.js';
 
 const sw = globalThis.ScoutMagicServiceWorkerInternals;
 
+// jsdom DEFINES `self`, and retryOnce() reads `self.navigator?.onLine`.
+// A cleanup that DELETED the binding made that read throw ReferenceError
+// in every later test instead of retrying — the catch then served the
+// offline page, so those tests passed without ever exercising the retry.
+// Restore what was there.
+const realSelf = global.self;
+
 // Minimal Cache Storage fake. Keyed by cache name; each cache stores
 // Request-or-string -> Response. Enough for open/match/put/keys/delete,
 // plus the one option the app-shell branch depends on: `ignoreSearch`,
@@ -391,7 +398,7 @@ describe('sw.js: handleNavigate()', () => {
     // retryOnce() then refuses to fetch in unrelated tests, and one failure
     // becomes a cascade that buries its own cause.
     afterEach(() => {
-        delete global.self;
+        global.self = realSelf;
     });
 
     function seedConfig(config) {
@@ -575,7 +582,7 @@ describe('sw.js: retryOnce()', () => {
     const request = { url: 'https://example.test/groups/3', mode: 'navigate' };
 
     afterEach(() => {
-        delete global.self;
+        global.self = realSelf;
     });
 
     it('tries the request again when the browser still believes it is online', async () => {
@@ -607,11 +614,32 @@ describe('sw.js: handleNavigate() retries before showing the offline page', () =
     const request = { url: url.href, mode: 'navigate' };
 
     afterEach(() => {
-        delete global.self;
+        global.self = realSelf;
     });
 
     it('serves the page a retry succeeds in fetching, not "Pas de connexion"', async () => {
         global.self = { navigator: { onLine: true } };
+        global.caches = createCachesFake({ 'app-shell': { '/offline': makeResponse('<body>offline</body>') } });
+        let attempt = 0;
+        global.fetch = vi.fn(() => {
+            attempt++;
+            return attempt === 1
+                ? Promise.reject(new Error('resumed from frozen'))
+                : Promise.resolve(makeResponse('<body>live</body>'));
+        });
+
+        const res = await sw.handleNavigate(request, url, undefined);
+
+        expect(await res.text()).toBe('<body>live</body>');
+        expect(fetch).toHaveBeenCalledTimes(2);
+    });
+
+    // The regression the restore above guards: this test deliberately does
+    // NOT stub `self`, so it runs against jsdom's own. A cleanup that
+    // deleted the binding made `self.navigator?.onLine` throw here, the
+    // catch served the offline page, and the retry was never exercised —
+    // a test that passed while covering nothing.
+    it('retries against the ambient self, with no stub of its own', async () => {
         global.caches = createCachesFake({ 'app-shell': { '/offline': makeResponse('<body>offline</body>') } });
         let attempt = 0;
         global.fetch = vi.fn(() => {

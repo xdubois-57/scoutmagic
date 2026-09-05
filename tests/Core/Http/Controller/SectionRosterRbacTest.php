@@ -76,6 +76,7 @@ class SectionRosterRbacTest extends TestCase
     {
         $router = new Router();
         $router->addRoute('GET', '/chefs/membres', SectionRosterStubController::class, 'index', 'intendant');
+        $router->addRoute('GET', '/chefs/membres/export', SectionRosterStubController::class, 'export', 'intendant');
         $router->addRoute('GET', '/chefs/membres/pdf', SectionRosterStubController::class, 'pdf', 'intendant');
         $fc = new FrontController($router, $this->twig, $this->config);
         $fc->registerController(SectionRosterStubController::class, new SectionRosterStubController($this->twig));
@@ -140,6 +141,22 @@ class SectionRosterRbacTest extends TestCase
         $this->assertSame(403, $response->getStatusCode());
     }
 
+    public function testTheSpreadsheetExportIsAllowedAtIntendant(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(1, 'i@test.com', 'intendant');
+        $response = $this->buildFrontController()->handle(new Request('GET', '/chefs/membres/export', [], [], [], []));
+        $this->assertSame(200, $response->getStatusCode());
+    }
+
+    public function testTheSpreadsheetExportIsDeniedOneLevelBelowIntendant(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(1, 'id@test.com', 'identified');
+        $response = $this->buildFrontController()->handle(new Request('GET', '/chefs/membres/export', [], [], [], []));
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
     public function testTheRollCallSheetRedirectsToLoginWhenUnauthenticated(): void
     {
         $this->startTestSession();
@@ -165,6 +182,14 @@ class SectionRosterStubController extends AbstractController
     public function index(Request $request, array $params): Response
     {
         return new Response('ok', 200);
+    }
+
+    /**
+     * @param array<string, string> $params
+     */
+    public function export(Request $request, array $params): Response
+    {
+        return new Response('xlsx', 200);
     }
 
     /**

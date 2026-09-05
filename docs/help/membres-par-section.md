@@ -43,10 +43,11 @@ réutilisable comme liste de destinataires dans l'envoi de mails
 ## Imprimer la feuille d'appel
 
 Le bouton « Feuille d'appel PDF » produit un document à tenir en main
-pendant une cérémonie de passage ou un jour de rentrée : une page par
-section, les animateurs puis les animés, une case à cocher devant chaque
-nom et les étiquettes de mouvement en couleur. Le compte figure en haut
-de chaque page.
+pendant une cérémonie de passage ou un jour de rentrée : une feuille par
+section, qui se poursuit sur plusieurs pages quand la section est
+nombreuse, les animateurs puis les animés, une case à cocher devant
+chaque nom et les étiquettes de mouvement en couleur. Le compte figure en
+haut de chaque page.
 
 Il suit la section choisie, comme l'export Excel : une section donne une
 feuille, « Toutes » en donne autant que de sections. Chaque feuille peut

@@ -244,11 +244,23 @@ class SectionRosterPdfService
             $composition[] = [$view->name, $view->branchName, $view->color, $people];
         }
 
-        // The layout code itself is part of the signature: editing the
-        // builder must invalidate every cached copy, or a deployment would
-        // keep serving documents drawn by the previous version.
-        $layout = (string) realpath(__DIR__ . '/Pdf/SectionRosterHtmlBuilder.php');
-        $layoutStat = $layout !== '' ? @stat($layout) : false;
+        // The layout code itself is part of the signature: editing it must
+        // invalidate every cached copy, or a deployment would keep serving
+        // documents drawn by the previous version.
+        //
+        // EVERY file in Pdf/, not just the builder. The builder composes
+        // RosterDensity, RosterMemberView and RosterSectionView, so a
+        // release that changes RosterDensity::forLargestGroup() — the row
+        // spacing of every large section — leaves the builder untouched.
+        // Stating one file made the "a stale copy is impossible" claim
+        // true of a quarter of what draws the sheet.
+        $layoutFingerprint = [];
+        foreach (glob(__DIR__ . '/Pdf/*.php') ?: [] as $layoutFile) {
+            $layoutStat = @stat($layoutFile);
+            $layoutFingerprint[basename($layoutFile)] = $layoutStat !== false
+                ? [$layoutStat['mtime'], $layoutStat['size']]
+                : null;
+        }
 
         // Encoded first rather than inline in hash(): two arguments opening
         // on the same line as a multi-line array is the one shape this
@@ -260,7 +272,7 @@ class SectionRosterPdfService
             $siteUrl,
             $selectedSectionId,
             $composition,
-            $layoutStat !== false ? [$layoutStat['mtime'], $layoutStat['size']] : null,
+            $layoutFingerprint,
         ]);
         if ($payload === false) {
             // No signature, no cache. `(string) false` is '', and
