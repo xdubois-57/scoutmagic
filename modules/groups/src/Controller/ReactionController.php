@@ -297,17 +297,16 @@ class ReactionController extends AbstractController
         // publish is still a group everybody reacts in.
         $permission = $this->accessService->canParticipate($group, $context);
         if (!$permission->allowed) {
-            return new Response($permission->message, 403);
+            return $this->forbidden($permission->message, $request);
         }
 
         // Which member the reaction is recorded under: the same resolution
         // a post or a reply uses, so an account linked to several members
         // of the group reacts as exactly one of them and the UNIQUE
         // (item, member) index means one reaction, not one per link.
-        $allowed = $this->accessService->memberIdsAllowedToPostAs($group, $context);
-        $memberId = $allowed[0] ?? 0;
-        if ($memberId === 0) {
-            return new Response('Aucun membre de ce groupe n\'est associé à votre compte.', 403);
+        $memberId = $this->accessService->authorMemberIdFor($group, $context);
+        if ($memberId === null) {
+            return $this->forbidden(GroupAccessService::NO_AUTHOR_MEMBER_MESSAGE, $request);
         }
 
         // Never trusted: Service\ReactionService validates it against

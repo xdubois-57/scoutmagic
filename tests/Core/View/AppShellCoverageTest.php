@@ -72,4 +72,44 @@ final class AppShellCoverageTest extends TestCase
         );
     }
 
+    /**
+     * The offline page's own assets, held to the same rule — and it is a
+     * harder rule there: this page is ONLY ever seen with no network, so
+     * an asset missing from the shell is not degraded, it is absent.
+     *
+     * The script that matters most is theme.js. The page cannot carry the
+     * inline nonce'd snippet base.html.twig uses to set `data-bs-theme`
+     * before the first paint (a nonce baked into a service-worker-cached
+     * response goes stale on the very next request), so it loads theme.js
+     * from its head instead — and was served in light mode to every
+     * dark-mode reader until it did.
+     */
+    public function testEveryAssetTheOfflinePageLoadsIsInTheOfflineAppShell(): void
+    {
+        $root = dirname(__DIR__, 3);
+        $offline = (string) file_get_contents($root . '/core/View/templates/pwa/offline.html.twig');
+        $sw = (string) file_get_contents($root . '/public/sw.js');
+
+        preg_match_all("~asset\('(/assets/[^']+)'\)~", $offline, $m);
+        $loaded = array_values(array_unique($m[1]));
+        self::assertContains(
+            '/assets/js/theme.js',
+            $loaded,
+            'pwa/offline.html.twig must load theme.js or it renders light for a dark-mode reader.'
+        );
+
+        preg_match_all("~'(/assets/[^']+)'~", $sw, $shellMatches);
+        $missing = array_values(array_diff($loaded, $shellMatches[1]));
+        sort($missing);
+
+        self::assertSame(
+            [],
+            $missing,
+            "pwa/offline.html.twig links these but public/sw.js never caches them — and this page
+"
+            . "is only ever shown with no network, so they would simply not be there:
+  "
+            . implode("\n  ", $missing)
+        );
+    }
 }

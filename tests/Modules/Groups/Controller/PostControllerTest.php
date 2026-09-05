@@ -344,6 +344,68 @@ class PostControllerTest extends TestCase
         $this->assertSame([], $this->postRepo->findPage($this->groupId, 10));
     }
 
+    /**
+     * The PWA bug: Staff d'U opens any group (the implicit-moderator
+     * bypass), the composer is offered — and every message came back as
+     * a bare plain-text 403, "Aucun membre de ce groupe n'est associé à
+     * votre compte.", because their own children are in another section.
+     * The admin now signs with their own member, which nothing displays
+     * anyway (Service\PostAuthorResolver: the signature is the account).
+     */
+    public function testASiteAdminMayPublishInAGroupNoneOfTheirMembersBelongsTo(): void
+    {
+        $elsewhere = GroupsTestHelper::createMember($this->pdo, 'ADMINCHILD');
+        $this->withCsrf(['body' => 'Message du staff']);
+
+        $response = $this->controller([$elsewhere], self::AUTHOR_ACCOUNT, 'admin')
+            ->create($this->request(), $this->params());
+
+        $this->assertSame(302, $response->getStatusCode());
+        $posts = $this->postRepo->findPage($this->groupId, 10);
+        $this->assertCount(1, $posts);
+        $this->assertSame('Message du staff', $posts[0]->body);
+        $this->assertSame($elsewhere, $posts[0]->authorMemberId);
+    }
+
+    /**
+     * The other half of the same bug: a refusal a person can read.
+     * Whatever remains refusable must come back as the site's own 403
+     * PAGE — stylesheet, theme, a way back — never as a sentence served
+     * as the whole document, which in the installed PWA is a bare black
+     * line on a white page in the middle of a dark-mode session.
+     */
+    public function testARefusedPostIsTheSitesOwn403PageNotAPlainTextBody(): void
+    {
+        $this->withCsrf(['body' => 'Bonjour']);
+
+        // An admin account linked to no member at all: nothing can sign
+        // the post, which canParticipate() now refuses up front.
+        $response = $this->controller([], self::AUTHOR_ACCOUNT, 'admin')
+            ->create($this->request(), $this->params());
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertStringContainsString('<!DOCTYPE html>', $response->getBody());
+        $this->assertStringContainsString('Aucun membre', $response->getBody());
+        $this->assertSame([], $this->postRepo->findPage($this->groupId, 10));
+    }
+
+    /**
+     * And over fetch(), the same refusal is JSON — which is what stops
+     * groups.js falling back to form.submit() (its "not JSON at all"
+     * branch) and replacing the whole page with the refusal.
+     */
+    public function testARefusedPostViaAjaxIsJsonSoTheComposerCanShowItInline(): void
+    {
+        $this->withCsrf(['body' => 'Bonjour']);
+
+        $response = $this->controller([], self::AUTHOR_ACCOUNT, 'admin')
+            ->create($this->ajaxRequest(), $this->params());
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame('application/json', $response->getHeaders()['Content-Type']);
+        $this->assertStringContainsString('Aucun membre', json_decode($response->getBody(), true)['error']);
+    }
+
     public function testCreateIs404ForANonMember(): void
     {
         $outsider = GroupsTestHelper::createMember($this->pdo, 'OUT');
@@ -559,6 +621,13 @@ class PostControllerTest extends TestCase
         $response = $this->controller([$this->memberId])->linkPreview($this->linkPreviewRequest(), $this->params());
 
         $this->assertSame(403, $response->getStatusCode());
+        // JSON, and asserted rather than assumed: linkPreviewRequest()
+        // deliberately sends no X-Requested-With, so a refusal shaped by
+        // the caller's headers would hand an HTML page to the composer's
+        // own fetch(). Every state canPost() denies here is an ordinary
+        // one — a closed group, a past year, an incomplete profile.
+        $this->assertSame('application/json', $response->getHeaders()['Content-Type']);
+        $this->assertArrayHasKey('error', json_decode($response->getBody(), true));
     }
 
     public function testLinkPreviewReturnsANullUrlWhenTheDraftHasNoLinkWithoutCallingTheFetcher(): void

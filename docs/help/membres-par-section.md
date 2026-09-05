@@ -1,12 +1,13 @@
 ---
 id: membres-par-section
 title: Consulter les membres par section
-summary: Voir la liste des animés et du staff de chaque section, et l'exporter en Excel.
+summary: Voir la liste des animés et du staff de chaque section, l'exporter en Excel ou imprimer la feuille d'appel.
 category: Espace animateurs
 role_min: intendant
 question: Où voir la liste des animés d'une section ?
 question: Comment exporter les membres d'une section en Excel ?
 question: Combien d'animés compte ma section cette année ?
+question: Comment imprimer la liste d'appel pour la cérémonie de passage ?
 paths: /chefs/membres
 ---
 
@@ -38,3 +39,21 @@ réutilisable comme liste de destinataires dans l'envoi de mails
 
 > Ce fichier contient des coordonnées personnelles. Conservez-le sur un
 > appareil sûr et supprimez-le dès qu'il ne sert plus.
+
+## Imprimer la feuille d'appel
+
+Le bouton « Feuille d'appel PDF » produit un document à tenir en main
+pendant une cérémonie de passage ou un jour de rentrée : une feuille par
+section, qui se poursuit sur plusieurs pages quand la section est
+nombreuse, les animateurs puis les animés, une case à cocher devant
+chaque nom et les étiquettes de mouvement en couleur. Le compte figure en
+haut de chaque page.
+
+Il suit la section choisie, comme l'export Excel : une section donne une
+feuille, « Toutes » en donne autant que de sections. Chaque feuille peut
+donc être détachée et confiée à l'animateur concerné — la légende des
+étiquettes y est répétée.
+
+Les intendants n'y figurent pas : ils ne participent pas au passage. Ils
+restent visibles à l'écran et dans l'export Excel. Aucune coordonnée n'est
+imprimée sur ce document, qui circule pendant la cérémonie.

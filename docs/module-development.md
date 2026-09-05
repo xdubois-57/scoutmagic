@@ -277,6 +277,42 @@ markup around it is a template that has to remember to escape it.
 The controller side is `$this->guardCsrf($request, '/where/to/go/back')`
 — see `AbstractController`; the guard is never called by the router.
 
+## Refusing: `notFound()` and `forbidden()`
+
+A refusal is a page, never a sentence served as the whole document.
+
+```php
+return $this->notFound();                                  // errors/404
+return $this->forbidden('Seul un modérateur…', $request);   // errors/403
+```
+
+`new Response('Seul un modérateur…', 403)` renders that sentence as the
+entire body: no stylesheet, no theme, no navigation, no way back. In the
+**installed PWA** there is no browser chrome either, so what the member
+actually gets is one black line on a white page — in the middle of a
+dark-mode session. That is what these two helpers exist to stop; the
+message itself is worth keeping and is passed straight through to the
+page.
+
+Pass `$request` whenever the route is also reachable by `fetch()`. The
+refusal then comes back as `{"error": "…"}` with the 403 instead of a
+page, which is what a caller that reads `data.error` shows inline — the
+group composer (`groups.js`) is the one that does.
+
+The other callers there branch on `response.ok` alone (the delete and
+moderation forms, the reaction form) and fall back to a real
+`form.submit()` on any failure, JSON body or not. That fallback is no
+longer the bug it was: a genuine form submit carries no
+`X-Requested-With`, so `forbidden()` answers it with the site's themed
+403 page rather than the bare text body that started all this. It is
+still a whole-page navigation, so a route worth answering inline needs
+its caller taught to read `error` — passing `$request` alone does not do
+it.
+
+The message is French, a full sentence, and says what happened
+(`AGENTS.md` § Language). `forbidden()` with no message falls back to the
+site's general "Vous n'avez pas les permissions nécessaires…".
+
 ## Selection components: select bar and nav rail
 
 The site has **two** selection components, for two genuinely different

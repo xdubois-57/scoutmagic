@@ -157,7 +157,7 @@ class ReplyController extends AbstractController
         // canPost(), Service\GroupAccessService).
         $permission = $this->accessService->canParticipate($group, $context);
         if (!$permission->allowed) {
-            return new Response($permission->message, 403);
+            return $this->forbidden($permission->message, $request);
         }
 
         $body = (string) $request->getBody('body', '');
@@ -182,9 +182,9 @@ class ReplyController extends AbstractController
             return $this->redirect('/groups/' . $group->id);
         }
 
-        $authorMemberId = $this->authorMemberId($group, $context, $request);
+        $authorMemberId = $this->accessService->authorMemberIdFor($group, $context);
         if ($authorMemberId === null || $context->userAccountId === null) {
-            return new Response('Aucun membre de ce groupe n\'est associé à votre compte.', 403);
+            return $this->forbidden(GroupAccessService::NO_AUTHOR_MEMBER_MESSAGE, $request);
         }
 
         $mediaId = null;
@@ -278,11 +278,11 @@ class ReplyController extends AbstractController
             GroupSessionContext $context
         ) use ($request) {
             if (!$this->replyService->canEdit($reply, $context)) {
-                return new Response('Cette réponse ne peut plus être modifiée.', 403);
+                return $this->forbidden('Cette réponse ne peut plus être modifiée.', $request);
             }
 
             if (!$this->accessService->canParticipate($group, $context)->allowed) {
-                return new Response('Ce groupe n\'accepte plus de modification.', 403);
+                return $this->forbidden('Ce groupe n\'accepte plus de modification.', $request);
             }
 
             $body = (string) $request->getBody('body', '');
@@ -338,7 +338,7 @@ class ReplyController extends AbstractController
         ) use ($request) {
             $canModerate = $this->accessService->canModerate($group, $context);
             if (!$this->replyService->canDelete($reply, $context, $canModerate)) {
-                return new Response('Vous ne pouvez pas supprimer cette réponse.', 403);
+                return $this->forbidden('Vous ne pouvez pas supprimer cette réponse.', $request);
             }
 
             // Same rule as a post's: recorded only when a moderator
@@ -451,18 +451,6 @@ class ReplyController extends AbstractController
         }
 
         return $action($group, $reply, $context);
-    }
-
-    /**
-     * The membership stored beside a reply — resolved, never asked for,
-     * exactly like a post's own (Controller\PostController::create()). A
-     * comment belongs to the LOGIN that wrote it and is signed with that
-     * account's name; this only feeds the machinery keyed on a member
-     * (the rate limit, the read state).
-     */
-    private function authorMemberId(DiscussionGroup $group, GroupSessionContext $context, Request $request): ?int
-    {
-        return $this->accessService->memberIdsAllowedToPostAs($group, $context)[0] ?? null;
     }
 
     /**

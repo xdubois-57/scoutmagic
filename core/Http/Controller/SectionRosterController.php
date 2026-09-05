@@ -8,12 +8,14 @@ declare(strict_types=1);
 
 namespace Core\Http\Controller;
 
+use Core\Config\SettingService;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Member\Export\MemberExportRowBuilder;
 use Core\Member\Export\MemberExportService;
 use Core\Member\Movement\MemberMovementStatus;
+use Core\Member\SectionRosterPdfService;
 use Core\Member\SectionRosterService;
 use Core\Member\SectionService;
 use Core\ScoutYear\ScoutYearResolver;
@@ -44,7 +46,22 @@ class SectionRosterController extends AbstractController
         private MemberExportRowBuilder $exportRowBuilder,
         private MemberExportService $exportService,
         private ScoutYearResolver $scoutYearResolver,
-        private JournalService $journalService
+        private JournalService $journalService,
+        /**
+         * Trailing and nullable so every existing construction of this
+         * controller keeps working — the same posture as the module
+         * capabilities elsewhere. Null means the button is not offered
+         * and the route answers 404, never a page that offers a download
+         * nothing can produce.
+         */
+        private ?SectionRosterPdfService $pdfService = null,
+        /**
+         * Only the unit name and the site address, for the sheet's own
+         * header and footer — both organizational, both already public on
+         * every page of the site. Nullable and trailing for the same
+         * backward-compatibility reason as the service above.
+         */
+        private ?SettingService $settingService = null
     ) {
     }
 
@@ -95,6 +112,10 @@ class SectionRosterController extends AbstractController
             'can_view_member_link' => $role->hasAccess(Role::ADMIN),
             'export_url' => '/chefs/membres/export'
                 . ($selectedId !== self::ALL_SECTIONS_ID ? '?section=' . $selectedId : ''),
+            // Same perimeter as the screen, deliberately: the sheet prints
+            // what is being looked at, so both exports carry the filter.
+            'pdf_url' => $this->pdfService === null ? null : '/chefs/membres/pdf'
+                . ($selectedId !== self::ALL_SECTIONS_ID ? '?section=' . $selectedId : ''),
             'scout_year_label' => $effectiveYear->label,
             'movement_statuses' => array_values(array_map(
                 fn(MemberMovementStatus $status) => [
@@ -143,6 +164,86 @@ class SectionRosterController extends AbstractController
         $filename = 'membres-' . preg_replace('/[^0-9A-Za-z_-]/', '_', $effectiveYear->label) . '.xlsx';
 
         return \Core\Http\SpreadsheetResponse::download($xlsx, $filename);
+    }
+
+    /**
+     * GET /chefs/membres/pdf — the roll-call sheet, one page per section,
+     * for the same section filter the screen is showing.
+     *
+     * `role_min: intendant`, the page's own: what it prints is what the
+     * page already displays, minus every contact.
+     *
+     * @param array<string, string> $params
+     */
+    public function pdf(Request $request, array $params): Response
+    {
+        if ($this->pdfService === null) {
+            return $this->notFound();
+        }
+
+        $role = Role::fromString(AuthSession::getRole());
+        $effectiveYear = $this->scoutYearResolver->getEffectiveYear(ScoutYearSession::getPreviewId(), $role);
+
+        $allSections = $this->sectionService->getAllWithBranches();
+        foreach ($allSections as &$section) {
+            $section['color'] = SectionService::colorForSection($section);
+        }
+        unset($section);
+
+        [$selectedId, , $sectionsToRender] = $this->resolveSelection($request, $allSections);
+        $sectionIds = array_map(fn(array $s) => (int) $s['id'], $sectionsToRender);
+        $roster = $this->rosterService->buildRoster($sectionIds, $effectiveYear->id);
+
+        $pdf = $this->pdfService->generate(
+            $effectiveYear->id,
+            $effectiveYear->label,
+            (string) ($this->settingService?->get('site_name') ?: ''),
+            rtrim((string) ($this->settingService?->get('base_url') ?: ''), '/'),
+            $sectionsToRender,
+            $roster,
+            $selectedId !== self::ALL_SECTIONS_ID ? $selectedId : null
+        );
+
+        // Counters only, never a name — the same shape as the spreadsheet
+        // export's own entry above (AGENTS.md § Security checklist, "no
+        // personal data in log entries").
+        $this->journalService->log(
+            'core',
+            'section_roster_pdf_exported',
+            'info',
+            'Export PDF des membres par section',
+            [
+                'scout_year_id' => $effectiveYear->id,
+                'section_count' => count($sectionIds),
+                'member_count' => array_sum(array_map(
+                    fn(array $buckets) => count($buckets['animateurs']) + count($buckets['animes']),
+                    $roster
+                )),
+            ],
+            AuthSession::getUserAccountId()
+        );
+
+        $sectionName = null;
+        if ($selectedId !== self::ALL_SECTIONS_ID && $sectionsToRender !== []) {
+            $first = $sectionsToRender[array_key_first($sectionsToRender)];
+            $sectionName = (string) (($first['name'] ?? '') !== '' ? $first['name'] : $first['desk_code']);
+        }
+
+        return (new Response($pdf))
+            ->setHeader('Content-Type', 'application/pdf')
+            // The sheet is member names in the clear, and neither Response
+            // nor the .xlsx sibling sets a cache directive of its own — so
+            // without this a shared browser, a proxy or a disk cache keeps
+            // the roster of a section long after the session that was
+            // allowed to see it has ended. `no-store` and not `no-cache`:
+            // the point is that it is never written down, not that it is
+            // revalidated.
+            ->setHeader('Cache-Control', 'private, no-store')
+            ->setHeader(
+                'Content-Disposition',
+                'attachment; filename="' . $this->pdfService->fileName($effectiveYear->label, $sectionName) . '"'
+            )
+            ->setHeader('Content-Length', (string) strlen($pdf));
     }
 
     /**

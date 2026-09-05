@@ -213,7 +213,7 @@ class PostController extends AbstractController
         // all refused here, not merely hidden in the UI.
         $permission = $this->accessService->canPost($group, $context);
         if (!$permission->allowed) {
-            return new Response($permission->message, 403);
+            return $this->forbidden($permission->message, $request);
         }
 
         $body = (string) $request->getBody('body', '');
@@ -281,10 +281,9 @@ class PostController extends AbstractController
         // the read state, "vu par"), and is resolved here rather than
         // asked for: whichever of this account's members belongs to this
         // group.
-        $allowed = $this->accessService->memberIdsAllowedToPostAs($group, $context);
-        $authorMemberId = $allowed[0] ?? 0;
-        if ($authorMemberId === 0 || $context->userAccountId === null) {
-            return new Response('Aucun membre de ce groupe n\'est associé à votre compte.', 403);
+        $authorMemberId = $this->accessService->authorMemberIdFor($group, $context);
+        if ($authorMemberId === null || $context->userAccountId === null) {
+            return $this->forbidden(GroupAccessService::NO_AUTHOR_MEMBER_MESSAGE, $request);
         }
 
         try {
@@ -399,15 +398,21 @@ class PostController extends AbstractController
             return new Response('Not Found', 404);
         }
 
+        // JSON, not forbidden(): this endpoint answers nothing but JSON,
+        // which guardCsrfJson() a few lines above already establishes by
+        // refusing a stale token that way with no header check at all.
+        // Every state canPost() denies here is an ordinary one — a closed
+        // group, a past year, an incomplete profile — so a refusal shaped
+        // by whether the caller happened to send X-Requested-With would
+        // hand an HTML page to something calling response.json().
         $permission = $this->accessService->canPost($group, $context);
         if (!$permission->allowed) {
-            return new Response($permission->message, 403);
+            return $this->json(['error' => $permission->message], 403);
         }
 
-        $allowed = $this->accessService->memberIdsAllowedToPostAs($group, $context);
-        $memberId = $allowed[0] ?? 0;
-        if ($memberId === 0) {
-            return new Response('Aucun membre de ce groupe n\'est associé à votre compte.', 403);
+        $memberId = $this->accessService->authorMemberIdFor($group, $context);
+        if ($memberId === null) {
+            return $this->json(['error' => GroupAccessService::NO_AUTHOR_MEMBER_MESSAGE], 403);
         }
 
         $url = PostLinkService::firstUrlIn((string) $request->getBody('body', ''));
@@ -433,7 +438,7 @@ class PostController extends AbstractController
             GroupSessionContext $context
         ) use ($request) {
             if (!$this->postService->canEdit($post, $context)) {
-                return new Response('Ce message ne peut plus être modifié.', 403);
+                return $this->forbidden('Ce message ne peut plus être modifié.', $request);
             }
 
             // A closed group (or a past-year one) accepts no write at all,
@@ -442,7 +447,7 @@ class PostController extends AbstractController
             // conversation, so a group that later moved to
             // moderators-only must not strand its author's own typo.
             if (!$this->accessService->canParticipate($group, $context)->allowed) {
-                return new Response('Ce groupe n\'accepte plus de modification.', 403);
+                return $this->forbidden('Ce groupe n\'accepte plus de modification.', $request);
             }
 
             $body = (string) $request->getBody('body', '');
@@ -513,7 +518,7 @@ class PostController extends AbstractController
         ) use ($request): Response {
             $permission = $this->accessService->canParticipate($group, $context);
             if (!$permission->allowed) {
-                return new Response($permission->message, 403);
+                return $this->forbidden($permission->message, $request);
             }
 
             // WHO the answer is recorded as belongs to the poll, not to
@@ -581,7 +586,7 @@ class PostController extends AbstractController
         ) use ($request) {
             $canModerate = $this->accessService->canModerate($group, $context);
             if (!$this->postService->canDelete($post, $context, $canModerate)) {
-                return new Response('Vous ne pouvez pas supprimer ce message.', 403);
+                return $this->forbidden('Vous ne pouvez pas supprimer ce message.', $request);
             }
 
             // Journaled before the row goes, and only when it is a
@@ -636,9 +641,9 @@ class PostController extends AbstractController
             DiscussionGroup $group,
             Post $post,
             GroupSessionContext $context
-        ) use ($duration) {
+        ) use ($duration, $request) {
             if (!$this->accessService->canModerate($group, $context)) {
-                return new Response('Seul un modérateur du groupe peut épingler un message.', 403);
+                return $this->forbidden('Seul un modérateur du groupe peut épingler un message.', $request);
             }
 
             $this->postService->pin($post, $duration);
@@ -658,9 +663,9 @@ class PostController extends AbstractController
             DiscussionGroup $group,
             Post $post,
             GroupSessionContext $context
-        ) {
+        ) use ($request) {
             if (!$this->accessService->canModerate($group, $context)) {
-                return new Response('Seul un modérateur du groupe peut épingler un message.', 403);
+                return $this->forbidden('Seul un modérateur du groupe peut désépingler un message.', $request);
             }
 
             $this->postService->unpin($post);

@@ -1101,9 +1101,17 @@ function e2e_warn_if_near_scout_year_boundary(?DateTimeImmutable $now = null): b
  * - Core\Member\MemberService::getLinkedMembers() matches an account to
  *   its members by the blind index of the email address, for one scout
  *   year. Without a matching member_years row every module that acts "as
- *   a member" (groups first among them) refuses every write with
- *   "Aucun membre de ce groupe n'est associé à votre compte", admin or
- *   not — that bypass does not exist, on purpose.
+ *   a member" (groups first among them) refuses every write — a post or a
+ *   reply with "Aucun membre n'est associé à votre compte : vos messages
+ *   ne peuvent être signés par personne.", and creating a group with
+ *   Controller\GroupController::create()'s own "Aucun membre n'est
+ *   associé à votre compte pour cette année scoute." — admin or not. A
+ *   site admin reads and
+ *   moderates every group and signs with a member of their OWN even when
+ *   the group holds none of them (Modules\Groups\Service\
+ *   GroupAccessService::authorMemberIdFor()), but an account linked to no
+ *   member at all has nothing to sign with anywhere: that bypass does not
+ *   exist, on purpose.
  * - Modules\Groups\Service\GroupAccessService::canPost() additionally
  *   requires the account's own first and last name, because they
  *   accompany every message; an account without them is offered no

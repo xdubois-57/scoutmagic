@@ -7,7 +7,15 @@
         {# The status code is decoration; the words are the heading. #}
         <p class="display-4 text-body-secondary mb-0" aria-hidden="true">403</p>
         <h1>Accès refusé</h1>
-        <p>Vous n'avez pas les permissions nécessaires pour accéder à cette page.</p>
+        {#
+          A refusal that knows WHY says so, in its own words — « Aucun
+          membre de ce groupe n'est associé à votre compte. » is worth
+          more than the generic sentence, and used to be served as a bare
+          plain-text body precisely because there was nowhere to put it.
+          Controller\AbstractController::forbidden() passes it here; the
+          router's own 403 (no message) keeps the general sentence.
+        #}
+        <p>{{ message|default('') ?: "Vous n'avez pas les permissions nécessaires pour accéder à cette page." }}</p>
         {% if not is_authenticated %}
             <a href="/login" class="btn btn-primary">Se connecter</a>
         {% else %}

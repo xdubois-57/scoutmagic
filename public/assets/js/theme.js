@@ -160,6 +160,22 @@
         }
     }
 
+    // Applied the instant this script is evaluated, before waiting for
+    // DOMContentLoaded below. On base.html.twig, where a tiny inline
+    // <script nonce> in <head> has already set the attribute and this
+    // file loads at the end of <body>, that is a harmless no-op. It is
+    // what lets a page with NO inline script load this one from its
+    // <head> and be themed before its first paint — pwa/offline.html.twig
+    // is precisely that page: precached by the service worker, it can
+    // carry no nonce (a nonce baked into a cached response goes stale on
+    // the very next request), so it was served in light mode to every
+    // dark-mode reader.
+    //
+    // <html> exists as soon as any script runs, whether from <head> or
+    // <body>, and apply()'s querySelectorAll simply finds no toggle
+    // buttons yet — they are wired on DOMContentLoaded, below.
+    apply();
+
     document.addEventListener('DOMContentLoaded', function () {
         // Re-read here: the module-scope read above ran when the script
         // loaded; in practice identical, but a test (or a slow storage

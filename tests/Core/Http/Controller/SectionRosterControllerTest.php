@@ -19,6 +19,8 @@ use Core\Member\Movement\MemberMovementClassifierService;
 use Core\Member\Movement\MemberMovementRepository;
 use Core\Member\MemberEmailRepository;
 use Core\Member\SectionRosterRepository;
+use Core\Member\Pdf\SectionRosterHtmlBuilder;
+use Core\Member\SectionRosterPdfService;
 use Core\Member\SectionRosterService;
 use Core\Member\SectionService;
 use Core\ScoutYear\ScoutYearResolver;
@@ -95,7 +97,11 @@ class SectionRosterControllerTest extends TestCase
             $exportRowBuilder,
             $exportService,
             $scoutYearResolver,
-            $journalService
+            $journalService,
+            // Null cache directory: every call renders, which is what
+            // Core\Member\SectionRosterPdfService documents it for.
+            new SectionRosterPdfService(new SectionRosterHtmlBuilder()),
+            $settingService
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -185,7 +191,7 @@ class SectionRosterControllerTest extends TestCase
         $request = new Request('GET', '/chefs/membres', [], [], [], []);
         $response = $this->controller->index($request, []);
 
-        $this->assertStringContainsString('href="/members/' . $memberYearId . '"', $response->getBody());
+        $this->assertStringContainsString('href="/admin/members/' . $memberYearId . '"', $response->getBody());
     }
 
     public function testMemberNameIsNotALinkForChiefRole(): void
@@ -198,7 +204,7 @@ class SectionRosterControllerTest extends TestCase
         $request = new Request('GET', '/chefs/membres', [], [], [], []);
         $response = $this->controller->index($request, []);
 
-        $this->assertStringNotContainsString('href="/members/' . $memberYearId . '"', $response->getBody());
+        $this->assertStringNotContainsString('href="/admin/members/' . $memberYearId . '"', $response->getBody());
     }
 
     public function testMemberNameIsNotALinkForIntendantRole(): void
@@ -211,7 +217,7 @@ class SectionRosterControllerTest extends TestCase
         $request = new Request('GET', '/chefs/membres', [], [], [], []);
         $response = $this->controller->index($request, []);
 
-        $this->assertStringNotContainsString('href="/members/' . $memberYearId . '"', $response->getBody());
+        $this->assertStringNotContainsString('href="/admin/members/' . $memberYearId . '"', $response->getBody());
     }
 
     public function testMemberNameIsALinkForSuperadminRole(): void
@@ -224,7 +230,67 @@ class SectionRosterControllerTest extends TestCase
         $request = new Request('GET', '/chefs/membres', [], [], [], []);
         $response = $this->controller->index($request, []);
 
-        $this->assertStringContainsString('href="/members/' . $memberYearId . '"', $response->getBody());
+        $this->assertStringContainsString('href="/admin/members/' . $memberYearId . '"', $response->getBody());
+    }
+
+    /**
+     * The identifier, pinned — not merely the presence of a link.
+     *
+     * `/admin/members/{id}` takes a **member_years.id**: Core\Member\
+     * Controller\MemberSearchController::show() resolves the parameter
+     * through MemberYearRepository::findById() and then normalises onto
+     * the member's most recent annual row. members.id and member_years.id
+     * are both integers, so the wrong one does not 404 — it silently
+     * opens somebody else's sheet, which is the failure this test exists
+     * to catch and which no "there is an <a href> somewhere" assertion
+     * would ever see.
+     *
+     * The fixture pushes the two sequences apart on purpose: in a fresh
+     * database they advance in lock-step, so the member created here has
+     * members.id and member_years.id equal and the assertion below would
+     * hold for either value. Six spare `members` rows first, and they
+     * cannot be confused again.
+     */
+    public function testTheMemberLinkCarriesTheMemberYearIdAndNotTheMemberId(): void
+    {
+        AuthSession::login(1, 'admin@test.be', 'admin');
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 20);
+        $sectionId = $this->createSection('LOU01', $branchId, 'Ma section');
+        $spare = $this->pdo->prepare('INSERT INTO members (desk_id) VALUES (?)');
+        for ($i = 0; $i < 6; $i++) {
+            $spare->execute(['SPARE_' . uniqid()]);
+        }
+        $memberYearId = $this->createMemberInSection($sectionId, 'Alice', 'chief');
+        $lookup = $this->pdo->prepare('SELECT member_id FROM member_years WHERE id = ?');
+        $lookup->execute([$memberYearId]);
+        $memberId = (int) $lookup->fetchColumn();
+        $this->assertNotSame($memberId, $memberYearId, 'the fixture must not let the two ids coincide');
+
+        $request = new Request('GET', '/chefs/membres', [], [], [], []);
+        $body = $this->controller->index($request, [])->getBody();
+
+        $this->assertStringContainsString('href="/admin/members/' . $memberYearId . '"', $body);
+        $this->assertStringNotContainsString('href="/admin/members/' . $memberId . '"', $body);
+    }
+
+    /**
+     * And never the member's own page: /members/{id} is what a member
+     * consults about themselves, with none of the internal notes, history
+     * or module blocks the Staff d'unité opens this list to reach.
+     */
+    public function testTheMemberLinkIsNotTheMembersOwnPage(): void
+    {
+        AuthSession::login(1, 'admin@test.be', 'admin');
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 20);
+        $sectionId = $this->createSection('LOU01', $branchId, 'Ma section');
+        $memberYearId = $this->createMemberInSection($sectionId, 'Alice', 'chief');
+
+        $request = new Request('GET', '/chefs/membres', [], [], [], []);
+
+        $this->assertStringNotContainsString(
+            'href="/members/' . $memberYearId . '"',
+            $this->controller->index($request, [])->getBody()
+        );
     }
 
     public function testUsesThePreviewYearWhenSetForAnAdmin(): void
@@ -292,6 +358,130 @@ class SectionRosterControllerTest extends TestCase
         $this->assertContains('Alice', $names);
         $this->assertNotContains('Bob', $names);
         unlink($path);
+    }
+
+    // --- the roll-call sheet -------------------------------------------
+
+    public function testPdfReturnsARealPdfDocument(): void
+    {
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 20);
+        $sectionId = $this->createSection('LOU01', $branchId, 'Ma section');
+        $this->createMemberInSection($sectionId, 'Alice', 'chief');
+
+        $request = new Request('GET', '/chefs/membres/pdf', [], [], [], []);
+        $response = $this->controller->pdf($request, []);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('application/pdf', $response->getHeaders()['Content-Type']);
+        // The one header whose loss is silent: the sheet is member names in
+        // the clear, and nothing else stops a shared browser or a proxy
+        // keeping it after the session that was allowed to see it ends.
+        $this->assertSame('private, no-store', $response->getHeaders()['Cache-Control']);
+        $this->assertStringStartsWith('%PDF-', $response->getBody());
+        $this->assertSame((string) strlen($response->getBody()), $response->getHeaders()['Content-Length']);
+    }
+
+    /**
+     * The sheet prints what is being looked at: the button carries the
+     * picker's own filter, so both must resolve the same perimeter.
+     */
+    public function testPdfRespectsTheSectionFilterAndNamesItInTheFile(): void
+    {
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 20);
+        $sectionA = $this->createSection('LOU01', $branchId, 'Section A');
+        $sectionB = $this->createSection('LOU02', $branchId, 'Section B');
+        $this->createMemberInSection($sectionA, 'Alice', 'chief');
+        $this->createMemberInSection($sectionB, 'Bob', 'chief');
+
+        $request = new Request('GET', '/chefs/membres/pdf', ['section' => (string) $sectionA], [], [], []);
+        $response = $this->controller->pdf($request, []);
+
+        $this->assertStringContainsString(
+            'filename="appel-2025-2026-section-a.pdf"',
+            $response->getHeaders()['Content-Disposition']
+        );
+
+        // The filename alone proves nothing: naming the file from the filter
+        // while handing every section to the renderer would still pass, and
+        // that is precisely the failure a roll-call sheet must not have — a
+        // chief prints Section A and walks off with Section B's names too.
+        // One section per sheet, so page count is the perimeter.
+        $this->assertSame(1, $this->pageCountOf($response->getBody()), 'the filtered sheet must carry one section');
+
+        $all = $this->controller->pdf(new Request('GET', '/chefs/membres/pdf', [], [], [], []), []);
+        $this->assertSame(2, $this->pageCountOf($all->getBody()), 'unfiltered, both sections are printed');
+    }
+
+    /**
+     * dompdf writes one `/Type /Page` object per page (and one `/Type
+     * /Pages` for the tree, which the negative lookahead excludes).
+     */
+    private function pageCountOf(string $pdf): int
+    {
+        return preg_match_all('~/Type\s*/Page(?!s)~', $pdf);
+    }
+
+    public function testPdfWithoutAFilterNamesNoSection(): void
+    {
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 20);
+        $this->createSection('LOU01', $branchId, 'Section A');
+
+        $request = new Request('GET', '/chefs/membres/pdf', [], [], [], []);
+        $response = $this->controller->pdf($request, []);
+
+        $this->assertStringContainsString(
+            'filename="appel-2025-2026.pdf"',
+            $response->getHeaders()['Content-Disposition']
+        );
+    }
+
+    /**
+     * Counters, never a name — the same rule the spreadsheet export's own
+     * entry already follows (AGENTS.md § Security checklist).
+     */
+    public function testPdfIsJournaledWithCountersAndNoPersonalData(): void
+    {
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 20);
+        $sectionId = $this->createSection('LOU01', $branchId, 'Ma section');
+        $this->createMemberInSection($sectionId, 'Alice', 'chief');
+
+        $this->controller->pdf(new Request('GET', '/chefs/membres/pdf', [], [], [], []), []);
+
+        $row = $this->pdo->query(
+            "SELECT * FROM event_log WHERE event_type = 'section_roster_pdf_exported'"
+        )->fetch(\PDO::FETCH_ASSOC);
+        $this->assertNotFalse($row);
+        $context = json_decode((string) $row['context'], true);
+        $this->assertSame(1, $context['section_count']);
+        $this->assertSame(1, $context['member_count']);
+        $this->assertStringNotContainsStringIgnoringCase('Alice', (string) $row['context']);
+        $this->assertStringNotContainsStringIgnoringCase('Alice', (string) $row['description']);
+    }
+
+    public function testThePageOffersTheSheetBesideTheSpreadsheet(): void
+    {
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 20);
+        $this->createSection('LOU01', $branchId, 'Ma section');
+
+        $body = $this->controller->index(new Request('GET', '/chefs/membres', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('href="/chefs/membres/pdf"', $body);
+        $this->assertStringContainsString("Feuille d'appel PDF", $body);
+        $this->assertStringContainsString('href="/chefs/membres/export"', $body);
+    }
+
+    public function testTheSheetButtonCarriesTheSelectedSection(): void
+    {
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 20);
+        $sectionA = $this->createSection('LOU01', $branchId, 'Section A');
+        $this->createSection('LOU02', $branchId, 'Section B');
+
+        $request = new Request('GET', '/chefs/membres', ['section' => (string) $sectionA], [], [], []);
+
+        $this->assertStringContainsString(
+            'href="/chefs/membres/pdf?section=' . $sectionA . '"',
+            $this->controller->index($request, [])->getBody()
+        );
     }
 
     private function createBranch(string $code, string $label, int $sortOrder): int

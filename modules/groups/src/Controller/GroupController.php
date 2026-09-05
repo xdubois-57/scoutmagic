@@ -613,7 +613,7 @@ class GroupController extends AbstractController
         $context = $this->context();
         $creatorMemberId = $context->linkedMemberIds[0] ?? null;
         if ($creatorMemberId === null) {
-            return new Response('Aucun membre n\'est associé à votre compte pour cette année scoute.', 403);
+            return $this->forbidden('Aucun membre n\'est associé à votre compte pour cette année scoute.', $request);
         }
 
         $name = trim((string) $request->getBody('name', ''));
@@ -789,7 +789,7 @@ class GroupController extends AbstractController
         }
 
         if (!$this->accessService->canModerate($group, $context)) {
-            return new Response('Seul un modérateur du groupe peut effectuer cette action.', 403);
+            return $this->forbidden('Seul un modérateur du groupe peut effectuer cette action.', $request);
         }
 
         return $action($group, $context);
