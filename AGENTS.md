@@ -386,6 +386,44 @@ All email sent via `MailService::send()`. Never send email directly. The service
 
 Use `SchedulerService` for any delayed or timed action. Never use `sleep()`, cron-specific code, or ad-hoc timing logic. Declare task handlers in `module.json`.
 
+## Merging a pull request
+
+**The maintainer's instruction is the only authorization to merge**, and
+nothing substitutes for it — not a green pipeline, not this file, not your
+reading of what they would probably want. Without it, green and
+merge-ready is where your work stops and you say so.
+
+With it, arm **auto-merge** rather than watching the pull request:
+
+```
+gh pr merge <number> --squash --auto
+```
+
+Where `gh` is not installed — a Claude Code session running on the web has
+no GitHub CLI — the same thing is the GitHub MCP server's
+`enable_pr_auto_merge` with `mergeMethod: SQUASH`. It fails with *"Auto-merge
+is not enabled for this repository"* if the setting below ever gets turned
+off, which is the one error worth recognising rather than working around.
+
+GitHub then merges the moment the ruleset on `main` is satisfied, and the
+instruction is carried out without the maintainer being called back. Polling
+a pull request for an hour is not diligence — on 2026-09-05 that cost four
+CI cycles and three interruptions on #152, and auto-merge is the answer
+this repository chose (`docs/quality-pipeline.md` § Auto-merge).
+
+Arming it is *merging*, so everything that must be true before a merge must
+be true before you arm it: every review thread replied to and resolved on
+purpose rather than to clear the way, the PR template's checklist honestly
+filled, and no finding of your own left unfiled. What you must never do is
+arm it and walk away from a pull request you have not finished — auto-merge
+does not wait for you to come back.
+
+Two things it does not do, and both have bitten this project. It does
+**not** update a branch that has fallen behind `main` — the ruleset does not
+demand that any more, but the day it does again, an armed pull request just
+sits there. And it is **disarmed in silence** by a change of base branch or
+a push from an account without write access.
+
 ## Releases
 
 When the user asks to release a new version (`scripts/release.sh`), do this **in this order**:
