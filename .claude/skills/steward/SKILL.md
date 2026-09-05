@@ -70,73 +70,84 @@ proposal.
 Identity only breaks a tie. When you cannot size a human reviewer's ask,
 treat it as the larger one.
 
-## A red check — which local command reproduces it
+## A red check — reproducing it locally
 
-Run the one that matches; do not run the whole battery for a lint failure.
+Each row gives the job's **distinguishing command**: what it runs that no
+other job does. That is a starting point, not a transcript. `ci.yml` is the
+only exact account of a job, and when the red step looks like setup rather
+than a test, go read it there before trusting anything below.
 
-| CI job | Reproduce locally with |
+Two things every row assumes, because CI does them and a warm container
+does not:
+
+- **Dependencies installed the way CI installs them** — every PHP job runs
+  `composer install --prefer-dist --no-progress` first, every Node job runs
+  `npm ci`, and the browser jobs also run `npm run e2e:install`. An
+  already-populated `vendor/` or `node_modules/` never exercises any of
+  that, so a manifest/lockfile drift or an unmet platform requirement fails
+  in CI and nowhere else. Run them when the failing step *is* the
+  installation, or when you touched a manifest or a lockfile.
+- **The engine CI hands the job**, which is not the one you have. See
+  below — it applies to four of these rows.
+
+| CI job | Its distinguishing command |
 |---|---|
-| `test` | `vendor/bin/phpstan analyse` then `vendor/bin/phpunit` |
+| `test` | `vendor/bin/phpstan analyse --memory-limit=512M`, then `vendor/bin/phpunit --coverage-clover coverage.xml --log-junit phpunit-report.xml` |
 | `database-mariadb` | `vendor/bin/phpunit` (the session hook already exports `TEST_DB_*`) |
-| `javascript-tests` | `npm ci`, `npm run typecheck`, `npm run test:coverage` |
+| `javascript-tests` | `npm run typecheck`, then `npm run test:coverage` |
 | `End-to-end (browser)` | `E2E_COVERAGE=1 npm run e2e` |
 | `Authorization matrix` | `./scripts/dast.sh --profile=standard` |
 | `Dynamic scan (passive)` | `./scripts/dast.sh --profile=passive` |
-| `security` | `composer install --prefer-dist --no-progress` then `composer audit` |
+| `security` | `composer audit` |
 | `SonarQube Cloud` | no local equivalent — read the bot's PR comment |
 | `Analyze (…)` (CodeQL) | no local equivalent — see `AGENTS.md` § CodeQL |
 
-Every row is the job's own commands. The install steps and the flags are
-not ceremony — each one is a failure the shorter command cannot show you:
+The flags are not decoration — each is a failure the shorter command
+cannot show you:
 
-- **`npm ci`** is the only step that fails on a `package.json` and
-  `package-lock.json` that have drifted apart; an already-installed
-  `node_modules/` never exercises it. **`npm run test:coverage`**, not
-  `npm test`, because collection is part of the job — it writes
-  `coverage/js/lcov.info` for `sonarqube`, and it can fail on its own with
-  every spec passing. `npm test` is for iterating, not for concluding.
-- **`composer install --prefer-dist --no-progress`** before `composer
-  audit`, because the job installs first and `composer audit` reports on
-  *installed* packages: a stale local `vendor/` audits a different package
-  set than CI does, and a manifest/lock drift or a platform requirement
-  fails in the install step you skipped. (This job runs no `npm audit` —
-  that one is a release gate, not a CI check.)
+- **`--coverage-clover` / `--log-junit`** on `test`, and
+  **`npm run test:coverage`** rather than `npm test`, because producing the
+  reports is part of the job: they are what `sonarqube` consumes, and
+  report generation can fail with every test passing.
 - **`E2E_COVERAGE=1`** because CI sets it and `scripts/e2e.sh` defaults it
-  off, and the difference is behavioural rather than cosmetic: coverage
-  makes every request slow enough to change timing. The comment at
-  `tests/e2e/specs/rental-management.spec.js` (the Calendrier click)
-  documents a failure that surfaced *only* under coverage. It needs pcov
-  or Xdebug loaded — this container already has pcov.
+  off, and the difference is behavioural: coverage slows every request
+  enough to change timing. The Calendrier comment in
+  `tests/e2e/specs/rental-management.spec.js` documents a failure that
+  surfaced *only* under it. Needs pcov or Xdebug — this container has pcov.
+- **`composer audit`** reports on *installed* packages, so a stale local
+  `vendor/` audits a different set than CI's freshly installed one. (This
+  job runs no `npm audit`; that one is a release gate, not a CI check.)
+- **`./scripts/dast.sh`** refuses to download a missing ZAP image and exits
+  before scanning anything. CI pulls `ghcr.io/zaproxy/zaproxy:stable` in a
+  step of its own; do the same first, or you cannot tell a missing
+  prerequisite from the failure you came to reproduce.
 
-### These three reproducers run on the wrong engine
+### Four of these rows run on the wrong engine
 
-`e2e-tests`, `authorization-matrix` and `dast-passive` each provision
-**MySQL 8** in CI and pass the job its own `E2E_DB_*` / `DAST_DB_*`
-variables. Locally both scripts fall back to `TEST_DB_*` when those are
-unset — which the session hook points at **MariaDB**. So the three commands
-above reproduce the *scenario* but not the *engine*, and a MySQL-only
-failure in any of them will sit there staying green.
+`test`, `e2e-tests`, `authorization-matrix` and `dast-passive` are each
+handed **MySQL 8** by CI, which passes the last three their own
+`E2E_DB_*` / `DAST_DB_*` variables. Locally all four fall back to
+`TEST_DB_*` — the **MariaDB 10.11** this container's session hook starts,
+and what production runs. So the commands above reproduce the *scenario*
+and not the *engine*, and a MySQL-only failure in any of those four jobs
+will sit there staying green.
 
-To actually reproduce one, point the job's own variables at a MySQL 8
-server before running — `E2E_DB_HOST`/`E2E_DB_PORT`/`E2E_DB_USER`/
-`E2E_DB_PASSWORD` for `npm run e2e`, the `DAST_DB_*` equivalents for
-`scripts/dast.sh`. Both scripts prefer those over `TEST_DB_*`, and both
-start a throwaway `mysql:8.0` container when no server answers at all.
+That is the mirror image of the danger `AGENTS.md` § Database describes for
+production, and it bites hardest exactly when you do not yet know what a
+red job means. So:
 
-### The engine trap, which runs the opposite way locally
+- **`test` red while `database-mariadb` is green** is an engine divergence
+  until proven otherwise, and `npm run test:engines` — which runs the suite
+  against both — is its reproducer, not plain `vendor/bin/phpunit`.
+- **For the browser and scanner jobs**, point the job's own variables at a
+  MySQL 8 server before running: `E2E_DB_HOST`/`E2E_DB_PORT`/`E2E_DB_USER`/
+  `E2E_DB_PASSWORD` for `npm run e2e`, the `DAST_DB_*` equivalents for
+  `scripts/dast.sh`. Both scripts prefer those over `TEST_DB_*`, and both
+  start a throwaway `mysql:8.0` container when nothing answers at all.
 
-`test` runs on **MySQL 8**. `database-mariadb` runs on **MariaDB 10.11**,
-which is what production runs — and it is also what this container's session
-hook starts. So a green local suite is a **MariaDB**-green suite, and the
-divergence you can miss here is a MySQL-only failure in the `test` job. That
-is the mirror image of the danger `AGENTS.md` § Database describes for
-production. `npm run test:engines` runs both; use it whenever a change
-touches schema introspection, column defaults, or type normalisation.
-
-`database-mariadb` red while `test` is green (or the reverse) is an engine
-divergence until proven otherwise. Do not paper over it with a test that
-accepts both outputs — `SchemaIntrospector` reads the server version for
-exactly this reason, and that is where the branch belongs.
+Do not paper over a divergence with a test that accepts both outputs —
+`SchemaIntrospector` reads the server version for exactly this reason, and
+that is where the branch belongs.
 
 ### Before you push a fix
 
