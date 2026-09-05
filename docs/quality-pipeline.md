@@ -418,11 +418,18 @@ nothing**:
 - Database-backed tests **skip** rather than fail without a server, so
   `phpunit` is green having tested none of them.
 - `Claude review` exits **success** when it refuses to run over a
-  workflow-file mismatch, so the check is green in about fifteen seconds
-  having reviewed nothing — and that happens precisely on a pull request
-  editing the reviewer. This is the one on the list with a reader attached:
-  the `Claude review status` comment names which of the two a green check
-  was, judged on the run's duration.
+  workflow-file mismatch, so the check is green having reviewed nothing —
+  and that happens precisely on a pull request editing the reviewer. This
+  is the one on the list with a reader attached: the `Claude review status`
+  comment names which of the two a green check was, reading the action's
+  own `conclusion` output, which is set only once Claude has run.
+  **The reader itself was the next instance of this failure mode**: it
+  first judged on the run's duration, on the premise that a real review
+  takes minutes. A review that finds nothing takes about as long as a
+  refusal, so the verdict was near random on exactly the pull requests it
+  was meant to reassure — green checks reported as unread, and no way to
+  tell a true report from a false one (issue #159). A heuristic standing in
+  for a fact is the same defect one level up.
 - A `CODEOWNERS` entry naming a non-collaborator is **ignored silently**, so
   a protection rule can be enabled, appear active, and match nothing.
 - A local reproduction that runs on the wrong database engine, or without
