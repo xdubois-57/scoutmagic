@@ -146,7 +146,15 @@ final class CampsBlueprint
             'yearOnly' => null, 'price' => '3120,00', 'participants' => 37, 'bookedByName' => 'Staff Troupe du Faucon',
         ],
         [
-            'place' => 'chevetogne', 'sections' => ['iam1'], 'stayType' => Camp::STAY_OTHER,
+            // `rou1` rather than `iam1`, which is the section this dataset
+            // empties in 2026-2027 and MappingResolver therefore leaves
+            // inactive: CampService::create() validates section ids against
+            // the sections that are active NOW, whatever the stay's dates,
+            // so a past stay naming a since-closed section cannot be created
+            // through the module's own service — and going through that
+            // service is the rule here. It also gives Route de Compostelle
+            // the one stay it was missing.
+            'place' => 'chevetogne', 'sections' => ['rou1'], 'stayType' => Camp::STAY_OTHER,
             'status' => Camp::STATUS_CONFIRMED, 'start' => '2025-08-04', 'end' => '2025-08-09',
             'yearOnly' => null, 'price' => '740,00', 'participants' => 9, 'bookedByName' => null,
         ],
