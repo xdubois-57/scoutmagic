@@ -169,6 +169,38 @@ write. Its judgement lives in `.claude/skills/triage/SKILL.md`, reviewed
 like code, and the workflow fetches that file from `main` rather than from
 a working copy it does not have.
 
+**It also checks its own outcome, retries once, and goes red when the
+issue is still untriaged** — and that is not belt-and-braces, it repairs a
+hole that made the workflow look two-thirds reliable. `claude-code-action`
+exits 0 whenever the agent's turn ends normally, and *ended normally
+having written nothing* is a normal end: on 2026-09-05, four issues opened
+within nine minutes (#172–#175) produced four green runs and four issues
+still carrying `triage:pending`. One had its verdict comment and never got
+its labels; three had neither, inside their turn budget, with no timeout
+and no permission denial. Nothing anywhere was red.
+
+So after the agent, the job reads the issue's labels back: `triage:done`
+present and `triage:pending` gone is the only thing that counts as
+triaged, because the labels are the state (§ Labels below) and a comment
+without them reads to the rest of this pipeline exactly like an issue
+nobody looked at. If they are not there it waits a minute — whatever ends
+an attempt early is transient and short, and retrying into the same second
+meets it again — and runs the agent a second time with the *same* prompt.
+The prompt is idempotent by construction: it re-checks for an existing
+verdict immediately before it writes, so a retry cannot post a second
+verdict on somebody's report, and on the half-finished case it applies
+only the missing labels. If both attempts leave the issue untriaged the
+job fails, keeps the second attempt's full transcript (the only place it
+is kept — `show_full_output` is off by default, and the first
+investigation into this ran aground on a log that had discarded the
+evidence), and the issue keeps `triage:pending` so the nightly scan takes
+it regardless.
+
+`tests/Security/IssueTriageWorkflowPermissionsTest.php` asserts that
+shape: the labels read back, both halves of the predicate, the retry, its
+gate, the single shared prompt, and the two prompt clauses the retry
+depends on.
+
 `.github/workflows/issue-backlog-scan.yml` is the same triage, applied to
 the issues that workflow never saw: everything filed before it reached
 `main`, and everything whose run was lost to a cancelled job or a failed
@@ -467,6 +499,14 @@ triaged. That makes an unlabelled issue self-healing — but it also means a
 label removed by hand puts an issue back in the queue, and it will be
 answered a second time.
 
+Which is why **a verdict comment is not a triage and the labels are.** An
+issue can carry a careful, correct, published answer and still be
+invisible to every other part of this pipeline, because nothing else reads
+the comment: the maintainer's filters, the nightly scan and the per-issue
+job's own verification all read the labels. That is the state issue #172
+was left in, and it is what `issue-triage.yml` now checks for before
+calling a run successful.
+
 **`bug:not-a-bug` is the one label that closes an issue** — with reason
 `not planned`, never `completed`, since nothing was completed and the
 release notes read that field. Every other outcome leaves the issue open.
@@ -580,6 +620,14 @@ nothing**:
   nobody has got to yet. `scripts/sync-issue-labels.sh` refuses to run when
   a form under `.github/ISSUE_TEMPLATE/` names a label outside its own
   table, which is the only place that pairing is ever checked.
+- **`claude-code-action` exits 0 on an agent that did nothing.** The step
+  reports success whenever the agent's turn ends normally, and an agent
+  that read the issue, gave up and said so ended normally. No timeout, no
+  `error_max_turns`, no permission denial, no annotation — a green tick on
+  an issue nobody answered. Worse, the transcript that would say why is
+  discarded unless `show_full_output` is on. This is why
+  `issue-triage.yml` reads the issue's labels back instead of trusting its
+  own step, and why its retry prints in full.
 - A **scheduled job is deferred or dropped under load**, most of all at
   the top of the hour where every `0 *` cron fires at once. Nothing
   reports the drop; the run simply never happens. This is why
