@@ -172,9 +172,21 @@ a working copy it does not have.
 `.github/workflows/issue-backlog-scan.yml` is the same triage, applied to
 the issues that workflow never saw: everything filed before it reached
 `main`, and everything whose run was lost to a cancelled job or a failed
-one. It runs at 03:00 UTC, takes the **oldest five** open issues carrying
+one. It runs at 03:17 UTC, takes the **oldest five** open issues carrying
 `triage:pending` or no triage label at all, and runs the same skill file on
 each. Same permissions, same absence of a checkout, same reasoning.
+
+The minute is 17 and not 0 on purpose: GitHub defers and drops scheduled
+jobs under load, and load peaks at the top of the hour. A dropped run is a
+night of backlog nobody triages, and nothing reports it.
+
+It also leaves alone any issue **opened in the last hour**. The two
+workflows cannot share a lock — one groups its concurrency per issue
+number, the other per workflow, and GitHub offers nothing spanning the two
+— so a brand-new issue would look untriaged to both agents at once and the
+reporter would get two verdicts on the same report. Waiting costs nothing:
+the per-issue job either labelled it, or failed and this scan takes it
+tomorrow night.
 
 The cap is the design, not a limitation: without it the first run against a
 real backlog posts a comment on every untriaged issue at once, which is
@@ -503,6 +515,10 @@ nothing**:
   nobody has got to yet. `scripts/sync-issue-labels.sh` refuses to run when
   a form under `.github/ISSUE_TEMPLATE/` names a label outside its own
   table, which is the only place that pairing is ever checked.
+- A **scheduled job is deferred or dropped under load**, most of all at
+  the top of the hour where every `0 *` cron fires at once. Nothing
+  reports the drop; the run simply never happens. This is why
+  `issue-backlog-scan.yml` asks for minute 17.
 - A **`schedule:` trigger only ever runs from the default branch**, so a
   change to `issue-backlog-scan.yml` on a pull request branch proves the
   YAML parses and nothing more. Its `workflow_dispatch:` is not a

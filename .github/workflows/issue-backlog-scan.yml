@@ -59,12 +59,15 @@ permissions: {}
 
 on:
   schedule:
-    # 03:00 UTC — outside the hours anyone in this repository's timezone
-    # is filing issues, so a scan never races the per-issue workflow for
-    # the same issue. Note that GitHub runs scheduled jobs on a
-    # best-effort basis and defers them under load; 03:00 is when this
-    # asks to run, not a guarantee of when it does.
-    - cron: '0 3 * * *'
+    # 03:17 UTC — the hour is chosen to be outside the hours anyone in
+    # this repository's timezone files issues; the MINUTE is chosen not to
+    # be zero. GitHub runs scheduled jobs on a best-effort basis and
+    # defers or drops them under load, and load peaks at the top of the
+    # hour, when every cron in the world that was written as `0 *` fires
+    # at once. A dropped run here is a whole night of backlog not
+    # triaged, and nothing reports it. This is still when the job ASKS to
+    # run, not a guarantee of when it does.
+    - cron: '17 3 * * *'
 
   # The only way to test this file, per behaviour 1 in the header, and the
   # way to drain a backlog faster than five a night without waiting for
@@ -77,6 +80,13 @@ on:
 # that is halfway through its five issues has already commented on some of
 # them; killing it would leave those without labels, which is the one
 # state the skill treats as "never triaged".
+#
+# This group does NOT serialise against issue-triage.yml, whose group is
+# per-issue and cannot be shared: GitHub gives no cross-workflow lock. An
+# issue opened while a scan is running would carry `triage:pending` and
+# look like a candidate to both agents at once, and neither would see the
+# other's comment until both had posted. The prompt closes that window by
+# leaving brand-new issues alone — see the selection rules below.
 concurrency:
   group: issue-backlog-scan
   cancel-in-progress: false
@@ -141,8 +151,8 @@ jobs:
             issue and with which reason. This prompt only tells you WHICH
             issues to run it on.
 
-            Find the candidates. An issue is a candidate when it is OPEN
-            and either:
+            Find the candidates. An issue is a candidate when it is OPEN,
+            was OPENED MORE THAN ONE HOUR AGO, and either:
               - it carries the label `triage:pending`, or
               - it carries neither `triage:pending` nor `triage:done` —
                 an issue filed before this repository had triage labels.
@@ -150,6 +160,16 @@ jobs:
             An issue carrying `triage:done` has been triaged already and
             is never a candidate, whatever its other labels say. Labels
             are the state.
+
+            The one-hour floor is not a detail. A separate workflow
+            triages every issue the minute it opens, and it holds a lock
+            that this job cannot share. An issue opened while this scan is
+            running carries `triage:pending` and looks untriaged to both
+            agents at once — and neither sees the other's comment until
+            both have posted one. An hour is comfortably longer than that
+            job's own fifteen-minute ceiling. Nothing is lost by waiting:
+            if that job did its work, the issue is already labelled, and
+            if it failed, this scan picks the issue up tomorrow night.
 
             Sort the candidates OLDEST FIRST, by creation date, and take
             AT MOST THE FIRST FIVE. If there are fewer than five,
@@ -165,13 +185,16 @@ jobs:
 
             Then, for each of those issues in turn, oldest first:
 
-              1. Check whether the issue already has a triage verdict
-                 comment on it. A previous run may have commented and
-                 then failed before setting the labels, which is exactly
-                 how an issue ends up looking untriaged while already
-                 carrying an answer. If such a comment is there, do not
-                 post a second one — set the labels the existing verdict
-                 implies and move on.
+              1. Re-read the issue, as it is NOW rather than as your
+                 search returned it, and check whether it already has a
+                 triage verdict comment on it. Two things put one there
+                 between the search and this moment: a previous run that
+                 commented and then failed before setting the labels, and
+                 the per-issue workflow finishing while this scan was
+                 working through the issues ahead of this one. Both leave
+                 an issue that looks untriaged and is not. If such a
+                 comment is there, do not post a second one — set the
+                 labels the existing verdict implies and move on.
               2. Otherwise triage it exactly as the skill file describes:
                  one comment, in the reporter's language, and the labels.
               3. Then move to the next issue. Do not batch the comments,

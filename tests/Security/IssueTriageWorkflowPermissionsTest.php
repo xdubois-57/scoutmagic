@@ -103,6 +103,11 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
         );
     }
 
+    /**
+     * The floor under everything else here: a test that reads a file
+     * which is not there passes vacuously, and the suite would report
+     * green over a triage pipeline that no longer exists.
+     */
     #[DataProvider('issueWorkflows')]
     public function testTheWorkflowExists(string $workflow): void
     {
@@ -112,6 +117,12 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
         );
     }
 
+    /**
+     * The assertion this whole file exists for. `contents:` in either of
+     * these blocks would give a job that reads untrusted public text a
+     * path to the default branch, and it would be a green pull request, a
+     * green CI run and a working workflow while doing it.
+     */
     #[DataProvider('issueWorkflows')]
     public function testItGrantsNothingBeyondIssuesAndIdToken(string $workflow): void
     {
@@ -136,6 +147,12 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
         );
     }
 
+    /**
+     * The permission block above is the boundary; this is the habit that
+     * keeps anyone from needing to widen it. A checkout is only ever
+     * added in order to write, so a checkout appearing here is the first
+     * half of a change that ends with `contents: write`.
+     */
     #[DataProvider('issueWorkflows')]
     public function testItNeverChecksTheRepositoryOut(string $workflow): void
     {
@@ -158,6 +175,12 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
         }
     }
 
+    /**
+     * Deny-by-default at the top of the file, so that a job added later
+     * without its own `permissions:` block inherits nothing rather than
+     * the repository default. The failure it prevents is silent: such a
+     * job runs, works, and holds write access nobody granted on purpose.
+     */
     #[DataProvider('issueWorkflows')]
     public function testItStillDeniesEverythingAtTheWorkflowLevel(string $workflow): void
     {
@@ -329,11 +352,12 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
         self::assertNotEmpty(
             array_filter(
                 $lines,
-                static fn (string $line): bool => preg_match("/^\s+-\s*cron:\s*'0 3 \* \* \*'\s*$/", $line) === 1,
+                static fn (string $line): bool => preg_match("/^\s+-\s*cron:\s*'\d*[1-9]\d* \d+ \* \* \*'\s*$/", $line) === 1,
             ),
-            self::BACKLOG_SCAN . ' no longer runs at 03:00 UTC. If the schedule genuinely needs to '
-            . 'move, change it here too — and remember that a scheduled workflow on a public '
-            . 'repository is silently disabled after 60 days without commit activity.',
+            self::BACKLOG_SCAN . ' has no daily cron, or its cron fires at minute zero. GitHub defers '
+            . 'and drops scheduled jobs under load, and load peaks at the top of the hour where every '
+            . '`0 *` cron in the world fires at once — a dropped run here is a night of backlog nobody '
+            . 'triages, and nothing reports it. Keep the minute non-zero.',
         );
 
         self::assertNotEmpty(
@@ -376,6 +400,34 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
             preg_match('/oldest first/i', $prompt),
             self::BACKLOG_SCAN . "'s prompt no longer says which five. Without an order, a capped scan "
             . 'can pick the same five every night and never reach the rest of the backlog.',
+        );
+    }
+
+    /**
+     * The two workflows cannot share a lock: `issue-triage.yml` groups its
+     * concurrency per issue number, this one groups per workflow, and
+     * GitHub offers nothing that spans the two. So an issue opened while a
+     * scan is running is `triage:pending` and looks untriaged to BOTH
+     * agents, neither of which sees the other's comment until both have
+     * posted one — and the reporter gets two verdicts on the same report.
+     *
+     * What closes the window is the prompt leaving brand-new issues to the
+     * job that already has them. Deleting that one clause reopens it, and
+     * nothing else in this repository would notice: the race needs an
+     * issue opened inside a particular twenty-minute window at three in
+     * the morning, so it would show up as an occasional inexplicable
+     * double comment long after the change that caused it.
+     */
+    public function testTheBacklogScanStandsClearOfThePerIssueWorkflow(): void
+    {
+        $prompt = implode(' ', array_map('trim', $this->promptLines(self::BACKLOG_SCAN)));
+
+        self::assertSame(
+            1,
+            preg_match('/opened more than one hour ago/i', $prompt),
+            self::BACKLOG_SCAN . "'s prompt no longer excludes issues opened in the last hour. "
+            . 'issue-triage.yml is triaging those already, and the two jobs hold no lock in common, '
+            . 'so both can decide an issue is untriaged and both can post a verdict on it.',
         );
     }
 
