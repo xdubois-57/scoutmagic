@@ -62,12 +62,12 @@ no issue, because the next agent will act on it.
 
 ### Say what kind of thing it is, in words and not only in a label
 
-Every issue states its nature on its **first line**, before anything else:
+Every issue states its nature on its **first line**, before anything else —
+one of these two, verbatim:
 
-> **Type: bug** — the site does something wrong.
-
-> **Type: enhancement** — the site behaves as designed; the design should be
-> better.
+- `**Type: bug**` — the site does something wrong.
+- `**Type: enhancement**` — the site behaves as designed; the design should be
+  better.
 
 Apply the matching `bug` or `enhancement` label as well. Both, always: the
 label is what a human filters on, the line is what a reader working from the
