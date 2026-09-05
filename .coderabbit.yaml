@@ -148,12 +148,13 @@ reviews:
 
 knowledge_base:
   code_guidelines:
-    # CodeRabbit reads AGENTS.md and CLAUDE.md on its own, and nothing else
-    # by default — so the three files this configuration's header calls the
-    # source of truth were invisible to the reviewer citing them. The
+    # These four supplement CodeRabbit's built-in guideline patterns rather
+    # than replacing them: the defaults already cover AGENTS.md and
+    # CLAUDE.md among others, and none of the four below. Without these
+    # entries, files this configuration's own header calls the source of
+    # truth were invisible to the reviewer citing them — the
     # path_instructions above point at `ARCHITECTURE.md 7.5` and
-    # `design.md section 7`; these patterns are what let it follow the
-    # reference instead of guessing at it.
+    # `design.md section 7`, references it could not follow.
     filePatterns:
       - "/ARCHITECTURE.md"
       - "/SECURITY.md"
