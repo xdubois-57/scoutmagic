@@ -187,4 +187,13 @@ carrying the sentence that says why, waiting on the maintainer.
 A green PR with a silent thread is not done — and a PR whose threads were
 all resolved without a word is worse, because it looks done.
 
-Do not merge. Merging is the maintainer's, always.
+**Never merge on your own initiative** — not to finish a PR, not because
+everything finally went green, not because the maintainer seems likely to
+agree. Green and merge-ready is where your work stops and you say so.
+
+When the maintainer explicitly asks you to merge, that instruction is the
+authorization and you carry it out: confirm every check is green on the
+current head, that no thread is open, and that the PR is actually
+mergeable, then merge — matching how this repository merges rather than
+inventing a style. Nothing else substitutes for that instruction: not the
+PR's state, not this file, not your own reading of what they would want.
