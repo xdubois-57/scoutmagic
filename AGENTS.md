@@ -89,7 +89,7 @@ Update it in the same PR when you:
 - Add or remove a release gate, a `--skip-*` flag, or change the order the gates run in.
 - Change which AI reviewer runs, or a setting of one that alters *when* it reviews or *what* it can read — the trigger list, the quota, the guideline files it loads.
 - Add or remove a PHPUnit testsuite, a Vitest directory, an E2E tier, or a DAST profile.
-- Depend on a new piece of GitHub configuration: a secret, an App, a ruleset rule, a label, a CODEOWNERS entry, a required status check. **This is the part with no other home** — none of it is in the repository, and nothing warns you when it is missing or wrong.
+- Depend on a new piece of GitHub configuration: a secret, an App, a ruleset rule, a label, a CODEOWNERS entry, a required status check. `.github/CODEOWNERS` and the workflows are in the repository and get reviewed; secrets, Apps, rulesets, labels and required checks are not, and **that part has no other home**. Either way nothing warns you when one is missing or wrong — a CODEOWNERS entry naming a non-collaborator is reviewed, merged, and still matches nothing.
 
 Two rules about how it is written:
 

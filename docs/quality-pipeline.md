@@ -20,8 +20,8 @@ catches what, and what each one cannot see.
 | **Dynamic scan** | CI; release gate | Over-permissive routes, what the running app actually answers | Logic the scan does not reach |
 | **CodeQL** | CI, GitHub-managed | Taint flows into DOM sinks | Non-JavaScript defects |
 | **SonarQube Cloud** | CI; release gate | Quality, duplication, security hotspots | Intent |
-| **AI review** | On every pull request | Cross-file reasoning, stale documentation, intent mismatches | Nothing reliably — it is a reader, not a gate |
-| **Release gates** | `scripts/release.sh` | Everything above, plus production state and dependency freshness | — |
+| **AI review** | Pull requests it is eligible for — not drafts, and `Claude review` not on forks | Cross-file reasoning, stale documentation, intent mismatches | Nothing reliably — it is a reader, not a gate |
+| **Release gates** | `scripts/release.sh` | Deployment state, security advisories, dependency freshness, Sonar, PHPStan + the full PHPUnit suite, `e2e:full`, both DAST profiles | What the AI reviewers read — intent, cross-file reasoning, stale docs. It reads CodeQL's open alerts but runs no scan of its own |
 
 No single layer is trusted alone, and the ones that overlap do so on
 purpose: the `test` job and `database-mariadb` run the same suite against
@@ -196,7 +196,11 @@ exposed to those runs. Absence of the comment there is not a failure.
 
 ## Releases
 
-`scripts/release.sh [--minor|--major] --notes-file <path>`.
+`scripts/release.sh [--minor|--major] [--notes-file <path>]`.
+
+Both are optional: without a bump flag the patch component moves, and
+without `--notes-file` the notes are the auto-generated commit list, which is
+acceptable only for a manual release — see the end of this section.
 
 **Fix first, release later.** Before running it, resolve every open GitHub
 security item: CodeQL alerts, Dependabot alerts, and active SonarQube Cloud
@@ -214,10 +218,24 @@ Seven gates, all fail-closed, all run **before** any commit or tag:
 | **End-to-end** | `npm run e2e:full`, including the `@full` per-module boot matrix |
 | **Dynamic scan** | `dast.sh --profile=standard` then `--profile=passive` |
 
-The four fast gates run first and in parallel; the three slow ones are
-launched with dependencies between them. Every one fails closed on a missing
-prerequisite — an unreachable database, no `node_modules/`, no Docker, no
-ZAP image — rather than silently doing less.
+**The four fast gates run first, one after another, and the release stops at
+the first one that refuses** — nothing long is started behind a failed
+precondition. Each takes seconds (deployment 2 s, Sonar 4 s, dependency
+freshness and security ~5 s), so parallelising them would buy nothing and
+cost the thing that matters: a Sonar gate refusing in four seconds used to
+burn the full twenty-five minutes before saying so.
+
+The three slow ones are then launched as concurrent subshells, but chained
+`tests → end-to-end → dynamic scan`: all three migrate the same local MySQL
+server, and overlapping them caused spurious migration timeouts. Skipping a
+link collapses the chain onto the one before it. These are collected
+together, so a run reports **every** slow gate that failed, not just the
+first — a `Gate results` block lists each one with the last 60 lines of its
+log, then the release exits.
+
+Every gate fails closed on a missing prerequisite — an unreachable database,
+no `node_modules/`, no Docker, no ZAP image — rather than silently doing
+less.
 
 **The SonarQube release rule, in one sentence:** 100% of findings must be
 fixed, except those that are *all three at once* — software quality
@@ -242,8 +260,17 @@ manual releases only.
 
 ## The GitHub configuration this all depends on
 
-None of it lives in the repository, and nothing warns you when it is
-missing or wrong. Verify after any change to the repository's settings.
+Two kinds of thing sit here, and the difference matters. **`.github/CODEOWNERS`
+and the workflows are in the repository** — a pull request touching them is
+reviewed like any other change. **The rest is not**: secrets, installed Apps,
+the branch ruleset, the labels, the required-check list and CodeQL's default
+setup live only in the repository's settings, where no diff shows them and no
+check reports them.
+
+What both kinds share is the failure mode: **nothing warns you when one is
+missing or wrong.** A CODEOWNERS entry naming a non-collaborator sits in the
+repository, reviewed and merged, and still matches nothing. Verify after any
+change to either.
 
 ### Repository secrets
 
