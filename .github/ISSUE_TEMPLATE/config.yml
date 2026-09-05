@@ -1,0 +1,22 @@
+# Blank issues are off, and that is a decision rather than a tidiness
+# preference: a blank issue arrives with no version, no role and no page,
+# so the first exchange on it is always the same three questions. The two
+# forms next to this file collect those before the issue exists.
+#
+# The cost is real and worth stating — someone with a report that fits
+# neither form has to pick the closer one. That is a better failure than a
+# report nobody can act on.
+blank_issues_enabled: false
+
+contact_links:
+  - name: Faille de sécurité
+    url: https://github.com/xdubois-57/scoutmagic/blob/main/SECURITY.md
+    about: >-
+      Une vulnérabilité ne se signale jamais dans un ticket public. Contactez
+      le mainteneur en privé — la marche à suivre est dans SECURITY.md.
+  - name: Question sur l'utilisation du site
+    url: https://github.com/xdubois-57/scoutmagic/blob/main/README.md
+    about: >-
+      L'aide est intégrée au site : le bouton « ? » de la barre de
+      navigation ouvre l'aide de la page affichée, et /aide en donne la
+      liste complète. Le README décrit l'installation et l'hébergement.

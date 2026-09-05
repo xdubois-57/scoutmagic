@@ -335,6 +335,20 @@ an error.
 fresh pass without pushing a commit. The workflow's job guard matches this
 name exactly.
 
+The issue triage taxonomy — `triage:*`, `bug:*`, `status:accepted` — is the
+one part of this section that *is* reproducible from the repository:
+`scripts/sync-issue-labels.sh` is its single source, and running it creates
+what is missing and repairs what somebody edited in the UI. It never
+deletes, so `claude-review` and the older `bug` label survive it. Run it
+after any change to that table, and read the summary — a run that reports
+nothing to do is the normal one.
+
+`.github/ISSUE_TEMPLATE/` holds the two issue forms (`bug.yml`,
+`feature.yml`, both French) and `config.yml`, which turns blank issues off.
+A form's `labels:` is what gives a new issue its starting state, and it
+depends on the label existing — see the last section of this document for
+what happens when it does not.
+
 ### CODEOWNERS
 
 `.github/CODEOWNERS` must name an account that actually has write access.
@@ -398,6 +412,12 @@ nothing**:
 - The release **Security gate passes on a permission gap**: denied access to
   the CodeQL or Dependabot alert API is a warning, not a refusal, so a
   release can be published with those two sources never consulted.
+- **An issue form's label is dropped in silence when the label does not
+  exist.** GitHub creates the issue anyway — no error on it, nothing in any
+  log — so a report arrives with no triage state and looks exactly like one
+  nobody has got to yet. `scripts/sync-issue-labels.sh` refuses to run when
+  a form under `.github/ISSUE_TEMPLATE/` names a label outside its own
+  table, which is the only place that pairing is ever checked.
 
 The habit that catches these is cheap: ask what a green result would look
 like if the thing had not run at all. When the answer is "the same", the

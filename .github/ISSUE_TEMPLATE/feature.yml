@@ -1,0 +1,74 @@
+# The need, not the solution. That is the one editorial rule this form
+# exists to enforce, and it is why there is no "proposed implementation"
+# field: a reporter who describes a screen they have imagined has already
+# thrown away the thing that was worth collecting — what they were trying
+# to accomplish, and what they do today instead. The first two fields ask
+# for exactly that, in that order.
+#
+# French, like bug.yml and for the same reason (AGENTS.md § Language).
+name: Proposer une amélioration
+description: Décrire un besoin auquel le site ne répond pas aujourd'hui.
+title: "[Idée] "
+labels: ["triage:pending"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Décrivez **ce que vous cherchez à faire**, pas la solution que
+        vous imaginez. Une solution toute faite se discute mal ; un besoin
+        se comprend, et il arrive qu'on lui trouve une réponse plus simple
+        que celle à laquelle on pensait.
+
+  - type: textarea
+    id: need
+    attributes:
+      label: Le besoin
+      description: >-
+        Qu'essayez-vous d'accomplir, et pour qui ? Décrivez la situation
+        concrète, sans nommer de personne.
+      placeholder: >-
+        En début d'année, je dois vérifier que chaque animé d'une section a
+        bien une fiche sanitaire à jour, et je n'ai aucun moyen de voir en
+        un coup d'œil celles qui manquent.
+    validations:
+      required: true
+
+  - type: textarea
+    id: today
+    attributes:
+      label: Comment faites-vous aujourd'hui ?
+      description: >-
+        Le contournement actuel, même s'il est fastidieux — ou « rien, je
+        ne le fais pas ». C'est ce qui dit à quel point le besoin coûte.
+      placeholder: >-
+        J'ouvre la fiche de chaque animé une par une et je note les
+        manquants sur un papier.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: audience
+    attributes:
+      label: Qui en aurait besoin ?
+      description: >-
+        Le rôle concerné, dans le vocabulaire de la page Configuration ›
+        Fonctions.
+      options:
+        - Moi seul
+        - Les chefs de ma section
+        - Toute l'unité
+        - Les familles / les animés
+        - Je ne sais pas
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Autre chose à ajouter ?
+      description: >-
+        Facultatif. Une échéance, une contrainte de votre unité, ou un
+        exemple vécu.
+    validations:
+      required: false
