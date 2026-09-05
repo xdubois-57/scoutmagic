@@ -77,6 +77,38 @@ class ImapClientBehaviourTest extends TestCase
     }
 
     /**
+     * The other half of the same rule, and the one production actually
+     * takes: every exception `webklex/php-imap` throws is namespaced, so
+     * the shortening branch is the normal path and the global-namespace
+     * one is the exception. Only the second was covered — the very fix
+     * that put the first letter back was tested on one side of its own
+     * `if`. A regression that reported
+     * « Webklex\PHPIMAP\Exceptions\ConnectionFailedException » to the
+     * superadmin would have gone through green.
+     *
+     * The real class from the installed library, not a stand-in: a rename
+     * upstream should reach this test rather than slip past a local
+     * double that agrees with whatever we wrote.
+     */
+    public function testANamespacedFailureIsReportedByItsShortClassNameOnly(): void
+    {
+        $client = new ImapMailboxClient($this->managerThrowing(
+            new \Webklex\PHPIMAP\Exceptions\ConnectionFailedException(
+                'imap.example.be refused chef@unite.be'
+            )
+        ));
+
+        try {
+            $client->connect($this->mailbox(), $this->credentials());
+            $this->fail('The connection should have failed.');
+        } catch (MailboxConnectionException $e) {
+            $this->assertSame('ConnectionFailedException', $e->getMessage());
+            $this->assertStringNotContainsString('Webklex', $e->getMessage(), 'The namespace is not the reason.');
+            $this->assertStringNotContainsString('chef@unite.be', $e->getMessage());
+        }
+    }
+
+    /**
      * Not lost, either: the cause travels as $previous, where a stack
      * trace and the journal can still reach it.
      */
