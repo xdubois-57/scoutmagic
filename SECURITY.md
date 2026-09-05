@@ -12,8 +12,8 @@ detail to reproduce the issue. There is no guaranteed response time; this projec
 on a volunteer basis, and fixes are made as time allows.
 
 That button exists only while *Private vulnerability reporting* is enabled in the repository's
-settings, and nothing here can check that it is — see `docs/quality-pipeline.md` § The GitHub
-configuration this all depends on.
+settings. It is enabled today; nothing in this repository would notice if it were turned off —
+see `docs/quality-pipeline.md` § Private vulnerability reporting for how to check.
 
 ## Avertissement
 

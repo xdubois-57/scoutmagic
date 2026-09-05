@@ -333,6 +333,12 @@ an error.
 
 *Settings → Code security → Private vulnerability reporting*
 
+**Enabled** — confirmed against
+`GET /repos/xdubois-57/scoutmagic/private-vulnerability-reporting`, which
+answers `{"enabled": true}` and is readable without a token on a public
+repository. That is the cheapest way to check it, and worth doing rather
+than assuming, because the failure is silent in both directions.
+
 `SECURITY.md` and `.github/ISSUE_TEMPLATE/config.yml` both send a reporter to
 the *Report a vulnerability* button on the Security tab. That button exists
 only while this setting is on, and when it is off there is no error and no
