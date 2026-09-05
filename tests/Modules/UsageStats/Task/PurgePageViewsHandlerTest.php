@@ -93,9 +93,18 @@ class PurgePageViewsHandlerTest extends TestCase
 
     public function testItArmsTomorrowsRun(): void
     {
+        // A queued successor is not yet a daily rhythm: a run armed for
+        // ten seconds from now satisfies "there is one", and turns a
+        // nightly purge into a loop. The window is what says "tomorrow".
+        $notBefore = (new \DateTimeImmutable('+23 hours'))->format('Y-m-d H:i:s');
+        $notAfter = (new \DateTimeImmutable('+25 hours'))->format('Y-m-d H:i:s');
+
         (new PurgePageViewsHandler())->handle([], $this->context());
 
         $this->assertSame(1, $this->queuedRuns());
+        $runAt = $this->nextRunAt();
+        $this->assertGreaterThanOrEqual($notBefore, $runAt);
+        $this->assertLessThanOrEqual($notAfter, $runAt);
     }
 
     /**
@@ -148,6 +157,13 @@ class PurgePageViewsHandlerTest extends TestCase
         return $this->pdo
             ->query('SELECT month FROM usage_page_views ORDER BY month')
             ->fetchAll(\PDO::FETCH_COLUMN);
+    }
+
+    private function nextRunAt(): string
+    {
+        return (string) $this->pdo
+            ->query("SELECT run_at FROM scheduled_actions WHERE task_key = 'purge_page_views'")
+            ->fetchColumn();
     }
 
     private function queuedRuns(): int

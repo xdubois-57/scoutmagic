@@ -77,8 +77,13 @@ class AutoAssignPassageHandlerTest extends TestCase
         $this->assertSame(1, $this->queuedRuns());
     }
 
-    public function testTheNextPassIsAnHourAwayNotSooner(): void
+    public function testTheNextPassIsAnHourAwayNeitherSoonerNorLater(): void
     {
+        // Both ends: a pass armed for five minutes hammers the section
+        // tables all day, one armed for six hours stops being hourly —
+        // and a lower bound alone would let the second through.
+        $notAfter = (new \DateTimeImmutable('+70 minutes'))->format('Y-m-d H:i:s');
+
         (new AutoAssignPassageHandler())->handle([], $this->context());
 
         $runAt = (string) $this->pdo
@@ -89,6 +94,7 @@ class AutoAssignPassageHandlerTest extends TestCase
             (new \DateTimeImmutable('+50 minutes'))->format('Y-m-d H:i:s'),
             $runAt
         );
+        $this->assertLessThanOrEqual($notAfter, $runAt);
     }
 
     public function testTwoRunsInTheSameSecondArmOneSuccessor(): void
