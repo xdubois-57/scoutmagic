@@ -26,7 +26,10 @@ review comments, a red CI job, which local command reproduces which check.
 
 ## This container
 
-The `SessionStart` hook has already installed dependencies and started
-**MariaDB** with `TEST_DB_*` exported — so `vendor/bin/phpunit` runs against
-the production engine, while CI's `test` job runs MySQL 8. See the steward
-skill for what that asymmetry hides.
+In a Claude Code **remote** session, the `SessionStart` hook has already
+installed dependencies and started **MariaDB** with `TEST_DB_*` exported —
+so `vendor/bin/phpunit` runs against the production engine, while CI's
+`test` job runs MySQL 8. In a local checkout that hook exits immediately and
+you manage your own dependencies and database; the database-backed tests
+then *skip* rather than fail, so a green run there proves less than it
+looks. See the steward skill for both traps.

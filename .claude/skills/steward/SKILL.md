@@ -93,7 +93,7 @@ does not:
 | CI job | Its distinguishing command |
 |---|---|
 | `test` | `vendor/bin/phpstan analyse --memory-limit=512M`, then `vendor/bin/phpunit --coverage-clover coverage.xml --log-junit phpunit-report.xml` |
-| `database-mariadb` | `vendor/bin/phpunit` (the session hook already exports `TEST_DB_*`) |
+| `database-mariadb` | `vendor/bin/phpunit` against a MariaDB 10.11 reachable through `TEST_DB_*` |
 | `javascript-tests` | `npm run typecheck`, then `npm run test:coverage` |
 | `End-to-end (browser)` | `E2E_COVERAGE=1 npm run e2e` |
 | `Authorization matrix` | `./scripts/dast.sh --profile=standard` |
@@ -121,6 +121,16 @@ cannot show you:
   before scanning anything. CI pulls `ghcr.io/zaproxy/zaproxy:stable` in a
   step of its own; do the same first, or you cannot tell a missing
   prerequisite from the failure you came to reproduce.
+
+**Before believing a green PHPUnit run, check the database was there.** The
+database-backed tests `markTestSkipped` when the server does not answer, so
+`vendor/bin/phpunit` reports green on a machine with no MariaDB — having
+skipped precisely the tests the `database-mariadb` job exists to run. In a
+Claude Code *remote* session the SessionStart hook has already started
+MariaDB and exported `TEST_DB_*`; in a local checkout that hook exits at its
+first line (`CLAUDE_CODE_REMOTE` is not `true`), and even remotely it can
+warn and carry on after a failed setup. Confirm the connection instead of
+assuming it — the run's skipped count is the cheapest tell.
 
 ### Four of these rows run on the wrong engine
 
