@@ -169,6 +169,14 @@ write. Its judgement lives in `.claude/skills/triage/SKILL.md`, reviewed
 like code, and the workflow fetches that file from `main` rather than from
 a working copy it does not have.
 
+Both issue workflows also **deny the tools that assume a "later"** —
+`Agent`, `Task`, `ScheduleWakeup` — because an agent that hands an issue to
+a subagent and ends its turn waiting for the answer has, in a one-shot run,
+simply thrown the work away. That was the root cause under every symptom
+below, and it took a preserved transcript to see; the same flag is what
+finally makes the "no shell, no file tools" claim in those files true,
+since `--allowedTools` never did.
+
 **It also checks its own outcome, retries once, and goes red when the
 issue is still untriaged** — and that is not belt-and-braces, it repairs a
 hole that made the workflow look two-thirds reliable. `claude-code-action`
@@ -644,6 +652,30 @@ nothing**:
   nobody has got to yet. `scripts/sync-issue-labels.sh` refuses to run when
   a form under `.github/ISSUE_TEMPLATE/` names a label outside its own
   table, which is the only place that pairing is ever checked.
+- **An agent can end its turn believing it will be resumed.** The single
+  most expensive silent failure this repository has met, and the cause of
+  every symptom above. A backlog scan with three issues waiting spawned
+  three `Agent` subagents, one per issue, called `ScheduleWakeup`, and
+  ended with *"No need to schedule a wakeup — I'll be notified
+  automatically when each research agent completes."* There is no later:
+  these are one-shot runs, the process exits with the turn, and everything
+  the subagents found is discarded. Sixteen turns of a three-hundred-turn
+  budget, `subtype: success`, zero permission denials, not one write call.
+  Both workflows now deny `Agent`, `Task` and `ScheduleWakeup` and say so
+  in the prompt. It stayed unexplainable for three rounds of fixes because
+  no run kept its transcript.
+- **`--allowedTools` is a permission allowlist, not the tool surface.**
+  Naming only the GitHub MCP server does *not* take `Bash`, `Read`, `Glob`
+  or `Grep` away — a transcript caught the agent running `date` and `ls`
+  on the runner while both workflow files claimed it "holds no shell".
+  Only `--disallowedTools` makes that claim true. An untrue security
+  comment is worse than none: it is the one somebody relies on. And "there
+  is no checkout, so there is nothing to read" is not a reason to leave the
+  read tools out: an empty *repository* is not an empty *filesystem* —
+  `/home/runner/.claude/`, the action's `_temp` directory and
+  `/proc/self/environ` are all still there, the last being where these
+  jobs' tokens live, and secret masking covers the log rather than an issue
+  comment the agent writes.
 - **`claude-code-action` exits 0 on an agent that did nothing.** The step
   reports success whenever the agent's turn ends normally, and an agent
   that read the issue, gave up and said so ended normally. No timeout, no

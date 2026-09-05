@@ -809,6 +809,132 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
     }
 
     /**
+     * THE ONE FAILURE THAT CAUSED ALL THE OTHERS, and the assertion that
+     * keeps it fixed.
+     *
+     * On 2026-09-05 a backlog scan with three issues waiting spawned
+     * three `Agent` subagents — one per issue, told to research and report
+     * back — called `ScheduleWakeup`, and ended its turn with: "No need to
+     * schedule a wakeup — I'll be notified automatically when each
+     * research agent completes."
+     *
+     * There is no later. These are one-shot runs: the turn ends, the
+     * process exits, whatever the subagents found is discarded, and the
+     * reporters get nothing. Sixteen turns of a three-hundred-turn budget,
+     * `subtype: success`, `is_error: false`, zero permission denials, not
+     * one write call — precisely the green, silent, unexplainable failure
+     * this pipeline kept producing, and it stayed unexplainable until a
+     * run kept its transcript. It is intermittent because it depends on
+     * the model choosing to delegate, which is why two issues in three
+     * went untriaged rather than all of them.
+     *
+     * `Bash`, `Write`, `Edit` and `NotebookEdit` are on the same deny list
+     * for a different reason. Both workflows state that the agent holds no
+     * shell and no file tools; that was FALSE while `--allowedTools`
+     * alone was relied on — it is a permission allowlist, not the tool
+     * surface, and the same transcript shows the agent running `date` and
+     * `ls /home/runner/work/…`. Denying them makes the sentence true, on
+     * jobs whose input is written by the public.
+     */
+    #[DataProvider('issueWorkflows')]
+    public function testItDeniesTheToolsThatAssumeALater(string $workflow): void
+    {
+        $arguments = array_filter(
+            $this->lines($workflow),
+            static fn (string $line): bool => preg_match('/^\s+claude_args:\s*\S/', $line) === 1,
+        );
+
+        self::assertNotEmpty(
+            $arguments,
+            $workflow . ' passes no `claude_args:` at all — this assertion would otherwise pass '
+            . 'over nothing.',
+        );
+
+        // Per invocation, not once for the file: both workflows call the
+        // agent twice, and a retry left free to delegate is a retry that
+        // reproduces the very failure it was added to repair.
+        foreach ($arguments as $number => $line) {
+            self::assertSame(
+                1,
+                preg_match('/--disallowedTools\s+"([^"]*)"/', $line, $denied),
+                'Line ' . ($number + 1) . ' of ' . $workflow . ' passes no `--disallowedTools`. '
+                . '`--allowedTools` does not restrict the tool surface — it is a permission '
+                . 'allowlist — so without this the agent can still delegate the work to a subagent '
+                . 'and end its turn waiting for a result that a one-shot run will never deliver.',
+            );
+
+            $listed = array_map('trim', explode(',', $denied[1]));
+
+            // Agent/Task hand work to something that outlives this turn;
+            // ScheduleWakeup is a promise to come back. All three are
+            // coherent in an interactive session and silently fatal here.
+            foreach (['Agent', 'Task', 'ScheduleWakeup'] as $tool) {
+                self::assertContains(
+                    $tool,
+                    $listed,
+                    'Line ' . ($number + 1) . ' of ' . $workflow . ' does not deny `' . $tool . '`. '
+                    . 'It assumes a later that a one-shot run does not have: the turn ends, the '
+                    . 'process exits, and anything not already written to GitHub is thrown away — '
+                    . 'as a green run that triaged nothing demonstrated.',
+                );
+            }
+
+            // The tools both files claim the agent does not hold. The
+            // READ half of this list is the half that looks safe to omit
+            // — "there is no checkout, so there is nothing to read" —
+            // and that confuses an empty repository with an empty
+            // filesystem. The runner still carries
+            // `/home/runner/.claude/`, the action's `_temp` directory and
+            // `/proc/self/environ`, which is where this job's tokens are;
+            // and GitHub's secret masking covers the LOG, not an issue
+            // comment the agent writes. On a job whose every input is
+            // typed by a member of the public, that is the difference
+            // between a hardening detail and a disclosure path.
+            foreach (['Bash', 'Read', 'Glob', 'Grep', 'Write', 'Edit', 'NotebookEdit'] as $tool) {
+                self::assertContains(
+                    $tool,
+                    $listed,
+                    'Line ' . ($number + 1) . ' of ' . $workflow . ' does not deny `' . $tool . '`. '
+                    . 'Both workflows tell the reader the agent holds no shell and no file tools, '
+                    . 'and `--allowedTools` does not make that true — a transcript caught the agent '
+                    . 'running `date` and `ls` on the runner. An untrue security comment is worse '
+                    . 'than none: it is the one somebody relies on. The agent reads code through '
+                    . 'the GitHub tools, never from disk, so denying these costs the triage nothing.',
+                );
+            }
+        }
+    }
+
+    /**
+     * The cheap half of the fix above, in the prompt, so the deny list is
+     * the backstop rather than the mechanism. A denied tool the model
+     * still reaches for costs a turn and a confused plan; a model told
+     * plainly that there is no later does not reach for it.
+     */
+    #[DataProvider('issueWorkflows')]
+    public function testThePromptSaysThereIsNoLater(string $workflow): void
+    {
+        $prompt = implode(' ', array_map('trim', $this->promptLines($workflow)));
+
+        self::assertSame(
+            1,
+            preg_match('/there is no later/i', $prompt),
+            $workflow . "'s prompt no longer tells the agent that there is no later. It is a "
+            . 'one-shot run: an agent that delegates and waits, or schedules a wake-up, ends its '
+            . 'turn having written nothing — and the job reports success unless something else '
+            . 'catches it.',
+        );
+
+        self::assertSame(
+            1,
+            preg_match('/do not schedule a wake-?up/i', $prompt),
+            $workflow . "'s prompt no longer forbids scheduling a wake-up. That is the exact call "
+            . 'a run made before ending its turn with three issues untriaged and a promise to come '
+            . 'back.',
+        );
+    }
+
+    /**
      * A `schedule:` trigger only ever runs from the DEFAULT BRANCH, so
      * nothing about this workflow can be exercised on a pull request
      * branch — pushing a change to it proves the YAML parses and nothing
