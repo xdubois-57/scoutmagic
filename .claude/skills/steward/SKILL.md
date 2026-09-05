@@ -98,6 +98,17 @@ does not:
   installation, or when you touched a manifest or a lockfile.
 - **The engine CI hands the job**, which is not the one you have. See
   below — it applies to four of these rows.
+- **A browser Playwright will actually launch.** `npm run e2e:install`
+  fetches the build the pinned `@playwright/test` asks for; this container
+  ships its own under `/opt/pw-browsers` and they are usually a different
+  build (1194 against the 1234 that 1.62.1 wants). The mismatch does not
+  read as one: every spec fails in 2 ms, so a run looks like 75 broken
+  tests rather than a browser that never started, and the reason is only in
+  `tests/e2e/test-results/*/error-context.md` — never in the console
+  output. Export `E2E_CHROMIUM_EXECUTABLE=/opt/pw-browsers/chromium`, which
+  `tests/e2e/playwright.config.js` already reads, rather than downloading a
+  second copy. Read the exit code from `npm run e2e:full` itself, too: pipe
+  it into `tail` and the shell reports `tail`'s status, not Playwright's.
 
 | CI job | Its distinguishing command |
 |---|---|
