@@ -233,9 +233,16 @@ together, so a run reports **every** slow gate that failed, not just the
 first — a `Gate results` block lists each one with the last 60 lines of its
 log, then the release exits.
 
-Every gate fails closed on a missing prerequisite — an unreachable database,
-no `node_modules/`, no Docker, no ZAP image — rather than silently doing
-less.
+Gates fail closed on a missing tool or service — an unreachable database, no
+`node_modules/`, no Docker, no ZAP image — rather than silently doing less.
+**The Security gate has one deliberate exception**: a
+`Resource not accessible by integration` answer to the CodeQL or Dependabot
+alert query is a permission gap rather than a finding, so it warns and the
+release continues — every other error from those calls still aborts, and
+`composer audit`/`npm audit` block regardless, being unaffected by any GitHub
+permission. A release that printed that warning has **not** been checked
+against those two sources; the warning names the Security-tab URL to read by
+hand. `AGENTS.md` § Releases governs what to do about it.
 
 **The SonarQube release rule, in one sentence:** 100% of findings must be
 fixed, except those that are *all three at once* — software quality
@@ -375,6 +382,9 @@ nothing**:
 - A local reproduction that runs on the wrong database engine, or without
   the flag CI sets, **cannot go red** for the failure it is meant to
   reproduce.
+- The release **Security gate passes on a permission gap**: denied access to
+  the CodeQL or Dependabot alert API is a warning, not a refusal, so a
+  release can be published with those two sources never consulted.
 
 The habit that catches these is cheap: ask what a green result would look
 like if the thing had not run at all. When the answer is "the same", the
