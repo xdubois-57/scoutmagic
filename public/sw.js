@@ -454,6 +454,24 @@ function retryOnce(request) {
 }
 
 /**
+ * The minimal offline page, built here rather than read from anywhere.
+ * What offlinePage() below falls back to when the shell cache has been
+ * purged out from under it, or cannot be read at all.
+ *
+ * @returns {Response}
+ */
+function generatedOfflinePage() {
+    return new Response(
+        '<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">'
+            + '<meta name="viewport" content="width=device-width, initial-scale=1.0">'
+            + '<title>Hors ligne</title></head><body><h1>Pas de connexion</h1>'
+            + '<p>Cette page n\'est pas disponible hors ligne. Vérifiez votre connexion puis réessayez.</p>'
+            + '</body></html>',
+        { status: 503, headers: { 'Content-Type': 'text/html; charset=UTF-8' } }
+    );
+}
+
+/**
  * The precached offline page — the fallback of last resort, and the one
  * thing an installed, standalone app must be able to show instead of the
  * browser's own network-error interstitial, since there is no browser
@@ -461,23 +479,12 @@ function retryOnce(request) {
  *
  * Never resolves to undefined: respondWith(undefined) is a TypeError and
  * the app would fall back to exactly the interstitial this avoids, so a
- * shell cache that has been purged out from under this call still gets a
- * real (minimal, French) Response.
+ * shell cache that has been purged — or denied — still gets a real
+ * (minimal, French) Response out of generatedOfflinePage() above.
  *
  * @returns {Promise<Response>}
  */
 function offlinePage() {
-    const generated = function () {
-        return new Response(
-            '<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">'
-                + '<meta name="viewport" content="width=device-width, initial-scale=1.0">'
-                + '<title>Hors ligne</title></head><body><h1>Pas de connexion</h1>'
-                + '<p>Cette page n\'est pas disponible hors ligne. Vérifiez votre connexion puis réessayez.</p>'
-                + '</body></html>',
-            { status: 503, headers: { 'Content-Type': 'text/html; charset=UTF-8' } }
-        );
-    };
-
     // caches.match() does not only resolve to undefined when nothing is
     // stored: it REJECTS outright when Cache Storage itself is denied
     // (private browsing, site data blocked, a quota error). A rejection
@@ -486,7 +493,7 @@ function offlinePage() {
     // exists to replace — so a broken cache is read as an empty one.
     return caches.match('/offline')
         .catch(function () { return null; })
-        .then(function (cached) { return cached || generated(); });
+        .then(function (cached) { return cached || generatedOfflinePage(); });
 }
 
 function handleNavigate(request, url, preloadResponse, event) {
@@ -608,12 +615,15 @@ function cachedCopy(request, cacheName, config, reason) {
         const dateHeader = cached.headers.get('date');
         const ageMs = dateHeader ? Date.now() - new Date(dateHeader).getTime() : Infinity;
         const stalenessDays = config.staleness_days || 7;
-        // An unparseable Date header gives NaN and a future-dated one a
-        // negative age, and neither is greater than the threshold — so a
-        // bare `ageMs > threshold` would call both of them fresh and serve
-        // a copy of unknown age as if it were current. Anything that is
-        // not a real, non-negative age is treated as too old.
-        if (!(ageMs >= 0) || ageMs > stalenessDays * 24 * 60 * 60 * 1000) {
+        // Freshness is stated positively, and that is what makes it
+        // right: an unparseable Date header gives NaN and a future-dated
+        // one a negative age, and NEITHER is greater than the threshold —
+        // so a bare `ageMs > threshold` staleness test called both of them
+        // fresh and served a copy of unknown age as if it were current.
+        // Every comparison below is false for NaN, so only a real,
+        // non-negative age inside the window survives.
+        const fresh = ageMs >= 0 && ageMs <= stalenessDays * 24 * 60 * 60 * 1000;
+        if (!fresh) {
             return null;
         }
 

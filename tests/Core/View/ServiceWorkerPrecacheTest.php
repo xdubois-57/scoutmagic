@@ -356,8 +356,15 @@ class ServiceWorkerPrecacheTest extends TestCase
         $this->assertNotEmpty($m, 'Could not locate offlinePage() in public/sw.js');
 
         $this->assertStringContainsString("caches.match('/offline')", $m[1]);
-        $this->assertStringContainsString('cached || generated()', $m[1]);
-        $this->assertStringContainsString('new Response(', $m[1]);
+        $this->assertStringContainsString('cached || generatedOfflinePage()', $m[1]);
+
+        // The Response it falls back to lives in its own function (Sonar
+        // will not have one nested here), so assert on that one too — the
+        // point being pinned is that SOMETHING real is always returned.
+        preg_match('/function generatedOfflinePage\(\) \{(.*?)\n\}/s', $this->swJs, $generated);
+        $this->assertNotEmpty($generated, 'Could not locate generatedOfflinePage() in public/sw.js');
+        $this->assertStringContainsString('new Response(', $generated[1]);
+        $this->assertStringContainsString('Pas de connexion', $generated[1]);
 
         // caches.match() does not merely resolve to undefined when the
         // shell cache is gone: it REJECTS when Cache Storage itself is

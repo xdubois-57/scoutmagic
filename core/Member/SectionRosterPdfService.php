@@ -314,7 +314,8 @@ class SectionRosterPdfService
         // ones go because a document holding names may not outlive
         // CACHE_TTL_DAYS, and a season nobody prints again would
         // otherwise keep its sheet on disk indefinitely.
-        foreach (glob($directory . '/' . $this->cachePrefix($scoutYearId, $selectedSectionId) . '-*.pdf') ?: [] as $stale) {
+        $supersededPattern = $directory . '/' . $this->cachePrefix($scoutYearId, $selectedSectionId) . '-*.pdf';
+        foreach (glob($supersededPattern) ?: [] as $stale) {
             @unlink($stale);
         }
         $this->purgeExpired($directory);
