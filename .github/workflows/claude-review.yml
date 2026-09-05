@@ -98,13 +98,27 @@ jobs:
       # a green check here proves a review ran only when this file is
       # untouched, and the first run after any change to it is a skip.
       #
-      # What closes it is .github/CODEOWNERS plus "require review from code
-      # owners" on main: a human has to approve a change to this file. Both
-      # halves have to actually hold — CODEOWNERS named a user who was not
-      # a collaborator until the commit that added this note, and GitHub
-      # ignores such an entry silently, so the rule matched nothing. If
-      # either half is relaxed or misspelled again, this gap reopens with
-      # no error anywhere.
+      # What would close it is .github/CODEOWNERS plus "require review from
+      # code owners" on main: a human approving any change to this file.
+      # Both halves have to actually hold, and CODEOWNERS named a user who
+      # was not a collaborator until the commit that added this note —
+      # GitHub ignores such an entry in silence, so the rule matched
+      # nothing at all.
+      #
+      # THE SECOND HALF IS NOT ENABLED, and cannot be while this repository
+      # has one collaborator. GitHub forbids approving your own pull
+      # request, so a sole maintainer who is also the sole code owner could
+      # never satisfy the rule: every pull request would be permanently
+      # unmergeable. Adding yourself to the ruleset's bypass list would
+      # restore merging and protect against nobody.
+      #
+      # So the gap is open, and its saving grace is that it currently has
+      # no attacker: opening a pull request here requires write access, and
+      # exactly one account has it. Enable the rule the day a second person
+      # gets write access — that is when a code owner distinct from the
+      # author exists, and when the gap acquires someone who could use it.
+      # Until then the tell is the clock: a green `Claude review` that took
+      # about fifteen seconds reviewed nothing.
       - uses: anthropics/claude-code-action@d9a44dc489924665d246f0fd0508d102211be397 # v1
         with:
           # Authenticates against the maintainer's Claude subscription
