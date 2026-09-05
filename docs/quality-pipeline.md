@@ -20,7 +20,7 @@ catches what, and what each one cannot see.
 | **Dynamic scan** | CI; release gate | Over-permissive routes, what the running app actually answers | Logic the scan does not reach |
 | **CodeQL** | CI, GitHub-managed | Taint flows into DOM sinks | Non-JavaScript defects |
 | **SonarQube Cloud** | CI; release gate | Quality, duplication, security hotspots | Intent |
-| **AI triage** | Every issue opened or reopened | Whether a report is a real defect, the one fact a blocked report is missing, and the workaround when the behaviour is correct | Anything only a running installation shows — it reads the code but reproduces nothing, changes nothing, and gates nothing |
+| **AI triage** | Every issue opened or reopened, plus a nightly pass over the untriaged backlog | Whether a report is a real defect, the one fact a blocked report is missing, and the workaround when the behaviour is correct | Anything only a running installation shows — it reads the code but reproduces nothing, changes nothing, and gates nothing |
 | **AI review** | Pull requests it is eligible for — not drafts, and `Claude review` not on forks | Cross-file reasoning, stale documentation, intent mismatches | Nothing reliably — it is a reader, not a gate |
 | **Release gates** | `scripts/release.sh` | Deployment state, security advisories, dependency freshness, Sonar, PHPStan + the full PHPUnit suite, `e2e:full`, both DAST profiles | What the AI reviewers read — intent, cross-file reasoning, stale docs. It reads CodeQL's open alerts but runs no scan of its own |
 
@@ -169,6 +169,23 @@ write. Its judgement lives in `.claude/skills/triage/SKILL.md`, reviewed
 like code, and the workflow fetches that file from `main` rather than from
 a working copy it does not have.
 
+`.github/workflows/issue-backlog-scan.yml` is the same triage, applied to
+the issues that workflow never saw: everything filed before it reached
+`main`, and everything whose run was lost to a cancelled job or a failed
+one. It runs at 03:00 UTC, takes the **oldest five** open issues carrying
+`triage:pending` or no triage label at all, and runs the same skill file on
+each. Same permissions, same absence of a checkout, same reasoning.
+
+The cap is the design, not a limitation: without it the first run against a
+real backlog posts a comment on every untriaged issue at once, which is
+both a large bill and a bad morning for whoever filed them. A backlog is
+drained over nights.
+
+Three GitHub behaviours shape that file, and all three fail *silently* —
+they are in the list at the end of this document for that reason, and
+repeated in the file's own header because that is where somebody editing it
+will be looking.
+
 `.github/workflows/claude-review.yml` is the AI reviewer; see below. It
 carries two jobs: `Claude review`, which reads the diff, and `Claude review
 status`, which posts the comment saying what that check's green means. They
@@ -308,7 +325,7 @@ change to either.
 | Secret | Used by | Without it |
 |---|---|---|
 | `SONAR_TOKEN` | the `sonarqube` CI job, `check-sonar-release.sh` | no Quality Gate on pull requests; the release gate fails closed |
-| `CLAUDE_CODE_OAUTH_TOKEN` | `claude-review.yml`, `issue-triage.yml` | the review job fails at authentication, and no issue is ever triaged |
+| `CLAUDE_CODE_OAUTH_TOKEN` | `claude-review.yml`, `issue-triage.yml`, `issue-backlog-scan.yml` | the review job fails at authentication, and no issue is ever triaged — neither on arrival nor overnight |
 
 `CLAUDE_CODE_OAUTH_TOKEN` is generated with `claude setup-token` and spends
 a Claude subscription rather than a metered API key. It is tied to the
@@ -369,6 +386,15 @@ name exactly.
 it applies `triage:done` plus exactly one `bug:*` verdict and removes
 `triage:pending`. It never applies or removes `status:accepted`, which
 stays a marker for a human eye that no workflow reads.
+`issue-backlog-scan.yml` writes exactly the same labels through exactly the
+same skill file — there is one taxonomy and one method, not two.
+
+The labels are also what the nightly scan **reads** to decide what is left
+to do: an issue carrying `triage:done` is never picked up again, and one
+carrying neither `triage:pending` nor `triage:done` is treated as never
+triaged. That makes an unlabelled issue self-healing — but it also means a
+label removed by hand puts an issue back in the queue, and it will be
+answered a second time.
 
 **`bug:not-a-bug` is the one label that closes an issue** — with reason
 `not planned`, never `completed`, since nothing was completed and the
@@ -477,6 +503,22 @@ nothing**:
   nobody has got to yet. `scripts/sync-issue-labels.sh` refuses to run when
   a form under `.github/ISSUE_TEMPLATE/` names a label outside its own
   table, which is the only place that pairing is ever checked.
+- A **`schedule:` trigger only ever runs from the default branch**, so a
+  change to `issue-backlog-scan.yml` on a pull request branch proves the
+  YAML parses and nothing more. Its `workflow_dispatch:` is not a
+  convenience — it is the only way to find out whether the workflow works.
+- On a public repository, GitHub **silently disables a scheduled workflow
+  after 60 days without commit activity**. No email, no failing run, no
+  annotation: the nightly scan simply stops happening and the backlog
+  quietly stops being triaged. A repository between releases reaches this
+  easily. If issues stop getting verdicts, look at the Actions tab first.
+- A scheduled run is **attributed to the last account that edited the cron
+  line**, not to whoever merged it. The action refuses to act for an actor
+  without write access, so a bot editing that one line would turn every
+  subsequent nightly run into a successful no-op.
+  `allowed_non_write_users: "*"` with an explicit `github_token` is what
+  neutralises this — the same pair that lets members of the public have
+  their issues triaged at all.
 
 The habit that catches these is cheap: ask what a green result would look
 like if the thing had not run at all. When the answer is "the same", the
