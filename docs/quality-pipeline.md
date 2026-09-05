@@ -329,11 +329,44 @@ an error.
 - **Require review from Code Owners** — *not enabled, and not currently
   enableable.* See below.
 
+### Private vulnerability reporting
+
+*Settings → Code security → Private vulnerability reporting*
+
+**Enabled** — confirmed against
+`GET /repos/xdubois-57/scoutmagic/private-vulnerability-reporting`, which
+answers `{"enabled": true}` and is readable without a token on a public
+repository. That is the cheapest way to check it, and worth doing rather
+than assuming, because the failure is silent in both directions.
+
+`SECURITY.md` and `.github/ISSUE_TEMPLATE/config.yml` both send a reporter to
+the *Report a vulnerability* button on the Security tab. That button exists
+only while this setting is on, and when it is off there is no error and no
+check — the reporter simply does not find it, and the alternative on offer
+is "contact the maintainer directly" with no address. Blank issues are
+disabled, so the path that a stuck reporter would otherwise fall back on
+(open a public issue about a vulnerability) is the one thing that must not
+happen.
+
 ### Labels
 
 `claude-review` — adding it to a pull request asks `claude-review.yml` for a
 fresh pass without pushing a commit. The workflow's job guard matches this
 name exactly.
+
+The issue triage taxonomy — `triage:*`, `bug:*`, `status:accepted` — is the
+one part of this section that *is* reproducible from the repository:
+`scripts/sync-issue-labels.sh` is its single source, and running it creates
+what is missing and repairs what somebody edited in the UI. It never
+deletes, so `claude-review` and the older `bug` label survive it. Run it
+after any change to that table, and read the summary — a run that reports
+nothing to do is the normal one.
+
+`.github/ISSUE_TEMPLATE/` holds the two issue forms (`bug.yml`,
+`feature.yml`, both French) and `config.yml`, which turns blank issues off.
+A form's `labels:` is what gives a new issue its starting state, and it
+depends on the label existing — see the last section of this document for
+what happens when it does not.
 
 ### CODEOWNERS
 
@@ -398,6 +431,12 @@ nothing**:
 - The release **Security gate passes on a permission gap**: denied access to
   the CodeQL or Dependabot alert API is a warning, not a refusal, so a
   release can be published with those two sources never consulted.
+- **An issue form's label is dropped in silence when the label does not
+  exist.** GitHub creates the issue anyway — no error on it, nothing in any
+  log — so a report arrives with no triage state and looks exactly like one
+  nobody has got to yet. `scripts/sync-issue-labels.sh` refuses to run when
+  a form under `.github/ISSUE_TEMPLATE/` names a label outside its own
+  table, which is the only place that pairing is ever checked.
 
 The habit that catches these is cheap: ask what a green result would look
 like if the thing had not run at all. When the answer is "the same", the
