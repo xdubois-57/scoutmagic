@@ -175,8 +175,14 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
         $repoRoot = dirname(__DIR__, 2);
         $referenced = [];
 
-        foreach ($this->lines() as $line) {
-            if (preg_match_all('/[`\s(](\.claude\/skills\/[A-Za-z0-9_\-\/]+\.md)/', $line, $matches) < 1) {
+        // The PROMPT only, never the whole file. That file's header
+        // discusses the skill by name twice, so scanning every line — as
+        // this first did — would keep passing after the path was deleted
+        // from the prompt, reporting success over a workflow that no
+        // longer loads anything. A check with that hole is worse than no
+        // check: it states a guarantee it is not making.
+        foreach ($this->promptLines() as $line) {
+            if (preg_match_all('/(\.claude\/skills\/[A-Za-z0-9_\-\/]+\.md)/', $line, $matches) < 1) {
                 continue;
             }
 
@@ -187,9 +193,9 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
 
         self::assertNotEmpty(
             $referenced,
-            self::WORKFLOW . ' no longer names a skill file. Either the prompt stopped pointing at one — '
-            . 'in which case the triage has no method — or the reference changed shape and this test is '
-            . 'now checking nothing.',
+            self::WORKFLOW . "'s prompt no longer names a skill file. Either it stopped pointing at one "
+            . '— in which case the triage runs with no method, including no rule about closing — or the '
+            . 'reference changed shape and this test is now checking nothing.',
         );
 
         foreach (array_keys($referenced) as $path) {
@@ -200,6 +206,50 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
                 . 'decision to close it.',
             );
         }
+    }
+
+    /**
+     * The lines of the step's `prompt:` block scalar — what the model is
+     * actually told, with the file's own commentary about it left out.
+     *
+     * @return array<int, string>
+     */
+    private function promptLines(): array
+    {
+        $prompt = [];
+        $indent = null;
+
+        foreach ($this->lines() as $line) {
+            if ($indent === null) {
+                if (preg_match('/^(\s+)prompt:\s*\|/', $line, $match) === 1) {
+                    $indent = strlen($match[1]);
+                }
+
+                continue;
+            }
+
+            // A blank line belongs to the scalar; the block ends at the
+            // first non-blank line no deeper than the `prompt:` key.
+            if (trim($line) === '') {
+                $prompt[] = $line;
+
+                continue;
+            }
+
+            if (preg_match('/^(\s*)\S/', $line, $depth) === 1 && strlen($depth[1]) <= $indent) {
+                break;
+            }
+
+            $prompt[] = $line;
+        }
+
+        self::assertNotNull(
+            $indent,
+            self::WORKFLOW . ' has no `prompt: |` block. The workflow runs in automation mode, so without '
+            . 'one it tells the model nothing — and this test would silently check an empty set.',
+        );
+
+        return $prompt;
     }
 
     /**
