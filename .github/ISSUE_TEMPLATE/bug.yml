@@ -1,0 +1,140 @@
+# A FORM, not a markdown template. The difference is the whole point: a
+# markdown template ships a body the reporter is free to delete, and they
+# do — what arrives is three lines of prose with no version, no role and no
+# URL. A form renders real fields, and `required: true` is enforced by
+# GitHub before the issue is created at all.
+#
+# Every field here exists because an answer to it changes the verdict, and
+# nothing here asks for something the reporter cannot see. In French,
+# because the people filling it in are unit chiefs and parents — see
+# AGENTS.md § Language: the interface is French, and this form is part of
+# the interface.
+#
+# `labels:` below is what makes triage:pending the default state. Labels
+# are the state (see docs/quality-pipeline.md § Labels), and GitHub applies
+# one from a form ONLY if it already exists on the repository — an unknown
+# name is dropped in silence, with no error on the issue and nothing in any
+# log. scripts/sync-issue-labels.sh is what guarantees it exists.
+#
+# `triage:pending` and nothing else, deliberately. The repository's older
+# `bug` label stays what it has always been: something the maintainer
+# applies by hand. Adding it here would put a label outside the one script
+# that owns this taxonomy, and would sit oddly next to the `bug:not-a-bug`
+# a triage pass can reach.
+name: Signaler un dysfonctionnement
+description: Quelque chose ne fonctionne pas comme prévu sur votre site.
+title: "[Bug] "
+labels: ["triage:pending"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Merci de prendre le temps de signaler ce problème.
+
+        Répondez avec vos propres mots : il n'y a rien de technique à
+        fournir. Les champs marqués d'un astérisque sont obligatoires
+        parce que, sans eux, personne ne peut retrouver ce que vous avez
+        vu.
+
+        > **Une faille de sécurité ne se signale pas ici.** Elle se
+        > transmet en privé au mainteneur — voir `SECURITY.md`.
+
+  - type: input
+    id: version
+    attributes:
+      label: Version du site
+      description: >-
+        Ouvrez l'adresse `/api/version` de votre site (par exemple
+        `https://votre-site.fr/api/version`) et recopiez le numéro
+        affiché. Un « Chef d'Unité » la lit aussi sur Configuration ›
+        Maintenance, ligne « Version installée ».
+      placeholder: "1.0.41"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: role
+    attributes:
+      label: Votre rôle au moment du problème
+      description: >-
+        Le même vocabulaire que la page Configuration › Fonctions. Si vous
+        n'étiez pas connecté, choisissez « Public ».
+      options:
+        - Public (non connecté)
+        - Animé
+        - Intendant
+        - Chef
+        - Chef d'Unité
+        - Administrateur du site
+    validations:
+      required: true
+
+  - type: input
+    id: page
+    attributes:
+      label: Page concernée
+      description: >-
+        Le titre de la page, ou l'adresse affichée dans la barre du
+        navigateur. Retirez-en ce qui identifie une personne si vous en
+        voyez.
+      placeholder: "Trombinoscope, ou /chefs/section/3"
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Ce que vous attendiez
+      description: Ce qui aurait dû se passer, selon vous.
+      placeholder: "La liste devait afficher les louveteaux inscrits cette année."
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Ce qui s'est passé
+      description: >-
+        Ce que le site a réellement fait ou affiché. Recopiez le message
+        d'erreur s'il y en avait un, ou joignez une capture d'écran —
+        prenez garde à ce qu'elle ne montre pas de données personnelles.
+      placeholder: "La liste est restée vide, avec le message « Aucun membre »."
+    validations:
+      required: true
+
+  - type: input
+    id: browser
+    attributes:
+      label: Navigateur et appareil
+      description: >-
+        Par exemple « Chrome sur Windows », « Safari sur iPhone »,
+        « Firefox sur Android ». Approximatif suffit.
+      placeholder: "Safari sur iPhone"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: reproducible
+    attributes:
+      label: Le problème se reproduit-il ?
+      description: >-
+        C'est la réponse qui départage un défaut d'un incident passager, et
+        c'est souvent la seule que vous puissiez donner et pas nous.
+      options:
+        - À chaque fois
+        - De temps en temps
+        - Une seule fois, jamais revu
+        - Je n'ai pas réessayé
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Autre chose à ajouter ?
+      description: >-
+        Facultatif. Ce que vous veniez de faire juste avant, ou tout ce qui
+        vous paraît lié.
+    validations:
+      required: false
