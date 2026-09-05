@@ -124,6 +124,13 @@ does not:
 | `SonarQube Cloud` | no local equivalent — read the bot's PR comment |
 | `Analyze (…)` (CodeQL) | no local equivalent — see `AGENTS.md` § CodeQL |
 
+The issue workflows — `issue-triage.yml` and `issue-backlog-scan.yml` — are
+deliberately absent from that table, and adding a row for either would make
+it wrong. They never run on a pull request: one fires on `issues:`, the
+other on a cron, and neither can turn a check red or block a merge. There
+is nothing to reproduce when one misbehaves, and nothing to reproduce it
+with. `docs/quality-pipeline.md` covers them instead.
+
 The flags are not decoration — each is a failure the shorter command
 cannot show you:
 

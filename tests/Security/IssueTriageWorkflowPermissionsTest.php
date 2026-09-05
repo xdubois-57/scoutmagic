@@ -4,18 +4,18 @@ declare(strict_types=1);
 
 namespace Tests\Security;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 /**
- * `.github/workflows/issue-triage.yml` runs on `issues: [opened,
- * reopened]`, which makes it the only workflow in this repository whose
- * input is written by a member of the public: anyone with a GitHub
- * account can open an issue here, and its title and body reach a model
- * that then acts on this repository.
+ * The two workflows under `.github/workflows/issue-*.yml` are the only
+ * ones in this repository whose input is written by a member of the
+ * public: anyone with a GitHub account can open an issue here, and its
+ * title and body reach a model that then acts on this repository.
  *
  * What keeps that safe is not the prompt and not the skill file — a
  * prompt is an instruction, and instructions are what a hostile issue
- * body competes with. It is the token: the job holds `issues: write` and
+ * body competes with. It is the token: each job holds `issues: write` and
  * `id-token: write`, checks nothing out, and therefore has no path to
  * `main` at all, whatever anybody talks it into. Adding `contents: write`
  * "just to look at a file" would hand every future issue body a way to
@@ -27,57 +27,137 @@ use PHPUnit\Framework\TestCase;
  * CI run and a working workflow. So it is asserted here rather than left
  * to review — the same reasoning as every other audit in this directory.
  *
+ * Every invariant below is asserted against BOTH workflows, from one data
+ * provider, rather than written once and copied. The backlog scan was
+ * added after the per-issue job and inherits exactly the same guarantees;
+ * a copy would have let the two drift, and the one that drifted would be
+ * the one nobody re-read.
+ *
  * Deliberately line-based rather than YAML-parsed: this repository ships
  * no YAML parser for PHP (no `symfony/yaml`, no `ext-yaml`), and pulling
- * a dependency in for one audit would cost more than it buys on a small,
- * hand-written file. The assertions below are written to fail closed —
+ * a dependency in for one audit would cost more than it buys on small,
+ * hand-written files. The assertions below are written to fail closed —
  * an unreadable or restructured file fails rather than passes.
  */
 class IssueTriageWorkflowPermissionsTest extends TestCase
 {
-    private const WORKFLOW = '.github/workflows/issue-triage.yml';
+    /** Triage on the issue that just opened. */
+    private const TRIAGE = '.github/workflows/issue-triage.yml';
 
-    /** The complete set the triage job may hold. Nothing may be added. */
+    /** The nightly pass over the issues that job never saw. */
+    private const BACKLOG_SCAN = '.github/workflows/issue-backlog-scan.yml';
+
+    /** The complete set either job may hold. Nothing may be added. */
     private const ALLOWED_PERMISSIONS = [
         'issues' => 'write',
         'id-token' => 'write',
     ];
 
-    public function testTheWorkflowExists(): void
+    /**
+     * The workflows every invariant in this file is asserted against.
+     *
+     * @return array<string, array{string}>
+     */
+    public static function issueWorkflows(): array
     {
-        self::assertFileExists(
-            dirname(__DIR__, 2) . '/' . self::WORKFLOW,
-            self::WORKFLOW . ' is missing — the tests below would pass over nothing.',
+        return [
+            'per-issue triage' => [self::TRIAGE],
+            'nightly backlog scan' => [self::BACKLOG_SCAN],
+        ];
+    }
+
+    /**
+     * A third workflow reading issue bodies would get none of the
+     * assertions below, and nothing would say so: the suite would stay
+     * green over a file it has never looked at. So the provider above is
+     * checked against the directory rather than trusted.
+     *
+     * Matching on the filename prefix rather than on content is the point
+     * — a new `issue-*.yml` fails this test on the commit that adds it,
+     * which is when somebody is still thinking about what it may do.
+     */
+    public function testEveryIssueWorkflowIsCoveredByThisAudit(): void
+    {
+        $found = glob(dirname(__DIR__, 2) . '/.github/workflows/issue-*.yml');
+
+        self::assertIsArray($found, 'Could not list .github/workflows/.');
+
+        $onDisk = array_map(
+            static fn (string $path): string => '.github/workflows/' . basename($path),
+            $found,
+        );
+        sort($onDisk);
+
+        $covered = array_map(
+            static fn (array $case): string => $case[0],
+            array_values(self::issueWorkflows()),
+        );
+        sort($covered);
+
+        self::assertSame(
+            $onDisk,
+            $covered,
+            'A workflow reading issue bodies is not covered by this audit. Every `issue-*.yml` must be '
+            . 'listed in issueWorkflows(), because a job that reads untrusted public input and holds a '
+            . 'Claude token is exactly the thing these assertions exist for.',
         );
     }
 
-    public function testItGrantsNothingBeyondIssuesAndIdToken(): void
+    /**
+     * The floor under everything else here: a test that reads a file
+     * which is not there passes vacuously, and the suite would report
+     * green over a triage pipeline that no longer exists.
+     */
+    #[DataProvider('issueWorkflows')]
+    public function testTheWorkflowExists(string $workflow): void
     {
-        $blocks = $this->indentedPermissionBlocks();
+        self::assertFileExists(
+            dirname(__DIR__, 2) . '/' . $workflow,
+            $workflow . ' is missing — the tests below would pass over nothing.',
+        );
+    }
 
-        // Exactly one job, so exactly one job-level block. Two would mean
-        // a job this test has never looked at.
+    /**
+     * The assertion this whole file exists for. `contents:` in either of
+     * these blocks would give a job that reads untrusted public text a
+     * path to the default branch, and it would be a green pull request, a
+     * green CI run and a working workflow while doing it.
+     */
+    #[DataProvider('issueWorkflows')]
+    public function testItGrantsNothingBeyondIssuesAndIdToken(string $workflow): void
+    {
+        $blocks = $this->indentedPermissionBlocks($workflow);
+
+        // Exactly one job per file, so exactly one job-level block. Two
+        // would mean a job this test has never looked at.
         self::assertCount(
             1,
             $blocks,
-            self::WORKFLOW . ' has ' . count($blocks) . ' job-level `permissions:` blocks; this test '
+            $workflow . ' has ' . count($blocks) . ' job-level `permissions:` blocks; this test '
             . 'reads one. A second job means a second permission surface nobody is checking.',
         );
 
         self::assertSame(
             self::ALLOWED_PERMISSIONS,
             $blocks[0],
-            "The triage job's permissions changed. This job reads an issue body written by the public "
-            . 'and must keep no path to the repository: `contents` in particular would give one. '
+            'The permissions of ' . $workflow . ' changed. This job reads issue bodies written by the '
+            . 'public and must keep no path to the repository: `contents` in particular would give one. '
             . 'If a new permission is genuinely needed, change ALLOWED_PERMISSIONS here in the same '
             . 'commit and say why in the pull request.',
         );
     }
 
-    public function testItNeverChecksTheRepositoryOut(): void
+    /**
+     * The permission block above is the boundary; this is the habit that
+     * keeps anyone from needing to widen it. A checkout is only ever
+     * added in order to write, so a checkout appearing here is the first
+     * half of a change that ends with `contents: write`.
+     */
+    #[DataProvider('issueWorkflows')]
+    public function testItNeverChecksTheRepositoryOut(string $workflow): void
     {
-        foreach ($this->lines() as $number => $line) {
-            // `uses:` lines only. The header of that file discusses the
+        foreach ($this->lines($workflow) as $number => $line) {
+            // `uses:` lines only. The headers of those files discuss the
             // absence of a checkout at some length, and matching the
             // prose would fail on the very comment that explains the
             // rule — which is how an audit gets deleted for being noisy.
@@ -88,14 +168,21 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
             self::assertStringNotContainsString(
                 'actions/checkout',
                 $m[1],
-                'Line ' . ($number + 1) . ' of ' . self::WORKFLOW . ' checks the repository out. '
+                'Line ' . ($number + 1) . ' of ' . $workflow . ' checks the repository out. '
                 . 'A checkout is only ever needed in order to write; Claude reads code through the '
                 . 'GitHub MCP tools, which need no working copy.',
             );
         }
     }
 
-    public function testItStillDeniesEverythingAtTheWorkflowLevel(): void
+    /**
+     * Deny-by-default at the top of the file, so that a job added later
+     * without its own `permissions:` block inherits nothing rather than
+     * the repository default. The failure it prevents is silent: such a
+     * job runs, works, and holds write access nobody granted on purpose.
+     */
+    #[DataProvider('issueWorkflows')]
+    public function testItStillDeniesEverythingAtTheWorkflowLevel(string $workflow): void
     {
         // Column zero, not merely somewhere: a nested `permissions: {}`
         // inside a job denies that job and says nothing about the file's
@@ -103,14 +190,14 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
         // before comparing — as this test first did — accepted the wrong
         // one as the right one.
         $atTopLevel = array_filter(
-            $this->lines(),
+            $this->lines($workflow),
             static fn (string $line): bool => preg_match('/^permissions:\s*\{\s*\}\s*$/', $line) === 1,
         );
 
         self::assertCount(
             1,
             $atTopLevel,
-            self::WORKFLOW . ' must carry exactly one `permissions: {}` at column zero. Without it, a '
+            $workflow . ' must carry exactly one `permissions: {}` at column zero. Without it, a '
             . 'job that forgets its own `permissions:` block inherits the repository default — which '
             . 'is how a workflow ends up with write access nobody granted it on purpose.',
         );
@@ -122,14 +209,15 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
      * and telling those apart means resolving the object against the
      * remote — which a unit test does not get to do. What it does check is
      * that no reference is a movable ref, which is the property that
-     * matters: this job holds a Claude subscription token, so code
+     * matters: these jobs hold a Claude subscription token, so code
      * arriving through a moved `v1` would run with it.
      */
-    public function testEveryActionReferenceIsPinnedToAnImmutableObject(): void
+    #[DataProvider('issueWorkflows')]
+    public function testEveryActionReferenceIsPinnedToAnImmutableObject(string $workflow): void
     {
         $references = 0;
 
-        foreach ($this->lines() as $number => $line) {
+        foreach ($this->lines($workflow) as $number => $line) {
             if (!str_contains($line, 'anthropics/claude-code-action@')) {
                 continue;
             }
@@ -142,7 +230,7 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
             self::assertSame(
                 1,
                 preg_match('/anthropics\/claude-code-action@[0-9a-f]{40}(\s|$)/', $line),
-                'Line ' . ($number + 1) . ' of ' . self::WORKFLOW . ' does not pin '
+                'Line ' . ($number + 1) . ' of ' . $workflow . ' does not pin '
                 . 'anthropics/claude-code-action to a 40-character object SHA, the convention '
                 . 'ci.yml already follows.',
             );
@@ -151,37 +239,38 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
         self::assertGreaterThan(
             0,
             $references,
-            self::WORKFLOW . ' no longer references anthropics/claude-code-action at all — this test '
+            $workflow . ' no longer references anthropics/claude-code-action at all — this test '
             . 'would otherwise pass over nothing.',
         );
     }
 
     /**
-     * The workflow has no checkout, so it does not `open` its skill — it
+     * Neither workflow has a checkout, so neither `opens` its skill — each
      * asks Claude to fetch the file from `main` through the GitHub tools.
      * That indirection has a failure mode nothing else covers: rename or
      * move the file and the fetch returns nothing, while the job still
      * runs, still authenticates, still has `issues: write`, and still
-     * ends `success`. Claude would triage the issue with no method at
-     * all — and since IT-03 that method is what decides whether an issue
-     * gets CLOSED, and with which reason.
+     * ends `success`. Claude would triage with no method at all — and
+     * since IT-03 that method is what decides whether an issue gets
+     * CLOSED, and with which reason.
      *
      * A green run proving nothing is the failure this repository keeps
      * meeting (docs/quality-pipeline.md, last section), so the pairing is
-     * asserted here: every skill file the workflow names must exist.
+     * asserted here: every skill file a prompt names must exist.
      */
-    public function testEverySkillTheWorkflowNamesExists(): void
+    #[DataProvider('issueWorkflows')]
+    public function testEverySkillTheWorkflowNamesExists(string $workflow): void
     {
         $repoRoot = dirname(__DIR__, 2);
         $referenced = [];
 
-        // The PROMPT only, never the whole file. That file's header
-        // discusses the skill by name twice, so scanning every line — as
-        // this first did — would keep passing after the path was deleted
-        // from the prompt, reporting success over a workflow that no
-        // longer loads anything. A check with that hole is worse than no
-        // check: it states a guarantee it is not making.
-        foreach ($this->promptLines() as $line) {
+        // The PROMPT only, never the whole file. Those headers discuss
+        // the skill by name, so scanning every line — as this first did —
+        // would keep passing after the path was deleted from the prompt,
+        // reporting success over a workflow that no longer loads
+        // anything. A check with that hole is worse than no check: it
+        // states a guarantee it is not making.
+        foreach ($this->promptLines($workflow) as $line) {
             if (preg_match_all('/(\.claude\/skills\/[A-Za-z0-9_\-\/]+\.md)/', $line, $matches) < 1) {
                 continue;
             }
@@ -193,7 +282,7 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
 
         self::assertNotEmpty(
             $referenced,
-            self::WORKFLOW . "'s prompt no longer names a skill file. Either it stopped pointing at one "
+            $workflow . "'s prompt no longer names a skill file. Either it stopped pointing at one "
             . '— in which case the triage runs with no method, including no rule about closing — or the '
             . 'reference changed shape and this test is now checking nothing.',
         );
@@ -201,11 +290,159 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
         foreach (array_keys($referenced) as $path) {
             self::assertFileExists(
                 $repoRoot . '/' . $path,
-                self::WORKFLOW . ' tells Claude to fetch ' . $path . ', which does not exist. The job '
-                . 'would still run, still succeed, and triage the issue with no method — including the '
-                . 'decision to close it.',
+                $workflow . ' tells Claude to fetch ' . $path . ', which does not exist. The job '
+                . 'would still run, still succeed, and triage with no method — including the '
+                . 'decision to close an issue.',
             );
         }
+    }
+
+    /**
+     * Both jobs spend model time on public input, so both must have a
+     * ceiling on it. `timeout-minutes` bounds the wall clock and
+     * `--max-turns` bounds the work; a job missing either can be made to
+     * run until GitHub's own six-hour limit by a sufficiently confusing
+     * issue, and it would report success afterwards.
+     */
+    #[DataProvider('issueWorkflows')]
+    public function testItBoundsBothTheClockAndTheWork(string $workflow): void
+    {
+        $lines = $this->lines($workflow);
+
+        self::assertNotEmpty(
+            array_filter(
+                $lines,
+                static fn (string $line): bool => preg_match('/^\s+timeout-minutes:\s*\d+\s*$/', $line) === 1,
+            ),
+            $workflow . ' declares no `timeout-minutes`. Without one the job inherits GitHub\'s '
+            . 'six-hour default, and a confusing issue can spend six hours of the subscription.',
+        );
+
+        // The `claude_args:` line itself, never a comment mentioning it.
+        // Both files explain --max-turns in prose above the line that
+        // passes it, so `str_contains` over every line — as this first
+        // did — kept passing after the flag was deleted from the
+        // argument, which is the exact mutation it exists to catch.
+        self::assertNotEmpty(
+            array_filter(
+                $lines,
+                static fn (string $line): bool =>
+                    preg_match('/^\s+claude_args:\s*.*--max-turns\s+\d+/', $line) === 1,
+            ),
+            $workflow . ' passes no `--max-turns` in its `claude_args:`. The timeout bounds the '
+            . 'clock; only this bounds the work, and the two are not substitutes.',
+        );
+    }
+
+    /**
+     * A `schedule:` trigger only ever runs from the DEFAULT BRANCH, so
+     * nothing about this workflow can be exercised on a pull request
+     * branch — pushing a change to it proves the YAML parses and nothing
+     * else. `workflow_dispatch` is the only way to find out whether it
+     * works, before or after it merges.
+     *
+     * Deleting it would leave a workflow that can only be tested by
+     * waiting until 03:00 and reading the logs in the morning, which in
+     * practice means it stops being tested.
+     */
+    public function testTheBacklogScanIsScheduledAndCanAlsoBeRunByHand(): void
+    {
+        $lines = $this->lines(self::BACKLOG_SCAN);
+
+        self::assertNotEmpty(
+            array_filter(
+                $lines,
+                static fn (string $line): bool => preg_match("/^\s+-\s*cron:\s*'\d*[1-9]\d* \d+ \* \* \*'\s*$/", $line) === 1,
+            ),
+            self::BACKLOG_SCAN . ' has no daily cron, or its cron fires at minute zero. GitHub defers '
+            . 'and drops scheduled jobs under load, and load peaks at the top of the hour where every '
+            . '`0 *` cron in the world fires at once — a dropped run here is a night of backlog nobody '
+            . 'triages, and nothing reports it. Keep the minute non-zero.',
+        );
+
+        self::assertNotEmpty(
+            array_filter(
+                $lines,
+                static fn (string $line): bool => preg_match('/^\s+workflow_dispatch:\s*$/', $line) === 1,
+            ),
+            self::BACKLOG_SCAN . ' has no `workflow_dispatch:`. A `schedule:` trigger only runs from '
+            . 'the default branch, so without a manual trigger this workflow cannot be tested at all '
+            . '— not on a branch, and not after merging except by waiting for 03:00.',
+        );
+    }
+
+    /**
+     * The cap is the difference between draining a backlog and waking two
+     * hundred reporters at three in the morning with a comment each. It
+     * lives in the prompt because the prompt is what the model reads, and
+     * it is asserted here because a prompt is one edit away from losing
+     * a sentence nobody misses.
+     *
+     * The wording is matched, not merely the number: a run cannot be
+     * "capped at five" by mentioning five somewhere. If a rewrite makes
+     * this fail, the right response is to re-read why the cap is there
+     * and then update this test deliberately — not to loosen the regex.
+     */
+    public function testTheBacklogScanCapsWhatOneRunCanDo(): void
+    {
+        $prompt = implode("\n", $this->promptLines(self::BACKLOG_SCAN));
+
+        self::assertSame(
+            1,
+            preg_match('/at most the first five/i', $prompt),
+            self::BACKLOG_SCAN . "'s prompt no longer caps a run at five issues. Without the cap, the "
+            . 'first run against a real backlog posts a comment on every untriaged issue at once — and '
+            . 'spends the subscription doing it.',
+        );
+
+        self::assertSame(
+            1,
+            preg_match('/oldest first/i', $prompt),
+            self::BACKLOG_SCAN . "'s prompt no longer says which five. Without an order, a capped scan "
+            . 'can pick the same five every night and never reach the rest of the backlog.',
+        );
+    }
+
+    /**
+     * The two workflows cannot share a lock: `issue-triage.yml` groups its
+     * concurrency per issue number, this one groups per workflow, and
+     * GitHub offers nothing that spans the two. So an issue opened while a
+     * scan is running is `triage:pending` and looks untriaged to BOTH
+     * agents, neither of which sees the other's comment until both have
+     * posted one — and the reporter gets two verdicts on the same report.
+     *
+     * What closes the window is the prompt leaving brand-new issues to the
+     * job that already has them. Deleting that one clause reopens it, and
+     * nothing else in this repository would notice: the race needs an
+     * issue opened inside a particular twenty-minute window at three in
+     * the morning, so it would show up as an occasional inexplicable
+     * double comment long after the change that caused it.
+     */
+    public function testTheBacklogScanStandsClearOfThePerIssueWorkflow(): void
+    {
+        $prompt = implode(' ', array_map('trim', $this->promptLines(self::BACKLOG_SCAN)));
+
+        self::assertSame(
+            1,
+            preg_match('/opened more than one hour ago/i', $prompt),
+            self::BACKLOG_SCAN . "'s prompt no longer excludes issues opened in the last hour. "
+            . 'issue-triage.yml is triaging those already, and the two jobs hold no lock in common, '
+            . 'so both can decide an issue is untriaged and both can post a verdict on it.',
+        );
+
+        // The floor covers the ordinary overlap. It does not cover a
+        // reopened issue, which fires the per-issue workflow on an issue
+        // of any age, nor that workflow running late. What covers those is
+        // WHERE the verdict check sits: triage takes minutes, so a check
+        // performed before that work looks correct and covers nothing.
+        self::assertSame(
+            1,
+            preg_match('/before writing anything/i', $prompt),
+            self::BACKLOG_SCAN . "'s prompt no longer re-checks for an existing verdict immediately "
+            . 'before it writes. Moved any earlier, that check spans the minutes the triage itself '
+            . 'takes, and a verdict landing inside that window still produces a second comment on '
+            . "somebody's report.",
+        );
     }
 
     /**
@@ -214,12 +451,12 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
      *
      * @return array<int, string>
      */
-    private function promptLines(): array
+    private function promptLines(string $workflow): array
     {
         $prompt = [];
         $indent = null;
 
-        foreach ($this->lines() as $line) {
+        foreach ($this->lines($workflow) as $line) {
             if ($indent === null) {
                 if (preg_match('/^(\s+)prompt:\s*\|/', $line, $match) === 1) {
                     $indent = strlen($match[1]);
@@ -245,7 +482,7 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
 
         self::assertNotNull(
             $indent,
-            self::WORKFLOW . ' has no `prompt: |` block. The workflow runs in automation mode, so without '
+            $workflow . ' has no `prompt: |` block. The workflow runs in automation mode, so without '
             . 'one it tells the model nothing — and this test would silently check an empty set.',
         );
 
@@ -266,9 +503,9 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
      *
      * @return array<int, array<string, string>>
      */
-    private function indentedPermissionBlocks(): array
+    private function indentedPermissionBlocks(string $workflow): array
     {
-        $lines = $this->lines();
+        $lines = $this->lines($workflow);
         $blocks = [];
 
         foreach ($lines as $index => $line) {
@@ -284,7 +521,7 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
             self::assertSame(
                 '',
                 trim($rest),
-                'The job-level `permissions:` in ' . self::WORKFLOW . ' is written inline. Write it as '
+                'The job-level `permissions:` in ' . $workflow . ' is written inline. Write it as '
                 . 'an indented block, one `key: value` per line, so this audit can read what it grants.',
             );
 
@@ -313,7 +550,7 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
                 }
 
                 self::fail(
-                    'Unreadable line inside the `permissions:` block of ' . self::WORKFLOW . ': '
+                    'Unreadable line inside the `permissions:` block of ' . $workflow . ': '
                     . trim($next) . ' — this audit fails closed rather than ignore what it cannot parse.',
                 );
             }
@@ -327,12 +564,12 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
     /**
      * @return array<int, string>
      */
-    private function lines(): array
+    private function lines(string $workflow): array
     {
-        $path = dirname(__DIR__, 2) . '/' . self::WORKFLOW;
+        $path = dirname(__DIR__, 2) . '/' . $workflow;
         $contents = file_get_contents($path);
 
-        self::assertIsString($contents, 'Could not read ' . self::WORKFLOW . '.');
+        self::assertIsString($contents, 'Could not read ' . $workflow . '.');
 
         return explode("\n", $contents);
     }
