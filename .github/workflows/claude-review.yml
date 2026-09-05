@@ -1,0 +1,85 @@
+# Second-opinion review by Claude on every pull request, alongside the
+# CodeRabbit review that runs from .coderabbit.yaml.
+#
+# Nobody has to remember to ask for it: GitHub runs this on the pull_request
+# event, so it happens whether or not anyone thinks of it. That is the whole
+# point — a reviewer you have to summon is a reviewer you forget to summon
+# on the pull request that needed it.
+#
+# Each run spends the Claude subscription behind CLAUDE_CODE_OAUTH_TOKEN.
+
+name: Claude review
+
+on:
+  pull_request:
+    # `opened` catches a pull request created ready for review;
+    # `ready_for_review` catches one that started as a draft; `reopened`
+    # catches one brought back. `labeled` is not an automatic trigger — it
+    # is the manual lever below, for asking again.
+    #
+    # `synchronize` is deliberately absent: it would run a fresh review on
+    # every push, which is the setting we turned off for CodeRabbit in
+    # .coderabbit.yaml for the same reason. Add it here only if you want a
+    # review per push and are willing to pay for it.
+    types: [opened, ready_for_review, reopened, labeled]
+
+# A second trigger while a run is in flight replaces it rather than paying
+# for both.
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: Claude review
+    # Two guards, and the second is what keeps `labeled` from turning every
+    # label into a review: on a label event, only `claude-review` qualifies.
+    # Adding that label to an already-reviewed pull request is how you ask
+    # for a fresh pass without pushing.
+    #
+    # Drafts are skipped — the diff is still moving, and CodeRabbit skips
+    # them too. `ready_for_review` picks the pull request up the moment it
+    # stops being one.
+    if: >-
+      github.event.pull_request.draft == false &&
+      (github.event.action != 'labeled' || github.event.label.name == 'claude-review')
+    runs-on: ubuntu-latest
+
+    # A runaway run costs subscription usage for nothing. The review itself
+    # takes a few minutes; this is a ceiling, not a target.
+    timeout-minutes: 20
+
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      # Required by the action's default GitHub App authentication — it is
+      # what lets it post inline comments without a token of its own.
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # Full history: the review reads the branch against its base.
+          fetch-depth: 0
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          # Authenticates against the maintainer's Claude subscription
+          # rather than a metered API key. Generated with `claude
+          # setup-token` and stored as a repository secret.
+          #
+          # GitHub withholds secrets from runs triggered by a pull request
+          # from a fork, so this job cannot review an outside contribution
+          # — the same hole SonarCloud has here, and it is recorded in
+          # .claude/skills/steward/SKILL.md.
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          plugin_marketplaces: "https://github.com/anthropics/claude-code.git"
+          plugins: "code-review@claude-code-plugins"
+          prompt: "/code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}"
+          # --comment is what puts the findings on the pull request; without
+          # it they are written to the run log and nobody reads them. The
+          # --allowedTools line is not redundant with the skill's own
+          # frontmatter: the action starts the inline-comment MCP server
+          # only when claude_args names that tool.
+          claude_args: '--allowedTools "mcp__github_inline_comment__create_inline_comment"'
