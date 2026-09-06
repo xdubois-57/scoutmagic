@@ -926,10 +926,19 @@ $settingService->register('support_ticket_categories', '', 'text', 'Catégories 
 // copied into a GitHub issue, and nobody reports within the minute: keeping
 // only the latest made the reference of two days ago unrecoverable, which
 // is exactly the one somebody comes back to the page for.
-$settingService->register('support_recent_tickets', '', 'text', 'Derniers envois au support',
+$settingService->register(
+    'support_recent_tickets',
+    '',
+    'text',
+    'Derniers envois au support',
     'Références et dates des cinq derniers envois d\'informations techniques au support, pour pouvoir les citer '
-        . 'dans un signalement GitHub. Renseignées automatiquement.',
-    null, null, null, false, 297);
+    . 'dans un signalement GitHub. Renseignées automatiquement.',
+    null,
+    null,
+    null,
+    false,
+    297
+);
 // The archive's own bookkeeping (roadmap IT-26) and the mail probe's
 // (IT-27). These four were WRITTEN from the first day and never
 // registered, and `SettingService::setInternal()` throws on a key it does
