@@ -64,11 +64,38 @@ log, an attached file.
 
 ## The issue may be coming back to you
 
-An issue you have already triaged reaches you a second time in one case,
-and it is a case you created: an earlier verdict labelled it
+An issue you have already triaged reaches you a second time in two cases,
+and you created both.
+
+**They answered your question.** An earlier verdict labelled it
 `bug:needs-info` and asked the reporter for the one missing fact, and they
-answered. `issue-triage.yml` runs on that comment, puts the issue back to
+replied. `issue-triage.yml` runs on that comment, puts the issue back to
 `triage:pending`, and hands it to you.
+
+**Or they are pushing back on a verdict that CLOSED their report.** An
+earlier verdict said `bug:not-a-bug`, the issue closed, and the reporter
+commented anyway. That comment reopens it and sends it back to
+`triage:pending`.
+
+Treat the second one as the more serious of the two, because it is. A
+`bug:not-a-bug` is the only verdict that ends the conversation, it is
+reached by a reader of the code rather than by anyone who ran the site,
+and a reporter who comes back to say "no, it really happens" is the
+strongest evidence available that it was wrong. **Start from the
+assumption that they are right and the earlier reading missed something**
+— a different page, a different role, a path through the editor rather
+than the published page — rather than from the assumption that they
+misunderstood. If the code still says the behaviour is correct, say what
+you looked at and ask the one question that would settle it
+(`bug:needs-info`); do not simply restate the verdict they just
+contradicted.
+
+Issue #181 is the example to keep in mind: closed as `not-a-bug` on the
+reasoning that the CSS already handles it and the reporter's browser had
+probably cached an old page — while a comment three minutes into the
+report had corrected the role from « Public (non connecté) » to
+superadmin, which points at the editor rather than at the published
+article. The verdict never mentioned it.
 
 So **read the comments, in order, before deciding anything**. The newest
 comment that is not a triage verdict is the new evidence — it is why you
@@ -91,10 +118,11 @@ Three things follow:
   reporter has read the rest.
 
 Most comments never reach you at all, and the workflow's filter is why: a
-comment only wakes a triage on an open issue carrying `bug:needs-info`,
-written by the reporter themselves or by the repository owner. A
-conversation between humans on an answered report is not a triage, and a
-passer-by cannot take one over.
+comment wakes a triage only on an OPEN issue carrying `bug:needs-info` or
+a CLOSED one carrying `bug:not-a-bug`, and only when written by the
+reporter themselves or by the repository owner. A conversation between
+humans on an answered report is not a triage, an issue closed by a merged
+fix is not either, and a passer-by cannot take one over.
 
 ## Order of work
 
@@ -246,6 +274,12 @@ justify the behaviour.
 answered. `completed` would also be a lie the release notes could pick up.
 The workflow does this when your verdict says so, which is the reason that
 verdict is the expensive one to reach.
+
+It is not a one-way door, and you should not write as though it were. A
+comment from the reporter on an issue you closed this way reopens it and
+sends it back to you — so end on the question or the workaround that would
+actually settle it, never on "open a new ticket if it persists", which
+asks somebody who already reported a defect to report it twice.
 
 `bug:confirmed` and `bug:needs-info` stay open, as does an issue with no
 `bug:*` label at all (a feature request — see below). If you are about to

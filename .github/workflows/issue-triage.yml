@@ -174,10 +174,28 @@ jobs:
     # A comment is only ever an answer to the question this pipeline
     # asked, and every clause below is load-bearing:
     #
-    # - `bug:needs-info` is what makes the comment relevant at all. On
-    #   any other issue a comment is a conversation between humans, and
-    #   re-triaging it would post a second verdict on a report somebody
-    #   has already been answered about.
+    # - The issue is in one of the TWO states a comment can legitimately
+    #   move, and nothing else. On any other issue a comment is a
+    #   conversation between humans, and re-triaging would post a second
+    #   verdict on a report somebody has already been answered about.
+    #
+    #     * OPEN and `bug:needs-info` — the question this pipeline asked
+    #       has been answered. The issue goes back to `triage:pending`
+    #       and is re-triaged on the reply.
+    #     * CLOSED and `bug:not-a-bug` — the reporter is pushing back on
+    #       a verdict, and that verdict is the one this pipeline can get
+    #       most wrong. It is REOPENED as well as sent back to
+    #       `triage:pending`. Without this, the only recourse against a
+    #       wrong `not-a-bug` was the sentence those verdicts end with —
+    #       "n'hésitez pas à rouvrir un ticket" — which asks somebody who
+    #       already reported a defect to report it a second time, and
+    #       loses the thread that explains it. Issue #181 was closed that
+    #       way on a guess about a browser cache, three minutes after its
+    #       reporter had corrected the form.
+    #
+    #   `completed` closures are deliberately not in that list: an issue
+    #   closed by a merged fix carries `bug:confirmed`, and a comment on
+    #   it is a conversation about work that is done.
     # - The comment's author is not a bot. THIS IS WHAT STOPS THE LOOP:
     #   the verdict this job posts is itself a comment on the issue, and
     #   a verdict that is again `bug:needs-info` would otherwise wake the
@@ -204,22 +222,25 @@ jobs:
     #   is written down. Widening this to real write access means asking
     #   `/repos/{owner}/{repo}/collaborators/{user}/permission`, which is
     #   an API call and therefore a step, not a job condition.
-    # - The issue is open (a closed one is not waiting for anything) and
-    #   is not a pull request — `issue_comment` fires on both, and a
+    # - It is not a pull request — `issue_comment` fires on both, and a
     #   review conversation is not a report.
     #
     # `issues`-triggered runs are unaffected: the condition is true for
     # every event that is not a comment.
     if: >-
       github.event_name != 'issue_comment' || (
-        github.event.issue.state == 'open'
-        && !github.event.issue.pull_request
+        !github.event.issue.pull_request
         && github.event.comment.user.type != 'Bot'
         && (
           github.event.comment.user.id == github.event.issue.user.id
           || github.event.comment.author_association == 'OWNER'
         )
-        && contains(github.event.issue.labels.*.name, 'bug:needs-info')
+        && (
+          (github.event.issue.state == 'open'
+            && contains(github.event.issue.labels.*.name, 'bug:needs-info'))
+          || (github.event.issue.state == 'closed'
+            && contains(github.event.issue.labels.*.name, 'bug:not-a-bug'))
+        )
       )
 
     # A confusing report must not be able to spend an unbounded amount of
@@ -445,7 +466,14 @@ jobs:
       #
       # `bug:needs-info` goes too: it is the state "waiting for an answer
       # from the reporter", the answer is what started this run, and the
-      # agent applies whatever verdict the answer now supports.
+      # agent applies whatever verdict the answer now supports. So does
+      # `bug:not-a-bug`, in the other case this step handles — and there
+      # the issue is REOPENED as well, because a verdict that closed
+      # somebody's report is the one this pipeline can get most wrong,
+      # and their reply is the evidence it did. Telling them to file a
+      # second ticket, which is what those verdicts used to end with,
+      # asks the person who already reported a defect to report it again
+      # and throws away the thread that explains it.
       - name: Send the issue back to triage
         if: github.event_name == 'issue_comment'
         env:
@@ -456,10 +484,28 @@ jobs:
         run: |
           set -euo pipefail
 
+          # REOPEN FIRST, if this is the closed case. A reopened issue
+          # with stale labels is visible and recoverable; a relabelled
+          # issue still closed reads as settled to everyone looking at
+          # the list, and the agent would be triaging something nobody
+          # can see.
+          #
+          # `--jq` rather than trusting the event payload's `state`: the
+          # payload is a snapshot from when the comment landed, and the
+          # verification below has to compare against what GitHub holds
+          # now.
+          state="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}" --jq '.state')"
+
+          if [ "${state}" = 'closed' ]; then
+            gh api "repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}" \
+              -X PATCH -f state=open --silent
+            echo "Issue #${ISSUE_NUMBER} was closed; reopened so its reporter's reply can be answered."
+          fi
+
           gh api "repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}/labels" \
             -X POST -f 'labels[]=triage:pending' --silent
 
-          for label in 'triage:done' 'bug:needs-info'; do
+          for label in 'triage:done' 'bug:needs-info' 'bug:not-a-bug'; do
             # The colon is encoded rather than sent raw: it is legal in a
             # path segment and GitHub accepts both, but a DELETE failing
             # on the encoding is exactly the kind of thing that must not
@@ -487,17 +533,21 @@ jobs:
           # trust. The reporter's answer keeps its `bug:needs-info`, the
           # nightly scan is unaffected, and the failure is visible in the
           # Actions tab rather than silently rewritten.
-          state="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}/labels" \
+          reset="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}/labels" \
             --jq 'map(.name)
                   | if (index("triage:pending") != null)
                        and (index("triage:done") == null)
                        and (index("bug:needs-info") == null)
+                       and (index("bug:not-a-bug") == null)
                     then "reset" else "stale" end')"
 
-          if [ "${state}" != "reset" ]; then
+          reopened="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}" --jq '.state')"
+
+          if [ "${reset}" != "reset" ] || [ "${reopened}" != 'open' ]; then
             echo "::error title=Issue was not sent back to triage::Issue #${ISSUE_NUMBER} still \
-            carries a triage label it should have lost, or lost the triage:pending it should have \
-            gained. The re-triage is stopped here rather than run against a state it cannot trust."
+            carries a triage label it should have lost, lost the triage:pending it should have \
+            gained, or is still closed. The re-triage is stopped here rather than run against a \
+            state it cannot trust."
             exit 1
           fi
 

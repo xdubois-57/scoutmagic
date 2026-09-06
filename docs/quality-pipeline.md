@@ -241,7 +241,16 @@ it was. A comment on an **open** issue carrying `bug:needs-info`, on
 something that is not a pull request, written by somebody who is not a bot
 and who is either the issue's own reporter or the repository owner, now
 sends that issue back to `triage:pending` (dropping `triage:done` and
-`bug:needs-info`) and re-triages it against everything it says now. The
+`bug:needs-info`) and re-triages it against everything it says now.
+
+**A comment on an issue CLOSED as `bug:not-a-bug` does the same and
+reopens it.** That verdict is the only one that ends a conversation, it is
+reached by reading code rather than by running the site, and a reporter
+who comes back to say it still happens is the best evidence available that
+it was wrong — so their reply is a re-triage, not a new ticket. Issues
+closed as `completed` by a merged fix are deliberately outside this: they
+carry `bug:confirmed`, and a comment there is a conversation about work
+that is done. The
 order matters: reset first, because `triage:done` left over from the first
 pass would make the verification below pass over a run that did nothing —
 and the reset **reads itself back** and fails the job when the labels did

@@ -510,10 +510,6 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
         );
 
         $clauses = [
-            "contains(github.event.issue.labels.*.name, 'bug:needs-info')"
-                => 'a comment only re-triages an issue that is waiting for an answer; on any other '
-                . 'issue it is a conversation between humans, and re-triaging posts a second verdict '
-                . 'on a report already answered',
             "github.event.comment.user.type != 'Bot'"
                 => 'THE LOOP STOP: the verdict this job posts is itself a comment on the issue, so '
                 . 'without this a `bug:needs-info` verdict wakes the job that wrote it, forever',
@@ -527,8 +523,16 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
                 . '`author_association` is a relationship and not a permission, so `MEMBER` and '
                 . '`COLLABORATOR` would admit the Read and Triage roles of an organisation-owned '
                 . 'repository, which hold no write access at all',
-            "github.event.issue.state == 'open'"
-                => 'a closed issue is waiting for nothing',
+            "github.event.issue.state == 'open' "
+            . "&& contains(github.event.issue.labels.*.name, 'bug:needs-info')"
+                => 'the open case: the question this pipeline asked has been answered',
+            "github.event.issue.state == 'closed' "
+            . "&& contains(github.event.issue.labels.*.name, 'bug:not-a-bug')"
+                => 'the closed case: `bug:not-a-bug` is the only verdict that ends a conversation, '
+                . 'and a reporter who comes back to say it still happens is the best evidence '
+                . 'available that it was wrong. Without this clause their only recourse is to file '
+                . 'the same defect a second time — which is what those verdicts used to tell them '
+                . 'to do (issue #181)',
             '!github.event.issue.pull_request'
                 => '`issue_comment` fires on pull requests too, and a review conversation is not a '
                 . 'report',
@@ -649,6 +653,31 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
                 self::TRIAGE . ' reads the reset back but cannot fail on it. A check that only '
                 . 'prints is a check the agent runs straight past, against a state nothing has '
                 . 'established.',
+            );
+        }
+
+        // AND IT REOPENS. `bug:not-a-bug` is the one verdict that closes
+        // a report, and a comment from its reporter is the pushback that
+        // says it was wrong — so the reset has to undo the close as well
+        // as the labels. Relabelling a still-closed issue would leave the
+        // agent triaging something nobody can see in the list, and would
+        // answer the reporter on a report that still reads as settled.
+        foreach ($writes as $script) {
+            self::assertStringContainsString(
+                '-X PATCH -f state=open',
+                $script,
+                self::TRIAGE . ' sends an issue back to triage without reopening it. A comment on '
+                . 'an issue closed as `bug:not-a-bug` is its reporter saying the verdict was '
+                . 'wrong; leaving it closed means the only recourse against a wrong close is still '
+                . 'to file the same defect twice.',
+            );
+
+            self::assertStringContainsString(
+                'bug:not-a-bug',
+                $script,
+                self::TRIAGE . ' reopens the issue but leaves `bug:not-a-bug` on it. The verdict '
+                . 'the reporter is contradicting would stay as the issue\'s state while it goes '
+                . 'back through triage.',
             );
         }
 
