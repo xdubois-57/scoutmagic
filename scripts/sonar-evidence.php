@@ -94,7 +94,8 @@ const SONAR_EVIDENCE_METRICS = [
 ];
 
 /** The per-file subset: enough to place debt and coverage, not the whole list. */
-const SONAR_EVIDENCE_FILE_METRICS = 'ncloc,coverage,bugs,vulnerabilities,security_hotspots,code_smells,duplicated_lines_density,cognitive_complexity';
+const SONAR_EVIDENCE_FILE_METRICS = 'ncloc,coverage,bugs,vulnerabilities,security_hotspots,code_smells,'
+    . 'duplicated_lines_density,cognitive_complexity';
 
 /** SonarCloud's page ceiling per request, and a hard cap on pages so a loop cannot run away. */
 const SONAR_EVIDENCE_PAGE_SIZE = 500;
@@ -147,7 +148,10 @@ function sonar_evidence_main(array $argv): void
 
     if ($token === '') {
         if ($expected !== null) {
-            fwrite(STDERR, "sonar-evidence: SONAR_TOKEN is not set and an analysis of {$expected} is required — refusing.\n");
+            fwrite(
+                STDERR,
+                "sonar-evidence: SONAR_TOKEN is not set and an analysis of {$expected} is required — refusing.\n",
+            );
             exit(1);
         }
         sonar_evidence_write_unavailable($outDir, 'Aucun SONAR_TOKEN n\'était disponible pour cette exécution.');
@@ -261,12 +265,14 @@ function sonar_evidence_resolve_token(string $fromEnvironment, string $tokenFile
 /**
  * The one line this script prints on a run that worked.
  *
- * @param array{revision: string, analysis_date: string, quality_gate: string, issues: int, blocking: int, hotspots: int, hotspots_to_review: int} $summary
+ * @param array{revision: string, analysis_date: string, quality_gate: string, issues: int, blocking: int,
+ *     hotspots: int, hotspots_to_review: int} $summary
  */
 function sonar_evidence_summary_line(array $summary, string $outDir): string
 {
     return sprintf(
-        "sonar-evidence: analysis %s of %s — quality gate %s, %d issue(s) (%d blocking), %d hotspot(s) (%d to review), written to %s\n",
+        "sonar-evidence: analysis %s of %s — quality gate %s, %d issue(s) (%d blocking), "
+        . "%d hotspot(s) (%d to review), written to %s\n",
         $summary['analysis_date'],
         substr($summary['revision'], 0, 7),
         $summary['quality_gate'],
@@ -309,7 +315,8 @@ function sonar_evidence_refusal_message(array $refusals): string
  * not "nothing blocks". Reading the first as the second is how a release
  * ships over a finding nobody was ever shown.
  *
- * @param array{quality_gate: string, blocking: int, hotspots_to_review: int, revision: string, truncated?: bool} $summary
+ * @param array{quality_gate: string, blocking: int, hotspots_to_review: int, revision: string,
+ *     truncated?: bool} $summary
  * @return list<string>
  */
 function sonar_evidence_release_refusals(array $summary): array
@@ -320,13 +327,15 @@ function sonar_evidence_release_refusals(array $summary): array
         $refusals[] = 'le Quality Gate est ' . $summary['quality_gate'] . ' (il doit être OK).';
     }
     if ($summary['blocking'] > 0) {
-        $refusals[] = $summary['blocking'] . ' signalement(s) non résolu(s) bloquant(s) — les nits de convention exemptés ne comptent pas.';
+        $refusals[] = $summary['blocking'] . ' signalement(s) non résolu(s) bloquant(s) — les nits de convention '
+            . 'exemptés ne comptent pas.';
     }
     if ($summary['hotspots_to_review'] > 0) {
         $refusals[] = $summary['hotspots_to_review'] . ' Security Hotspot(s) encore à trier (TO_REVIEW).';
     }
     if ($summary['truncated'] ?? false) {
-        $refusals[] = 'la liste des signalements a été tronquée au plafond de pagination : les comptes ci-dessus sont des minorants, pas un état complet.';
+        $refusals[] = 'la liste des signalements a été tronquée au plafond de pagination : les comptes ci-dessus '
+            . 'sont des minorants, pas un état complet.';
     }
 
     return $refusals;
@@ -397,7 +406,8 @@ function sonar_evidence_decode(string|bool $body, int $status, string $error, st
  *
  * @param callable(string): array<string, mixed> $api
  * @param callable(int): void $sleep
- * @return array{revision: string, analysis_date: string, quality_gate: string, issues: int, blocking: int, hotspots: int, hotspots_to_review: int, truncated: bool}
+ * @return array{revision: string, analysis_date: string, quality_gate: string, issues: int, blocking: int,
+ *     hotspots: int, hotspots_to_review: int, truncated: bool}
  * @throws RuntimeException
  */
 function sonar_evidence_collect(
@@ -447,16 +457,21 @@ function sonar_evidence_collect(
     sonar_evidence_write_json($outDir . '/sonarcloud-quality-gate.json', $gate);
 
     $measures = $api(
-        "measures/component?component={$project}&branch={$branchQuery}&metricKeys=" . implode(',', SONAR_EVIDENCE_METRICS)
+        "measures/component?component={$project}&branch={$branchQuery}&metricKeys="
+        . implode(',', SONAR_EVIDENCE_METRICS)
     );
     sonar_evidence_write_json($outDir . '/sonarcloud-measures.json', $measures);
 
     $byFile = sonar_evidence_fetch_all_pages(
         $api,
-        "measures/component_tree?component={$project}&branch={$branchQuery}&qualifiers=FIL&metricKeys=" . SONAR_EVIDENCE_FILE_METRICS,
+        "measures/component_tree?component={$project}&branch={$branchQuery}&qualifiers=FIL&metricKeys="
+        . SONAR_EVIDENCE_FILE_METRICS,
         'components'
     );
-    sonar_evidence_write_json($outDir . '/sonarcloud-measures-by-file.json', ['total' => count($byFile), 'components' => $byFile]);
+    sonar_evidence_write_json(
+        $outDir . '/sonarcloud-measures-by-file.json',
+        ['total' => count($byFile), 'components' => $byFile],
+    );
 
     // $truncated matters more than it looks. Every count below is derived
     // from these lists, so one the page cap cut short yields counts that
@@ -477,7 +492,8 @@ function sonar_evidence_collect(
         'blocking' => count($blocking),
         'exempt' => count($issues) - count($blocking),
         'truncated' => $issuesTruncated,
-        'rule' => 'AGENTS.md § SonarQube Cloud release gate: every unresolved issue blocks a release except one that is, all at once, MAINTAINABILITY, LOW and tagged convention.',
+        'rule' => 'AGENTS.md § SonarQube Cloud release gate: every unresolved issue blocks a release except one '
+            . 'that is, all at once, MAINTAINABILITY, LOW and tagged convention.',
         'issues' => $issues,
     ]);
 
@@ -562,7 +578,8 @@ function sonar_evidence_wait_for_analysis(
     }
 
     throw new RuntimeException(sprintf(
-        'SonarCloud has not analysed %s (latest analysis: %s) after %d attempt(s) — a pass read off an older analysis is not a pass',
+        'SonarCloud has not analysed %s (latest analysis: %s) after %d attempt(s) — a pass read off an older '
+        . 'analysis is not a pass',
         $expectedRevision,
         (string) ($latest['revision'] ?? 'none'),
         $attempts
@@ -671,7 +688,8 @@ function sonar_evidence_write_unavailable(string $outDir, string $reason): void
  */
 function sonar_evidence_write_json(string $path, array $data): void
 {
-    file_put_contents($path, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n");
+    $flags = JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE;
+    file_put_contents($path, json_encode($data, $flags) . "\n");
 }
 
 /** SonarCloud returns ratings as 1..5; nobody reads "3.0". */
@@ -722,7 +740,8 @@ function sonar_evidence_report(
             ? 'C\'est bien le commit livré par cette release.'
             : '**Attention : ce n\'est pas le commit livré (`' . $expectedRevision . '`).**';
     } else {
-        $lines[] = 'Aucun commit particulier n\'était attendu (exécution de répétition) : ceci est la dernière analyse de la branche.';
+        $lines[] = 'Aucun commit particulier n\'était attendu (exécution de répétition) : ceci est la dernière '
+            . 'analyse de la branche.';
     }
     $lines[] = '';
     $lines[] = 'Quality Gate : **' . (string) ($gate['projectStatus']['status'] ?? 'INCONNU') . '**';
@@ -746,13 +765,16 @@ function sonar_evidence_report(
 
     $rows = [
         'Fiabilité' => sonar_evidence_rating($m('reliability_rating')) . ' — ' . $m('bugs') . ' bug(s)',
-        'Sécurité' => sonar_evidence_rating($m('security_rating')) . ' — ' . $m('vulnerabilities') . ' vulnérabilité(s)',
+        'Sécurité' => sonar_evidence_rating($m('security_rating')) . ' — ' . $m('vulnerabilities')
+            . ' vulnérabilité(s)',
         'Revue de sécurité' => sonar_evidence_rating($m('security_review_rating')) . ' — ' . $m('security_hotspots')
             . ' hotspot(s), ' . $m('security_hotspots_reviewed') . ' % revus',
         'Maintenabilité' => sonar_evidence_rating($m('sqale_rating')) . ' — ' . $m('code_smells') . ' code smell(s), '
             . $m('sqale_index') . ' min de dette',
-        'Couverture' => $m('coverage') . ' % (' . $m('uncovered_lines') . ' lignes non couvertes sur ' . $m('lines_to_cover') . ')',
-        'Tests rapportés' => $m('tests') . ' (échecs : ' . $m('test_failures') . ', erreurs : ' . $m('test_errors') . ', ignorés : ' . $m('skipped_tests') . ')',
+        'Couverture' => $m('coverage') . ' % (' . $m('uncovered_lines') . ' lignes non couvertes sur '
+            . $m('lines_to_cover') . ')',
+        'Tests rapportés' => $m('tests') . ' (échecs : ' . $m('test_failures') . ', erreurs : ' . $m('test_errors')
+            . ', ignorés : ' . $m('skipped_tests') . ')',
         'Duplication' => $m('duplicated_lines_density') . ' % sur ' . $m('duplicated_blocks') . ' bloc(s)',
         'Taille' => $m('ncloc') . ' lignes de code, ' . $m('files') . ' fichier(s)',
         'Complexité' => $m('cognitive_complexity') . ' cognitive, ' . $m('complexity') . ' cyclomatique',
@@ -768,7 +790,8 @@ function sonar_evidence_report(
     $lines[] = '### Signalements ouverts (' . count($issues) . ')';
     $lines[] = '';
     $lines[] = count($blocking) . ' bloquant(s) pour une release, ' . (count($issues) - count($blocking))
-        . ' exempté(s) — la règle est celle d\'`AGENTS.md` § SonarQube Cloud release gate : tout signalement non résolu bloque, sauf s\'il est à la fois `MAINTAINABILITY`, `LOW` et étiqueté `convention`.';
+        . ' exempté(s) — la règle est celle d\'`AGENTS.md` § SonarQube Cloud release gate : tout signalement non '
+        . 'résolu bloque, sauf s\'il est à la fois `MAINTAINABILITY`, `LOW` et étiqueté `convention`.';
     $lines[] = '';
 
     if ($issues === []) {
@@ -811,7 +834,8 @@ function sonar_evidence_report(
     } else {
         $byStatus = [];
         foreach ($hotspots as $hotspot) {
-            $status = (string) ($hotspot['vulnerabilityProbability'] ?? '?') . ' / ' . (string) ($hotspot['status'] ?? '?');
+            $status = (string) ($hotspot['vulnerabilityProbability'] ?? '?') . ' / '
+                . (string) ($hotspot['status'] ?? '?');
             $byStatus[$status] = ($byStatus[$status] ?? 0) + 1;
         }
         ksort($byStatus);
