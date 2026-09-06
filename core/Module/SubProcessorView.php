@@ -31,6 +31,15 @@ final class SubProcessorView
     public const CATEGORY_MEDIA_STORAGE = 'media_storage';
 
     /**
+     * The receiving installation's automated GitHub triage reading an
+     * anonymised diagnostic extract (ARCHITECTURE.md §8.49sexies): two
+     * processors at once — GitHub's runner and the AI provider behind
+     * the triage — declared by `support_dashboard` while its triage
+     * token is configured, and by nothing else.
+     */
+    public const CATEGORY_ISSUE_TRIAGE = 'issue_triage';
+
+    /**
      * @param string $category one of the CATEGORY_* constants
      * @param string $name     the processor and its data location, worded
      *        for the RGPD document — « Hetzner Object Storage

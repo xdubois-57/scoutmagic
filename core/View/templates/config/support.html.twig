@@ -254,7 +254,12 @@
                            hors de cette page, sans quoi une unité se demanderait
                            si elle est censée la changer. #}
                         J'ai pris connaissance du contenu de cette archive et j'accepte de la transmettre
-                        à l'équipe qui développe ScoutMagic.
+                        à l'équipe qui développe ScoutMagic. Si je cite ensuite la référence de ce ticket
+                        dans un signalement public sur GitHub, j'accepte qu'une copie réduite et anonymisée
+                        de cette archive — sans adresse IP, sans compte, sans adresse e-mail, sans le texte
+                        de ma description, sans la configuration détaillée du serveur — soit lue par le
+                        triage automatique des signalements, un service d'intelligence artificielle
+                        exécuté sur l'infrastructure de GitHub.
                     </label>
                 </div>
 
@@ -281,6 +286,19 @@
             </p>
             <p class="small text-body-secondary mb-0 mt-1">
                 Le site n'interroge pas le serveur ensuite : la suite se passe par e-mail.
+            </p>
+            {# Le pont vers GitHub : la référence est ce que le rapporteur
+               colle dans le formulaire de signalement, et c'est tout ce
+               qu'il colle. Le paquet de support, lui, ne doit jamais y
+               être joint — un dépôt public est public — et la phrase le
+               dit ici, à l'endroit où quelqu'un tient la référence en
+               main (ARCHITECTURE.md §8.49sexies). #}
+            <p class="small mb-0 mt-2">
+                Pour signaler ensuite un dysfonctionnement sur GitHub, indiquez cette référence dans le
+                champ « Référence du ticket de support » du formulaire de signalement : le triage
+                automatique pourra alors lire une copie réduite et anonymisée de l'archive de
+                diagnostic. <strong>Ne joignez jamais le paquet de support à un signalement GitHub</strong> :
+                tout ce qui y est déposé est visible par tous.
             </p>
 
             {% if probe_last_run %}

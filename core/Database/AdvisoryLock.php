@@ -17,7 +17,10 @@ namespace Core\Database;
  * the schema), and `Scheduler\CronPassLock` (one cron pass at a time).
  * Three copies of a concurrency primitive is three places for it to drift,
  * and the copies had already begun to: two spelled the SQLite fallback
- * differently and one had lost the `closeCursor()` rationale.
+ * differently and one had lost the `closeCursor()` rationale. A fourth
+ * caller, `Modules\SupportDashboard\Repository\SupportReportRateLimitRepository::
+ * reserve()`, takes a lock PER ADDRESS rather than one global name, to make
+ * a count-then-insert atomic; the rules below hold for it unchanged.
  *
  * What each caller keeps is what is actually specific to it — its lock
  * NAME and the docblock explaining what it protects and why. What lives

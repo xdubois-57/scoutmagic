@@ -131,9 +131,18 @@ class RgpdContentService
         $modelsInfo = $this->aiModelsInfo($subProcessors);
         $phoneProvider = $this->getPhoneProviderInfo();
         $galleryStorage = $this->galleryStorageInfo($subProcessors);
+        $issueTriage = $this->issueTriageInfo($subProcessors);
 
-        $systemPrompt = $this->buildSystemPrompt($baseContent, $activeModules, $providerInfo, $modelsInfo,
-            $phoneProvider, $galleryStorage, $userPrompt);
+        $systemPrompt = $this->buildSystemPrompt(
+            $baseContent,
+            $activeModules,
+            $providerInfo,
+            $modelsInfo,
+            $phoneProvider,
+            $galleryStorage,
+            $userPrompt,
+            $issueTriage
+        );
 
         $request = new LlmRequest(
             prompt: "Génère le contenu RGPD complet en HTML selon la structure imposée dans le prompt système.",
@@ -290,7 +299,8 @@ class RgpdContentService
         string $modelsInfo,
         string $phoneProvider,
         string $galleryStorage,
-        string $userPrompt
+        string $userPrompt,
+        string $issueTriage = 'Non configuré'
     ): string {
         $modulesText = implode(', ', $activeModules);
         $unitName = $this->settingService->get('site_name') ?: 'Unité scoute';
@@ -787,7 +797,15 @@ planifiée, ni courriel, ni envoi décidé par le site), mais qu'un administrate
 support ScoutMagic en la joignant à un ticket, après avoir vu son contenu et sa taille et coché explicitement qu'il
 l'accepte — et que cette transmission fait de l'équipe ScoutMagic une **sous-traitante** au sens de l'article 28 RGPD
 pour les adresses IP et identifiants internes que l'archive contient ; ne présente jamais cette transmission comme
-automatique, ni comme impossible ; (e) qu'elle peut contenir des adresses IP issues des journaux du serveur web et des
+automatique, ni comme impossible ; (d bis) qu'une **copie réduite et anonymisée** de cette archive — adresses IP,
+comptes, adresses e-mail et identifiants de membres reconnaissables remplacés par des jetons sans correspondance
+conservée ; configuration détaillée du serveur, paramètres du site, description du ticket et identifiant de
+l'installation retirés — peut être lue par le triage automatique des signalements sur le dépôt public du logiciel,
+mais **uniquement** si un administrateur a lui-même cité la référence du ticket dans un signalement public ; qu'elle
+est produite à la demande, jamais conservée, et lue par un service d'intelligence artificielle exécuté sur
+l'infrastructure de GitHub, ces deux prestataires établis aux États-Unis étant alors sous-traitants pour cette copie
+(section 4 et section 5.2) — dis-le tel quel, sans présenter cette copie comme l'archive elle-même ni comme un envoi
+automatique ; (e) qu'elle peut contenir des adresses IP issues des journaux du serveur web et des
 identifiants internes de membres, mais aucun nom, adresse email ni contenu de membre. (f) que **l'ouverture d'un
 ticket de support transmet toujours un rapport d'utilisation**, même sur une installation où l'envoi quotidien est
 désactivé : c'est ce qui permet au mainteneur de savoir quelle version et quel hébergement ont produit le problème
@@ -811,7 +829,17 @@ l'archive de diagnostic éventuellement jointe peut contenir des adresses IP et 
 l'unité émettrice, qu'elle est chiffrée au repos et réservée au super-administrateur, et qu'elle est supprimée 90
 jours après la clôture du ticket et au plus tard un an après sa réception — fichier compris, jamais seulement la
 référence ; (c) que le ticket lui-même, ses métadonnées et la note de résolution sont conservés deux ans ; (d) que
-rien ne repart vers l'instance émettrice : le ticket est à sens unique et la réponse se fait par courriel ordinaire.
+rien ne repart vers l'instance émettrice : le ticket est à sens unique et la réponse se fait par courriel ordinaire ;
+(e) **Extrait de triage** — si les sous-traitants du triage automatique indiquent « {$issueTriage} » et que cette
+valeur est « Non configuré », n'écris rien à ce sujet : aucun extrait ne peut quitter cette installation. Sinon, dis
+que, lorsqu'un signalement public sur le dépôt GitHub du logiciel cite la référence d'un ticket, cette installation
+sert au triage automatique de ce signalement une **copie réduite et anonymisée** de l'archive du ticket — adresses IP,
+comptes, adresses e-mail et identifiants de membres reconnaissables remplacés par des jetons ; configuration
+détaillée, paramètres du site, description du ticket et identifiant de l'installation retirés —, produite
+à la demande et jamais conservée, chaque envoi étant inscrit au journal ; cette copie est lue par un service
+d'intelligence artificielle sur l'infrastructure de GitHub, et les prestataires nommés ci-dessus sont des
+sous-traitants pour ce traitement, à décrire en section 4 et, puisqu'ils traitent hors UE/EEE, en section 5.2 avec
+le mécanisme de garantie applicable.
 **Analyse transversale par IA** : si "llm_connector" est également actif, conserve le paragraphe correspondant et
 **traite explicitement le fournisseur d'IA comme un sous-traitant à part entière pour ce traitement** — il reçoit la
 catégorie, la description et la note de résolution de tickets rédigés par des personnes identifiables chez d'autres
@@ -1025,6 +1053,26 @@ PROMPT;
      * more S3 buckets), so this lists every one actually configured
      * instead of assuming a single active backend.
      */
+    /**
+     * The processors the triage extract crosses, as `support_dashboard`
+     * declares them while its triage token is configured (ARCHITECTURE.md
+     * §8.49sexies) — name, purpose and state in one sentence for rule 33,
+     * or « Non configuré », which that rule reads as "say nothing".
+     *
+     * @param list<SubProcessorView> $views
+     */
+    private function issueTriageInfo(array $views): string
+    {
+        foreach ($views as $view) {
+            if ($view->category === SubProcessorView::CATEGORY_ISSUE_TRIAGE) {
+                return $view->name . ' — ' . $view->purpose
+                    . ($view->details !== null ? ' — ' . $view->details : '');
+            }
+        }
+
+        return 'Non configuré';
+    }
+
     /**
      * The gallery slot, rebuilt from the module's declared views. A
      * declared media-storage sub-processor is by contract an EXTERNAL

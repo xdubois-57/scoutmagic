@@ -111,12 +111,18 @@ class SupportTicketSenderTest extends TestCase
                 'contact_email',
                 'site_version',
                 'php_version',
+                'archive_consent',
                 'statistics',
             ],
             array_keys($body)
         );
         $this->assertSame('desk_import', $body['category']);
         $this->assertSame('1.0.33', $body['site_version']);
+        // The scope of the archive box's sentence on this version: what
+        // the receiver compares against before serving a triage extract
+        // (ARCHITECTURE.md §8.49sexies).
+        $this->assertSame(SupportTicketSender::ARCHIVE_CONSENT_SCOPE, $body['archive_consent']);
+        $this->assertSame('triage-extract-v1', $body['archive_consent']);
 
         // The secret authenticates the call and never travels in the body.
         $this->assertNotSame('', $call['token']);

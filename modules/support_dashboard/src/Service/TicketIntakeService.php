@@ -69,6 +69,14 @@ class TicketIntakeService
      */
     public const NOTIFICATION_TICKET_RECEIVED = 'support_dashboard.ticket_received';
 
+    /**
+     * Every `archive_consent` value a sending version may declare
+     * (ARCHITECTURE.md §8.49sexies). One today; a sentence that changes
+     * what it covers adds one here and in the sender, and the extract
+     * route requires the newest.
+     */
+    public const KNOWN_CONSENT_SCOPES = [TriageExtractService::REQUIRED_CONSENT_SCOPE];
+
     public function __construct(
         private SupportInstallationRepository $installations,
         private SupportTicketRepository $tickets,
@@ -207,7 +215,8 @@ class TicketIntakeService
             $contactEmail,
             self::trimmedString($payload['site_version'] ?? null, 50),
             self::trimmedString($payload['php_version'] ?? null, 20),
-            $statistics !== null ? (string) json_encode($statistics) : null
+            $statistics !== null ? (string) json_encode($statistics) : null,
+            self::consentScopeIn($payload)
         );
 
         if ($statistics !== null) {
@@ -357,6 +366,22 @@ class TicketIntakeService
         );
 
         return TicketIntakeResult::unauthenticated();
+    }
+
+    /**
+     * The consent scope the sender's archive box declared, or null. A
+     * CLOSED list, like the categories: a scope this receiver has never
+     * heard of is stored as nothing rather than as whatever was sent,
+     * because the extract route compares it for equality against the
+     * scope it requires and must never be talked into a match by a body.
+     *
+     * @param array<string, mixed> $payload
+     */
+    private static function consentScopeIn(array $payload): ?string
+    {
+        $scope = $payload['archive_consent'] ?? null;
+
+        return is_string($scope) && in_array($scope, self::KNOWN_CONSENT_SCOPES, true) ? $scope : null;
     }
 
     private static function trimmedString(mixed $value, int $maxLength): ?string

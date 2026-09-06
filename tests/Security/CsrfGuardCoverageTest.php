@@ -52,6 +52,10 @@ class CsrfGuardCoverageTest extends TestCase
         // The support-ticket intake, on the same bearer identity as the
         // statistics intake beside it.
         'TicketIntakeController' => 'installation bearer secret',
+        // The anonymised triage extract, fetched by a GitHub Actions
+        // runner. Authenticated by the receiver's own triage token,
+        // compared constant-time against a stored SHA-256.
+        'TriageExtractController' => 'triage token (hash_equals)',
     ];
 
     /**
@@ -121,9 +125,9 @@ class CsrfGuardCoverageTest extends TestCase
      * which is what puts the decision in front of a reviewer rather than
      * leaving it in a diff.
      */
-    public function testThereAreExactlyThreeExceptionsAmongTheModules(): void
+    public function testThereAreExactlyFourExceptionsAmongTheModules(): void
     {
-        $this->assertCount(3, self::AUTHENTICATED_WITHOUT_A_SESSION);
+        $this->assertCount(4, self::AUTHENTICATED_WITHOUT_A_SESSION);
     }
 
     /**

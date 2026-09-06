@@ -52,6 +52,55 @@
     </div>
 </div>
 
+{% if triage_token_available %}
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h5 mb-3">Triage automatique des issues GitHub</h2>
+
+        {# Ce qui part, dit avant les boutons : un extrait réduit et
+           anonymisé de l'archive d'un ticket, servi au triage
+           automatique quand un signalement GitHub cite la référence du
+           ticket. Le jeton est l'unique clé de cette route ; seule son
+           empreinte est conservée ici (ARCHITECTURE.md §8.49sexies). #}
+        <p class="small mb-2">
+            Quand un signalement GitHub cite la référence d'un ticket, le triage automatique peut
+            demander à ce site une <strong>copie réduite et anonymisée</strong> de l'archive de
+            diagnostic : journaux et journal des événements avec les adresses IP, les comptes, les
+            adresses e-mail et les identifiants de membres reconnaissables remplacés par des jetons,
+            sans la configuration détaillée de PHP, sans les paramètres du site, sans la description
+            du ticket. L'extrait est produit à la demande et jamais conservé ; chaque envoi est inscrit
+            au journal. Tant qu'un jeton existe, GitHub et le fournisseur d'IA du triage figurent parmi
+            les sous-traitants de la page RGPD de ce site.
+        </p>
+        <p class="small mb-3">
+            {% if triage_token_configured %}
+                {% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Jeton actif' } only %}
+                Un jeton est en place. Générer un nouveau jeton remplace l'ancien, qui cesse de fonctionner.
+            {% else %}
+                {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'Aucun jeton' } only %}
+                Aucun jeton n'est en place : aucun extrait n'est servi. Générez-en un et copiez-le dans
+                le secret <code>SUPPORT_TRIAGE_TOKEN</code> du dépôt GitHub — il ne s'affiche qu'une fois.
+            {% endif %}
+        </p>
+
+        <div class="d-flex flex-wrap gap-2">
+            <form method="post" action="/support-dashboard/tickets/triage-token"
+                  data-confirm="Générer un nouveau jeton ? Le jeton actuel cesse immédiatement de fonctionner, et le nouveau devra être copié dans le secret SUPPORT_TRIAGE_TOKEN du dépôt GitHub.">
+                {{ csrf_field()|raw }}
+                <button type="submit" class="btn btn-outline-primary">Générer un nouveau jeton</button>
+            </form>
+            {% if triage_token_configured %}
+                <form method="post" action="/support-dashboard/tickets/triage-token/revoke"
+                      data-confirm="Révoquer le jeton ? Plus aucun extrait ne sera servi au triage GitHub tant qu'un nouveau jeton n'aura pas été généré.">
+                    {{ csrf_field()|raw }}
+                    <button type="submit" class="btn btn-outline-danger">Révoquer le jeton</button>
+                </form>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endif %}
+
 {% if analysis_available %}
 <div class="card mb-3">
     <div class="card-body">

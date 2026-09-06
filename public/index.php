@@ -5096,6 +5096,20 @@ if ($isEnabled('support_dashboard')) {
     // drift.
     $supportTicketRepo = new \Modules\SupportDashboard\Repository\SupportTicketRepository($pdo, $encryptionService);
 
+    // One instance for the page that issues the token and the route that
+    // checks it: both read the same setting, and there is one hash.
+    $supportTriageTokenService = new \Modules\SupportDashboard\Service\TriageTokenService(
+        $settingService,
+        $journalService
+    );
+
+    // The processors the triage extract crosses — GitHub's runner and
+    // the AI provider behind the triage — declared for this receiver's
+    // RGPD page (§7.4) while, and only while, a triage token is issued.
+    $rgpdContentService->addSubProcessorProvider(
+        new \Modules\SupportDashboard\Service\TriageSubProcessorService($supportTriageTokenService)
+    );
+
     $frontController->registerController(
         \Modules\SupportDashboard\Controller\SupportTicketController::class,
         new \Modules\SupportDashboard\Controller\SupportTicketController(
@@ -5124,6 +5138,35 @@ if ($isEnabled('support_dashboard')) {
             new \Modules\SupportDashboard\Service\TicketDossierBuilder(
                 new \Modules\SupportDashboard\Repository\SupportInstallationRepository($pdo),
                 $storedFileReader
+            ),
+            // The credential the automated GitHub triage presents for an
+            // anonymised extract (ARCHITECTURE.md §8.49sexies): issued
+            // and revoked from the tickets page, stored as a hash.
+            $supportTriageTokenService
+        )
+    );
+
+    // The anonymised extract of a ticket's archive, for the automated
+    // GitHub triage (ARCHITECTURE.md §8.49sexies). Its own controller and
+    // its own credential: the caller is a GitHub Actions runner holding
+    // this receiver's triage token, not an installation holding its
+    // statistics identity — an installation's identity must never read
+    // the extract of any ticket but its own, and this route reads by
+    // reference.
+    $frontController->registerController(
+        \Modules\SupportDashboard\Controller\TriageExtractController::class,
+        new \Modules\SupportDashboard\Controller\TriageExtractController(
+            $twig,
+            new \Modules\SupportDashboard\Service\TriageExtractService(
+                $supportTriageTokenService,
+                $supportTicketRepo,
+                $storedFileReader,
+                new \Modules\SupportDashboard\Service\TriageExtractBuilder(),
+                $journalService,
+                // The per-address limit on journaled unauthenticated
+                // attempts shares the statistics intake's table.
+                $supportRateLimitRepo,
+                $encryptionService
             )
         )
     );
