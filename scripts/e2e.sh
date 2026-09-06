@@ -232,7 +232,7 @@ trap 'exit 143' TERM
 # ---------------------------------------------------------------
 # 1. Prerequisites. Fail closed with the exact command to run —
 # never install anything on the caller's behalf, same philosophy as
-# scripts/release.sh's tests gate.
+# the `Checks / test` job.
 # ---------------------------------------------------------------
 command -v php > /dev/null 2>&1 || { echo "ERROR: php is required to run the E2E tests." >&2; exit 1; }
 command -v npm > /dev/null 2>&1 || { echo "ERROR: npm is required to run the E2E tests (Node.js >= 22 — see README.md § Prérequis)." >&2; exit 1; }

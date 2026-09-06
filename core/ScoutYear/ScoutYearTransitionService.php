@@ -34,8 +34,9 @@ use Modules\Registration\Api\ScoutYearPreparationProvider;
  * (core/View/templates/admin/scout_year.html.twig) carries the same
  * reminder, as does the test itself.
  *
- * The test is blocking: it fails CI (the "End-to-end (browser)" job) and
- * scripts/release.sh's E2E gate. See README.md § Tests de bout en bout.
+ * The test is blocking: it fails the "Checks / End-to-end (browser)" job,
+ * on every pull request and again on every release tag. See README.md
+ * § Tests de bout en bout.
  * ============================================================================
  *
  * Three things are worth knowing before changing anything here.

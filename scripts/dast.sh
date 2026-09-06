@@ -48,11 +48,12 @@ set -euo pipefail
 #
 # WHY IT CANNOT COLLIDE WITH `npm run e2e`
 # ---------------------------------------------------------------------
-# scripts/release.sh runs its gates in parallel subshells, and
-# scripts/e2e.sh DROPS its database on teardown. A scan sharing that
-# database would have it deleted out from under it mid-run, so this
-# script uses a database name of its own (scoutmagic_dast) and picks its
-# own ports. Nothing here touches anything scripts/e2e.sh owns.
+# scripts/e2e.sh DROPS its database on teardown, so a scan sharing that
+# database would have it deleted out from under it mid-run by anyone
+# running the two at once — which a developer does, and which the release
+# script used to do deliberately. This script therefore uses a database
+# name of its own (scoutmagic_dast) and picks its own ports. Nothing here
+# touches anything scripts/e2e.sh owns.
 #
 # PROFILES
 #   passive   Passive rules only, observing the Playwright traffic.

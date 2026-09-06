@@ -82,9 +82,11 @@ treat it as the larger one.
 ## A red check — reproducing it locally
 
 Each row gives the job's **distinguishing command**: what it runs that no
-other job does. That is a starting point, not a transcript. `ci.yml` is the
-only exact account of a job, and when the red step looks like setup rather
-than a test, go read it there before trusting anything below.
+other job does. That is a starting point, not a transcript.
+`.github/workflows/checks.yml` is the only exact account of a job — that is
+where the steps live; `ci.yml` and `release.yml` merely call it — and when
+the red step looks like setup rather than a test, go read it there before
+trusting anything below.
 
 Three things every row assumes, because CI does them and a warm container
 does not:
@@ -110,18 +112,23 @@ does not:
   second copy. Read the exit code from `npm run e2e:full` itself, too: pipe
   it into `tail` and the shell reports `tail`'s status, not Playwright's.
 
+The gates live in `.github/workflows/checks.yml`, a reusable workflow
+that `ci.yml` calls — which is why a pull request shows them as
+`Checks / <job>`. The names below are the ones the pull request shows.
+
 | CI job | Its distinguishing command |
 |---|---|
-| `test` | `vendor/bin/phpstan analyse --memory-limit=512M`, then `vendor/bin/phpunit --coverage-clover coverage.xml --log-junit phpunit-report.xml` |
-| `database-mariadb` | `vendor/bin/phpunit` against a MariaDB 10.11 reachable through `TEST_DB_*` |
-| `javascript-tests` | `npm run typecheck`, then `npm run test:coverage` |
-| `End-to-end (browser)` | `E2E_COVERAGE=1 npm run e2e` |
-| `Authorization matrix` | `./scripts/dast.sh --profile=standard` |
-| `Dynamic scan (passive)` | `./scripts/dast.sh --profile=passive` |
-| `security` | `composer audit` |
+| `Checks / test` | `vendor/bin/phpstan analyse --memory-limit=512M`, then `vendor/bin/phpunit --coverage-clover coverage.xml --log-junit phpunit-report.xml` |
+| `Checks / database-mariadb` | `vendor/bin/phpunit --log-junit phpunit-mariadb.xml` against a MariaDB 10.11 reachable through `TEST_DB_*` |
+| `Checks / javascript-tests` | `npm run typecheck`, then `npm run test:coverage` |
+| `Checks / End-to-end (browser)` | `E2E_COVERAGE=1 npm run e2e` |
+| `Checks / Authorization matrix` | `./scripts/dast.sh --profile=standard` |
+| `Checks / Dynamic scan (passive)` | `./scripts/dast.sh --profile=passive` |
+| `Checks / security` | `composer audit` |
+| `All checks` | nothing of its own — it reads the reusable workflow's roll-up, so it is red exactly when a `Checks / …` job failed or was cancelled, and green when every one either passed or was deliberately skipped (`Checks / SonarQube Cloud` on a fork). Start from the red job, never from here |
 | `Claude review` | no local equivalent — read the findings on the PR; see below |
 | `Claude review status` | no local equivalent — it posts the comment that says what the green above means, deciding from the review job's `result` and the `conclusion` output it exports |
-| `SonarQube Cloud` | no local equivalent — read the bot's PR comment |
+| `Checks / SonarQube Cloud` | no local equivalent — read the bot's PR comment |
 | `Analyze (…)` (CodeQL) | no local equivalent — see `AGENTS.md` § CodeQL |
 
 The issue workflows — `issue-triage.yml` and `issue-backlog-scan.yml` — are
@@ -292,7 +299,11 @@ The CI confirmation is not a formality the ruleset would catch for you. Only
 `Claude review` is a required context, and the `code_scanning` rule waits on
 CodeQL and SonarCloud alone — so a red `database-mariadb`, `Authorization
 matrix` or `Dynamic scan (passive)` blocks nothing. Arm on one of those and
-GitHub merges it.
+GitHub merges it. `All checks` is the one context built to be required
+instead — it needs every `Checks / …` job and goes red when any of them is
+— and until the maintainer adds it to the ruleset (`docs/quality-pipeline.md`
+§ Branch ruleset on `main` says whether that has happened), read it as the
+quickest way to confirm the whole set, never as something that stops a merge.
 
 Do not poll the PR instead. That is what cost #152 four CI cycles and three
 interruptions on 2026-09-05, and it is why auto-merge is enabled at all

@@ -93,9 +93,15 @@ export default defineConfig({
     use: {
         baseURL,
         // Diagnostics on failure only — a green run leaves nothing behind
-        // to upload or clean up.
+        // to upload or clean up. One exception: E2E_EVIDENCE=1 (set by the
+        // release workflow's evidence run, .github/workflows/checks.yml)
+        // keeps a screenshot per test, so the Playwright report in the
+        // evidence pack shows what each scenario actually rendered. Traces
+        // and videos stay retain-on-failure in both modes — they are what
+        // makes a pack enormous, and a video of a test that behaved is not
+        // evidence anybody watches.
         trace: 'retain-on-failure',
-        screenshot: 'only-on-failure',
+        screenshot: process.env.E2E_EVIDENCE === '1' ? 'on' : 'only-on-failure',
         video: 'retain-on-failure',
         // The service worker (public/sw.js) would keep fetching and
         // caching pages in the background for the whole run, making both

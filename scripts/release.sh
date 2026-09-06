@@ -2,21 +2,78 @@
 set -euo pipefail
 
 # Usage: ./scripts/release.sh [--minor|--major] [--notes-file <path>]
-#                             [--skip-security-gate] [--skip-tests-gate]
-#                             [--skip-e2e-gate] [--skip-dependency-check]
-#                             [--skip-deployment-check] [--skip-sonar-gate]
+#                             [--skip-deployment-check] [--skip-ci-gate]
+#                             [--skip-security-gate] [--skip-dependency-check]
+#                             [--skip-sonar-gate]
 # Default: increments patch level, computes release notes from the commit
 # list (fetched via the same GitHub API `--generate-notes` itself calls),
-# and requires the deployment gate, the security gate, the tests gate,
-# the end-to-end gate, the dependency freshness gate, and the SonarQube
-# Cloud gate to all pass. Every non-skipped gate runs concurrently (see
-# "Gate execution" below) — a failure in one is never masked by another
-# still running, and if several fail, all of them are reported together
-# rather than stopping at the first.
+# and requires five gates to pass, in order, before anything is committed
+# or tagged: deployment, continuous integration, security, dependency
+# freshness, SonarQube Cloud. Each finishes in seconds, each is a
+# PRECONDITION rather than a statement about the code, and the release
+# stops at the first one that refuses.
+#
+# WHY THE TESTS ARE NOT IN THAT LIST
+# ---------------------------------------------------------------
+# They used to be: this script ran PHPStan, the whole PHPUnit suite,
+# `npm run e2e:full` and both DAST profiles itself, taking twenty-five
+# minutes and needing MySQL, a Chromium binary, Docker and a 1.2 GB ZAP
+# image on the releaser's machine. Every one of those now runs on a
+# GitHub runner — twice: on the pull request and the push to `main`
+# through ci.yml, and again on the tag through release.yml, which keeps
+# what each tool emits and signs it into the evidence pack.
+#
+# Running them here as well was the least trustworthy of those runs, not
+# an extra guarantee. It exercised one database engine where CI runs two;
+# the steward skill records that four of these reproductions run on the
+# wrong engine locally and so cannot go red for the divergence they exist
+# to catch; and its verdict appeared nowhere a reader of the Release could
+# check. What it did buy was failing BEFORE the tag existed — and the
+# `ci` gate below buys the same thing by reading the verdict GitHub
+# already reached on the commit being released, in about a second.
+#
+# So: a red test still stops a release. It stops it on the pull request,
+# where it belongs; then again at the `ci` gate here, before any commit
+# or tag; and once more on the tag, where a red gate creates no draft
+# Release at all.
 # Whichever notes are used (this auto-generated list, or --notes-file's
 # content), a "Vérifications effectuées" section reporting every gate's
 # outcome (verified, with details, or bypassed) is always appended at the
-# end — see ${GATE_REPORT} and the "Gate execution" block below.
+# end — see ${GATE_REPORT} and the "Gate execution" block below — followed
+# by the description of the evidence pack the Release workflow wrote, and
+# by the dependency inventory scripts/dependency-inventory.php generates:
+# every package that shipped, its version read from the lock files and the
+# vendored banners, its licence, and why that licence may be combined with
+# this project's AGPL-3.0. Never write that list by hand into a notes file.
+#
+# WHAT HAPPENS AFTER THE TAG IS PUSHED
+# ---------------------------------------------------------------
+# Pushing the tag starts .github/workflows/release.yml, which re-runs every
+# gate in .github/workflows/checks.yml on GitHub's runners with each tool's
+# native output kept, fetches SonarCloud's complete analysis of the
+# commit and the repository's open security alerts, signs the whole pack
+# (Sigstore, through GitHub's own identity) and creates the Release as a
+# DRAFT carrying it. That draft is the only Release this script ever
+# touches: it does NOT create one of its own — two would target the same
+# tag, the workflow lands last, and it would quietly turn a published
+# Release back into a draft. Instead it builds the deployable zip while
+# the workflow runs, waits for the run, refuses on anything but success,
+# attaches the zip and bootstrap.php to the draft, writes the notes, and
+# publishes. Nothing reaches the Releases page unless every gate went
+# green twice: here, on this machine, and there, on a runner nobody
+# configured by hand.
+#
+# THE ONE THING NEVER TO ATTACH: a second `.zip`. Every installed site
+# takes the FIRST asset whose name ends in .zip as the application
+# (Core\Maintenance\GitHubReleaseClient::selectZipAssetUrl(), and
+# bootstrap.php), GitHub sorts assets alphabetically, and those sites run
+# the code they already have. The evidence pack is a .tar.gz for exactly
+# that reason, and this script counts the zips before publishing.
+#
+# IF THE WORKFLOW IS RED, the tag exists and points at nothing published.
+# Fix the cause on main, delete the tag (`git push --delete origin vX.Y.Z
+# && git tag -d vX.Y.Z`) and run this script again: it recomputes the same
+# version, and leaves VERSION alone when it already reads it.
 #
 #   --notes-file <path>        Use the release notes from this file
 #                               instead of the auto-generated commit list.
@@ -33,19 +90,19 @@ set -euo pipefail
 #                               gate itself, composer audit/npm audit
 #                               still run and still block for real. See
 #                               check_security_gate.
-#   --skip-tests-gate          Bypass phpstan/phpunit AND the JavaScript
-#                               portion (npm run typecheck static analysis
-#                               + npm run test:coverage unit tests).
-#                               Emergency use only — prints a warning. See
-#                               check_tests_gate.
-#   --skip-e2e-gate            Bypass the end-to-end browser test
-#                               (npm run e2e:full). Emergency use only — prints
-#                               a warning. Separate from --skip-tests-gate
-#                               on purpose: this is the only gate needing
-#                               a MySQL server and a Chromium binary, and
-#                               a releaser missing either must not have to
-#                               drop PHPStan/PHPUnit/Vitest to get past it.
-#                               See check_e2e_gate.
+#   --skip-ci-gate             Bypass the check that CI is green on the
+#                               commit being released — PHPStan, both
+#                               PHPUnit engines, the JavaScript analysis
+#                               and tests, the browser suite, the
+#                               authorization matrix and the passive scan,
+#                               as `All checks` reports them. Emergency use
+#                               only — prints a warning. Note what it
+#                               costs: nothing else in this script looks
+#                               at the code at all, so a release run with
+#                               this flag has been tested by nobody until
+#                               the tag's own workflow says otherwise, and
+#                               that runs AFTER the tag exists. See
+#                               check_ci_gate.
 #   --skip-dependency-check    Bypass the outdated-dependency check
 #                               (direct Composer packages + every
 #                               vendored front-end library — Bootstrap,
@@ -61,23 +118,14 @@ set -euo pipefail
 #                               findings, unreviewed Security Hotspots, the
 #                               Quality Gate). Emergency use only — prints
 #                               a warning. See check_sonar_gate.
-#   --skip-dast-gate           Bypass the dynamic security scan (the
-#                               authorization matrix, then OWASP ZAP's
-#                               passive rules over the browser suite).
-#                               Separate from --skip-e2e-gate for the same
-#                               reason that one is separate from
-#                               --skip-tests-gate: this is the only gate
-#                               needing Docker, and a releaser without it
-#                               must not have to drop the browser tests
-#                               too. Emergency use only — prints a
-#                               warning. See check_dast_gate.
 
-# Keep the machine awake for the whole run. A release takes 20–30 minutes
-# — the complete PHPUnit suite, then a real browser suite — and a laptop
-# that sleeps partway through leaves it dead at an unpredictable point,
-# possibly after the tag has been pushed but before the GitHub release
-# exists (a state this script has already been caught in once, for another
-# reason). `caffeinate` holds sleep off for exactly as long as the command
+# Keep the machine awake for the whole run. The gates take about a minute
+# now, but the wait for the tag's Release workflow is the better part of
+# an hour, and a laptop that sleeps partway through leaves the release
+# dead at an unpredictable point — most likely after the tag has been
+# pushed but before the draft is published, which is the one state this
+# script cannot recover from on its own (a state it has already been
+# caught in once, for another reason). `caffeinate` holds sleep off for exactly as long as the command
 # it wraps, and lets go afterwards, so there is nothing to remember to
 # undo.
 #
@@ -95,9 +143,7 @@ fi
 BUMP="patch"
 NOTES_FILE=""
 SKIP_SECURITY_GATE=0
-SKIP_DAST_GATE=0
-SKIP_TESTS_GATE=0
-SKIP_E2E_GATE=0
+SKIP_CI_GATE=0
 SKIP_DEPENDENCY_CHECK=0
 SKIP_DEPLOYMENT_CHECK=0
 SKIP_SONAR_GATE=0
@@ -113,98 +159,30 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --skip-security-gate) SKIP_SECURITY_GATE=1; shift ;;
-        --skip-tests-gate) SKIP_TESTS_GATE=1; shift ;;
-        --skip-e2e-gate) SKIP_E2E_GATE=1; shift ;;
+        --skip-ci-gate) SKIP_CI_GATE=1; shift ;;
         --skip-dependency-check) SKIP_DEPENDENCY_CHECK=1; shift ;;
         --skip-deployment-check) SKIP_DEPLOYMENT_CHECK=1; shift ;;
         --skip-sonar-gate) SKIP_SONAR_GATE=1; shift ;;
-        --skip-dast-gate) SKIP_DAST_GATE=1; shift ;;
         *)
             echo "ERROR: unknown argument: $1" >&2
-            echo "Usage: $0 [--minor|--major] [--notes-file <path>] [--skip-security-gate] [--skip-tests-gate] [--skip-e2e-gate] [--skip-dependency-check] [--skip-deployment-check] [--skip-sonar-gate] [--skip-dast-gate]" >&2
+            echo "Usage: $0 [--minor|--major] [--notes-file <path>] [--skip-deployment-check] [--skip-ci-gate] [--skip-security-gate] [--skip-dependency-check] [--skip-sonar-gate]" >&2
             exit 1
             ;;
     esac
 done
 
 # ---------------------------------------------------------------
-# Preflight — executables/resources checked immediately here, right
-# after argument parsing and BEFORE any gate is launched (and before
-# the version bump below touches anything). Every gate below runs in
-# its own background subshell (see launch_gate/"Gate execution"),
-# with its own output only surfacing once EVERY gate has finished —
-# exactly the wrong place to first discover a prerequisite that is
-# missing 100% of the time regardless of what the code under test
-# does, and that would otherwise only surface after this script has
-# already spent most of the run on everything else (a full PHPUnit
-# suite, the whole authorization matrix, …). Checked once, here,
-# instead. A prerequisite only a SKIPPED gate would need is not
-# checked — same "skipped means skipped" rule as every --skip-*-gate
-# flag documented above.
+# Preflight — the one executable this script cannot do without,
+# checked here rather than where it is first used.
 # ---------------------------------------------------------------
 
-# Chromium: both the end-to-end and dynamic-scan gates drive Playwright
-# against the same browser (tests/e2e/playwright.config.js), so this is
-# checked once here rather than duplicated across both gates' logs —
-# and unlike a plain "missing executable" check, a broken default here
-# is repaired automatically rather than only reported, because this
-# specific failure has a known, reliable fix (see below).
-if [[ "${SKIP_E2E_GATE}" -eq 0 || "${SKIP_DAST_GATE}" -eq 0 ]]; then
-    chromium_path="${E2E_CHROMIUM_EXECUTABLE:-}"
-    if [[ -z "${chromium_path}" ]]; then
-        # Ask Playwright itself which executable it would launch, rather
-        # than guessing a path — this stays correct across
-        # @playwright/test version bumps, unlike hardcoding a browser
-        # revision number. Empty output (module not found, no browser
-        # installed, …) is treated the same as "no default found" below.
-        chromium_path="$(node -e '
-            try { console.log(require("playwright-core").chromium.executablePath()); }
-            catch (e) { /* left empty on purpose */ }
-        ' 2>/dev/null)"
-    fi
-
-    if [[ -n "${chromium_path}" && -x "${chromium_path}" ]]; then
-        : # works as configured — nothing to repair, nothing to export
-    elif [[ -x "/opt/pw-browsers/chromium" ]]; then
-        # Known-good fallback for a Claude Code sandbox specifically:
-        # PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers pre-installs a
-        # browser revision that can differ from what the installed
-        # @playwright/test version looks for by default — the exact
-        # mismatch this project hit once already (AGENTS.md § Releases).
-        # Exported right here, so every gate this script launches from
-        # this point on (each its own background subshell) inherits it
-        # automatically — no restart, no manual export, no editing this
-        # script.
-        echo "WARNING: the configured Chromium ('${chromium_path:-<none found>}') is missing or not executable. Falling back automatically to /opt/pw-browsers/chromium (this environment's known-good path) for the rest of this run." >&2
-        export E2E_CHROMIUM_EXECUTABLE="/opt/pw-browsers/chromium"
-    else
-        echo "ERROR: no runnable Chromium executable found for the end-to-end/dynamic-scan gates." >&2
-        echo "  Configured/default path: '${chromium_path:-<none found>}'" >&2
-        echo "  Fallback also checked and missing: /opt/pw-browsers/chromium" >&2
-        echo "Install a browser (README.md § Tests de bout en bout — 'npm run e2e:install'), set E2E_CHROMIUM_EXECUTABLE to a working one yourself, or re-run with --skip-e2e-gate and --skip-dast-gate (emergency use only)." >&2
-        exit 1
-    fi
-fi
-
-# ZAP: only the dynamic-scan gate needs Docker or this image, and —
-# same fail-closed-not-silent-fetch philosophy as every other gate in
-# this script — nothing here pulls the ~1.2GB image on the releaser's
-# behalf. check_dast_gate and scripts/dast.sh both re-check Docker
-# itself before actually using it, but neither checks the image until
-# several minutes into the gate (after the authorization matrix has
-# already run) — checked here too, so a missing image is reported in
-# seconds, not minutes.
-if [[ "${SKIP_DAST_GATE}" -eq 0 ]]; then
-    DAST_ZAP_IMAGE="${DAST_ZAP_IMAGE:-ghcr.io/zaproxy/zaproxy:stable}"
-    command -v docker &> /dev/null || { echo "ERROR: Docker is required for the dynamic security gate — OWASP ZAP runs as a container. Install it, or re-run with --skip-dast-gate (emergency use only)." >&2; exit 1; }
-    docker info &> /dev/null || { echo "ERROR: the Docker daemon is not reachable, and the dynamic security gate needs it. Start it, or re-run with --skip-dast-gate (emergency use only)." >&2; exit 1; }
-    docker image inspect "${DAST_ZAP_IMAGE}" &> /dev/null || {
-        echo "ERROR: the ZAP image (${DAST_ZAP_IMAGE}) is not present locally. Pull it once with:" >&2
-        echo "           docker pull ${DAST_ZAP_IMAGE}" >&2
-        echo "       (about 1.2 GB; nothing here downloads it for you), or re-run with --skip-dast-gate (emergency use only)." >&2
-        exit 1
-    }
-fi
+# GitHub CLI: two gates already need it (security, dependency freshness),
+# but a releaser skipping both would only discover its absence AFTER the
+# tag is pushed — at the point where the draft Release the workflow
+# creates has to be finished from here, which nothing else does. Checked
+# once, up front, so a missing gh costs a message rather than a tag
+# pointing at a draft nobody publishes.
+command -v gh &> /dev/null || { echo "ERROR: GitHub CLI (gh) is required — this script finishes the release by attaching the artifact to the draft the Release workflow creates and publishing it. Install it and run gh auth login." >&2; exit 1; }
 
 # Get current version from the latest RELEASE tag (default 0.0.0 if none).
 #
@@ -258,11 +236,10 @@ PRODUCTION_URL="https://www.scoutmagic.be"
 # "Vérifications effectuées" block near the end of this script) — unlike
 # this script's own English console output, the release notes are
 # user-facing text read by site administrators. Built once, after every
-# gate below has run (they run in parallel, each in its own subshell —
-# see the "Gate execution" block), from each *_GATE_REPORT_LINE variable:
-# already set directly for a skipped gate, or read back from that gate's
-# own report file otherwise (a subshell's variable assignments never
-# reach this parent shell).
+# gate below has run (each in its own subshell — see the "Gate execution"
+# block), from each *_GATE_REPORT_LINE variable: already set directly for
+# a skipped gate, or read back from that gate's own report file otherwise
+# (a subshell's variable assignments never reach this parent shell).
 
 # ---------------------------------------------------------------
 # Deployment gate — verifies the PREVIOUS release actually reached
@@ -447,203 +424,123 @@ check_security_gate() {
 }
 
 # ---------------------------------------------------------------
-# Tests gate — mirrors CI's `test` (PHPStan + the COMPLETE PHPUnit suite)
-# AND `javascript-tests` (JavaScript static analysis + Vitest) jobs. Runs
-# BEFORE any git commit/tag, same reasoning as the security gate above.
+# Continuous integration gate — the verdict GitHub already reached on
+# the commit being released.
 #
-# No test group is excluded, `database` included: a release must not be
-# cut on a narrower suite than CI ran. Most of that group needs no MySQL
-# (Tests\DatabaseTestHelper builds an in-memory SQLite database), but the
-# six files reading TEST_DB_* do, so the preflight below fails closed on
-# an unreachable server rather than letting a releaser discover it as ten
-# confusing "Connection refused" failures — same philosophy as the
-# npm/node_modules check further down. Point TEST_DB_* at any throwaway
-# MySQL instance (the defaults match CI's own service container:
-# 127.0.0.1:3306, database test_db, user root).
+# `All checks` (.github/workflows/ci.yml) is one job that needs every
+# gate in checks.yml and goes red when any of them is red, cancelled or
+# never ran. Reading it is how this script knows PHPStan, both PHPUnit
+# engines, the JavaScript analysis and tests, the browser suite, the
+# authorization matrix and the passive scan all passed on THIS commit —
+# on two database engines, with the flags CI sets, on a machine nobody
+# configured by hand. See the header for why that is a better answer
+# than running them here.
 #
-# The JavaScript portion — static analysis (npm run typecheck, the
-# PHPStan-equivalent gate for public/assets/js/ — see AGENTS.md § Static
-# analysis and README.md § Analyse statique JavaScript) then unit tests
-# (npm run test:coverage), same order as CI — fails closed on a missing
-# `npm`/`node_modules` rather than running `npm ci` on the releaser's
-# behalf: silently installing dependencies here would mask an improperly
-# prepared release environment (e.g. the wrong Node version, or a
-# lockfile that was never actually validated) instead of surfacing it —
-# same fail-closed philosophy as every other gate in this script. Run
-# `npm ci` yourself first (see README.md § Développement) if this fails.
+# Three refusals, and each says something different:
+#
+#   - a dirty working tree. The artifact is zipped from this tree
+#     (scripts/build-artifact.sh) while the verdict below is about HEAD,
+#     so uncommitted changes would ship files nothing ever tested. This
+#     is the one thing the old local gates would have caught by accident
+#     and this one has to catch on purpose.
+#   - GitHub has no `All checks` run for this commit. It was never
+#     pushed, or the workflow never started. Either way there is no
+#     verdict to read, and "no verdict" is not a pass.
+#   - the run is red, cancelled, or still going after the wait below.
+#
+# The wait is bounded and usually instant: production must already be on
+# the previous release (the deployment gate above), so CI has had time.
+# It exists for the case of releasing minutes after a merge — the same
+# reasoning, and the same shape, as the SonarQube gate's wait.
 # ---------------------------------------------------------------
-check_tests_gate() {
-    local phpunit_output phpunit_summary phpunit_exit
+check_ci_gate() {
+    command -v gh &> /dev/null || { echo "ERROR: GitHub CLI (gh) is required for the CI gate." >&2; exit 1; }
+    command -v git &> /dev/null || { echo "ERROR: git is required for the CI gate." >&2; exit 1; }
+    command -v php &> /dev/null || { echo "ERROR: php is required for the CI gate." >&2; exit 1; }
 
-    # launch_gate runs every gate function under `set +e` (see the comment
-    # in check_sonar_gate) — errexit is OFF here, so every command below
-    # that can fail needs its own explicit check; otherwise a real failure
-    # falls through to the "vérifié" line at the end and the gate reports
-    # a false pass instead of blocking the release.
-    echo "Running PHPStan..."
-    vendor/bin/phpstan analyse --memory-limit=512M \
-        || { echo "ERROR: PHPStan found errors — release blocked by the tests gate." >&2; exit 1; }
+    local attempts="${CI_WAIT_ATTEMPTS:-90}" seconds="${CI_WAIT_SECONDS:-30}"
+    local check_name="${CI_VERDICT_CHECK:-All checks}"
+    local sha short_sha check_query answer status conclusion url attempt err budget
 
-    echo "Checking the MySQL test instance is reachable..."
-    # Without a server the suite is GREEN, not broken — the server-dependent
-    # tests skip cleanly. That is exactly why this check has to exist and has
-    # to fail closed: a release would otherwise be cut on a run where ~28
-    # tests silently skipped, which is the same "narrower suite than CI
-    # actually ran" problem that removing phpunit.xml's group exclusion was
-    # meant to end. A skip is easier to miss than a failure, not safer.
-    #
-    # An EMPTY TEST_DB_PASSWORD is rejected too, not just an unreachable
-    # server: Tests\Core\Http\Controller\SetupControllerTest drives the real
-    # first-time-setup form, whose own validation makes db_password
-    # mandatory (Core\Http\Controller\SetupController::validateFormData()) —
-    # so an empty password fails those two tests with a bare "200 is not
-    # 302" that says nothing about the actual cause.
-    php -r '
-        $host = getenv("TEST_DB_HOST") ?: "127.0.0.1";
-        $port = (int) (getenv("TEST_DB_PORT") ?: 3306);
-        $name = getenv("TEST_DB_NAME") ?: "test_db";
-        $user = getenv("TEST_DB_USER") ?: "root";
-        $pass = getenv("TEST_DB_PASSWORD") ?: "";
-        if ($pass === "") {
-            fwrite(STDERR, "  TEST_DB_PASSWORD is empty — the setup-form tests require a non-empty database password." . PHP_EOL);
-            exit(1);
-        }
-        try {
-            new PDO("mysql:host={$host};port={$port};dbname={$name}", $user, $pass);
-        } catch (Throwable $e) {
-            fwrite(STDERR, "  {$host}:{$port}/{$name} as {$user} — " . $e->getMessage() . PHP_EOL);
-            exit(1);
-        }
-    ' || { echo "ERROR: the database-group tests need a reachable MySQL test instance with a non-empty password. Start one and set TEST_DB_HOST/TEST_DB_PORT/TEST_DB_NAME/TEST_DB_USER/TEST_DB_PASSWORD (see README.md § Développement), or re-run with --skip-tests-gate (emergency use only)." >&2; exit 1; }
+    # Rendered rather than divided inline: integer minutes print "0
+    # minutes" for any wait under sixty seconds, which is what a
+    # shortened timeout in a test looks like, and it reads as a bug in
+    # the gate rather than a small number.
+    if [[ $(( attempts * seconds )) -lt 60 ]]; then
+        budget="$(( attempts * seconds )) second(s)"
+    else
+        budget="$(( attempts * seconds / 60 )) minute(s)"
+    fi
 
-    echo "Running PHPUnit (complete suite, database group included)..."
-    # Piped through tee so the run still streams live (to stderr, since
-    # stdout is captured here) rather than going silent for its whole
-    # duration.
-    phpunit_output="$(vendor/bin/phpunit 2>&1 | tee /dev/stderr)"
-    # pipefail (line 2) makes $? here reflect PHPUnit's own exit status
-    # (the rightmost failing command in the pipeline; tee itself always
-    # succeeds) rather than tee's — but with errexit OFF in this function
-    # (see the comment at the top of check_tests_gate), that nonzero exit
-    # does NOT abort on its own, so it's captured and checked explicitly
-    # right away, before any other command overwrites $?.
-    phpunit_exit=$?
-    # PHPUnit 13 colorizes its summary line (e.g. "\e[30;43mTests: …\e[0m")
-    # even when piped through tee here, so the ANSI codes are stripped
-    # before matching — otherwise the line no longer starts with "OK (" or
-    # "Tests: ". `|| true` on the grep itself is a second guard: if
-    # PHPUnit's summary format ever changes again, this degrades to the
-    # "résumé non trouvé" fallback instead of masking the real pass/fail
-    # signal below.
-    phpunit_summary="$(sed -E $'s/\x1b\\[[0-9;]*m//g' <<< "${phpunit_output}" | { grep -E '^(OK \(|Tests: )' || true; } | tail -1)"
-    [[ -n "${phpunit_summary}" ]] || phpunit_summary="résumé PHPUnit non trouvé dans la sortie"
-
-    if [[ "${phpunit_exit}" -ne 0 ]]; then
-        echo "ERROR: PHPUnit reported failures (${phpunit_summary}) — release blocked by the tests gate." >&2
+    if [[ -n "$(git status --porcelain)" ]]; then
+        echo "ERROR: the working tree has uncommitted changes — release blocked by the CI gate." >&2
+        echo "The release artifact is built from this tree, and the verdict this gate reads is about HEAD," >&2
+        echo "so anything uncommitted would ship having been tested by nothing. Commit or stash it first:" >&2
+        git status --short >&2
         exit 1
     fi
 
-    command -v npm &> /dev/null || { echo "ERROR: npm is required for the JavaScript portion of the tests gate (see package.json/README.md § Développement) — install Node.js LTS, or re-run with --skip-tests-gate (emergency use only)." >&2; exit 1; }
-    [[ -d node_modules ]] || { echo "ERROR: node_modules/ not found — run 'npm ci' first (see README.md § Développement), or re-run with --skip-tests-gate (emergency use only)." >&2; exit 1; }
+    sha="$(git rev-parse HEAD)"
+    short_sha="${sha:0:7}"
+    check_query="$(php -r 'echo rawurlencode($argv[1]);' "${check_name}")"
 
-    echo "Running JavaScript static analysis (npm run typecheck)..."
-    npm run typecheck \
-        || { echo "ERROR: JavaScript static analysis failed (npm run typecheck) — release blocked by the tests gate." >&2; exit 1; }
+    for (( attempt = 1; attempt <= attempts; attempt++ )); do
+        err="$(mktemp)"
+        # filter=latest so a re-run of the workflow answers with the run
+        # that matters rather than the first one GitHub happens to list.
+        # An empty check_runs array yields empty fields rather than an
+        # error, which is the "not started yet" case handled below.
+        answer="$(gh api "repos/{owner}/{repo}/commits/${sha}/check-runs?check_name=${check_query}&filter=latest" \
+            --jq '.check_runs[0] | [.status // "", .conclusion // "", .html_url // ""] | @tsv' 2>"${err}")" || {
+            echo "ERROR: cannot read the ${check_name} status for ${short_sha}:" >&2
+            cat "${err}" >&2
+            rm -f "${err}"
+            echo "If this commit was never pushed, push it and let CI run: the release must ship something CI has judged." >&2
+            exit 1
+        }
+        rm -f "${err}"
 
-    echo "Running JavaScript unit tests (npm run test:coverage)..."
-    npm run test:coverage \
-        || { echo "ERROR: JavaScript unit tests failed (npm run test:coverage) — release blocked by the tests gate." >&2; exit 1; }
+        # `cut`, not `read -r` with IFS=$'\t': a tab is IFS *whitespace*,
+        # so bash collapses a run of them into one delimiter and an empty
+        # middle field shifts everything left — which is exactly the shape
+        # of an unfinished run, whose conclusion is empty. cut counts
+        # delimiters instead of splitting on them.
+        status="$(cut -f1 <<< "${answer}")"
+        conclusion="$(cut -f2 <<< "${answer}")"
+        url="$(cut -f3 <<< "${answer}")"
 
-    echo "vérifié — PHPStan sans erreur ; PHPUnit : ${phpunit_summary} ; analyse statique JavaScript (npm run typecheck) : OK ; tests JavaScript (Vitest) : OK." > "${GATE_REPORT_FILE}"
-    echo "Tests gate OK: PHPStan, PHPUnit, JavaScript static analysis, and JavaScript unit tests passed."
-}
+        if [[ "${status}" == "completed" ]]; then
+            break
+        fi
 
-# ---------------------------------------------------------------
-# End-to-end gate — mirrors CI's `e2e-tests` job: the real application,
-# served through public/index.php by `php -S`, driven by a headless
-# Chromium (Playwright) against a throwaway database. Runs BEFORE any git
-# commit/tag, same reasoning as every other gate.
-#
-# This is the only gate that proves the composition root in
-# public/index.php actually boots — PHPStan checks its argument types
-# statically and PHPUnit never executes it at all, which is exactly how a
-# TypeError on every request once shipped (AGENTS.md § Static analysis).
-#
-# Delegates wholesale to `npm run e2e:full` (scripts/e2e.sh): the release
-# must exercise the identical orchestration a developer and CI do, never a
-# second copy of it that can drift. That script provisions and tears down
-# its own instance, database, and port — nothing is left running here.
-#
-# `e2e:full` and not `e2e`: the release gate runs the FULL tier — the
-# confidence scenarios CI runs on every push PLUS the scenarios tagged
-# @full (the per-module boot matrix, and anything else costly by nature —
-# AGENTS.md § Tests). A release is the one moment the extra minutes are
-# always worth paying.
-#
-# Fail-closed on a missing npm/node_modules, same reasoning as the tests
-# gate above: silently running `npm ci` here would mask an improperly
-# prepared release environment instead of surfacing it.
-# ---------------------------------------------------------------
-check_e2e_gate() {
-    command -v npm &> /dev/null || { echo "ERROR: npm is required for the end-to-end gate (see package.json/README.md § Tests end-to-end) — install Node.js LTS, or re-run with --skip-e2e-gate (emergency use only)." >&2; exit 1; }
-    [[ -d node_modules ]] || { echo "ERROR: node_modules/ not found — run 'npm ci' first (see README.md § Développement), or re-run with --skip-e2e-gate (emergency use only)." >&2; exit 1; }
+        if [[ "${attempt}" -eq 1 ]]; then
+            if [[ -z "${status}" ]]; then
+                echo "  no ${check_name} run for ${short_sha} yet — waiting (up to ${budget})..."
+            else
+                echo "  ${check_name} is ${status} on ${short_sha} — waiting (up to ${budget})..."
+            fi
+        fi
 
-    echo "Running end-to-end browser tests, full tier (npm run e2e:full)..."
-    # See the comment in check_sonar_gate: this function runs under
-    # `set +e`, so a failing `npm run e2e:full` would otherwise fall
-    # through to the "vérifié" line below instead of blocking the release.
-    npm run e2e:full || { echo "ERROR: end-to-end tests failed (npm run e2e:full) — release blocked by the e2e gate." >&2; exit 1; }
+        if [[ "${attempt}" -eq "${attempts}" ]]; then
+            echo "ERROR: ${check_name} is still '${status:-absent}' on ${short_sha} after ${budget} — release blocked by the CI gate." >&2
+            echo "  ${url:-$(gh repo view --json url -q .url 2>/dev/null)/actions}" >&2
+            echo "Wait for it, or investigate why it never ran. A release must not be cut on a commit nothing has judged." >&2
+            exit 1
+        fi
 
-    echo "vérifié — la page d'accueil publique démarre et s'affiche dans un vrai navigateur (Playwright/Chromium, via \`public/index.php\`)." > "${GATE_REPORT_FILE}"
-    echo "E2E gate OK: the application boots and renders in a real browser."
-}
+        sleep "${seconds}"
+    done
 
-# The dynamic security gate: what the running application answers, as
-# opposed to what the source says it should (SECURITY.md §§ 9, 35, 36).
-#
-# Two profiles, cheapest first, and the order is the point — the matrix
-# takes about a minute and is deterministic, so an over-permissive route
-# blocks the release before anyone has waited a quarter of an hour for
-# the scanner.
-#
-#   --profile=standard  every route replayed as every role, checked
-#                       against its declared role_min. No scanner, no
-#                       browser.
-#   --profile=passive   the Playwright suite replayed through OWASP ZAP,
-#                       failing at Medium and above.
-#
-# The ACTIVE profiles (deep, audit) are deliberately not here. They take
-# the better part of an hour and they attack the instance; a release gate
-# has to be something a releaser will actually wait for, and the passive
-# rules plus the matrix are what can be honestly required on every
-# release. `deep` stays a deliberate run.
-#
-# Fail-closed on missing prerequisites, same reasoning as the tests and
-# e2e gates: pulling a 1.2 GB image or installing a browser on the
-# releaser's behalf would mask an unprepared release environment rather
-# than surfacing it.
-check_dast_gate() {
-    command -v docker &> /dev/null || { echo "ERROR: Docker is required for the dynamic security gate (OWASP ZAP runs as a container — see scripts/dast.sh) — install it, or re-run with --skip-dast-gate (emergency use only)." >&2; exit 1; }
-    docker info &> /dev/null || { echo "ERROR: the Docker daemon is not reachable, and the dynamic security gate needs it — start Docker, or re-run with --skip-dast-gate (emergency use only)." >&2; exit 1; }
-    [[ -d node_modules ]] || { echo "ERROR: node_modules/ not found — run 'npm ci' first (see README.md § Développement), or re-run with --skip-dast-gate (emergency use only)." >&2; exit 1; }
-
-    echo "Running the authorization matrix (scripts/dast.sh --profile=standard)..."
-    # Same reasoning as check_e2e_gate: this function runs under `set +e`,
-    # so an unchecked failure would fall through to the "vérifié" line
-    # and report a gate that never passed.
-    ./scripts/dast.sh --profile=standard || {
-        echo "ERROR: a route answered a role its role_min does not admit — release blocked by the dynamic security gate." >&2
+    if [[ "${conclusion}" != "success" ]]; then
+        echo "ERROR: ${check_name} concluded '${conclusion}' on ${short_sha} — release blocked by the CI gate." >&2
+        echo "  ${url}" >&2
+        echo "At least one gate in .github/workflows/checks.yml is not green on the commit being released." >&2
+        echo "Fix it on main and release the commit that fixes it — never around it." >&2
         exit 1
-    }
+    fi
 
-    echo "Running the passive dynamic scan (scripts/dast.sh --profile=passive)..."
-    ./scripts/dast.sh --profile=passive || {
-        echo "ERROR: the passive scan failed — either a finding at or above Medium, or a browser suite that did not complete (a scan is only as complete as the traffic it was given). Release blocked by the dynamic security gate." >&2
-        exit 1
-    }
-
-    echo "vérifié — matrice d'autorisation : aucune route accessible à un rôle qui n'y a pas droit ; analyse dynamique passive (OWASP ZAP sur la suite navigateur) : aucun signalement de niveau Medium ou supérieur." > "${GATE_REPORT_FILE}"
-    echo "DAST gate OK: no over-permissive route, and no passive finding at or above Medium."
+    echo "vérifié — CI verte sur le commit livré (\`${check_name}\`, \`${short_sha}\`) : PHPStan, PHPUnit sur MySQL 8 et MariaDB 10.11, analyse statique et tests JavaScript, suite navigateur, matrice d'autorisation, analyse dynamique passive et \`composer audit\`." > "${GATE_REPORT_FILE}"
+    echo "CI gate OK: ${check_name} is green on ${short_sha}."
 }
 
 # Checks one vendored front-end library's committed file against its
@@ -757,7 +654,7 @@ check_dependency_freshness_gate() {
 check_sonar_gate() {
     local script_dir
     script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    # launch_gate runs every gate function under `set +e` (so a gate can
+    # run_gate runs every gate function under `set +e` (so a gate can
     # decide for itself when to abort instead of the whole subshell dying
     # on the first nonzero exit) — which also means errexit is OFF for
     # this function, so a failing command here does NOT stop execution on
@@ -766,314 +663,119 @@ check_sonar_gate() {
     # on failure, so `|| exit 1` is enough to propagate that here instead
     # of silently falling through to the "vérifié" line below.
     "${script_dir}/check-sonar-release.sh" || exit 1
-    echo "vérifié — aucun signalement de sécurité actif, aucun problème de sévérité HIGH ou supérieure, Quality Gate OK." > "${GATE_REPORT_FILE}"
+    echo "vérifié — aucun signalement SonarCloud non résolu hors les nits de convention exemptés, aucun Security Hotspot à trier, Quality Gate OK, sur l'analyse du commit livré." > "${GATE_REPORT_FILE}"
 }
 
 # ---------------------------------------------------------------
-# Gate execution — every gate above is independent of every other (each
-# checks a different system: production over HTTPS, GitHub's API, this
-# checkout's own PHP/JS toolchain, a real browser against a throwaway
-# instance, Composer/GitHub for dependency freshness, SonarQube Cloud's
-# API), reads but never writes vendor/ or node_modules/, and none of them
-# commits/tags/pushes anything — that only happens once every gate that
-# ran has passed. Running them concurrently instead of one after another
-# is purely a speed optimization, worth it because the two genuinely slow
-# ones (the tests gate's full PHPUnit suite, the end-to-end browser gate)
-# otherwise get paid for one after the other instead of overlapped with
-# the four fast, network-bound ones.
+# Gate execution — five gates, in this order, one after another, and
+# the release stops at the first one that refuses.
 #
-# One narrow, accepted exception: the end-to-end gate wipes and
-# regenerates storage/temp/twig_cache at startup (scripts/e2e-support.php
-# — Twig's compiled-template cache is keyed on VERSION and anchored to
-# this repository, shared with anything else that renders a view). A
-# PHPUnit test rendering a real Twig view at the exact moment that happens
-# could see a transient cache miss. Twig recompiles from source on a
-# miss — self-healing, not a wrong result — so this can cost an occasional
-# rerun, never a false pass.
+# They are ordered by what they are about rather than by cost, because
+# each one costs seconds: is production ready for a new version, has
+# this commit been judged, is anything shipped known-vulnerable, is
+# anything shipped out of date, is the analysis clean. Nothing here
+# runs a test — see the header for where the tests run and why that is
+# the more trustworthy answer.
 #
-# Each non-skipped gate runs in its own background subshell, output
-# redirected to its own log file under ${GATE_TMP_DIR} — interleaved
-# parallel output would be unreadable, so nothing prints live; every
-# gate's log is replayed in order once all of them are known to have
-# passed, and a failed gate's log (last 60 lines, plus the full path) is
-# shown in the combined summary below instead. A subshell's own variable
-# assignments never reach this parent shell, which is why a passing gate
-# writes its report line to ${GATE_REPORT_FILE} (set per-gate by
-# launch_gate) instead of setting one directly, the way the sequential
-# version of this script used to. stdin is /dev/null for every gate so
-# one that somehow tried to prompt interactively (check-sonar-release.sh
-# asking for a missing SONAR_TOKEN, say) fails closed instead of hanging
-# invisibly in the background.
+# This used to be a parallel scheduler: seven gates in background
+# subshells, a sentinel-file dependency chain between the three that
+# fought over the same local MySQL server, and a collection loop that
+# reported every failure together. All of it existed to overlap runs
+# measured in tens of minutes. With none of those left, the machinery
+# would be a page of orchestration for five checks that finish before
+# it could have forked them.
 #
-# A skipped gate (--skip-*) is never launched at all — its warning and
-# report line are exactly what the sequential version printed.
+# Each gate still runs in a subshell under `set +e`, because several are
+# WRITTEN for errexit being off and say so in their own comments —
+# check_sonar_gate's `|| exit 1` only makes sense that way. Output is
+# tee'd rather than captured: with one gate running at a time there is
+# nothing to interleave, and the CI gate can wait minutes, which must
+# not look like a hang. A passing gate writes its report line to
+# ${GATE_REPORT_FILE} rather than setting a variable, since a subshell's
+# assignments never reach this shell. stdin is /dev/null so a gate that
+# somehow tried to prompt (check-sonar-release.sh asking for a missing
+# SONAR_TOKEN) fails closed instead of hanging.
+#
+# A skipped gate (--skip-*) is never run at all; its warning and its
+# report line say exactly what was not checked.
 # ---------------------------------------------------------------
 GATE_TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "${GATE_TMP_DIR}"' EXIT
 
-# Four parallel indexed arrays (never associative — macOS's own /bin/bash
-# is still 3.2, which has no `declare -A` at all) keyed by a shared
-# position: GATE_KEYS[i]/GATE_LABELS[i]/GATE_PIDS[i]/GATE_EXIT[i] all
-# describe the same i-th launched gate.
-GATE_KEYS=()
-GATE_LABELS=()
-GATE_PIDS=()
-GATE_EXIT=()
-
-# An optional 4th argument names another gate this one must not overlap
-# with. Tests and End-to-end both run real MySQL schema migrations against
-# the same local MySQL server and are both CPU-heavy; running them fully
-# concurrently was observed to cause spurious migration timeouts in both
-# (contention, not a real bug). A background subshell can't bash-`wait` on
-# a sibling subshell's PID (they aren't each other's children), so the
-# dependency is a polled sentinel file instead.
-# A gate that finishes in seconds runs HERE, in order, before anything
-# long is started — and the release stops at the first one that refuses.
-#
-# Measured on the reference machine: deployment 2 s (one curl), SonarQube
-# 4 s (one API call), dependency freshness ~5 s, security ~5 s. Against
-# tests (~12 min), end-to-end (~7 min) and the dynamic scan (~13 min,
-# and it waits for end-to-end).
-#
-# Parallelising a two-second check buys nothing and costs the thing that
-# matters: the script used to `wait` on all seven gates whatever
-# happened, so a SonarQube gate refusing in four seconds — an analysis
-# missing for the released commit, a finding still to dismiss — still
-# burned the full twenty-five minutes before saying so. These four are
-# preconditions rather than statements about the code: if production is
-# not on this commit, or Sonar has not analysed it, running the browser
-# suite proves nothing anyone needs.
-#
-# On failure this prints the same block the parallel report prints and
-# exits immediately, so nothing below it ever starts. A gate recorded in
-# the arrays by this function therefore always passed, which is what lets
-# the collection loop treat an empty PID as a zero exit.
-run_fast_gate() {
+run_gate() {
     local key="$1" label="$2" func="$3"
     local status=0
 
-    GATE_KEYS+=("${key}")
-    GATE_LABELS+=("${label}")
-    GATE_PIDS+=("")
+    echo ""
+    echo "── ${label} ──"
 
     export GATE_REPORT_FILE="${GATE_TMP_DIR}/${key}.report"
-    # `set +e` inside the subshell, exactly as launch_gate does it, and for
-    # the same reason: several gate functions are WRITTEN for errexit being
-    # off and say so in their own comments — check_sonar_gate's `|| exit 1`
-    # only makes sense because a failing command there does not kill the
-    # shell by itself. Running them under this script's global `set -e`
-    # would abort them at a different point than they expect, which is a
-    # behaviour change disguised as a scheduling change.
+    # pipefail (line 2) makes the pipeline's status the subshell's own;
+    # tee always succeeds. `|| status=$?` because errexit would otherwise
+    # end the script here without the message below.
     (
         set +e
         "${func}"
         exit $?
-    ) > "${GATE_TMP_DIR}/${key}.log" 2>&1 < /dev/null || status=$?
+    ) < /dev/null 2>&1 | tee "${GATE_TMP_DIR}/${key}.log" || status=$?
     unset GATE_REPORT_FILE
 
     if [[ "${status}" -ne 0 ]]; then
-        echo ""
-        echo "❌ ${label} gate FAILED — last 60 lines (full log: ${GATE_TMP_DIR}/${key}.log):"
-        tail -n 60 "${GATE_TMP_DIR}/${key}.log" | sed 's/^/    /'
         echo "" >&2
-        echo "ERROR: release blocked by the ${label} gate. No long-running gate was started." >&2
+        echo "❌ ERROR: release blocked by the ${label} gate (above). Nothing was committed, tagged or published." >&2
         exit 1
     fi
 
-    echo "✅ ${label} gate passed (${label} runs before the long gates)"
+    echo "✅ ${label} gate passed"
 }
 
-launch_gate() {
-    local key="$1" label="$2" func="$3" depends_on="${4:-}"
-    GATE_KEYS+=("${key}")
-    GATE_LABELS+=("${label}")
-    (
-        if [[ -n "${depends_on}" ]]; then
-            while [[ ! -f "${GATE_TMP_DIR}/${depends_on}.done" ]]; do
-                sleep 1
-            done
-        fi
-        export GATE_REPORT_FILE="${GATE_TMP_DIR}/${key}.report"
-        # The sentinel a dependent gate polls for, written from an EXIT
-        # trap rather than a line after the call. A gate function aborts by
-        # calling `exit` itself (every guard in check_tests_gate does), and
-        # `exit` leaves the subshell without running any following line —
-        # so a plain `touch` after "${func}" is skipped exactly when the
-        # gate fails, and the gate waiting on this key polls `sleep 1`
-        # forever. Observed: a failing Tests gate left End-to-end spinning
-        # and the whole release hung with four gates already green.
-        # Expanded now, not at trap time, so it cannot depend on what is
-        # still in scope when the subshell unwinds.
-        trap "touch '${GATE_TMP_DIR}/${key}.done'" EXIT
-        set +e
-        "${func}"
-        exit $?
-    ) > "${GATE_TMP_DIR}/${key}.log" 2>&1 < /dev/null &
-    GATE_PIDS+=("$!")
-}
-
-# ---------------------------------------------------------------
-# The fast gates, in order, before anything long starts.
-#
-# Each finishes in seconds and each is a PRECONDITION rather than a
-# statement about the code: production must already be on this commit,
-# SonarQube must already have analysed it, no dependency may be
-# outdated, no advisory open. Running the browser suite before those
-# hold proves nothing anybody needs, and used to cost twenty-five
-# minutes before the refusal was even printed.
-# ---------------------------------------------------------------
 if [[ "${SKIP_DEPLOYMENT_CHECK}" -eq 1 ]]; then
     echo "WARNING: --skip-deployment-check used — ${PRODUCTION_URL} was NOT checked for this release. Emergency use only: verify it manually right after publishing." >&2
     DEPLOYMENT_GATE_REPORT_LINE="ignoré (\`--skip-deployment-check\`) — à vérifier manuellement."
 else
-    run_fast_gate deployment "Deployment" check_deployment_gate
+    run_gate deployment "Deployment" check_deployment_gate
+fi
+
+if [[ "${SKIP_CI_GATE}" -eq 1 ]]; then
+    echo "WARNING: --skip-ci-gate used — nothing checked that CI is green on the commit being released, so NOTHING in this script has looked at the code. Emergency use only: read the Actions tab immediately, and expect the tag's own Release workflow to refuse if a gate is red." >&2
+    CI_GATE_REPORT_LINE="ignoré (\`--skip-ci-gate\`) — l'état de l'intégration continue sur le commit livré n'a pas été vérifié avant la publication."
+else
+    run_gate ci "Continuous integration" check_ci_gate
 fi
 
 if [[ "${SKIP_SECURITY_GATE}" -eq 1 ]]; then
     echo "WARNING: --skip-security-gate used — composer audit, npm audit, open CodeQL findings and open Dependabot alerts were NONE of them checked for this release. Emergency use only: verify and resolve them immediately after publishing." >&2
     SECURITY_GATE_REPORT_LINE="ignoré (\`--skip-security-gate\`) — à vérifier manuellement."
 else
-    run_fast_gate security "Security" check_security_gate
+    run_gate security "Security" check_security_gate
 fi
 
 if [[ "${SKIP_DEPENDENCY_CHECK}" -eq 1 ]]; then
     echo "WARNING: --skip-dependency-check used — outdated Composer/vendored front-end dependencies were NOT checked for this release. Emergency use only: update them immediately after publishing." >&2
     DEPENDENCY_GATE_REPORT_LINE="ignoré (\`--skip-dependency-check\`) — à vérifier manuellement."
 else
-    run_fast_gate dependency "Dependency freshness" check_dependency_freshness_gate
+    run_gate dependency "Dependency freshness" check_dependency_freshness_gate
 fi
 
 if [[ "${SKIP_SONAR_GATE}" -eq 1 ]]; then
-    echo "WARNING: --skip-sonar-gate used — active SonarQube Cloud security findings, HIGH-or-above severity findings, unreviewed Security Hotspots, and the Quality Gate were NOT checked for this release. Emergency use only: verify and resolve them immediately after publishing." >&2
+    echo "WARNING: --skip-sonar-gate used — active SonarQube Cloud security findings, unreviewed Security Hotspots, and the Quality Gate were NOT checked for this release. Emergency use only: verify and resolve them immediately after publishing." >&2
     SONAR_GATE_REPORT_LINE="ignoré (\`--skip-sonar-gate\`) — à vérifier manuellement."
 else
-    run_fast_gate sonar "SonarQube Cloud" check_sonar_gate
+    run_gate sonar "SonarQube Cloud" check_sonar_gate
 fi
-
-# ---------------------------------------------------------------
-# The long gates, in parallel, now that every precondition holds.
-# Their MySQL chain (tests -> e2e -> dast) is unchanged.
-# ---------------------------------------------------------------
-if [[ "${SKIP_TESTS_GATE}" -eq 1 ]]; then
-    echo "WARNING: --skip-tests-gate used — PHPStan, PHPUnit, JavaScript static analysis (npm run typecheck), AND the JavaScript unit tests (npm run test:coverage) were NOT run for this release. Emergency use only: run them immediately after publishing and fix any failure." >&2
-    TESTS_GATE_REPORT_LINE="ignoré (\`--skip-tests-gate\`) — PHPStan, PHPUnit, l'analyse statique JavaScript et les tests JavaScript non exécutés, à vérifier manuellement."
-else
-    launch_gate tests "Tests" check_tests_gate
-fi
-
-if [[ "${SKIP_E2E_GATE}" -eq 1 ]]; then
-    echo "WARNING: --skip-e2e-gate used — the end-to-end browser test (npm run e2e:full) was NOT run for this release, so nothing verified that the application actually boots and renders. Emergency use only: run it immediately after publishing and fix any failure." >&2
-    E2E_GATE_REPORT_LINE="ignoré (\`--skip-e2e-gate\`) — test navigateur de bout en bout non exécuté, à vérifier manuellement."
-else
-    # Runs after the Tests gate finishes (not concurrently with it) — both
-    # hit the same local MySQL server with real schema migrations, and
-    # running them at the same time causes spurious migration timeouts.
-    # See the comment on launch_gate().
-    if [[ "${SKIP_TESTS_GATE}" -eq 1 ]]; then
-        launch_gate e2e "End-to-end" check_e2e_gate
-    else
-        launch_gate e2e "End-to-end" check_e2e_gate tests
-    fi
-fi
-
-if [[ "${SKIP_DAST_GATE}" -eq 1 ]]; then
-    echo "WARNING: --skip-dast-gate used — the authorization matrix and the passive dynamic scan were NOT run for this release, so nothing verified what the running application actually answers. Emergency use only: run './scripts/dast.sh --profile=standard' and './scripts/dast.sh --profile=passive' immediately after publishing and fix any finding." >&2
-    DAST_GATE_REPORT_LINE="ignoré (\`--skip-dast-gate\`) — matrice d'autorisation et analyse dynamique passive non exécutées, à vérifier manuellement."
-else
-    # Last in the MySQL chain. Tests, End-to-end and this one all run real
-    # schema migrations against the same local server and are all
-    # CPU-heavy; overlapping them causes spurious migration timeouts (see
-    # the comment on launch_gate). launch_gate takes one dependency, so
-    # the chain is tests → e2e → dast, collapsing to whichever link is
-    # still present when the ones before it are skipped.
-    if [[ "${SKIP_E2E_GATE}" -eq 0 ]]; then
-        launch_gate dast "Dynamic scan" check_dast_gate e2e
-    elif [[ "${SKIP_TESTS_GATE}" -eq 0 ]]; then
-        launch_gate dast "Dynamic scan" check_dast_gate tests
-    else
-        launch_gate dast "Dynamic scan" check_dast_gate
-    fi
-fi
-
-GATE_COUNT="${#GATE_KEYS[@]}"
-
-# Only the gates that were LAUNCHED are running in parallel. The fast ones
-# already ran and already reported, so naming them here would announce
-# work that is finished.
-gate_label_list=""
-gi=0
-parallel_count=0
-while [[ "${gi}" -lt "${GATE_COUNT}" ]]; do
-    if [[ -n "${GATE_PIDS[${gi}]}" ]]; then
-        gate_label_list="${gate_label_list}${gate_label_list:+, }${GATE_LABELS[${gi}]}"
-        parallel_count=$((parallel_count + 1))
-    fi
-    gi=$((gi + 1))
-done
-if [[ "${parallel_count}" -gt 0 ]]; then
-    echo ""
-    echo "Running ${parallel_count} long gate(s) in parallel: ${gate_label_list}..."
-fi
-
-GATES_FAILED=0
-gi=0
-while [[ "${gi}" -lt "${GATE_COUNT}" ]]; do
-    if [[ -z "${GATE_PIDS[${gi}]}" ]]; then
-        # A fast gate, already run by run_fast_gate(). It has no PID to
-        # wait on, and it can only be here if it passed — the failing
-        # branch of that function exits the script.
-        GATE_EXIT+=(0)
-    elif wait "${GATE_PIDS[${gi}]}"; then
-        GATE_EXIT+=(0)
-    else
-        GATE_EXIT+=("$?")
-    fi
-    gi=$((gi + 1))
-done
 
 echo ""
-echo "==================== Gate results ===================="
-gi=0
-while [[ "${gi}" -lt "${GATE_COUNT}" ]]; do
-    if [[ "${GATE_EXIT[${gi}]}" -eq 0 ]]; then
-        echo "✅ ${GATE_LABELS[${gi}]} gate passed"
-    else
-        GATES_FAILED=1
-        echo "❌ ${GATE_LABELS[${gi}]} gate FAILED — last 60 lines (full log: ${GATE_TMP_DIR}/${GATE_KEYS[${gi}]}.log):"
-        tail -n 60 "${GATE_TMP_DIR}/${GATE_KEYS[${gi}]}.log" | sed 's/^/    /'
-        echo ""
-    fi
-    gi=$((gi + 1))
-done
-echo "========================================================"
-
-if [[ "${GATES_FAILED}" -eq 1 ]]; then
-    echo "" >&2
-    echo "ERROR: release blocked — one or more gates failed (see above). Fix the underlying issue and re-run." >&2
-    exit 1
-fi
-
-# Every gate that ran had its own live output going only to its log file
-# (interleaved parallel output would be unreadable) — replay each one now,
-# in the same order the sequential version of this script used to print
-# them, so a passing run's output still shows every gate's own detail.
-for key in ${GATE_KEYS[@]+"${GATE_KEYS[@]}"}; do
-    cat "${GATE_TMP_DIR}/${key}.log"
-done
+echo "Every gate passed. Committing the version, tagging, and handing over to the Release workflow."
 
 DEPLOYMENT_GATE_REPORT_LINE="${DEPLOYMENT_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DIR}/deployment.report" 2>/dev/null)}"
+CI_GATE_REPORT_LINE="${CI_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DIR}/ci.report" 2>/dev/null)}"
 SECURITY_GATE_REPORT_LINE="${SECURITY_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DIR}/security.report" 2>/dev/null)}"
-TESTS_GATE_REPORT_LINE="${TESTS_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DIR}/tests.report" 2>/dev/null)}"
-E2E_GATE_REPORT_LINE="${E2E_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DIR}/e2e.report" 2>/dev/null)}"
-DAST_GATE_REPORT_LINE="${DAST_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DIR}/dast.report" 2>/dev/null)}"
 DEPENDENCY_GATE_REPORT_LINE="${DEPENDENCY_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DIR}/dependency.report" 2>/dev/null)}"
 SONAR_GATE_REPORT_LINE="${SONAR_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DIR}/sonar.report" 2>/dev/null)}"
 
 GATE_REPORT="- **Déploiement** : ${DEPLOYMENT_GATE_REPORT_LINE}
+- **Intégration continue** : ${CI_GATE_REPORT_LINE}
 - **Sécurité** : ${SECURITY_GATE_REPORT_LINE}
-- **Tests** : ${TESTS_GATE_REPORT_LINE}
-- **Tests de bout en bout** : ${E2E_GATE_REPORT_LINE}
-- **Analyse dynamique** : ${DAST_GATE_REPORT_LINE}
 - **Dépendances** : ${DEPENDENCY_GATE_REPORT_LINE}
 - **SonarQube Cloud** : ${SONAR_GATE_REPORT_LINE}
 "
@@ -1085,145 +787,267 @@ trap - EXIT
 # version (Core\Maintenance\VersionFile, read by the Configuration >
 # Maintenance "Mise à jour" section) — it must be committed as part of the
 # release commit so the tag, the file, and the artifact all agree.
+#
+# Skipped, not failed, when VERSION already reads this version: that is
+# what a re-run after a red Release workflow looks like (the header says
+# how to get there), and `git commit` with nothing staged would otherwise
+# stop the release right here, after every gate had passed again.
 echo "${NEW_VERSION}" > VERSION
-git add VERSION
-git commit -m "chore: bump VERSION to ${NEW_VERSION}"
-git push origin HEAD
+if git diff --quiet -- VERSION; then
+    echo "VERSION already reads ${NEW_VERSION} (a re-run after a deleted tag) — nothing to commit."
+else
+    git add VERSION
+    git commit -m "chore: bump VERSION to ${NEW_VERSION}"
+    git push origin HEAD
+fi
 
 # Create annotated tag
 git tag -a "${TAG}" -m "Release ${TAG}"
 git push origin "${TAG}"
 
-# Create GitHub release (requires gh CLI)
-if command -v gh &> /dev/null; then
-    # Build release artifact — delegated to scripts/build-artifact.sh,
-    # which is the ONE implementation of "what an installable ScoutMagic
-    # artifact is": the --no-dev/--optimize-autoloader Composer install,
-    # the exclusion list, the flat `zip -r <artifact> .` shape, the
-    # vendor/autoload.php and root-.htaccess assertions, and the trap that
-    # puts this checkout's dev dependencies back on any exit. The
-    # development channel's CI build (.github/workflows/dev-build.yml)
-    # calls the same script, so the two can never drift — a second,
-    # hand-maintained copy of that list is how the dev channel ended up
-    # shipping tests/ and no vendor/ at all in the first place.
-    #
-    # Everything Composer-related therefore lives inside that script,
-    # including the restore: by the time it returns, this working tree has
-    # its dev dependencies back. The trap registered here only cleans up
-    # this script's own two temp files; it is single-quoted so bash
-    # expands the variables at trap-fire time, and registered before they
-    # exist (as empty strings) so an early failure still triggers it.
-    LISTING_FILE=""
-    FINAL_NOTES_FILE=""
-    trap 'rm -f "${LISTING_FILE}" "${FINAL_NOTES_FILE}"' EXIT
-    ARTIFACT="release-${TAG}.zip"
-    ARTIFACT_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    "${ARTIFACT_SCRIPT_DIR}/build-artifact.sh" "${ARTIFACT}"
+# Pushing the tag started the Release workflow (see the header). The
+# artifact is built HERE, while the runners work, and attached to the
+# workflow's draft once they are done.
+#
+# Build release artifact — delegated to scripts/build-artifact.sh,
+# which is the ONE implementation of "what an installable ScoutMagic
+# artifact is": the --no-dev/--optimize-autoloader Composer install,
+# the exclusion list, the flat `zip -r <artifact> .` shape, the
+# vendor/autoload.php and root-.htaccess assertions, and the trap that
+# puts this checkout's dev dependencies back on any exit. The
+# development channel's CI build (.github/workflows/dev-build.yml)
+# calls the same script, so the two can never drift — a second,
+# hand-maintained copy of that list is how the dev channel ended up
+# shipping tests/ and no vendor/ at all in the first place.
+#
+# Everything Composer-related therefore lives inside that script,
+# including the restore: by the time it returns, this working tree has
+# its dev dependencies back. The trap registered here only cleans up
+# this script's own two temp files; it is single-quoted so bash
+# expands the variables at trap-fire time, and registered before they
+# exist (as empty strings) so an early failure still triggers it.
+#
+# It ALSO removes ${GATE_TMP_DIR}, which the gate block above has already
+# deleted explicitly before clearing its own handler — belt and braces,
+# because bash keeps only the LAST handler registered for a signal, and
+# this repository has written that hazard down once already (see
+# scripts/build-artifact.sh, "One trap, extended rather than joined by a
+# second"). Without the second `rm -rf` here, deleting the two lines that
+# clean up above would leak a directory of gate logs on every release and
+# nothing would say so. Removing an already-removed path is a no-op.
+LISTING_FILE=""
+FINAL_NOTES_FILE=""
+trap 'rm -f "${LISTING_FILE}" "${FINAL_NOTES_FILE}"; rm -rf "${GATE_TMP_DIR}"' EXIT
+ARTIFACT="release-${TAG}.zip"
+ARTIFACT_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+"${ARTIFACT_SCRIPT_DIR}/build-artifact.sh" "${ARTIFACT}"
 
-    # Listed to a real file rather than piped live into grep -q: with
-    # `set -o pipefail` (line 2), a `grep -q` that matches early closes its
-    # read end, SIGPIPE-killing whatever wrote to that pipe — pipefail then
-    # reports the pipeline's exit status as the writer's 141, not grep's
-    # own (successful) 0, even though the match was genuinely found. On a
-    # large listing (thousands of entries, as this artifact has grown to)
-    # there's enough left to write that the race reliably loses — this bit
-    # both checks below in the wild despite the artifact being correct
-    # both times. Grepping a file has no live writer to kill, so no race.
-    # Trap already registered above (before these existed, as empty
-    # strings) — assigning the real paths here is enough, no need to
-    # re-register it.
-    #
-    # The two assertions build-artifact.sh already makes (vendor/autoload.php
-    # present, no root-level .htaccess) are NOT repeated here: they belong
-    # to the artifact itself and therefore to both channels. The ones
-    # below are release-specific — they guard what a *published release*
-    # must never contain — and stay here.
-    LISTING_FILE="$(mktemp)"
-    FINAL_NOTES_FILE="$(mktemp)"
-    unzip -l "${ARTIFACT}" > "${LISTING_FILE}"
+# Listed to a real file rather than piped live into grep -q: with
+# `set -o pipefail` (line 2), a `grep -q` that matches early closes its
+# read end, SIGPIPE-killing whatever wrote to that pipe — pipefail then
+# reports the pipeline's exit status as the writer's 141, not grep's
+# own (successful) 0, even though the match was genuinely found. On a
+# large listing (thousands of entries, as this artifact has grown to)
+# there's enough left to write that the race reliably loses — this bit
+# both checks below in the wild despite the artifact being correct
+# both times. Grepping a file has no live writer to kill, so no race.
+# Trap already registered above (before these existed, as empty
+# strings) — assigning the real paths here is enough, no need to
+# re-register it.
+#
+# The two assertions build-artifact.sh already makes (vendor/autoload.php
+# present, no root-level .htaccess) are NOT repeated here: they belong
+# to the artifact itself and therefore to both channels. The ones
+# below are release-specific — they guard what a *published release*
+# must never contain — and stay here.
+LISTING_FILE="$(mktemp)"
+FINAL_NOTES_FILE="$(mktemp)"
+unzip -l "${ARTIFACT}" > "${LISTING_FILE}"
 
-    # The contextual help ships as Markdown under docs/help/ (ARCHITECTURE.md
-    # §8.64) and is read at runtime — docs/ is deliberately NOT in the -x
-    # exclusion list above, and this assertion is what keeps a future
-    # "exclude docs/ from the artifact" cleanup from silently shipping a
-    # release whose /aide is empty. Same file-based grep as
-    # build-artifact.sh's own two checks, for the same SIGPIPE reason.
-    if ! grep -q 'docs/help/' "${LISTING_FILE}"; then
-        echo "ERROR: release artifact is missing docs/help/ (contextual help) — aborting release." >&2
-        rm -f "${ARTIFACT}"
-        exit 1
-    fi
-
-    # node_modules/ and coverage/ are development/test-only (Vitest — see
-    # build-artifact.sh's -x list); a leftover local install of either must
-    # never reach a release artifact regardless of how it got there.
-    if grep -qE '[[:space:]](node_modules|coverage)/' "${LISTING_FILE}"; then
-        echo "ERROR: release artifact contains node_modules/ or coverage/ — aborting release." >&2
-        rm -f "${ARTIFACT}"
-        exit 1
-    fi
-
-    # The reference dataset (tests/fixtures/reference-dataset/ — its own
-    # README.md) is a test harness: fake member exports, fake bank
-    # statements, a CLI builder that writes massively to the database, and
-    # documented demo passwords. It is already covered by the "tests/*"
-    # entry of build-artifact.sh's -x list, so this check has nothing of
-    # its own to exclude — it exists so that exclusion stops being tacit.
-    # Anything that moves this dataset out from under tests/ (or a -x list
-    # someone trims) fails the release here instead of shipping a builder
-    # into an installable artifact.
-    #
-    # Matched as a DIRECTORY (trailing slash), not as a bare substring: the
-    # dataset is always a directory of files, whereas
-    # docs/chantiers/reference-dataset.md — documentation ABOUT it, which
-    # does ship and should — carries the same word in its filename and
-    # blocked a release here once, after every gate had already passed.
-    if grep -q 'reference-dataset/' "${LISTING_FILE}"; then
-        echo "ERROR: release artifact contains reference-dataset — the test dataset must never ship; aborting release." >&2
-        rm -f "${ARTIFACT}"
-        exit 1
-    fi
-
-    # Release notes always end with the "Vérifications effectuées" block
-    # (${GATE_REPORT}, built above as each gate ran or was bypassed) — this
-    # is added here in the script itself, never left to whoever wrote
-    # NOTES_FILE, so it can't be forgotten or drift from what actually
-    # ran. --generate-notes only supports *prepending* custom text via
-    # --notes, not appending after it, so the auto-generated notes are
-    # instead pre-fetched through the same GitHub API endpoint that flag
-    # uses (`releases/generate-notes`) — this way both paths (custom
-    # NOTES_FILE or auto-generated) end up going through the same
-    # "write base notes, then append the gate report" logic below,
-    # always passed to gh via --notes-file.
-    if [[ -n "${NOTES_FILE}" ]]; then
-        cat "${NOTES_FILE}" > "${FINAL_NOTES_FILE}"
-    else
-        gh api "repos/{owner}/{repo}/releases/generate-notes" \
-            -f tag_name="${TAG}" --jq '.body' > "${FINAL_NOTES_FILE}" \
-            || { echo "ERROR: cannot generate release notes." >&2; rm -f "${ARTIFACT}"; exit 1; }
-    fi
-
-    {
-        echo ""
-        echo "---"
-        echo ""
-        echo "## Vérifications effectuées pour cette release"
-        echo ""
-        printf '%s' "${GATE_REPORT}"
-    } >> "${FINAL_NOTES_FILE}"
-
-    # bootstrap.php is published as a second asset. GitHub does not
-    # preserve this command's argument order in the assets array (observed:
-    # it sorts alphabetically, putting bootstrap.php before the zip) — both
-    # Core\Maintenance\GitHubReleaseClient and bootstrap.php's own
-    # resolveArchiveUrl() select the artifact by its .zip filename, never
-    # by array position, so upload order here doesn't matter.
-    gh release create "${TAG}" "${ARTIFACT}" "bootstrap/bootstrap.php" \
-        --title "Release ${TAG}" \
-        --notes-file "${FINAL_NOTES_FILE}"
-
+# The contextual help ships as Markdown under docs/help/ (ARCHITECTURE.md
+# §8.64) and is read at runtime — docs/ is deliberately NOT in the -x
+# exclusion list above, and this assertion is what keeps a future
+# "exclude docs/ from the artifact" cleanup from silently shipping a
+# release whose /aide is empty. Same file-based grep as
+# build-artifact.sh's own two checks, for the same SIGPIPE reason.
+if ! grep -q 'docs/help/' "${LISTING_FILE}"; then
+    echo "ERROR: release artifact is missing docs/help/ (contextual help) — aborting release." >&2
     rm -f "${ARTIFACT}"
-    echo "GitHub release ${TAG} created with artifact and bootstrap.php."
-else
-    echo "Tag ${TAG} pushed. Install GitHub CLI (gh) to auto-create releases."
+    exit 1
 fi
+
+# node_modules/ and coverage/ are development/test-only (Vitest — see
+# build-artifact.sh's -x list); a leftover local install of either must
+# never reach a release artifact regardless of how it got there.
+if grep -qE '[[:space:]](node_modules|coverage)/' "${LISTING_FILE}"; then
+    echo "ERROR: release artifact contains node_modules/ or coverage/ — aborting release." >&2
+    rm -f "${ARTIFACT}"
+    exit 1
+fi
+
+# The reference dataset (tests/fixtures/reference-dataset/ — its own
+# README.md) is a test harness: fake member exports, fake bank
+# statements, a CLI builder that writes massively to the database, and
+# documented demo passwords. It is already covered by the "tests/*"
+# entry of build-artifact.sh's -x list, so this check has nothing of
+# its own to exclude — it exists so that exclusion stops being tacit.
+# Anything that moves this dataset out from under tests/ (or a -x list
+# someone trims) fails the release here instead of shipping a builder
+# into an installable artifact.
+#
+# Matched as a DIRECTORY (trailing slash), not as a bare substring: the
+# dataset is always a directory of files, whereas
+# docs/chantiers/reference-dataset.md — documentation ABOUT it, which
+# does ship and should — carries the same word in its filename and
+# blocked a release here once, after every gate had already passed.
+if grep -q 'reference-dataset/' "${LISTING_FILE}"; then
+    echo "ERROR: release artifact contains reference-dataset — the test dataset must never ship; aborting release." >&2
+    rm -f "${ARTIFACT}"
+    exit 1
+fi
+
+# ---------------------------------------------------------------
+# Wait for the Release workflow — every gate again, on GitHub's runners,
+# then the signed evidence pack and the draft Release it is attached to.
+# Waiting here is what makes the whole chain one command: the alternative
+# is a human remembering to come back an hour later to finish a release by
+# hand, which is how a version ships with a red gate nobody looked at.
+#
+# The run is found by tag rather than by commit: a tag push sets the run's
+# head_branch to the tag name, and the release commit also has a CI run of
+# its own against main.
+# ---------------------------------------------------------------
+echo ""
+echo "Waiting for the Release workflow (every gate on a runner, then the evidence pack)..."
+
+RELEASE_RUN_ID=""
+for _ in $(seq 1 30); do
+    RELEASE_RUN_ID="$(gh run list --workflow=release.yml --branch "${TAG}" \
+        --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null || true)"
+    [[ -n "${RELEASE_RUN_ID}" && "${RELEASE_RUN_ID}" != "null" ]] && break
+    sleep 10
+done
+
+if [[ -z "${RELEASE_RUN_ID}" || "${RELEASE_RUN_ID}" == "null" ]]; then
+    echo "ERROR: no Release workflow run appeared for ${TAG} after 5 minutes." >&2
+    echo "The tag is pushed and nothing is published. Check the Actions tab; if the workflow" >&2
+    echo "never started, re-run it for the tag rather than cutting another version, then" >&2
+    echo "finish by hand: gh release upload ${TAG} ${ARTIFACT} bootstrap/bootstrap.php && gh release edit ${TAG} --draft=false --latest" >&2
+    exit 1
+fi
+
+# Watched for the live job list, but NOT trusted for the verdict: `gh run
+# watch` refuses a run that has already completed, and a fast failure can
+# finish before the poll above even finds it. The conclusion is read
+# separately afterwards, so the decision is the same whether the run was
+# watched or was already over.
+if [[ "$(gh run view "${RELEASE_RUN_ID}" --json status -q .status)" != "completed" ]]; then
+    gh run watch "${RELEASE_RUN_ID}" --interval 15 || true
+fi
+
+RELEASE_RUN_CONCLUSION="$(gh run view "${RELEASE_RUN_ID}" --json conclusion -q .conclusion)"
+if [[ "${RELEASE_RUN_CONCLUSION}" != "success" ]]; then
+    echo "" >&2
+    echo "ERROR: the Release workflow concluded '${RELEASE_RUN_CONCLUSION}' — a gate is red on the runner." >&2
+    echo "Nothing was published: the workflow creates no draft when a gate is red." >&2
+    echo "Tag ${TAG} exists and points at nothing. Fix the cause on main, then:" >&2
+    echo "  git push --delete origin ${TAG} && git tag -d ${TAG}" >&2
+    echo "and run this script again (it recomputes ${NEW_VERSION} and leaves VERSION alone)." >&2
+    exit 1
+fi
+
+# ---------------------------------------------------------------
+# Attach the deployable zip and bootstrap.php to the draft.
+#
+# The workflow's draft carries the evidence pack only. The artifact built
+# above is the other half — the copy of the site somebody actually
+# installs — and the two belong on the same Release. --clobber so a re-run
+# replaces the asset instead of failing on a name that is already there.
+#
+# GitHub does not preserve this command's argument order in the assets
+# array (observed: it sorts alphabetically, putting bootstrap.php before
+# the zip) — both Core\Maintenance\GitHubReleaseClient and bootstrap.php's
+# own resolveArchiveUrl() select the artifact by its .zip filename, never
+# by array position, so upload order here doesn't matter. What DOES matter
+# is that the zip is the only .zip — see the header, and the count below.
+# ---------------------------------------------------------------
+EVIDENCE_ASSET="evidence-${TAG}.tar.gz"
+
+echo ""
+echo "Attaching ${ARTIFACT} and bootstrap.php to the draft Release..."
+gh release upload "${TAG}" "${ARTIFACT}" "bootstrap/bootstrap.php" --clobber
+
+RELEASE_ASSETS="$(gh release view "${TAG}" --json assets -q '.assets[].name')"
+ZIP_COUNT="$(grep -c '\.zip$' <<< "${RELEASE_ASSETS}" || true)"
+if [[ "${ZIP_COUNT}" -ne 1 ]]; then
+    echo "ERROR: the draft Release ${TAG} carries ${ZIP_COUNT} .zip asset(s); exactly one is allowed:" >&2
+    printf '  %s\n' ${RELEASE_ASSETS} >&2
+    echo "Every installed site installs the FIRST .zip it finds. Release NOT published — remove the extra asset(s) and finish by hand: gh release edit ${TAG} --draft=false --latest" >&2
+    exit 1
+fi
+if ! grep -qx "${EVIDENCE_ASSET}" <<< "${RELEASE_ASSETS}"; then
+    echo "ERROR: the draft Release ${TAG} does not carry ${EVIDENCE_ASSET} — the workflow's evidence pack is missing." >&2
+    echo "Release NOT published. Read the workflow run (${RELEASE_RUN_ID}) before finishing by hand." >&2
+    exit 1
+fi
+
+# ---------------------------------------------------------------
+# Compose the notes. Four parts, in this order, and only the first is
+# written by a person:
+#
+#   1. The note itself — NOTES_FILE, or the commit list GitHub generates.
+#      --generate-notes only supports *prepending* custom text via
+#      --notes, so the auto-generated list is pre-fetched through the same
+#      endpoint that flag uses (`releases/generate-notes`) and both paths
+#      go through the same appends below.
+#   2. "Vérifications effectuées" — ${GATE_REPORT}, one line per local
+#      gate as it ran or was bypassed. Added here in the script itself,
+#      never left to whoever wrote NOTES_FILE, so it cannot be forgotten
+#      or drift from what actually ran.
+#   3. The evidence pack — the body the Release workflow wrote on its
+#      draft: what is in the archive and how to verify its signature. Kept
+#      rather than overwritten, since it is the part a reader auditing the
+#      release needs.
+#   4. The dependency inventory — scripts/dependency-inventory.php, read
+#      from the lock files and the vendored banners so it says what
+#      shipped rather than what a constraint allowed. Last because it is
+#      the longest.
+# ---------------------------------------------------------------
+if [[ -n "${NOTES_FILE}" ]]; then
+    cat "${NOTES_FILE}" > "${FINAL_NOTES_FILE}"
+else
+    gh api "repos/{owner}/{repo}/releases/generate-notes" \
+        -f tag_name="${TAG}" --jq '.body' > "${FINAL_NOTES_FILE}" \
+        || { echo "ERROR: cannot generate release notes. Release ${TAG} is still a draft; nothing was published." >&2; exit 1; }
+fi
+
+{
+    echo ""
+    echo "---"
+    echo ""
+    echo "## Vérifications effectuées pour cette release"
+    echo ""
+    printf '%s' "${GATE_REPORT}"
+    echo ""
+    gh release view "${TAG}" --json body -q .body
+    echo ""
+    php "${ARTIFACT_SCRIPT_DIR}/dependency-inventory.php"
+} >> "${FINAL_NOTES_FILE}" \
+    || { echo "ERROR: could not compose the release notes (evidence body or dependency inventory). Release ${TAG} is still a draft; nothing was published." >&2; exit 1; }
+
+gh release edit "${TAG}" --title "Release ${TAG}" --notes-file "${FINAL_NOTES_FILE}"
+
+# Publishing here rather than leaving the draft for a human is deliberate,
+# and it is not a loosening: the draft exists so that nothing is published
+# before the gates have spoken, and by this line they have — twice. What
+# is given up is a pair of eyes on the evidence BEFORE the Release is
+# public; the pack stays attached to the published Release, so it is still
+# read, just not as a blocking step. --latest re-asserted rather than left
+# to GitHub's default, since the stable update channel reads
+# `releases/latest` and nothing else.
+gh release edit "${TAG}" --draft=false --latest
+
+rm -f "${ARTIFACT}"
+echo ""
+echo "GitHub release ${TAG} published: ${ARTIFACT}, bootstrap.php and ${EVIDENCE_ASSET} attached."
+echo "  https://github.com/$(gh repo view --json nameWithOwner -q .nameWithOwner)/releases/tag/${TAG}"

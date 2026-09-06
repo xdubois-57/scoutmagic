@@ -68,6 +68,14 @@ storage/temp/twig_cache/
 
 # Release artifacts
 release-*.zip
+# The evidence pack and the directory the workflow jobs collect it in
+# (.github/workflows/release.yml, scripts/sonar-evidence.php). Built on a
+# runner, attached to the Release, never committed. Also what a JUnit log
+# left by a local `vendor/bin/phpunit --log-junit phpunit-mariadb.xml` run
+# of the MariaDB job's command looks like.
+evidence/
+evidence-*.tar.gz
+phpunit-mariadb.xml
 
 # Claude Code: the SessionStart hook and the shared settings that register it
 # are versioned (they are what makes `composer install`, phpunit and phpstan
