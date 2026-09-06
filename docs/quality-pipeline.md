@@ -295,7 +295,11 @@ skipped on the `issues:` path — and a reopened issue is re-triaged from
 there. #181 came out of it carrying `bug:confirmed` *and* `bug:not-a-bug`:
 one was the answer, the other was the answer before the reporter corrected
 it, and the pair told a maintainer nothing. The removal now sits beside the
-write, in both workflows, and is asserted there.
+write, in both workflows, and is asserted there — together with the read-back
+that makes it safe: each deletion is allowed to fail, because the ordinary
+reason one fails is that the label was not there, so what the job trusts is
+the label set it reads afterwards. Exactly one `bug:*` label, or none for a
+feature request, or the run goes red naming what it found.
 
 `.github/workflows/issue-backlog-scan.yml` is the same triage, applied to
 the issues that workflow never saw: everything filed before it reached

@@ -1330,6 +1330,31 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
             $applied,
             $workflow . ' builds the stale-label path without deleting anything with it.',
         );
+
+        // AND THE RESULT IS READ BACK. Each of those deletions is
+        // allowed to fail, because the ordinary reason one fails is
+        // that the label was not there — which is only safe while
+        // something afterwards looks at what the issue actually
+        // carries. Without this, a DELETE that fails for a real reason
+        // leaves the two contradictory labels in place and the run
+        // still ends green.
+        $verified = $this->firstRunScriptContaining($workflow, 'startswith("bug:")');
+
+        self::assertStringContainsString(
+            '/labels',
+            $verified,
+            $workflow . ' names the `bug:*` labels in a check that never asks GitHub what the '
+            . 'issue carries. The removals above tolerate a failure; reading the result is what '
+            . 'makes that tolerable.',
+        );
+
+        self::assertStringContainsString(
+            '$expected',
+            $verified,
+            $workflow . ' reads the `bug:*` labels back but compares them against nothing. The '
+            . 'predicate has to be the exact set the verdict called for — one label, or none for '
+            . 'a feature request — or a leftover verdict passes as a triaged issue.',
+        );
     }
 
     /**
