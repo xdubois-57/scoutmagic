@@ -87,6 +87,51 @@ final class TicketDnsSnapshotTest extends TestCase
     }
 
     /**
+     * `dns_snapshot_encrypted` is a `BLOB`: 65 535 bytes, and encryption
+     * adds to whatever goes in. A zone answering near the DNS RDATA limit
+     * on TXT alone would either be refused by the database or truncated
+     * into ciphertext that never decrypts again — and the ticket would
+     * lose its evidence to a column width. So the snapshot is capped
+     * BEFORE encryption, and what was dropped is named: a snapshot
+     * missing its TXT records reads as a domain that has none, which is a
+     * diagnosis rather than a gap.
+     */
+    public function testAZoneTooBigForTheColumnIsCappedAndSaysSo(): void
+    {
+        $this->registerInstallation('https://unite.example.be');
+
+        // Twenty-five kept records of 4 KiB each, on two types: well past
+        // the cap, and enough that dropping one type is not enough either.
+        $fat = static fn(string $value): array => array_fill(
+            0,
+            DnsRecordReader::MAX_RECORDS_PER_TYPE,
+            ['type' => 'TXT', 'txt' => str_repeat($value, 4096), 'ttl' => 300]
+        );
+
+        $this->receive(new ScriptedDnsReader([
+            DNS_A => [['type' => 'A', 'ip' => '192.0.2.10', 'ttl' => 300]],
+            DNS_TXT => $fat('t'),
+            DNS_NS => $fat('n'),
+        ]));
+
+        $snapshot = $this->storedSnapshot();
+
+        // What survived is the head of the reader's own order, so the
+        // cheapest diagnosis is the one that is kept.
+        $this->assertSame(["300\t192.0.2.10"], $snapshot['records']['A']['values']);
+        $this->assertNotEmpty($snapshot['truncated'] ?? []);
+        $this->assertContains('SOA', $snapshot['truncated']);
+        $this->assertArrayNotHasKey('SOA', $snapshot['records']);
+
+        // And the archive a human opens says it, rather than showing a
+        // domain that looks like it has nothing.
+        $this->assertStringContainsString(
+            'Types retirés du relevé conservé',
+            DnsRecordReader::asText($snapshot)
+        );
+    }
+
+    /**
      * The ticket is the thing the person came to send. Everything after it
      * is bookkeeping, and bookkeeping does not get to refuse.
      */
@@ -191,9 +236,28 @@ final class TicketDnsSnapshotTest extends TestCase
         return $snapshot;
     }
 
+    /**
+     * One column of the single ticket these tests create.
+     *
+     * The statement is chosen from a fixed map rather than built from
+     * `$name`: PDO cannot bind an identifier, so a column name reaching
+     * SQL is always concatenation, and this repository's rule against it
+     * does not carve out an exception for a caller that happens to pass a
+     * literal today (AGENTS.md § Database).
+     */
     private function column(string $name): mixed
     {
-        $value = $this->pdo->query('SELECT ' . $name . ' FROM support_tickets LIMIT 1')->fetchColumn();
+        $statements = [
+            'dns_read_at' => 'SELECT dns_read_at FROM support_tickets LIMIT 1',
+            'dns_snapshot_encrypted' => 'SELECT dns_snapshot_encrypted FROM support_tickets LIMIT 1',
+        ];
+
+        $statement = $statements[$name] ?? null;
+        $this->assertNotNull($statement, 'unknown column ' . $name);
+
+        $stmt = $this->pdo->prepare($statement);
+        $stmt->execute();
+        $value = $stmt->fetchColumn();
 
         return $value === false ? null : $value;
     }

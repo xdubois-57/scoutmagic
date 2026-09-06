@@ -52,9 +52,14 @@ d'application** :
 
 - **Gmail** : activez la validation en deux étapes sur le compte, puis
   créez un mot de passe d'application dédié sur
-  <https://myaccount.google.com/u/8/apppasswords> — cette page n'existe
+  <https://myaccount.google.com/apppasswords> — cette page n'existe
   pas tant que la validation en deux étapes n'est pas active, et elle
   n'apparaît dans aucun menu, ce qui est l'étape où l'on abandonne.
+  Elle reste indisponible sur un compte inscrit au programme de
+  protection avancée, sur un compte dont la validation en deux étapes
+  n'accepte qu'une clé de sécurité, et sur un compte Workspace dont
+  l'administrateur l'a désactivée : dans ces trois cas, la boîte doit
+  être relevée autrement.
   Serveur `imap.gmail.com`, port `993`, chiffrement `SSL`. Vérifiez
   qu'IMAP est activé dans les paramètres Gmail.
 - **Outlook / Microsoft 365** : serveur `outlook.office365.com`, port

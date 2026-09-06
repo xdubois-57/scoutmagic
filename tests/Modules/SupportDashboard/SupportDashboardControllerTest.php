@@ -14,6 +14,7 @@ use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\Security\EncryptionService;
 use Core\View\TwigFactory;
 use Modules\SupportDashboard\Controller\SupportDashboardController;
 use Modules\SupportDashboard\Repository\SupportInstallationRepository;
@@ -32,6 +33,7 @@ use Twig\Environment;
 class SupportDashboardControllerTest extends TestCase
 {
     private \PDO $pdo;
+    private EncryptionService $encryption;
     private SupportInstallationRepository $installations;
     private Environment $twig;
     private SupportDashboardController $controller;
@@ -50,6 +52,13 @@ class SupportDashboardControllerTest extends TestCase
         SupportDashboardTestHelper::ensureAutoloadable();
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         SupportDashboardTestHelper::createTables($this->pdo);
+
+        // Built BEFORE the repository, and named here because it was not:
+        // an undeclared `$this->encryption` read as null, the repository
+        // stored `whois_raw_encrypted` as NULL, and every assertion below
+        // about the raw response never reaching the screen passed on a
+        // column that was empty. A test that cannot fail proves nothing.
+        $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
 
         $installations = $this->installations = new SupportInstallationRepository($this->pdo, $this->encryption);
         $this->installationId = $installations->register(

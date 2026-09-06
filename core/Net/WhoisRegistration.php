@@ -55,6 +55,28 @@ final class WhoisRegistration
     /** The keys a name server is printed under. */
     private const NAME_SERVER_KEYS = ['name server', 'nserver', 'nameserver', 'name servers'];
 
+    /**
+     * Blocks whose contents are a person, where no key is read at all.
+     *
+     * The alias table above is deliberately generous — registries print
+     * `changed:`, `status:` and `state:` under a dozen spellings — and
+     * that generosity turns against the rule this class exists to keep
+     * once the reader is inside a contact block: AFNIC prints `changed:`
+     * under each `nic-hdl`, and an American registrant's address block
+     * prints `State:`. Either would land a natural person's data in
+     * `whois_registration`, a clear-text, filterable, exportable column
+     * (§7.9) — the exact outcome « le titulaire n'est jamais analysé »
+     * promises will not happen. `$block` persists until the next heading,
+     * so the guard has to be here rather than at the `Registrant:` line.
+     *
+     * @var string[]
+     */
+    private const PERSONAL_BLOCKS = [
+        'registrant', 'holder', 'owner', 'contact', 'admin', 'admin contact',
+        'administrative contact', 'tech', 'tech contact', 'technical contact',
+        'billing contact', 'abuse contact',
+    ];
+
     /** A registration has a handful of these; a zone dump is not our business. */
     public const MAX_NAME_SERVERS = 10;
 
@@ -119,6 +141,12 @@ final class WhoisRegistration
 
             if (in_array($key, self::NAME_SERVER_KEYS, true)) {
                 self::addNameServer($nameServers, $value);
+                continue;
+            }
+
+            // Below this line every key is matched against the alias
+            // table, so everything inside a person's block stops here.
+            if (in_array($block, self::PERSONAL_BLOCKS, true)) {
                 continue;
             }
 

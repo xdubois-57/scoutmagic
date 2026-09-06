@@ -118,6 +118,53 @@ final class WhoisRegistrationTest extends TestCase
         $this->assertStringNotContainsString('+32.81', $encoded);
     }
 
+    /**
+     * The block-heading formats — AFNIC's, RIPE's — where a contact's
+     * fields are printed under a bare `Registrant:` line and carry the
+     * SAME names the alias table looks for. `changed:` is a contact's
+     * last edit, `State:` is the province they live in, and either in
+     * `whois_registration` would be a natural person's data in a
+     * clear-text, filterable column (§7.9).
+     */
+    public function testNothingInsideAPersonalBlockIsReadWhateverItIsCalled(): void
+    {
+        $registration = WhoisRegistration::parse(implode("\n", [
+            'Domain Name: unite.example',
+            'Registrar: Example Hosting SA',
+            '',
+            'Registrant:',
+            '    Name: Marie Dupont',
+            '    State: Namur',
+            '    Changed: 2019-04-01',
+            '    Status: retraitée',
+            '',
+            'Tech Contact:',
+            '    Changed: 2018-02-03',
+        ]));
+
+        $this->assertSame('Example Hosting SA', $registration['registrar']);
+        $this->assertNull($registration['status']);
+        $this->assertNull($registration['updated_at']);
+        $this->assertStringNotContainsString('Namur', (string) json_encode($registration));
+        $this->assertStringNotContainsString('2019-04-01', (string) json_encode($registration));
+    }
+
+    /** And a heading of the same name outside a personal block still reads. */
+    public function testTheDomainBlockKeepsItsOwnDatesAndStatus(): void
+    {
+        $registration = WhoisRegistration::parse(implode("\n", [
+            'Domain Name: unite.example',
+            'Status: clientTransferProhibited',
+            'Changed: 2026-03-04',
+            '',
+            'Registrant:',
+            '    Changed: 2019-04-01',
+        ]));
+
+        $this->assertSame('clientTransferProhibited', $registration['status']);
+        $this->assertSame('2026-03-04', $registration['updated_at']);
+    }
+
     public function testTheCommentAndLegalBlockAreNotFields(): void
     {
         $registration = WhoisRegistration::parse(implode("\n", [

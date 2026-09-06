@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\SupportDashboard\Repository;
 
+use Core\Security\DecryptionException;
 use Core\Security\EncryptionService;
 
 /**
@@ -226,7 +227,16 @@ class SupportInstallationRepository
             return null;
         }
 
-        return $this->encryption->decrypt($raw, 'support_installations.whois_raw');
+        try {
+            return $this->encryption->decrypt($raw, 'support_installations.whois_raw');
+        } catch (DecryptionException) {
+            // Ciphertext this key cannot read — a restored database, a
+            // rotated key, a truncated column. The only caller is the
+            // ticket dossier, where the WHOIS is one optional file among
+            // twenty: an unreadable one must read as absent, not abort
+            // the download of everything else somebody asked for.
+            return null;
+        }
     }
 
     public function delete(int $id): bool

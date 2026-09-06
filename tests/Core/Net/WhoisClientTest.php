@@ -184,7 +184,7 @@ final class SlowWhoisClient extends WhoisClient
         parent::__construct($budget);
     }
 
-    protected function ask(string $server, string $query): ?string
+    protected function ask(string $server, string $query, float $deadline): ?string
     {
         usleep((int) ($this->budget * 1_000_000) + 5_000);
 

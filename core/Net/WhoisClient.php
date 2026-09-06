@@ -209,7 +209,7 @@ class WhoisClient
             return null;
         }
 
-        return $this->ask($server, $query);
+        return $this->ask($server, $query, $deadline);
     }
 
     /** Verisign and its relatives need the keyword; everybody else does not. */
@@ -224,11 +224,19 @@ class WhoisClient
      * The one socket, alone in its own method so a test replaces it without
      * a network and without stubbing the walk above it.
      *
+     * The deadline is carried in rather than checked by the caller,
+     * because `stream_set_timeout()` bounds each blocking `fread()` and
+     * not the loop around them: a server that dribbles one byte just
+     * before every timeout keeps every read "successful" and holds the
+     * request until `MAX_RESPONSE_BYTES` or the end of the world,
+     * whichever comes first. Checked between reads, the whole exchange
+     * costs at most the budget plus one read timeout.
+     *
      * @return string|null null on any transport failure, which is not an
      *   error here: port 43 is outbound TCP, and plenty of shared hosts
      *   simply do not have it.
      */
-    protected function ask(string $server, string $query): ?string
+    protected function ask(string $server, string $query, float $deadline): ?string
     {
         $errorNumber = 0;
         $errorMessage = '';
@@ -252,6 +260,14 @@ class WhoisClient
 
             $raw = '';
             while (strlen($raw) < self::MAX_RESPONSE_BYTES && !feof($socket)) {
+                if (microtime(true) >= $deadline) {
+                    // Whatever arrived is kept: a partial record still
+                    // names the registrar more often than not, and this
+                    // reading is never the evidence — the raw response
+                    // beside it is.
+                    break;
+                }
+
                 $chunk = @fread($socket, 8192);
                 if ($chunk === false || $chunk === '') {
                     // Distinguishes end-of-stream from the read timeout,

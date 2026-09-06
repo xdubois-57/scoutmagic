@@ -172,12 +172,61 @@ class SupportTicketRepository
         );
         $stmt->execute([
             $this->encryption->encrypt(
-                (string) json_encode($snapshot, JSON_UNESCAPED_UNICODE),
+                self::encodeSnapshot($snapshot),
                 'support_tickets.dns_snapshot'
             ),
             $readAt->format('Y-m-d H:i:s'),
             $reference,
         ]);
+    }
+
+    /**
+     * How much snapshot JSON may be encrypted into `dns_snapshot_encrypted`.
+     *
+     * The column is a `BLOB`, 65 535 bytes, and encryption adds a nonce
+     * and a tag to whatever goes in. A zone that answers near the DNS
+     * 65 535-byte RDATA limit on TXT alone — a long DKIM key, an SPF
+     * record somebody kept appending to — would overflow it, and MySQL
+     * would either refuse the write or truncate the ciphertext into
+     * something that never decrypts again. Half the column leaves room
+     * for both the overhead and a second surprise.
+     */
+    private const MAX_SNAPSHOT_BYTES = 32768;
+
+    /**
+     * The snapshot as the JSON that goes into the column, bounded.
+     *
+     * **Truncation is stated, never silent.** A snapshot missing its TXT
+     * records reads as a domain that has none, and that is a diagnosis
+     * rather than a gap — the same reason the reader names a skipped type
+     * instead of omitting it. So types are dropped from the end (the
+     * order is the reader's, cheapest diagnosis first) and the ones that
+     * went are named in the document itself.
+     *
+     * @param array<string, mixed> $snapshot
+     */
+    private static function encodeSnapshot(array $snapshot): string
+    {
+        $encoded = json_encode($snapshot, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+        if (strlen($encoded) <= self::MAX_SNAPSHOT_BYTES) {
+            return $encoded;
+        }
+
+        $records = is_array($snapshot['records'] ?? null) ? $snapshot['records'] : [];
+        $dropped = [];
+
+        while ($records !== [] && strlen($encoded) > self::MAX_SNAPSHOT_BYTES) {
+            $names = array_keys($records);
+            $name = (string) end($names);
+            unset($records[$name]);
+            array_unshift($dropped, $name);
+
+            $snapshot['records'] = $records;
+            $snapshot['truncated'] = $dropped;
+            $encoded = json_encode($snapshot, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+        }
+
+        return $encoded;
     }
 
     /**

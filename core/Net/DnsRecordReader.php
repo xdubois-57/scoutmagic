@@ -240,6 +240,22 @@ class DnsRecordReader
             $lines[] = '';
         }
 
+        // Named, for the same reason a skipped type is named: a snapshot
+        // that simply lacks its TXT records reads as a domain that has
+        // none, and that is a diagnosis rather than a gap. The cause is
+        // the storage column, not the resolver (see
+        // `SupportTicketRepository::encodeSnapshot()`).
+        $truncated = array_values(array_filter(
+            (array) ($snapshot['truncated'] ?? []),
+            static fn(mixed $value): bool => is_string($value)
+        ));
+
+        if ($truncated !== []) {
+            $lines[] = 'Types retirés du relevé conservé, faute de place : ' . implode(', ', $truncated) . '.';
+            $lines[] = 'Ils ont bien été demandés ; c\'est leur conservation qui a été tronquée.';
+            $lines[] = '';
+        }
+
         return implode("\n", $lines);
     }
 }

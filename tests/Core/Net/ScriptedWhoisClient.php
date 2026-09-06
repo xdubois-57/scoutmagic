@@ -28,7 +28,7 @@ class ScriptedWhoisClient extends WhoisClient
         parent::__construct();
     }
 
-    protected function ask(string $server, string $query): ?string
+    protected function ask(string $server, string $query, float $deadline): ?string
     {
         $this->asked[] = [$server, $query];
 

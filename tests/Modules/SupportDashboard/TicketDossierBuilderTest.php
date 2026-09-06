@@ -336,6 +336,26 @@ class TicketDossierBuilderTest extends TestCase
         $this->assertStringContainsString('La réponse WHOIS du domaine', $entries[TicketDossierBuilder::README_ENTRY]);
     }
 
+    /**
+     * Ciphertext this key cannot read — a restored database, a rotated
+     * key — costs the WHOIS file and nothing else. The dossier is twenty
+     * entries somebody asked for; an optional one that cannot be
+     * decrypted must read as absent, not abort the download.
+     */
+    public function testUnreadableWhoisCiphertextCostsOnlyTheWhoisEntry(): void
+    {
+        $this->seedWhois("Domain: unite-de-test.example.be\n");
+        $this->pdo
+            ->prepare('UPDATE support_installations SET whois_raw_encrypted = ? WHERE id = ?')
+            ->execute(['ceci-n-est-pas-du-chiffre', $this->installationId]);
+
+        $entries = $this->dossier();
+
+        $this->assertArrayNotHasKey(TicketDossierBuilder::WHOIS_ENTRY, $entries);
+        $this->assertArrayHasKey(TicketDossierBuilder::README_ENTRY, $entries);
+        $this->assertStringContainsString('La réponse WHOIS du domaine', $entries[TicketDossierBuilder::README_ENTRY]);
+    }
+
     private function seedWhois(string $raw): void
     {
         $this->installations->recordWhois(

@@ -236,6 +236,35 @@ class SupportTicketSenderTest extends TestCase
     }
 
     /**
+     * Valid JSON of the wrong SHAPE is the case a plain `is_array()` walks
+     * straight past: a JSON object decodes to an array, the loop finds no
+     * entry in it, and an installation with a year of history reads as one
+     * that never sent anything.
+     */
+    public function testAStoredObjectIsTreatedAsNoHistoryAtAll(): void
+    {
+        $this->settings->setInternal(SupportTicketSender::RECENT_SETTING, '{"reference":"SUP-BADSHP"}');
+        $this->settings->setInternal(SupportTicketSender::LAST_REFERENCE_SETTING, 'SUP-OLD123');
+        $this->settings->setInternal(SupportTicketSender::LAST_SENT_AT_SETTING, '2026-01-02 03:04:05');
+
+        $recent = $this->sender($this->transport(200, []))->recentlySent();
+
+        $this->assertSame(['SUP-OLD123'], array_column($recent, 'reference'));
+    }
+
+    /** And the next accepted send replaces it rather than prepending onto it. */
+    public function testASendAfterAStoredObjectWritesAListAgain(): void
+    {
+        $this->settings->setInternal(SupportTicketSender::RECENT_SETTING, '{"reference":"SUP-BADSHP"}');
+
+        $result = $this->sender($this->transport(200, ['status' => 'accepted', 'ticket_reference' => 'SUP-7KQ4F2']))
+            ->send('other', 'Bonjour', 'chef@unite.be');
+
+        $this->assertTrue($result->sent);
+        $this->assertSame(['SUP-7KQ4F2'], array_column($this->sender($this->transport(200, []))->recentlySent(), 'reference'));
+    }
+
+    /**
      * @return array<string, array{int, array<string, mixed>|string, string}>
      */
     public static function failureProvider(): array

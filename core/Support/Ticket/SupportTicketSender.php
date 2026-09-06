@@ -352,8 +352,13 @@ class SupportTicketSender
     public function recentlySent(): array
     {
         $stored = json_decode((string) ($this->settingService->get(self::RECENT_SETTING) ?? ''), true);
-        if (!is_array($stored)) {
-            // Nothing kept yet, or a value this version cannot read. The
+        if (!is_array($stored) || !array_is_list($stored)) {
+            // Nothing kept yet, or a value this version cannot read —
+            // `array_is_list()` because a JSON OBJECT decodes to an array
+            // too, and one would walk straight past a plain `is_array()`
+            // into the loop below, come out empty, and report an
+            // installation that has been sending for a year as one that
+            // never sent anything. The
             // last reference is still worth showing on its own — an
             // installation that has been sending for a year must not read
             // as one that never sent anything, just because this list is
@@ -403,7 +408,17 @@ class SupportTicketSender
     private function rememberSent(string $reference, string $sentAt, string $category): void
     {
         $stored = json_decode((string) ($this->settingService->get(self::RECENT_SETTING) ?? ''), true);
-        $entries = is_array($stored) ? $stored : [];
+        // Same guard as the reader, and for the same reason: prepending
+        // onto a decoded JSON object would write back a value neither
+        // side can read.
+        //
+        // Read-modify-write without a lock, deliberately: two accepted
+        // sends in the same few milliseconds on one installation would
+        // lose one reference from this list (#199). Serialising it means
+        // giving this service a database handle or this list a table of
+        // its own, for an aide-mémoire whose entries were each shown to
+        // the person who sent them.
+        $entries = is_array($stored) && array_is_list($stored) ? $stored : [];
 
         array_unshift($entries, [
             'reference' => $reference,
