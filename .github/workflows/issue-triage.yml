@@ -800,6 +800,30 @@ jobs:
           gh api "repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}/labels" \
             -X POST -f 'labels[]=triage:done' --silent
 
+          # A VERDICT REPLACES THE PREVIOUS ONE; it does not join it.
+          # The reset step strips the old `bug:*` labels when a comment
+          # brings an issue back, but that step is skipped on the
+          # `issues:` path — and an issue can be re-triaged from there
+          # too, by being reopened. #181 came out of that path carrying
+          # `bug:confirmed` AND `bug:not-a-bug`, which says nothing at
+          # all to a maintainer reading the list and is worse than
+          # either label alone. So the labels the verdict is NOT are
+          # removed here, next to the one it is, on every path.
+          for stale in 'bug:confirmed' 'bug:not-a-bug' 'bug:needs-info'; do
+            # An `if`, not `[ … ] && continue`: under `set -e` a test
+            # that ends a line is a status the shell may act on, and
+            # this loop must not be the reason a verdict is half
+            # applied.
+            if [ "${stale}" != "${bug_label}" ]; then
+              # Absent is a 404 and the normal case; the state read
+              # back in the next step settles anything else.
+              gh api \
+                "repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}/labels/${stale//:/%3A}" \
+                -X DELETE --silent \
+                || echo "Removing ${stale} did not succeed; the state is checked below."
+            fi
+          done
+
           if [ -n "${bug_label}" ]; then
             gh api "repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}/labels" \
               -X POST -f "labels[]=${bug_label}" --silent

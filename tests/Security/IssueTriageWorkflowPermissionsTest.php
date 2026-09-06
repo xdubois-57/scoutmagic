@@ -1282,6 +1282,57 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
     }
 
     /**
+     * A VERDICT REPLACES THE PREVIOUS ONE, and both workflows must say
+     * so in the step that writes.
+     *
+     * The reset step strips the old `bug:*` labels when a comment
+     * brings an issue back to triage, which covered the case anybody
+     * was thinking about. It is skipped on the `issues:` path — and an
+     * issue is re-triaged from there too, by being reopened. #181 came
+     * out of that path carrying `bug:confirmed` AND `bug:not-a-bug`:
+     * one of them was the answer, the other was the answer before the
+     * reporter corrected it, and a maintainer reading the label list
+     * learns nothing from the pair. The nightly scan meets the same
+     * state from the other direction, since the issues it picks up are
+     * the ones a per-issue run left labelled and unfinished.
+     *
+     * So the removal belongs beside the write, not beside the reset,
+     * and this asserts it there: the apply step names all three `bug:*`
+     * labels and deletes the ones the verdict is not.
+     */
+    #[DataProvider('issueWorkflows')]
+    public function testAVerdictReplacesTheLabelsOfTheOneBeforeIt(string $workflow): void
+    {
+        $applied = $this->firstRunScriptContaining($workflow, 'labels[]=triage:done');
+
+        foreach (['bug:confirmed', 'bug:not-a-bug', 'bug:needs-info'] as $label) {
+            self::assertStringContainsString(
+                "'" . $label . "'",
+                $applied,
+                $workflow . ' applies a verdict without naming `' . $label . '` among the labels '
+                . 'a new verdict removes. An issue re-triaged after a first pass then carries two '
+                . 'contradictory `bug:*` labels — which is what happened to #181 — and the label '
+                . 'list stops being an answer to anything.',
+            );
+        }
+
+        self::assertStringContainsString(
+            'labels/${stale//:/%3A}',
+            $applied,
+            $workflow . ' names the stale labels but never builds the path that removes one. The '
+            . 'colon has to be percent-encoded — GitHub reads an unencoded `bug:confirmed` as two '
+            . 'path segments — and the removal has to happen in the step that writes the verdict, '
+            . 'because the reset step that also strips them is skipped on the `issues:` path.',
+        );
+
+        self::assertStringContainsString(
+            '-X DELETE',
+            $applied,
+            $workflow . ' builds the stale-label path without deleting anything with it.',
+        );
+    }
+
+    /**
      * And both workflows read with the same list.
      *
      * They do the same work on the same kind of input — one issue now,
@@ -1943,6 +1994,35 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
         }
 
         return $scripts;
+    }
+
+    /**
+     * The one `run:` script in a workflow that contains a marker, as a
+     * string — asserting that exactly one does.
+     *
+     * Both files have several shell steps and the assertions about the
+     * step that WRITES must not accidentally be satisfied by another
+     * one, nor pass silently when the step is restructured out of
+     * existence. A marker matched twice is as much a failure here as a
+     * marker matched never: it means the caller is no longer reading
+     * the step it thinks it is.
+     */
+    private function firstRunScriptContaining(string $workflow, string $marker): string
+    {
+        $matching = array_values(array_filter(
+            $this->runScripts($workflow),
+            static fn (string $script): bool => str_contains($script, $marker),
+        ));
+
+        self::assertCount(
+            1,
+            $matching,
+            $workflow . ' has ' . count($matching) . ' `run:` script(s) containing `' . $marker
+            . '`; exactly one is expected. Either the step this asserts against is gone, or a '
+            . 'second step now does the same writing and the two can disagree.',
+        );
+
+        return $matching[0];
     }
 
     /**

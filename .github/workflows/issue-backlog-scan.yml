@@ -614,6 +614,20 @@ jobs:
             gh api "repos/${GITHUB_REPOSITORY}/issues/${issue}/labels" \
               -X POST -f 'labels[]=triage:done' --silent
 
+            # A verdict REPLACES the previous one — see the same loop
+            # in issue-triage.yml for the issue that arrived carrying
+            # two contradictory `bug:*` labels at once. This job picks
+            # up issues the per-issue run failed on, so a stale verdict
+            # label from that run is exactly what it meets.
+            for stale in 'bug:confirmed' 'bug:not-a-bug' 'bug:needs-info'; do
+              if [ "${stale}" != "${bug_label}" ]; then
+                gh api \
+                  "repos/${GITHUB_REPOSITORY}/issues/${issue}/labels/${stale//:/%3A}" \
+                  -X DELETE --silent \
+                  || echo "Removing ${stale} from #${issue} did not succeed; counted below."
+              fi
+            done
+
             if [ -n "${bug_label}" ]; then
               gh api "repos/${GITHUB_REPOSITORY}/issues/${issue}/labels" \
                 -X POST -f "labels[]=${bug_label}" --silent
