@@ -23,27 +23,33 @@ use PHPUnit\Framework\TestCase;
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class RateLimitReservationLockTest extends TestCase
 {
-    private ?\PDO $server = null;
     private ?\PDO $holder = null;
     private ?\PDO $requester = null;
-    private string $database = '';
 
+    /**
+     * Two connections to the pre-provisioned test database (TEST_DB_NAME,
+     * the one CI's database job and the session hook both create), never
+     * a database of this test's own: a `CREATE DATABASE` takes its name
+     * by concatenation, and SECURITY.md allows no exception to "every
+     * statement is prepared" for a value that merely happens to be
+     * generated. The table is created with a static statement if the
+     * database does not carry the module schema, and the rows this test
+     * writes are deleted by a prepared statement in tearDown().
+     */
     protected function setUp(): void
     {
         SupportDashboardTestHelper::ensureAutoloadable();
 
         $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';
         $port = (int) (getenv('TEST_DB_PORT') ?: 3306);
+        $dbName = getenv('TEST_DB_NAME') ?: 'test_db';
         $user = getenv('TEST_DB_USER') ?: 'root';
         $password = getenv('TEST_DB_PASSWORD') ?: '';
+        $dsn = sprintf('mysql:host=%s;port=%d;dbname=%s', $host, $port, $dbName);
 
         try {
-            $this->server = new \PDO(
-                sprintf('mysql:host=%s;port=%d', $host, $port),
-                $user,
-                $password,
-                [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
-            );
+            $this->holder = new \PDO($dsn, $user, $password, [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]);
+            $this->requester = new \PDO($dsn, $user, $password, [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]);
         } catch (\Throwable $e) {
             if (getenv('TEST_DB_HOST') === false) {
                 $this->markTestSkipped('No MySQL server configured (TEST_DB_HOST unset): ' . $e->getMessage());
@@ -52,20 +58,15 @@ class RateLimitReservationLockTest extends TestCase
             throw $e;
         }
 
-        $this->database = 'scoutmagic_reserve_' . bin2hex(random_bytes(6));
-        $this->server->exec('CREATE DATABASE `' . $this->database . '`');
-
-        $dsn = sprintf('mysql:host=%s;port=%d;dbname=%s', $host, $port, $this->database);
-        $this->holder = new \PDO($dsn, $user, $password, [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]);
-        $this->requester = new \PDO($dsn, $user, $password, [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]);
-
-        // The production DDL (modules/support_dashboard/schema.sql).
-        $this->requester->exec('CREATE TABLE support_report_rate_limits (
+        // The production DDL (modules/support_dashboard/schema.sql), a no-op
+        // where the module schema is already installed.
+        $this->requester->exec('CREATE TABLE IF NOT EXISTS support_report_rate_limits (
             id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             ip_hash CHAR(64) NOT NULL,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             INDEX idx_support_report_rate_limits_lookup (ip_hash, created_at)
         ) ENGINE=InnoDB');
+        $this->deleteOwnRows();
     }
 
     protected function tearDown(): void
@@ -73,17 +74,28 @@ class RateLimitReservationLockTest extends TestCase
         if ($this->holder instanceof \PDO) {
             AdvisoryLock::release($this->holder, SupportReportRateLimitRepository::reservationLockName($this->hash()));
         }
-        if ($this->server instanceof \PDO && $this->database !== '') {
-            $this->server->exec('DROP DATABASE IF EXISTS `' . $this->database . '`');
-        }
+        $this->deleteOwnRows();
         $this->holder = null;
         $this->requester = null;
-        $this->server = null;
+    }
+
+    private function deleteOwnRows(): void
+    {
+        if (!$this->requester instanceof \PDO) {
+            return;
+        }
+        $stmt = $this->requester->prepare('DELETE FROM support_report_rate_limits WHERE ip_hash IN (?, ?)');
+        $stmt->execute([$this->hash(), $this->otherHash()]);
     }
 
     private function hash(): string
     {
         return str_repeat('a', 64);
+    }
+
+    private function otherHash(): string
+    {
+        return str_repeat('b', 64);
     }
 
     private function since(): string
@@ -144,6 +156,6 @@ class RateLimitReservationLockTest extends TestCase
         );
         $repository = new SupportReportRateLimitRepository($this->requester);
 
-        $this->assertTrue($repository->reserve(str_repeat('b', 64), $this->since(), 20));
+        $this->assertTrue($repository->reserve($this->otherHash(), $this->since(), 20));
     }
 }
