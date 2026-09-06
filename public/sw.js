@@ -332,7 +332,7 @@ function appShellResponse(request, url) {
 
     return fetch(request).then(
         function (response) {
-            if (response && response.ok) {
+            if (response?.ok) {
                 return response;
             }
 

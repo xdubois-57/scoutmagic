@@ -119,15 +119,23 @@ const INVENTORY_LICENCE_COMPATIBILITY = [
     'ISC' => 'Licence permissive : compatible.',
     'BSD-2-Clause' => 'Licence permissive : compatible.',
     'BSD-3-Clause' => 'Licence permissive : compatible.',
-    'Apache-2.0' => 'Compatible dans un seul sens : du code Apache-2.0 peut entrer dans une œuvre AGPL-3.0 (la FSF la déclare compatible avec la GPLv3, et l\'AGPLv3 §13 étend cette compatibilité), pas l\'inverse.',
-    'LGPL-2.1' => 'LGPL v2.1 : la bibliothèque reste sous ses propres termes ; sa section 3 permet en outre de la placer sous la GPL (v2 ou ultérieure), d\'où l\'AGPLv3 via la GPLv3 §13.',
-    'LGPL-2.1-only' => 'LGPL v2.1 : la bibliothèque reste sous ses propres termes ; sa section 3 permet en outre de la placer sous la GPL (v2 ou ultérieure), d\'où l\'AGPLv3 via la GPLv3 §13.',
-    'LGPL-2.1-or-later' => 'LGPL v2.1 ou ultérieure : la bibliothèque reste sous ses propres termes ; la LGPLv3 est la GPLv3 assortie d\'exceptions, elle-même combinable avec l\'AGPLv3 (§13).',
+    'Apache-2.0' => 'Compatible dans un seul sens : du code Apache-2.0 peut entrer dans une œuvre AGPL-3.0 '
+        . '(la FSF la déclare compatible avec la GPLv3, et l\'AGPLv3 §13 étend cette compatibilité), pas l\'inverse.',
+    'LGPL-2.1' => 'LGPL v2.1 : la bibliothèque reste sous ses propres termes ; sa section 3 permet en outre '
+        . 'de la placer sous la GPL (v2 ou ultérieure), d\'où l\'AGPLv3 via la GPLv3 §13.',
+    'LGPL-2.1-only' => 'LGPL v2.1 : la bibliothèque reste sous ses propres termes ; sa section 3 permet en outre '
+        . 'de la placer sous la GPL (v2 ou ultérieure), d\'où l\'AGPLv3 via la GPLv3 §13.',
+    'LGPL-2.1-or-later' => 'LGPL v2.1 ou ultérieure : la bibliothèque reste sous ses propres termes ; la LGPLv3 '
+        . 'est la GPLv3 assortie d\'exceptions, elle-même combinable avec l\'AGPLv3 (§13).',
     'LGPL-3.0' => 'LGPL v3 : la GPLv3 assortie d\'exceptions supplémentaires, combinable avec l\'AGPLv3 (GPLv3 §13).',
-    'LGPL-3.0-only' => 'LGPL v3 : la GPLv3 assortie d\'exceptions supplémentaires, combinable avec l\'AGPLv3 (GPLv3 §13).',
-    'LGPL-3.0-or-later' => 'LGPL v3 ou ultérieure : la GPLv3 assortie d\'exceptions supplémentaires, combinable avec l\'AGPLv3 (GPLv3 §13).',
-    'GPL-3.0-or-later' => 'GPL v3 ou ultérieure : la GPLv3 §13 autorise explicitement la combinaison avec une œuvre AGPLv3 ; la partie GPL reste sous GPL, la partie AGPL sous AGPL.',
-    'GPL-3.0-only' => 'GPL v3 : la GPLv3 §13 autorise explicitement la combinaison avec une œuvre AGPLv3 ; la partie GPL reste sous GPL, la partie AGPL sous AGPL.',
+    'LGPL-3.0-only' => 'LGPL v3 : la GPLv3 assortie d\'exceptions supplémentaires, combinable avec l\'AGPLv3 '
+        . '(GPLv3 §13).',
+    'LGPL-3.0-or-later' => 'LGPL v3 ou ultérieure : la GPLv3 assortie d\'exceptions supplémentaires, combinable '
+        . 'avec l\'AGPLv3 (GPLv3 §13).',
+    'GPL-3.0-or-later' => 'GPL v3 ou ultérieure : la GPLv3 §13 autorise explicitement la combinaison avec une '
+        . 'œuvre AGPLv3 ; la partie GPL reste sous GPL, la partie AGPL sous AGPL.',
+    'GPL-3.0-only' => 'GPL v3 : la GPLv3 §13 autorise explicitement la combinaison avec une œuvre AGPLv3 ; '
+        . 'la partie GPL reste sous GPL, la partie AGPL sous AGPL.',
     'AGPL-3.0-or-later' => 'La licence du projet lui-même.',
     'AGPL-3.0-only' => 'La licence du projet lui-même.',
     'MIT-0' => 'Licence permissive : compatible.',
@@ -137,7 +145,8 @@ const INVENTORY_LICENCE_COMPATIBILITY = [
 ];
 
 /** What the compatibility table says about a licence this file has never seen. */
-const INVENTORY_LICENCE_UNKNOWN = '**À examiner** — licence absente de la table de compatibilité de `scripts/dependency-inventory.php`.';
+const INVENTORY_LICENCE_UNKNOWN = '**À examiner** — licence absente de la table de compatibilité de '
+    . '`scripts/dependency-inventory.php`.';
 
 // Guarded the same way scripts/authz-support.php is: the test suite defines
 // DEPENDENCY_INVENTORY_TEST and includes this file for its functions, and
@@ -190,8 +199,11 @@ function inventory_render(string $root): string
     $nodeRequirement = (string) ($packageJson['engines']['node'] ?? 'voir package.json');
 
     $out = "## Dépendances livrées\n\n";
-    $out .= "Versions lues dans les fichiers de verrouillage (`composer.lock`, `package-lock.json`) et dans les bannières des bibliothèques vendorisées — ce qui a été livré, pas ce qu'une contrainte autorisait. Généré par `scripts/dependency-inventory.php`.\n\n";
-    $out .= '**PHP requis :** `' . $phpRequirement . '` — **Node requis (développement seulement) :** `' . $nodeRequirement . "`\n\n";
+    $out .= "Versions lues dans les fichiers de verrouillage (`composer.lock`, `package-lock.json`) et dans les "
+        . "bannières des bibliothèques vendorisées — ce qui a été livré, pas ce qu'une contrainte autorisait. "
+        . "Généré par `scripts/dependency-inventory.php`.\n\n";
+    $out .= '**PHP requis :** `' . $phpRequirement . '` — **Node requis (développement seulement) :** `'
+        . $nodeRequirement . "`\n\n";
 
     $out .= '### PHP — production (' . count($php) . ")\n\n";
     $out .= "Présentes dans `vendor/` de l'archive installable : c'est ce qui tourne sur l'hébergement.\n\n";
@@ -202,15 +214,22 @@ function inventory_render(string $root): string
     $out .= inventory_table($phpDev, '_Aucune._');
 
     $out .= "\n### JavaScript — développement (" . count($node) . ")\n\n";
-    $out .= "Outillage de test et d'analyse uniquement. Le JavaScript de production est du code navigateur simple, sans bundler ni Node : rien d'ici n'atteint un visiteur.\n\n";
+    $out .= "Outillage de test et d'analyse uniquement. Le JavaScript de production est du code navigateur "
+        . "simple, sans bundler ni Node : rien d'ici n'atteint un visiteur.\n\n";
     $out .= inventory_table($node, '_Aucune._');
 
     $out .= "\n### Bibliothèques front-end vendorisées (" . count($vendored) . ")\n\n";
-    $out .= "Dans aucun fichier de verrouillage : des fichiers minifiés commités sous `public/assets/vendor/`, version lue dans leur bannière. Ce sont les seules dépendances tierces que le navigateur d'un visiteur exécute réellement.\n\n";
-    $out .= inventory_table($vendored, '_Aucune trouvée — vérifier le balayage dans `scripts/dependency-inventory.php`._');
+    $out .= "Dans aucun fichier de verrouillage : des fichiers minifiés commités sous `public/assets/vendor/`, "
+        . "version lue dans leur bannière. Ce sont les seules dépendances tierces que le navigateur d'un "
+        . "visiteur exécute réellement.\n\n";
+    $out .= inventory_table(
+        $vendored,
+        '_Aucune trouvée — vérifier le balayage dans `scripts/dependency-inventory.php`._',
+    );
 
     $out .= "\n### Compatibilité avec la licence du projet\n\n";
-    $out .= "ScoutMagic est publié sous **AGPL-3.0-or-later**. Pour chaque licence rencontrée ci-dessus, pourquoi elle peut être combinée avec celle-ci :\n\n";
+    $out .= "ScoutMagic est publié sous **AGPL-3.0-or-later**. Pour chaque licence rencontrée ci-dessus, "
+        . "pourquoi elle peut être combinée avec celle-ci :\n\n";
     $out .= inventory_compatibility_table(array_merge($php, $phpDev, $node, $vendored));
 
     return $out;
