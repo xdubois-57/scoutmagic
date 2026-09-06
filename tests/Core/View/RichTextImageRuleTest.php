@@ -61,6 +61,31 @@ final class RichTextImageRuleTest extends TestCase
     ];
 
     /**
+     * The surfaces where that HTML is WRITTEN, which the list above never
+     * covered.
+     *
+     * The rule was read as being about rendering, so every display
+     * container got the class and neither editor did. The result is the
+     * one shape a reporter cannot make sense of: the published article
+     * bounded its images correctly while the box the author was typing in
+     * let a 4000px photo run off a phone screen (#181). Same HTML, same
+     * page, two answers.
+     *
+     * A contenteditable is a rendering too — the browser lays out the
+     * markup inside it exactly as it would anywhere else — so it takes the
+     * same class, and this list exists so the next editor added here
+     * inherits the rule rather than rediscovering the bug.
+     *
+     * @var array<string, string>
+     */
+    private const EDITORS = [
+        // The shared modal (Configuration > E-mails, editable blocks, and
+        // every caller of partials/rich_text_editor.html.twig).
+        'core/View/templates/partials/rich_text_editor.html.twig'
+            => 'id="richTextEditorContent" contenteditable="true" class="form-control rich-text"',
+    ];
+
+    /**
      * The bodies of emails the site RECEIVED, deliberately left alone:
      * template path => the `|raw` print that must NOT be inside a
      * `.rich-text` container.
@@ -82,6 +107,23 @@ final class RichTextImageRuleTest extends TestCase
                 $needle,
                 self::read($template),
                 $template . ' must carry the shared .rich-text class (design.md §7.12)'
+            );
+        }
+    }
+
+    /**
+     * The other half of the same rule. Left out, the site contradicts
+     * itself in front of the author: correct once published, wrong while
+     * being written.
+     */
+    public function testEveryRichTextEditorCarriesTheSharedClass(): void
+    {
+        foreach (self::EDITORS as $template => $needle) {
+            self::assertStringContainsString(
+                $needle,
+                self::read($template),
+                $template . ': the box a chief types rich text INTO bounds its images the'
+                . ' same way the published page does (design.md §7.12, issue #181)'
             );
         }
     }

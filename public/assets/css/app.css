@@ -728,6 +728,15 @@ body:has(> #cookie-banner) {
    So the containers carry `.rich-text` (alongside whatever class they
    already had) and every image inside one is bounded here, once.
 
+   The boxes that HTML is WRITTEN in carry it too, and that half was
+   missed at first: every display container had the class and neither
+   editor did, so a published article bounded its images while the
+   contenteditable its author was typing into let a 4000px photo run off
+   a phone screen (#181). A contenteditable is a rendering like any
+   other — the browser lays the markup out inside it exactly the same
+   way — so it takes the same class. Tests\Core\View\RichTextImageRuleTest
+   holds both halves.
+
    The desktop cap is the same 420px as `.groups-media-grid`
    (components.css): on a wide screen a photo that fills the text
    column reads as a banner the author never asked for, and an image

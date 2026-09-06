@@ -411,3 +411,36 @@ describe('news-form-builder.js: visibilityUiState()', () => {
         expect(state.showIdentifiedHelp).toBe(false);
     });
 });
+
+// The editor's own rendering, which the sanitizer cases above never touch.
+//
+// design.md §7.12 bounds every image inside a `.rich-text` container, and
+// every DISPLAY container carried the class while neither EDITOR did. The
+// article a reader saw was correct; the box its author typed into let a
+// 4000px photo run off a phone screen — same HTML, same page, two answers
+// (#181).
+//
+// Asserted on the element this factory actually builds rather than on the
+// line that builds it: a refactor to classList.add() changes nothing a
+// reader would notice, and a test that went red on it would be measuring
+// the source instead of the behaviour.
+describe('news-form-builder.js: createRichTextEditor()', () => {
+    it('bounds an image in the box being typed into, as on the published page', () => {
+        const { editable } = nfb.createRichTextEditor('<p>Bonjour</p>', null, null);
+
+        expect(editable.classList.contains('rich-text')).toBe(true);
+        // Still a form control: the class is added to what was there, and
+        // dropping `form-control` would restyle every editor on the site.
+        expect(editable.classList.contains('form-control')).toBe(true);
+    });
+
+    it('is the contenteditable the author writes in, not a preview', () => {
+        const { editable } = nfb.createRichTextEditor('', null, null);
+
+        // The property, not the attribute: jsdom does not reflect
+        // contentEditable to an attribute, so getAttribute() answers null
+        // on an element a browser would happily let you type into.
+        expect(editable.contentEditable).toBe('true');
+        expect(editable.getAttribute('role')).toBe('textbox');
+    });
+});
