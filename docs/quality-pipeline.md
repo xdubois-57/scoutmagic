@@ -170,6 +170,36 @@ write. Its judgement lives in `.claude/skills/triage/SKILL.md`, reviewed
 like code, and the workflow fetches that file from `main` rather than from
 a working copy it does not have.
 
+**The model decides; the workflow writes.** `issues: write` is
+repository-wide — GitHub has no issue-scoped token — so while the agent
+held the GitHub write tools, nothing but the prompt stopped a hostile
+issue body from talking it into commenting on, relabelling or closing a
+*different* issue, and a prompt is exactly what an injected body competes
+with. Both workflows now give the agent the **read** tools one by one
+(never the whole `mcp__github` server) and take its verdict back as JSON
+through `--json-schema`. Shell steps apply it: the per-issue job writes at
+`github.event.issue.number`, the scan only to the issues it selected
+before the agent started, refusing any other number and going red for it.
+Two consequences worth knowing: the agent never names a **label** — it
+returns one of four verdicts and the shell maps them, so an invented label
+cannot be applied by anyone — and naming individual tools fails *closed*
+if the action's pinned image renames one, which is the price of the
+guarantee and the reason to re-check those names whenever the action SHA
+is bumped.
+
+That price was paid on the first live run. The list named
+`mcp__github__issue_read`; the pinned image spells those tools
+`get_issue` and `get_issue_comments`, so the triage of #181 was denied 48
+times, triaged a report it had never read, exhausted its turn budget
+retrying and went red with no verdict — while every audit in
+`tests/Security/IssueTriageWorkflowPermissionsTest.php` passed, because
+they all asked whether the list was *safe* and none asked whether it was
+*sufficient*. Both spellings are listed now, two tests cover the open half
+of the trade (the agent can read an issue and its comments; both workflows
+read with the same list), and the symptom to recognise is in the
+transcript verbatim: `Claude requested permissions to use
+mcp__github__<name>, but you haven't granted it yet`.
+
 Both issue workflows also **deny the tools that assume a "later"** —
 `Agent`, `Task`, `ScheduleWakeup` — because an agent that hands an issue to
 a subagent and ends its turn waiting for the answer has, in a one-shot run,
@@ -188,22 +218,33 @@ still carrying `triage:pending`. One had its verdict comment and never got
 its labels; three had neither, inside their turn budget, with no timeout
 and no permission denial. Nothing anywhere was red.
 
-So after the agent, the job reads the issue's labels back: `triage:done`
+So the job checks what the attempt actually RETURNED — `have_verdict`,
+since the agent writes nothing — and if no usable verdict came back it
+waits a minute (whatever ends an attempt early is transient and short,
+and retrying into the same second meets it again) and runs the agent a
+second time with the *same* prompt and arguments. Retrying is safe by
+construction rather than by instruction: exactly one verdict is applied
+per run, so two successful attempts still produce one comment. Then, once
+the job has written, it reads the issue's labels back: `triage:done`
 present and `triage:pending` gone is the only thing that counts as
 triaged, because the labels are the state (§ Labels below) and a comment
 without them reads to the rest of this pipeline exactly like an issue
-nobody looked at. If they are not there it waits a minute — whatever ends
-an attempt early is transient and short, and retrying into the same second
-meets it again — and runs the agent a second time with the *same* prompt.
-The prompt is idempotent by construction: it re-checks for an existing
-verdict immediately before it writes, so a retry cannot post a second
-verdict on somebody's report, and on the half-finished case it applies
-only the missing labels. If both attempts leave the issue untriaged the
+nobody looked at. If both attempts leave the issue untriaged the
 job fails, keeps the second attempt's full transcript (the only place it
 is kept — `show_full_output` is off by default, and the first
 investigation into this ran aground on a log that had discarded the
 evidence), and the issue keeps `triage:pending` so the nightly scan takes
 it regardless.
+
+**A comment never cancels a triage in flight.** Both triggers share one
+concurrency group, per issue, and it does not cancel in progress — because
+it did until issue #181, where the reporter's own clarification, posted
+three minutes after opening, started a second run that killed the first
+and was then skipped by the guard (the issue did not carry
+`bug:needs-info` yet). No verdict, no comment, and no red run: a cancelled
+run reports neither failure nor success. Queuing costs minutes and orders
+the two correctly — the comment run waits, and re-triages on that comment
+if the verdict was `bug:needs-info`.
 
 **A `bug:needs-info` answer restarts it.** Asking the reporter a question
 was, until issue #176, a one-way door: no workflow here listened to
@@ -213,7 +254,16 @@ it was. A comment on an **open** issue carrying `bug:needs-info`, on
 something that is not a pull request, written by somebody who is not a bot
 and who is either the issue's own reporter or the repository owner, now
 sends that issue back to `triage:pending` (dropping `triage:done` and
-`bug:needs-info`) and re-triages it against everything it says now. The
+`bug:needs-info`) and re-triages it against everything it says now.
+
+**A comment on an issue CLOSED as `bug:not-a-bug` does the same and
+reopens it.** That verdict is the only one that ends a conversation, it is
+reached by reading code rather than by running the site, and a reporter
+who comes back to say it still happens is the best evidence available that
+it was wrong — so their reply is a re-triage, not a new ticket. Issues
+closed as `completed` by a merged fix are deliberately outside this: they
+carry `bug:confirmed`, and a comment there is a conversation about work
+that is done. The
 order matters: reset first, because `triage:done` left over from the first
 pass would make the verification below pass over a run that did nothing —
 and the reset **reads itself back** and fails the job when the labels did
@@ -230,9 +280,26 @@ it.
 
 `tests/Security/IssueTriageWorkflowPermissionsTest.php` asserts that
 shape: the labels read back, both halves of the predicate, the retry, its
-gate, the single shared prompt, the two prompt clauses the retry depends
-on, and the comment trigger with each clause of its guard and the label
-reset that must precede the agent.
+gate, the single shared prompt and the single shared argument list, the
+comment trigger with each clause of its guard, the label reset that must
+precede the agent — and the write boundary above: that no allowed tool is
+the bare server or carries a writing verb in its name, that a schema comes
+back with the verdict as an enum, that the shell is what maps a verdict to
+a label — and, since #181, that the list is also *sufficient*: the tools
+that read an issue and its comments are there, under every spelling, in
+both workflows.
+
+**A verdict replaces the one before it.** The label reset strips the old
+`bug:*` labels when a *comment* brings an issue back, but that step is
+skipped on the `issues:` path — and a reopened issue is re-triaged from
+there. #181 came out of it carrying `bug:confirmed` *and* `bug:not-a-bug`:
+one was the answer, the other was the answer before the reporter corrected
+it, and the pair told a maintainer nothing. The removal now sits beside the
+write, in both workflows, and is asserted there — together with the read-back
+that makes it safe: each deletion is allowed to fail, because the ordinary
+reason one fails is that the label was not there, so what the job trusts is
+the label set it reads afterwards. Exactly one `bug:*` label, or none for a
+feature request, or the run goes red naming what it found.
 
 `.github/workflows/issue-backlog-scan.yml` is the same triage, applied to
 the issues that workflow never saw: everything filed before it reached

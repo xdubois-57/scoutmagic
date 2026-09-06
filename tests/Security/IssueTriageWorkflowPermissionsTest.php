@@ -318,35 +318,50 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
             . 'six-hour default, and a confusing issue can spend six hours of the subscription.',
         );
 
-        // The `claude_args:` line itself, never a comment mentioning it.
-        // Both files explain --max-turns in prose above the line that
-        // passes it, so `str_contains` over every line — as this first
-        // did — kept passing after the flag was deleted from the
-        // argument, which is the exact mutation it exists to catch.
-        //
-        // Asserted per line rather than once for the file: issue-triage.yml
-        // invokes the agent twice, and a retry given no ceiling is a
-        // retry that can run until `timeout-minutes` on the one issue
-        // confusing enough to need it. Accumulating into a single flag
-        // would let the second `claude_args:` say anything at all.
-        $arguments = array_filter(
+        // The shared argument entry, never a comment mentioning it. Both
+        // files explain --max-turns in prose above the entry that passes
+        // it, so `str_contains` over every line — as this first did —
+        // kept passing after the flag was deleted from the argument,
+        // which is the exact mutation it exists to catch.
+        $arguments = $this->agentArguments($workflow);
+
+        self::assertSame(
+            1,
+            preg_match('/--max-turns\s+\d+/', $arguments),
+            $workflow . ' passes no `--max-turns` in its agent arguments. The timeout bounds the '
+            . 'clock; only this bounds the work, and the two are not substitutes.',
+        );
+
+        $this->assertBothAttemptsShareTheArguments($workflow);
+    }
+
+    /**
+     * Both invocations are given that one entry rather than a copy of it.
+     *
+     * This is what lets every assertion here read a single string and
+     * still be true of the retry — the attempt nobody re-reads, because
+     * it only runs when something has already gone wrong. A retry given
+     * its own inline arguments could be handed a wider tool list, a
+     * bigger turn budget or no schema at all, and nothing would say so.
+     */
+    private function assertBothAttemptsShareTheArguments(string $workflow): void
+    {
+        $lines = $this->agentArgumentLines($workflow);
+
+        self::assertCount(
+            2,
             $lines,
-            static fn (string $line): bool => preg_match('/^\s+claude_args:\s*\S/', $line) === 1,
+            $workflow . ' passes ' . count($lines) . ' `claude_args:` input(s); one per agent step '
+            . 'is two.',
         );
 
-        self::assertNotEmpty(
-            $arguments,
-            $workflow . ' passes no `claude_args:` at all — this assertion would otherwise pass '
-            . 'over nothing, and the GitHub MCP server it names is also what starts that server.',
-        );
-
-        foreach ($arguments as $number => $line) {
+        foreach ($lines as $line) {
             self::assertSame(
                 1,
-                preg_match('/--max-turns\s+\d+/', $line),
-                'Line ' . ($number + 1) . ' of ' . $workflow . ' passes no `--max-turns` in its '
-                . '`claude_args:`. The timeout bounds the clock; only this bounds the work, and '
-                . 'the two are not substitutes.',
+                preg_match('/^\s+claude_args:\s*\$\{\{\s*env\.[A-Z][A-Z_]*_ARGS\s*\}\}/', $line),
+                $workflow . ' writes agent arguments inline instead of referencing the job-level '
+                . '`${{ env.…_ARGS }}` entry. Two copies drift, and the one that drifts is the '
+                . 'retry — which is also the one that would quietly regain a write tool.',
             );
         }
     }
@@ -495,10 +510,6 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
         );
 
         $clauses = [
-            "contains(github.event.issue.labels.*.name, 'bug:needs-info')"
-                => 'a comment only re-triages an issue that is waiting for an answer; on any other '
-                . 'issue it is a conversation between humans, and re-triaging posts a second verdict '
-                . 'on a report already answered',
             "github.event.comment.user.type != 'Bot'"
                 => 'THE LOOP STOP: the verdict this job posts is itself a comment on the issue, so '
                 . 'without this a `bug:needs-info` verdict wakes the job that wrote it, forever',
@@ -512,8 +523,16 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
                 . '`author_association` is a relationship and not a permission, so `MEMBER` and '
                 . '`COLLABORATOR` would admit the Read and Triage roles of an organisation-owned '
                 . 'repository, which hold no write access at all',
-            "github.event.issue.state == 'open'"
-                => 'a closed issue is waiting for nothing',
+            "github.event.issue.state == 'open' "
+            . "&& contains(github.event.issue.labels.*.name, 'bug:needs-info')"
+                => 'the open case: the question this pipeline asked has been answered',
+            "github.event.issue.state == 'closed' "
+            . "&& contains(github.event.issue.labels.*.name, 'bug:not-a-bug')"
+                => 'the closed case: `bug:not-a-bug` is the only verdict that ends a conversation, '
+                . 'and a reporter who comes back to say it still happens is the best evidence '
+                . 'available that it was wrong. Without this clause their only recourse is to file '
+                . 'the same defect a second time — which is what those verdicts used to tell them '
+                . 'to do (issue #181)',
             '!github.event.issue.pull_request'
                 => '`issue_comment` fires on pull requests too, and a review conversation is not a '
                 . 'report',
@@ -527,6 +546,49 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
                 . $why . '.',
             );
         }
+    }
+
+    /**
+     * A comment must never cancel the triage it arrives during.
+     *
+     * Both triggers share one concurrency group — per issue, which is
+     * right — and while that group cancelled in progress, a comment on an
+     * issue being triaged started a second run that killed the first and
+     * was then skipped by the job's own guard, because the issue did not
+     * carry `bug:needs-info` yet.
+     *
+     * Issue #181, 2026-09-06: opened at 07:16:09, the reporter added a
+     * clarification at 07:19:30, the triage died at 07:19:50 having
+     * written nothing. A cancelled run is not a failed one, so nothing
+     * went red — the reporter's own follow-up silently killed the answer
+     * they were waiting for, which is the exact class of silence this
+     * whole file exists to refuse.
+     *
+     * Queuing is the fix, and it also orders the two correctly: the
+     * comment run waits, and if the verdict is `bug:needs-info` it
+     * re-triages on that comment.
+     */
+    public function testACommentNeverCancelsTheTriageItArrivesDuring(): void
+    {
+        $file = implode("\n", $this->lines(self::TRIAGE));
+
+        self::assertSame(
+            1,
+            preg_match('/^\s+cancel-in-progress:\s*false\s*$/m', $file),
+            self::TRIAGE . ' cancels a run in progress again. Its two triggers share one '
+            . 'concurrency group, so that setting lets a comment on an issue kill the triage of '
+            . 'that same issue — and the comment run is then skipped by the guard, leaving the '
+            . 'report with no verdict, no comment and no red run. That is issue #181, and it is '
+            . 'invisible: a cancelled run reports neither failure nor success.',
+        );
+
+        self::assertSame(
+            1,
+            preg_match('/^\s+group:\s*issue-triage-\$\{\{\s*github\.event\.issue\.number\s*\}\}\s*$/m', $file),
+            self::TRIAGE . ' no longer scopes its concurrency group to the issue number. One group '
+            . 'for the whole workflow serialises unrelated issues: two opened in the same minute '
+            . 'wait for each other, and with cancellation off the wait is real.',
+        );
     }
 
     /**
@@ -591,6 +653,31 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
                 self::TRIAGE . ' reads the reset back but cannot fail on it. A check that only '
                 . 'prints is a check the agent runs straight past, against a state nothing has '
                 . 'established.',
+            );
+        }
+
+        // AND IT REOPENS. `bug:not-a-bug` is the one verdict that closes
+        // a report, and a comment from its reporter is the pushback that
+        // says it was wrong — so the reset has to undo the close as well
+        // as the labels. Relabelling a still-closed issue would leave the
+        // agent triaging something nobody can see in the list, and would
+        // answer the reporter on a report that still reads as settled.
+        foreach ($writes as $script) {
+            self::assertStringContainsString(
+                '-X PATCH -f state=open',
+                $script,
+                self::TRIAGE . ' sends an issue back to triage without reopening it. A comment on '
+                . 'an issue closed as `bug:not-a-bug` is its reporter saying the verdict was '
+                . 'wrong; leaving it closed means the only recourse against a wrong close is still '
+                . 'to file the same defect twice.',
+            );
+
+            self::assertStringContainsString(
+                'bug:not-a-bug',
+                $script,
+                self::TRIAGE . ' reopens the issue but leaves `bug:not-a-bug` on it. The verdict '
+                . 'the reporter is contradicting would stay as the issue\'s state while it goes '
+                . 'back through triage.',
             );
         }
 
@@ -734,8 +821,15 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
                 static fn (string $line): bool => preg_match('/^\s*#/', $line) !== 1,
             ));
 
+            // The PREDICATE, not the label name. The bare name was the
+            // proxy until the apply step started writing labels itself:
+            // it removes `triage:pending` from each issue it answers and
+            // says so in an error message, both of which are the job
+            // doing its work rather than a second copy of the selection
+            // rule. `index("triage:pending")` is what a drifting copy of
+            // that rule actually contains.
             self::assertStringNotContainsString(
-                'triage:pending',
+                'index("triage:pending")',
                 $code,
                 self::BACKLOG_SCAN . ' spells the candidate predicate out inside a step instead of '
                 . 'reading `${CANDIDATE_FILTER}`. A second copy is free to drift from the first, '
@@ -838,7 +932,7 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
         // of this test, which is this file's own subject one level up —
         // an audit stating a guarantee it is not making.
         $steps = $this->stepBlocks($workflow);
-        $gate = '/^\s+if:\s*steps\.first_check\.outputs\.landed\s*!=\s*.true./m';
+        $gate = '/^\s+if:\s*steps\.first_check\.outputs\.have_verdicts?\s*!=\s*.true./m';
 
         $retry = array_filter(
             $steps,
@@ -855,32 +949,27 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
         self::assertSame(
             1,
             preg_match($gate, (string) reset($retry)),
-            $workflow . ' does not gate the retry on `steps.first_check.outputs.landed`. '
-            . 'Ungated, it runs a second full triage of every issue, including every issue the '
-            . 'first attempt got right, and posts no second verdict only because the prompt '
-            . 'happens to re-check for one.',
+            $workflow . ' does not gate the retry on '
+            . '`steps.first_check.outputs.have_verdict(s)`. Ungated, it runs a second full triage '
+            . 'of every issue, including every issue whose first attempt returned a perfectly good '
+            . 'verdict — twice the model time, for nothing.',
         );
 
-        // Every step that can fail the job, found by what it does rather
-        // than by what it is called. Ungated, such a step runs on every
-        // issue and fails the job on the ones that went perfectly well —
-        // and a red run that means nothing is read as no run at all
-        // within the week.
+        // A step that can fail the job, found by what it does rather
+        // than by what it is called. Without one, everything above can
+        // end green having achieved nothing — which is the failure this
+        // whole file was written after.
         //
-        // TWO gates qualify, because there are two honest reasons to go
-        // red here and they are not the same reason:
-        //
-        //   - the verdict check, gated on the retry's own condition: it
-        //     fails when two attempts left the issue untriaged;
-        //   - the label reset, gated on the comment trigger: it fails
-        //     when an answered issue could not be put back to
-        //     `triage:pending`, which is the one case where continuing
-        //     would run the agent against a state nothing established.
-        //
-        // Both are conditional on something. What this refuses is a step
-        // that can redden a run it has no business judging.
-        $reset = '/^\s+if:\s*github\.event_name == .issue_comment.\s*$/m';
-
+        // The blanket rule this replaced — every failing step gated on
+        // the retry's condition — described the pipeline as it was when
+        // the AGENT did the writing and the only honest reason to go red
+        // was "two attempts and still no verdict". Now the job writes,
+        // and each of its steps fails on its own honest reason: the reset
+        // could not put the labels back, no verdict came out of either
+        // attempt, a verdict named an issue this run did not select, the
+        // labels do not say what they should afterwards. Requiring those
+        // to carry the retry's gate would be requiring them not to
+        // report what they exist to check.
         $failures = array_filter(
             $steps,
             static fn (string $step): bool => str_contains($step, 'exit 1'),
@@ -891,15 +980,6 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
             $workflow . ' has no step that can fail the job — see '
             . 'testItChecksItsOwnOutcomeAndCanFailForIt().',
         );
-
-        foreach ($failures as $step) {
-            self::assertTrue(
-                preg_match($gate, $step) === 1 || preg_match($reset, $step) === 1,
-                $workflow . ' has a step that can fail the job while gated on neither '
-                . '`steps.first_check.outputs.landed` nor the comment trigger. Every issue the '
-                . 'first attempt triaged correctly would end in a red run.',
-            );
-        }
     }
 
     /**
@@ -963,13 +1043,19 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
     {
         $prompt = implode(' ', array_map('trim', $this->promptLines(self::TRIAGE)));
 
+        // What makes a second attempt safe is no longer a clause in the
+        // prompt but the shape of the run: an attempt RETURNS a verdict
+        // and the job applies exactly one, so two successful attempts
+        // still produce one comment. The prompt has to say so, because
+        // an agent that believes it is expected to post would spend its
+        // turn looking for a tool that is not there.
         self::assertSame(
             1,
-            preg_match('/before writing anything/i', $prompt),
-            self::TRIAGE . "'s prompt no longer re-checks for an existing verdict immediately before "
-            . 'it writes. The workflow runs this prompt a second time whenever the first attempt left '
-            . "no verdict, so without that clause the retry posts a second verdict on somebody's "
-            . 'report — and the reporter is the one who pays for the fix.',
+            preg_match('/you do not write anything/i', $prompt),
+            self::TRIAGE . "'s prompt no longer tells the agent that it writes nothing. It holds "
+            . 'no tool that posts, labels or closes — that is what stops a hostile issue body '
+            . 'reaching another issue — and an agent that does not know it will burn its turn '
+            . 'hunting for one instead of returning the verdict.',
         );
 
         self::assertSame(
@@ -1013,25 +1099,17 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
     #[DataProvider('issueWorkflows')]
     public function testItDeniesTheToolsThatAssumeALater(string $workflow): void
     {
-        $arguments = array_filter(
-            $this->lines($workflow),
-            static fn (string $line): bool => preg_match('/^\s+claude_args:\s*\S/', $line) === 1,
-        );
+        $arguments = $this->agentArguments($workflow);
 
-        self::assertNotEmpty(
-            $arguments,
-            $workflow . ' passes no `claude_args:` at all — this assertion would otherwise pass '
-            . 'over nothing.',
-        );
-
-        // Per invocation, not once for the file: both workflows call the
-        // agent twice, and a retry left free to delegate is a retry that
-        // reproduces the very failure it was added to repair.
-        foreach ($arguments as $number => $line) {
+        // Read from the one shared entry, which
+        // assertBothAttemptsShareTheArguments() proves is what both
+        // invocations are actually given — a retry left free to delegate
+        // is a retry that reproduces the very failure this repairs.
+        {
             self::assertSame(
                 1,
-                preg_match('/--disallowedTools\s+"([^"]*)"/', $line, $denied),
-                'Line ' . ($number + 1) . ' of ' . $workflow . ' passes no `--disallowedTools`. '
+                preg_match('/--disallowedTools\s+"([^"]*)"/', $arguments, $denied),
+                $workflow . ' passes no `--disallowedTools`. '
                 . '`--allowedTools` does not restrict the tool surface — it is a permission '
                 . 'allowlist — so without this the agent can still delegate the work to a subagent '
                 . 'and end its turn waiting for a result that a one-shot run will never deliver.',
@@ -1046,7 +1124,7 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
                 self::assertContains(
                     $tool,
                     $listed,
-                    'Line ' . ($number + 1) . ' of ' . $workflow . ' does not deny `' . $tool . '`. '
+                    $workflow . ' does not deny `' . $tool . '`. '
                     . 'It assumes a later that a one-shot run does not have: the turn ends, the '
                     . 'process exits, and anything not already written to GitHub is thrown away — '
                     . 'as a green run that triaged nothing demonstrated.',
@@ -1068,7 +1146,7 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
                 self::assertContains(
                     $tool,
                     $listed,
-                    'Line ' . ($number + 1) . ' of ' . $workflow . ' does not deny `' . $tool . '`. '
+                    $workflow . ' does not deny `' . $tool . '`. '
                     . 'Both workflows tell the reader the agent holds no shell and no file tools, '
                     . 'and `--allowedTools` does not make that true — a transcript caught the agent '
                     . 'running `date` and `ls` on the runner. An untrue security comment is worse '
@@ -1077,6 +1155,387 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
                 );
             }
         }
+    }
+
+    /**
+     * THE ASSERTION THIS FILE'S SECOND GUARANTEE RESTS ON: the agent
+     * holds no tool that writes.
+     *
+     * `issues: write` is repository-wide — GitHub has no issue-scoped
+     * token — so while the agent held the GitHub write tools, nothing but
+     * the prompt stopped a hostile issue body from talking it into
+     * commenting on, relabelling or closing a DIFFERENT issue. A prompt
+     * is an instruction, and an injected issue body competes with
+     * instructions; "do not create, edit or delete anything else" was a
+     * request, not a boundary.
+     *
+     * So the allowlist names read tools one by one, and this refuses the
+     * two ways that silently comes undone: naming the whole `mcp__github`
+     * server again (which grants whatever write tools the pinned image
+     * happens to carry), and adding a write tool to the list by hand.
+     *
+     * The list of write verbs is deliberately about NAMES rather than a
+     * fixed roster of tools. A tool this repository has never heard of,
+     * called `mcp__github__create_…`, fails here on the commit that adds
+     * it — which is the only moment anybody is thinking about it.
+     */
+    #[DataProvider('issueWorkflows')]
+    public function testTheAgentHoldsNoToolThatWrites(string $workflow): void
+    {
+        $arguments = $this->agentArguments($workflow);
+
+        self::assertSame(
+            1,
+            preg_match('/--allowedTools\s+"([^"]*)"/', $arguments, $allowed),
+            $workflow . ' passes no `--allowedTools`. Without it the agent is offered whatever the '
+            . 'pinned action image carries, which is the whole GitHub server — including every '
+            . 'tool that writes.',
+        );
+
+        $tools = array_values(array_filter(array_map('trim', explode(',', $allowed[1]))));
+
+        self::assertNotEmpty($tools, $workflow . ' allows no tools at all; it could not read an issue.');
+
+        foreach ($tools as $tool) {
+            self::assertNotSame(
+                'mcp__github',
+                $tool,
+                $workflow . ' allows the whole `mcp__github` server again. That is a permission '
+                . 'grant over every tool the server exposes, write tools included, and it is '
+                . 'exactly what let an issue body reach an issue this run was never about. Name '
+                . 'the read tools one by one, and re-check the names when the action SHA is bumped.',
+            );
+
+            foreach (['create', 'update', 'delete', 'add', 'write', 'merge', 'push', 'fork'] as $verb) {
+                self::assertSame(
+                    0,
+                    preg_match('/(^|_)' . $verb . '(_|$)/', $tool),
+                    $workflow . ' allows `' . $tool . '`, whose name says it writes. The agent '
+                    . 'reads untrusted text from the public internet and the job token is '
+                    . 'repository-wide: a tool that writes is a tool an issue body can aim at '
+                    . 'another issue. The verdict comes back as data and this workflow does the '
+                    . 'writing.',
+                );
+            }
+        }
+    }
+
+    /**
+     * THE OTHER HALF OF THE SAME TRADE, and the half nothing checked
+     * until it failed on a live issue: the agent must be able to READ
+     * the issue it is triaging.
+     *
+     * Naming read tools one by one fails closed, which is the point —
+     * but "closed" includes the case where the list is a perfectly
+     * safe list of names the server does not answer to. On 2026-09-06
+     * the triage of #181 asked for `mcp__github__get_issue` and
+     * `mcp__github__get_issue_comments` 48 times and was denied 48
+     * times, because the allowlist named only `mcp__github__issue_read`
+     * — the spelling this repository's own tooling uses, not the one
+     * the pinned action's server exposes. The agent triaged a report
+     * it had never read, spent its whole turn budget retrying the two
+     * denied calls, overran the ceiling, and the run went red with no
+     * verdict. Every test in this file passed on that commit.
+     *
+     * So the rule is the union, not the alternative: every spelling a
+     * GitHub MCP image is known to use for reading an issue and its
+     * comments is listed. Naming a tool the server does not have costs
+     * nothing — the permission simply never comes up — while naming
+     * none of the ones it does costs the reporter their answer.
+     *
+     * If a future image renames these again, this test does not know
+     * it; nothing static can. What it does is make the list a decision
+     * somebody has to change on purpose, with the incident above one
+     * scroll away, rather than a name that quietly stopped meaning
+     * anything.
+     */
+    #[DataProvider('issueWorkflows')]
+    public function testTheAgentCanActuallyReadAnIssueAndItsComments(string $workflow): void
+    {
+        $arguments = $this->agentArguments($workflow);
+
+        self::assertSame(
+            1,
+            preg_match('/--allowedTools\s+"([^"]*)"/', $arguments, $allowed),
+            $workflow . ' passes no `--allowedTools`, so there is no list to read an issue with.',
+        );
+
+        $tools = array_values(array_filter(array_map('trim', explode(',', $allowed[1]))));
+
+        $spellings = [
+            'mcp__github__get_issue' => 'the issue body, as the pinned image spells it',
+            'mcp__github__get_issue_comments' => 'the comment thread, as the pinned image spells it',
+            'mcp__github__issue_read' => 'both, as a newer image spells it',
+        ];
+
+        foreach ($spellings as $tool => $what) {
+            self::assertContains(
+                $tool,
+                $tools,
+                $workflow . ' does not allow `' . $tool . '` — ' . $what . '. A triage agent that '
+                . 'cannot read the report answers a report it never saw, and the symptom is a red '
+                . 'run with no verdict rather than anything that names the missing tool. Every '
+                . 'known spelling is listed on purpose: an unused name costs nothing, a missing '
+                . 'one costs the reporter their answer.',
+            );
+        }
+    }
+
+    /**
+     * A VERDICT REPLACES THE PREVIOUS ONE, and both workflows must say
+     * so in the step that writes.
+     *
+     * The reset step strips the old `bug:*` labels when a comment
+     * brings an issue back to triage, which covered the case anybody
+     * was thinking about. It is skipped on the `issues:` path — and an
+     * issue is re-triaged from there too, by being reopened. #181 came
+     * out of that path carrying `bug:confirmed` AND `bug:not-a-bug`:
+     * one of them was the answer, the other was the answer before the
+     * reporter corrected it, and a maintainer reading the label list
+     * learns nothing from the pair. The nightly scan meets the same
+     * state from the other direction, since the issues it picks up are
+     * the ones a per-issue run left labelled and unfinished.
+     *
+     * So the removal belongs beside the write, not beside the reset,
+     * and this asserts it there: the apply step names all three `bug:*`
+     * labels and deletes the ones the verdict is not.
+     */
+    #[DataProvider('issueWorkflows')]
+    public function testAVerdictReplacesTheLabelsOfTheOneBeforeIt(string $workflow): void
+    {
+        $applied = $this->firstRunScriptContaining($workflow, 'labels[]=triage:done');
+
+        foreach (['bug:confirmed', 'bug:not-a-bug', 'bug:needs-info'] as $label) {
+            self::assertStringContainsString(
+                "'" . $label . "'",
+                $applied,
+                $workflow . ' applies a verdict without naming `' . $label . '` among the labels '
+                . 'a new verdict removes. An issue re-triaged after a first pass then carries two '
+                . 'contradictory `bug:*` labels — which is what happened to #181 — and the label '
+                . 'list stops being an answer to anything.',
+            );
+        }
+
+        self::assertStringContainsString(
+            'labels/${stale//:/%3A}',
+            $applied,
+            $workflow . ' names the stale labels but never builds the path that removes one. The '
+            . 'colon has to be percent-encoded — GitHub reads an unencoded `bug:confirmed` as two '
+            . 'path segments — and the removal has to happen in the step that writes the verdict, '
+            . 'because the reset step that also strips them is skipped on the `issues:` path.',
+        );
+
+        self::assertStringContainsString(
+            '-X DELETE',
+            $applied,
+            $workflow . ' builds the stale-label path without deleting anything with it.',
+        );
+
+        // AND THE RESULT IS READ BACK. Each of those deletions is
+        // allowed to fail, because the ordinary reason one fails is
+        // that the label was not there — which is only safe while
+        // something afterwards looks at what the issue actually
+        // carries. Without this, a DELETE that fails for a real reason
+        // leaves the two contradictory labels in place and the run
+        // still ends green.
+        $verified = $this->firstRunScriptContaining($workflow, 'startswith("bug:")');
+
+        self::assertStringContainsString(
+            '/labels',
+            $verified,
+            $workflow . ' names the `bug:*` labels in a check that never asks GitHub what the '
+            . 'issue carries. The removals above tolerate a failure; reading the result is what '
+            . 'makes that tolerable.',
+        );
+
+        self::assertStringContainsString(
+            '$expected',
+            $verified,
+            $workflow . ' reads the `bug:*` labels back but compares them against nothing. The '
+            . 'predicate has to be the exact set the verdict called for — one label, or none for '
+            . 'a feature request — or a leftover verdict passes as a triaged issue.',
+        );
+    }
+
+    /**
+     * And both workflows read with the same list.
+     *
+     * They do the same work on the same kind of input — one issue now,
+     * five overnight — so a name that has to be added to one has to be
+     * added to the other. The failure mode this refuses is the tidy one:
+     * a live triage goes red, somebody fixes the list in the file that
+     * went red, and the nightly scan keeps the broken list for as long
+     * as nobody watches a scan run. That scan is the safety net for the
+     * per-issue workflow; a safety net repaired second is not one.
+     */
+    public function testBothIssueWorkflowsReadWithTheSameToolList(): void
+    {
+        $lists = [];
+
+        foreach ([self::TRIAGE, self::BACKLOG_SCAN] as $workflow) {
+            self::assertSame(
+                1,
+                preg_match('/--allowedTools\s+"([^"]*)"/', $this->agentArguments($workflow), $allowed),
+                $workflow . ' passes no `--allowedTools`.',
+            );
+
+            $tools = array_values(array_filter(array_map('trim', explode(',', $allowed[1]))));
+            sort($tools);
+            $lists[$workflow] = $tools;
+        }
+
+        $lists = array_values($lists);
+
+        self::assertSame(
+            $lists[0],
+            $lists[1],
+            'The two issue workflows allow different tools. They triage the same reports against '
+            . 'the same code, so a read tool one of them needs is one the other needs too — and '
+            . 'the backlog scan is what catches the issues the per-issue run failed on. Fix both '
+            . 'lists in the same change.',
+        );
+    }
+
+    /**
+     * And the other half of that split: the verdict comes back as DATA,
+     * against a schema, and the workflow applies it.
+     *
+     * `verdict` being an enum is not a nicety. It is what makes the label
+     * unforgeable: the agent picks one of four values and a `case`
+     * statement in the apply step maps that to the taxonomy
+     * `scripts/sync-issue-labels.sh` owns, so no label the model spells —
+     * invented, misspelt or argued for by an issue body — can reach an
+     * issue. It is `.claude/skills/triage/SKILL.md` § "Never invent a
+     * label" enforced rather than asked for.
+     */
+    #[DataProvider('issueWorkflows')]
+    public function testTheVerdictComesBackAsDataAgainstASchema(string $workflow): void
+    {
+        foreach ($this->agentArgumentLines($workflow) as $line) {
+            self::assertSame(
+                1,
+                preg_match('/--json-schema\s/', $line),
+                $workflow . ' invokes the agent without `--json-schema`. That flag is the only '
+                . 'channel out of an agent that holds no write tool: without it the run produces '
+                . 'prose nothing can apply, and the reporter gets silence.',
+            );
+        }
+
+        $schema = null;
+        foreach ($this->lines($workflow) as $line) {
+            if (preg_match("/^\s+[A-Z][A-Z_]*SCHEMA:\s*'(.*)'\s*$/", $line, $match) === 1) {
+                $schema = $match[1];
+
+                break;
+            }
+        }
+
+        self::assertNotNull(
+            $schema,
+            $workflow . ' has no `…SCHEMA:` entry to pass to `--json-schema`.',
+        );
+
+        $decoded = json_decode((string) $schema, true);
+
+        self::assertIsArray(
+            $decoded,
+            $workflow . "'s verdict schema is not valid JSON. The CLI exits with an error on an "
+            . 'invalid schema, so every run of this workflow would fail — loudly, but on every '
+            . 'issue.',
+        );
+
+        self::assertStringContainsString(
+            '"enum"',
+            (string) $schema,
+            $workflow . "'s verdict schema no longer constrains the verdict to a fixed set. A free "
+            . 'string there is a label name chosen by the model, which is the thing the apply '
+            . "step's mapping exists to prevent.",
+        );
+
+        // All FOUR, and `feature-request` is the one it is tempting to
+        // leave out. It is not a `bug:*` verdict, so it looks like a
+        // detail — but both apply steps branch on it to write no `bug:*`
+        // label at all, and a schema that dropped it would leave the
+        // agent unable to reach the only verdict meaning "not a defect".
+        // Every feature request would come back as a bug, and this test
+        // would stay green: the fail-open shape the rest of this file
+        // exists to refuse.
+        foreach (['bug:confirmed', 'bug:not-a-bug', 'bug:needs-info', 'feature-request'] as $verdict) {
+            self::assertStringContainsString(
+                $verdict,
+                (string) $schema,
+                $workflow . "'s verdict schema no longer offers `" . $verdict . '`, one of the four '
+                . 'verdicts this pipeline can apply — the three of '
+                . '`.claude/skills/triage/SKILL.md` § 4 plus the feature request of § A feature '
+                . 'request is not a bug. A verdict the schema cannot express is one the agent '
+                . 'cannot reach.',
+            );
+        }
+
+        // The mapping itself, in the shell rather than in the model. Both
+        // workflows write `triage:done` from code; neither takes a label
+        // name from the JSON.
+        $apply = implode("\n", array_filter(
+            $this->runScripts($workflow),
+            static fn (string $script): bool => str_contains($script, 'labels[]=triage:done'),
+        ));
+
+        self::assertNotSame(
+            '',
+            $apply,
+            $workflow . ' has no step that applies `triage:done` itself. Either the labels are '
+            . 'back in the agent\'s hands, or nothing sets the state the rest of this pipeline '
+            . 'reads.',
+        );
+
+        self::assertStringContainsString(
+            'bug:confirmed|bug:not-a-bug|bug:needs-info',
+            $apply,
+            $workflow . ' no longer maps the verdict to a label in the shell. Taking the label '
+            . 'name from the agent instead is how an invented label — or one an issue body asked '
+            . 'for — gets applied.',
+        );
+    }
+
+    /**
+     * The report is the body PLUS the comments, and both prompts have to
+     * say so.
+     *
+     * The bug form is a set of dropdowns — role, page, version, browser —
+     * and a reporter who picks the wrong one corrects it in a comment
+     * rather than editing the form. Issue #181 was filed with the role on
+     * « Public (non connecté) » and corrected three minutes later to
+     * superadmin: two different pages, two different `role_min`, two
+     * different answers. An agent that reads the body alone analyses a
+     * situation the reporter was never in, and answers with confidence.
+     *
+     * Asserted on both prompts because the failure is asymmetric and the
+     * scan had it: reading the comments was written only into the
+     * per-issue prompt, and the nightly job — which handles issues months
+     * old, whose threads have had the most time to gather corrections —
+     * mentioned comments only as untrusted input.
+     */
+    #[DataProvider('issueWorkflows')]
+    public function testThePromptReadsTheCommentsAndNotOnlyTheBody(string $workflow): void
+    {
+        $prompt = implode(' ', array_map('trim', $this->promptLines($workflow)));
+
+        self::assertSame(
+            1,
+            preg_match('/body AND its comments/i', $prompt),
+            $workflow . "'s prompt no longer tells the agent to read the comments as well as the "
+            . 'body. A reporter who picked the wrong role in the form corrects it underneath '
+            . 'rather than editing the form, and a triage that reads the body alone answers a '
+            . 'situation nobody was in — issue #181.',
+        );
+
+        self::assertSame(
+            1,
+            preg_match('/can CORRECT the form/i', $prompt),
+            $workflow . "'s prompt no longer says that a comment can correct the form. Reading "
+            . 'the comments is not enough on its own: the dropdown still says what it says, and '
+            . 'the agent has to know which one wins.',
+        );
     }
 
     /**
@@ -1163,7 +1622,7 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
 
         self::assertSame(
             1,
-            preg_match('/at most the first five/i', $prompt),
+            preg_match('/at most five/i', $prompt),
             self::BACKLOG_SCAN . "'s prompt no longer caps a run at five issues. Without the cap, the "
             . 'first run against a real backlog posts a comment on every untriaged issue at once — and '
             . 'spends the subscription doing it.',
@@ -1174,6 +1633,33 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
             preg_match('/oldest first/i', $prompt),
             self::BACKLOG_SCAN . "'s prompt no longer says which five. Without an order, a capped scan "
             . 'can pick the same five every night and never reach the rest of the backlog.',
+        );
+
+        // AND THE CAP IS ENFORCED, not asked for. The prompt sentences
+        // above are what makes the run sensible to the agent; these two
+        // lines are what make it true. Selection moved out of the model
+        // when the writes did: the shell takes the first five of an
+        // ascending listing, and the apply step refuses every issue
+        // outside that set, so a prompt the model misreads — or an issue
+        // body arguing for a sixth — cannot widen the run.
+        $selection = implode("\n", array_filter(
+            $this->runScripts(self::BACKLOG_SCAN),
+            static fn (string $script): bool => str_contains($script, 'selected='),
+        ));
+
+        self::assertStringContainsString(
+            'head -n 5',
+            $selection,
+            self::BACKLOG_SCAN . ' no longer caps the SELECTION in the shell. The cap in the prompt '
+            . 'is an instruction; this is the one the model cannot talk its way past.',
+        );
+
+        self::assertStringContainsString(
+            'direction=asc',
+            $selection,
+            self::BACKLOG_SCAN . ' no longer lists candidates oldest first. "Oldest first" is then '
+            . 'only a sentence in the prompt, and a capped scan that picks a different five every '
+            . 'night never reaches the bottom of the backlog.',
         );
     }
 
@@ -1209,13 +1695,27 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
         // of any age, nor that workflow running late. What covers those is
         // WHERE the verdict check sits: triage takes minutes, so a check
         // performed before that work looks correct and covers nothing.
-        self::assertSame(
-            1,
-            preg_match('/before writing anything/i', $prompt),
-            self::BACKLOG_SCAN . "'s prompt no longer re-checks for an existing verdict immediately "
-            . 'before it writes. Moved any earlier, that check spans the minutes the triage itself '
-            . 'takes, and a verdict landing inside that window still produces a second comment on '
-            . "somebody's report.",
+        // The floor covers the ordinary overlap. What covers the rest —
+        // a reopened issue, which fires the per-issue workflow on an
+        // issue of any age, or that workflow running late — is that the
+        // scan can only ever write to the issues it selected BEFORE the
+        // agent started. It used to be a re-check the prompt asked the
+        // agent to perform immediately before writing; it is now a
+        // membership test in the step that does the writing, which is
+        // the same guard moved somewhere an issue body cannot argue
+        // with it.
+        $apply = implode("\n", array_filter(
+            $this->runScripts(self::BACKLOG_SCAN),
+            static fn (string $script): bool => str_contains($script, 'SELECTED'),
+        ));
+
+        self::assertStringContainsString(
+            ',${SELECTED},',
+            $apply,
+            self::BACKLOG_SCAN . ' no longer checks each verdict against the issues this run '
+            . 'selected. Without it the scan writes wherever the agent says, which is wherever an '
+            . 'issue body can talk the agent into — and the commas on both ends are what stop `12` '
+            . 'matching inside `112`.',
         );
     }
 
@@ -1308,7 +1808,11 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
 
         foreach ($this->lines($workflow) as $line) {
             if ($indent === null) {
-                if (preg_match('/^(\s+)(?:' . $keyPattern . '):\s*\|/', $line, $match) === 1) {
+                // `|` keeps the newlines and `>` folds them; both are
+                // block scalars and both are used here — the prompts are
+                // literal, the argument lists folded, because a command
+                // line wants one line however it is written.
+                if (preg_match('/^(\s+)(?:' . $keyPattern . '):\s*[|>][-+]?\s*$/', $line, $match) === 1) {
                     $indent = strlen($match[1]);
                 }
 
@@ -1515,6 +2019,81 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
         }
 
         return $scripts;
+    }
+
+    /**
+     * The one `run:` script in a workflow that contains a marker, as a
+     * string — asserting that exactly one does.
+     *
+     * Both files have several shell steps and the assertions about the
+     * step that WRITES must not accidentally be satisfied by another
+     * one, nor pass silently when the step is restructured out of
+     * existence. A marker matched twice is as much a failure here as a
+     * marker matched never: it means the caller is no longer reading
+     * the step it thinks it is.
+     */
+    private function firstRunScriptContaining(string $workflow, string $marker): string
+    {
+        $matching = array_values(array_filter(
+            $this->runScripts($workflow),
+            static fn (string $script): bool => str_contains($script, $marker),
+        ));
+
+        self::assertCount(
+            1,
+            $matching,
+            $workflow . ' has ' . count($matching) . ' `run:` script(s) containing `' . $marker
+            . '`; exactly one is expected. Either the step this asserts against is gone, or a '
+            . 'second step now does the same writing and the two can disagree.',
+        );
+
+        return $matching[0];
+    }
+
+    /**
+     * The agent arguments both attempts are given, as one string.
+     *
+     * They live in a job-level `env:` entry — `TRIAGE_ARGS`, `SCAN_ARGS`
+     * — for the same reason the prompt does: GitHub Actions has no YAML
+     * anchors, and two inline copies drift, with the retry being the copy
+     * nobody re-reads. Every assertion about the tool surface therefore
+     * reads that entry rather than the `claude_args:` lines, and
+     * assertBothAttemptsShareTheArguments() is what keeps the two
+     * connected.
+     */
+    private function agentArguments(string $workflow): string
+    {
+        $folded = $this->blockScalar($workflow, '[A-Z][A-Z_]*_ARGS');
+
+        self::assertNotNull(
+            $folded,
+            $workflow . ' has no `…_ARGS:` entry. Every assertion about the tool surface reads '
+            . 'that one entry, so without it they would each pass over nothing — and it is also '
+            . 'what starts the GitHub MCP server.',
+        );
+
+        // Asserted here rather than at each call site, so no caller ever
+        // holds a `?string` to feed `preg_match()`. The three tests that
+        // read this all want the same thing and would each have repeated
+        // the same guard and the same message.
+        return implode(
+            ' ',
+            array_filter(array_map('trim', $folded), static fn (string $l): bool => $l !== ''),
+        );
+    }
+
+    /**
+     * The `claude_args:` inputs, which must each be that shared entry
+     * rather than a copy of it.
+     *
+     * @return array<int, string>
+     */
+    private function agentArgumentLines(string $workflow): array
+    {
+        return array_values(array_filter(
+            $this->lines($workflow),
+            static fn (string $line): bool => preg_match('/^\s+claude_args:\s*\S/', $line) === 1,
+        ));
     }
 
     /**
