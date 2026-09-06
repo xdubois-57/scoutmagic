@@ -298,10 +298,10 @@ here. If everything is already green the same command merges immediately.
 The CI confirmation is not a formality, though since 2026-09-06 the ruleset
 catches most of it: `Claude review` and `All checks` are both required
 contexts (`docs/quality-pipeline.md` § Branch ruleset on `main`), and `All
-checks` needs every `Checks / …` job and goes red when any of them is — so a
-red `database-mariadb`, `Authorization matrix` or `Dynamic scan (passive)`
-does block the merge now, where before it blocked nothing and arming on one
-merged it (issue #170). Read `All checks` as the quickest way to confirm the
+checks` needs every `Checks / …` job and goes red when any of them fails or
+is cancelled. So a red `database-mariadb`, `Authorization matrix` or
+`Dynamic scan (passive)` does block the merge now, where before it blocked
+nothing and arming on one merged it (issue #170). Read `All checks` as the quickest way to confirm the
 whole set. What it cannot tell you is that the pipeline has *finished*: it
 reports only once every job it needs has, so arming before that is arming on
 a verdict nobody has reached.

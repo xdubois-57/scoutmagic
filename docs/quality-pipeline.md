@@ -172,7 +172,7 @@ reviewed like any other line; it runs with `if: always()` so an upstream
 failure leaves it red rather than *skipped* (a skipped required check
 reads as "expected" — the misreading #152 lost an hour to). It is a
 required context on `main` **since 2026-09-06**, which is what closed
-#170: § Branch ruleset on `main` below.
+issue #170 — see § Branch ruleset on `main` below.
 
 `checks.yml` takes one input, `evidence`. Off, it is what the table shows.
 On — only `release.yml` sets it — each job also keeps what its tool emits

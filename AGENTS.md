@@ -481,16 +481,16 @@ Arming it is *merging*, so everything that must be true before a merge must
 be true before you arm it:
 
 - **Every check green on the current head.** Not "the required one" —
-  every one. The ruleset requires `Claude review` and `All checks` — the
-  `ci.yml` job that needs every `Checks / …` job and is red when any of
-  them is — so since 2026-09-06 GitHub no longer lands a pull request
-  whose `database-mariadb`, `Authorization matrix` or `Dynamic scan
-  (passive)` is red. That hole was issue #170; `docs/quality-pipeline.md`
-  § Branch ruleset on `main` records the required list. Reading `All
-  checks` is therefore the fastest way to confirm the whole set — but not
-  a substitute for confirming it, because it reports only once every job
-  it needs has finished. A pipeline still running has reached no verdict,
-  and arming on one is arming on nothing.
+  every one. The ruleset requires `Claude review` and `All checks`, the
+  `ci.yml` job that needs every `Checks / …` job and goes red when any of
+  them fails or is cancelled. So since 2026-09-06 GitHub no longer lands a
+  pull request whose `database-mariadb`, `Authorization matrix` or
+  `Dynamic scan (passive)` is red — that hole was issue #170, and
+  `docs/quality-pipeline.md` § Branch ruleset on `main` records the
+  required list. Reading `All checks` is therefore the fastest way to
+  confirm the whole set, but not a substitute for confirming it: it
+  reports only once every job it needs has finished, and a pipeline still
+  running has reached no verdict. Arming on one is arming on nothing.
 - **Every review thread replied to and resolved on purpose**, rather than
   resolved to clear the way.
 - **The PR template's checklist honestly filled**, and no finding of your
