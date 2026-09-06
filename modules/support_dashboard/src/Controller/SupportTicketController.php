@@ -18,6 +18,7 @@ use Modules\SupportDashboard\Service\TicketAnalysisOutcome;
 use Modules\SupportDashboard\Service\TicketAnalysisService;
 use Modules\SupportDashboard\Service\TicketDossierBuilder;
 use Modules\SupportDashboard\Service\TicketListFilters;
+use Modules\SupportDashboard\Service\TriageTokenService;
 use Twig\Environment;
 
 /**
@@ -50,7 +51,13 @@ class SupportTicketController extends AbstractController
          * archive download and offers no dossier — the shape a caller that
          * built no file reader actually has.
          */
-        private ?TicketDossierBuilder $dossier = null
+        private ?TicketDossierBuilder $dossier = null,
+        /**
+         * The credential the automated GitHub triage presents for an
+         * anonymised extract (ARCHITECTURE.md §8.49sexies). Null keeps
+         * the page as it was: no block, no route that does anything.
+         */
+        private ?TriageTokenService $triageTokens = null
     ) {
     }
 
@@ -73,7 +80,74 @@ class SupportTicketController extends AbstractController
             'analysis_available' => $this->analysisService?->isAvailable() ?? false,
             'analysis' => $this->analysisService?->latest(),
             'analysis_pending' => $this->analysisService?->pendingCount() ?? 0,
+            // The triage token block, on the same boolean shape: no
+            // service, no block.
+            'triage_token_available' => $this->triageTokens !== null,
+            'triage_token_configured' => $this->triageTokens?->isConfigured() ?? false,
         ]);
+    }
+
+    /**
+     * `POST /support-dashboard/tickets/triage-token` — generate the token
+     * the GitHub triage will present, and show it once.
+     *
+     * Once, because only its hash is kept: the sentence on the page says
+     * to paste it into the repository's `SUPPORT_TRIAGE_TOKEN` secret
+     * now. Generating again replaces it — there is one hash — which is
+     * also how a token suspected to have leaked is rotated.
+     *
+     * The token travels to the page in the flash message, which the next
+     * render consumes and nothing stores. It is the superadmin's own
+     * session; the same person just asked for it.
+     *
+     * @param array<string, string> $params
+     */
+    public function issueTriageToken(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, '/support-dashboard/tickets')) !== null) {
+            return $guard;
+        }
+
+        if ($this->triageTokens === null) {
+            FlashMessage::set('error', 'Le jeton de triage n\'est pas disponible sur cette installation.');
+
+            return $this->redirect('/support-dashboard/tickets');
+        }
+
+        $token = $this->triageTokens->issue();
+
+        FlashMessage::set(
+            'success',
+            'Nouveau jeton de triage : ' . $token . ' — copiez-le maintenant dans le secret '
+                . 'SUPPORT_TRIAGE_TOKEN du dépôt GitHub. Il ne sera plus affiché, et le précédent ne fonctionne plus.'
+        );
+
+        return $this->redirect('/support-dashboard/tickets');
+    }
+
+    /**
+     * `POST /support-dashboard/tickets/triage-token/revoke` — forget the
+     * hash. Every extract request then fails until a new token is issued.
+     *
+     * @param array<string, string> $params
+     */
+    public function revokeTriageToken(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, '/support-dashboard/tickets')) !== null) {
+            return $guard;
+        }
+
+        if ($this->triageTokens === null) {
+            FlashMessage::set('error', 'Le jeton de triage n\'est pas disponible sur cette installation.');
+
+            return $this->redirect('/support-dashboard/tickets');
+        }
+
+        $this->triageTokens->revoke();
+
+        FlashMessage::set('success', 'Jeton de triage révoqué : plus aucun extrait ne sera servi au triage GitHub.');
+
+        return $this->redirect('/support-dashboard/tickets');
     }
 
     /**

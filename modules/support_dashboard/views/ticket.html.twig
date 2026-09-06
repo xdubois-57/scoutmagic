@@ -40,6 +40,21 @@
             {{ detail.field('Adresse de contact', ticket.contact_email) }}
             {{ detail.field('Version du site déclarée', ticket.site_version) }}
             {{ detail.field('Version de PHP déclarée', ticket.php_version) }}
+            {# L'issue GitHub qui a cité cette référence, écrite par la
+               route d'extrait de triage la première fois que le triage
+               automatique l'a demandée — jamais saisie ici. #}
+            <div class="col-12 col-md-6">
+                <p class="small text-body-secondary mb-0">Issue GitHub</p>
+                <p class="mb-2">
+                    {% if ticket.github_issue_number %}
+                        <a href="https://github.com/xdubois-57/scoutmagic/issues/{{ ticket.github_issue_number }}"
+                           target="_blank" rel="noopener">#{{ ticket.github_issue_number }}</a>
+                        {% if ticket.github_issue_linked_at %}<span class="small text-body-secondary">— extrait demandé le {{ ticket.github_issue_linked_at }}</span>{% endif %}
+                    {% else %}
+                        <span class="text-body-secondary">Aucune : aucun signalement GitHub n'a cité cette référence.</span>
+                    {% endif %}
+                </p>
+            </div>
         </div>
 
         <h2 class="h6 mt-2">Description</h2>

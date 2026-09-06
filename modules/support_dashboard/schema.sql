@@ -160,6 +160,17 @@ CREATE TABLE support_tickets (
     -- route: a ticket body is two kilobytes and an archive is megabytes.
     archive_file_id INT UNSIGNED NULL,
     archive_received_at DATETIME NULL,
+    -- The GitHub issue this ticket was cited from (ARCHITECTURE.md
+    -- §8.49sexies). Written by the triage-extract route the first time
+    -- that issue's automated triage presents the reference with the
+    -- receiver's triage token — never by the sending installation, which
+    -- knows nothing about GitHub, and never by hand. Public data: an
+    -- issue number on a public repository. NULL until an issue cites
+    -- the reference, and fixed once set: a reference belongs to one
+    -- issue, and a second issue citing it is refused rather than
+    -- re-pointed.
+    github_issue_number INT UNSIGNED NULL,
+    github_issue_linked_at DATETIME NULL,
     -- The usage report exactly as it stood when the ticket was written.
     --
     -- **The whole point is that this one cannot drift.** The installation

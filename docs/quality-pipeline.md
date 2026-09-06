@@ -20,7 +20,7 @@ catches what, and what each one cannot see.
 | **Dynamic scan** | CI; release gate | Over-permissive routes, what the running app actually answers | Logic the scan does not reach |
 | **CodeQL** | CI, GitHub-managed | Taint flows into DOM sinks | Non-JavaScript defects |
 | **SonarQube Cloud** | CI; release gate | Quality, duplication, security hotspots | Intent |
-| **AI triage** | Every issue opened or reopened, plus a nightly pass over the untriaged backlog | Whether a report is a real defect, the one fact a blocked report is missing, and the workaround when the behaviour is correct | Anything only a running installation shows — it reads the code but reproduces nothing, changes nothing, and gates nothing |
+| **AI triage** | Every issue opened or reopened, plus a nightly pass over the untriaged backlog | Whether a report is a real defect, the one fact a blocked report is missing, and the workaround when the behaviour is correct — and, when the reporter cited a support ticket, what that site's anonymised logs show | Anything a running installation shows that its diagnostic archive does not — it reads the code and an extract, but reproduces nothing, changes nothing, and gates nothing |
 | **AI review** | Pull requests it is eligible for — not drafts, and `Claude review` not on forks | Cross-file reasoning, stale documentation, intent mismatches | Nothing reliably — it is a reader, not a gate |
 | **Release gates** | `scripts/release.sh` | Deployment state, security advisories, dependency freshness, Sonar, PHPStan + the full PHPUnit suite, `e2e:full`, both DAST profiles | What the AI reviewers read — intent, cross-file reasoning, stale docs. It reads CodeQL's open alerts but runs no scan of its own |
 
@@ -205,8 +205,44 @@ Both issue workflows also **deny the tools that assume a "later"** —
 a subagent and ends its turn waiting for the answer has, in a one-shot run,
 simply thrown the work away. That was the root cause under every symptom
 below, and it took a preserved transcript to see; the same flag is what
-finally makes the "no shell, no file tools" claim in those files true,
-since `--allowedTools` never did.
+finally makes the "no shell" claim in those files true, since
+`--allowedTools` never did.
+
+**The support ticket extract, and the trade it made.** A reporter who sent
+a support ticket from their site can cite its reference (`SUP-` plus six
+characters) in the bug form's optional field or in a reply, and a step
+before the agent (`scripts/support-triage-extract.sh`) fetches from the
+support site a **reduced, anonymised copy** of that ticket's diagnostic
+archive — IP addresses, e-mail addresses and accounts replaced by per-run
+tokens, `phpinfo` and the site's parameters left out (ARCHITECTURE.md
+§8.49sexies, SECURITY.md §18ter) — and unpacks it under
+`support-extract/<issue>/` for the agent to read. That is the one thing a
+triage that reads code could never see. It cost the "no file tools"
+sentence: `Read`, `Glob` and `Grep` are **allowed** now, and what their
+denial used to protect is protected instead by four boundaries, each
+asserted in `tests/Security/IssueTriageWorkflowPermissionsTest.php`: the
+paths a token can be read from (`/proc`, `~/.claude/`, the action's
+`_temp` directory) are denied by name; `WebFetch` and `WebSearch` are
+denied, so an agent that reads a stranger's log line has nowhere to send
+anything — its only exit is the JSON verdict; that exit passes
+`scripts/triage-comment-gate.sh`, which withholds a comment carrying an
+address or anything shaped like a credential and turns the run red; and
+the retry's transcript is printed only on a run that fetched no extract,
+with the extract removed from the runner in a step that always runs. The
+token the fetch presents lives in `SUPPORT_TRIAGE_TOKEN` and is read by
+that one step; the support site's address lives in the `SUPPORT_SITE_URL`
+repository variable. Both scripts come from `main` through the API at
+run time — there is still no checkout — and each has a `.test.sh` beside
+it. A reporter's linked page is no longer fetched; the skill file says to
+ask for its content instead.
+
+Whose reference counts is the whole of the security argument, so it is
+stated here: the issue's **body**, and comments by the issue's own reporter
+(matched on user id) or by the repository owner. A passer-by cannot make
+somebody else's triage read an archive of their choosing, and nobody can
+read an archive whose reference they do not hold — the reference is shown
+to the person who sent the ticket and to nobody else. The support site
+binds a reference to the first issue that cites it and refuses a second.
 
 **It also checks its own outcome, retries once, and goes red when the
 issue is still untriaged** — and that is not belt-and-braces, it repairs a
@@ -494,10 +530,28 @@ change to either.
 |---|---|---|
 | `SONAR_TOKEN` | the `sonarqube` CI job, `check-sonar-release.sh` | no Quality Gate on pull requests; the release gate fails closed |
 | `CLAUDE_CODE_OAUTH_TOKEN` | `claude-review.yml`, `issue-triage.yml`, `issue-backlog-scan.yml` | the review job fails at authentication, and no issue is ever triaged — neither on arrival nor overnight |
+| `SUPPORT_TRIAGE_TOKEN` | the `extract` step of `issue-triage.yml` and `issue-backlog-scan.yml` | no support ticket extract is ever fetched: a cited reference is reported in the step's log and the triage runs on the issue alone, green |
 
 `CLAUDE_CODE_OAUTH_TOKEN` is generated with `claude setup-token` and spends
 a Claude subscription rather than a metered API key. It is tied to the
 person who generated it.
+
+`SUPPORT_TRIAGE_TOKEN` is generated on the support site — Supervision ›
+Tickets › « Générer un nouveau jeton » — shown once, and pasted here; the
+site keeps only its hash (ARCHITECTURE.md §8.49sexies). Generating a new
+one there invalidates this one at once, so the two are rotated together.
+
+### Repository variables
+
+*Settings → Secrets and variables → Actions → Variables*
+
+| Variable | Used by | Without it |
+|---|---|---|
+| `SUPPORT_SITE_URL` | the `extract` step of both issue workflows | same as a missing token: no extract is fetched, and the step says so |
+
+The support site's address, `https://…` with no trailing slash. A variable
+rather than a literal in the workflow so that the file names no host, and
+rather than a secret because it is not one.
 
 ### GitHub Apps
 
@@ -771,7 +825,19 @@ nothing**:
   `/home/runner/.claude/`, the action's `_temp` directory and
   `/proc/self/environ` are all still there, the last being where these
   jobs' tokens live, and secret masking covers the log rather than an issue
-  comment the agent writes.
+  comment the agent writes. Since the support ticket extract, the read
+  tools are allowed and those three paths are denied by name instead —
+  which moves the silent failure one step over: a path rule with a typo
+  denies nothing and says so nowhere, which is why the exact rules are
+  asserted in the permissions test rather than read by a reviewer.
+- **A missing repository variable or secret is the empty string, not an
+  error, and the extract step is green without it.** `SUPPORT_SITE_URL`
+  unset, `SUPPORT_TRIAGE_TOKEN` unset, a token revoked on the support
+  site: each means the triage runs on the issue alone, which is also
+  what it does when no reference was cited — so a misconfiguration looks
+  exactly like the ordinary case. The step prints one line naming which
+  it was; nothing else does. If reporters who cite references keep being
+  asked for the archive's contents, read that step's log first.
 - **`claude-code-action` exits 0 on an agent that did nothing.** The step
   reports success whenever the agent's turn ends normally, and an agent
   that read the issue, gave up and said so ended normally. No timeout, no

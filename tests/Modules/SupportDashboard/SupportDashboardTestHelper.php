@@ -95,6 +95,8 @@ class SupportDashboardTestHelper
             resolution_note_encrypted BLOB NULL,
             archive_file_id INTEGER NULL,
             archive_received_at TEXT NULL,
+            github_issue_number INTEGER NULL,
+            github_issue_linked_at TEXT NULL,
             statistics_snapshot_encrypted BLOB NULL
         )');
 

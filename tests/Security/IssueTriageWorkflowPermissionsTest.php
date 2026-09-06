@@ -1142,19 +1142,173 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
             // comment the agent writes. On a job whose every input is
             // typed by a member of the public, that is the difference
             // between a hardening detail and a disclosure path.
-            foreach (['Bash', 'Read', 'Glob', 'Grep', 'Write', 'Edit', 'NotebookEdit'] as $tool) {
+            foreach (['Bash', 'Write', 'Edit', 'NotebookEdit'] as $tool) {
                 self::assertContains(
                     $tool,
                     $listed,
                     $workflow . ' does not deny `' . $tool . '`. '
-                    . 'Both workflows tell the reader the agent holds no shell and no file tools, '
+                    . 'Both workflows tell the reader the agent holds no shell and writes nothing, '
                     . 'and `--allowedTools` does not make that true — a transcript caught the agent '
                     . 'running `date` and `ls` on the runner. An untrue security comment is worse '
-                    . 'than none: it is the one somebody relies on. The agent reads code through '
-                    . 'the GitHub tools, never from disk, so denying these costs the triage nothing.',
+                    . 'than none: it is the one somebody relies on. The shell is also the obvious '
+                    . 'way around every path rule the extract relies on.',
                 );
             }
         }
+    }
+
+    /**
+     * THE SUPPORT TICKET EXTRACT, and the four boundaries that replaced
+     * the sentence "the agent holds no file tools".
+     * Since ARCHITECTURE.md §8.49sexies the agent may read an anonymised
+     * copy of a support ticket's archive, unpacked on the runner before
+     * it starts. `Read`, `Glob` and `Grep` are therefore ALLOWED — an
+     * extract an agent cannot open is worth nothing — and what their
+     * denial used to protect is protected instead by:
+     *   1. path rules on the places a token can be read from — `/proc`,
+     *      where the environment is, and the home and `_temp`
+     *      directories where the action writes its own configuration;
+     *   2. no network: `WebFetch` and `WebSearch` denied, so an agent that
+     *      reads a log line written by a stranger has no way to send
+     *      anything anywhere — its only exit is the JSON verdict;
+     *   3. a gate on that exit: every comment passes
+     *      scripts/triage-comment-gate.sh before it is posted;
+     *   4. no transcript when an extract was read, and the extract
+     *      removed from the runner in a step that always runs.
+     * Each is asserted here because each is one line away from being
+     * lost in silence — a path rule with a typo denies nothing and says
+     * so nowhere, and `show_full_output: true` is exactly what that
+     * input used to say.
+     * The token is the fifth: it must appear in the `extract` step's
+     * environment and in no other step's, since the agent step's
+     * environment is what `/proc/self/environ` would show.
+     */
+    #[DataProvider('issueWorkflows')]
+    public function testTheExtractIsReadableAndNothingThatHoldsATokenIs(string $workflow): void
+    {
+        $arguments = $this->agentArguments($workflow);
+
+        self::assertSame(1, preg_match('/--allowedTools\s+"([^"]*)"/', $arguments, $allowed));
+        $tools = array_map('trim', explode(',', $allowed[1]));
+
+        foreach (['Read', 'Glob', 'Grep'] as $tool) {
+            self::assertContains(
+                $tool,
+                $tools,
+                $workflow . ' does not allow `' . $tool . '`. The support ticket extract is a '
+                . 'directory on the runner, and an agent without file tools triages as if the '
+                . 'reporter had never sent a ticket — while the workflow still fetched one.',
+            );
+        }
+
+        self::assertSame(1, preg_match('/--disallowedTools\s+"([^"]*)"/', $arguments, $denied));
+        $listed = array_map('trim', explode(',', $denied[1]));
+
+        foreach (['WebFetch', 'WebSearch'] as $tool) {
+            self::assertContains(
+                $tool,
+                $listed,
+                $workflow . ' does not deny `' . $tool . '`. With file tools allowed, the network '
+                . 'is the channel an injected log line would use to exfiltrate what the agent can '
+                . 'read; denying it leaves the JSON verdict as the only exit, and that one is gated.',
+            );
+        }
+
+        foreach (['Read(//proc/**)', 'Read(~/.claude/**)', 'Read(//home/runner/work/_temp/**)'] as $rule) {
+            self::assertContains(
+                $rule,
+                $listed,
+                $workflow . ' no longer denies `' . $rule . '`. That path is where a token can be '
+                . 'read — the environment, or the configuration the action writes for its MCP '
+                . 'servers — and `Read` is allowed now, so the path rule is the only thing between '
+                . 'the agent and the credential.',
+            );
+        }
+
+        // The token: in the extract step, and nowhere else.
+        $steps = $this->stepBlocks($workflow);
+        $holding = array_values(array_filter(
+            $steps,
+            static fn (string $step): bool => str_contains($step, 'secrets.SUPPORT_TRIAGE_TOKEN'),
+        ));
+
+        self::assertCount(
+            1,
+            $holding,
+            $workflow . ' reads `secrets.SUPPORT_TRIAGE_TOKEN` in ' . count($holding) . ' step(s); '
+            . 'exactly one — the step that fetches the extract — may hold it.',
+        );
+        self::assertSame(
+            1,
+            preg_match('/^\s+id:\s*extract\s*$/m', $holding[0]),
+            $workflow . ' holds the triage token in a step other than `id: extract`. The agent '
+            . 'step must never have it in its environment.',
+        );
+        self::assertStringNotContainsString(
+            'anthropics/claude-code-action',
+            $holding[0],
+            $workflow . ' hands the triage token to the agent step.',
+        );
+
+        // The extract step runs BEFORE the agent, and the scripts it
+        // runs come from `main` rather than from a checkout.
+        $lines = $this->lines($workflow);
+        $extract = $this->firstLineMatching($lines, '/^\s+id:\s*extract\s*$/');
+        $agent = $this->firstLineMatching($lines, '/uses:\s*anthropics\/claude-code-action/');
+        self::assertNotNull($extract, $workflow . ' has no step with `id: extract`.');
+        self::assertNotNull($agent);
+        self::assertLessThan($agent, $extract, $workflow . ' fetches the extract after the agent has run.');
+
+        $fetch = $this->firstRunScriptContaining($workflow, 'contents/scripts/');
+        foreach (['support-triage-extract.sh', 'triage-comment-gate.sh'] as $script) {
+            self::assertStringContainsString($script, $fetch, $workflow . ' no longer fetches scripts/' . $script . '.');
+            self::assertFileExists(
+                dirname(__DIR__, 2) . '/scripts/' . $script,
+                $workflow . ' fetches scripts/' . $script . ' from main, and it does not exist.',
+            );
+        }
+
+        // The gate stands in the step that posts.
+        $apply = $this->firstRunScriptContaining($workflow, 'labels[]=triage:done');
+        self::assertStringContainsString(
+            'triage-comment-gate.sh',
+            $apply,
+            $workflow . ' posts the verdict comment without passing it through '
+            . 'scripts/triage-comment-gate.sh. The skill file asks the agent not to quote an '
+            . 'address; the gate is what refuses one.',
+        );
+        $gateAt = strpos($apply, 'triage-comment-gate.sh');
+        $postAt = strpos($apply, '/comments');
+        self::assertNotFalse($postAt);
+        self::assertLessThan((int) $postAt, (int) $gateAt, $workflow . ' runs the gate after posting the comment.');
+
+        // No transcript when an extract was read.
+        $transcripts = array_values(array_filter(
+            $lines,
+            static fn (string $line): bool => preg_match('/^\s+show_full_output:/', $line) === 1,
+        ));
+        self::assertNotEmpty($transcripts, $workflow . ' keeps no transcript at all any more.');
+        foreach ($transcripts as $line) {
+            self::assertSame(
+                1,
+                preg_match('/show_full_output:\s*\$\{\{\s*steps\.extract\.outputs\.present\s*!=\s*.true.\s*\}\}/', $line),
+                $workflow . ' prints the transcript unconditionally again: `' . trim($line) . '`. '
+                . 'With an extract on disk the transcript is somebody\'s server logs, kept in a run '
+                . 'log for ninety days.',
+            );
+        }
+
+        // And the extract is removed, whatever happened.
+        $cleanup = array_values(array_filter(
+            $steps,
+            static fn (string $step): bool => str_contains($step, 'rm -rf -- "${GITHUB_WORKSPACE}/support-extract"'),
+        ));
+        self::assertCount(1, $cleanup, $workflow . ' has no step removing the extract from the runner.');
+        self::assertSame(
+            1,
+            preg_match('/^\s+if:\s*always\(\)\s*$/m', $cleanup[0]),
+            $workflow . ' removes the extract only on success. A red run would leave it behind.',
+        );
     }
 
     /**

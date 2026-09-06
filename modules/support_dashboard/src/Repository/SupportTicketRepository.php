@@ -63,6 +63,14 @@ class SupportTicketRepository
     private const REFERENCE_LENGTH = 6;
 
     /**
+     * What a reference looks like, for a caller that receives one from
+     * outside — the triage-extract route reads it off a URL that GitHub
+     * Actions built from an issue body. Derived from the alphabet above
+     * so the two cannot disagree.
+     */
+    public const REFERENCE_PATTERN = '/^SUP-[' . self::REFERENCE_ALPHABET . ']{' . self::REFERENCE_LENGTH . '}$/';
+
+    /**
      * Store one ticket. Returns its reference — never its row id, which
      * would tell the reporting instance how many tickets this receiver
      * has ever had.
@@ -191,6 +199,26 @@ class SupportTicketRepository
             'UPDATE support_tickets SET archive_file_id = ?, archive_received_at = ? WHERE id = ?'
         );
         $stmt->execute([$fileId, (new \DateTimeImmutable())->format('Y-m-d H:i:s'), $ticketId]);
+    }
+
+    /**
+     * Record the GitHub issue a ticket was cited from, once.
+     *
+     * `WHERE github_issue_number IS NULL`, so the first issue to present
+     * the reference keeps it and a later one changes nothing: the
+     * boolean says which of the two this call was, and the caller refuses
+     * the extract on `false` unless the number already there is the one
+     * being asked for. A reference belongs to one issue.
+     */
+    public function linkGithubIssue(int $ticketId, int $issueNumber, \DateTimeImmutable $at): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE support_tickets SET github_issue_number = ?, github_issue_linked_at = ?
+             WHERE id = ? AND github_issue_number IS NULL'
+        );
+        $stmt->execute([$issueNumber, $at->format('Y-m-d H:i:s'), $ticketId]);
+
+        return $stmt->rowCount() === 1;
     }
 
     /**
@@ -479,6 +507,12 @@ class SupportTicketRepository
             'archive_file_id' => ($row['archive_file_id'] ?? null) !== null ? (int) $row['archive_file_id'] : null,
             'archive_received_at' => ($row['archive_received_at'] ?? null) !== null
                 ? (string) $row['archive_received_at']
+                : null,
+            'github_issue_number' => ($row['github_issue_number'] ?? null) !== null
+                ? (int) $row['github_issue_number']
+                : null,
+            'github_issue_linked_at' => ($row['github_issue_linked_at'] ?? null) !== null
+                ? (string) $row['github_issue_linked_at']
                 : null,
             'statistics_snapshot' => self::decodeSnapshot(
                 ($row['statistics_snapshot_encrypted'] ?? null) !== null

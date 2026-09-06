@@ -119,6 +119,8 @@ class SupportTicketControllerTest extends TestCase
             'closing one' => ['/support-dashboard/tickets/{id}/close', 'close', 'POST'],
             'reopening one' => ['/support-dashboard/tickets/{id}/reopen', 'reopen', 'POST'],
             'the analysis' => ['/support-dashboard/tickets/analyse', 'analyse', 'POST'],
+            'issuing a triage token' => ['/support-dashboard/tickets/triage-token', 'issueTriageToken', 'POST'],
+            'revoking it' => ['/support-dashboard/tickets/triage-token/revoke', 'revokeTriageToken', 'POST'],
         ];
     }
 
@@ -272,11 +274,106 @@ class SupportTicketControllerTest extends TestCase
         $this->assertStringNotContainsString('Analyse transversale', $body);
     }
 
+    /**
+     * The triage-token block (ARCHITECTURE.md §8.49sexies): absent
+     * without the service, « Aucun jeton » with it and nothing issued,
+     * « Jeton actif » once one is — and the token itself shown exactly
+     * once, in the flash of the page that follows the POST.
+     */
+    public function testTheTriageTokenBlockFollowsTheService(): void
+    {
+        AuthSession::login(1, 'superadmin@test.com', 'superadmin');
+
+        $without = $this->frontController('/support-dashboard/tickets', 'index')
+            ->handle(new Request('GET', '/support-dashboard/tickets', [], [], [], []))
+            ->getBody();
+        $this->assertStringNotContainsString('Triage automatique des issues GitHub', $without);
+
+        $with = $this->frontController('/support-dashboard/tickets', 'index', 'GET', withTriageTokens: true)
+            ->handle(new Request('GET', '/support-dashboard/tickets', [], [], [], []))
+            ->getBody();
+        $this->assertStringContainsString('Triage automatique des issues GitHub', $with);
+        $this->assertStringContainsString('Aucun jeton', $with);
+        $this->assertStringContainsString('/support-dashboard/tickets/triage-token"', $with);
+        $this->assertStringNotContainsString('/support-dashboard/tickets/triage-token/revoke', $with);
+    }
+
+    public function testIssuingATokenShowsItOnceAndStoresOnlyItsHash(): void
+    {
+        AuthSession::login(1, 'superadmin@test.com', 'superadmin');
+
+        $response = $this->frontController('/support-dashboard/tickets/triage-token', 'issueTriageToken', 'POST', withTriageTokens: true)
+            ->handle(new Request(
+                'POST',
+                '/support-dashboard/tickets/triage-token',
+                [],
+                ['_csrf_token' => \Core\Security\CsrfGuard::generateToken()],
+                [],
+                []
+            ));
+
+        $this->assertSame(302, $response->getStatusCode());
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertNotNull($flash);
+        $this->assertSame(1, preg_match('/[0-9a-f]{64}/', (string) $flash['message'], $found));
+        $token = $found[0];
+
+        $stored = (string) $this->pdo->query(
+            "SELECT setting_value FROM settings WHERE setting_key = 'support_triage_token_hash'"
+        )->fetchColumn();
+        $this->assertSame(hash('sha256', $token), $stored);
+
+        $page = $this->frontController('/support-dashboard/tickets', 'index', 'GET', withTriageTokens: true)
+            ->handle(new Request('GET', '/support-dashboard/tickets', [], [], [], []))
+            ->getBody();
+        $this->assertStringContainsString('Jeton actif', $page);
+        $this->assertStringContainsString('/support-dashboard/tickets/triage-token/revoke', $page);
+        $this->assertStringNotContainsString($token, $page, 'shown once, in the flash, never again');
+    }
+
+    public function testIssuingATokenNeedsTheCsrfToken(): void
+    {
+        AuthSession::login(1, 'superadmin@test.com', 'superadmin');
+        \Core\Security\CsrfGuard::generateToken();
+
+        $response = $this->frontController('/support-dashboard/tickets/triage-token', 'issueTriageToken', 'POST', withTriageTokens: true)
+            ->handle(new Request('POST', '/support-dashboard/tickets/triage-token', [], ['_csrf_token' => 'wrong'], [], []));
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertFalse(
+            (bool) $this->pdo->query(
+                "SELECT setting_value != '' FROM settings WHERE setting_key = 'support_triage_token_hash'"
+            )->fetchColumn(),
+            'no token may be issued by a POST without the CSRF token'
+        );
+    }
+
+    public function testTheDetailNamesTheGithubIssueOnceOneHasCitedTheTicket(): void
+    {
+        AuthSession::login(1, 'superadmin@test.com', 'superadmin');
+
+        $before = $this->frontController('/support-dashboard/tickets/{id}', 'detail')
+            ->handle(new Request('GET', '/support-dashboard/tickets/' . $this->ticketId, [], [], [], []))
+            ->getBody();
+        $this->assertStringContainsString("aucun signalement GitHub n'a cité cette référence", $before);
+
+        $this->assertTrue($this->tickets->linkGithubIssue($this->ticketId, 181, new \DateTimeImmutable('2026-09-06 10:00:00')));
+        $this->assertFalse($this->tickets->linkGithubIssue($this->ticketId, 182, new \DateTimeImmutable()), 'bound once');
+
+        $after = $this->frontController('/support-dashboard/tickets/{id}', 'detail')
+            ->handle(new Request('GET', '/support-dashboard/tickets/' . $this->ticketId, [], [], [], []))
+            ->getBody();
+        $this->assertStringContainsString('https://github.com/xdubois-57/scoutmagic/issues/181', $after);
+        $this->assertStringContainsString('#181', $after);
+    }
+
     private function frontController(
         string $path,
         string $action,
         string $method = 'GET',
-        bool $withAnalysis = true
+        bool $withAnalysis = true,
+        bool $withTriageTokens = false
     ): FrontController {
         $router = new Router();
         $router->addRoute($method, $path, SupportTicketController::class, $action, 'superadmin');
@@ -306,13 +403,45 @@ class SupportTicketControllerTest extends TestCase
             // TicketDossierBuilderTest.
             new \Modules\SupportDashboard\Service\TicketDossierBuilder(
                 new \Modules\SupportDashboard\Repository\SupportInstallationRepository($this->pdo)
-            )
+            ),
+            $withTriageTokens ? $this->triageTokens($journal) : null
         );
 
         $frontController = new FrontController($router, $this->twig, new AppConfig($configFile));
         $frontController->registerController(SupportTicketController::class, $controller);
 
         return $frontController;
+    }
+
+    /**
+     * The token service over the one settings row module.json declares,
+     * created on first use so every test starts without a token.
+     */
+    private function triageTokens(JournalService $journal): \Modules\SupportDashboard\Service\TriageTokenService
+    {
+        $repository = new \Core\Config\SettingRepository($this->pdo);
+        if ($repository->findByModuleAndKey(
+            \Modules\SupportDashboard\Service\TriageTokenService::MODULE_ID,
+            \Modules\SupportDashboard\Service\TriageTokenService::SETTING_KEY
+        ) === null) {
+            $repository->insert(
+                \Modules\SupportDashboard\Service\TriageTokenService::MODULE_ID,
+                \Modules\SupportDashboard\Service\TriageTokenService::SETTING_KEY,
+                '',
+                'secret',
+                'Jeton',
+                'Empreinte.',
+                null,
+                null,
+                false,
+                0
+            );
+        }
+
+        return new \Modules\SupportDashboard\Service\TriageTokenService(
+            new \Core\Config\SettingService($repository),
+            $journal
+        );
     }
 
     // ── Le dossier complet, depuis la page du ticket ────────────────────

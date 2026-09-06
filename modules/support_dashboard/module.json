@@ -2,7 +2,7 @@
   "id": "support_dashboard",
   "name": "Tableau de bord support",
   "description": "Réception et consultation des rapports d'utilisation envoyés par les installations ScoutMagic.",
-  "version": "1.13.0",
+  "version": "1.14.0",
   "enabled_by_default": false,
   "visible_when": ["statistics_receiver"],
   "routes": [
@@ -29,6 +29,15 @@
       "method": "POST",
       "controller": "Modules\\SupportDashboard\\Controller\\TicketIntakeController",
       "action": "receiveArchive",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": ""
+    },
+    {
+      "path": "/api/support/tickets/{reference}/triage-extract",
+      "method": "POST",
+      "controller": "Modules\\SupportDashboard\\Controller\\TriageExtractController",
+      "action": "serve",
       "menu": "notre_unite",
       "role_min": "public",
       "label": ""
@@ -63,6 +72,24 @@
       "role_min": "superadmin",
       "label": "",
       "breadcrumb": { "label": "Tickets de support", "parents": ["Configuration"] }
+    },
+    {
+      "path": "/support-dashboard/tickets/triage-token",
+      "method": "POST",
+      "controller": "Modules\\SupportDashboard\\Controller\\SupportTicketController",
+      "action": "issueTriageToken",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/support-dashboard/tickets/triage-token/revoke",
+      "method": "POST",
+      "controller": "Modules\\SupportDashboard\\Controller\\SupportTicketController",
+      "action": "revokeTriageToken",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
     },
     {
       "path": "/support-dashboard/tickets/{id}",
@@ -161,6 +188,14 @@
       "type": "number",
       "label": "Durée de conservation d'une installation (mois)",
       "description": "Nombre de mois sans rapport accepté au-delà duquel l'enregistrement d'une installation est supprimé en entier. Les agrégats mensuels déjà finalisés ne sont jamais modifiés par cette suppression."
+    },
+    {
+      "key": "support_triage_token_hash",
+      "default_value": "",
+      "type": "secret",
+      "label": "Jeton de triage GitHub (empreinte)",
+      "description": "Empreinte SHA-256 du jeton que le triage automatique des issues GitHub présente pour obtenir l'extrait anonymisé d'une archive de diagnostic. Le jeton lui-même n'est jamais conservé : il s'affiche une seule fois, à sa génération, depuis la page des tickets. Vide : aucun extrait n'est servi.",
+      "editable": false
     }
   ],
   "cookies": [],

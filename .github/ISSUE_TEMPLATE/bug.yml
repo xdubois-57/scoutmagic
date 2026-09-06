@@ -138,3 +138,35 @@ body:
         vous paraît lié.
     validations:
       required: false
+
+  # THE BRIDGE TO THE SUPPORT TICKET, and the one place a reporter can
+  # give the triage more than words. The reference is what a « Chef
+  # d'Unité » was shown on Configuration › Support after sending a
+  # ticket with its diagnostic archive; the triage workflow reads it off
+  # this field, fetches a reduced, ANONYMISED copy of that archive from
+  # the support site with a token only the workflow holds, and reads it
+  # alongside the code (ARCHITECTURE.md §8.49sexies).
+  #
+  # Optional, because most reports need no archive — and free-form,
+  # because GitHub forms cannot validate a pattern. The workflow does:
+  # it accepts exactly `SUP-` plus six characters of the reference
+  # alphabet, and anything else is silently not a reference.
+  #
+  # The warning underneath is the whole reason this field exists rather
+  # than an upload: a reporter who has the archive in hand would
+  # otherwise attach it, and an attachment on a public issue is public,
+  # indexed, and still there after deletion.
+  - type: input
+    id: support_reference
+    attributes:
+      label: Référence du ticket de support
+      description: >-
+        Facultatif. Si vous avez envoyé un ticket depuis Configuration ›
+        Support de votre site, recopiez ici la référence affichée (par
+        exemple `SUP-ABC234`) : le triage automatique pourra lire une copie
+        réduite et anonymisée de l'archive de diagnostic jointe au ticket.
+        **Ne joignez jamais le paquet de support lui-même à ce signalement**
+        — tout ce qui est déposé ici est visible par tous, et le reste.
+      placeholder: "SUP-ABC234"
+    validations:
+      required: false
