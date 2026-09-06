@@ -1221,6 +1221,106 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
     }
 
     /**
+     * THE OTHER HALF OF THE SAME TRADE, and the half nothing checked
+     * until it failed on a live issue: the agent must be able to READ
+     * the issue it is triaging.
+     *
+     * Naming read tools one by one fails closed, which is the point —
+     * but "closed" includes the case where the list is a perfectly
+     * safe list of names the server does not answer to. On 2026-09-06
+     * the triage of #181 asked for `mcp__github__get_issue` and
+     * `mcp__github__get_issue_comments` 48 times and was denied 48
+     * times, because the allowlist named only `mcp__github__issue_read`
+     * — the spelling this repository's own tooling uses, not the one
+     * the pinned action's server exposes. The agent triaged a report
+     * it had never read, spent its whole turn budget retrying the two
+     * denied calls, overran the ceiling, and the run went red with no
+     * verdict. Every test in this file passed on that commit.
+     *
+     * So the rule is the union, not the alternative: every spelling a
+     * GitHub MCP image is known to use for reading an issue and its
+     * comments is listed. Naming a tool the server does not have costs
+     * nothing — the permission simply never comes up — while naming
+     * none of the ones it does costs the reporter their answer.
+     *
+     * If a future image renames these again, this test does not know
+     * it; nothing static can. What it does is make the list a decision
+     * somebody has to change on purpose, with the incident above one
+     * scroll away, rather than a name that quietly stopped meaning
+     * anything.
+     */
+    #[DataProvider('issueWorkflows')]
+    public function testTheAgentCanActuallyReadAnIssueAndItsComments(string $workflow): void
+    {
+        $arguments = $this->agentArguments($workflow);
+
+        self::assertSame(
+            1,
+            preg_match('/--allowedTools\s+"([^"]*)"/', $arguments, $allowed),
+            $workflow . ' passes no `--allowedTools`, so there is no list to read an issue with.',
+        );
+
+        $tools = array_values(array_filter(array_map('trim', explode(',', $allowed[1]))));
+
+        $spellings = [
+            'mcp__github__get_issue' => 'the issue body, as the pinned image spells it',
+            'mcp__github__get_issue_comments' => 'the comment thread, as the pinned image spells it',
+            'mcp__github__issue_read' => 'both, as a newer image spells it',
+        ];
+
+        foreach ($spellings as $tool => $what) {
+            self::assertContains(
+                $tool,
+                $tools,
+                $workflow . ' does not allow `' . $tool . '` — ' . $what . '. A triage agent that '
+                . 'cannot read the report answers a report it never saw, and the symptom is a red '
+                . 'run with no verdict rather than anything that names the missing tool. Every '
+                . 'known spelling is listed on purpose: an unused name costs nothing, a missing '
+                . 'one costs the reporter their answer.',
+            );
+        }
+    }
+
+    /**
+     * And both workflows read with the same list.
+     *
+     * They do the same work on the same kind of input — one issue now,
+     * five overnight — so a name that has to be added to one has to be
+     * added to the other. The failure mode this refuses is the tidy one:
+     * a live triage goes red, somebody fixes the list in the file that
+     * went red, and the nightly scan keeps the broken list for as long
+     * as nobody watches a scan run. That scan is the safety net for the
+     * per-issue workflow; a safety net repaired second is not one.
+     */
+    public function testBothIssueWorkflowsReadWithTheSameToolList(): void
+    {
+        $lists = [];
+
+        foreach ([self::TRIAGE, self::BACKLOG_SCAN] as $workflow) {
+            self::assertSame(
+                1,
+                preg_match('/--allowedTools\s+"([^"]*)"/', $this->agentArguments($workflow), $allowed),
+                $workflow . ' passes no `--allowedTools`.',
+            );
+
+            $tools = array_values(array_filter(array_map('trim', explode(',', $allowed[1]))));
+            sort($tools);
+            $lists[$workflow] = $tools;
+        }
+
+        $lists = array_values($lists);
+
+        self::assertSame(
+            $lists[0],
+            $lists[1],
+            'The two issue workflows allow different tools. They triage the same reports against '
+            . 'the same code, so a read tool one of them needs is one the other needs too — and '
+            . 'the backlog scan is what catches the issues the per-issue run failed on. Fix both '
+            . 'lists in the same change.',
+        );
+    }
+
+    /**
      * And the other half of that split: the verdict comes back as DATA,
      * against a schema, and the workflow applies it.
      *

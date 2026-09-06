@@ -298,13 +298,16 @@ jobs:
 
       # Both attempts are given the identical arguments — see
       # issue-triage.yml's TRIAGE_ARGS for why each half of this list is
-      # what it is. The two differences are deliberate: this job's
-      # --max-turns is 300 rather than 60, because a scan handles up to
-      # five issues in one turn budget rather than one, and the read-only
-      # tool list is the same list, because it is the same work.
+      # what it is, including why the issue-reading tools are named under
+      # two spellings. The one difference is deliberate: this job's
+      # --max-turns is 300 rather than 100, because a scan handles up to
+      # five issues in one turn budget rather than one. The read-only tool
+      # list is the same list, because it is the same work — and it has to
+      # stay the same list, since a name missing here fails exactly as it
+      # did in triage, on five reporters at once instead of one.
       SCAN_ARGS: >-
         --disallowedTools "Agent,Task,ScheduleWakeup,Bash,Read,Glob,Grep,Write,Edit,NotebookEdit"
-        --allowedTools "mcp__github__issue_read,mcp__github__get_file_contents,mcp__github__search_issues,mcp__github__list_issues,mcp__github__search_code,mcp__github__get_commit,mcp__github__list_commits"
+        --allowedTools "mcp__github__get_issue,mcp__github__get_issue_comments,mcp__github__issue_read,mcp__github__get_file_contents,mcp__github__search_issues,mcp__github__list_issues,mcp__github__search_code,mcp__github__get_commit,mcp__github__list_commits"
         --max-turns 300
 
     steps:

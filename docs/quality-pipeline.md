@@ -187,6 +187,19 @@ if the action's pinned image renames one, which is the price of the
 guarantee and the reason to re-check those names whenever the action SHA
 is bumped.
 
+That price was paid on the first live run. The list named
+`mcp__github__issue_read`; the pinned image spells those tools
+`get_issue` and `get_issue_comments`, so the triage of #181 was denied 48
+times, triaged a report it had never read, exhausted its turn budget
+retrying and went red with no verdict — while every audit in
+`tests/Security/IssueTriageWorkflowPermissionsTest.php` passed, because
+they all asked whether the list was *safe* and none asked whether it was
+*sufficient*. Both spellings are listed now, two tests cover the open half
+of the trade (the agent can read an issue and its comments; both workflows
+read with the same list), and the symptom to recognise is in the
+transcript verbatim: `Claude requested permissions to use
+mcp__github__<name>, but you haven't granted it yet`.
+
 Both issue workflows also **deny the tools that assume a "later"** —
 `Agent`, `Task`, `ScheduleWakeup` — because an agent that hands an issue to
 a subagent and ends its turn waiting for the answer has, in a one-shot run,
@@ -271,8 +284,10 @@ gate, the single shared prompt and the single shared argument list, the
 comment trigger with each clause of its guard, the label reset that must
 precede the agent — and the write boundary above: that no allowed tool is
 the bare server or carries a writing verb in its name, that a schema comes
-back with the verdict as an enum, and that the shell is what maps a
-verdict to a label.
+back with the verdict as an enum, that the shell is what maps a verdict to
+a label — and, since #181, that the list is also *sufficient*: the tools
+that read an issue and its comments are there, under every spelling, in
+both workflows.
 
 `.github/workflows/issue-backlog-scan.yml` is the same triage, applied to
 the issues that workflow never saw: everything filed before it reached
