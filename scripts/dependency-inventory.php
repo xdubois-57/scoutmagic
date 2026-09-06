@@ -406,14 +406,80 @@ function inventory_compatibility_table(array $rows): string
 
     $out = "| Licence | Paquets | Compatibilité |\n|---|---|---|\n";
     foreach ($counts as $licence => $count) {
-        $verdict = INVENTORY_LICENCE_COMPATIBILITY[$licence] ?? INVENTORY_LICENCE_UNKNOWN;
-        if (str_starts_with($licence, '**')) {
-            // "**non déclarée**" and the vendored "**à déclarer**" markers:
-            // not a licence, and not something to look up.
-            $verdict = '**À examiner** — aucune licence déclarée.';
-        }
-        $out .= '| ' . $licence . ' | ' . $count . ' | ' . $verdict . " |\n";
+        $out .= '| ' . $licence . ' | ' . $count . ' | ' . inventory_licence_verdict($licence) . " |\n";
     }
 
     return $out;
+}
+
+/**
+ * The compatibility verdict for one declared licence value.
+ *
+ * npm records an SPDX *expression*, not always a bare identifier: a
+ * dual-licensed package declares `MIT OR Apache-2.0`, and one carrying two
+ * obligations at once declares `(MIT AND Zlib)`. Looking either up in the
+ * map verbatim finds nothing and reports "à examiner" — which would be a
+ * false alarm about two licences the map knows perfectly well, and would
+ * fail DependencyInventoryTest's "every shipped licence has a written
+ * verdict" on a dependency that raises no question at all.
+ *
+ * The two operators mean opposite things and are read that way:
+ *
+ *  - **OR** offers a choice, so the expression is acceptable as soon as
+ *    ONE operand is, and the verdict names the one taken. That choice is
+ *    a real decision, so it is stated rather than implied.
+ *  - **AND** imposes every operand at once, so ALL of them must be
+ *    classified; one unknown makes the whole expression unknown.
+ *
+ * Anything mixing both operators is left to a human. Sorting out the
+ * precedence of `(MIT OR Apache-2.0) AND Zlib` against the AGPL is
+ * exactly the kind of judgement this file exists to surface, not to make.
+ */
+function inventory_licence_verdict(string $expression): string
+{
+    // "**non déclarée**" and the vendored "**à déclarer**" markers: not a
+    // licence, and not something to look up.
+    if (str_starts_with($expression, '**')) {
+        return '**À examiner** — aucune licence déclarée.';
+    }
+
+    if (isset(INVENTORY_LICENCE_COMPATIBILITY[$expression])) {
+        return INVENTORY_LICENCE_COMPATIBILITY[$expression];
+    }
+
+    $bare = trim($expression);
+    if (str_starts_with($bare, '(') && str_ends_with($bare, ')')) {
+        $bare = trim(substr($bare, 1, -1));
+    }
+
+    $hasOr = str_contains($bare, ' OR ');
+    $hasAnd = str_contains($bare, ' AND ');
+
+    if ($hasOr && $hasAnd) {
+        return '**À examiner** — expression SPDX composée (`OR` et `AND`), à trancher à la main.';
+    }
+
+    if ($hasOr) {
+        foreach (array_map('trim', explode(' OR ', $bare)) as $operand) {
+            if (isset(INVENTORY_LICENCE_COMPATIBILITY[$operand])) {
+                return 'Au choix ; retenu : **' . $operand . '**. ' . INVENTORY_LICENCE_COMPATIBILITY[$operand];
+            }
+        }
+
+        return INVENTORY_LICENCE_UNKNOWN;
+    }
+
+    if ($hasAnd) {
+        $verdicts = [];
+        foreach (array_map('trim', explode(' AND ', $bare)) as $operand) {
+            if (!isset(INVENTORY_LICENCE_COMPATIBILITY[$operand])) {
+                return INVENTORY_LICENCE_UNKNOWN;
+            }
+            $verdicts[] = '**' . $operand . '** : ' . INVENTORY_LICENCE_COMPATIBILITY[$operand];
+        }
+
+        return 'Toutes les conditions s\'appliquent. ' . implode(' ', $verdicts);
+    }
+
+    return INVENTORY_LICENCE_UNKNOWN;
 }

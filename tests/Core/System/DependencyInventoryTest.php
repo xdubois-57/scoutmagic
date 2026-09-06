@@ -158,6 +158,56 @@ class DependencyInventoryTest extends TestCase
     }
 
     /**
+     * npm records an SPDX *expression*, not always a bare identifier. Both
+     * operators appear in the wild and they mean opposite things, so a
+     * lookup that treated the whole string as one identifier would report
+     * "à examiner" about two licences the map knows — a false alarm that
+     * fails this file's own "every shipped licence has a verdict" test on
+     * a dependency raising no question at all.
+     */
+    public function testAnSpdxChoiceTakesAnOperandAndSaysWhichOne(): void
+    {
+        $verdict = \inventory_licence_verdict('MIT OR Apache-2.0');
+
+        $this->assertStringContainsString('Au choix', $verdict);
+        $this->assertStringContainsString('**MIT**', $verdict, 'the operand taken is named, because taking one is a decision');
+        $this->assertStringNotContainsString('À examiner', $verdict);
+
+        // One acceptable operand is enough — that is what OR means.
+        $this->assertStringContainsString('**MIT**', \inventory_licence_verdict('MIT OR NoSuchLicence-1.0'));
+        $this->assertStringContainsString('**MIT**', \inventory_licence_verdict('NoSuchLicence-1.0 OR MIT'));
+        // None acceptable is still unknown.
+        $this->assertStringContainsString('À examiner', \inventory_licence_verdict('NoSuchLicence-1.0 OR OtherUnknown-2.0'));
+    }
+
+    public function testAnSpdxConjunctionNeedsEveryOperandClassified(): void
+    {
+        $both = \inventory_licence_verdict('(MIT AND ISC)');
+
+        $this->assertStringContainsString('Toutes les conditions', $both);
+        $this->assertStringContainsString('**MIT**', $both);
+        $this->assertStringContainsString('**ISC**', $both);
+        $this->assertStringNotContainsString('À examiner', $both, 'parentheses are stripped, both operands are known');
+
+        // One unknown operand makes the whole obligation unknown: AND
+        // imposes every one of them at once.
+        $this->assertStringContainsString('À examiner', \inventory_licence_verdict('MIT AND NoSuchLicence-1.0'));
+    }
+
+    /**
+     * A mixed expression is left to a human on purpose. Working out how
+     * `(MIT OR GPL-3.0-only) AND ISC` sits against the AGPL is the kind of
+     * judgement this file exists to surface, not to make.
+     */
+    public function testAMixedSpdxExpressionIsRaisedRatherThanGuessedAt(): void
+    {
+        $verdict = \inventory_licence_verdict('(MIT OR GPL-3.0-only) AND ISC');
+
+        $this->assertStringContainsString('À examiner', $verdict);
+        $this->assertStringContainsString('composée', $verdict);
+    }
+
+    /**
      * The document itself, against the real repository: French headings,
      * every surface present, counts in the headings so a reader sees at a
      * glance that nothing is empty.

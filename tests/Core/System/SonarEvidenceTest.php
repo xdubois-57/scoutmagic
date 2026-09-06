@@ -246,9 +246,15 @@ class SonarEvidenceTest extends TestCase
     {
         $api = static function (string $path): array {
             if (str_starts_with($path, 'project_analyses/search')) {
-                return ['analyses' => [['date' => '2026-09-06T10:00:00+0000', 'revision' => 'released']]];
+                return ['analyses' => [['key' => 'AX-released', 'date' => '2026-09-06T10:00:00+0000', 'revision' => 'released']]];
             }
             if (str_starts_with($path, 'qualitygates/project_status')) {
+                // Asked for BY ANALYSIS, never by branch: the fake refuses
+                // the branch form so the pinning cannot silently regress.
+                if (!str_contains($path, 'analysisId=AX-released')) {
+                    throw new \LogicException('the quality gate was not pinned to the accepted analysis: ' . $path);
+                }
+
                 return ['projectStatus' => ['status' => 'OK', 'conditions' => []]];
             }
             if (str_starts_with($path, 'measures/component?')) {
@@ -288,6 +294,7 @@ class SonarEvidenceTest extends TestCase
         $this->assertSame(1, $summary['blocking']);
         $this->assertSame(2, $summary['hotspots']);
         $this->assertSame(1, $summary['hotspots_to_review'], 'a triaged hotspot is not one to review');
+        $this->assertFalse($summary['truncated']);
 
         $hotspots = json_decode((string) file_get_contents($this->outDir . '/sonarcloud-hotspots.json'), true);
         $this->assertSame(2, $hotspots['total']);
@@ -344,6 +351,113 @@ class SonarEvidenceTest extends TestCase
             'hotspots_to_review' => 0,
             'revision' => 'r',
         ]));
+    }
+
+    /**
+     * The gate must belong to the analysis that was accepted, not to
+     * whatever the branch's gate happens to be by the time it is asked
+     * for. Between the wait and this call another analysis can land, and
+     * a gate read by branch would then certify a different commit —
+     * undoing, one call later, the whole reason the wait exists.
+     */
+    public function testTheQualityGateIsAskedForByAnalysisNotByBranch(): void
+    {
+        $asked = [];
+        $api = static function (string $path) use (&$asked): array {
+            $asked[] = $path;
+            if (str_starts_with($path, 'project_analyses/search')) {
+                return ['analyses' => [['key' => 'AX-9', 'date' => 'now', 'revision' => 'released']]];
+            }
+            if (str_starts_with($path, 'qualitygates/project_status')) {
+                return ['projectStatus' => ['status' => 'OK', 'conditions' => []]];
+            }
+            if (str_starts_with($path, 'measures/component?')) {
+                return ['component' => ['measures' => []]];
+            }
+            if (str_contains($path, 'issues')) {
+                return ['issues' => []];
+            }
+            if (str_contains($path, 'hotspots')) {
+                return ['hotspots' => []];
+            }
+
+            return ['components' => []];
+        };
+
+        \sonar_evidence_collect($api, $this->outDir, 'p', 'main', 'released', 1, 0, $this->sleeper());
+
+        $gateCalls = array_values(array_filter($asked, static fn (string $p): bool => str_starts_with($p, 'qualitygates/')));
+        $this->assertCount(1, $gateCalls);
+        $this->assertStringContainsString('analysisId=AX-9', $gateCalls[0]);
+        $this->assertStringNotContainsString('branch=', $gateCalls[0], 'a branch-scoped gate can belong to another commit');
+    }
+
+    /**
+     * No key means no way to ask for that analysis by name. Falling back
+     * to the branch query would be the silent substitution above, so it
+     * refuses instead.
+     */
+    public function testAnAnalysisWithNoKeyIsARefusalRatherThanAFallback(): void
+    {
+        $api = static function (string $path): array {
+            if (str_starts_with($path, 'project_analyses/search')) {
+                return ['analyses' => [['date' => 'now', 'revision' => 'released']]];
+            }
+            throw new \LogicException('nothing else should be called: ' . $path);
+        };
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('carries no key');
+        \sonar_evidence_collect($api, $this->outDir, 'p', 'main', 'released', 1, 0, $this->sleeper());
+    }
+
+    /**
+     * The token travels in an Authorization header on every request, so
+     * an `http://` host would put it on the wire in cleartext.
+     */
+    public function testANonHttpsHostIsRefusedBeforeAnyTokenCouldBeSent(): void
+    {
+        $this->assertSame(
+            'https://sonar.example.invalid',
+            \sonar_evidence_settings(['SONAR_HOST_URL' => 'https://sonar.example.invalid'])['host']
+        );
+
+        foreach (['http://sonarcloud.io', 'http://localhost:9000', 'ftp://x', 'sonarcloud.io'] as $host) {
+            try {
+                \sonar_evidence_settings(['SONAR_HOST_URL' => $host]);
+                $this->fail($host . ' was accepted');
+            } catch (\RuntimeException $e) {
+                $this->assertStringContainsString('must be https', $e->getMessage(), $host);
+                $this->assertStringContainsString('cleartext', $e->getMessage(), $host);
+            }
+        }
+    }
+
+    /**
+     * A list the page cap cut short is not the whole list, so every count
+     * derived from it is a floor — and a floor of zero blocking findings
+     * is not a clean bill of health.
+     */
+    public function testATruncatedListIsFlaggedAndRefusesARelease(): void
+    {
+        $full = static fn (string $path): array => ['issues' => array_fill(0, SONAR_EVIDENCE_PAGE_SIZE, ['key' => 'i'])];
+
+        $truncated = null;
+        \sonar_evidence_fetch_all_pages($full, 'issues/search', 'issues', $truncated);
+        $this->assertTrue($truncated, 'the page cap ended the loop and nothing said so');
+
+        $short = static fn (string $path): array => ['issues' => [['key' => 'i']]];
+        $notTruncated = null;
+        \sonar_evidence_fetch_all_pages($short, 'issues/search', 'issues', $notTruncated);
+        $this->assertFalse($notTruncated, 'a short page is the ordinary end of the loop, not a truncation');
+
+        $clean = ['quality_gate' => 'OK', 'blocking' => 0, 'hotspots_to_review' => 0, 'revision' => 'r'];
+        $this->assertSame([], \sonar_evidence_release_refusals($clean + ['truncated' => false]));
+
+        $refusals = \sonar_evidence_release_refusals(['truncated' => true] + $clean);
+        $this->assertCount(1, $refusals, 'a truncated list refuses on its own, with nothing else wrong');
+        $this->assertStringContainsString('tronquée', $refusals[0]);
+        $this->assertStringContainsString('minorants', $refusals[0]);
     }
 
     public function testTheUnavailableMarkerSaysWhyRatherThanLeavingAGap(): void

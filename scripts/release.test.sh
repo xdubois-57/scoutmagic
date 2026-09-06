@@ -167,7 +167,11 @@ fi
 
 # The order is the documented one, and it is the order of the file.
 expected_order="deployment ci security dependency sonar"
-actual_order="$(grep -oE '^\s*run_gate [a-z]+' "${RELEASE_SH}" | awk '{print $2}' | tr '\n' ' ' | sed 's/ $//')"
+# [[:space:]], not \s: BSD grep — the one a macOS releaser runs, and this
+# script is written for the same machine scripts/release.sh caffeinates —
+# does not know \s in an ERE. It would match nothing, actual_order would be
+# empty, and this would report a gate-order failure that is not one.
+actual_order="$(grep -oE '^[[:space:]]*run_gate [a-z]+' "${RELEASE_SH}" | awk '{print $2}' | tr '\n' ' ' | sed 's/ $//')"
 if [[ "${actual_order}" == "${expected_order}" ]]; then
     ok "the five gates run in the documented order (${actual_order})"
 else

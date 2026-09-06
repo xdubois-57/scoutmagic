@@ -16,8 +16,8 @@ catches what, and what each one cannot see.
 |---|---|---|---|
 | **Static analysis** | Locally, before each commit; CI | Signature drift, unresolved identifiers, wrong argument counts | Anything that only shows at runtime |
 | **Unit & integration tests** | Locally; CI (two engines) | Behaviour, RBAC boundaries, architecture invariants | The application failing to boot at all |
-| **End-to-end** | CI; release gate | The app not booting, a broken composition root | Everything a browser does not exercise |
-| **Dynamic scan** | CI; release gate | Over-permissive routes, what the running app actually answers | Logic the scan does not reach |
+| **End-to-end** | CI on every push; the full tier again on every release tag | The app not booting, a broken composition root | Everything a browser does not exercise |
+| **Dynamic scan** | CI on every push; again on every release tag | Over-permissive routes, what the running app actually answers | Logic the scan does not reach |
 | **CodeQL** | CI, GitHub-managed | Taint flows into DOM sinks | Non-JavaScript defects |
 | **SonarQube Cloud** | CI; release gate | Quality, duplication, security hotspots | Intent |
 | **AI triage** | Every issue opened or reopened, plus a nightly pass over the untriaged backlog | Whether a report is a real defect, the one fact a blocked report is missing, and the workaround when the behaviour is correct | Anything only a running installation shows — it reads the code but reproduces nothing, changes nothing, and gates nothing |

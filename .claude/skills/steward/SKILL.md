@@ -82,9 +82,11 @@ treat it as the larger one.
 ## A red check — reproducing it locally
 
 Each row gives the job's **distinguishing command**: what it runs that no
-other job does. That is a starting point, not a transcript. `ci.yml` is the
-only exact account of a job, and when the red step looks like setup rather
-than a test, go read it there before trusting anything below.
+other job does. That is a starting point, not a transcript.
+`.github/workflows/checks.yml` is the only exact account of a job — that is
+where the steps live; `ci.yml` and `release.yml` merely call it — and when
+the red step looks like setup rather than a test, go read it there before
+trusting anything below.
 
 Three things every row assumes, because CI does them and a warm container
 does not:
@@ -123,7 +125,7 @@ that `ci.yml` calls — which is why a pull request shows them as
 | `Checks / Authorization matrix` | `./scripts/dast.sh --profile=standard` |
 | `Checks / Dynamic scan (passive)` | `./scripts/dast.sh --profile=passive` |
 | `Checks / security` | `composer audit` |
-| `All checks` | nothing of its own — red exactly when a `Checks / …` job above is not green, so start from the red one |
+| `All checks` | nothing of its own — it reads the reusable workflow's roll-up, so it is red exactly when a `Checks / …` job failed or was cancelled, and green when every one either passed or was deliberately skipped (`Checks / SonarQube Cloud` on a fork). Start from the red job, never from here |
 | `Claude review` | no local equivalent — read the findings on the PR; see below |
 | `Claude review status` | no local equivalent — it posts the comment that says what the green above means, deciding from the review job's `result` and the `conclusion` output it exports |
 | `Checks / SonarQube Cloud` | no local equivalent — read the bot's PR comment |

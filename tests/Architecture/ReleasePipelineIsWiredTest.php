@@ -54,6 +54,26 @@ final class ReleasePipelineIsWiredTest extends TestCase
     }
 
     /**
+     * The part of a file that starts at one marker.
+     *
+     * Guarded rather than `(int) strpos(...)`, which is 0 when the marker
+     * is GONE — so the slice becomes the whole file, every assertion below
+     * finds its needle somewhere else in it, and the test passes over a
+     * block that no longer exists. That is this repository's own worst
+     * failure mode (docs/quality-pipeline.md § The failure mode this
+     * repository keeps meeting) reproduced inside the test written to
+     * prevent it.
+     */
+    private static function sliceFrom(string $relativePath, string $marker): string
+    {
+        $contents = self::read($relativePath);
+        $at = strpos($contents, $marker);
+        self::assertNotFalse($at, $relativePath . ' no longer contains ' . trim($marker));
+
+        return substr($contents, $at);
+    }
+
+    /**
      * Top-level job ids of a workflow file: two-space-indented keys under
      * `jobs:`, in order.
      *
@@ -108,8 +128,7 @@ final class ReleasePipelineIsWiredTest extends TestCase
 
     public function testSonarCloudIsSkippedOnAnEvidenceRun(): void
     {
-        $checks = self::read(self::CHECKS);
-        $sonar = substr($checks, (int) strpos($checks, "\n  sonarqube:\n"));
+        $sonar = self::sliceFrom(self::CHECKS, "\n  sonarqube:\n");
 
         // A tag push is not a branch SonarCloud should analyse; release.yml
         // reads the analysis of the same commit back instead.
@@ -150,8 +169,7 @@ final class ReleasePipelineIsWiredTest extends TestCase
 
     public function testTheVerdictJobNeedsTheGatesAndAlwaysRuns(): void
     {
-        $ci = self::read(self::CI);
-        $verdict = substr($ci, (int) strpos($ci, "\n  all-checks:\n"));
+        $verdict = self::sliceFrom(self::CI, "\n  all-checks:\n");
 
         $this->assertStringContainsString('name: All checks', $verdict, 'the required-check name changed; the ruleset lists it by name');
         $this->assertStringContainsString('needs: [checks]', $verdict);
@@ -325,8 +343,7 @@ final class ReleasePipelineIsWiredTest extends TestCase
 
     public function testTheNotesCarryTheGatesTheEvidenceAndTheInventory(): void
     {
-        $script = self::read(self::RELEASE_SCRIPT);
-        $notes = substr($script, (int) strpos($script, '## Vérifications effectuées pour cette release'));
+        $notes = self::sliceFrom(self::RELEASE_SCRIPT, '## Vérifications effectuées pour cette release');
 
         $this->assertStringContainsString('printf \'%s\' "${GATE_REPORT}"', $notes);
         $this->assertStringContainsString('gh release view "${TAG}" --json body -q .body', $notes, 'the workflow\'s description of the pack is dropped from the notes');

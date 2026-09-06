@@ -132,7 +132,13 @@ function sonar_evidence_main(array $argv): void
     // fallback to a gitignored file is the sort of thing that stops
     // working silently, so it is a function with a test rather than four
     // lines nobody can reach.
-    $settings = sonar_evidence_settings(getenv());
+    try {
+        $settings = sonar_evidence_settings(getenv());
+    } catch (RuntimeException $e) {
+        fwrite(STDERR, 'sonar-evidence: ' . $e->getMessage() . "\n");
+        exit(1);
+    }
+
     $expected = $settings['expected'];
     $token = sonar_evidence_resolve_token(
         (string) (getenv('SONAR_TOKEN') ?: ''),
@@ -207,9 +213,23 @@ function sonar_evidence_settings(array $env): array
     // default. An empty variable takes the default here, which is the
     // point: a CI runner writes `SONAR_BRANCH: ''` for an expression that
     // resolved to nothing, and a branch named '' would be queried and 404.
+    $host = rtrim(((string) ($env['SONAR_HOST_URL'] ?? '')) ?: 'https://sonarcloud.io', '/');
+
+    // Every request carries the token in an Authorization header, so the
+    // scheme is a credential question rather than a preference: an
+    // `http://` host would put it on the wire in cleartext. Refused where
+    // the host is resolved, because there is no path from a configured
+    // value to a request that skips this function.
+    if (strtolower((string) parse_url($host, PHP_URL_SCHEME)) !== 'https') {
+        throw new RuntimeException(
+            'SONAR_HOST_URL must be https (got ' . ($host === '' ? '<empty>' : $host)
+            . ') — refusing to send the token in cleartext'
+        );
+    }
+
     return [
         'expected' => $expected === '' ? null : $expected,
-        'host' => rtrim(((string) ($env['SONAR_HOST_URL'] ?? '')) ?: 'https://sonarcloud.io', '/'),
+        'host' => $host,
         'project_key' => ((string) ($env['SONAR_PROJECT_KEY'] ?? '')) ?: 'xdubois-57_scoutmagic',
         'branch' => ((string) ($env['SONAR_BRANCH'] ?? '')) ?: 'main',
         'attempts' => max(1, ((int) ($env['SONAR_WAIT_ATTEMPTS'] ?? 0)) ?: 20),
@@ -283,7 +303,13 @@ function sonar_evidence_refusal_message(array $refusals): string
  * itself, and plus any hotspot nobody has triaged — an unreviewed hotspot is
  * an unresolved security question, not an absent one.
  *
- * @param array{quality_gate: string, blocking: int, hotspots_to_review: int, revision: string} $summary
+ * A TRUNCATED list refuses on its own, which is why the flag is carried
+ * this far: every count here comes from the lists fetched above, so a
+ * capped run's `blocking` of zero means "we did not see the whole list",
+ * not "nothing blocks". Reading the first as the second is how a release
+ * ships over a finding nobody was ever shown.
+ *
+ * @param array{quality_gate: string, blocking: int, hotspots_to_review: int, revision: string, truncated?: bool} $summary
  * @return list<string>
  */
 function sonar_evidence_release_refusals(array $summary): array
@@ -298,6 +324,9 @@ function sonar_evidence_release_refusals(array $summary): array
     }
     if ($summary['hotspots_to_review'] > 0) {
         $refusals[] = $summary['hotspots_to_review'] . ' Security Hotspot(s) encore à trier (TO_REVIEW).';
+    }
+    if ($summary['truncated'] ?? false) {
+        $refusals[] = 'la liste des signalements a été tronquée au plafond de pagination : les comptes ci-dessus sont des minorants, pas un état complet.';
     }
 
     return $refusals;
@@ -368,7 +397,7 @@ function sonar_evidence_decode(string|bool $body, int $status, string $error, st
  *
  * @param callable(string): array<string, mixed> $api
  * @param callable(int): void $sleep
- * @return array{revision: string, analysis_date: string, quality_gate: string, issues: int, blocking: int, hotspots: int, hotspots_to_review: int}
+ * @return array{revision: string, analysis_date: string, quality_gate: string, issues: int, blocking: int, hotspots: int, hotspots_to_review: int, truncated: bool}
  * @throws RuntimeException
  */
 function sonar_evidence_collect(
@@ -399,7 +428,22 @@ function sonar_evidence_collect(
         'analysis' => $analysis,
     ]);
 
-    $gate = $api("qualitygates/project_status?projectKey={$project}&branch={$branchQuery}");
+    // Pinned to the analysis accepted above BY ITS OWN KEY, not queried by
+    // project and branch. Those are not the same question: the branch query
+    // answers with whatever the gate is NOW, so an analysis landing between
+    // the wait and this line would have the pack certify a gate belonging
+    // to a different commit — the exact substitution the wait exists to
+    // prevent, undone one call later. The measures, the per-file tree, the
+    // issues and the hotspots below stay branch-scoped, which the report
+    // says out loud.
+    $analysisKey = (string) ($analysis['key'] ?? '');
+    if ($analysisKey === '') {
+        throw new RuntimeException(
+            'the accepted analysis carries no key, so its quality gate cannot be asked for by name; refusing '
+            . "rather than reading the branch's current gate, which may belong to another commit"
+        );
+    }
+    $gate = $api('qualitygates/project_status?analysisId=' . rawurlencode($analysisKey));
     sonar_evidence_write_json($outDir . '/sonarcloud-quality-gate.json', $gate);
 
     $measures = $api(
@@ -414,24 +458,35 @@ function sonar_evidence_collect(
     );
     sonar_evidence_write_json($outDir . '/sonarcloud-measures-by-file.json', ['total' => count($byFile), 'components' => $byFile]);
 
+    // $truncated matters more than it looks. Every count below is derived
+    // from these lists, so one the page cap cut short yields counts that
+    // are FLOORS — and a `blocking` of zero read off a truncated list says
+    // "nothing blocks this release" where the honest answer is "we did not
+    // see the whole list". It is carried into the summary and refused on
+    // rather than left for a reader to notice.
+    $issuesTruncated = false;
     $issues = sonar_evidence_fetch_all_pages(
         $api,
         "issues/search?componentKeys={$project}&branch={$branchQuery}&resolved=false",
-        'issues'
+        'issues',
+        $issuesTruncated
     );
     $blocking = array_values(array_filter($issues, 'sonar_evidence_is_blocking'));
     sonar_evidence_write_json($outDir . '/sonarcloud-issues.json', [
         'total' => count($issues),
         'blocking' => count($blocking),
         'exempt' => count($issues) - count($blocking),
+        'truncated' => $issuesTruncated,
         'rule' => 'AGENTS.md § SonarQube Cloud release gate: every unresolved issue blocks a release except one that is, all at once, MAINTAINABILITY, LOW and tagged convention.',
         'issues' => $issues,
     ]);
 
+    $hotspotsTruncated = false;
     $hotspots = sonar_evidence_fetch_all_pages(
         $api,
         "hotspots/search?projectKey={$project}&branch={$branchQuery}",
-        'hotspots'
+        'hotspots',
+        $hotspotsTruncated
     );
     $toReview = array_values(array_filter(
         $hotspots,
@@ -440,6 +495,7 @@ function sonar_evidence_collect(
     sonar_evidence_write_json($outDir . '/sonarcloud-hotspots.json', [
         'total' => count($hotspots),
         'to_review' => count($toReview),
+        'truncated' => $hotspotsTruncated,
         'hotspots' => $hotspots,
     ]);
 
@@ -456,6 +512,7 @@ function sonar_evidence_collect(
         'blocking' => count($blocking),
         'hotspots' => count($hotspots),
         'hotspots_to_review' => count($toReview),
+        'truncated' => $issuesTruncated || $hotspotsTruncated,
     ];
 }
 
@@ -521,13 +578,20 @@ function sonar_evidence_wait_for_analysis(
  * safety net against an API that keeps answering full pages, not a limit
  * anybody expects to reach.
  *
+ * `$truncated` is set when the CAP is what stopped the loop rather than a
+ * short page — the one case where the returned list is not the whole list,
+ * and therefore the one case a caller must not read as complete. Without
+ * it, a capped run looks exactly like an ordinary one.
+ *
  * @param callable(string): array<string, mixed> $api
+ * @param bool|null $truncated set to true when the page cap ended the loop
  * @return list<array<string, mixed>>
  */
-function sonar_evidence_fetch_all_pages(callable $api, string $path, string $key): array
+function sonar_evidence_fetch_all_pages(callable $api, string $path, string $key, ?bool &$truncated = null): array
 {
     $all = [];
     $separator = str_contains($path, '?') ? '&' : '?';
+    $truncated = false;
 
     for ($page = 1; $page <= SONAR_EVIDENCE_MAX_PAGES; $page++) {
         $response = $api($path . $separator . 'ps=' . SONAR_EVIDENCE_PAGE_SIZE . '&p=' . $page);
@@ -538,9 +602,18 @@ function sonar_evidence_fetch_all_pages(callable $api, string $path, string $key
             }
         }
         if (count($batch) < SONAR_EVIDENCE_PAGE_SIZE) {
-            break;
+            return $all;
         }
     }
+
+    $truncated = true;
+    fwrite(STDERR, sprintf(
+        "sonar-evidence: %s still answered a full page after %d pages — the list is TRUNCATED at %d "
+        . "and every count derived from it is a floor.\n",
+        $key,
+        SONAR_EVIDENCE_MAX_PAGES,
+        count($all)
+    ));
 
     return $all;
 }
@@ -749,6 +822,10 @@ function sonar_evidence_report(
         }
     }
 
+    $lines[] = '';
+    $lines[] = 'Le Quality Gate ci-dessus est celui de **cette analyse précisément** (demandé par son identifiant, '
+        . "pas par branche, pour qu'une analyse plus récente ne puisse pas s'y substituer). Les mesures, les "
+        . 'signalements et les hotspots, eux, sont ceux de la branche `' . $branch . '` à l\'instant de la collecte.';
     $lines[] = '';
     $lines[] = 'Les fichiers lisibles par une machine sont à côté de celui-ci : '
         . '`sonarcloud-analysis.json`, `sonarcloud-quality-gate.json`, `sonarcloud-measures.json`, '
