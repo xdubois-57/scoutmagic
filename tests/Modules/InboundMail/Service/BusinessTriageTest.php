@@ -235,7 +235,7 @@ class BusinessTriageTest extends TestCase
         $this->assertSame([$noise], $this->ids($this->service->findForTriage('camps', [], 50, true)));
         $this->assertSame(1, $this->service->countDismissedMessages('camps', []));
 
-        $this->assertTrue($this->service->restoreMessage('camps', $noise));
+        $this->assertTrue($this->service->restoreMessage('camps', [], $noise));
 
         $this->assertSame([$noise], $this->ids($this->service->findForTriage('camps', [])));
         $this->assertSame([], $this->service->findForTriage('camps', [], 50, true));
@@ -249,17 +249,21 @@ class BusinessTriageTest extends TestCase
      */
     public function testSettingAsideIsPerConsumer(): void
     {
+        // One box both modules read in full, and a message neither has
+        // filed: the shape of the mail this feature is about.
+        $this->scopes->saveSharedScopes($this->sharedBox, [
+            'camps' => ['analyze' => true, 'read' => 'all'],
+            'rental' => ['analyze' => true, 'read' => 'all'],
+        ]);
         $id = $this->store('both@x', $this->sharedBox);
-        $this->messages->addLink($id, 'camps', 'camp-1', LinkOrigin::REFERENCE);
-        $this->messages->addLink($id, 'rental', 'LOC-1', LinkOrigin::REFERENCE);
 
-        $this->service->dismissMessage('camps', ['camp-1'], $id);
+        $this->service->dismissMessage('camps', [], $id);
 
-        $this->assertSame([], $this->service->findForTriage('camps', ['camp-1']));
+        $this->assertSame([], $this->service->findForTriage('camps', []));
         $this->assertSame(
             [$id],
-            $this->ids($this->service->findForTriage('rental', ['LOC-1'])),
-            "camps setting a message aside must not hide it from rental"
+            $this->ids($this->service->findForTriage('rental', [])),
+            'camps setting a message aside must not hide it from rental'
         );
     }
 
@@ -289,6 +293,75 @@ class BusinessTriageTest extends TestCase
         $this->assertTrue($this->service->dismissMessage('camps', [], $id, 8), 'a double click is not an error');
 
         $this->assertCount(1, $this->service->findForTriage('camps', [], 50, true));
+    }
+
+    /**
+     * Restoring is scoped exactly as setting aside is.
+     *
+     * The asymmetry was real and it was an IDOR: deleting by (message,
+     * consumer) alone let anybody who could reach the route name an id and
+     * change what another scope's triage list shows. « Ça ne fait que
+     * ré-afficher » is precisely the reasoning that ships one — an id in a
+     * URL is not an authorization (SECURITY.md §3).
+     */
+    public function testAMessageOutsideTheRequestersListCannotBeRestored(): void
+    {
+        $this->scopes->saveDedicated($this->dedicatedBox, 'camps');
+        $theirs = $this->store('theirs@x', $this->dedicatedBox);
+        $this->service->dismissMessage('camps', [], $theirs);
+
+        // A requester of the same consumer who reaches neither the box nor
+        // any reference this message carries: rental, here, standing in
+        // for a scope that simply is not this one.
+        $this->assertFalse(
+            $this->service->restoreMessage('rental', [], $theirs),
+            'an id in a URL is not an authorization'
+        );
+        $this->assertCount(
+            1,
+            $this->service->findForTriage('camps', [], 50, true),
+            'and nothing was actually put back'
+        );
+    }
+
+    /**
+     * A message already filed under one of this consumer's own objects is
+     * not one to hide: it leaves the list by being detached, and the
+     * screen only offers the button on an unattached row.
+     *
+     * Enforced in the service and not in the template, because a rule only
+     * a view knows is a rule a POST does not have to obey.
+     */
+    public function testAMessageThisConsumerAlreadyFiledCannotBeSetAside(): void
+    {
+        $id = $this->store('filed@x', $this->sharedBox);
+        $this->messages->addLink($id, 'camps', 'camp-1', LinkOrigin::REFERENCE);
+
+        $this->assertFalse($this->service->dismissMessage('camps', ['camp-1'], $id));
+        $this->assertSame(
+            [$id],
+            $this->ids($this->service->findForTriage('camps', ['camp-1'])),
+            'it is still on the list, where detaching is what removes it'
+        );
+    }
+
+    /**
+     * A database that did not write the row must not answer « c'est fait ».
+     *
+     * Setting aside swallows the unique-index violation on purpose — two
+     * chiefs on the same list, a double click — and swallowing everything
+     * would put « Courrier écarté » on the screen of somebody whose
+     * message is still there. That is the same silence this whole change
+     * set exists to remove, one layer down.
+     */
+    public function testADatabaseFailureIsNotReportedAsASuccessfulDismissal(): void
+    {
+        $this->scopes->saveDedicated($this->dedicatedBox, 'camps');
+        $id = $this->store('noise@x', $this->dedicatedBox);
+        $this->pdo->exec('DROP TABLE inbound_message_dismissals');
+
+        $this->expectException(\PDOException::class);
+        $this->service->dismissMessage('camps', [], $id);
     }
 
     /**

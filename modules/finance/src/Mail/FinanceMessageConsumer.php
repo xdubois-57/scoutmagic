@@ -490,7 +490,16 @@ class FinanceMessageConsumer implements
                 // message shows as filed, the receipts screen is empty,
                 // and there is nothing anywhere to read (#175).
                 if ($this->onFilingFailed !== null) {
-                    ($this->onFilingFailed)($e, $attachment->mimeType, $attachment->id);
+                    try {
+                        ($this->onFilingFailed)($e, $attachment->mimeType, $attachment->id);
+                    } catch (\Throwable) {
+                        // What the composition roots install here writes a
+                        // row: a database that is down would turn SAYING
+                        // that a receipt was not filed into a second,
+                        // louder failure, and the rest of this message's
+                        // attachments would never be looked at. A trace is
+                        // worth having and worth nothing at that price.
+                    }
                 }
 
                 continue;

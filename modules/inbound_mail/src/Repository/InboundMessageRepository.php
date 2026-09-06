@@ -1278,6 +1278,15 @@ class InboundMessageRepository
             return false;
         }
 
+        // A message this consumer already filed under one of its own
+        // objects is not one to hide: it leaves the list by being
+        // detached, and the screen only offers the button on an
+        // unattached row. Enforced HERE and not in the template, because a
+        // rule only a view knows is a rule a POST does not have to obey.
+        if ($this->hasLinkForConsumer($messageId, $consumerId)) {
+            return false;
+        }
+
         $stmt = $this->pdo->prepare(
             'INSERT INTO inbound_message_dismissals (message_id, consumer_id, dismissed_by_user_account_id)
              VALUES (?, ?, ?)'
@@ -1285,24 +1294,70 @@ class InboundMessageRepository
 
         try {
             $stmt->execute([$messageId, $consumerId, $userAccountId]);
-        } catch (\PDOException) {
+        } catch (\PDOException $e) {
             // The unique index caught the same decision made twice — two
             // chiefs on the same list, or a double click. That is the
             // state the caller asked for, so it is not an error. Spelled
             // as a catch rather than an `ON DUPLICATE KEY`, which SQLite —
             // the test database — spells differently (see addLink()).
-            return true;
+            //
+            // Narrowed to the integrity violation on purpose: a connection
+            // that dropped or a lock that timed out wrote no row, and
+            // answering « c'est fait » to those would put « Courrier
+            // écarté » on the screen of a chief whose message is still
+            // there. That is the same class of silence this whole change
+            // is about.
+            if (self::isDuplicateKey($e)) {
+                return true;
+            }
+
+            throw $e;
         }
 
         return true;
     }
 
+    /** SQLSTATE 23000: the row is already there, on MySQL and on SQLite alike. */
+    private static function isDuplicateKey(\PDOException $e): bool
+    {
+        return $e->getCode() === '23000';
+    }
+
+    /** Whether this consumer has filed this message under one of its own objects. */
+    private function hasLinkForConsumer(int $messageId, string $consumerId): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT 1 FROM inbound_message_links WHERE message_id = ? AND consumer_id = ? LIMIT 1'
+        );
+        $stmt->execute([$messageId, $consumerId]);
+
+        return $stmt->fetchColumn() !== false;
+    }
+
     /**
      * Put one back in the list. The undo half, and the reason a dismissal
      * is a row rather than a deletion.
+     *
+     * **Scoped exactly as setting aside is**, and the asymmetry was a real
+     * hole: deleting by (message, consumer) alone let any chief of any
+     * unit-adjacent scope name an id and change what somebody else's
+     * triage list shows. An id in a URL is not an authorization
+     * (SECURITY.md §3), and « ça ne fait que ré-afficher » is exactly the
+     * reasoning that makes an IDOR ship.
+     *
+     * @param string[] $ownReferences
+     * @param int[] $fullReadMailboxIds
      */
-    public function restoreMessageForConsumer(string $consumerId, int $messageId): bool
-    {
+    public function restoreMessageForConsumer(
+        string $consumerId,
+        array $ownReferences,
+        array $fullReadMailboxIds,
+        int $messageId
+    ): bool {
+        if (!$this->isInTriageScope($consumerId, $ownReferences, $fullReadMailboxIds, $messageId)) {
+            return false;
+        }
+
         $stmt = $this->pdo->prepare(
             'DELETE FROM inbound_message_dismissals WHERE message_id = ? AND consumer_id = ?'
         );

@@ -186,6 +186,7 @@ class CampsMailController extends AbstractController
 
         $done = $this->inboundMail?->restoreMessage(
             CampsMessageConsumer::CONSUMER_ID,
+            $this->stayReferences(),
             (int) ($params['id'] ?? 0)
         ) ?? false;
 

@@ -259,6 +259,9 @@ class AnalysisJournal
                 'rattache' => 'rattaché',
                 'propose' => 'proposition',
                 'rattache_et_propose' => 'rattaché et proposition',
+                // « rien » would say the module looked and found nothing,
+                // which is the one thing this outcome does NOT mean.
+                'lecture_impossible' => 'lecture impossible',
                 default => 'rien',
             };
         }

@@ -197,6 +197,66 @@ final class UnattendedReceiptFilingTest extends TestCase
     }
 
     /**
+     * Saying that a receipt was not filed must not become the next thing
+     * that fails.
+     *
+     * What the composition roots install here writes a journal row. A
+     * database that is down would turn the trace into a second, louder
+     * failure, `onLinked()` would leave its loop, and every other
+     * attachment of that message would go unlooked at — a message
+     * carrying an invoice and a photo losing the photo because the
+     * invoice's refusal could not be written down.
+     */
+    public function testAReporterThatThrowsDoesNotCostTheOtherAttachments(): void
+    {
+        $seen = [];
+
+        $this->consumer(
+            new RefusingExpenseReceipts(new \Modules\Finance\Api\FinanceException('Compte introuvable.')),
+            function (\Throwable $e, string $mimeType, int $attachmentId) use (&$seen): void {
+                $seen[] = $attachmentId;
+
+                throw new \RuntimeException('the journal is down too');
+            }
+        )->onLinked(
+            $this->messageWithTwoAttachments($this->inboundAttachment(), $this->inboundAttachment()),
+            new MessageLink(
+                FinanceMessageConsumer::CONSUMER_ID,
+                FinanceMessageConsumer::REFERENCE_UNKNOWN,
+                LinkOrigin::ATTACHMENT
+            )
+        );
+
+        $this->assertSame([88, 89], $seen, 'the second attachment must still be looked at');
+    }
+
+    private function messageWithTwoAttachments(int $firstFileId, int $secondFileId): InboundMessage
+    {
+        $base = $this->message($firstFileId);
+
+        return new InboundMessage(
+            id: $base->id,
+            mailboxId: $base->mailboxId,
+            consumerId: $base->consumerId,
+            businessReference: $base->businessReference,
+            linkOrigin: $base->linkOrigin,
+            subject: $base->subject,
+            fromEmail: $base->fromEmail,
+            fromName: $base->fromName,
+            messageId: $base->messageId,
+            inReplyTo: $base->inReplyTo,
+            sentAt: $base->sentAt,
+            bodyText: $base->bodyText,
+            bodyHtml: '',
+            toEmails: $base->toEmails,
+            attachments: [
+                new InboundAttachment(88, 55, $firstFileId, 'ticket.png', 'image/png', 120, 'hash-a'),
+                new InboundAttachment(89, 55, $secondFileId, 'plan.png', 'image/png', 120, 'hash-b'),
+            ]
+        );
+    }
+
+    /**
      * @param (\Closure(\Throwable, string, int): void)|null $onFilingFailed
      */
     private function consumer(

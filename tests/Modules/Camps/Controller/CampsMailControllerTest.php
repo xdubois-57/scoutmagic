@@ -876,7 +876,10 @@ class RecordingInboundMail implements InboundMailInterface
         return !$this->dismissalRefused;
     }
 
-    public function restoreMessage(string $consumerId, int $messageId): bool
+    /**
+     * @param string[] $ownReferences
+     */
+    public function restoreMessage(string $consumerId, array $ownReferences, int $messageId): bool
     {
         $this->restorations[] = [$consumerId, $messageId];
 

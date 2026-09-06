@@ -135,7 +135,10 @@ trait InertInboundMail
         return false;
     }
 
-    public function restoreMessage(string $consumerId, int $messageId): bool
+    /**
+     * @param string[] $ownReferences
+     */
+    public function restoreMessage(string $consumerId, array $ownReferences, int $messageId): bool
     {
         return false;
     }

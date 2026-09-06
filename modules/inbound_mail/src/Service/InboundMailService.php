@@ -177,9 +177,17 @@ class InboundMailService implements InboundMailInterface
         );
     }
 
-    public function restoreMessage(string $consumerId, int $messageId): bool
+    /**
+     * @param string[] $ownReferences
+     */
+    public function restoreMessage(string $consumerId, array $ownReferences, int $messageId): bool
     {
-        return $this->messageRepository->restoreMessageForConsumer($consumerId, $messageId);
+        return $this->messageRepository->restoreMessageForConsumer(
+            $consumerId,
+            array_values(array_unique($ownReferences)),
+            $this->mailboxRepository->mailboxIdsReadableInFull($consumerId),
+            $messageId
+        );
     }
 
     /**

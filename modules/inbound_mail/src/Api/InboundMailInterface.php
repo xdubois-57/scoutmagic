@@ -132,6 +132,11 @@ interface InboundMailInterface
      * Scoped like everything else here: a message outside this
      * requester's triage list is refused rather than hidden. Idempotent.
      *
+     * Refused too on a message this consumer has already filed under one
+     * of its own objects — that one leaves the list by being detached,
+     * and a rule only the template knows is a rule a POST does not have
+     * to obey.
+     *
      * @param string[] $ownReferences references the requester may manage
      * @return bool whether the message was in scope to be set aside
      */
@@ -146,9 +151,14 @@ interface InboundMailInterface
      * Put a set-aside message back in the list — the undo half, and the
      * reason a dismissal is a row rather than a deletion.
      *
+     * Scoped exactly as {@see self::dismissMessage()} is: an id in a URL
+     * is not an authorization (SECURITY.md §3), and « ça ne fait que
+     * ré-afficher » is the reasoning that ships an IDOR.
+     *
+     * @param string[] $ownReferences references the requester may manage
      * @return bool whether something was actually put back
      */
-    public function restoreMessage(string $consumerId, int $messageId): bool;
+    public function restoreMessage(string $consumerId, array $ownReferences, int $messageId): bool;
 
     /**
      * How many messages this consumer has set aside, so a screen offers
