@@ -188,6 +188,50 @@ class DependencyInventoryTest extends TestCase
     }
 
     /**
+     * A lock file that exists and is corrupt is the worse case of the
+     * two: a partial inventory looks complete, and the release note it
+     * lands in is read as a statement of what shipped.
+     */
+    public function testACorruptLockFileRefusesRatherThanReadingAsEmpty(): void
+    {
+        $file = tempnam(sys_get_temp_dir(), 'lock');
+        file_put_contents($file, '{"packages": [truncated');
+
+        try {
+            $this->expectException(\RuntimeException::class);
+            $this->expectExceptionMessage('is not valid JSON');
+            \inventory_read_json($file);
+        } finally {
+            unlink($file);
+        }
+    }
+
+    /**
+     * `packages-dev` is absent from a lock file with no dev dependencies,
+     * and could be malformed in one somebody edited. Neither is a reason
+     * to stop — the section is simply empty — but neither may be read as
+     * a list of packages either.
+     */
+    public function testAnAbsentOrMalformedComposerSectionIsEmptyRatherThanFatal(): void
+    {
+        $this->assertSame([], \inventory_composer_packages([], 'packages-dev'));
+        $this->assertSame([], \inventory_composer_packages(['packages' => 'not-a-list'], 'packages'));
+    }
+
+    /**
+     * An empty table says so in words. A release note carrying a heading
+     * with nothing under it reads as a section somebody forgot to fill.
+     */
+    public function testAnEmptyTableSaysSoRatherThanRenderingAHeaderWithNoRows(): void
+    {
+        $this->assertSame("_Aucune._\n", \inventory_table([], '_Aucune._'));
+        $this->assertStringContainsString(
+            '| `a/b` | 1.0.0 | MIT |',
+            \inventory_table(['a/b' => ['version' => '1.0.0', 'licence' => 'MIT']], '_Aucune._')
+        );
+    }
+
+    /**
      * The freshness gate in scripts/release.sh reads the same banners with
      * its own copies of these patterns. They have to agree, or a banner
      * that changes shape breaks one and not the other — and the one that

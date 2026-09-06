@@ -126,14 +126,19 @@ function sonar_evidence_main(array $argv): void
         exit(1);
     }
 
-    $expected = (string) getenv('SONAR_EXPECTED_REVISION');
-    $expected = $expected === '' ? null : $expected;
+    // `getenv()` with no argument returns the whole environment, which is
+    // what makes the settings below a pure function of a map rather than
+    // of the process — and therefore testable. Same for the token: the
+    // fallback to a gitignored file is the sort of thing that stops
+    // working silently, so it is a function with a test rather than four
+    // lines nobody can reach.
+    $settings = sonar_evidence_settings(getenv());
+    $expected = $settings['expected'];
+    $token = sonar_evidence_resolve_token(
+        (string) (getenv('SONAR_TOKEN') ?: ''),
+        dirname(__DIR__) . '/.sonar-token'
+    );
 
-    $token = (string) getenv('SONAR_TOKEN');
-    $tokenFile = dirname(__DIR__) . '/.sonar-token';
-    if ($token === '' && is_file($tokenFile)) {
-        $token = trim((string) file_get_contents($tokenFile));
-    }
     if ($token === '') {
         if ($expected !== null) {
             fwrite(STDERR, "sonar-evidence: SONAR_TOKEN is not set and an analysis of {$expected} is required — refusing.\n");
@@ -144,25 +149,103 @@ function sonar_evidence_main(array $argv): void
         exit(0);
     }
 
-    $host = rtrim((string) (getenv('SONAR_HOST_URL') ?: 'https://sonarcloud.io'), '/');
-    $projectKey = (string) (getenv('SONAR_PROJECT_KEY') ?: 'xdubois-57_scoutmagic');
-    $branch = (string) (getenv('SONAR_BRANCH') ?: 'main');
-    $attempts = max(1, (int) (getenv('SONAR_WAIT_ATTEMPTS') ?: 20));
-    $seconds = max(0, (int) (getenv('SONAR_WAIT_SECONDS') ?: 30));
-
+    $host = $settings['host'];
     $api = static fn (string $path): array => sonar_evidence_api($host, $token, $path);
     $sleep = static function (int $s): void {
         sleep($s);
     };
 
     try {
-        $summary = sonar_evidence_collect($api, $outDir, $projectKey, $branch, $expected, $attempts, $seconds, $sleep);
+        $summary = sonar_evidence_collect(
+            $api,
+            $outDir,
+            $settings['project_key'],
+            $settings['branch'],
+            $expected,
+            $settings['attempts'],
+            $settings['seconds'],
+            $sleep
+        );
     } catch (RuntimeException $e) {
         fwrite(STDERR, 'sonar-evidence: ' . $e->getMessage() . "\n");
         exit(1);
     }
 
-    fwrite(STDERR, sprintf(
+    fwrite(STDERR, sonar_evidence_summary_line($summary, $outDir));
+
+    // Every file above is written before this point, on purpose: a refusal
+    // is exactly when somebody wants to read the report, and the workflow
+    // uploads the directory whether this exits 0 or 1.
+    $refusals = $expected === null ? [] : sonar_evidence_release_refusals($summary);
+    if ($refusals === []) {
+        return;
+    }
+
+    fwrite(STDERR, sonar_evidence_refusal_message($refusals));
+    exit(1);
+}
+
+/**
+ * This script's configuration, read from an environment map rather than
+ * from the process, with the defaults the header documents.
+ *
+ * The clamps are not decoration: `SONAR_WAIT_ATTEMPTS=0` would make the
+ * wait loop below run zero times and fall straight through to its
+ * timeout refusal, which reads as "SonarCloud never analysed this commit"
+ * over a commit nobody ever asked about. One attempt is the floor.
+ *
+ * @param array<string, string> $env
+ * @return array{expected: ?string, host: string, project_key: string, branch: string, attempts: int, seconds: int}
+ */
+function sonar_evidence_settings(array $env): array
+{
+    $expected = (string) ($env['SONAR_EXPECTED_REVISION'] ?? '');
+
+    // Parenthesised deliberately. `$a ?? '' ?: $b` does mean
+    // `($a ?? '') ?: $b` — but only because `??` binds tighter than `?:`,
+    // which is a precedence nobody should have to recall to read a
+    // default. An empty variable takes the default here, which is the
+    // point: a CI runner writes `SONAR_BRANCH: ''` for an expression that
+    // resolved to nothing, and a branch named '' would be queried and 404.
+    return [
+        'expected' => $expected === '' ? null : $expected,
+        'host' => rtrim(((string) ($env['SONAR_HOST_URL'] ?? '')) ?: 'https://sonarcloud.io', '/'),
+        'project_key' => ((string) ($env['SONAR_PROJECT_KEY'] ?? '')) ?: 'xdubois-57_scoutmagic',
+        'branch' => ((string) ($env['SONAR_BRANCH'] ?? '')) ?: 'main',
+        'attempts' => max(1, ((int) ($env['SONAR_WAIT_ATTEMPTS'] ?? 0)) ?: 20),
+        'seconds' => max(0, ((int) ($env['SONAR_WAIT_SECONDS'] ?? 0)) ?: 30),
+    ];
+}
+
+/**
+ * The token: the environment first, then the gitignored file
+ * scripts/check-sonar-release.sh may have written, then nothing.
+ *
+ * Trimmed, because a file written by `echo` ends in a newline and a
+ * Bearer header carrying one is rejected with a 401 that says nothing
+ * about why.
+ */
+function sonar_evidence_resolve_token(string $fromEnvironment, string $tokenFile): string
+{
+    if ($fromEnvironment !== '') {
+        return $fromEnvironment;
+    }
+
+    if (is_file($tokenFile)) {
+        return trim((string) file_get_contents($tokenFile));
+    }
+
+    return '';
+}
+
+/**
+ * The one line this script prints on a run that worked.
+ *
+ * @param array{revision: string, analysis_date: string, quality_gate: string, issues: int, blocking: int, hotspots: int, hotspots_to_review: int} $summary
+ */
+function sonar_evidence_summary_line(array $summary, string $outDir): string
+{
+    return sprintf(
         "sonar-evidence: analysis %s of %s — quality gate %s, %d issue(s) (%d blocking), %d hotspot(s) (%d to review), written to %s\n",
         $summary['analysis_date'],
         substr($summary['revision'], 0, 7),
@@ -172,29 +255,23 @@ function sonar_evidence_main(array $argv): void
         $summary['hotspots'],
         $summary['hotspots_to_review'],
         $outDir
-    ));
-
-    // Every file above is written before this point, on purpose: a refusal
-    // is exactly when somebody wants to read the report, and the workflow
-    // uploads the directory whether this exits 0 or 1.
-    if ($expected === null) {
-        return;
-    }
-
-    $refusals = sonar_evidence_release_refusals($summary);
-    if ($refusals === []) {
-        return;
-    }
-
-    fwrite(STDERR, "\nsonar-evidence: this analysis does not qualify for a release.\n");
-    foreach ($refusals as $refusal) {
-        fwrite(STDERR, '  - ' . $refusal . "\n");
-    }
-    fwrite(
-        STDERR,
-        "See AGENTS.md § SonarQube Cloud release gate. Fix or resolve them, then release the commit that does.\n"
     );
-    exit(1);
+}
+
+/**
+ * What a refusal prints: every reason, then where the rule is written.
+ *
+ * @param list<string> $refusals
+ */
+function sonar_evidence_refusal_message(array $refusals): string
+{
+    $message = "\nsonar-evidence: this analysis does not qualify for a release.\n";
+    foreach ($refusals as $refusal) {
+        $message .= '  - ' . $refusal . "\n";
+    }
+
+    return $message
+        . "See AGENTS.md § SonarQube Cloud release gate. Fix or resolve them, then release the commit that does.\n";
 }
 
 /**
@@ -255,6 +332,25 @@ function sonar_evidence_api(string $host, string $token, string $path): array
     $error = curl_error($handle);
     curl_close($handle);
 
+    return sonar_evidence_decode($body, $status, $error, $path);
+}
+
+/**
+ * What to make of one HTTP answer.
+ *
+ * Separated from the curl call above because this is where the decisions
+ * are, and they are the ones that matter: a transport error, a non-200,
+ * or a body that is not JSON are all refusals. This script never guesses
+ * and never reads an unreadable answer as "nothing found" — an evidence
+ * pack whose SonarCloud section silently means "the API was down" would
+ * be worse than one that is missing.
+ *
+ * @param string|bool $body what curl_exec returned
+ * @return array<string, mixed>
+ * @throws RuntimeException
+ */
+function sonar_evidence_decode(string|bool $body, int $status, string $error, string $path): array
+{
     if (!is_string($body) || $status !== 200) {
         throw new RuntimeException("GET {$path} failed (HTTP {$status}) {$error}");
     }

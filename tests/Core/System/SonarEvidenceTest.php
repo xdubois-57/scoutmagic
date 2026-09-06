@@ -356,6 +356,154 @@ class SonarEvidenceTest extends TestCase
         $this->assertStringContainsString('Indisponible : pas de jeton', (string) file_get_contents($this->outDir . '/sonarcloud-report.md'));
     }
 
+    /**
+     * The configuration, defaults included. Each default is a value
+     * somebody would otherwise have to read the script to learn, and the
+     * clamps are the reason this is a function rather than five lines in
+     * an entry point nobody can call.
+     */
+    public function testTheSettingsCarryTheirDefaults(): void
+    {
+        $defaults = \sonar_evidence_settings([]);
+
+        $this->assertNull($defaults['expected'], 'no expected revision means a rehearsal, not a release');
+        $this->assertSame('https://sonarcloud.io', $defaults['host']);
+        $this->assertSame('xdubois-57_scoutmagic', $defaults['project_key']);
+        $this->assertSame('main', $defaults['branch']);
+        $this->assertSame(20, $defaults['attempts']);
+        $this->assertSame(30, $defaults['seconds']);
+
+        $set = \sonar_evidence_settings([
+            'SONAR_EXPECTED_REVISION' => 'abc123',
+            'SONAR_HOST_URL' => 'https://sonar.example.invalid/',
+            'SONAR_PROJECT_KEY' => 'other_project',
+            'SONAR_BRANCH' => 'release',
+            'SONAR_WAIT_ATTEMPTS' => '3',
+            'SONAR_WAIT_SECONDS' => '5',
+        ]);
+
+        $this->assertSame('abc123', $set['expected']);
+        $this->assertSame('https://sonar.example.invalid', $set['host'], 'the trailing slash is stripped, or every path becomes a double slash');
+        $this->assertSame('other_project', $set['project_key']);
+        $this->assertSame('release', $set['branch']);
+        $this->assertSame(3, $set['attempts']);
+        $this->assertSame(5, $set['seconds']);
+    }
+
+    /**
+     * An empty variable means "unset", not "empty string" — a CI runner
+     * writes `SONAR_BRANCH: ''` for an expression that resolved to
+     * nothing, and a branch named '' would be queried and 404.
+     */
+    public function testAnEmptyVariableFallsBackToItsDefault(): void
+    {
+        $settings = \sonar_evidence_settings([
+            'SONAR_EXPECTED_REVISION' => '',
+            'SONAR_HOST_URL' => '',
+            'SONAR_BRANCH' => '',
+        ]);
+
+        $this->assertNull($settings['expected']);
+        $this->assertSame('https://sonarcloud.io', $settings['host']);
+        $this->assertSame('main', $settings['branch']);
+    }
+
+    /**
+     * Zero attempts would make the wait loop run no times and fall
+     * straight to its timeout refusal — reported as "SonarCloud never
+     * analysed this commit" about a commit nobody ever asked after.
+     */
+    public function testTheWaitBudgetIsClampedRatherThanTakenLiterally(): void
+    {
+        $zero = \sonar_evidence_settings(['SONAR_WAIT_ATTEMPTS' => '0', 'SONAR_WAIT_SECONDS' => '0']);
+        $this->assertSame(20, $zero['attempts'], 'an explicit 0 is falsy, so it means "unset" and takes the default');
+
+        $negative = \sonar_evidence_settings(['SONAR_WAIT_ATTEMPTS' => '-5', 'SONAR_WAIT_SECONDS' => '-5']);
+        $this->assertSame(1, $negative['attempts'], 'at least one attempt, always');
+        $this->assertSame(0, $negative['seconds'], 'no sleep is legitimate; a negative one is not');
+    }
+
+    /**
+     * The token: the environment wins, the gitignored file
+     * scripts/check-sonar-release.sh writes is the fallback, and neither
+     * is a silent absence.
+     */
+    public function testTheTokenFallsBackToTheGitignoredFile(): void
+    {
+        $file = tempnam(sys_get_temp_dir(), 'sonar-token');
+        // As `echo > .sonar-token` leaves it: a Bearer header carrying a
+        // newline is rejected with a 401 that says nothing about why.
+        file_put_contents($file, "from-the-file\n");
+
+        try {
+            $this->assertSame('from-the-env', \sonar_evidence_resolve_token('from-the-env', $file));
+            $this->assertSame('from-the-file', \sonar_evidence_resolve_token('', $file));
+            $this->assertSame('', \sonar_evidence_resolve_token('', $file . '-absent'));
+        } finally {
+            unlink($file);
+        }
+    }
+
+    /**
+     * One HTTP answer, and the three ways it is refused. An unreadable
+     * answer must never read as "nothing found": a pack whose SonarCloud
+     * section quietly meant "the API was down" would be worse than one
+     * that is missing.
+     */
+    public function testAnUnreadableAnswerIsRefusedRatherThanReadAsEmpty(): void
+    {
+        $this->assertSame(
+            ['analyses' => []],
+            \sonar_evidence_decode('{"analyses":[]}', 200, '', 'project_analyses/search')
+        );
+
+        foreach ([
+            'a transport error' => [false, 0, 'Could not resolve host'],
+            'an HTTP 401' => ['{"errors":[]}', 401, ''],
+            'an HTTP 500' => ['', 500, ''],
+        ] as $case => [$body, $status, $error]) {
+            try {
+                \sonar_evidence_decode($body, $status, $error, 'issues/search');
+                $this->fail($case . ' was not refused');
+            } catch (\RuntimeException $e) {
+                $this->assertStringContainsString('issues/search', $e->getMessage(), $case);
+            }
+        }
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('did not return JSON');
+        \sonar_evidence_decode('<html>gateway</html>', 200, '', 'measures/component');
+    }
+
+    public function testTheSummaryLineNamesTheCommitAndTheCounts(): void
+    {
+        $line = \sonar_evidence_summary_line([
+            'revision' => 'abcdef1234567890',
+            'analysis_date' => '2026-09-06T10:00:00+0000',
+            'quality_gate' => 'OK',
+            'issues' => 4,
+            'blocking' => 1,
+            'hotspots' => 3,
+            'hotspots_to_review' => 2,
+        ], 'evidence');
+
+        $this->assertStringContainsString('of abcdef1', $line, 'the short sha, not the whole one');
+        $this->assertStringContainsString('quality gate OK', $line);
+        $this->assertStringContainsString('4 issue(s) (1 blocking)', $line);
+        $this->assertStringContainsString('3 hotspot(s) (2 to review)', $line);
+        $this->assertStringContainsString('written to evidence', $line);
+    }
+
+    public function testTheRefusalMessageListsEveryReasonAndWhereTheRuleLives(): void
+    {
+        $message = \sonar_evidence_refusal_message(['première raison', 'seconde raison']);
+
+        $this->assertStringContainsString('does not qualify for a release', $message);
+        $this->assertStringContainsString('  - première raison', $message);
+        $this->assertStringContainsString('  - seconde raison', $message);
+        $this->assertStringContainsString('AGENTS.md § SonarQube Cloud release gate', $message);
+    }
+
     public function testRatingsAreLettersNotDecimals(): void
     {
         $this->assertSame('A', \sonar_evidence_rating('1.0'));
