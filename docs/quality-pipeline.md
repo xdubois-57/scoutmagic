@@ -170,8 +170,9 @@ the ruleset keeps waiting for a check that will never report again. So
 `ci.yml` carries one job whose name never changes and whose `needs:` is
 reviewed like any other line; it runs with `if: always()` so an upstream
 failure leaves it red rather than *skipped* (a skipped required check
-reads as "expected" — the misreading #152 lost an hour to). Whether it is
-actually required is a ruleset setting: § Branch ruleset on `main` below.
+reads as "expected" — the misreading #152 lost an hour to). It is a
+required context on `main` **since 2026-09-06**, which is what closed
+issue #170 — see § Branch ruleset on `main` below.
 
 `checks.yml` takes one input, `evidence`. Off, it is what the table shows.
 On — only `release.yml` sets it — each job also keeps what its tool emits
@@ -655,18 +656,17 @@ an error.
   itself a merge.
 - **Require status checks to pass.** A check only appears in GitHub's list
   after it has run at least once, so add each one after its first run, not
-  before. `Claude review` is the one required context **as of 2026-09-06**.
-  `All checks` (§ Continuous integration) was built to be the second: one
-  name standing for every `Checks / …` job, stable across renames, red
-  whenever any gate is red or was cancelled. Adding it closes issue #170
-  at the source — a red `database-mariadb`, `Authorization matrix` or
-  `Dynamic scan (passive)`, or one still running, then blocks the merge
-  and holds an armed auto-merge — and it is the one manual step this
-  repository cannot make for itself: add it after its first run on
-  `main`, then confirm with `GET /repos/xdubois-57/scoutmagic/rules/branches/main`
-  that `required_status_checks` lists both contexts, and update this
-  line. Do not add the individual `Checks / …` names as well: that is
-  the fragile form, and `All checks` already waits for all of them.
+  before. Two contexts are required **as of 2026-09-06**, confirmed
+  against `GET /repos/xdubois-57/scoutmagic/rules/branches/main`:
+  `Claude review`, and `All checks` (§ Continuous integration) — one name
+  standing for every `Checks / …` job, stable across renames, red whenever
+  any gate is red or was cancelled. The second is what closed issue #170
+  at the source: a red `database-mariadb`, `Authorization matrix` or
+  `Dynamic scan (passive)` now blocks the merge and holds an armed
+  auto-merge, where until that day the three gated nothing at all. Do not
+  add the individual `Checks / …` names as well: that is the fragile form
+  — each name is a merge that stalls forever the day that job is renamed
+  — and `All checks` already waits for all of them.
 - **Require branches to be up to date before merging** — *deliberately off.*
   It is the sub-option of the rule above, and turning it on again brings back
   the failure it was turned off for: with it on, a pull request must be even
@@ -720,15 +720,21 @@ a change of base branch, disarms auto-merge silently.** Nothing announces
 it. A pull request that was going to land and then simply did not is the
 first thing to check.
 
-And note what it does *not* wait for. The required-check list is one
-context, `Claude review`, and the `code_scanning` rule above waits on CodeQL
-and SonarCloud — so `database-mariadb`, `Authorization matrix` and
-`Dynamic scan (passive)` gate nothing at all. An armed pull request whose
-`database-mariadb` is red still merges. Requiring `All checks` fixes that
-at the source (§ Branch ruleset on `main` above says whether it has been
-done); until then the gate is the person or agent arming it, which is why
-AGENTS.md § Merging a pull request puts "every check green on the current
-head" first among the things to confirm.
+And note what it now waits for, and what it still does not. The
+required-check list is two contexts, `Claude review` and `All checks`, and
+the `code_scanning` rule above waits on CodeQL and SonarCloud — so an armed
+pull request whose `database-mariadb`, `Authorization matrix` or `Dynamic
+scan (passive)` is red no longer merges: `All checks` is red with it. Until
+2026-09-06 those three gated nothing at all and an armed pull request
+merged over them, which is what issue #170 was about.
+
+What no ruleset can tell you is that a pipeline has *finished*. `All checks`
+reports only once every job it needs has, so arming before that is arming
+on a verdict nobody has reached yet — and a required check that has not
+reported looks, in GitHub's own display, like one that is merely waiting.
+That is why AGENTS.md § Merging a pull request still puts "every check green
+on the current head" first among the things to confirm, and why arming and
+walking away from an unfinished pull request is the one thing it forbids.
 
 ### Private vulnerability reporting
 
