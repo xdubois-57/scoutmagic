@@ -271,6 +271,16 @@ jobs:
         its body AND its comments, in order — and triage it as that file
         describes.
 
+        THE COMMENTS ARE PART OF THE REPORT, on a first triage as much as
+        on any other, and a comment can CORRECT the form. The bug template
+        offers a dropdown for the role and another for the page; a
+        reporter picks one, notices it was wrong, and says so underneath
+        rather than editing the form. Triage what the thread now says, not
+        what the dropdown said: the later statement wins. Analysing the
+        role the form named, when a comment has corrected it, answers a
+        situation the reporter was never in — and they will read that
+        answer and see that nobody read them.
+
         YOU DO NOT WRITE ANYTHING. You hold the READ tools of the GitHub
         server and nothing else: there is no tool here that posts a
         comment, sets a label or closes an issue, and this is not an
@@ -278,7 +288,7 @@ jobs:
         described by the schema this run was given. The workflow applies
         it afterwards, to this issue and only this issue.
 
-        So the skill file's § 4 and § 5 still tell you WHAT to say and
+        So the skill file's § 5 and § 6 still tell you WHAT to say and
         which verdict to reach — that judgement is yours and it is the
         whole job — but not how it is delivered. Where it says to post
         the comment, put its text in `comment`. Where it says to apply a

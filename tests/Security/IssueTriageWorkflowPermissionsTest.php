@@ -1270,7 +1270,7 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
                 $verdict,
                 (string) $schema,
                 $workflow . "'s verdict schema no longer offers `" . $verdict . '`, one of the '
-                . 'three verdicts `.claude/skills/triage/SKILL.md` § 3 requires. A verdict the '
+                . 'three verdicts `.claude/skills/triage/SKILL.md` § 4 requires. A verdict the '
                 . 'schema cannot express is one the agent cannot reach.',
             );
         }
@@ -1297,6 +1297,47 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
             $workflow . ' no longer maps the verdict to a label in the shell. Taking the label '
             . 'name from the agent instead is how an invented label — or one an issue body asked '
             . 'for — gets applied.',
+        );
+    }
+
+    /**
+     * The report is the body PLUS the comments, and both prompts have to
+     * say so.
+     *
+     * The bug form is a set of dropdowns — role, page, version, browser —
+     * and a reporter who picks the wrong one corrects it in a comment
+     * rather than editing the form. Issue #181 was filed with the role on
+     * « Public (non connecté) » and corrected three minutes later to
+     * superadmin: two different pages, two different `role_min`, two
+     * different answers. An agent that reads the body alone analyses a
+     * situation the reporter was never in, and answers with confidence.
+     *
+     * Asserted on both prompts because the failure is asymmetric and the
+     * scan had it: reading the comments was written only into the
+     * per-issue prompt, and the nightly job — which handles issues months
+     * old, whose threads have had the most time to gather corrections —
+     * mentioned comments only as untrusted input.
+     */
+    #[DataProvider('issueWorkflows')]
+    public function testThePromptReadsTheCommentsAndNotOnlyTheBody(string $workflow): void
+    {
+        $prompt = implode(' ', array_map('trim', $this->promptLines($workflow)));
+
+        self::assertSame(
+            1,
+            preg_match('/body AND its comments/i', $prompt),
+            $workflow . "'s prompt no longer tells the agent to read the comments as well as the "
+            . 'body. A reporter who picked the wrong role in the form corrects it underneath '
+            . 'rather than editing the form, and a triage that reads the body alone answers a '
+            . 'situation nobody was in — issue #181.',
+        );
+
+        self::assertSame(
+            1,
+            preg_match('/can CORRECT the form/i', $prompt),
+            $workflow . "'s prompt no longer says that a comment can correct the form. Reading "
+            . 'the comments is not enough on its own: the dropdown still says what it says, and '
+            . 'the agent has to know which one wins.',
         );
     }
 

@@ -216,7 +216,7 @@ jobs:
         it afterwards, to the issues in the list above and to no
         others.
 
-        So the skill file's § 4 and § 5 still tell you WHAT to say and
+        So the skill file's § 5 and § 6 still tell you WHAT to say and
         which verdict to reach — that judgement is yours and it is the
         whole job — but not how it is delivered. Where it says to post
         the comment, put its text in `comment`. Where it says to apply
@@ -224,8 +224,22 @@ jobs:
         `triage:pending` and the closing of a `bug:not-a-bug` issue
         are handled for you.
 
-        Work them one at a time, oldest first: read the issue, read
-        the code, reach the verdict, write the entry, move on.
+        Work them one at a time, oldest first: read the issue — its
+        body AND its comments, in order — read the code, reach the
+        verdict, write the entry, move on.
+
+        THE COMMENTS ARE PART OF EACH REPORT, and on this job they
+        matter more than on the per-issue one: these issues can be
+        months old, so a thread has had time to gather corrections,
+        a second reporter, and sometimes the answer. A comment can
+        CORRECT the form — a reporter picks a role or a page from a
+        dropdown, notices it was wrong, and says so underneath rather
+        than editing the form. Triage what the thread now says, not
+        what the dropdown said: the later statement wins.
+
+        Check too whether somebody already answered the report in a
+        comment. If they did, say so and build on it rather than
+        writing past them.
 
         FINISH THE LIST. Handling one issue is not the task; handling
         every issue in the list is. An issue you analysed and left out

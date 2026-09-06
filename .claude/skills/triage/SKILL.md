@@ -109,18 +109,39 @@ If you find one: say so in the comment, name it by number, and return
 are really the same before anything is closed, and closing is not yours to
 do anyway.
 
-### 2. Read the reported area against the actual code
+### 2. Read the whole report — body AND comments
+
+**The report is the body plus every comment on it, always, including on a
+first triage.** Read them in order before you look at any code. This is
+not the "it came back to you" case below; it is every case. A reporter who
+notices something missing adds it in a comment rather than editing the
+form, and someone else may have added what they know.
+
+**A comment can CORRECT the form, and then the form is wrong.** The bug
+template asks for the role, the page, the version, the browser; a reporter
+picks « Public (non connecté) » from a list and then writes "actually I
+was superadmin" underneath. Triage the report as the thread now describes
+it, not as the dropdown says: the later statement wins, and analysing the
+role the form named would send that person a verdict about a situation
+they were never in.
+
+This is not hypothetical. Issue #181 was filed with the role field on
+« Public (non connecté) » and corrected three minutes later, in a comment,
+to superadmin — two different pages, two different `role_min`, two
+different answers.
+
+### 3. Read the reported area against the actual code
 
 `ARCHITECTURE.md` describes what the code is *meant* to do; it is not
 evidence about what it does. Open the controller, the service, the
 repository, the template. The defect, if there is one, is in the code.
 
 The bug form gives you the version, the role, the page, the browser and
-whether it recurs. Use them: a `role_min` on the route explains a page a
-« Chef » cannot see, and a version several releases behind explains a
-defect already fixed.
+whether it recurs — as corrected by the thread, per § 2. Use them: a
+`role_min` on the route explains a page a « Chef » cannot see, and a
+version several releases behind explains a defect already fixed.
 
-### 3. Reach one of three verdicts
+### 4. Reach one of three verdicts
 
 | Verdict | When |
 |---|---|
@@ -142,7 +163,7 @@ that — what you looked at, what you did not find — and use
 `bug:needs-info` with the one question that would let somebody reproduce
 it. Never write `bug:not-a-bug` to mean "I could not find it".
 
-### 4. Write exactly one comment
+### 5. Write exactly one comment
 
 It goes in the `comment` field of your verdict, and the workflow posts it.
 Structure, in this order:
@@ -164,7 +185,7 @@ no jargon in the part addressed to the reporter — those belong in the part
 addressed to the maintainer, under its own heading, when there is one. A
 unit chief must be able to act on what you wrote without asking anyone.
 
-### 5. Choose the verdict
+### 6. Choose the verdict
 
 Return exactly one of `bug:confirmed` / `bug:not-a-bug` / `bug:needs-info`.
 `triage:done` and the removal of `triage:pending` follow from it

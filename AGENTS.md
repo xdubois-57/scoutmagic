@@ -397,7 +397,7 @@ backlog » — and it is a standing instruction, not a one-off. It means:
 2. **Take every OPEN issue carrying `status:accepted`.** That label, and
    only that label, selects the work. It is applied by hand and means the
    maintainer has decided the work is to be done; nothing automatic ever
-   applies it (`.claude/skills/triage/SKILL.md` § 5 forbids it), which is
+   applies it (`.claude/skills/triage/SKILL.md` § 6 forbids it), which is
    what makes it a decision rather than an opinion. `bug:confirmed` alone
    selects nothing — a confirmed defect nobody has accepted is still a
    backlog item, not an instruction.
