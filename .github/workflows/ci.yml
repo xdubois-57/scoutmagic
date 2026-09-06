@@ -22,11 +22,12 @@
 # job, runs whatever they concluded (`if: always()`), and goes red unless
 # each of them succeeded. Its name never changes when a gate is added,
 # renamed or split; the list of what it waits for is in this file, reviewed
-# like any other change. Adding it to the ruleset — Settings → Rules →
-# Rulesets → Main → Require status checks to pass — is the one manual step,
-# and it can only be done after this job has run once (a check only appears
-# in GitHub's picker after its first run). docs/quality-pipeline.md § Branch
-# ruleset on `main` carries the current state of that setting.
+# like any other change. It has been a required context on `main` since
+# 2026-09-06 — Settings → Rules → Rulesets → Main → Require status checks
+# to pass, alongside `Claude review` — which is what closed #170. That is a
+# repository setting no diff here can show, so renaming this job silently
+# stops gating anything: docs/quality-pipeline.md § Branch ruleset on `main`
+# is where its current state is recorded.
 
 name: CI
 

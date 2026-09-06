@@ -481,16 +481,16 @@ Arming it is *merging*, so everything that must be true before a merge must
 be true before you arm it:
 
 - **Every check green on the current head.** Not "the required one" —
-  every one. The ruleset requires a single context, `Claude review`, so
-  GitHub will happily land a pull request whose `database-mariadb`,
-  `Authorization matrix` or `Dynamic scan (passive)` is red: none of the
-  three is required, and none feeds the `code_scanning` rule that waits on
-  CodeQL and SonarCloud. The gate that stops that is you, before you arm.
-  `All checks` — the `ci.yml` job that needs every `Checks / …` job and is
-  red when any of them is — is the fastest way to read the whole set, and
-  the context built to be required in their place; whether the maintainer
-  has added it to the ruleset is recorded in `docs/quality-pipeline.md`
-  § Branch ruleset on `main`, and until that line says so it stops nothing.
+  every one. The ruleset requires `Claude review` and `All checks` — the
+  `ci.yml` job that needs every `Checks / …` job and is red when any of
+  them is — so since 2026-09-06 GitHub no longer lands a pull request
+  whose `database-mariadb`, `Authorization matrix` or `Dynamic scan
+  (passive)` is red. That hole was issue #170; `docs/quality-pipeline.md`
+  § Branch ruleset on `main` records the required list. Reading `All
+  checks` is therefore the fastest way to confirm the whole set — but not
+  a substitute for confirming it, because it reports only once every job
+  it needs has finished. A pipeline still running has reached no verdict,
+  and arming on one is arming on nothing.
 - **Every review thread replied to and resolved on purpose**, rather than
   resolved to clear the way.
 - **The PR template's checklist honestly filled**, and no finding of your

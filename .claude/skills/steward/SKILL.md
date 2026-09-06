@@ -295,15 +295,16 @@ the checklist honestly filled, nothing of your own left unfiled. Then GitHub
 lands it the moment the ruleset is satisfied, whether or not you are still
 here. If everything is already green the same command merges immediately.
 
-The CI confirmation is not a formality the ruleset would catch for you. Only
-`Claude review` is a required context, and the `code_scanning` rule waits on
-CodeQL and SonarCloud alone — so a red `database-mariadb`, `Authorization
-matrix` or `Dynamic scan (passive)` blocks nothing. Arm on one of those and
-GitHub merges it. `All checks` is the one context built to be required
-instead — it needs every `Checks / …` job and goes red when any of them is
-— and until the maintainer adds it to the ruleset (`docs/quality-pipeline.md`
-§ Branch ruleset on `main` says whether that has happened), read it as the
-quickest way to confirm the whole set, never as something that stops a merge.
+The CI confirmation is not a formality, though since 2026-09-06 the ruleset
+catches most of it: `Claude review` and `All checks` are both required
+contexts (`docs/quality-pipeline.md` § Branch ruleset on `main`), and `All
+checks` needs every `Checks / …` job and goes red when any of them is — so a
+red `database-mariadb`, `Authorization matrix` or `Dynamic scan (passive)`
+does block the merge now, where before it blocked nothing and arming on one
+merged it (issue #170). Read `All checks` as the quickest way to confirm the
+whole set. What it cannot tell you is that the pipeline has *finished*: it
+reports only once every job it needs has, so arming before that is arming on
+a verdict nobody has reached.
 
 Do not poll the PR instead. That is what cost #152 four CI cycles and three
 interruptions on 2026-09-05, and it is why auto-merge is enabled at all

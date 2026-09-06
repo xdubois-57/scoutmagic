@@ -135,13 +135,15 @@ final class AutoMergeRuleIsWrittenDownTest extends TestCase
     /**
      * The step that stops auto-merge from landing a red pull request.
      *
-     * Only `Claude review` is a required context, and the `code_scanning`
-     * rule waits on CodeQL and SonarCloud — so `database-mariadb`,
-     * `Authorization matrix` and `Dynamic scan (passive)` gate nothing.
-     * A first draft of this rule listed the thread and checklist items and
-     * left CI out, which would have let an agent arm a pull request whose
-     * database job was red and walk away. The ruleset will not catch that;
-     * only the instruction will.
+     * `All checks` became a required context on 2026-09-06, so the ruleset
+     * does now refuse a pull request whose `database-mariadb`,
+     * `Authorization matrix` or `Dynamic scan (passive)` is red — that was
+     * issue #170. It still does not refuse one whose pipeline has not
+     * finished: a required check that has not reported is displayed like
+     * one that is merely waiting. A first draft of this rule listed the
+     * thread and checklist items and left CI out, which would have let an
+     * agent arm on a half-run pipeline and walk away, and that is the part
+     * only the instruction catches.
      */
     public function testTheRuleRequiresGreenChecksBeforeArming(): void
     {
@@ -158,7 +160,7 @@ final class AutoMergeRuleIsWrittenDownTest extends TestCase
             $this->assertStringContainsString(
                 'database-mariadb',
                 $contents,
-                $file . ' no longer names a check the ruleset does not require'
+                $file . ' no longer names the checks this step exists to have read'
             );
         }
     }
