@@ -167,6 +167,76 @@ class StayFromMailServiceTest extends TestCase
     }
 
     /**
+     * The whole point of the retry, end to end: the séjour that #172 was
+     * about actually gets created on the second reading.
+     *
+     * The two halves are proved separately elsewhere — the pass puts a
+     * message whose reading failed back in the queue
+     * ({@see \Tests\Modules\InboundMail\Task\AnalyzeStoredMessagesHandlerTest}),
+     * and a readable contract becomes a stay
+     * ({@see self::testAContractInAPdfBecomesAStay}) — and two green halves
+     * that never meet are exactly the kind of proof
+     * docs/quality-pipeline.md warns about. What is checked here is the
+     * JOIN: the same message, the same service, the OCR service down on
+     * the first pass and answering on the second, and a stay at the end of
+     * it. Without the fix the first pass is the only pass there is.
+     */
+    public function testTheSecondReadingCreatesTheStayTheFirstOneMissed(): void
+    {
+        $llm = $this->llmDownOnceThenTranscribing('Arrivee: 18-09-26 Depart: 20-09-26');
+        $message = $this->messageWithAScan($llm);
+
+        // Pass one: the provider answers with an error. Nothing is
+        // created, and the journal says why in the word the deferred pass
+        // reads to decide whether to come back.
+        $this->assertNull($this->service($llm, $this->readerWith($llm))->createFrom($message));
+        $this->assertSame(StayFromMailService::SKIP_UNREADABLE, $this->lastSkipEntry()['reason']);
+
+        // Pass two, an hour later: a new service, as the task builds one
+        // per run, so nothing is memoised from the failure.
+        $campId = $this->service($llm, $this->readerWith($llm))->createFrom($message);
+
+        $this->assertNotNull($campId, 'the retry has to end in a séjour, or it bought nothing');
+        $camp = $this->camps->findById($campId);
+        $this->assertSame('2026-09-18', $camp?->startDate);
+        $this->assertSame('2026-09-20', $camp?->endDate);
+        $this->assertNotNull($this->places->findById((int) $camp?->placeId), 'and the lieu with it');
+    }
+
+    /**
+     * One connector answering two different questions, as production's
+     * does: the transcription at `LlmTier::OCR` and the venue name at
+     * `LlmTier::CHEAP`. The OCR side fails exactly once — a provider
+     * having a bad minute, not a document that says nothing.
+     */
+    private function llmDownOnceThenTranscribing(string $transcript): LlmConnectorInterface
+    {
+        $ocrCalls = 0;
+        $llm = $this->createStub(LlmConnectorInterface::class);
+        $llm->method('isAvailable')->willReturn(true);
+        $llm->method('isTierAvailable')->willReturn(true);
+        $llm->method('complete')->willReturnCallback(
+            function (LlmRequest $request) use ($transcript, &$ocrCalls): LlmResponse {
+                $this->asked[] = $request;
+
+                if ($request->tier !== \Modules\LlmConnector\Api\LlmTier::OCR) {
+                    $payload = ['place_name' => 'Centre de camp Le Grand Pré'];
+
+                    return new LlmResponse((string) json_encode($payload), $payload, 100, 10);
+                }
+
+                if (++$ocrCalls === 1) {
+                    throw new \Modules\LlmConnector\Api\LlmException('provider down');
+                }
+
+                return new LlmResponse($transcript, null, 100, 10);
+            }
+        );
+
+        return $llm;
+    }
+
+    /**
      * The most recent « aucun séjour créé » line, decoded.
      *
      * @return array{reason: string, message_id: int}
@@ -194,23 +264,35 @@ class StayFromMailServiceTest extends TestCase
      */
     private function readerWhoseProviderIsDown(): \Modules\Camps\Mail\AttachmentTextReader
     {
-        $files = new \Core\File\FileRepository($this->pdo);
-        $bytes = str_repeat('x', 60000);
-        file_put_contents($this->scanStoragePath() . '/inbound/scan.jpg', $bytes);
-        $this->scanFileId = $files->create(
-            'inbound/scan.jpg',
-            'scan.jpg',
-            'image/jpeg',
-            strlen($bytes),
-            'chief',
-            'inbound_mail',
-            null,
-            false
-        );
-
         $llm = $this->createStub(LlmConnectorInterface::class);
         $llm->method('isTierAvailable')->willReturn(true);
         $llm->method('complete')->willThrowException(new \Modules\LlmConnector\Api\LlmException('provider down'));
+
+        return $this->readerWith($llm);
+    }
+
+    /**
+     * A reader over a stored picture big enough to be worth transcribing —
+     * the real path, not a stub of it: what these tests are about is
+     * precisely what happens inside the OCR call.
+     */
+    private function readerWith(LlmConnectorInterface $llm): \Modules\Camps\Mail\AttachmentTextReader
+    {
+        $files = new \Core\File\FileRepository($this->pdo);
+        if ($this->scanFileId === 0) {
+            $bytes = str_repeat('x', 60000);
+            file_put_contents($this->scanStoragePath() . '/inbound/scan.jpg', $bytes);
+            $this->scanFileId = $files->create(
+                'inbound/scan.jpg',
+                'scan.jpg',
+                'image/jpeg',
+                strlen($bytes),
+                'chief',
+                'inbound_mail',
+                null,
+                false
+            );
+        }
 
         return new \Modules\Camps\Mail\AttachmentTextReader(
             new \Core\File\StoredFileReader(
@@ -244,10 +326,13 @@ class StayFromMailServiceTest extends TestCase
      * The covering note the reporter actually received: a greeting, and
      * everything that matters inside the attachment.
      */
-    private function messageWithAScan(): InboundMessage
+    private function messageWithAScan(?LlmConnectorInterface $llm = null): InboundMessage
     {
-        // The file has to exist before a message can point at it: build
-        // the reader first, which is what stores it.
+        // The file has to exist before a message can point at it, and
+        // building a reader is what stores it.
+        if ($llm !== null) {
+            $this->readerWith($llm);
+        }
         $this->assertNotSame(0, $this->scanFileId, 'build the reader before the message it reads');
         $base = $this->message(fromName: 'Emeline', subject: 'Contrat', body: 'Bonjour,');
 
