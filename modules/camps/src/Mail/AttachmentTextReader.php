@@ -95,6 +95,20 @@ class AttachmentTextReader
      */
     public const MIN_PICTURE_BYTES = 50_000;
 
+    /**
+     * Whether the LAST call to {@see read()} gave up on a document it had
+     * every intention of reading.
+     *
+     * Only an attempt that failed counts: the provider answered with an
+     * error, or the page could not be turned into an image. A model that
+     * read the picture and found nothing written on it has answered, and a
+     * message with no attachment at all was never a question. The
+     * difference is the whole of #172 — one is worth asking again, the
+     * others are not, and treating them alike either loses contracts or
+     * pays for the same illegible scan every hour.
+     */
+    private bool $readingFailed = false;
+
     public function __construct(
         private StoredFileReader $files,
         private ?PdfTextExtractor $pdf = null,
@@ -114,6 +128,7 @@ class AttachmentTextReader
      */
     public function read(array $attachments): string
     {
+        $this->readingFailed = false;
         $pdf = $this->pdf ?? new PdfTextExtractor();
         $pieces = [];
         $read = 0;
@@ -165,6 +180,12 @@ class AttachmentTextReader
         return mb_substr(implode("\n", $pieces), 0, self::MAX_CHARS);
     }
 
+    /** {@see self::$readingFailed}. */
+    public function readingFailed(): bool
+    {
+        return $this->readingFailed;
+    }
+
     /**
      * What the model reads off a picture of a document.
      *
@@ -200,6 +221,10 @@ class AttachmentTextReader
                 ? $entry['bytes']
                 : ($this->rasterizer ?? new PdfRasterizer())->firstPageToJpeg($entry['bytes']);
             if ($image === null) {
+                // Ghostscript or Imagick could not turn the first page
+                // into a picture. That is an installation having a bad
+                // moment, not a document saying nothing.
+                $this->readingFailed = true;
                 continue;
             }
 
@@ -218,6 +243,11 @@ class AttachmentTextReader
                     ]]
                 ));
             } catch (LlmException) {
+                // The provider is down, rate-limiting, or timing out.
+                // Swallowing it is right — a stay must never cost a
+                // synchronisation pass — but calling it « ce document ne
+                // dit rien » and never looking again is what #172 was.
+                $this->readingFailed = true;
                 continue;
             }
 

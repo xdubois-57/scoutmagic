@@ -599,7 +599,18 @@ class CampsMessageConsumer implements
 
         $campId = $this->stayFromMail->createFrom($message);
         if ($campId === null) {
-            return AnalysisResult::nothing();
+            // « Rien » and « je n'ai pas pu lire » are different answers,
+            // and until #172 they were the same one. A booking contract
+            // that arrives as a scan is read by an OCR service, that
+            // service can have a bad minute, and the deferred pass reads
+            // each message once for ever — so one failed transcription
+            // marked a perfectly legible contract « aucune période de
+            // séjour lisible » and nothing ever looked at it again. The
+            // pass decides what to do with this; all this says is that the
+            // question was never actually put.
+            return $this->stayFromMail->readingFailedFor($message)
+                ? AnalysisResult::readingFailed()
+                : AnalysisResult::nothing();
         }
 
         // The chiefs learn of a stay they did not create from the site,

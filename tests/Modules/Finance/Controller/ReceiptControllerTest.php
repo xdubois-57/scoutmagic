@@ -938,8 +938,12 @@ final class TriageMail implements \Modules\InboundMail\Api\InboundMailInterface
     /** @var array<int, mixed> */
     public array $confirmed = [];
 
-    public function findForTriage(string $consumerId, array $ownReferences, int $limit = 50): array
-    {
+    public function findForTriage(
+        string $consumerId,
+        array $ownReferences,
+        int $limit = 50,
+        bool $dismissed = false
+    ): array {
         $this->askedReferences = $ownReferences;
 
         return $this->messages;

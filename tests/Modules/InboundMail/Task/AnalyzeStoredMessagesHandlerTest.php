@@ -166,6 +166,101 @@ class AnalyzeStoredMessagesHandlerTest extends TestCase
         $this->assertCount(1, $consumer->linked);
     }
 
+    // ── The reading that never happened (#172) ──────────────────────────
+
+    /**
+     * The exception to « once per message, and only once ».
+     *
+     * A booking contract arrived as a scan, the OCR service answered with
+     * an error on that one minute, and the message was marked read for
+     * ever with `reason: no_dates` — on a document whose dates the very
+     * same reading found the moment a chief pressed « Créer un camp depuis
+     * ce message ». Nothing in the application ever looked again.
+     *
+     * The consumer says the READING failed, not that it found nothing, and
+     * that is the only answer that undoes the marker.
+     */
+    public function testAMessageWhoseReadingFailedComesBack(): void
+    {
+        $messageId = $this->storeMessage('outage@mail');
+
+        $this->runPass(new FakeMessageConsumer('camps', null, fn(): AnalysisResult => AnalysisResult::readingFailed()));
+
+        $this->assertSame(
+            [$messageId],
+            $this->messages->findMessagesAwaitingStoredAnalysis(10),
+            'a message nobody managed to read must be offered to the pass again'
+        );
+    }
+
+    /**
+     * And every other empty answer stays final, which is the rule this is
+     * an exception to: propositions appearing and disappearing as modules
+     * change, with nobody able to say why, is worse than none.
+     */
+    public function testAMessageNobodyRecognisedStaysRead(): void
+    {
+        $this->storeMessage('quiet@mail');
+
+        $this->runPass(new FakeMessageConsumer('camps', null, fn(): AnalysisResult => AnalysisResult::nothing()));
+
+        $this->assertSame([], $this->messages->findMessagesAwaitingStoredAnalysis(10));
+    }
+
+    /**
+     * The bound, and the reason the counter exists rather than a flag.
+     *
+     * A document that really cannot be read fails identically every hour,
+     * and every attempt is a paid call to a provider. After
+     * MAX_ANALYSIS_ATTEMPTS the message stays read and the journal carries
+     * the one line that tells a chief what to press.
+     */
+    public function testTheRetryIsSpentAndSaysSo(): void
+    {
+        $this->storeMessage('hopeless@mail');
+        $consumer = new FakeMessageConsumer('camps', null, fn(): AnalysisResult => AnalysisResult::readingFailed());
+
+        for ($pass = 0; $pass < AnalyzeStoredMessagesHandler::MAX_ANALYSIS_ATTEMPTS; $pass++) {
+            $this->runPass($consumer);
+        }
+
+        $this->assertSame(
+            [],
+            $this->messages->findMessagesAwaitingStoredAnalysis(10),
+            'the budget is spent — an unreadable document must stop costing calls'
+        );
+
+        $entry = $this->journalEntry('inbound_stored_analysis_given_up');
+        $context = json_decode((string) $entry['context'], true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame(AnalyzeStoredMessagesHandler::MAX_ANALYSIS_ATTEMPTS, $context['attempts']);
+    }
+
+    /**
+     * A chief pressing « relancer l'analyse » is asking a new question.
+     *
+     * Answering it with a budget spent on a provider's bad afternoon three
+     * months ago would be the same silence in a different place.
+     */
+    public function testTheManualReanalysisGivesTheMessageAFreshBudget(): void
+    {
+        $messageId = $this->storeMessage('again@mail');
+        $consumer = new FakeMessageConsumer('camps', null, fn(): AnalysisResult => AnalysisResult::readingFailed());
+
+        for ($pass = 0; $pass < AnalyzeStoredMessagesHandler::MAX_ANALYSIS_ATTEMPTS; $pass++) {
+            $this->runPass($consumer);
+        }
+        $this->assertSame([], $this->messages->findMessagesAwaitingStoredAnalysis(10));
+
+        $this->messages->queueForStoredAnalysis([$messageId]);
+        $this->runPass($consumer);
+
+        $this->assertSame(
+            [$messageId],
+            $this->messages->findMessagesAwaitingStoredAnalysis(10),
+            'the counter goes back to zero with the marker'
+        );
+    }
+
     public function testAConsumerThatThrowsWhileFilingIsSaidSoRatherThanSwallowed(): void
     {
         // The stay exists and its contract was not filed. Nothing else in

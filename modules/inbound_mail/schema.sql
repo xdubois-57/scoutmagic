@@ -229,6 +229,22 @@ CREATE TABLE IF NOT EXISTS inbound_messages (
     -- to say why, is worse than none. A superadmin who enables a module on
     -- a box that has been collecting for months asks for it explicitly.
     stored_analysis_at DATETIME NULL,
+    -- How many times the deferred pass has read this message.
+    --
+    -- The exception to the sentence above, and only that: a pass whose
+    -- reading FAILED for a reason that may not hold next time — an OCR
+    -- provider that answered with an error, a scan that could not be
+    -- rasterised — has not produced a proposition, so re-reading cannot
+    -- make one appear and disappear. It read nothing, and marking that
+    -- « rien à lire, définitivement » is what turned one bad minute at a
+    -- provider into a contract nobody would ever look at again (#172).
+    --
+    -- Bounded by this counter, which is why it exists rather than a plain
+    -- retry flag: a document that is genuinely unreadable must stop
+    -- costing calls, and « on réessaie » with nothing counting the tries
+    -- is a loop. The manual « Réanalyser » resets it — a superadmin asking
+    -- deliberately is a new question, not a continuation of this one.
+    stored_analysis_attempts TINYINT UNSIGNED NOT NULL DEFAULT 0,
 
     -- A message exists **once per mailbox**, whatever UID it now carries
     -- after a renumbering and however many objects it ends up associated
@@ -315,6 +331,46 @@ CREATE TABLE IF NOT EXISTS inbound_message_candidates (
     INDEX idx_candidate_reference (consumer_id, business_reference),
     CONSTRAINT fk_candidate_message FOREIGN KEY (message_id) REFERENCES inbound_messages(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- inbound_message_dismissals: « ce message ne me concerne pas ».
+--
+-- One consumer setting one MESSAGE aside, which is a different sentence
+-- from inbound_message_candidates.dismissed_at — that one rejects a
+-- proposition about an object, this one says the message itself is not
+-- this module's business. A camps mailbox collects newsletters, bounces
+-- and acknowledgements alongside its booking contracts, and until #174 a
+-- chief could only wait ninety days for the retention to take them: the
+-- ones that need a decision were buried under the ones that never will.
+--
+-- **Per consumer, never global.** A message a chief writes off for camps
+-- may be a receipt finance is waiting for, and one module's tidying must
+-- not decide for another. The unit's general mail screen shows it either
+-- way — this hides a row from ONE module's triage list, it does not
+-- delete anything.
+--
+-- **It protects nothing** (A3), exactly as dismissing a proposition does
+-- not: no join anywhere reads this table to keep a message alive, so the
+-- unassociated-mail retention removes a set-aside message on the same day
+-- it would have removed it otherwise. « Écarter » must not quietly mean
+-- « conserver ».
+--
+-- Reversible, and that is why the row is a row rather than a deletion:
+-- the screen lists what was set aside and puts it back.
+CREATE TABLE IF NOT EXISTS inbound_message_dismissals (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    message_id INT UNSIGNED NOT NULL,
+    consumer_id VARCHAR(50) NOT NULL,
+    -- Who decided. Null when the row outlived the account: the decision
+    -- stands, only the name of who made it is gone.
+    dismissed_by_user_account_id INT UNSIGNED NULL,
+    dismissed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE INDEX idx_dismissal_unique (message_id, consumer_id),
+    INDEX idx_dismissal_consumer (consumer_id),
+    CONSTRAINT fk_dismissal_message FOREIGN KEY (message_id) REFERENCES inbound_messages(id) ON DELETE CASCADE,
+    CONSTRAINT fk_dismissal_author FOREIGN KEY (dismissed_by_user_account_id)
+        REFERENCES user_accounts(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 
 -- inbound_message_attachments: metadata only.
 --

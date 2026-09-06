@@ -142,7 +142,7 @@ class AnalysisJournal
      * reconnu », not « la tâche a tourné », which `scheduler_task_done`
      * already records.
      */
-    public function storedPassDone(int $examined, int $linked, int $proposed): void
+    public function storedPassDone(int $examined, int $linked, int $proposed, int $requeued = 0): void
     {
         if ($examined === 0) {
             return;
@@ -153,12 +153,43 @@ class AnalysisJournal
             'inbound_stored_analysis_done',
             'info',
             sprintf(
-                'Analyse différée : %d message(s) examiné(s), %d rattachement(s), %d proposition(s).',
+                'Analyse différée : %d message(s) examiné(s), %d rattachement(s), %d proposition(s)%s.',
                 $examined,
                 $linked,
-                $proposed
+                $proposed,
+                // Only when there were any: an extra « 0 à relire » on
+                // every hourly line would be noise on the ordinary run,
+                // and the whole point of this counter is that it is
+                // normally zero.
+                $requeued === 0 ? '' : sprintf(', %d à relire (lecture indisponible)', $requeued)
             ),
-            ['examined' => $examined, 'linked' => $linked, 'proposed' => $proposed]
+            ['examined' => $examined, 'linked' => $linked, 'proposed' => $proposed, 'requeued' => $requeued]
+        );
+    }
+
+    /**
+     * A message whose reading kept failing until its budget ran out.
+     *
+     * The end of the retry #172 introduced, and the only place it is
+     * visible: from here on nothing looks at that message again on its
+     * own, so a chief who never sees the stay they were promised needs a
+     * line saying why and what to press. `warning`, not `info` — this is
+     * an OCR service that has been failing for three hours, which is a
+     * problem with the installation and not with the mail.
+     */
+    public function readingGivenUp(int $messageId, int $attempts): void
+    {
+        $this->journal?->log(
+            self::CATEGORY,
+            'inbound_stored_analysis_given_up',
+            'warning',
+            sprintf(
+                'Message #%d : la lecture des pièces jointes a échoué %d fois — '
+                . 'plus aucune relecture automatique. Utilisez « Relancer l\'analyse ».',
+                $messageId,
+                $attempts
+            ),
+            ['message_id' => $messageId, 'attempts' => $attempts]
         );
     }
 
@@ -198,6 +229,10 @@ class AnalysisJournal
         foreach ($consumerIds as $consumerId) {
             $result = $results[$consumerId] ?? null;
             $outcomes[$consumerId] = match (true) {
+                // Before « rien », because a reading that failed IS empty
+                // and reading the two as one word is the confusion #172
+                // was made of.
+                $result !== null && $result->readingFailed => 'lecture_impossible',
                 $result === null || $result->isEmpty() => 'rien',
                 $result->links !== [] && $result->candidates !== [] => 'rattache_et_propose',
                 $result->links !== [] => 'rattache',

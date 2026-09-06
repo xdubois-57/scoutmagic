@@ -435,6 +435,130 @@ class CampsMailControllerTest extends TestCase
         $this->assertSame([], $this->inbound->detaches);
     }
 
+    // ── setAside() / restore() (#174) ───────────────────────────────
+
+    /**
+     * The reported need: a dedicated camps box collects newsletters,
+     * delivery receipts and out-of-office replies alongside its booking
+     * contracts, and the only way to stop seeing one was to wait out the
+     * retention — « ils sont là et je les ignore mais ils prennent
+     * beaucoup de place ».
+     */
+    public function testAMessageThatConcernsNoStayCanBeSetAside(): void
+    {
+        $response = $this->post('setAside', [], ['id' => '42']);
+
+        $this->assertSame('/chefs/camps/courrier', $response->getHeaders()['Location'] ?? null);
+        $this->assertSame(
+            [[CampsMessageConsumer::CONSUMER_ID, 42, 1]],
+            $this->inbound->dismissals,
+            'the acting chief is recorded with the decision'
+        );
+    }
+
+    /**
+     * The button does LESS than « écarter » suggests, so the message it
+     * leaves has to say so: nothing is deleted, and a chief who believed
+     * otherwise would go looking for mail they think they destroyed.
+     */
+    public function testSettingAsideSaysThatTheMailIsNotDeleted(): void
+    {
+        $this->post('setAside', [], ['id' => '42']);
+
+        $this->assertStringContainsString(
+            'courrier de l\'unité',
+            (string) (\Core\Http\FlashMessage::get()['message'] ?? '')
+        );
+    }
+
+    public function testSettingAsideWithoutACsrfTokenHidesNothing(): void
+    {
+        $this->controller->setAside(
+            new Request('POST', '/chefs/camps/courrier/42/ecarter', [], [], [], []),
+            ['id' => '42']
+        );
+
+        $this->assertSame([], $this->inbound->dismissals);
+    }
+
+    /**
+     * A refusal — a message outside this chief's list — is said, not
+     * swallowed into a redirect that looks like success.
+     */
+    public function testAMessageTheGatewayRefusesToHideIsReported(): void
+    {
+        $this->inbound->dismissalRefused = true;
+
+        $this->post('setAside', [], ['id' => '42']);
+
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+    }
+
+    public function testASetAsideMessageCanBePutBack(): void
+    {
+        $response = $this->post('restore', [], ['id' => '42']);
+
+        $this->assertSame(
+            '/chefs/camps/courrier?statut=ecartes',
+            $response->getHeaders()['Location'] ?? null,
+            'and the chief lands back on the list they were reading'
+        );
+        $this->assertSame([[CampsMessageConsumer::CONSUMER_ID, 42]], $this->inbound->restorations);
+    }
+
+    public function testRestoringWithoutACsrfTokenPutsNothingBack(): void
+    {
+        $this->controller->restore(
+            new Request('POST', '/chefs/camps/courrier/42/reprendre', [], [], [], []),
+            ['id' => '42']
+        );
+
+        $this->assertSame([], $this->inbound->restorations);
+    }
+
+    /**
+     * The tab exists only once there is something behind it: one reading
+     * « Écartés 0 » on every unit that never presses the button is a
+     * permanent invitation to a page that says « rien ».
+     */
+    public function testTheSetAsideTabAppearsOnlyWhenSomethingWasSetAside(): void
+    {
+        $this->assertStringNotContainsString('statut=ecartes', $this->screen());
+
+        $this->inbound->setAsideMessages = [$this->attachedMessage()];
+
+        $this->assertStringContainsString('statut=ecartes', $this->screen());
+    }
+
+    /**
+     * And that list offers exactly one thing to do. Showing the picker
+     * there would put a chief one click from filing mail they had just
+     * written off.
+     */
+    public function testTheSetAsideListOffersOnlyToPutTheMessageBack(): void
+    {
+        $this->inbound->setAsideMessages = [$this->attachedMessage()];
+
+        $html = $this->screen('ecartes');
+
+        $this->assertStringContainsString('/chefs/camps/courrier/43/reprendre', $html);
+        $this->assertStringNotContainsString('/chefs/camps/courrier/43/rattacher', $html);
+    }
+
+    /**
+     * Offered on a message this module filed nowhere, and not on one that
+     * is on a stay: that one leaves the list by being detached, and two
+     * buttons meaning almost the same thing is how a chief presses the
+     * wrong one.
+     */
+    public function testOnlyAnUnattachedMessageOffersToBeSetAside(): void
+    {
+        $html = $this->screen('tous');
+
+        $this->assertStringContainsString('/chefs/camps/courrier/42/ecarter', $html);
+        $this->assertStringNotContainsString('/chefs/camps/courrier/43/ecarter', $html);
+    }
+
     // ── applyProposal() / dismissProposal() ─────────────────────────
 
     public function testApplyingAProposalWritesItOntoTheStayAndConsumesIt(): void
@@ -725,6 +849,48 @@ class RecordingInboundMail implements InboundMailInterface
     /** @var array<int, array{0: string, 1: string, 2: int}> */
     public array $attaches = [];
 
+    // ── Setting a message aside, per consumer (#174) ────────────────────
+
+    /** @var InboundMessage[] */
+    public array $setAsideMessages = [];
+
+    /** @var array<int, array{0: string, 1: int, 2: int|null}> */
+    public array $dismissals = [];
+
+    /** @var array<int, array{0: string, 1: int}> */
+    public array $restorations = [];
+
+    public bool $dismissalRefused = false;
+
+    /**
+     * @param string[] $ownReferences
+     */
+    public function dismissMessage(
+        string $consumerId,
+        array $ownReferences,
+        int $messageId,
+        ?int $userAccountId = null
+    ): bool {
+        $this->dismissals[] = [$consumerId, $messageId, $userAccountId];
+
+        return !$this->dismissalRefused;
+    }
+
+    public function restoreMessage(string $consumerId, int $messageId): bool
+    {
+        $this->restorations[] = [$consumerId, $messageId];
+
+        return true;
+    }
+
+    /**
+     * @param string[] $ownReferences
+     */
+    public function countDismissedMessages(string $consumerId, array $ownReferences): int
+    {
+        return count($this->setAsideMessages);
+    }
+
     /** @var array<int, array{0: string, 1: int}> */
     public array $reanalyses = [];
 
@@ -751,9 +917,13 @@ class RecordingInboundMail implements InboundMailInterface
      * @param string[] $ownReferences
      * @return InboundMessage[]
      */
-    public function findForTriage(string $consumerId, array $ownReferences, int $limit = 50): array
-    {
-        return $this->messages;
+    public function findForTriage(
+        string $consumerId,
+        array $ownReferences,
+        int $limit = 50,
+        bool $dismissed = false
+    ): array {
+        return $dismissed ? $this->setAsideMessages : $this->messages;
     }
 
     public function attach(

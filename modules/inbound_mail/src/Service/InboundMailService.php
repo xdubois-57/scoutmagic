@@ -144,13 +144,53 @@ class InboundMailService implements InboundMailInterface
      * @param string[] $ownReferences
      * @return InboundMessage[]
      */
-    public function findForTriage(string $consumerId, array $ownReferences, int $limit = 50): array
-    {
+    public function findForTriage(
+        string $consumerId,
+        array $ownReferences,
+        int $limit = 50,
+        bool $dismissed = false
+    ): array {
         return $this->messageRepository->findForTriage(
             $consumerId,
             array_values(array_unique($ownReferences)),
             $this->mailboxRepository->mailboxIdsReadableInFull($consumerId),
-            $limit
+            $limit,
+            $dismissed
+        );
+    }
+
+    /**
+     * @param string[] $ownReferences
+     */
+    public function dismissMessage(
+        string $consumerId,
+        array $ownReferences,
+        int $messageId,
+        ?int $userAccountId = null
+    ): bool {
+        return $this->messageRepository->dismissMessageForConsumer(
+            $consumerId,
+            array_values(array_unique($ownReferences)),
+            $this->mailboxRepository->mailboxIdsReadableInFull($consumerId),
+            $messageId,
+            $userAccountId
+        );
+    }
+
+    public function restoreMessage(string $consumerId, int $messageId): bool
+    {
+        return $this->messageRepository->restoreMessageForConsumer($consumerId, $messageId);
+    }
+
+    /**
+     * @param string[] $ownReferences
+     */
+    public function countDismissedMessages(string $consumerId, array $ownReferences): int
+    {
+        return $this->messageRepository->countDismissedForConsumer(
+            $consumerId,
+            array_values(array_unique($ownReferences)),
+            $this->mailboxRepository->mailboxIdsReadableInFull($consumerId)
         );
     }
 

@@ -633,16 +633,61 @@ class InboundMessageRepository
         }
 
         $placeholders = implode(',', array_fill(0, count($messageIds), '?'));
+        // The counter goes back to zero with the marker: a chief pressing
+        // « relancer l'analyse » is asking a new question, and answering
+        // it with a budget spent on an OCR provider's bad afternoon three
+        // months ago would be the same silence in a different place
+        // (#172).
         $stmt = $this->pdo->prepare(
-            'UPDATE inbound_messages SET stored_analysis_at = NULL WHERE id IN (' . $placeholders . ')'
+            'UPDATE inbound_messages
+                SET stored_analysis_at = NULL, stored_analysis_attempts = 0
+              WHERE id IN (' . $placeholders . ')'
         );
         $stmt->execute(array_map('intval', array_values($messageIds)));
     }
 
     public function markStoredAnalysisDone(int $messageId, \DateTimeImmutable $now): void
     {
-        $stmt = $this->pdo->prepare('UPDATE inbound_messages SET stored_analysis_at = ? WHERE id = ?');
+        $stmt = $this->pdo->prepare(
+            'UPDATE inbound_messages
+                SET stored_analysis_at = ?, stored_analysis_attempts = stored_analysis_attempts + 1
+              WHERE id = ?'
+        );
         $stmt->execute([$now->format('Y-m-d H:i:s'), $messageId]);
+    }
+
+    /**
+     * Put one message back in the deferred pass's queue, at most
+     * `$maxAttempts` times in its life.
+     *
+     * **The narrow exception to analysing once**, and it is narrow on
+     * purpose. The rule exists so propositions do not appear and disappear
+     * as modules change; this path is reached only when the reading itself
+     * FAILED — an OCR provider that answered with an error, a scan that
+     * could not be rasterised — so there is no proposition to flicker.
+     * There is a message somebody sent, a contract nobody read, and until
+     * #172 a permanent « aucune date lisible » on a document whose dates
+     * were perfectly legible a minute later.
+     *
+     * The cap is the whole safety: a document that really is unreadable
+     * fails identically every time, and a retry with nothing counting the
+     * tries would read it hourly for as long as the mailbox exists. The
+     * counter is never reset by this method — only the manual
+     * « Réanalyser », where a human is asking a new question.
+     *
+     * @return bool whether the message was queued — false when its budget
+     *              is spent, which is the caller's cue to say so
+     */
+    public function requeueStoredAnalysis(int $messageId, int $maxAttempts): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE inbound_messages
+                SET stored_analysis_at = NULL
+              WHERE id = ? AND stored_analysis_attempts < ?'
+        );
+        $stmt->execute([$messageId, $maxAttempts]);
+
+        return $stmt->rowCount() > 0;
     }
 
     /**
@@ -659,7 +704,9 @@ class InboundMessageRepository
      */
     public function queueAllForStoredAnalysis(): int
     {
-        $stmt = $this->pdo->query('UPDATE inbound_messages SET stored_analysis_at = NULL');
+        $stmt = $this->pdo->query(
+            'UPDATE inbound_messages SET stored_analysis_at = NULL, stored_analysis_attempts = 0'
+        );
 
         return $stmt === false ? 0 : $stmt->rowCount();
     }
@@ -1124,8 +1171,49 @@ class InboundMessageRepository
         string $consumerId,
         array $ownReferences,
         array $fullReadMailboxIds,
-        int $limit
+        int $limit,
+        bool $dismissed = false
     ): array {
+        $scope = $this->triageScope($consumerId, $ownReferences, $fullReadMailboxIds);
+        if ($scope === null) {
+            return [];
+        }
+
+        [$where, $params] = $scope;
+        // Set aside is a filter, not a deletion: the same list, asked the
+        // other way round, is how a chief puts one back (#174).
+        $params[] = $consumerId;
+
+        $stmt = $this->pdo->prepare(
+            'SELECT m.* FROM inbound_messages m
+              WHERE (' . $where . ')
+                AND ' . ($dismissed ? '' : 'NOT ') . 'EXISTS (
+                        SELECT 1 FROM inbound_message_dismissals d
+                         WHERE d.message_id = m.id AND d.consumer_id = ?
+                    )
+           ORDER BY m.sent_at DESC, m.id DESC
+              LIMIT ' . max(1, $limit)
+        );
+        $stmt->execute($params);
+
+        return $this->hydrateAll($stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * The predicate « ce message est dans la liste de tri de ce consommateur »,
+     * as SQL and its parameters, or null when the answer is « aucun ».
+     *
+     * Extracted because three callers ask the same question and a second
+     * copy of it would be a second answer waiting to disagree: the list
+     * itself, the set-aside list, and the check that a message a chief is
+     * setting aside is one they could see in the first place.
+     *
+     * @param string[] $ownReferences
+     * @param int[] $fullReadMailboxIds
+     * @return array{0: string, 1: list<string|int>}|null
+     */
+    private function triageScope(string $consumerId, array $ownReferences, array $fullReadMailboxIds): ?array
+    {
         $clauses = [];
         $params = [];
 
@@ -1158,19 +1246,128 @@ class InboundMessageRepository
             }
         }
 
-        if ($clauses === []) {
-            return [];
+        return $clauses === [] ? null : [implode(' OR ', $clauses), $params];
+    }
+
+    /**
+     * Set one message aside for ONE consumer — « ce courrier ne concerne
+     * pas les camps » (#174).
+     *
+     * Scoped by the same predicate the list is: a message this requester
+     * could not see is not one they may hide, or a screen could be talked
+     * into tidying somebody else's mailbox.
+     *
+     * **It protects nothing** (A3). No retention query reads this table,
+     * so a set-aside message is removed on exactly the day it would have
+     * been removed anyway — « écarter » must not quietly mean
+     * « conserver ».
+     *
+     * Idempotent: pressing the button twice is one row and no error.
+     *
+     * @param string[] $ownReferences
+     * @param int[] $fullReadMailboxIds
+     */
+    public function dismissMessageForConsumer(
+        string $consumerId,
+        array $ownReferences,
+        array $fullReadMailboxIds,
+        int $messageId,
+        ?int $userAccountId = null
+    ): bool {
+        if (!$this->isInTriageScope($consumerId, $ownReferences, $fullReadMailboxIds, $messageId)) {
+            return false;
         }
 
         $stmt = $this->pdo->prepare(
-            'SELECT m.* FROM inbound_messages m
-              WHERE (' . implode(' OR ', $clauses) . ')
-           ORDER BY m.sent_at DESC, m.id DESC
-              LIMIT ' . max(1, $limit)
+            'INSERT INTO inbound_message_dismissals (message_id, consumer_id, dismissed_by_user_account_id)
+             VALUES (?, ?, ?)'
+        );
+
+        try {
+            $stmt->execute([$messageId, $consumerId, $userAccountId]);
+        } catch (\PDOException) {
+            // The unique index caught the same decision made twice — two
+            // chiefs on the same list, or a double click. That is the
+            // state the caller asked for, so it is not an error. Spelled
+            // as a catch rather than an `ON DUPLICATE KEY`, which SQLite —
+            // the test database — spells differently (see addLink()).
+            return true;
+        }
+
+        return true;
+    }
+
+    /**
+     * Put one back in the list. The undo half, and the reason a dismissal
+     * is a row rather than a deletion.
+     */
+    public function restoreMessageForConsumer(string $consumerId, int $messageId): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'DELETE FROM inbound_message_dismissals WHERE message_id = ? AND consumer_id = ?'
+        );
+        $stmt->execute([$messageId, $consumerId]);
+
+        return $stmt->rowCount() > 0;
+    }
+
+    /**
+     * @param string[] $ownReferences
+     * @param int[] $fullReadMailboxIds
+     */
+    private function isInTriageScope(
+        string $consumerId,
+        array $ownReferences,
+        array $fullReadMailboxIds,
+        int $messageId
+    ): bool {
+        $scope = $this->triageScope($consumerId, $ownReferences, $fullReadMailboxIds);
+        if ($scope === null) {
+            return false;
+        }
+
+        [$where, $params] = $scope;
+        $params[] = $messageId;
+
+        $stmt = $this->pdo->prepare(
+            'SELECT 1 FROM inbound_messages m WHERE (' . $where . ') AND m.id = ? LIMIT 1'
         );
         $stmt->execute($params);
 
-        return $this->hydrateAll($stmt->fetchAll(\PDO::FETCH_ASSOC));
+        return $stmt->fetchColumn() !== false;
+    }
+
+    /**
+     * How many messages this consumer has set aside — what lets a screen
+     * offer the « écartés » filter only when there is something in it.
+     *
+     * @param string[] $ownReferences
+     * @param int[] $fullReadMailboxIds
+     */
+    public function countDismissedForConsumer(
+        string $consumerId,
+        array $ownReferences,
+        array $fullReadMailboxIds
+    ): int {
+        $scope = $this->triageScope($consumerId, $ownReferences, $fullReadMailboxIds);
+        if ($scope === null) {
+            return 0;
+        }
+
+        [$where, $params] = $scope;
+        $params[] = $consumerId;
+
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM inbound_messages m
+              WHERE (' . $where . ')
+                AND EXISTS (
+                        SELECT 1 FROM inbound_message_dismissals d
+                         WHERE d.message_id = m.id AND d.consumer_id = ?
+                    )'
+        );
+        $stmt->execute($params);
+
+        return (int) $stmt->fetchColumn();
     }
 
     /**
@@ -1441,7 +1638,11 @@ class InboundMessageRepository
      * A proposition somebody set aside protects nothing (A3): `dismissed_at`
      * is a decision that this message is not that module's business, and
      * treating it as a reason to keep the message would make "écarter" mean
-     * the opposite of what it says.
+     * the opposite of what it says. `inbound_message_dismissals` — a chief
+     * setting the whole MESSAGE aside (#174) — is absent from this query
+     * for exactly the same reason, and its absence is deliberate rather
+     * than an omission: a chief tidying their list must not be silently
+     * extending the retention of mail nobody wants.
      *
      * @return int[] oldest first, bounded
      */

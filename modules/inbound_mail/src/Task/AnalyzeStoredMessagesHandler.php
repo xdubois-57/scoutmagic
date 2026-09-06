@@ -40,6 +40,17 @@ use Modules\InboundMail\Service\MessageConsumerRegistry;
  * deliberately asks — and even then, a proposition somebody set aside stays
  * set aside.
  *
+ * **Except when the reading itself failed** — `AnalysisResult::readingFailed()`.
+ * That is not a proposition changing its mind: it is a consumer saying the
+ * question was never actually put, because the OCR provider answered with
+ * an error or the scan could not be rasterised. #172 was that gap: one bad
+ * minute at a provider, and a booking contract whose dates were perfectly
+ * legible was marked « aucune période de séjour lisible » for ever, while
+ * the same reading found them the moment a chief pressed « Créer un camp
+ * depuis ce message ». Bounded by {@see self::MAX_ANALYSIS_ATTEMPTS},
+ * because a document that really cannot be read fails identically every
+ * hour and each try is a paid call.
+ *
  * Bounded per run for the same reason the sync is: `poor_mans_cron` runs
  * inside a page view, and the task simply comes back for the rest.
  */
@@ -58,6 +69,26 @@ class AnalyzeStoredMessagesHandler implements TaskHandlerInterface
 
     /** Hourly. The pass is not urgent — nothing waits on it interactively. */
     public const INTERVAL_SECONDS = 3600;
+
+    /**
+     * How many times one message may go through this pass in its life.
+     *
+     * The pass reads each message once and only once — see the class
+     * docblock, that rule is deliberate — with ONE exception: a consumer
+     * that answers `readingFailed` says its reading never happened, not
+     * that it found nothing. #172 is what the absence of that exception
+     * cost: an OCR provider answered with an error on the one minute a
+     * booking contract was read, the message was filed « aucune période de
+     * séjour lisible », and the identical reading found the dates the
+     * moment a chief pressed the button by hand.
+     *
+     * Three, not « until it works »: a document that is genuinely
+     * unreadable fails the same way every hour, and each attempt is a
+     * paid call to a provider. Three hourly tries cover a restart and a
+     * rate-limit window; past that a human is the right answer, and the
+     * journal says so.
+     */
+    public const MAX_ANALYSIS_ATTEMPTS = 3;
 
     public function __construct(
         private ?MessageConsumerRegistry $consumerRegistry = null,
@@ -118,6 +149,7 @@ class AnalyzeStoredMessagesHandler implements TaskHandlerInterface
         $examined = 0;
         $linked = 0;
         $proposed = 0;
+        $requeued = 0;
 
         foreach ($messages->findMessagesAwaitingStoredAnalysis(self::BATCH_SIZE) as $messageId) {
             // Marked before the work, not after. A message whose analysis
@@ -146,12 +178,41 @@ class AnalyzeStoredMessagesHandler implements TaskHandlerInterface
                 $linked += count($result->links);
                 $proposed += count($result->candidates);
             }
+
+            // The one thing that undoes the marker set above, and only
+            // when a consumer said its reading FAILED — nothing that found
+            // an answer, and nothing that found none. The repository
+            // enforces the budget; a false answer means it is spent, which
+            // is the last moment anybody can be told (#172).
+            if (self::anyReadingFailed($results)) {
+                if ($messages->requeueStoredAnalysis($messageId, self::MAX_ANALYSIS_ATTEMPTS)) {
+                    $requeued++;
+                } else {
+                    $this->analysisJournal?->readingGivenUp($messageId, self::MAX_ANALYSIS_ATTEMPTS);
+                }
+            }
         }
 
         // A summary rather than a line per message: the arrival pass
         // already wrote one for each of these, and this pass exists to say
         // whether the *content* reading added anything.
-        $this->analysisJournal?->storedPassDone($examined, $linked, $proposed);
+        $this->analysisJournal?->storedPassDone($examined, $linked, $proposed, $requeued);
+    }
+
+    /**
+     * Whether any consumer said it could not read the message.
+     *
+     * @param array<string, \Modules\InboundMail\Api\AnalysisResult> $results
+     */
+    private static function anyReadingFailed(array $results): bool
+    {
+        foreach ($results as $result) {
+            if ($result->readingFailed) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

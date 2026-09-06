@@ -173,6 +173,84 @@ class AttachmentTextReaderTest extends TestCase
         $this->assertSame('', $this->readerWith($llm)->read([$attachment]));
     }
 
+    // ── « rien à lire » is not « je n'ai pas pu lire » (#172) ───────────
+
+    /**
+     * The distinction the whole of #172 hangs on.
+     *
+     * Empty text is what a provider outage and an empty envelope both look
+     * like from outside, and the deferred pass reads each message once for
+     * ever — so a booking contract read on the provider's bad minute was
+     * marked « aucune période de séjour lisible » permanently, on a
+     * document whose dates the identical reading found the moment a chief
+     * pressed the button by hand.
+     */
+    public function testAProviderThatIsDownSaysTheReadingFailed(): void
+    {
+        $attachment = $this->store('scan.jpg', 'image/jpeg', str_repeat('x', 60000));
+
+        $llm = $this->createStub(LlmConnectorInterface::class);
+        $llm->method('isTierAvailable')->willReturn(true);
+        $llm->method('complete')->willThrowException(new LlmException('provider down'));
+
+        $reader = $this->readerWith($llm);
+        $reader->read([$attachment]);
+
+        $this->assertTrue($reader->readingFailed());
+    }
+
+    /**
+     * The other side, and the one that keeps the retry from becoming a
+     * loop: a model that looked at the picture and found nothing written
+     * on it has ANSWERED. Reading it again costs another provider call for
+     * the same empty string, every hour, for as long as the mailbox lives.
+     */
+    public function testAModelThatFoundNothingHasStillAnswered(): void
+    {
+        $attachment = $this->store('scan.jpg', 'image/jpeg', str_repeat('x', 60000));
+
+        $reader = $this->readerWith($this->llmTranscribing(''));
+        $this->assertSame('', $reader->read([$attachment]));
+
+        $this->assertFalse($reader->readingFailed());
+    }
+
+    /**
+     * No connector is a configuration, not an outage. Retrying it would
+     * spend every message's budget on an installation that has simply
+     * never had an OCR model, and change nothing at the end of it.
+     */
+    public function testNoConnectorIsNotAFailedReading(): void
+    {
+        $attachment = $this->store('scan.jpg', 'image/jpeg', str_repeat('x', 60000));
+
+        $this->reader->read([$attachment]);
+
+        $this->assertFalse($this->reader->readingFailed());
+    }
+
+    /**
+     * The flag is about the LAST read. The deferred pass runs a batch
+     * through one reader, and a failure on the first message must not
+     * follow the second one out of the loop.
+     */
+    public function testTheFlagBelongsToTheReadJustDone(): void
+    {
+        $scan = $this->store('scan.jpg', 'image/jpeg', str_repeat('x', 60000));
+        $note = $this->store('note.txt', 'text/plain', 'Du 12 au 19 juillet 2028.');
+
+        $llm = $this->createStub(LlmConnectorInterface::class);
+        $llm->method('isTierAvailable')->willReturn(true);
+        $llm->method('complete')->willThrowException(new LlmException('provider down'));
+        $reader = $this->readerWith($llm);
+
+        $reader->read([$scan]);
+        $this->assertTrue($reader->readingFailed());
+
+        $reader->read([$note]);
+        $this->assertFalse($reader->readingFailed(), 'the next message must not inherit the last one\'s outage');
+    }
+
     public function testAConnectorWithNoModelForTheJobIsNotAsked(): void
     {
         $attachment = $this->store('scan.jpg', 'image/jpeg', str_repeat('x', 60000));

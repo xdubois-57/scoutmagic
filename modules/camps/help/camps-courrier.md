@@ -69,5 +69,13 @@ habituel, dates, prix et lieu déjà remplis quand le site a su les lire.
 Vous corrigez, vous enregistrez, le message va se ranger sous le séjour.
 Le bouton reste là même en mode automatique.
 
+Un contrat scanné — une photo de document, un PDF sans texte — est lu par
+le module d'intelligence artificielle, un service extérieur qui peut ne
+pas répondre. Quand cette lecture échoue, le site **réessaie tout seul**,
+jusqu'à trois fois : un contrat parfaitement lisible ne reste pas classé
+« aucune date lisible » à cause d'une mauvaise minute chez le
+fournisseur. Passé ces essais, le Journal l'indique et « Relancer
+l'analyse » redonne sa chance à la lecture.
+
 Ce que le site sait lire dans un message, et ce qu'il en fait sur la page
 du séjour : voir « Les informations lues dans un message ».

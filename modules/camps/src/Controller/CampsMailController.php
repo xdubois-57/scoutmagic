@@ -99,8 +99,15 @@ class CampsMailController extends AbstractController
             ? $everything
             : array_values(array_filter($everything, static fn(array $row): bool => !$row['message']->isBulk));
 
+        // The set-aside list is its own read: it answers a different
+        // question — « qu'est-ce que j'ai écarté ? » — and loading it on
+        // every visit would pay for a list nobody normally opens.
+        $rows = $status === self::STATUS_DISMISSED
+            ? $this->messages(dismissed: true)
+            : self::filtered($all, $status);
+
         return $this->render('@camps/unsorted_mail.html.twig', [
-            'messages' => self::filtered($all, $status),
+            'messages' => $rows,
             'can_search_stays' => $this->staySearch !== null,
             'has_inbound_mail' => $this->inboundMail !== null && $this->inboundMail->isCollecting(),
             'status' => $status,
@@ -113,9 +120,89 @@ class CampsMailController extends AbstractController
                 self::STATUS_UNLINKED => count(self::filtered($all, self::STATUS_UNLINKED)),
                 self::STATUS_LINKED => count(self::filtered($all, self::STATUS_LINKED)),
                 self::STATUS_ALL => count($all),
+                // Counted rather than derived from $all: a set-aside
+                // message is not in that list, which is the whole point of
+                // having set it aside.
+                self::STATUS_DISMISSED => $this->dismissedCount(),
             ],
             'breadcrumb_current' => 'Courrier des camps',
         ]);
+    }
+
+    /**
+     * « Ce courrier ne concerne pas les camps » (#174).
+     *
+     * A dedicated camps box collects newsletters, delivery receipts and
+     * out-of-office replies alongside the booking contracts, and until now
+     * the only way to stop seeing one was to wait ninety days for the
+     * retention: the dozen messages needing a decision were buried under
+     * hundreds that never will.
+     *
+     * **It deletes nothing and protects nothing.** The message stays in
+     * the unit's general mail, another module that cares about it is
+     * unaffected, and the unassociated-mail retention removes it on
+     * exactly the day it would have anyway — « écarter » must not quietly
+     * mean « conserver » (A3).
+     *
+     * @param array<string, string> $params
+     */
+    public function setAside(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, '/chefs/camps/courrier')) !== null) {
+            return $guard;
+        }
+
+        $done = $this->inboundMail?->dismissMessage(
+            CampsMessageConsumer::CONSUMER_ID,
+            $this->stayReferences(),
+            (int) ($params['id'] ?? 0),
+            AuthSession::getUserAccountId()
+        ) ?? false;
+
+        FlashMessage::set(
+            $done ? 'success' : 'error',
+            $done
+                // Said in full, because the button does less than the word
+                // suggests and a chief must not believe they deleted mail.
+                ? 'Courrier écarté de la liste des camps. Il reste dans le courrier de l\'unité.'
+                : 'Ce courrier n\'a pas pu être écarté.'
+        );
+
+        return $this->redirect('/chefs/camps/courrier');
+    }
+
+    /**
+     * The undo, and the reason setting aside is a row rather than a
+     * deletion: a chief who wrote off the wrong message finds it under
+     * « Écartés » and puts it back.
+     *
+     * @param array<string, string> $params
+     */
+    public function restore(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, '/chefs/camps/courrier?statut=' . self::STATUS_DISMISSED)) !== null) {
+            return $guard;
+        }
+
+        $done = $this->inboundMail?->restoreMessage(
+            CampsMessageConsumer::CONSUMER_ID,
+            (int) ($params['id'] ?? 0)
+        ) ?? false;
+
+        FlashMessage::set(
+            $done ? 'success' : 'error',
+            $done ? 'Courrier remis dans la liste.' : 'Ce courrier n\'a pas pu être remis dans la liste.'
+        );
+
+        return $this->redirect('/chefs/camps/courrier?statut=' . self::STATUS_DISMISSED);
+    }
+
+    private function dismissedCount(): int
+    {
+        return $this->inboundMail?->countDismissedMessages(
+            CampsMessageConsumer::CONSUMER_ID,
+            $this->stayReferences()
+        ) ?? 0;
     }
 
     /**
@@ -131,10 +218,24 @@ class CampsMailController extends AbstractController
     public const STATUS_LINKED = 'rattaches';
     public const STATUS_ALL = 'tous';
 
+    /**
+     * What a chief set aside — « ce courrier ne concerne pas les camps »
+     * (#174).
+     *
+     * A separate list rather than a fourth column of the same one: these
+     * messages are the ones the screen was asked to stop showing, and the
+     * only reason to look at them is to change one's mind. Reading them
+     * costs its own query, so it happens when this filter is chosen and
+     * not on every load.
+     */
+    public const STATUS_DISMISSED = 'ecartes';
+
     /** An unknown value reads as the default rather than as an error. */
     private static function status(string $raw): string
     {
-        return in_array($raw, [self::STATUS_LINKED, self::STATUS_ALL], true) ? $raw : self::STATUS_UNLINKED;
+        return in_array($raw, [self::STATUS_LINKED, self::STATUS_ALL, self::STATUS_DISMISSED], true)
+            ? $raw
+            : self::STATUS_UNLINKED;
     }
 
     /**
@@ -431,7 +532,7 @@ class CampsMailController extends AbstractController
     /**
      * @return array<int, array<string, mixed>>
      */
-    private function messages(): array
+    private function messages(bool $dismissed = false): array
     {
         if ($this->inboundMail === null) {
             return [];
@@ -440,7 +541,8 @@ class CampsMailController extends AbstractController
         $messages = $this->inboundMail->findForTriage(
             CampsMessageConsumer::CONSUMER_ID,
             $this->stayReferences(),
-            self::MAX_MESSAGES
+            self::MAX_MESSAGES,
+            $dismissed
         );
 
         $candidates = $this->inboundMail->findCandidatesFor(

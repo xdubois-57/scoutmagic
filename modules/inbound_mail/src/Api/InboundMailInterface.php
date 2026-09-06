@@ -93,10 +93,70 @@ interface InboundMailInterface
      * knows, and a list showing only what the module was already sure
      * about would hide exactly the messages that need a human.
      *
+     * Messages this consumer has SET ASIDE are left out unless
+     * `$dismissed` asks for exactly those — a chief's « ce courrier ne
+     * concerne pas les camps », which hides a row from this module's list
+     * and from nothing else (#174).
+     *
      * @param string[] $ownReferences references the requester may manage
+     * @param bool $dismissed false: the list to work through; true: what
+     *                        was set aside, so a screen can offer it back
      * @return InboundMessage[] newest first, bounded
      */
-    public function findForTriage(string $consumerId, array $ownReferences, int $limit = 50): array;
+    public function findForTriage(
+        string $consumerId,
+        array $ownReferences,
+        int $limit = 50,
+        bool $dismissed = false
+    ): array;
+
+    /**
+     * « Ce courrier ne concerne pas ce module. »
+     *
+     * A dedicated mailbox collects newsletters, bounces and delivery
+     * receipts alongside the mail that matters, and until #174 a chief
+     * could only wait ninety days for the retention to take them — the
+     * dozen messages needing a decision buried under hundreds that never
+     * will.
+     *
+     * **Per consumer, and it deletes nothing.** A message written off for
+     * camps may be the receipt finance is waiting for; the unit's general
+     * mail screen shows it either way. What this hides is one row of one
+     * module's triage list.
+     *
+     * **It protects nothing** (A3), exactly as dismissing a proposition
+     * does not: the unassociated-mail retention removes a set-aside
+     * message on the same day it would have removed it anyway, or
+     * « écarter » would quietly mean « conserver ».
+     *
+     * Scoped like everything else here: a message outside this
+     * requester's triage list is refused rather than hidden. Idempotent.
+     *
+     * @param string[] $ownReferences references the requester may manage
+     * @return bool whether the message was in scope to be set aside
+     */
+    public function dismissMessage(
+        string $consumerId,
+        array $ownReferences,
+        int $messageId,
+        ?int $userAccountId = null
+    ): bool;
+
+    /**
+     * Put a set-aside message back in the list — the undo half, and the
+     * reason a dismissal is a row rather than a deletion.
+     *
+     * @return bool whether something was actually put back
+     */
+    public function restoreMessage(string $consumerId, int $messageId): bool;
+
+    /**
+     * How many messages this consumer has set aside, so a screen offers
+     * the « écartés » filter only when there is something behind it.
+     *
+     * @param string[] $ownReferences references the requester may manage
+     */
+    public function countDismissedMessages(string $consumerId, array $ownReferences): int;
 
     /**
      * This consumer's still-standing propositions on a set of messages,
