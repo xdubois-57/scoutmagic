@@ -222,6 +222,16 @@ investigation into this ran aground on a log that had discarded the
 evidence), and the issue keeps `triage:pending` so the nightly scan takes
 it regardless.
 
+**A comment never cancels a triage in flight.** Both triggers share one
+concurrency group, per issue, and it does not cancel in progress — because
+it did until issue #181, where the reporter's own clarification, posted
+three minutes after opening, started a second run that killed the first
+and was then skipped by the guard (the issue did not carry
+`bug:needs-info` yet). No verdict, no comment, and no red run: a cancelled
+run reports neither failure nor success. Queuing costs minutes and orders
+the two correctly — the comment run waits, and re-triages on that comment
+if the verdict was `bug:needs-info`.
+
 **A `bug:needs-info` answer restarts it.** Asking the reporter a question
 was, until issue #176, a one-way door: no workflow here listened to
 comments, and the nightly scan skips `triage:done` — the label the

@@ -551,6 +551,49 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
     }
 
     /**
+     * A comment must never cancel the triage it arrives during.
+     *
+     * Both triggers share one concurrency group — per issue, which is
+     * right — and while that group cancelled in progress, a comment on an
+     * issue being triaged started a second run that killed the first and
+     * was then skipped by the job's own guard, because the issue did not
+     * carry `bug:needs-info` yet.
+     *
+     * Issue #181, 2026-09-06: opened at 07:16:09, the reporter added a
+     * clarification at 07:19:30, the triage died at 07:19:50 having
+     * written nothing. A cancelled run is not a failed one, so nothing
+     * went red — the reporter's own follow-up silently killed the answer
+     * they were waiting for, which is the exact class of silence this
+     * whole file exists to refuse.
+     *
+     * Queuing is the fix, and it also orders the two correctly: the
+     * comment run waits, and if the verdict is `bug:needs-info` it
+     * re-triages on that comment.
+     */
+    public function testACommentNeverCancelsTheTriageItArrivesDuring(): void
+    {
+        $file = implode("\n", $this->lines(self::TRIAGE));
+
+        self::assertSame(
+            1,
+            preg_match('/^\s+cancel-in-progress:\s*false\s*$/m', $file),
+            self::TRIAGE . ' cancels a run in progress again. Its two triggers share one '
+            . 'concurrency group, so that setting lets a comment on an issue kill the triage of '
+            . 'that same issue — and the comment run is then skipped by the guard, leaving the '
+            . 'report with no verdict, no comment and no red run. That is issue #181, and it is '
+            . 'invisible: a cancelled run reports neither failure nor success.',
+        );
+
+        self::assertSame(
+            1,
+            preg_match('/^\s+group:\s*issue-triage-\$\{\{\s*github\.event\.issue\.number\s*\}\}\s*$/m', $file),
+            self::TRIAGE . ' no longer scopes its concurrency group to the issue number. One group '
+            . 'for the whole workflow serialises unrelated issues: two opened in the same minute '
+            . 'wait for each other, and with cancellation off the wait is real.',
+        );
+    }
+
+    /**
      * And the state change that must happen BEFORE the agent, not after.
      *
      * `triage:done` on the issue is what the two verification steps read

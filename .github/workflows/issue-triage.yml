@@ -136,12 +136,35 @@ on:
   issue_comment:
     types: [created]
 
-# A reopen while a run is in flight replaces it rather than paying for
-# both. Scoped to the issue number so two issues opened in the same minute
-# do not cancel each other — the mistake that would make this look flaky.
+# One run at a time per issue, and NEVER cancelling the one already
+# running. Scoped to the issue number so two issues opened in the same
+# minute do not queue behind each other — the mistake that would make this
+# look slow.
+#
+# `cancel-in-progress: true` is what this said until issue #181, and the
+# comment trigger turned it into a trap. Both triggers share this group,
+# so a comment on an issue whose triage is IN FLIGHT started a second run
+# that cancelled the first — and was then skipped by the job's own guard,
+# because the issue did not carry `bug:needs-info` yet. Observed on
+# 2026-09-06: #181 opened at 07:16:09, the reporter added a clarification
+# at 07:19:30, and the triage died at 07:19:50 having written nothing. A
+# cancelled run is not a failed one, so nothing went red and nothing said
+# so; the reporter's own follow-up had silently killed the answer they
+# were waiting for.
+#
+# Queuing instead costs a few minutes and gets the ordering right by
+# accident: a comment that arrives mid-triage now waits, and if the
+# verdict that lands is `bug:needs-info`, the queued run re-triages on
+# that very comment — which is exactly what it is for.
+#
+# The reopen case is the trade. It used to replace a running triage;
+# now it runs after it, so a reopen during a triage pays for two and can
+# post two verdicts. That is a deliberate act by someone with write
+# access, minutes apart, and a duplicate comment on a reopened issue is a
+# far cheaper failure than a report nobody ever answered.
 concurrency:
   group: issue-triage-${{ github.event.issue.number }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   triage:
