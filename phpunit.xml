@@ -48,7 +48,8 @@
         MySQL at all (Tests\DatabaseTestHelper builds an in-memory SQLite
         database); only the six files reading TEST_DB_* env vars do, and CI
         provisions a MySQL service container for them. See README.md
-        § Intégration continue, and scripts/release.sh's own tests gate.
+        § Intégration continue: both the `test` job (MySQL 8) and
+        `database-mariadb` (MariaDB 10.11) run this whole file.
     -->
     <source>
         <include>

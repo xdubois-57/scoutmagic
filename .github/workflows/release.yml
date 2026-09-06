@@ -9,11 +9,14 @@
 #
 # WHO STARTS IT, AND WHO FINISHES IT
 # ---------------------------------------------------------------------------
-# scripts/release.sh. It runs its own seven gates on the releaser's machine
-# first (AGENTS.md § Releases), and only then commits VERSION, pushes the
-# tag and starts this. This workflow re-runs the gates on GitHub's runners
-# — a second verdict, from a machine nobody configured by hand, with each
-# tool's native output kept — and creates the Release as a DRAFT with the
+# scripts/release.sh. It runs five gates on the releaser's machine first
+# (AGENTS.md § Releases) — none of which is a test: one of them is a read
+# of the `All checks` verdict THIS repository's ci.yml already reported for
+# the commit being released, which is how a red test stops a release before
+# any tag exists. Only then does it commit VERSION, push the tag and start
+# this. This workflow runs every gate again on GitHub's runners — a second
+# verdict, from a machine nobody configured by hand, with each tool's
+# native output kept — and creates the Release as a DRAFT with the
 # evidence pack attached. The script then waits for this run, attaches the
 # deployable zip and bootstrap.php, writes the notes, and publishes. Nothing
 # reaches the Releases page unless every gate here went green: a red gate
@@ -83,13 +86,21 @@ jobs:
   # (AGENTS.md § CodeQL). The check runs for this commit are recorded too,
   # so a reader can see the default setup analysed it and when.
   #
+  # IT ALSO REFUSES. An open alert on either source blocks a release
+  # (AGENTS.md § Releases: fix first, release later), and this is the
+  # second place that is enforced — the first being the local gate, which
+  # ran minutes earlier against whatever the API said then. A pack that
+  # recorded an open vulnerability while the Release went out anyway would
+  # not be worth attaching.
+  #
   # Dependabot alerts are not readable with the workflow token on every
-  # repository. When the call is refused the file says so and why, and the
-  # job carries on: a missing file reads as an oversight, a file that says
+  # repository. A REFUSED CALL IS NOT A FINDING: the file says so and why,
+  # the job warns and carries on — exactly what the local gate does with
+  # the same `Resource not accessible by integration` answer, and for the
+  # same reason. A missing file reads as an oversight; a file that says
   # "not available, and here is the URL to read by hand" reads as a fact.
-  # Same for the code-scanning call — the local release gate already
-  # blocked on these two sources before the tag was pushed (AGENTS.md
-  # § Releases), so their absence here weakens the pack, not the release.
+  # What that costs is written down in docs/quality-pipeline.md's list of
+  # things that are green without having proved anything.
   github-security-evidence:
     name: GitHub security alerts evidence
     runs-on: ubuntu-latest
@@ -135,12 +146,40 @@ jobs:
             > evidence/codeql-check-runs.json
           cat evidence/codeql-check-runs.json
 
+      # Before the verdict below, and unconditional: a refusal is exactly
+      # when somebody wants to read these files.
       - name: Upload the evidence (GitHub security alerts)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: evidence-github-security
           path: evidence/
           retention-days: 7
+
+      - name: Refuse a release with an open security alert
+        run: |
+          set -euo pipefail
+          blocked=0
+          for source in codeql-open-alerts dependabot-open-alerts; do
+            # An object rather than an array is the UNAVAILABLE marker
+            # written above — a statement about this token, not a finding.
+            if [ "$(jq -r 'type' "evidence/${source}.json")" != "array" ]; then
+              echo "${source}: not readable by this run — see the warning above and the Security tab."
+              continue
+            fi
+            open="$(jq length "evidence/${source}.json")"
+            if [ "${open}" -gt 0 ]; then
+              blocked=1
+              echo "::error::${source}: ${open} open alert(s) — a release must not ship over one."
+              jq -r '.[] | "  #\(.number) \(.severity // "?") \(.rule // .package // "?") \(.html_url)"' "evidence/${source}.json"
+            else
+              echo "${source}: none open."
+            fi
+          done
+          if [ "${blocked}" -ne 0 ]; then
+            echo "::error::Fix or dismiss them (AGENTS.md § Releases: fix first, release later), then release the commit that does."
+            exit 1
+          fi
 
   # SonarCloud's COMPLETE analysis of this commit, not just its verdict: the
   # quality gate, every project measure, the same per file, every open issue
@@ -148,6 +187,12 @@ jobs:
   # and every security hotspot, plus a Markdown front page. The gate on its
   # own says pass or fail and nothing about what was found — and a pack
   # whose reader has to log in to SonarCloud to learn that is not evidence.
+  #
+  # It refuses, too, on an analysis that may not ship — a non-OK Quality
+  # Gate, an unresolved finding that is not an exempt convention nit, or a
+  # Security Hotspot nobody has triaged. Same rule as the local gate
+  # (AGENTS.md § SonarQube Cloud release gate), applied a second time by a
+  # machine nobody configured by hand.
   #
   # After the checks rather than beside them: the analysis is produced by
   # ci.yml's sonarqube job on the push to main that carried this commit,
@@ -182,7 +227,11 @@ jobs:
           php scripts/sonar-evidence.php evidence
           cat evidence/sonarcloud-report.md >> "${GITHUB_STEP_SUMMARY}"
 
+      # Unconditional, for the same reason as the alerts upload above: the
+      # script exits non-zero over an analysis that may not ship, and the
+      # report explaining why is what somebody then wants to read.
       - name: Upload the evidence (SonarCloud)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: evidence-sonarcloud

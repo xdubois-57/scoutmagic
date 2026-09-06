@@ -91,7 +91,7 @@ final class ReleasePipelineIsWiredTest extends TestCase
     }
 
     /**
-     * The seven gates and SonarCloud, by job id. A job that moves back
+     * The seven checks and SonarCloud, by job id. A job that moves back
      * into ci.yml or release.yml is a gate one of the two pipelines no
      * longer runs.
      */
@@ -242,7 +242,72 @@ final class ReleasePipelineIsWiredTest extends TestCase
         }
     }
 
+    /**
+     * The two evidence jobs are JUDGES, not recorders, and both refuse
+     * after uploading what they found.
+     *
+     * A pack that recorded an open vulnerability or a failing Quality
+     * Gate while the Release went out anyway would be worse than no pack:
+     * it would carry the proof that nobody read it. Both refusals also
+     * repeat a check the local gate already made minutes earlier, which
+     * is the entire reason a second judge on a machine nobody configured
+     * by hand is worth having.
+     */
+    public function testTheEvidenceJobsRefuseRatherThanOnlyRecord(): void
+    {
+        $release = self::read(self::RELEASE);
+
+        // An open alert stops the release; a call the token cannot make
+        // does not — that is a statement about this run, not a finding,
+        // and the local gate treats it the same way.
+        $this->assertStringContainsString('Refuse a release with an open security alert', $release);
+        $this->assertStringContainsString('open alert(s) — a release must not ship over one', $release);
+        $this->assertStringContainsString("!= \"array\"", $release, 'the UNAVAILABLE marker is no longer told apart from a finding');
+
+        // Both uploads survive their own job's refusal: a refusal is
+        // exactly when somebody wants to read the reports.
+        $uploads = preg_split('/\n      - name: Upload the evidence/', $release) ?: [];
+        $this->assertGreaterThanOrEqual(3, count($uploads), 'release.yml no longer uploads its own evidence');
+        foreach (array_slice($uploads, 1) as $upload) {
+            $this->assertStringContainsString(
+                'if: always()',
+                $upload,
+                'an evidence upload is skipped when its job refuses, so the report explaining the refusal is lost'
+            );
+        }
+
+        $this->assertStringContainsString(
+            'sonar_evidence_release_refusals',
+            self::read('scripts/sonar-evidence.php'),
+            'the SonarCloud evidence no longer refuses an analysis that may not ship'
+        );
+    }
+
     // ── The script that finishes the draft ───────────────────────────────
+
+    /**
+     * The gates the script keeps are the ones the runner does not have —
+     * production's state, `npm audit`, dependency freshness, and the two
+     * refusals that must happen before a commit or a tag exists. The ones
+     * it dropped are the ones the runner does better. Both halves are
+     * asserted in tests/Core/System/ReleaseGatesTest; what matters here
+     * is that the boundary is written down where somebody editing the
+     * pipeline will read it.
+     */
+    public function testTheScriptSaysWhyTheTestsAreNotAmongItsGates(): void
+    {
+        $script = self::read(self::RELEASE_SCRIPT);
+
+        $this->assertStringContainsString('# WHY THE TESTS ARE NOT IN THAT LIST', $script);
+        $this->assertStringContainsString('check_ci_gate', $script);
+        // The map carries the same boundary for a reader who never opens
+        // the script (AGENTS.md § Pipeline documentation maintenance).
+        $this->assertStringContainsString(
+            'All checks',
+            self::read('docs/quality-pipeline.md'),
+            'the map no longer names the check the release gate reads'
+        );
+    }
 
     public function testTheScriptWaitsForTheWorkflowAndPublishesTheDraft(): void
     {

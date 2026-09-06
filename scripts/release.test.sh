@@ -3,8 +3,8 @@
 # scripts/check-sonar-release.test.sh covers the Sonar gate's — mocked,
 # no network, no release, nothing published.
 #
-# Two things are pinned here, and both are things that went wrong for
-# real rather than things that looked fragile.
+# Three things are pinned here, and the first two are things that went
+# wrong for real rather than things that looked fragile.
 #
 # 1. THE VERSION ARITHMETIC. `git describe --tags --abbrev=0` returns the
 #    newest tag, and this repository carries moving ones the dev channel
@@ -13,12 +13,19 @@
 #    VERSION, committed and PUSHED to main before anything checked it —
 #    the run only died afterwards, on an invalid tag name.
 #
-# 2. THE FAST-GATE ORDER. run_fast_gate() runs the gates that finish in
-#    seconds before any long one starts, and stops the release at the
-#    first refusal. It must also run its gate function under `set +e`,
-#    because several gate functions are written for errexit being off and
-#    say so in their own comments — check_sonar_gate's `|| exit 1` only
-#    makes sense that way.
+# 2. THE REFUSAL. run_gate() stops the release at the first gate that
+#    refuses, and must run its gate function under `set +e`, because
+#    several gate functions are written for errexit being off and say so
+#    in their own comments — check_sonar_gate's `|| exit 1` only makes
+#    sense that way. A gate whose refusal did not stop the script would
+#    let the next one commit and tag.
+#
+# 3. WHAT THIS SCRIPT NO LONGER RUNS. PHPUnit, the browser suite and the
+#    dynamic scan moved to the runner (see the script's own header), and
+#    the value of that move is entirely in them not being here: a copy
+#    left behind would be the untrustworthy verdict again, on one engine,
+#    proving nothing the pack can show. So their absence is asserted
+#    rather than assumed.
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -97,24 +104,24 @@ else
 fi
 
 # ---------------------------------------------------------------
-# 2. Fast-gate ordering
+# 2. Gate execution
 # ---------------------------------------------------------------
-echo "Fast gates:"
+echo "Gate execution:"
 
 GATE_TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "${GATE_TMP_DIR}"' EXIT
-GATE_KEYS=(); GATE_LABELS=(); GATE_PIDS=(); GATE_EXIT=()
+GATE_KEYS=(); GATE_LABELS=()
 
 # The real function, lifted out of the script under test rather than
 # copied into it — a reimplementation here would pin nothing.
-eval "$(sed -n '/^run_fast_gate() {/,/^}/p' "${RELEASE_SH}")"
+eval "$(sed -n '/^run_gate() {/,/^}/p' "${RELEASE_SH}")"
 
 passing_gate() {
     echo "verified" > "${GATE_REPORT_FILE}"
     return 0
 }
 
-# `return 1`, not `exit 1`: run_fast_gate runs a gate as `( set +e; "$func"; exit $? )`,
+# `return 1`, not `exit 1`: run_gate runs a gate as `( set +e; "$func"; exit $? )`,
 # so the two are the same refusal — and a return is what a real gate does.
 refusing_gate() {
     echo "the reason nobody should have to guess" >&2
@@ -129,7 +136,7 @@ errexit_gate() {
     return 0
 }
 
-if ( run_fast_gate p "Pass" passing_gate ) > /dev/null 2>&1; then
+if ( run_gate p "Pass" passing_gate ) > /dev/null 2>&1; then
     ok "a passing gate lets the release continue"
 else
     fail "a passing gate stopped the release"
@@ -140,32 +147,65 @@ else
     fail "the passing gate's report was not written"
 fi
 
-output="$( ( run_fast_gate f "Refuse" refusing_gate; echo "CONTINUED" ) 2>&1 )"
+output="$( ( run_gate f "Refuse" refusing_gate; echo "CONTINUED" ) 2>&1 )"
 if grep -q "CONTINUED" <<< "${output}"; then
-    fail "a refusing gate did NOT stop the release — long gates would still start"
+    fail "a refusing gate did NOT stop the release — the next gate would commit and tag"
 else
-    ok "a refusing gate stops the release before any long gate starts"
+    ok "a refusing gate stops the release"
 fi
-if grep -q "gate FAILED" <<< "${output}" && grep -q "nobody should have to guess" <<< "${output}"; then
+if grep -q "blocked by the Refuse gate" <<< "${output}" && grep -q "nobody should have to guess" <<< "${output}"; then
     ok "and it prints the gate's own reason, not just a status"
 else
     fail "the refusal did not surface the gate's own output"
 fi
 
-if ( run_fast_gate e "Errexit" errexit_gate ) > /dev/null 2>&1; then
-    ok "the gate function runs under set +e, as launch_gate runs it"
+if ( run_gate e "Errexit" errexit_gate ) > /dev/null 2>&1; then
+    ok "the gate function runs under set +e, as the script runs it"
 else
-    fail "errexit is on inside run_fast_gate — gate functions written for set +e will abort early"
+    fail "errexit is on inside run_gate — gate functions written for set +e will abort early"
 fi
 
-# The whole point of the change: nothing long may be launched before the
-# fast ones have run.
-fast_line="$(grep -n 'run_fast_gate sonar' "${RELEASE_SH}" | cut -d: -f1)"
-slow_line="$(grep -n 'launch_gate tests' "${RELEASE_SH}" | cut -d: -f1)"
-if [[ -n "${fast_line}" && -n "${slow_line}" && "${fast_line}" -lt "${slow_line}" ]]; then
-    ok "every fast gate is declared before the first long one"
+# The order is the documented one, and it is the order of the file.
+expected_order="deployment ci security dependency sonar"
+actual_order="$(grep -oE '^\s*run_gate [a-z]+' "${RELEASE_SH}" | awk '{print $2}' | tr '\n' ' ' | sed 's/ $//')"
+if [[ "${actual_order}" == "${expected_order}" ]]; then
+    ok "the five gates run in the documented order (${actual_order})"
 else
-    fail "a long gate is launched before the fast gates have run (sonar@${fast_line}, tests@${slow_line})"
+    fail "gate order is '${actual_order}', expected '${expected_order}'"
+fi
+
+# ---------------------------------------------------------------
+# 3. The long gates are gone, and stay gone
+# ---------------------------------------------------------------
+echo "What the script no longer runs:"
+
+# Comments stripped first: the script's header explains at length what it
+# used to run and why that moved, and a grep that could not tell the
+# explanation from a call would forbid writing the explanation down.
+CODE_ONLY="$(mktemp)"
+grep -v '^[[:space:]]*#' "${RELEASE_SH}" > "${CODE_ONLY}"
+
+for forbidden in "vendor/bin/phpunit" "npm run e2e" "npm run test:coverage" "scripts/dast.sh" "vendor/bin/phpstan"; do
+    if grep -qF -- "${forbidden}" "${CODE_ONLY}"; then
+        fail "release.sh runs '${forbidden}' again — that verdict belongs on the runner, where both engines and the evidence pack are"
+    else
+        ok "does not run '${forbidden}' itself"
+    fi
+done
+
+rm -f "${CODE_ONLY}"
+
+# What replaces them: the verdict GitHub reached on the released commit.
+if grep -q 'check-runs?check_name=' "${RELEASE_SH}" && grep -q 'CI_VERDICT_CHECK' "${RELEASE_SH}"; then
+    ok "reads the CI verdict for the commit being released instead"
+else
+    fail "nothing reads the CI verdict — a release could be cut on a commit nothing has judged"
+fi
+
+if grep -q 'git status --porcelain' "${RELEASE_SH}"; then
+    ok "and refuses a dirty tree, which that verdict would not describe"
+else
+    fail "a dirty working tree is no longer refused — the artifact would ship untested files"
 fi
 
 echo ""

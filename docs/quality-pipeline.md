@@ -22,7 +22,7 @@ catches what, and what each one cannot see.
 | **SonarQube Cloud** | CI; release gate | Quality, duplication, security hotspots | Intent |
 | **AI triage** | Every issue opened or reopened, plus a nightly pass over the untriaged backlog | Whether a report is a real defect, the one fact a blocked report is missing, and the workaround when the behaviour is correct | Anything only a running installation shows — it reads the code but reproduces nothing, changes nothing, and gates nothing |
 | **AI review** | Pull requests it is eligible for — not drafts, and `Claude review` not on forks | Cross-file reasoning, stale documentation, intent mismatches | Nothing reliably — it is a reader, not a gate |
-| **Release gates** | `scripts/release.sh` | Deployment state, security advisories, dependency freshness, Sonar, PHPStan + the full PHPUnit suite, `e2e:full`, both DAST profiles | What the AI reviewers read — intent, cross-file reasoning, stale docs. It reads CodeQL's open alerts but runs no scan of its own |
+| **Release gates** | `scripts/release.sh` | Deployment state, the CI verdict on the released commit, security advisories, dependency freshness, Sonar | What the AI reviewers read — intent, cross-file reasoning, stale docs. It runs no test and no scan of its own: it reads the runner's verdict on all of them |
 | **Release workflow** | `.github/workflows/release.yml`, on the tag | The same gates a second time, on a runner nobody configured by hand, with each tool's native output kept, signed and attached to the Release | Nothing the gates themselves are blind to — it is a record of them, not a new judge |
 
 No single layer is trusted alone, and the ones that overlap do so on
@@ -94,7 +94,8 @@ Two tiers, `full` a strict superset of `confidence`:
   runs this on every push. Budget: measured at 481 s; treat 12 minutes as
   the ceiling and re-examine the tier's contents rather than raise it.
 - `npm run e2e:full` — everything, including the per-module boot matrix.
-  `scripts/release.sh` runs this.
+  The release workflow's evidence run does this (`checks.yml`,
+  `evidence: true`); it is the release standard, not the push standard.
 
 A new scenario lands in `confidence` by default. Relegate one to `full` only
 when it is costly *by nature*, never because it is slow through inefficiency
@@ -413,35 +414,39 @@ acceptable only for a manual release — see the end of this section.
 security item: CodeQL alerts, Dependabot alerts, and active SonarQube Cloud
 findings. The gates below are the final check, not the fix.
 
-Seven gates, all fail-closed, all run **before** any commit or tag:
+Five gates, all fail-closed, all run **before** any commit or tag, one
+after another, and the release stops at the first one that refuses:
 
 | Gate | What it checks |
 |---|---|
 | **Deployment** | production is on the previous release and answers `GET /api/version` |
+| **Continuous integration** | `All checks` is green on the commit being released, and the working tree is clean |
 | **Security** | `composer audit`, `npm audit`, open CodeQL findings, open Dependabot alerts |
 | **Dependency freshness** | `composer outdated --direct`, and every vendored front-end library against its upstream release |
 | **SonarQube Cloud** | `scripts/check-sonar-release.sh` — see below |
-| **Tests** | PHPStan + the complete PHPUnit suite (no group excluded), `npm run typecheck`, `npm run test:coverage` |
-| **End-to-end** | `npm run e2e:full`, including the `@full` per-module boot matrix |
-| **Dynamic scan** | `dast.sh --profile=standard` then `--profile=passive` |
 
-**The four fast gates run first, one after another, and the release stops at
-the first one that refuses** — nothing long is started behind a failed
-precondition. Each takes seconds (deployment 2 s, Sonar 4 s, dependency
-freshness and security ~5 s), so parallelising them would buy nothing and
-cost the thing that matters: a Sonar gate refusing in four seconds used to
-burn the full twenty-five minutes before saying so.
+**None of them runs a test**, and that is the design rather than a gap.
+PHPStan, both PHPUnit engines, the JavaScript analysis and tests, the
+browser suite, the authorization matrix and the passive scan run on a
+runner — on the pull request, on the push to `main`, and again on the tag,
+where what each tool emits is signed into the evidence pack. Running them
+on the releaser's machine as well used to take twenty-five of the release's
+thirty minutes and was the *least* trustworthy of those runs: one database
+engine where CI uses two, four of the reproductions on the wrong engine
+entirely (see the steward skill), and a verdict appearing nowhere a reader
+of the Release could check. The **Continuous integration** gate buys back
+the one thing that was worth keeping — failing *before* the tag exists — by
+reading the verdict GitHub has already reached on the same commit.
 
-The three slow ones are then launched as concurrent subshells, but chained
-`tests → end-to-end → dynamic scan`: all three migrate the same local MySQL
-server, and overlapping them caused spurious migration timeouts. Skipping a
-link collapses the chain onto the one before it. These are collected
-together, so a run reports **every** slow gate that failed, not just the
-first — a `Gate results` block lists each one with the last 60 lines of its
-log, then the release exits.
+That gate refuses three ways, and each says something different: a dirty
+working tree (the artifact is zipped from it while the verdict is about
+`HEAD`, so uncommitted changes would ship untested), no `All checks` run
+for the commit at all (never pushed, or the workflow never started — and
+"no verdict" is not a pass), or a run that is red, cancelled, or still
+going after a bounded wait.
 
-Gates fail closed on a missing tool or service — an unreachable database, no
-`node_modules/`, no Docker, no ZAP image — rather than silently doing less.
+Gates fail closed on a missing tool or service rather than silently doing
+less.
 **The Security gate has one deliberate exception**: a
 `Resource not accessible by integration` answer to the CodeQL or Dependabot
 alert query is a permission gap rather than a finding, so it warns and the
@@ -457,12 +462,14 @@ fixed, except those that are *all three at once* — software quality
 a *list* of impacts and is exempt only when every one of them qualifies; an
 issue with no impacts at all is not exempt.
 
-**Bypass flags** (`--skip-security-gate`, `--skip-tests-gate`,
-`--skip-e2e-gate`, `--skip-dast-gate`, `--skip-dependency-check`,
-`--skip-deployment-check`, `--skip-sonar-gate`) exist for genuine
-emergencies. Each prints a warning naming exactly what was not checked.
-Using one to route around a real finding is how a release ships a known
-defect.
+**Bypass flags** (`--skip-deployment-check`, `--skip-ci-gate`,
+`--skip-security-gate`, `--skip-dependency-check`, `--skip-sonar-gate`)
+exist for genuine emergencies. Each prints a warning naming exactly what
+was not checked. Using one to route around a real finding is how a release
+ships a known defect — and `--skip-ci-gate` is the widest of them by far,
+since nothing else in the script looks at the code at all: a run with it
+has been tested by nobody until the tag's own workflow says otherwise, and
+that runs *after* the tag exists.
 
 After the gates pass, the script bumps `VERSION`, commits, tags `vX.Y.Z`
 and pushes the tag — and that push starts the second half.

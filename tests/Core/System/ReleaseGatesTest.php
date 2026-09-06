@@ -7,11 +7,11 @@ namespace Tests\Core\System;
 use PHPUnit\Framework\TestCase;
 
 /**
- * `scripts/release.sh` runs its gates in parallel, and adding one means
- * touching six places that no compiler connects: the skip flag's
- * variable, its argument case, its documentation in the header, the
- * `launch_gate` call, the line that reads the gate's report file, and
- * the assembled Markdown report.
+ * `scripts/release.sh` runs five gates, and adding one means touching six
+ * places that no compiler connects: the skip flag's variable, its
+ * argument case, its documentation in the header, the `run_gate` call,
+ * the line that reads the gate's report file, and the assembled Markdown
+ * report.
  *
  * Miss one and the release still works, which is the problem. Forget the
  * report line and the release notes silently omit a gate that ran.
@@ -38,29 +38,7 @@ class ReleaseGatesTest extends TestCase
      */
     private static function launchedKeys(): array
     {
-        // Two launchers, one meaning. `run_fast_gate` runs the gates that
-        // finish in seconds first and in the foreground, `launch_gate`
-        // forks the long ones; a gate wired to either one runs, and a gate
-        // wired to neither does not. Every assertion below is about that
-        // second thing, so both spellings count here.
-        preg_match_all(
-            '/^\s*(?:launch_gate|run_fast_gate)\s+([a-z_]+)\s/m',
-            self::script(),
-            $matches
-        );
-
-        return array_values(array_unique($matches[1]));
-    }
-
-    /**
-     * The gate keys `run_fast_gate` runs, in the order the script runs
-     * them.
-     *
-     * @return list<string>
-     */
-    private static function fastKeys(): array
-    {
-        preg_match_all('/^\s*run_fast_gate\s+([a-z_]+)\s/m', self::script(), $matches);
+        preg_match_all('/^\s*run_gate\s+([a-z_]+)\s/m', self::script(), $matches);
 
         return array_values(array_unique($matches[1]));
     }
@@ -75,9 +53,19 @@ class ReleaseGatesTest extends TestCase
         return array_values(array_unique($matches[1]));
     }
 
-    public function testThereAreGatesAtAll(): void
+    /**
+     * The five, by key and in order. Written out rather than counted:
+     * the order is the documented one (a precondition about production,
+     * then the verdict on the code, then what ships), and a gate silently
+     * dropped from the sequence is exactly what this file exists to
+     * catch.
+     */
+    public function testTheFiveGatesRunInTheDocumentedOrder(): void
     {
-        $this->assertGreaterThanOrEqual(6, count(self::launchedKeys()));
+        $this->assertSame(
+            ['deployment', 'ci', 'security', 'dependency', 'sonar'],
+            self::launchedKeys()
+        );
     }
 
     /**
@@ -90,7 +78,7 @@ class ReleaseGatesTest extends TestCase
         $orphans = [];
 
         foreach (self::gateFunctions() as $name) {
-            $wired = '/(?:launch_gate|run_fast_gate)\s+\S+\s+"[^"]*"\s+check_'
+            $wired = '/run_gate\s+\S+\s+"[^"]*"\s+check_'
                 . preg_quote($name, '/') . '_gate\b/';
             if (preg_match($wired, $script) !== 1) {
                 $orphans[] = "check_{$name}_gate";
@@ -101,45 +89,6 @@ class ReleaseGatesTest extends TestCase
             [],
             $orphans,
             'these gate functions are passed to neither launch_gate nor run_fast_gate — they never run'
-        );
-    }
-
-    /**
-     * The fast gates exist to fail before anything expensive starts, and
-     * that is a property of ORDER rather than of speed: a `run_fast_gate`
-     * call sitting after the first `launch_gate` would still run, still
-     * pass its own assertions, and still cost the full twenty-five
-     * minutes it was written to save.
-     *
-     * This is how that regression was possible in the first place — the
-     * dependency and SonarQube blocks were declared after the long gates,
-     * so switching them to run_fast_gate was not enough on its own and
-     * the blocks had to be moved.
-     */
-    public function testEveryFastGateRunsBeforeTheFirstLongOne(): void
-    {
-        $script = self::script();
-
-        $this->assertNotSame([], self::fastKeys(), 'no gate runs in the fast lane any more');
-
-        $firstLaunch = null;
-        if (preg_match('/^\s*launch_gate\s/m', $script, $m, PREG_OFFSET_CAPTURE) === 1) {
-            $firstLaunch = $m[0][1];
-        }
-        $this->assertNotNull($firstLaunch, 'nothing is launched in parallel any more');
-
-        preg_match_all('/^\s*run_fast_gate\s+([a-z_]+)\s/m', $script, $fast, PREG_OFFSET_CAPTURE);
-        $late = [];
-        foreach ($fast[0] as $i => $match) {
-            if ($match[1] > $firstLaunch) {
-                $late[] = $fast[1][$i][0];
-            }
-        }
-
-        $this->assertSame(
-            [],
-            $late,
-            'these fast gates are declared after a long gate is launched, so they no longer run first'
         );
     }
 
@@ -181,7 +130,7 @@ class ReleaseGatesTest extends TestCase
 
         foreach (self::launchedKeys() as $key) {
             $variable = 'SKIP_' . strtoupper($key);
-            // The flags are not spelled uniformly — --skip-tests-gate
+            // The flags are not spelled uniformly — --skip-ci-gate
             // beside --skip-dependency-check — so the variable is what is
             // matched, and the flag is required to exist in the same line
             // of the argument loop.
@@ -208,21 +157,67 @@ class ReleaseGatesTest extends TestCase
     }
 
     /**
-     * The gate that runs the dynamic scan, pinned by name because
-     * SECURITY.md §§ 35-36 and the CI workflow both point at it.
+     * What this script deliberately does NOT run, and what it reads
+     * instead.
+     *
+     * PHPStan, both PHPUnit engines, the browser suite and both DAST
+     * profiles used to be gates here, on the releaser's machine, taking
+     * twenty-five minutes. They are the runner's now — twice over, on the
+     * pull request and again on the tag — and the value of that move is
+     * entirely in them not also being here: a local copy is the run on
+     * one database engine, with a Chromium and a ZAP image somebody had
+     * to install, whose verdict appears nowhere a reader of the Release
+     * can check. Bringing one back would restore the confusion, not the
+     * safety.
+     *
+     * Comments are stripped first, because the script's header explains
+     * that history at length and a test that could not tell the
+     * explanation from a call would forbid writing it down.
      */
-    public function testTheDynamicSecurityGateIsWiredIn(): void
+    public function testTheSlowVerdictsAreTheRunnersAndNotThisScriptsAgain(): void
     {
-        $script = self::script();
+        $code = (string) preg_replace('/^\s*#.*$/m', '', self::script());
 
-        $this->assertContains('dast', self::launchedKeys());
-        $this->assertStringContainsString('./scripts/dast.sh --profile=standard', $script);
-        $this->assertStringContainsString('./scripts/dast.sh --profile=passive', $script);
-        $this->assertStringNotContainsString(
-            './scripts/dast.sh --profile=deep',
-            $script,
-            'the active profiles take the better part of an hour and attack the instance — '
-            . 'a release gate has to be something a releaser will actually wait for'
+        foreach ([
+            'vendor/bin/phpstan',
+            'vendor/bin/phpunit',
+            'npm run e2e',
+            'npm run test:coverage',
+            './scripts/dast.sh',
+        ] as $command) {
+            $this->assertStringNotContainsString(
+                $command,
+                $code,
+                $command . ' is back in scripts/release.sh — that verdict belongs to .github/workflows/checks.yml, '
+                . 'where it runs on two engines and lands in the evidence pack'
+            );
+        }
+
+        // What replaces them: one read of the verdict GitHub already
+        // reached on the commit being released.
+        $this->assertContains('ci', self::launchedKeys());
+        $this->assertStringContainsString('CI_VERDICT_CHECK:-All checks', self::script());
+        $this->assertStringContainsString('check-runs?check_name=', self::script());
+        $this->assertStringContainsString(
+            'git status --porcelain',
+            self::script(),
+            'a dirty tree makes that verdict describe something other than what the artifact ships'
         );
+    }
+
+    /**
+     * The dynamic scan is still a release requirement — it just runs
+     * where every other test does. Its two profiles are named in
+     * checks.yml, and the active ones are still nowhere: they take the
+     * better part of an hour and attack the instance.
+     */
+    public function testBothDynamicScanProfilesRunOnTheRunner(): void
+    {
+        $checks = (string) file_get_contents(dirname(__DIR__, 3) . '/.github/workflows/checks.yml');
+
+        $this->assertStringContainsString('./scripts/dast.sh --profile=standard', $checks);
+        $this->assertStringContainsString('./scripts/dast.sh --profile=passive', $checks);
+        $this->assertStringNotContainsString('./scripts/dast.sh --profile=deep', $checks);
+        $this->assertStringNotContainsString('./scripts/dast.sh --profile=audit', $checks);
     }
 }

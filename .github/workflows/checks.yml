@@ -412,8 +412,8 @@ jobs:
         # lives in scripts/e2e.sh, never duplicated here. `npm run e2e` is
         # the CONFIDENCE tier (every scenario not tagged @full — AGENTS.md
         # § Tests); the costly @full scenarios (the per-module boot
-        # matrix) run in scripts/release.sh's E2E gate via
-        # `npm run e2e:full`, not on every push. No display server is
+        # matrix) run in the evidence step below via `npm run e2e:full`,
+        # which is to say on every tag, not on every push. No display server is
         # involved — Chromium runs headless and the application is served
         # by `php -S` on a local port the harness picks itself.
         if: ${{ !inputs.evidence }}
@@ -431,8 +431,10 @@ jobs:
         run: npm run e2e
 
       # The FULL tier on a release — the confidence scenarios above plus
-      # every @full one, which is what scripts/release.sh's own end-to-end
-      # gate runs (AGENTS.md § Tests). E2E_EVIDENCE turns on a screenshot
+      # every @full one (AGENTS.md § Tests). This job is the only place
+      # that tier runs: scripts/release.sh used to run it too, on the
+      # releaser's machine, and dropped it precisely because this run is
+      # the better one. E2E_EVIDENCE turns on a screenshot
       # per test (tests/e2e/playwright.config.js); traces and videos stay
       # retain-on-failure in both modes, because a video of a test that
       # behaved is what makes a pack enormous and is not evidence anybody

@@ -126,7 +126,7 @@ rm -f "${ARTIFACT}"
 # pattern matches the directory's CONTENTS, not the directory entry
 # itself, and an empty .git/ extracted onto a production webroot is how
 # every install ended up with one. Same story for the local tool
-# droppings (".phpunit.result.cache" from release.sh's own test gate,
+# droppings (".phpunit.result.cache" from a local test run,
 # ".sonar-token", ".lane-env", dast-report/) — none of them is tracked,
 # all of them were observed shipped to scoutmagic.be inside release
 # artifacts built from a working checkout.

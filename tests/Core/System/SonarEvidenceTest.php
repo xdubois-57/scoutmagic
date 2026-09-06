@@ -18,12 +18,15 @@ require_once dirname(__DIR__, 3) . '/scripts/sonar-evidence.php';
  * in the global namespace — hence the leading backslashes.
  *
  * Everything that talks to the network or the clock takes a callable, so
- * the three decisions worth pinning are exercised here without either:
+ * the four decisions worth pinning are exercised here without either:
  * the wait for the analysis OF THE RELEASED COMMIT (a pass read off an
  * older analysis is not a pass), the pagination that stops on a short page
- * rather than truncating, and the release rule that sorts every open issue
+ * rather than truncating, the release rule that sorts every open issue
  * into blocking or exempt — the same rule scripts/check-sonar-release.sh
- * applies in bash.
+ * applies in bash — and the refusal that rule produces, which is what
+ * makes this script a second judge rather than a recorder: on a release
+ * run it exits non-zero over a dirty analysis, and no draft Release is
+ * created at all.
  */
 class SonarEvidenceTest extends TestCase
 {
@@ -258,7 +261,13 @@ class SonarEvidenceTest extends TestCase
                 return ['issues' => [['key' => 'i1', 'tags' => [], 'impacts' => [], 'severity' => 'INFO']]];
             }
             if (str_starts_with($path, 'hotspots/search')) {
-                return ['hotspots' => []];
+                // One triaged, one not: the release rule blocks on the
+                // second alone, so the two counts must not be the same
+                // number read twice.
+                return ['hotspots' => [
+                    ['key' => 'h1', 'status' => 'REVIEWED', 'vulnerabilityProbability' => 'LOW'],
+                    ['key' => 'h2', 'status' => 'TO_REVIEW', 'vulnerabilityProbability' => 'HIGH'],
+                ]];
             }
             throw new \LogicException('unexpected call: ' . $path);
         };
@@ -277,7 +286,12 @@ class SonarEvidenceTest extends TestCase
         $this->assertSame('OK', $summary['quality_gate']);
         $this->assertSame(1, $summary['issues']);
         $this->assertSame(1, $summary['blocking']);
-        $this->assertSame(0, $summary['hotspots']);
+        $this->assertSame(2, $summary['hotspots']);
+        $this->assertSame(1, $summary['hotspots_to_review'], 'a triaged hotspot is not one to review');
+
+        $hotspots = json_decode((string) file_get_contents($this->outDir . '/sonarcloud-hotspots.json'), true);
+        $this->assertSame(2, $hotspots['total']);
+        $this->assertSame(1, $hotspots['to_review']);
 
         $issues = json_decode((string) file_get_contents($this->outDir . '/sonarcloud-issues.json'), true);
         $this->assertSame(['total' => 1, 'blocking' => 1, 'exempt' => 0], array_intersect_key($issues, array_flip(['total', 'blocking', 'exempt'])));
@@ -286,6 +300,50 @@ class SonarEvidenceTest extends TestCase
         $analysis = json_decode((string) file_get_contents($this->outDir . '/sonarcloud-analysis.json'), true);
         $this->assertSame('released', $analysis['expected_revision']);
         $this->assertSame('main', $analysis['branch']);
+    }
+
+    /**
+     * The refusal, clause by clause. Each one alone must be enough — a
+     * rule that only blocks when everything is wrong at once blocks
+     * nothing in practice.
+     */
+    public function testAnAnalysisThatMayNotShipIsRefusedForEachReasonSeparately(): void
+    {
+        $clean = ['quality_gate' => 'OK', 'blocking' => 0, 'hotspots_to_review' => 0, 'revision' => 'r'];
+
+        $this->assertSame([], \sonar_evidence_release_refusals($clean));
+
+        $gate = \sonar_evidence_release_refusals(['quality_gate' => 'ERROR'] + $clean);
+        $this->assertCount(1, $gate);
+        $this->assertStringContainsString('Quality Gate est ERROR', $gate[0]);
+
+        $issues = \sonar_evidence_release_refusals(['blocking' => 3] + $clean);
+        $this->assertCount(1, $issues);
+        $this->assertStringContainsString('3 signalement(s)', $issues[0]);
+        $this->assertStringContainsString('convention', $issues[0], 'the reason has to say which findings do not count');
+
+        $hotspots = \sonar_evidence_release_refusals(['hotspots_to_review' => 2] + $clean);
+        $this->assertCount(1, $hotspots);
+        $this->assertStringContainsString('TO_REVIEW', $hotspots[0]);
+
+        $this->assertCount(3, \sonar_evidence_release_refusals(
+            ['quality_gate' => 'ERROR', 'blocking' => 1, 'hotspots_to_review' => 1] + $clean
+        ), 'every reason is reported, not just the first');
+    }
+
+    /**
+     * An exempt convention nit is a finding and still not a refusal — the
+     * exemption exists so formatting preferences cannot hold a release
+     * hostage, and this is where that stays true.
+     */
+    public function testExemptFindingsAloneDoNotRefuseARelease(): void
+    {
+        $this->assertSame([], \sonar_evidence_release_refusals([
+            'quality_gate' => 'OK',
+            'blocking' => 0,
+            'hotspots_to_review' => 0,
+            'revision' => 'r',
+        ]));
     }
 
     public function testTheUnavailableMarkerSaysWhyRatherThanLeavingAGap(): void

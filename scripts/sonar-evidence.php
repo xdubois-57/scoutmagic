@@ -42,6 +42,20 @@ declare(strict_types=1);
  * branch SonarCloud never sees — it records the latest analysis of the
  * branch and says which commit that was.
  *
+ * IT ALSO JUDGES, and only when a revision is expected — that is, on a real
+ * release rather than a rehearsal. The rule is the one in AGENTS.md
+ * § SonarQube Cloud release gate, the same one scripts/check-sonar-release.sh
+ * applies in bash before the tag is pushed: a non-OK Quality Gate, one
+ * unresolved issue that is not an exempt convention nit, or one Security
+ * Hotspot still TO_REVIEW, and this exits non-zero — which creates no draft
+ * Release at all.
+ *
+ * Repeating that check here rather than trusting the local one is the whole
+ * point of the runner being a second judge: the local gate ran minutes
+ * earlier, on the releaser's machine, against whatever SonarCloud said then.
+ * Nothing about a pack that RECORDS a failing analysis while the Release goes
+ * out anyway would be worth attaching.
+ *
  * Without a token it writes an UNAVAILABLE marker and exits 0, unless a
  * revision was expected, in which case it refuses: a Release must carry the
  * analysis of what it ships. A missing file reads as an oversight; a file
@@ -149,15 +163,67 @@ function sonar_evidence_main(array $argv): void
     }
 
     fwrite(STDERR, sprintf(
-        "sonar-evidence: analysis %s of %s — quality gate %s, %d issue(s) (%d blocking), %d hotspot(s), written to %s\n",
+        "sonar-evidence: analysis %s of %s — quality gate %s, %d issue(s) (%d blocking), %d hotspot(s) (%d to review), written to %s\n",
         $summary['analysis_date'],
         substr($summary['revision'], 0, 7),
         $summary['quality_gate'],
         $summary['issues'],
         $summary['blocking'],
         $summary['hotspots'],
+        $summary['hotspots_to_review'],
         $outDir
     ));
+
+    // Every file above is written before this point, on purpose: a refusal
+    // is exactly when somebody wants to read the report, and the workflow
+    // uploads the directory whether this exits 0 or 1.
+    if ($expected === null) {
+        return;
+    }
+
+    $refusals = sonar_evidence_release_refusals($summary);
+    if ($refusals === []) {
+        return;
+    }
+
+    fwrite(STDERR, "\nsonar-evidence: this analysis does not qualify for a release.\n");
+    foreach ($refusals as $refusal) {
+        fwrite(STDERR, '  - ' . $refusal . "\n");
+    }
+    fwrite(
+        STDERR,
+        "See AGENTS.md § SonarQube Cloud release gate. Fix or resolve them, then release the commit that does.\n"
+    );
+    exit(1);
+}
+
+/**
+ * Why this analysis may not ship, in French, or an empty list.
+ *
+ * The rule, in one sentence, from AGENTS.md § SonarQube Cloud release gate:
+ * every unresolved finding blocks a release except one that is, all three at
+ * once, MAINTAINABILITY, LOW and tagged `convention`. Plus the Quality Gate
+ * itself, and plus any hotspot nobody has triaged — an unreviewed hotspot is
+ * an unresolved security question, not an absent one.
+ *
+ * @param array{quality_gate: string, blocking: int, hotspots_to_review: int, revision: string} $summary
+ * @return list<string>
+ */
+function sonar_evidence_release_refusals(array $summary): array
+{
+    $refusals = [];
+
+    if ($summary['quality_gate'] !== 'OK') {
+        $refusals[] = 'le Quality Gate est ' . $summary['quality_gate'] . ' (il doit être OK).';
+    }
+    if ($summary['blocking'] > 0) {
+        $refusals[] = $summary['blocking'] . ' signalement(s) non résolu(s) bloquant(s) — les nits de convention exemptés ne comptent pas.';
+    }
+    if ($summary['hotspots_to_review'] > 0) {
+        $refusals[] = $summary['hotspots_to_review'] . ' Security Hotspot(s) encore à trier (TO_REVIEW).';
+    }
+
+    return $refusals;
 }
 
 /**
@@ -206,7 +272,7 @@ function sonar_evidence_api(string $host, string $token, string $path): array
  *
  * @param callable(string): array<string, mixed> $api
  * @param callable(int): void $sleep
- * @return array{revision: string, analysis_date: string, quality_gate: string, issues: int, blocking: int, hotspots: int}
+ * @return array{revision: string, analysis_date: string, quality_gate: string, issues: int, blocking: int, hotspots: int, hotspots_to_review: int}
  * @throws RuntimeException
  */
 function sonar_evidence_collect(
@@ -271,7 +337,15 @@ function sonar_evidence_collect(
         "hotspots/search?projectKey={$project}&branch={$branchQuery}",
         'hotspots'
     );
-    sonar_evidence_write_json($outDir . '/sonarcloud-hotspots.json', ['total' => count($hotspots), 'hotspots' => $hotspots]);
+    $toReview = array_values(array_filter(
+        $hotspots,
+        static fn (array $hotspot): bool => ($hotspot['status'] ?? '') === 'TO_REVIEW'
+    ));
+    sonar_evidence_write_json($outDir . '/sonarcloud-hotspots.json', [
+        'total' => count($hotspots),
+        'to_review' => count($toReview),
+        'hotspots' => $hotspots,
+    ]);
 
     file_put_contents(
         $outDir . '/sonarcloud-report.md',
@@ -285,6 +359,7 @@ function sonar_evidence_collect(
         'issues' => count($issues),
         'blocking' => count($blocking),
         'hotspots' => count($hotspots),
+        'hotspots_to_review' => count($toReview),
     ];
 }
 

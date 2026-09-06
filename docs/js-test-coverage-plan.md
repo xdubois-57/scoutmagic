@@ -686,4 +686,4 @@ manual verification is weakest.
   as `AGENTS.md` requires and as both existing specs already do.
 - **Complement, not replacement.** These do not substitute for the PHP integration tests
   or the manual mobile/desktop verification in `ARCHITECTURE.md` § 15.
-- **`npm run test:coverage` stays green** and remains part of the release tests gate.
+- **`npm run test:coverage` stays green** and remains part of CI's `Checks / javascript-tests` job.
