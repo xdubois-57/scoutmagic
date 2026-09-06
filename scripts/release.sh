@@ -826,9 +826,18 @@ git push origin "${TAG}"
 # this script's own two temp files; it is single-quoted so bash
 # expands the variables at trap-fire time, and registered before they
 # exist (as empty strings) so an early failure still triggers it.
+#
+# It ALSO removes ${GATE_TMP_DIR}, which the gate block above has already
+# deleted explicitly before clearing its own handler — belt and braces,
+# because bash keeps only the LAST handler registered for a signal, and
+# this repository has written that hazard down once already (see
+# scripts/build-artifact.sh, "One trap, extended rather than joined by a
+# second"). Without the second `rm -rf` here, deleting the two lines that
+# clean up above would leak a directory of gate logs on every release and
+# nothing would say so. Removing an already-removed path is a no-op.
 LISTING_FILE=""
 FINAL_NOTES_FILE=""
-trap 'rm -f "${LISTING_FILE}" "${FINAL_NOTES_FILE}"' EXIT
+trap 'rm -f "${LISTING_FILE}" "${FINAL_NOTES_FILE}"; rm -rf "${GATE_TMP_DIR}"' EXIT
 ARTIFACT="release-${TAG}.zip"
 ARTIFACT_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 "${ARTIFACT_SCRIPT_DIR}/build-artifact.sh" "${ARTIFACT}"

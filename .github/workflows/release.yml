@@ -68,8 +68,17 @@ permissions:
 
 jobs:
   # Every gate, with each tool's native output collected.
+  #
+  # Behind the alerts job on purpose, and it is the same reasoning
+  # scripts/release.sh's own gate order follows: an open CodeQL or
+  # Dependabot alert refuses the release outright, so starting a
+  # forty-minute passive scan before that question is answered proves
+  # nothing anybody needs. The edge costs the seconds that query takes on
+  # every release and saves the whole pass on one that was refusing
+  # anyway.
   checks:
     name: Checks
+    needs: [github-security-evidence]
     uses: ./.github/workflows/checks.yml
     with:
       evidence: true
