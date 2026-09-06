@@ -51,16 +51,43 @@ use Twig\Environment;
  * Core\Statistics\StatisticsPayloadBuilder, the settings are read and
  * written through SettingService.
  *
- * Deliberately NOT here, and not anywhere: a bug-report form. Collecting a
- * name, a contact email and an incident description would create a whole
- * personal-data flow for something an email to the support address already
- * does better.
+ * **This page is not where a problem is reported.** Every bug and every
+ * wish goes to a public GitHub issue ({@see self::GITHUB_ISSUES_URL}),
+ * where it is followed, commented, searchable and closed in the open —
+ * and where the unit next door with the same fault can see it. What lives
+ * here is the half an issue cannot carry: the technical evidence, which
+ * is journals and server details and has no business in a public
+ * repository. It travels site to site, and the reference it comes back
+ * with is what the reporter quotes in the issue.
+ *
+ * That is also why no support address appears anywhere on this page. An
+ * address is a private queue beside a public one, and the people it would
+ * catch are exactly those least comfortable with the public tool — which
+ * is the group whose problems most need to be visible.
  */
 class SupportController extends AbstractController
 {
     public const LAST_SUCCESS_SETTING = StatisticsStateSettings::LAST_SUCCESS_AT;
     public const LAST_FAILURE_SETTING = StatisticsStateSettings::LAST_FAILURE_AT;
     public const LAST_FAILURE_REASON_SETTING = StatisticsStateSettings::LAST_FAILURE_REASON;
+
+    /**
+     * Where a problem is reported — every problem, bug or wish.
+     *
+     * **A public issue, and no private counterpart.** A support address is
+     * a queue only two people can see: the unit next door with the same
+     * fault learns nothing, the person who already reported it last month
+     * is asked again, and the reporter waits without knowing whether
+     * anybody read it. An issue is followed, commented, searchable and
+     * closed in the open.
+     *
+     * Hardcoded like the footer's own link in `base.html.twig`, and
+     * deliberately not a setting: which repository ScoutMagic is developed
+     * in is a project-level fact, and a field offering to change it would
+     * invite an installation to point its own users at somewhere nobody
+     * reads.
+     */
+    public const GITHUB_ISSUES_URL = 'https://github.com/xdubois-57/scoutmagic/issues';
 
     public function __construct(
         protected Environment $twig,
@@ -132,6 +159,17 @@ class SupportController extends AbstractController
             'ticket_available' => $this->ticketSender !== null,
             'ticket_categories' => $this->ticketSender?->categories() ?? [],
             'ticket_last_sent' => $this->ticketSender?->lastSent(),
+            // Five, not one. A reference exists to be copied into a GitHub
+            // issue, and nobody reports within the minute: showing only the
+            // latest made the reference of two days ago unrecoverable —
+            // which is precisely the one somebody comes back here for.
+            'ticket_recent' => $this->ticketSender?->recentlySent() ?? [],
+            // Where a problem is reported. Hardcoded like the footer's own
+            // link in `base.html.twig`: the repository is a project-level
+            // fact, not a per-unit setting, and a field offering to change
+            // it would invite an installation to point its users at
+            // somewhere nobody reads.
+            'github_issues_url' => self::GITHUB_ISSUES_URL,
             'ticket_form' => $ticketForm,
             'ticket_contact_default' => (string) (AuthSession::getEmail() ?? ''),
             'ticket_guard' => $this->ticketIdentity?->firstFailingGuard(),

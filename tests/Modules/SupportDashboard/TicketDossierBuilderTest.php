@@ -69,7 +69,7 @@ class TicketDossierBuilderTest extends TestCase
 
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $this->tickets = new SupportTicketRepository($this->pdo, $this->encryption);
-        $this->installations = new SupportInstallationRepository($this->pdo);
+        $this->installations = new SupportInstallationRepository($this->pdo, $this->encryption);
         $this->probes = new SupportMailProbeRepository($this->pdo, $this->encryption);
 
         $this->installationId = $this->installations->register(
@@ -247,6 +247,105 @@ class TicketDossierBuilderTest extends TestCase
         $this->assertStringContainsString(
             'rétention',
             $entries[TicketDossierBuilder::README_ENTRY]
+        );
+    }
+
+    // ── The two the receiver went and asked for itself ──────────────────
+
+    /**
+     * The zone as it stood when the ticket landed.
+     *
+     * Half of « le site ne répond plus » and « les e-mails n'arrivent
+     * pas » is a DNS record the reporter corrects before anybody reads
+     * their ticket. A dossier that read the zone at download time would
+     * answer a question nobody asked.
+     */
+    public function testTheZoneReadWhenTheTicketArrivedIsInTheZip(): void
+    {
+        $this->tickets->recordDnsSnapshot(
+            (string) $this->tickets->find($this->ticketId)['reference'],
+            [
+                'host' => 'unite-de-test.example.be',
+                'read_at' => '2026-09-01T14:00:00+00:00',
+                'records' => [
+                    'A' => ['status' => 'found', 'values' => ["300\t192.0.2.10"]],
+                    'MX' => ['status' => 'none', 'values' => []],
+                ],
+            ],
+            new \DateTimeImmutable('2026-09-01 14:00:00')
+        );
+
+        $entries = $this->dossier();
+
+        $this->assertArrayHasKey(TicketDossierBuilder::DNS_ENTRY, $entries);
+        $this->assertStringContainsString('192.0.2.10', $entries[TicketDossierBuilder::DNS_ENTRY]);
+        $this->assertStringContainsString(
+            'aucun enregistrement de ce type',
+            $entries[TicketDossierBuilder::DNS_ENTRY]
+        );
+    }
+
+    /**
+     * The registry's answer, whole.
+     *
+     * **Here and not on a screen.** A WHOIS response routinely names the
+     * volunteer who registered the domain, with an address and a
+     * telephone number; a file a maintainer downloads deliberately is the
+     * right place for it, and a page that renders on a click is not.
+     */
+    public function testTheWhoisResponseIsInTheZipVerbatim(): void
+    {
+        $this->seedWhois("Domain: unite-de-test.example.be\nRegistrant Name: Marie Dupont\n");
+
+        $entries = $this->dossier();
+
+        $this->assertArrayHasKey(TicketDossierBuilder::WHOIS_ENTRY, $entries);
+        $this->assertStringContainsString('Marie Dupont', $entries[TicketDossierBuilder::WHOIS_ENTRY]);
+        $this->assertStringContainsString('unite-de-test.example.be', $entries[TicketDossierBuilder::WHOIS_ENTRY]);
+        // And it says when it was read, because unlike the DNS snapshot
+        // this one is the last consultation rather than the moment of the
+        // ticket — a distinction a reader must not have to guess at.
+        $this->assertStringContainsString(
+            'pas du moment du ticket',
+            $entries[TicketDossierBuilder::WHOIS_ENTRY]
+        );
+    }
+
+    public function testTheReadmeAnnouncesBothAndSaysWhatEachOneIs(): void
+    {
+        $this->seedWhois("Domain: unite-de-test.example.be\n");
+
+        $readme = $this->dossier()[TicketDossierBuilder::README_ENTRY];
+
+        $this->assertStringContainsString(TicketDossierBuilder::DNS_ENTRY, $readme);
+        $this->assertStringContainsString(TicketDossierBuilder::WHOIS_ENTRY, $readme);
+        $this->assertStringContainsString('À L\'ARRIVÉE du ticket', $readme);
+        // The privacy warning belongs where the file is, not in a docblock.
+        $this->assertStringContainsString('peut nommer une personne physique', $readme);
+    }
+
+    public function testNeitherIsInventedWhenItWasNeverRead(): void
+    {
+        // A receiver on a host with no outbound port 43, and a ticket from
+        // before any of this existed: an ordinary dossier, saying so.
+        $entries = $this->dossier();
+
+        $this->assertArrayNotHasKey(TicketDossierBuilder::DNS_ENTRY, $entries);
+        $this->assertArrayNotHasKey(TicketDossierBuilder::WHOIS_ENTRY, $entries);
+        $this->assertStringContainsString('Le relevé DNS au moment du ticket', $entries[TicketDossierBuilder::README_ENTRY]);
+        $this->assertStringContainsString('La réponse WHOIS du domaine', $entries[TicketDossierBuilder::README_ENTRY]);
+    }
+
+    private function seedWhois(string $raw): void
+    {
+        $this->installations->recordWhois(
+            $this->installationId,
+            'unite-de-test.example.be',
+            'whois.dnsbelgium.be',
+            'found',
+            ['registrar' => 'Example Hosting SA'],
+            $raw,
+            new \DateTimeImmutable('2026-09-01 03:00:00')
         );
     }
 

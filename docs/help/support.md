@@ -10,10 +10,9 @@ paths: /config/support
 related: support-github, support-mesure, support-sondes-email, mises-a-jour, installation-serveur
 ---
 
-La page Support regroupe deux choses distinctes : le rapport
-d'utilisation que votre site peut envoyer à l'équipe qui développe le
-logiciel, et l'archive de diagnostic que vous pouvez générer pour
-demander de l'aide.
+La page Support réunit le rapport d'utilisation que votre site peut
+envoyer à l'équipe qui développe le logiciel, et l'archive de
+diagnostic que vous générez pour demander de l'aide.
 
 ## Les statistiques d'utilisation
 
@@ -25,30 +24,34 @@ rattacher un rapport à l'unité qui demande de l'aide — mais il ne
 contient aucune donnée de membre : ni nom, ni adresse, ni contenu.
 
 Le bloc « Aperçu de ce qui est envoyé » montre le contenu exact du
-rapport, même quand l'envoi est désactivé : vous décidez en sachant
-précisément ce qui part. L'interrupteur coupe l'envoi à tout moment,
-sans toucher au reste de la page. « Envoyer un rapport de test
-maintenant » transmet un rapport immédiatement et affiche la réponse
-reçue — c'est le moyen de vérifier que la chaîne fonctionne. Le bloc
-« État des envois » garde la date du dernier envoi réussi et du
-dernier échec, avec son motif.
+rapport, même quand l'envoi est désactivé : vous décidez en sachant ce
+qui part. « Envoyer un rapport de test maintenant » en transmet un
+immédiatement et affiche la réponse — c'est le moyen de vérifier que la
+chaîne fonctionne. « État des envois » garde la date du dernier envoi
+réussi et du dernier échec, avec son motif.
 
-## Contacter le support
+## Signaler un problème
 
-Le bloc « Contacter le support » envoie un ticket à l'équipe qui
-développe ScoutMagic : une catégorie, une description, et l'adresse à
-laquelle la réponse doit arriver — pré-remplie avec la vôtre, modifiable.
+**Tout se signale sur GitHub**, bugs comme demandes : le bouton
+« Signaler un problème sur GitHub » ouvre la page des signalements. Un
+compte y est nécessaire, gratuit ; c'est lui qui vous permet de suivre
+votre signalement et ses réponses, devant tout le monde.
+N'hésitez jamais : une gêne minuscule chez vous est souvent le même
+défaut chez trente autres unités.
 
-Partent avec votre message l'identifiant de cette installation, la
-version du site et la version de PHP. Rien d'autre : aucune donnée de
-membre, aucun journal, aucun fichier. Ouvrir un ticket **n'active pas**
-l'envoi quotidien de statistiques ; si votre unité l'a refusé, il le
-reste.
+## Envoyer des informations techniques
 
-Après l'envoi, la page affiche la **référence** du ticket et la date —
-tout ce que le site en sait. La suite se passe par e-mail : pas de fil de
-discussion ici, et aucune interrogation du serveur ensuite. Si celui-ci
-est injoignable, rien n'est envoyé et **votre texte reste à l'écran**.
+Pour un dysfonctionnement, le bloc « Envoyer des informations
+techniques » transmet ce qu'on ne peut pas coller dans un dépôt public :
+une catégorie, deux lignes de description, une adresse de contact.
+S'y ajoutent l'identifiant de cette installation, la version du site et
+la version de PHP. Envoyer **n'active pas** le rapport quotidien : s'il
+est refusé, il le reste.
+
+La page affiche ensuite la **référence** de l'envoi : recopiez-la dans
+votre signalement GitHub. Les cinq derniers envois restent affichés,
+repliés. Si le serveur est injoignable, rien n'est envoyé et **votre
+texte reste à l'écran**.
 
 ## Le paquet de support
 
@@ -60,14 +63,14 @@ supprimée d'elle-même après sept jours ; en générer une nouvelle
 remplace la précédente.
 
 **Rien n'est jamais transmis automatiquement** : ni tâche planifiée, ni
-courriel, ni envoi décidé par le site. Vous pouvez la transmettre
-vous-même : en la téléchargeant, ou en la joignant à un ticket depuis
-« Contacter le support » — la page annonce alors sa taille et le nombre
-de rubriques qu'elle contient, avec un bouton « Voir le détail » qui les
-énumère, et vous demande de cocher que vous acceptez. Un envoi qui échoue ne fait
-pas perdre le ticket : il reste marqué « archive non transmise », avec un
+courriel, ni envoi décidé par le site. Vous la transmettez vous-même :
+en la téléchargeant, ou depuis « Envoyer des informations techniques »,
+qui annonce sa taille et ses rubriques — « Voir le détail » les énumère —
+et vous demande de cocher que vous acceptez. Un envoi qui échoue ne fait
+pas perdre le reste : il reste marqué « archive non transmise », avec un
 bouton pour réessayer.
 
-> Avant d'envoyer l'archive, ouvrez-la et vérifiez son contenu : les
-> journaux du serveur peuvent contenir des adresses IP de visiteurs,
-> et la configuration détaillée décrit votre hébergement.
+> Avant de l'envoyer, ouvrez l'archive : les journaux peuvent contenir
+> des adresses IP de visiteurs, et la configuration décrit votre
+> hébergement. **Ne la déposez jamais sur un signalement GitHub** : un
+> dépôt public est public.

@@ -19,16 +19,17 @@ il ne peut souvent que poser une question.
 
 ## La référence fait le lien
 
-Envoyez d'abord un ticket depuis « Contacter le support », avec l'archive
-de diagnostic. La page affiche alors sa **référence**, six caractères
-derrière `SUP-`. Ouvrez ensuite le signalement sur GitHub et recopiez
-cette référence dans le champ « Référence du ticket de support » du
-formulaire. Dans cet ordre : le triage part dès que le signalement est
-créé, et une référence ajoutée après coup n'est lue que si le triage vous
-la demande dans sa réponse — répondez-lui alors en la citant.
+Envoyez d'abord vos informations techniques depuis « Envoyer des
+informations techniques », avec l'archive de diagnostic. La page affiche
+alors la **référence** de cet envoi, six caractères derrière `SUP-`.
+Ouvrez ensuite le signalement sur GitHub et recopiez cette référence dans
+le champ « Référence du ticket de support » du formulaire. Dans cet
+ordre : le triage part dès que le signalement est créé, et une référence
+ajoutée après coup n'est lue que si le triage vous la demande dans sa
+réponse — répondez-lui alors en la citant.
 
 Le triage demande alors à l'équipe de support une **copie réduite et
-anonymisée** de l'archive transmise avec le ticket. Les adresses IP, les
+anonymisée** de l'archive transmise avec cet envoi. Les adresses IP, les
 comptes utilisateurs, les adresses e-mail et les identifiants de membres
 reconnaissables y sont remplacés par des jetons sans correspondance
 conservée ; la configuration détaillée du serveur, les paramètres du site
@@ -40,7 +41,7 @@ conservée, et est lue par un service d'intelligence artificielle, sur
 l'infrastructure de GitHub, qui rédige la première réponse. Chaque envoi
 est inscrit au journal de l'équipe de support.
 
-Seule la personne qui a envoyé le ticket connaît sa référence, et seuls
+Seule la personne qui a fait l'envoi en connaît la référence, et seuls
 l'auteur du signalement et le mainteneur du logiciel peuvent la citer
 sur celui-ci, dans le formulaire ou en réponse ; une référence écrite
 par quelqu'un d'autre n'est pas lue. Personne ne peut donc faire lire au
@@ -56,7 +57,7 @@ triage l'archive d'une autre unité.
 
 Ce que la case d'acceptation, sur la page Support, vous demande d'accepter
 avant l'envoi d'une archive couvre aussi cette copie anonymisée — et
-c'est elle qui compte : un ticket envoyé depuis une version du site dont
+c'est elle qui compte : un envoi fait depuis une version du site dont
 la case ne mentionnait pas encore le triage ne donne accès à aucune
-copie, quelle que soit la référence citée. Renvoyez alors un ticket depuis
+copie, quelle que soit la référence citée. Refaites alors un envoi depuis
 la version à jour.

@@ -149,6 +149,38 @@ class SupportTicketRepository
     }
 
     /**
+     * What the DNS said about this installation's host when the ticket
+     * arrived.
+     *
+     * **Written after the ticket exists, never as part of creating one.**
+     * A resolver is somebody else's machine on somebody else's network: it
+     * can be slow, it can be wrong, and it can be gone. A ticket that
+     * failed to be filed because the DNS did not answer would lose the
+     * report to keep the evidence about it, which is the wrong way round.
+     * So the row is committed first and this fills a column afterwards,
+     * and a ticket with no snapshot is an ordinary ticket.
+     *
+     * @param array<string, mixed> $snapshot as Core\Net\DnsRecordReader
+     *   returns it
+     */
+    public function recordDnsSnapshot(string $reference, array $snapshot, \DateTimeImmutable $readAt): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE support_tickets
+                SET dns_snapshot_encrypted = ?, dns_read_at = ?
+              WHERE reference = ?'
+        );
+        $stmt->execute([
+            $this->encryption->encrypt(
+                (string) json_encode($snapshot, JSON_UNESCAPED_UNICODE),
+                'support_tickets.dns_snapshot'
+            ),
+            $readAt->format('Y-m-d H:i:s'),
+            $reference,
+        ]);
+    }
+
+    /**
      * How many tickets this installation has sent since $sinceDatetime —
      * the per-installation half of the intake's rate limit.
      */
@@ -527,6 +559,15 @@ class SupportTicketRepository
                     )
                     : null
             ),
+            'dns_snapshot' => self::decodeSnapshot(
+                ($row['dns_snapshot_encrypted'] ?? null) !== null
+                    ? $this->encryption->decrypt(
+                        (string) $row['dns_snapshot_encrypted'],
+                        'support_tickets.dns_snapshot'
+                    )
+                    : null
+            ),
+            'dns_read_at' => ($row['dns_read_at'] ?? null) !== null ? (string) $row['dns_read_at'] : null,
         ];
     }
 }

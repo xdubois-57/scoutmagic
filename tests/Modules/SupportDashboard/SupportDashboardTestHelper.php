@@ -55,7 +55,13 @@ class SupportDashboardTestHelper
             scout_year_label TEXT NULL,
             installed_at TEXT NULL,
             last_upgraded_at TEXT NULL,
-            telemetry_enabled INTEGER NOT NULL DEFAULT 1
+            telemetry_enabled INTEGER NOT NULL DEFAULT 1,
+            whois_domain TEXT NULL,
+            whois_server TEXT NULL,
+            whois_status TEXT NULL,
+            whois_checked_at TEXT NULL,
+            whois_registration TEXT NULL,
+            whois_raw_encrypted BLOB NULL
         )');
 
         $pdo->exec('CREATE TABLE support_monthly_aggregates (
@@ -98,7 +104,9 @@ class SupportDashboardTestHelper
             github_issue_number INTEGER NULL,
             github_issue_linked_at TEXT NULL,
             archive_consent_scope TEXT NULL,
-            statistics_snapshot_encrypted BLOB NULL
+            statistics_snapshot_encrypted BLOB NULL,
+            dns_snapshot_encrypted BLOB NULL,
+            dns_read_at TEXT NULL
         )');
 
         $pdo->exec('CREATE TABLE support_mail_probes (

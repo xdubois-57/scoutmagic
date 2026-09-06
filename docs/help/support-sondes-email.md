@@ -20,7 +20,7 @@ La sonde répond à la suite. Elle envoie un message vers une boîte de
 l'équipe de support, qui vous dira ce qui est arrivé.
 
 Elle **part avec votre ticket** : il n'y a pas de bouton séparé. En
-cochant « J'accepte que le site envoie un e-mail de test au support », vous
+cochant « J'accepte que le site envoie un e-mail de test », vous
 l'autorisez, et elle est envoyée en même temps que le ticket.
 
 ## Ce que la sonde contient

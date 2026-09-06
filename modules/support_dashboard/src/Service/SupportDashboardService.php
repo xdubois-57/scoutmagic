@@ -285,8 +285,41 @@ class SupportDashboardService
 
         $installation = $this->hydrate($row);
         $installation['raw_json'] = self::prettyJson((string) ($row['payload'] ?? ''));
+        // Read here and not in hydrate(): the table, its filters and the
+        // XLSX export have no use for it, and a field added to the shared
+        // shape is a field every one of them has to be taught to ignore.
+        $installation['whois'] = self::whoisOf($row);
 
         return $installation;
+    }
+
+    /**
+     * Who registered this installation's domain, as the dialog shows it.
+     *
+     * Refreshed from the daily report by
+     * {@see DomainRegistrationRefresher} — the installation itself cannot
+     * report this, a site not knowing who holds its own name.
+     *
+     * **Only what was parsed, never the raw response.** The verbatim
+     * WHOIS may carry a registrant's name and address, and the dialog is a
+     * screen: it belongs in the ticket's support dossier, a file somebody
+     * downloads deliberately, and not in a page that renders on a click.
+     *
+     * @param array<string, mixed> $row
+     * @return array{status: ?string, domain: ?string, server: ?string,
+     *     checked_at: ?string, registration: array<string, mixed>}
+     */
+    private static function whoisOf(array $row): array
+    {
+        $registration = json_decode((string) ($row['whois_registration'] ?? ''), true);
+
+        return [
+            'status' => ($row['whois_status'] ?? null) !== null ? (string) $row['whois_status'] : null,
+            'domain' => ($row['whois_domain'] ?? null) !== null ? (string) $row['whois_domain'] : null,
+            'server' => ($row['whois_server'] ?? null) !== null ? (string) $row['whois_server'] : null,
+            'checked_at' => ($row['whois_checked_at'] ?? null) !== null ? (string) $row['whois_checked_at'] : null,
+            'registration' => is_array($registration) ? $registration : [],
+        ];
     }
 
     /**

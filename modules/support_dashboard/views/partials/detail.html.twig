@@ -31,6 +31,45 @@
         : "Sans télémétrie — enregistrée à l'occasion d'un ticket") }}
 </div>
 
+{# L'enregistrement du domaine, demandé au registre lors d'un rapport
+   quotidien : une installation ne sait pas qui détient son propre nom, donc
+   c'est le receveur qui le demande. Seuls les champs organisationnels sont
+   affichés — la réponse brute peut nommer une personne physique et vit dans
+   le dossier de support, qu'on télécharge délibérément. #}
+<h3 class="h6 mt-3">Enregistrement du domaine</h3>
+{% if whois.status is null %}
+    <p class="small text-body-secondary mb-3">
+        Pas encore consulté : cette installation n'a envoyé aucun rapport depuis
+        que ce receveur sait le demander.
+    </p>
+{% elseif whois.status == 'unavailable' %}
+    <p class="small text-body-secondary mb-3">
+        Le registre n'a pas répondu — port 43 fermé sur cet hébergement, extension
+        sans service WHOIS, ou registre indisponible.
+        {% if whois.checked_at %}Dernière tentative : {{ whois.checked_at }}.{% endif %}
+    </p>
+{% elseif whois.status == 'not_found' %}
+    <p class="small text-body-secondary mb-3">
+        Le registre a répondu : <strong>ce nom n'est enregistré nulle part</strong>.
+        {% if whois.checked_at %}Consulté le {{ whois.checked_at }}.{% endif %}
+    </p>
+{% else %}
+    <div class="row">
+        {{ detail.metric('Domaine consulté', whois.domain) }}
+        {{ detail.metric('Registrar', whois.registration.registrar|default(null)) }}
+        {{ detail.metric('Enregistré le', whois.registration.created_at|default(null)) }}
+        {{ detail.metric('Dernière modification', whois.registration.updated_at|default(null)) }}
+        {{ detail.metric('Expire le', whois.registration.expires_at|default(null)) }}
+        {{ detail.metric('Statut au registre', whois.registration.status|default(null)) }}
+        {{ detail.metric('Serveurs de noms', whois.registration.name_servers|default([])|join(', ')) }}
+        {{ detail.metric('Consulté le', whois.checked_at) }}
+    </div>
+    <p class="small text-body-secondary mb-3">
+        Réponse de {{ whois.server ?: 'un registre' }}, conservée en entier dans le
+        dossier de support d'un ticket de cette installation.
+    </p>
+{% endif %}
+
 <h3 class="h6 mt-3">Modules</h3>
 {% if installation.modules is empty %}
     <p class="small text-body-secondary">Non renseigné</p>

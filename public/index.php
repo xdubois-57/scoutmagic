@@ -922,6 +922,14 @@ $settingService->register('support_last_ticket_sent_at', '', 'text', 'Date du de
 $settingService->register('support_ticket_categories', '', 'text', 'Catégories de tickets de support',
     'Liste des catégories publiée par le serveur de support lors du dernier échange. Renseignée automatiquement.',
     null, null, null, false, 292);
+// The last five references, newest first (JSON). A reference exists to be
+// copied into a GitHub issue, and nobody reports within the minute: keeping
+// only the latest made the reference of two days ago unrecoverable, which
+// is exactly the one somebody comes back to the page for.
+$settingService->register('support_recent_tickets', '', 'text', 'Derniers envois au support',
+    'Références et dates des cinq derniers envois d\'informations techniques au support, pour pouvoir les citer '
+        . 'dans un signalement GitHub. Renseignées automatiquement.',
+    null, null, null, false, 297);
 // The archive's own bookkeeping (roadmap IT-26) and the mail probe's
 // (IT-27). These four were WRITTEN from the first day and never
 // registered, and `SettingService::setInternal()` throws on a key it does
@@ -5059,7 +5067,14 @@ if ($isEnabled('groups')) {
 // is dead code everywhere else by construction.
 if ($isEnabled('support_dashboard')) {
     \Core\Debug\RequestTimeline::mark('module_support_dashboard');
-    $supportInstallationRepo = new \Modules\SupportDashboard\Repository\SupportInstallationRepository($pdo);
+    // The key is for the WHOIS response alone: a registry's answer about a
+    // unit's domain routinely names the volunteer who registered it, with
+    // an address and a telephone number. Everything else on this row is
+    // organisational and stays in clear so the dashboard can filter on it.
+    $supportInstallationRepo = new \Modules\SupportDashboard\Repository\SupportInstallationRepository(
+        $pdo,
+        $encryptionService
+    );
     $supportRateLimitRepo = new \Modules\SupportDashboard\Repository\SupportReportRateLimitRepository($pdo);
     $supportMonthlyAggregateRepo = new \Modules\SupportDashboard\Repository\SupportMonthlyAggregateRepository($pdo);
 
@@ -5136,7 +5151,7 @@ if ($isEnabled('support_dashboard')) {
             // sondes e-mail et l'archive transmise, placée entière et
             // jamais recomposée.
             new \Modules\SupportDashboard\Service\TicketDossierBuilder(
-                new \Modules\SupportDashboard\Repository\SupportInstallationRepository($pdo),
+                $supportInstallationRepo,
                 $storedFileReader
             ),
             // The credential the automated GitHub triage presents for an
@@ -5180,7 +5195,19 @@ if ($isEnabled('support_dashboard')) {
                 $supportRateLimitRepo,
                 $encryptionService,
                 $journalService,
-                $supportMonthlyAggregateRepo
+                $supportMonthlyAggregateRepo,
+                // Who holds each installation's domain, refreshed from the
+                // daily report — an installation cannot report this about
+                // itself, a site not knowing who registered its own name.
+                // Once a month per installation, never once a day: the
+                // registries rate-limit by source address, and being
+                // refused is how a diagnostic stops working on exactly the
+                // fleet big enough to need one.
+                new \Modules\SupportDashboard\Service\DomainRegistrationRefresher(
+                    $supportInstallationRepo,
+                    new \Core\Net\WhoisClient(),
+                    $journalService
+                )
             )
         )
     );
@@ -5197,7 +5224,12 @@ if ($isEnabled('support_dashboard')) {
                 $journalService,
                 // Every superadmin of this receiver is told a ticket
                 // landed — the queue is not a mailbox anybody watches.
-                $notificationService
+                $notificationService,
+                // The zone of the reporting installation, read when the
+                // ticket lands rather than when somebody reads it: half of
+                // « le site ne répond plus » is a record the person has
+                // corrected in the meantime.
+                new \Core\Net\DnsRecordReader()
             ),
             // The archive arrives on its own route (roadmap IT-26) and is
             // stored exactly as it was on the installation that produced

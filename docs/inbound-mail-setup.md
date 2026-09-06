@@ -51,9 +51,12 @@ Une boîte Gmail ou Outlook se connecte donc **en IMAP, avec un mot de passe
 d'application** :
 
 - **Gmail** : activez la validation en deux étapes sur le compte, puis
-  créez un mot de passe d'application dédié. Serveur `imap.gmail.com`,
-  port `993`, chiffrement `SSL`. Vérifiez qu'IMAP est activé dans les
-  paramètres Gmail.
+  créez un mot de passe d'application dédié sur
+  <https://myaccount.google.com/u/8/apppasswords> — cette page n'existe
+  pas tant que la validation en deux étapes n'est pas active, et elle
+  n'apparaît dans aucun menu, ce qui est l'étape où l'on abandonne.
+  Serveur `imap.gmail.com`, port `993`, chiffrement `SSL`. Vérifiez
+  qu'IMAP est activé dans les paramètres Gmail.
 - **Outlook / Microsoft 365** : serveur `outlook.office365.com`, port
   `993`, chiffrement `SSL`. Selon la configuration de votre organisation,
   IMAP peut devoir être activé par un administrateur.
