@@ -4018,7 +4018,39 @@ if ($isEnabled('finance')) {
                         $memberBadgeRepository,
                         $userAccountRepo,
                         $effectiveScoutYear->id
-                    )
+                    ),
+                    // The other silence on this path, and the one the
+                    // reader above does not cover: the bytes WERE read,
+                    // finance refused to file them, and the consumer
+                    // swallowed the throw to keep the association
+                    // standing. The courrier screen then shows the message
+                    // as filed while the receipts screen is empty and
+                    // nothing anywhere says why (#175).
+                    //
+                    // The REASON goes in the context rather than the
+                    // description: event_log.description is a VARCHAR(500)
+                    // and a throwable's message is not bounded by
+                    // construction, so putting it there is the truncation
+                    // trap Core\Http\ErrorHandler::describe() exists to
+                    // avoid. The message itself is technical text this
+                    // application wrote, which is why it may be journalled
+                    // at all (SECURITY.md §11) — an id and a mime type,
+                    // never the filename, which is personal data (§7.9).
+                    static function (\Throwable $e, string $mimeType, int $attachmentId) use ($journalService): void {
+                        $journalService->log(
+                            'finance',
+                            'inbound_receipt_not_filed',
+                            'warning',
+                            "Reçu reçu par courriel non classé : le module finances l'a refusé",
+                            [
+                                'attachment_id' => $attachmentId,
+                                'mime_type' => $mimeType,
+                                'exception' => $e::class,
+                                'reason' => $e->getMessage(),
+                            ],
+                            null
+                        );
+                    }
                 )
         );
 
