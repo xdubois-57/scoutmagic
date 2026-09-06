@@ -309,6 +309,31 @@ class TriageExtractServiceTest extends TestCase
         $this->assertArrayHasKey('bytes', $context);
         $this->assertStringNotContainsString('203.0.113.7', (string) $rows[0]);
         $this->assertStringNotContainsString('chef@unite.be', (string) $rows[0]);
+        // The caller's address is in the journal's own column, not copied
+        // into the context beside it.
+        $this->assertArrayNotHasKey('source_ip', $context);
+        $this->assertStringNotContainsString('203.0.113.1', (string) $rows[0]);
+    }
+
+    public function testARefusalJournalsAReasonCategoryAndNotTheAddress(): void
+    {
+        $this->serve(reference: 'SUP-ZZZ999');
+        $this->serve(token: 'wrong');
+
+        $refused = $this->pdo->query(
+            "SELECT context FROM event_log WHERE event_type = 'support_triage_extract_refused'"
+        )->fetchAll(\PDO::FETCH_COLUMN);
+        $this->assertCount(1, $refused);
+        $this->assertSame(
+            ['reason' => TriageExtractResult::REJECT_UNKNOWN_REFERENCE, 'github_issue_number' => 181],
+            json_decode((string) $refused[0], true)
+        );
+
+        $unauthenticated = $this->pdo->query(
+            "SELECT context FROM event_log WHERE event_type = 'support_triage_extract_unauthenticated'"
+        )->fetchAll(\PDO::FETCH_COLUMN);
+        $this->assertCount(1, $unauthenticated);
+        $this->assertStringNotContainsString('203.0.113.1', (string) $unauthenticated[0]);
     }
 
     private function serve(

@@ -93,7 +93,7 @@ class TriageExtractService
         \DateTimeImmutable $now
     ): TriageExtractResult {
         if (!$isSecureTransport) {
-            return $this->refuse(TriageExtractResult::REJECT_INSECURE_TRANSPORT, $clientIp);
+            return $this->refuse(TriageExtractResult::REJECT_INSECURE_TRANSPORT);
         }
 
         // The credential before anything else — before the parse, before
@@ -106,26 +106,26 @@ class TriageExtractService
 
         $issueNumber = self::issueNumberIn($rawBody);
         if ($issueNumber === null) {
-            return $this->refuse(TriageExtractResult::REJECT_MALFORMED, $clientIp);
+            return $this->refuse(TriageExtractResult::REJECT_MALFORMED);
         }
 
         // A reference is six characters of a fixed alphabet behind a
         // fixed prefix. Anything else is not a reference this receiver
         // ever issued, so it is refused before it reaches a query.
         if (preg_match(SupportTicketRepository::REFERENCE_PATTERN, $reference) !== 1) {
-            return $this->refuse(TriageExtractResult::REJECT_UNKNOWN_REFERENCE, $clientIp, $issueNumber);
+            return $this->refuse(TriageExtractResult::REJECT_UNKNOWN_REFERENCE, $issueNumber);
         }
 
         $ticket = $this->tickets->findByReference($reference);
         if ($ticket === null) {
-            return $this->refuse(TriageExtractResult::REJECT_UNKNOWN_REFERENCE, $clientIp, $issueNumber);
+            return $this->refuse(TriageExtractResult::REJECT_UNKNOWN_REFERENCE, $issueNumber);
         }
 
         // Before the link and before the file: a ticket whose sender was
         // never shown the sentence naming this use has given no consent
         // to it, and nothing done on GitHub afterwards can supply one.
         if ($ticket['archive_consent_scope'] !== self::REQUIRED_CONSENT_SCOPE) {
-            return $this->refuse(TriageExtractResult::REJECT_NO_CONSENT, $clientIp, $issueNumber, $reference);
+            return $this->refuse(TriageExtractResult::REJECT_NO_CONSENT, $issueNumber, $reference);
         }
 
         // Linked to another issue: refused, and NOT re-pointed. Linked to
@@ -134,14 +134,13 @@ class TriageExtractService
         // two concurrent first calls resolve to one owner.
         $linked = $ticket['github_issue_number'];
         if ($linked !== null && $linked !== $issueNumber) {
-            return $this->refuse(TriageExtractResult::REJECT_ISSUE_MISMATCH, $clientIp, $issueNumber, $reference);
+            return $this->refuse(TriageExtractResult::REJECT_ISSUE_MISMATCH, $issueNumber, $reference);
         }
         if ($linked === null && !$this->tickets->linkGithubIssue((int) $ticket['id'], $issueNumber, $now)) {
             $ticket = $this->tickets->findByReference($reference);
             if ($ticket === null || $ticket['github_issue_number'] !== $issueNumber) {
                 return $this->refuse(
                     TriageExtractResult::REJECT_ISSUE_MISMATCH,
-                    $clientIp,
                     $issueNumber,
                     $reference
                 );
@@ -154,13 +153,13 @@ class TriageExtractService
             // No archive was ever transmitted, or its retention has
             // passed. The triage runs on the issue alone, which is the
             // case it was written for.
-            return $this->refuse(TriageExtractResult::REJECT_NO_ARCHIVE, $clientIp, $issueNumber, $reference);
+            return $this->refuse(TriageExtractResult::REJECT_NO_ARCHIVE, $issueNumber, $reference);
         }
 
         try {
             $bytes = $this->builder->build($ticket, $archive, $issueNumber, $now);
         } catch (\RuntimeException) {
-            return $this->refuse(TriageExtractResult::REJECT_UNBUILDABLE, $clientIp, $issueNumber, $reference);
+            return $this->refuse(TriageExtractResult::REJECT_UNBUILDABLE, $issueNumber, $reference);
         }
 
         // `security` rather than `info`, for the reason the sending
@@ -176,7 +175,6 @@ class TriageExtractService
                 'ticket_reference' => $reference,
                 'github_issue_number' => $issueNumber,
                 'bytes' => strlen($bytes),
-                'source_ip' => $clientIp,
             ]
         );
 
@@ -206,13 +204,18 @@ class TriageExtractService
         return $number;
     }
 
+    /**
+     * The source address is deliberately NOT in any context here: the
+     * journal writes the request's address into its own `ip_address`
+     * column on every entry (JournalService::currentIp()), and a copy in
+     * the JSON would be the same personal datum stored twice in one row.
+     */
     private function refuse(
         string $reason,
-        string $clientIp,
         ?int $issueNumber = null,
         ?string $reference = null
     ): TriageExtractResult {
-        $context = ['reason' => $reason, 'source_ip' => $clientIp];
+        $context = ['reason' => $reason];
         if ($issueNumber !== null) {
             $context['github_issue_number'] = $issueNumber;
         }
@@ -252,8 +255,7 @@ class TriageExtractService
             'support_dashboard',
             'support_triage_extract_unauthenticated',
             'security',
-            'Extrait de triage refusé : jeton invalide ou absent',
-            ['source_ip' => $clientIp]
+            'Extrait de triage refusé : jeton invalide ou absent'
         );
 
         return TriageExtractResult::rejected(TriageExtractResult::REJECT_UNAUTHENTICATED);
