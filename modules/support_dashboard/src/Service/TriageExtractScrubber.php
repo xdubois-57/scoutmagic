@@ -78,7 +78,11 @@ final class TriageExtractScrubber
      * `::` is replaced as well; see the class comment for why that is
      * the acceptable side.
      */
-    private const IPV6_COMPRESSED = '/(?<![\w:])(?:[0-9a-f]{1,4}(?::[0-9a-f]{1,4}){0,6})?::(?:[0-9a-f]{1,4}(?::[0-9a-f]{1,4}){0,6})?(?![\w:])/i';
+    private const IPV6_COMPRESSED = '/(?<![\w:])'
+        . '(?:[0-9a-f]{1,4}(?::[0-9a-f]{1,4}){0,6})?'
+        . '::'
+        . '(?:[0-9a-f]{1,4}(?::[0-9a-f]{1,4}){0,6})?'
+        . '(?![\w:])/i';
 
     private const LONG_HEX = '/\b[0-9a-f]{32,}\b/i';
 
@@ -91,13 +95,18 @@ final class TriageExtractScrubber
      * account, an album or a file is not a person, and a log that keeps
      * those numbers is a log a triage can still follow.
      */
-    private const PERSON_PATH_ID = '~(/(?:members?|membres?|users?|utilisateurs?|comptes?|user-accounts?|recipients?|contacts?|demandes?|attestations?|departs|password-reset|animateurs?|parents?|families|familles?|households?|menages?|staff)/)(\d+)(?=[/?#\s"\'<>]|$)~i';
+    private const PERSON_PATH_ID = '~(/(?:'
+        . 'members?|membres?|users?|utilisateurs?|comptes?|user-accounts?'
+        . '|recipients?|contacts?|demandes?|attestations?|departs|password-reset'
+        . '|animateurs?|parents?|families|familles?|households?|menages?|staff'
+        . ')/)(\d+)(?=[/?#\s"\'<>]|$)~i';
 
     /**
      * A JSON or `key=value` field whose name says it holds a person's
      * id: `"member_id": 42`, `user_account_id=7`, `"user": 3`.
      */
-    private const PERSON_FIELD_ID = '/((?:"|\b)(?:[a-z_]*_id|member|user|account|parent|chef)"?\s*[:=]\s*"?)(\d+)(?="?(?:[,}\s&]|$))/i';
+    private const PERSON_FIELD_ID = '/((?:"|\b)(?:[a-z_]*_id|member|user|account|parent|chef)"?\s*[:=]\s*"?)'
+        . '(\d+)(?="?(?:[,}\s&]|$))/i';
 
     /**
      * Every query-string value that is not a bare number. `?page=2` keeps

@@ -133,8 +133,16 @@ class RgpdContentService
         $galleryStorage = $this->galleryStorageInfo($subProcessors);
         $issueTriage = $this->issueTriageInfo($subProcessors);
 
-        $systemPrompt = $this->buildSystemPrompt($baseContent, $activeModules, $providerInfo, $modelsInfo,
-            $phoneProvider, $galleryStorage, $userPrompt, $issueTriage);
+        $systemPrompt = $this->buildSystemPrompt(
+            $baseContent,
+            $activeModules,
+            $providerInfo,
+            $modelsInfo,
+            $phoneProvider,
+            $galleryStorage,
+            $userPrompt,
+            $issueTriage
+        );
 
         $request = new LlmRequest(
             prompt: "Génère le contenu RGPD complet en HTML selon la structure imposée dans le prompt système.",

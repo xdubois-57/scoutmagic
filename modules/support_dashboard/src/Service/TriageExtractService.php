@@ -172,8 +172,12 @@ class TriageExtractService
         return $number;
     }
 
-    private function refuse(string $reason, string $clientIp, ?int $issueNumber = null, ?string $reference = null): TriageExtractResult
-    {
+    private function refuse(
+        string $reason,
+        string $clientIp,
+        ?int $issueNumber = null,
+        ?string $reference = null
+    ): TriageExtractResult {
         $context = ['reason' => $reason, 'source_ip' => $clientIp];
         if ($issueNumber !== null) {
             $context['github_issue_number'] = $issueNumber;

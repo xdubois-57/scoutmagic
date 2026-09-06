@@ -352,7 +352,10 @@ final class TriageExtractBuilder
             return $node;
         };
 
-        return (string) json_encode($strip($decoded), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        return (string) json_encode(
+            $strip($decoded),
+            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
+        );
     }
 
     /**

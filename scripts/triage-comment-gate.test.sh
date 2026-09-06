@@ -41,7 +41,7 @@ expect_refused() {
   fi
   # The annotation must never carry the match itself.
   local secret="$4"
-  if [ -n "${secret}" ] && [[ "${output}" == *"${secret}"* ]]; then
+  if [[ -n "${secret}" ]] && [[ "${output}" == *"${secret}"* ]]; then
     echo "FAIL  refused: ${name} — the annotation quotes the match"
     FAIL_COUNT=$((FAIL_COUNT + 1))
     return
@@ -90,4 +90,4 @@ expect_refused 'a long unbroken credential-looking run' \
 
 echo
 echo "${PASS_COUNT} passed, ${FAIL_COUNT} failed."
-[ "${FAIL_COUNT}" -eq 0 ]
+[[ "${FAIL_COUNT}" -eq 0 ]]

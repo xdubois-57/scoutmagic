@@ -44,14 +44,14 @@ cat > "${FAKE_BIN_DIR}/gh" <<'EOF'
 # $FIXTURES/issue-N.json and $FIXTURES/comments-N.json. Anything else is
 # a test bug, so it is loud.
 set -uo pipefail
-[ "${1:-}" = "api" ] || { echo "fake gh: unexpected: $*" >&2; exit 99; }
+[[ "${1:-}" = "api" ]] || { echo "fake gh: unexpected: $*" >&2; exit 99; }
 path="$2"
 slurp=false
-for arg in "$@"; do [ "${arg}" = "--slurp" ] && slurp=true; done
+for arg in "$@"; do [[ "${arg}" = "--slurp" ]] && slurp=true; done
 if [[ "${path}" =~ /issues/([0-9]+)/comments ]]; then
   file="${FIXTURES}/comments-${BASH_REMATCH[1]}.json"
-  [ -f "${file}" ] || file=/dev/null
-  if [ "${slurp}" = true ]; then
+  [[ -f "${file}" ]] || file=/dev/null
+  if [[ "${slurp}" = true ]]; then
     printf '['; cat "${file}" 2>/dev/null || printf '[]'; printf ']'
   else
     cat "${file}" 2>/dev/null || printf '[]'
@@ -60,7 +60,7 @@ if [[ "${path}" =~ /issues/([0-9]+)/comments ]]; then
 fi
 if [[ "${path}" =~ /issues/([0-9]+)$ ]]; then
   file="${FIXTURES}/issue-${BASH_REMATCH[1]}.json"
-  [ -f "${file}" ] || { echo "fake gh: no fixture for ${path}" >&2; exit 1; }
+  [[ -f "${file}" ]] || { echo "fake gh: no fixture for ${path}" >&2; exit 1; }
   cat "${file}"
   exit 0
 fi
@@ -103,26 +103,28 @@ chmod +x "${FAKE_BIN_DIR}/gh" "${FAKE_BIN_DIR}/curl"
 export PATH="${FAKE_BIN_DIR}:${PATH}"
 
 issue_fixture() {
-  # $1 number, $2 reporter id, $3 body
-  jq -n --argjson number "$1" --argjson reporter "$2" --arg body "$3" \
+  local number="$1" reporter="$2" body="$3"
+  jq -n --argjson number "${number}" --argjson reporter "${reporter}" --arg body "${body}" \
     '{number: $number, user: {id: $reporter, login: "reporter"}, body: $body}' \
-    > "${FIXTURES}/issue-$1.json"
+    > "${FIXTURES}/issue-${number}.json"
 }
 
 comments_fixture() {
-  # $1 number, then the JSON array of comments on stdin
-  cat > "${FIXTURES}/comments-$1.json"
+  # The JSON array of comments arrives on stdin.
+  local number="$1"
+  cat > "${FIXTURES}/comments-${number}.json"
 }
 
 run_extract() {
-  # $1 issue numbers; env overrides via the caller's environment
+  # Environment overrides come from the caller's environment.
+  local issues="$1"
   : > "${CURL_LOG}"
   rm -rf "${WORK_DIR}/extract"
   GH_TOKEN=gh-test-token \
   GITHUB_REPOSITORY=xdubois-57/scoutmagic \
   SUPPORT_SITE_URL="${SUPPORT_SITE_URL-https://support.example.be}" \
   SUPPORT_TRIAGE_TOKEN="${SUPPORT_TRIAGE_TOKEN-secret-triage-token-0123456789}" \
-  ISSUE_NUMBERS="$1" \
+  ISSUE_NUMBERS="${issues}" \
   EXTRACT_ROOT="${WORK_DIR}/extract" \
   GITHUB_OUTPUT="${WORK_DIR}/output" \
   bash "${EXTRACT_SCRIPT}"
@@ -130,7 +132,7 @@ run_extract() {
 
 check() {
   local name="$1" ok="$2"
-  if [ "${ok}" = true ]; then
+  if [[ "${ok}" = true ]]; then
     echo "PASS  ${name}"
     PASS_COUNT=$((PASS_COUNT + 1))
   else
@@ -144,7 +146,7 @@ issue_fixture 181 1001 $'### Version du site\n\n1.0.41\n\n### Référence du tic
 : > "${WORK_DIR}/output"
 stdout="$(run_extract 181)"
 ok=true
-[ -f "${WORK_DIR}/extract/181/logs/error.log" ] || ok=false
+[[ -f "${WORK_DIR}/extract/181/logs/error.log" ]] || ok=false
 grep -q '^URL https://support.example.be/api/support/tickets/SUP-ABC234/triage-extract$' "${CURL_LOG}" || ok=false
 grep -q '^HEADER Authorization: Bearer secret-triage-token-0123456789$' "${CURL_LOG}" || ok=false
 grep -q '^DATA {"github_issue_number": 181}$' "${CURL_LOG}" || ok=false
@@ -160,8 +162,8 @@ check 'the token never appears on stdout' "${ok}"
 issue_fixture 182 1002 $'### Version du site\n\n1.0.41\n\n### Référence du ticket de support\n\n_No response_\n'
 run_extract 182 >/dev/null
 ok=true
-[ ! -s "${CURL_LOG}" ] || ok=false
-[ ! -d "${WORK_DIR}/extract/182" ] || ok=false
+[[ ! -s "${CURL_LOG}" ]] || ok=false
+[[ ! -d "${WORK_DIR}/extract/182" ]] || ok=false
 grep -q '^present=false$' "${WORK_DIR}/output" || ok=false
 check 'an issue citing no reference fetches nothing' "${ok}"
 
@@ -208,14 +210,14 @@ check 'the last reference the reporter gave wins' "${ok}"
 issue_fixture 186 1006 'Voir SUP-ABC12 et sup-abc234 et SUP-ABC0O1 ; rien de valable.'
 run_extract 186 >/dev/null
 ok=true
-[ ! -s "${CURL_LOG}" ] || ok=false
+[[ ! -s "${CURL_LOG}" ]] || ok=false
 check 'a wrong length, a lower-case or an out-of-alphabet reference is not a reference' "${ok}"
 
 # --- A refusal from the site is the ordinary case ---------------------
 issue_fixture 187 1007 'Référence SUP-REFUSE.'
 stdout="$(run_extract 187)"
 ok=true
-[ ! -d "${WORK_DIR}/extract/187" ] || ok=false
+[[ ! -d "${WORK_DIR}/extract/187" ]] || ok=false
 grep -q '^present=false$' "${WORK_DIR}/output" || ok=false
 [[ "${stdout}" == *"answered 403"* ]] || ok=false
 check 'a 403 from the support site leaves no extract and does not fail the step' "${ok}"
@@ -223,8 +225,8 @@ check 'a 403 from the support site leaves no extract and does not fail the step'
 # --- Several issues in one run ----------------------------------------
 stdout="$(run_extract 181,182,187)"
 ok=true
-[ -f "${WORK_DIR}/extract/181/logs/error.log" ] || ok=false
-[ ! -d "${WORK_DIR}/extract/182" ] || ok=false
+[[ -f "${WORK_DIR}/extract/181/logs/error.log" ]] || ok=false
+[[ ! -d "${WORK_DIR}/extract/182" ]] || ok=false
 grep -q '^present=true$' "${WORK_DIR}/output" || ok=false
 grep -q '^issues_with_extract=181$' "${WORK_DIR}/output" || ok=false
 check 'a run over several issues unpacks one directory per issue that got an extract' "${ok}"
@@ -232,7 +234,7 @@ check 'a run over several issues unpacks one directory per issue that got an ext
 # --- No token configured: nothing is fetched, nothing fails -----------
 stdout="$(SUPPORT_TRIAGE_TOKEN='' run_extract 181)"
 ok=true
-[ ! -s "${CURL_LOG}" ] || ok=false
+[[ ! -s "${CURL_LOG}" ]] || ok=false
 [[ "${stdout}" == *"no SUPPORT_TRIAGE_TOKEN"* ]] || ok=false
 check 'without a token the reference is reported and nothing is fetched' "${ok}"
 
@@ -243,4 +245,4 @@ check 'an issue number that is not a number fails the step' "${ok}"
 
 echo
 echo "${PASS_COUNT} passed, ${FAIL_COUNT} failed."
-[ "${FAIL_COUNT}" -eq 0 ]
+[[ "${FAIL_COUNT}" -eq 0 ]]

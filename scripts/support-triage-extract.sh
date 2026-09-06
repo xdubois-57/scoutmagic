@@ -92,18 +92,19 @@ reference_for() {
 for issue in ${ISSUE_NUMBERS//,/ }; do
   case "${issue}" in
     ''|*[!0-9]*)
-      echo "::error title=Not an issue number::'${issue}' is not an issue number; nothing was fetched for it."
+      echo "::error title=Not an issue number::'${issue}' is not an issue number; nothing was fetched for it." >&2
       exit 1
       ;;
+    *) ;;
   esac
 
   reference="$(reference_for "${issue}")"
-  if [ -z "${reference}" ]; then
+  if [[ -z "${reference}" ]]; then
     echo "Issue #${issue}: no support-ticket reference cited; the triage runs on the issue alone."
     continue
   fi
 
-  if [ -z "${SUPPORT_SITE_URL}" ] || [ -z "${SUPPORT_TRIAGE_TOKEN}" ]; then
+  if [[ -z "${SUPPORT_SITE_URL}" || -z "${SUPPORT_TRIAGE_TOKEN}" ]]; then
     echo "Issue #${issue}: cites ${reference}, but this repository has no SUPPORT_SITE_URL variable or no SUPPORT_TRIAGE_TOKEN secret; no extract was fetched."
     continue
   fi
@@ -122,7 +123,7 @@ for issue in ${ISSUE_NUMBERS//,/ }; do
     --data "{\"github_issue_number\": ${issue}}" \
     "${SUPPORT_SITE_URL}/api/support/tickets/${reference}/triage-extract" 2>/dev/null || true)"
 
-  if [ "${status}" != '200' ]; then
+  if [[ "${status}" != '200' ]]; then
     echo "Issue #${issue}: cites ${reference}; the support site answered ${status:-nothing} — no extract (unknown reference, archive purged, reference claimed by another issue, or site unreachable). The triage runs on the issue alone."
     rm -f "${archive}"
     continue
@@ -149,7 +150,7 @@ joined="$(IFS=,; printf '%s' "${with_extract[*]:-}")"
 echo "present=${present}"
 echo "issues_with_extract=${joined}"
 
-if [ -n "${GITHUB_OUTPUT:-}" ]; then
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
   {
     echo "present=${present}"
     echo "issues_with_extract=${joined}"

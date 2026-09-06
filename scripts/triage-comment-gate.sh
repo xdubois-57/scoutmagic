@@ -37,7 +37,7 @@ set -euo pipefail
 comment="$(cat)"
 
 refuse() {
-  echo "::error title=Verdict comment withheld::The triage comment contained ${1}. It was not posted; the issue keeps triage:pending. Read the run's transcript to see what the agent wrote, and fix the skill file or the scrubber before re-running."
+  echo "::error title=Verdict comment withheld::The triage comment contained ${1}. It was not posted; the issue keeps triage:pending. Read the run's transcript to see what the agent wrote, and fix the skill file or the scrubber before re-running." >&2
   exit 1
 }
 
