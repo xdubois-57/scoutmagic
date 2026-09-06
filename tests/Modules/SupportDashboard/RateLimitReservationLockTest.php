@@ -51,7 +51,12 @@ class RateLimitReservationLockTest extends TestCase
             $this->holder = new \PDO($dsn, $user, $password, [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]);
             $this->requester = new \PDO($dsn, $user, $password, [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]);
         } catch (\Throwable $e) {
-            if (getenv('TEST_DB_HOST') === false) {
+            // Skip only on a laptop that never configured a server. On a
+            // CI runner (GitHub sets CI=true) both PHP jobs export
+            // TEST_DB_*, so an unset TEST_DB_HOST there is a workflow
+            // regression to fail on, not a laptop to accommodate: a lock
+            // test that skips itself in CI proves nothing.
+            if (getenv('TEST_DB_HOST') === false && getenv('CI') === false) {
                 $this->markTestSkipped('No MySQL server configured (TEST_DB_HOST unset): ' . $e->getMessage());
             }
 
