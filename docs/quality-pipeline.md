@@ -170,6 +170,23 @@ write. Its judgement lives in `.claude/skills/triage/SKILL.md`, reviewed
 like code, and the workflow fetches that file from `main` rather than from
 a working copy it does not have.
 
+**The model decides; the workflow writes.** `issues: write` is
+repository-wide — GitHub has no issue-scoped token — so while the agent
+held the GitHub write tools, nothing but the prompt stopped a hostile
+issue body from talking it into commenting on, relabelling or closing a
+*different* issue, and a prompt is exactly what an injected body competes
+with. Both workflows now give the agent the **read** tools one by one
+(never the whole `mcp__github` server) and take its verdict back as JSON
+through `--json-schema`. Shell steps apply it: the per-issue job writes at
+`github.event.issue.number`, the scan only to the issues it selected
+before the agent started, refusing any other number and going red for it.
+Two consequences worth knowing: the agent never names a **label** — it
+returns one of four verdicts and the shell maps them, so an invented label
+cannot be applied by anyone — and naming individual tools fails *closed*
+if the action's pinned image renames one, which is the price of the
+guarantee and the reason to re-check those names whenever the action SHA
+is bumped.
+
 Both issue workflows also **deny the tools that assume a "later"** —
 `Agent`, `Task`, `ScheduleWakeup` — because an agent that hands an issue to
 a subagent and ends its turn waiting for the answer has, in a one-shot run,
@@ -230,9 +247,12 @@ it.
 
 `tests/Security/IssueTriageWorkflowPermissionsTest.php` asserts that
 shape: the labels read back, both halves of the predicate, the retry, its
-gate, the single shared prompt, the two prompt clauses the retry depends
-on, and the comment trigger with each clause of its guard and the label
-reset that must precede the agent.
+gate, the single shared prompt and the single shared argument list, the
+comment trigger with each clause of its guard, the label reset that must
+precede the agent — and the write boundary above: that no allowed tool is
+the bare server or carries a writing verb in its name, that a schema comes
+back with the verdict as an enum, and that the shell is what maps a
+verdict to a label.
 
 `.github/workflows/issue-backlog-scan.yml` is the same triage, applied to
 the issues that workflow never saw: everything filed before it reached
