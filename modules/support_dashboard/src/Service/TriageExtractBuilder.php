@@ -203,7 +203,8 @@ final class TriageExtractBuilder
                     $outputName = $spreadsheet['csv'];
                     $output = self::spreadsheetToCsv($content, $spreadsheet['tokenise'], $scrubber);
                     if ($output === null) {
-                        $omitted[$name] = 'feuille de calcul illisible ou trop volumineuse une fois décompressée, non copiée';
+                        $omitted[$name] = 'feuille de calcul illisible ou trop volumineuse une fois décompressée,'
+                            . ' non copiée';
                         continue;
                     }
                 } else {
@@ -431,7 +432,8 @@ final class TriageExtractBuilder
 
         $lines = [
             '# Ticket de support ' . (string) ($ticket['reference'] ?? ''),
-            'Catégorie              : ' . ($category instanceof TicketCategory ? $category->label() : 'Non précisée'),
+            'Catégorie              : '
+                . ($category instanceof TicketCategory ? $category->label() : 'Non précisée'),
             'Reçu le                : ' . (string) ($ticket['created_at'] ?? ''),
             'Statut                 : ' . ((($ticket['status'] ?? '') === 'closed') ? 'clôturé' : 'ouvert'),
             'Version du site        : ' . (string) ($ticket['site_version'] ?? 'non renseignée'),

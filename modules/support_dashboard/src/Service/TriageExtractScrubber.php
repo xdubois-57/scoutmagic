@@ -108,7 +108,8 @@ final class TriageExtractScrubber
      * `userAccountId`, matched case-sensitively so that `valid` is not
      * read as `val` + `id`.
      */
-    private const PERSON_FIELD_ID = '/((?:"|\b)(?:[a-z_]*_id|(?-i:[a-zA-Z]*[a-z]Id)|member|user|account|parent|chef)"?\s*[:=]\s*"?)'
+    private const PERSON_FIELD_ID = '/((?:"|\b)(?:[a-z_]*_id|(?-i:[a-zA-Z]*[a-z]Id)|member|user|account|parent|chef)'
+        . '"?\s*[:=]\s*"?)'
         . '(\d+)(?="?(?:[,}\s&]|$))/i';
 
     /**
