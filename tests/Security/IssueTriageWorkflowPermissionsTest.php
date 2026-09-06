@@ -325,12 +325,6 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
         // which is the exact mutation it exists to catch.
         $arguments = $this->agentArguments($workflow);
 
-        self::assertNotNull(
-            $arguments,
-            $workflow . ' has no `…_ARGS:` entry — this assertion would otherwise pass over '
-            . 'nothing, and that entry is also what starts the GitHub MCP server.',
-        );
-
         self::assertSame(
             1,
             preg_match('/--max-turns\s+\d+/', $arguments),
@@ -926,10 +920,10 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
         self::assertSame(
             1,
             preg_match($gate, (string) reset($retry)),
-            $workflow . ' does not gate the retry on `steps.first_check.outputs.landed`. '
-            . 'Ungated, it runs a second full triage of every issue, including every issue the '
-            . 'first attempt got right, and posts no second verdict only because the prompt '
-            . 'happens to re-check for one.',
+            $workflow . ' does not gate the retry on '
+            . '`steps.first_check.outputs.have_verdict(s)`. Ungated, it runs a second full triage '
+            . 'of every issue, including every issue whose first attempt returned a perfectly good '
+            . 'verdict — twice the model time, for nothing.',
         );
 
         // A step that can fail the job, found by what it does rather
@@ -1078,12 +1072,6 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
     {
         $arguments = $this->agentArguments($workflow);
 
-        self::assertNotNull(
-            $arguments,
-            $workflow . ' has no `…_ARGS:` entry — this assertion would otherwise pass over '
-            . 'nothing.',
-        );
-
         // Read from the one shared entry, which
         // assertBothAttemptsShareTheArguments() proves is what both
         // invocations are actually given — a retry left free to delegate
@@ -1166,12 +1154,6 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
     public function testTheAgentHoldsNoToolThatWrites(string $workflow): void
     {
         $arguments = $this->agentArguments($workflow);
-
-        self::assertNotNull(
-            $arguments,
-            $workflow . ' has no `…_ARGS:` entry — this assertion would otherwise pass over '
-            . 'nothing.',
-        );
 
         self::assertSame(
             1,
@@ -1265,13 +1247,23 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
             . "step's mapping exists to prevent.",
         );
 
-        foreach (['bug:confirmed', 'bug:not-a-bug', 'bug:needs-info'] as $verdict) {
+        // All FOUR, and `feature-request` is the one it is tempting to
+        // leave out. It is not a `bug:*` verdict, so it looks like a
+        // detail — but both apply steps branch on it to write no `bug:*`
+        // label at all, and a schema that dropped it would leave the
+        // agent unable to reach the only verdict meaning "not a defect".
+        // Every feature request would come back as a bug, and this test
+        // would stay green: the fail-open shape the rest of this file
+        // exists to refuse.
+        foreach (['bug:confirmed', 'bug:not-a-bug', 'bug:needs-info', 'feature-request'] as $verdict) {
             self::assertStringContainsString(
                 $verdict,
                 (string) $schema,
-                $workflow . "'s verdict schema no longer offers `" . $verdict . '`, one of the '
-                . 'three verdicts `.claude/skills/triage/SKILL.md` § 4 requires. A verdict the '
-                . 'schema cannot express is one the agent cannot reach.',
+                $workflow . "'s verdict schema no longer offers `" . $verdict . '`, one of the four '
+                . 'verdicts this pipeline can apply — the three of '
+                . '`.claude/skills/triage/SKILL.md` § 4 plus the feature request of § A feature '
+                . 'request is not a bug. A verdict the schema cannot express is one the agent '
+                . 'cannot reach.',
             );
         }
 
@@ -1832,15 +1824,28 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
      * anchors, and two inline copies drift, with the retry being the copy
      * nobody re-reads. Every assertion about the tool surface therefore
      * reads that entry rather than the `claude_args:` lines, and
-     * agentArgumentsAreShared() below is what keeps the two connected.
+     * assertBothAttemptsShareTheArguments() is what keeps the two
+     * connected.
      */
-    private function agentArguments(string $workflow): ?string
+    private function agentArguments(string $workflow): string
     {
         $folded = $this->blockScalar($workflow, '[A-Z][A-Z_]*_ARGS');
 
-        return $folded === null
-            ? null
-            : implode(' ', array_filter(array_map('trim', $folded), static fn (string $l): bool => $l !== ''));
+        self::assertNotNull(
+            $folded,
+            $workflow . ' has no `…_ARGS:` entry. Every assertion about the tool surface reads '
+            . 'that one entry, so without it they would each pass over nothing — and it is also '
+            . 'what starts the GitHub MCP server.',
+        );
+
+        // Asserted here rather than at each call site, so no caller ever
+        // holds a `?string` to feed `preg_match()`. The three tests that
+        // read this all want the same thing and would each have repeated
+        // the same guard and the same message.
+        return implode(
+            ' ',
+            array_filter(array_map('trim', $folded), static fn (string $l): bool => $l !== ''),
+        );
     }
 
     /**

@@ -360,7 +360,13 @@ jobs:
           # used to be the agent's job, described in the prompt — which
           # meant an issue body could argue about which issues got
           # written to. It cannot argue with a shell variable.
-          selected="$(printf '%s\n' "${listing}" | grep '[0-9]' | head -n 5 | paste -sd ',' -)"
+          # `|| true` for the same reason the count above carries one:
+          # `grep` exits 1 on an empty listing, and under `pipefail` that
+          # aborts the whole step before it publishes a single output —
+          # so a night with nothing to triage, which is the ordinary
+          # outcome of a drained backlog, would go red and take
+          # `candidates` and `expected` down with it.
+          selected="$(printf '%s\n' "${listing}" | grep '[0-9]' | head -n 5 | paste -sd ',' - || true)"
 
           echo "Candidates awaiting triage: ${candidates} (this run should clear ${expected})."
           echo "Selected: ${selected:-none}"
@@ -472,14 +478,13 @@ jobs:
           allowed_non_write_users: "*"
           github_token: ${{ github.token }}
 
-          # The identical prompt, from the same `env:` entry. It re-checks
-          # each issue for an existing verdict comment immediately before
-          # it writes, which is what makes running it twice safe: no
-          # reporter can get two verdicts on one report, and an issue the
-          # first attempt analysed but left unlabelled gets only its
-          # missing labels. Issues the first attempt finished now carry
-          # `triage:done` and are no longer candidates at all, so the
-          # retry naturally picks up where it stopped.
+          # The identical prompt and arguments, from the same `env:`
+          # entries. Running it twice is safe by construction now rather
+          # than by instruction: an attempt RETURNS verdicts, it does not
+          # post them, and the apply step below takes ONE set — whichever
+          # attempt returned more usable entries — and de-duplicates it by
+          # issue. So no reporter can get two comments on one report even
+          # when both attempts succeed.
           prompt: ${{ env.SCAN_PROMPT }}
 
           # THE ONE PLACE THE TRANSCRIPT IS KEPT. The action hides the
@@ -556,8 +561,15 @@ jobs:
           # loop in a subshell, and the two counters this step exits on
           # would be lost when it ended.
           entries="$(mktemp)"
+          # `unique_by` because the selection bounds WHICH issues this
+          # run may write to, not how many times. The schema caps the
+          # array at five and requires each `issue` to be a number; it
+          # cannot require them to be different, so five entries naming
+          # the same selected issue would pass every check above and
+          # produce five comments on one report.
           printf '%s' "${verdicts_json}" \
-            | jq -c '.verdicts[]? | select((.issue | type == "number") and (.comment | length > 0))' \
+            | jq -c '[.verdicts[]? | select((.issue | type == "number") and (.comment | length > 0))]
+                     | unique_by(.issue)[]' \
             > "${entries}"
 
           while IFS= read -r entry; do

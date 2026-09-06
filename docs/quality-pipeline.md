@@ -205,17 +205,18 @@ still carrying `triage:pending`. One had its verdict comment and never got
 its labels; three had neither, inside their turn budget, with no timeout
 and no permission denial. Nothing anywhere was red.
 
-So after the agent, the job reads the issue's labels back: `triage:done`
+So the job checks what the attempt actually RETURNED — `have_verdict`,
+since the agent writes nothing — and if no usable verdict came back it
+waits a minute (whatever ends an attempt early is transient and short,
+and retrying into the same second meets it again) and runs the agent a
+second time with the *same* prompt and arguments. Retrying is safe by
+construction rather than by instruction: exactly one verdict is applied
+per run, so two successful attempts still produce one comment. Then, once
+the job has written, it reads the issue's labels back: `triage:done`
 present and `triage:pending` gone is the only thing that counts as
 triaged, because the labels are the state (§ Labels below) and a comment
 without them reads to the rest of this pipeline exactly like an issue
-nobody looked at. If they are not there it waits a minute — whatever ends
-an attempt early is transient and short, and retrying into the same second
-meets it again — and runs the agent a second time with the *same* prompt.
-The prompt is idempotent by construction: it re-checks for an existing
-verdict immediately before it writes, so a retry cannot post a second
-verdict on somebody's report, and on the half-finished case it applies
-only the missing labels. If both attempts leave the issue untriaged the
+nobody looked at. If both attempts leave the issue untriaged the
 job fails, keeps the second attempt's full transcript (the only place it
 is kept — `show_full_output` is off by default, and the first
 investigation into this ran aground on a log that had discarded the
