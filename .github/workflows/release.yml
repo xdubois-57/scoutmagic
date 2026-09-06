@@ -1,0 +1,372 @@
+# The slow, complete pass: every gate on the released commit, then a DRAFT
+# Release carrying the evidence that they ran — signed, so it can be checked
+# by somebody who does not trust this repository.
+#
+# NOT MERGED WITH ci.yml, on purpose. That one is the fast feedback loop on
+# every push and has to stay fast. This one takes as long as it takes. What
+# they share — the gates themselves — lives in checks.yml and is called by
+# both, so the two can never disagree about what "green" means.
+#
+# WHO STARTS IT, AND WHO FINISHES IT
+# ---------------------------------------------------------------------------
+# scripts/release.sh. It runs its own seven gates on the releaser's machine
+# first (AGENTS.md § Releases), and only then commits VERSION, pushes the
+# tag and starts this. This workflow re-runs the gates on GitHub's runners
+# — a second verdict, from a machine nobody configured by hand, with each
+# tool's native output kept — and creates the Release as a DRAFT with the
+# evidence pack attached. The script then waits for this run, attaches the
+# deployable zip and bootstrap.php, writes the notes, and publishes. Nothing
+# reaches the Releases page unless every gate here went green: a red gate
+# creates no draft at all, and the script stops on a run that did not
+# conclude `success`.
+#
+# WHAT IS IN THE PACK
+# ---------------------------------------------------------------------------
+# Only what the tools emit NATIVELY (see checks.yml for the list), plus the
+# repository's open code-scanning and Dependabot alerts as GitHub's API
+# returns them, SonarCloud's complete analysis of this commit as its API
+# returns it, a manifest naming the commit and this run, and a SHA256SUMS
+# over every file. No hand-written summary of any result: a document
+# somebody writes once to describe a pipeline is a document nobody updates
+# when the pipeline changes, and evidence that has stopped being true is
+# worse than no evidence.
+#
+# THE ARCHIVE IS A .tar.gz AND MUST NEVER BE A .zip
+# ---------------------------------------------------------------------------
+# Every installed site picks its update by taking the FIRST asset of the
+# Release whose name ends in `.zip` (Core\Maintenance\GitHubReleaseClient::
+# selectZipAssetUrl(), and bootstrap.php's resolveArchiveUrl()), and GitHub
+# sorts assets alphabetically — `evidence-v1.0.42.zip` would sort before
+# `release-v1.0.42.zip` and be installed as the application on every site
+# that updates. Those sites run the code they already have, so no fix in
+# this repository would reach them in time. tests/Architecture/
+# ReleasePipelineIsWiredTest pins the extension, and release.sh refuses to
+# publish a Release carrying more than one `.zip`.
+#
+# ON workflow_dispatch
+# ---------------------------------------------------------------------------
+# The same pass, without a Release: the pack is kept as a workflow artifact
+# instead. It is how the whole chain is rehearsed after a change to it, and
+# how evidence is produced for a commit without cutting a version. No draft
+# is created on purpose — on this repository a stray Release, even a draft
+# somebody publishes by mistake, is something every installed site would
+# try to install.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Every gate, with each tool's native output collected.
+  checks:
+    name: Checks
+    uses: ./.github/workflows/checks.yml
+    with:
+      evidence: true
+    secrets: inherit
+
+  # The state of the two GitHub-side security sources scripts/release.sh's
+  # own security gate reads — open code-scanning (CodeQL) alerts and open
+  # Dependabot alerts — as the API returns them, at the time of the run.
+  #
+  # Read back rather than re-analysed: CodeQL runs here as GitHub's default
+  # setup, which owns the Security tab and refuses a SARIF from an advanced
+  # configuration alongside it, and the alerts are what the release gate is
+  # about anyway — a scan that ran is not a scan that found nothing
+  # (AGENTS.md § CodeQL). The check runs for this commit are recorded too,
+  # so a reader can see the default setup analysed it and when.
+  #
+  # Dependabot alerts are not readable with the workflow token on every
+  # repository. When the call is refused the file says so and why, and the
+  # job carries on: a missing file reads as an oversight, a file that says
+  # "not available, and here is the URL to read by hand" reads as a fact.
+  # Same for the code-scanning call — the local release gate already
+  # blocked on these two sources before the tag was pushed (AGENTS.md
+  # § Releases), so their absence here weakens the pack, not the release.
+  github-security-evidence:
+    name: GitHub security alerts evidence
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: read
+      checks: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Record open alerts and the commit's code-scanning runs
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          # One JSON array per file, always — `[]` when nothing is open.
+          # `--paginate` prints one array per page, so the pages are
+          # slurped and joined by jq rather than filtered page by page: a
+          # per-page filter of an empty first page writes an empty file,
+          # and the pack step below rightly refuses an empty file.
+          record() {
+            local name="$1" endpoint="$2" map="$3" url="$4"
+            if gh api "${endpoint}" --paginate > "evidence/${name}.raw" 2> "evidence/${name}.err"; then
+              jq -s "add // [] | map(${map})" "evidence/${name}.raw" > "evidence/${name}.json"
+              rm -f "evidence/${name}.raw" "evidence/${name}.err"
+              echo "${name}: $(jq length "evidence/${name}.json") open"
+            else
+              jq -n --arg reason "$(cat "evidence/${name}.err")" --arg url "${url}" \
+                '{status: "UNAVAILABLE", reason: $reason, read_by_hand: $url}' > "evidence/${name}.json"
+              rm -f "evidence/${name}.raw" "evidence/${name}.err"
+              echo "::warning::${name}: not readable with this run's token — recorded as UNAVAILABLE. Read ${url} by hand."
+            fi
+          }
+          record codeql-open-alerts \
+            "repos/${GITHUB_REPOSITORY}/code-scanning/alerts?state=open&per_page=100" \
+            '{number, rule: .rule.id, severity: .rule.security_severity_level, path: .most_recent_instance.location.path, html_url}' \
+            "https://github.com/${GITHUB_REPOSITORY}/security/code-scanning"
+          record dependabot-open-alerts \
+            "repos/${GITHUB_REPOSITORY}/dependabot/alerts?state=open&per_page=100" \
+            '{number, package: .dependency.package.name, severity: .security_advisory.severity, summary: .security_advisory.summary, html_url}' \
+            "https://github.com/${GITHUB_REPOSITORY}/security/dependabot"
+          gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/check-runs?per_page=100" \
+            --jq '[.check_runs[] | select(.name | startswith("Analyze")) | {name, status, conclusion, completed_at, html_url}]' \
+            > evidence/codeql-check-runs.json
+          cat evidence/codeql-check-runs.json
+
+      - name: Upload the evidence (GitHub security alerts)
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidence-github-security
+          path: evidence/
+          retention-days: 7
+
+  # SonarCloud's COMPLETE analysis of this commit, not just its verdict: the
+  # quality gate, every project measure, the same per file, every open issue
+  # (sorted by the release rule in AGENTS.md § SonarQube Cloud release gate)
+  # and every security hotspot, plus a Markdown front page. The gate on its
+  # own says pass or fail and nothing about what was found — and a pack
+  # whose reader has to log in to SonarCloud to learn that is not evidence.
+  #
+  # After the checks rather than beside them: the analysis is produced by
+  # ci.yml's sonarqube job on the push to main that carried this commit,
+  # which is still running when this workflow starts. The script waits for
+  # the analysis of THIS commit (SONAR_EXPECTED_REVISION) and refuses if it
+  # never arrives — "not analysed yet" and "analysed and clean" are
+  # different answers, and only one of them is a pass.
+  sonar-evidence:
+    name: SonarCloud evidence
+    runs-on: ubuntu-latest
+    needs: [checks]
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
+        with:
+          php-version: '8.4'
+          extensions: curl
+          coverage: none
+
+      - name: Fetch the whole SonarCloud analysis of this commit
+        env:
+          # Required for a tag: a Release must carry the analysis of the
+          # commit it ships. A dispatch run on a branch has no analysis of
+          # its own (SonarCloud analyses main and pull requests), so it
+          # records the latest one on main and says which commit that was.
+          SONAR_EXPECTED_REVISION: ${{ github.ref_type == 'tag' && github.sha || '' }}
+        run: |
+          php scripts/sonar-evidence.php evidence
+          cat evidence/sonarcloud-report.md >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload the evidence (SonarCloud)
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidence-sonarcloud
+          path: evidence/
+          retention-days: 7
+
+  # Nothing above this line has published anything. Everything below runs
+  # only if every gate went green.
+  release:
+    name: Evidence pack and draft Release
+    runs-on: ubuntu-latest
+    needs: [checks, github-security-evidence, sonar-evidence]
+    permissions:
+      contents: write
+      # Both are required by actions/attest-build-provenance: id-token to get
+      # the OIDC credential Sigstore signs against, attestations to record
+      # the result against the repository.
+      id-token: write
+      attestations: write
+    env:
+      # The name every other place refers to — release.sh checks it is on
+      # the draft before publishing. `.tar.gz`, never `.zip`: see the header.
+      EVIDENCE_ASSET: evidence-${{ github.ref_type == 'tag' && github.ref_name || github.sha }}.tar.gz
+    steps:
+      - name: Collect every piece of evidence
+        uses: actions/download-artifact@v4
+        with:
+          pattern: evidence-*
+          path: evidence-raw
+
+      # WHAT this pack is evidence OF. Without it the archive is a set of
+      # reports with nothing tying them to a commit, a repository or a
+      # moment — the Release page says all three, but the archive somebody
+      # downloads and forwards does not, and that is the copy an auditor
+      # ends up holding.
+      #
+      # Every value comes from the runner's own context rather than from
+      # anything the repository can set, and the run URL is the point: it
+      # leads to a log GitHub keeps, timestamps, and nobody with write
+      # access here can edit. This file's job is to make that cross-check
+      # easy, not to replace it.
+      - name: Write the manifest
+        env:
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          REF: ${{ github.ref }}
+          REF_TYPE: ${{ github.ref_type }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence-raw
+          php -r '
+            echo json_encode([
+              "repository"   => getenv("GITHUB_REPOSITORY"),
+              "ref"          => getenv("REF"),
+              "ref_type"     => getenv("REF_TYPE"),
+              "commit"       => getenv("GITHUB_SHA"),
+              "workflow"     => getenv("GITHUB_WORKFLOW"),
+              "run_id"       => getenv("GITHUB_RUN_ID"),
+              "run_attempt"  => getenv("RUN_ATTEMPT"),
+              "run_url"      => getenv("GITHUB_SERVER_URL") . "/" . getenv("GITHUB_REPOSITORY") . "/actions/runs/" . getenv("GITHUB_RUN_ID"),
+              "triggered_by" => getenv("EVENT_NAME"),
+              "generated_at" => gmdate("Y-m-d\TH:i:s\Z"),
+              "runner"       => php_uname("s") . " " . php_uname("r") . " " . php_uname("m"),
+              "note"         => "Cross-check this pack against run_url. That log is timestamped, retained by GitHub, and cannot be edited by anyone with write access to the repository - which this archive can.",
+            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), PHP_EOL;
+          ' > evidence-raw/manifest.json
+          cat evidence-raw/manifest.json
+
+      - name: Pack it
+        run: |
+          set -euo pipefail
+          # The guard is not ceremony. If a rename upstream ever makes the
+          # download pattern match nothing, an empty archive would be
+          # attached to a Release and would look exactly like evidence.
+          if [ -z "$(find evidence-raw -type f -print -quit)" ]; then
+            echo "::error::no evidence was collected — refusing to build an empty pack."
+            exit 1
+          fi
+          # Each gate's report has to be there, by name. The pattern above
+          # collects whatever uploaded; this checks that what uploaded is
+          # what the pack claims to contain, so a job that quietly stopped
+          # producing its file fails the release here rather than shipping
+          # a pack that proves less than the one before it.
+          for expected in \
+            evidence-test/phpunit-mysql8.xml \
+            evidence-test/phpstan.txt \
+            evidence-test/phpstan-files.txt \
+            evidence-database-mariadb/phpunit-mariadb.xml \
+            evidence-javascript-tests/vitest-junit.xml \
+            evidence-javascript-tests/tsc.txt \
+            evidence-e2e-tests/playwright-report/index.html \
+            evidence-authorization-matrix/authz-matrix.json \
+            evidence-dast-passive/dast-passive.html \
+            evidence-dast-passive/dast-severity-summary.json \
+            evidence-security/composer-audit.txt \
+            evidence-github-security/codeql-open-alerts.json \
+            evidence-sonarcloud/sonarcloud-report.md \
+            manifest.json; do
+            if [ ! -s "evidence-raw/${expected}" ]; then
+              echo "::error::the pack is missing ${expected} — a gate ran without leaving its report."
+              exit 1
+            fi
+          done
+          echo "Evidence pack contents:"
+          find evidence-raw -type f | sort
+
+          # Checksums BEFORE archiving, so the list covers the files as they
+          # go in. It detects a pack edited after the fact; it does not
+          # prove who made it, which is what the attestation below is for.
+          ( cd evidence-raw && find . -type f ! -name SHA256SUMS -print0 \
+              | sort -z | xargs -0 sha256sum > SHA256SUMS )
+          echo "Checksums written for $(grep -c '' evidence-raw/SHA256SUMS) file(s)."
+
+          tar -czf "${EVIDENCE_ASSET}" -C evidence-raw .
+          ls -l "${EVIDENCE_ASSET}"
+
+      # The one thing in this pipeline that a reader does not have to take
+      # on trust. Everything else here — the reports, the manifest, the
+      # checksums — is produced by the repository and could be produced
+      # differently by anyone able to change this workflow. An attestation
+      # is signed by GitHub's own OIDC identity through Sigstore, recording
+      # which workflow, at which commit, in which repository, produced this
+      # exact file.
+      #
+      # Verified with:
+      #   gh attestation verify evidence-vX.Y.Z.tar.gz --repo xdubois-57/scoutmagic
+      #
+      # That command fails if the archive was altered by so much as a byte,
+      # or if it was built anywhere other than this workflow in this
+      # repository.
+      - name: Attest where this pack came from
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: ${{ env.EVIDENCE_ASSET }}
+
+      - name: Keep the pack as a workflow artifact
+        # On every run, so a dispatch run has somewhere to leave it; on a
+        # tag the Release below is the copy that matters, and this one is
+        # the fallback if release.sh never comes back to publish.
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidence-pack
+          path: ${{ env.EVIDENCE_ASSET }}
+          retention-days: 90
+
+      # DRAFT. scripts/release.sh attaches the deployable zip and
+      # bootstrap.php, writes the notes and publishes; until then nothing
+      # is visible to an installed site (`releases/latest` excludes drafts).
+      # The body written here is the part of the notes that describes the
+      # pack; the script keeps it below the human-written note. French,
+      # like every other user-facing text in this project: a Release page
+      # is read by the unit administrators who install it.
+      - name: Create the draft Release
+        if: ${{ github.ref_type == 'tag' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if gh release view "${TAG}" > /dev/null 2>&1; then
+            echo "::error::a Release already exists for ${TAG}. This workflow creates the draft; if the previous run's draft was never published, finish it by hand (gh release upload / gh release edit --draft=false) or delete it and re-run."
+            exit 1
+          fi
+          NOTES="$(mktemp)"
+          cat > "${NOTES}" <<EOF
+          ## Preuves (\`${EVIDENCE_ASSET}\`)
+
+          Chaque verrou de \`.github/workflows/checks.yml\` a été rejoué sur le commit \`${GITHUB_SHA}\` par le workflow \`Release\` de GitHub Actions, en plus des verrous que \`scripts/release.sh\` avait déjà passés sur la machine du mainteneur : PHPStan, PHPUnit sur MySQL 8 et sur MariaDB 10.11, l'analyse statique JavaScript, Vitest, la suite Playwright complète (niveau \`full\`), la matrice d'autorisation, l'analyse dynamique passive OWASP ZAP et \`composer audit\`. L'analyse SonarCloud complète de ce commit — Quality Gate, chaque mesure, chaque signalement ouvert, chaque *security hotspot* — et l'état des alertes CodeQL et Dependabot du dépôt y sont joints.
+
+          L'archive ne contient que ce que chaque outil produit lui-même, plus un \`manifest.json\` qui nomme le commit et l'exécution qui l'a produite, et un \`SHA256SUMS\` couvrant chaque fichier.
+
+          Elle est signée. Pour vérifier qu'elle vient bien de ce workflow, dans ce dépôt, et n'a pas été modifiée depuis :
+
+          \`\`\`
+          gh attestation verify ${EVIDENCE_ASSET} --repo ${GITHUB_REPOSITORY}
+          \`\`\`
+
+          Le rapport de l'analyse dynamique y figure **en entier** (\`dast-passive.html\`, avec \`dast-severity-summary.json\` à côté). Il décrit une instance jetable construite pour l'analyse sur \`127.0.0.1\`, pas un site en production.
+
+          Exécution : ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          EOF
+          gh release create "${TAG}" "${EVIDENCE_ASSET}" \
+            --draft \
+            --title "Release ${TAG}" \
+            --notes-file "${NOTES}"
+          rm -f "${NOTES}"
+          echo "Draft Release ${TAG} created with ${EVIDENCE_ASSET}; scripts/release.sh publishes it."

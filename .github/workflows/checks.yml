@@ -1,0 +1,813 @@
+# The gates both pipelines run, in one place.
+#
+# WHY THIS FILE EXISTS
+# ---------------------------------------------------------------------------
+# ci.yml is the fast feedback loop on every push and pull request; release.yml
+# is the slow complete pass that produces a Release and the evidence that the
+# gates ran on the released commit. They are NOT merged — the whole point of
+# the fast one is that it is fast — but they run the same gates, and two
+# hand-maintained copies of "what green means" would drift the first time
+# somebody fixed one of them. So the gates live here and both workflows call
+# this file. The only difference between a CI run and a release run of these
+# jobs is the `evidence` input.
+#
+# EVIDENCE MODE
+# ---------------------------------------------------------------------------
+# With `evidence: true` each job additionally keeps what its tool emits
+# NATIVELY — PHPUnit's JUnit log on both engines, Vitest's JUnit report,
+# Playwright's own HTML report with a screenshot per test, PHPStan's and
+# tsc's output with the list of files they actually looked at, the
+# authorization matrix, ZAP's report — and uploads it as an `evidence-*`
+# artifact for release.yml to collect into one signed archive. Nothing here
+# writes a hand-made summary of a result: hand-written evidence is not
+# maintained, and unmaintained evidence eventually lies.
+#
+# Two things change in evidence mode beyond the uploads, and both are
+# deliberate: the end-to-end job runs the FULL tier (`npm run e2e:full`, the
+# release standard — AGENTS.md § Tests) rather than the confidence tier CI
+# runs on every push, and the SonarQube Cloud job is skipped, because a tag
+# push is not a branch SonarCloud should analyse. release.yml reads the
+# analysis CI already produced for the same commit instead
+# (scripts/sonar-evidence.php).
+#
+# NAMES
+# ---------------------------------------------------------------------------
+# A job in a called workflow appears on a pull request as
+# `<caller job> / <job name>` — so `test` here is the `Checks / test` check
+# on a pull request. The steward skill's reproduction table and
+# docs/quality-pipeline.md use those displayed names; renaming a job here
+# renames a check there, and both documents have to follow in the same
+# change (AGENTS.md § Pipeline documentation maintenance).
+
+name: Checks
+
+on:
+  workflow_call:
+    inputs:
+      evidence:
+        description: >
+          Keep each tool's native output as an evidence-* artifact. Off for
+          CI, where it would only slow the loop down; on for a release.
+        type: boolean
+        default: false
+    # SONAR_TOKEN reaches the sonarqube job below through `secrets: inherit`
+    # on the caller's side. Declared explicitly so a caller that forgets to
+    # pass it gets a job that fails at authentication rather than one that
+    # silently analyses nothing.
+    secrets:
+      SONAR_TOKEN:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    # The whole PHP suite runs in this one job, `database`-tagged tests
+    # included (phpunit.xml no longer excludes them anywhere) — which is
+    # why it needs MySQL. Most of that group actually runs on in-memory
+    # SQLite, but the six files reading TEST_DB_* below need a real
+    # server. This used to be a separate `database-tests` job with no
+    # coverage instrumentation, so those tests never reached the Clover
+    # report the sonarqube job consumes and every module tested mainly
+    # through them read as near-zero coverage on new code.
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test_password
+          MYSQL_DATABASE: test_db
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history, not just the checked-out commit: SonarQube Cloud's
+          # analysis (sonarqube job below) needs it for accurate blame/new-code
+          # detection, and this checkout's coverage/report artifacts are what
+          # that job consumes.
+          fetch-depth: 0
+
+      - name: Install Ghostscript (PDF rasterization for Core\File\PdfRasterizer)
+        run: sudo apt-get update && sudo apt-get install -y ghostscript
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
+        with:
+          php-version: '8.4'
+          extensions: mbstring, pdo, pdo_mysql, openssl, imagick
+          coverage: pcov
+
+      - name: PHP syntax check
+        run: find core/ modules/ public/ -name '*.php' -exec php -l {} \; | grep -v 'No syntax errors' | head -20 && find core/ modules/ public/ -name '*.php' -exec php -l {} \; | grep -q 'Parse error' && exit 1 || true
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress
+
+      - name: Run PHPStan
+        if: ${{ !inputs.evidence }}
+        run: vendor/bin/phpstan analyse --memory-limit=512M
+
+      # The same command, with what makes its output evidence. A clean
+      # PHPStan run prints "[OK] No errors" and nothing else — a line a
+      # configuration analysing zero files would print just as happily, so
+      # on its own it proves nothing. Three files turn it into a checkable
+      # statement: the tool's version, level, paths and baseline size
+      # (phpstan-scope.txt — "no errors" here means "no NEW error beyond
+      # phpstan-baseline.neon", and a reader has to be told), the list of
+      # every file it analysed (phpstan-files.txt, from --debug, which
+      # prints each file as it goes; the JSON report was tried first and
+      # lists only files WITH errors, so on a clean run it is empty), and
+      # the verdict itself (phpstan.txt). --debug runs single-threaded, so
+      # it is a second pass the evidence run pays for and CI does not.
+      - name: Run PHPStan, recording its scope and verdict
+        if: ${{ inputs.evidence }}
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p evidence
+          {
+            echo "phpstan: $(vendor/bin/phpstan --version)"
+            echo "php: $(php -r 'echo PHP_VERSION;')"
+            echo "level: $(grep -E '^\s+level:' phpstan.neon | tr -d ' ' | cut -d: -f2)"
+            echo "paths:"
+            sed -n '/^  paths:/,/^  [a-z]/p' phpstan.neon | grep -E '^\s+- ' || true
+            echo "baseline entries (phpstan-baseline.neon): $(grep -c 'message:' phpstan-baseline.neon || true)"
+          } > evidence/phpstan-scope.txt
+          vendor/bin/phpstan analyse --memory-limit=512M --debug --no-progress 2>/dev/null \
+            | grep -E '\.php$' | sed "s#^${PWD}/##" | sort \
+            > evidence/phpstan-files.txt || true
+          echo "files analysed: $(grep -c '' evidence/phpstan-files.txt)" >> evidence/phpstan-scope.txt
+          cat evidence/phpstan-scope.txt
+          vendor/bin/phpstan analyse --memory-limit=512M | tee evidence/phpstan.txt
+
+      - name: Run tests
+        # The complete suite, with no group excluded — coverage (Clover XML)
+        # and the JUnit report are generated here, once, for SonarQube Cloud
+        # to consume in the sonarqube job below (see
+        # sonar.php.coverage.reportPaths / sonar.php.tests.reportPath in
+        # sonar-project.properties). Nothing re-runs PHPUnit a second time.
+        # On an evidence run the same two files are what goes into the pack.
+        env:
+          TEST_DB_HOST: 127.0.0.1
+          TEST_DB_PORT: 3306
+          TEST_DB_NAME: test_db
+          TEST_DB_USER: root
+          TEST_DB_PASSWORD: test_password
+        run: vendor/bin/phpunit --coverage-clover coverage.xml --log-junit phpunit-report.xml
+
+      - name: Upload coverage and test reports for SonarQube
+        uses: actions/upload-artifact@v4
+        with:
+          name: phpunit-reports
+          path: |
+            coverage.xml
+            phpunit-report.xml
+          retention-days: 1
+
+      - name: Keep PHPUnit's JUnit log and coverage, and PHPStan's output, as evidence
+        if: ${{ inputs.evidence }}
+        run: |
+          cp phpunit-report.xml evidence/phpunit-mysql8.xml
+          cp coverage.xml evidence/coverage-phpunit.xml
+
+      - name: Upload the evidence (PHPUnit on MySQL 8, PHPStan)
+        if: ${{ inputs.evidence }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidence-test
+          path: evidence/
+          retention-days: 7
+
+  # The same suite, against the engine production actually runs.
+  #
+  # `test` above runs everything on MySQL 8 with coverage, and until this
+  # job existed that was the only engine CI ever saw — while the reference
+  # installation is MariaDB 10.11 on shared hosting. The asymmetry pointed
+  # the wrong way: code correct on MySQL and wrong on MariaDB passed CI and
+  # reached production. Not hypothetical — SchemaComparator once never
+  # reached a "nothing to do" steady state there, and the site's requests
+  # appeared to hang (ARCHITECTURE.md § early session lock release).
+  #
+  # The WHOLE suite rather than `--group=database`, deliberately. Every
+  # file reading TEST_DB_* happens to carry that group today, so the narrow
+  # form would cover the same ground — but only until someone adds one that
+  # does not, and the failure mode of that omission is the silent one: it
+  # passes here and breaks production. Two extra minutes buys away the
+  # entire question of which tests are engine-sensitive.
+  #
+  # No coverage: the `test` job stays the single source of the Clover
+  # report SonarQube consumes, and duplicating it would double the cost of
+  # the slowest job here for nothing.
+  database-mariadb:
+    runs-on: ubuntu-latest
+
+    services:
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: test_password
+          MARIADB_DATABASE: test_db
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Same dependency as the `test` job, and its absence is not a subtle
+      # failure: PdfRasterizer, the two file-serving tests behind it and
+      # the receipt-extraction handler all go red, which reads exactly
+      # like four MariaDB divergences until you look at the names. This
+      # job's whole value is telling engine differences apart from
+      # everything else, so it has to run on the same footing.
+      - name: Install Ghostscript (PDF rasterization for Core\File\PdfRasterizer)
+        run: sudo apt-get update && sudo apt-get install -y ghostscript
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
+        with:
+          php-version: '8.4'
+          extensions: mbstring, pdo, pdo_mysql, openssl, imagick
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress
+
+      - name: Run the full suite against MariaDB
+        # --log-junit on every run, not only in evidence mode: it costs
+        # nothing, and one command for both modes is one fewer place for
+        # the release run to differ from the run a pull request had.
+        env:
+          TEST_DB_HOST: 127.0.0.1
+          TEST_DB_PORT: 3306
+          TEST_DB_NAME: test_db
+          TEST_DB_USER: root
+          TEST_DB_PASSWORD: test_password
+        run: vendor/bin/phpunit --log-junit phpunit-mariadb.xml
+
+      - name: Upload the evidence (PHPUnit on MariaDB 10.11)
+        if: ${{ inputs.evidence }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidence-database-mariadb
+          path: phpunit-mariadb.xml
+          retention-days: 7
+
+  javascript-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run JavaScript static analysis
+        # TypeScript's checkJs (allowJs/checkJs/noEmit — see tsconfig.json),
+        # wrapped by scripts/js-typecheck.mjs so pre-existing findings
+        # (js-typecheck-baseline.json, the same baseline model as
+        # phpstan-baseline.neon) don't re-fail every run while a genuinely
+        # new finding still does. The PHPStan-equivalent gate for
+        # JavaScript — catches unresolved identifiers, wrong argument
+        # counts, and statically-detectable invalid property access before
+        # Vitest/Playwright/SonarQube ever run. Runs first: cheap,
+        # deterministic, and fails fast on the kind of mistake a unit test
+        # wouldn't otherwise catch. See AGENTS.md § Static analysis and
+        # README.md § Analyse statique JavaScript.
+        if: ${{ !inputs.evidence }}
+        run: npm run typecheck
+
+      # Same reasoning as the PHPStan evidence step in `test`: the verdict
+      # is worth something only next to the tool's version, the baseline it
+      # was judged against, and the list of files it actually checked.
+      - name: Run JavaScript static analysis, recording its scope and verdict
+        if: ${{ inputs.evidence }}
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p evidence
+          {
+            echo "typescript: $(npx tsc --version)"
+            echo "node: $(node --version)"
+            echo "config: tsconfig.json (checkJs, noEmit — a checker, nothing is compiled)"
+            echo "baseline entries (js-typecheck-baseline.json): $(node -e 'const raw = require("node:fs").readFileSync("js-typecheck-baseline.json", "utf8").replace(/^(\/\/.*\n)+/, ""); console.log(Object.keys(JSON.parse(raw)).length);')"
+            echo "files checked:"
+            npx tsc -p tsconfig.json --noEmit --listFiles 2>/dev/null \
+              | grep -v '/node_modules/' | sed "s#^${PWD}/##" || true
+          } > evidence/tsc-scope.txt
+          echo "files checked: $(grep -c '^public/\|^types/' evidence/tsc-scope.txt)" >> evidence/tsc-scope.txt
+          npm run typecheck | tee evidence/tsc.txt
+
+      - name: Run JavaScript unit tests with coverage
+        # Isolated jsdom-simulated DOM tests for first-party public/assets/js/
+        # — no PHP server, no MySQL, no network (see vitest.config.js and
+        # tests/js/). Produces coverage/js/lcov.info for the sonarqube job
+        # below (sonar.javascript.lcov.reportPaths in sonar-project.properties).
+        if: ${{ !inputs.evidence }}
+        run: npm run test:coverage
+
+      # One run with two reporters, rather than the CI command followed by a
+      # second run with the JUnit reporter: the report has to describe the
+      # run that passed, not another one.
+      - name: Run JavaScript unit tests with coverage, recording Vitest's own JUnit report
+        if: ${{ inputs.evidence }}
+        run: |
+          mkdir -p evidence
+          echo "vitest: $(npx vitest --version)" > evidence/vitest-scope.txt
+          npx vitest run --coverage --reporter=default --reporter=junit --outputFile.junit=evidence/vitest-junit.xml
+          cp coverage/js/lcov.info evidence/coverage-js-lcov.info
+
+      - name: Upload JavaScript coverage for SonarQube
+        uses: actions/upload-artifact@v4
+        with:
+          name: javascript-coverage
+          path: coverage/js/lcov.info
+          retention-days: 1
+
+      - name: Upload the evidence (Vitest, tsc)
+        if: ${{ inputs.evidence }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidence-javascript-tests
+          path: evidence/
+          retention-days: 7
+
+  e2e-tests:
+    name: End-to-end (browser)
+    runs-on: ubuntu-latest
+    # A blocking check like every other job here. The bound is generous
+    # enough for a cold Chromium download plus a full schema migration,
+    # and tight enough that a hung PHP server fails the run instead of
+    # occupying a runner for six hours. The evidence run gets ten minutes
+    # more because it runs the full tier, boot matrix included.
+    timeout-minutes: ${{ inputs.evidence && 30 || 20 }}
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test_password
+          # scripts/e2e.sh creates and drops its own database
+          # (E2E_DB_NAME), so nothing needs to be pre-created here.
+          MYSQL_DATABASE: test_db
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
+        with:
+          php-version: '8.4'
+          extensions: mbstring, pdo, pdo_mysql, openssl, imagick
+          # pcov so the `php -S` process this job drives can record which
+          # application lines the browser actually executed — see
+          # scripts/e2e-coverage-prepend.php. Without it scripts/e2e.sh
+          # fails closed rather than producing an empty report.
+          coverage: pcov
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install PHP dependencies
+        run: composer install --prefer-dist --no-progress
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Install the Chromium runtime
+        # Same command developers run once locally (README.md
+        # § Tests end-to-end) — no CI-specific browser setup to drift.
+        run: npm run e2e:install
+
+      - name: Run end-to-end tests
+        # The same canonical command a developer runs; the orchestration
+        # lives in scripts/e2e.sh, never duplicated here. `npm run e2e` is
+        # the CONFIDENCE tier (every scenario not tagged @full — AGENTS.md
+        # § Tests); the costly @full scenarios (the per-module boot
+        # matrix) run in scripts/release.sh's E2E gate via
+        # `npm run e2e:full`, not on every push. No display server is
+        # involved — Chromium runs headless and the application is served
+        # by `php -S` on a local port the harness picks itself.
+        if: ${{ !inputs.evidence }}
+        env:
+          E2E_DB_HOST: 127.0.0.1
+          E2E_DB_PORT: 3306
+          E2E_DB_USER: root
+          E2E_DB_PASSWORD: test_password
+          # Produces coverage-e2e.xml (Clover) for the sonarqube job below.
+          # This is the only coverage there is for public/index.php: PHPUnit
+          # never executes the composition root, so without this the file
+          # SonarQube sees at 0% is exactly the one the browser exercises
+          # most.
+          E2E_COVERAGE: 1
+        run: npm run e2e
+
+      # The FULL tier on a release — the confidence scenarios above plus
+      # every @full one, which is what scripts/release.sh's own end-to-end
+      # gate runs (AGENTS.md § Tests). E2E_EVIDENCE turns on a screenshot
+      # per test (tests/e2e/playwright.config.js); traces and videos stay
+      # retain-on-failure in both modes, because a video of a test that
+      # behaved is what makes a pack enormous and is not evidence anybody
+      # watches.
+      - name: Run end-to-end tests, full tier, with a screenshot per test
+        if: ${{ inputs.evidence }}
+        env:
+          E2E_DB_HOST: 127.0.0.1
+          E2E_DB_PORT: 3306
+          E2E_DB_USER: root
+          E2E_DB_PASSWORD: test_password
+          E2E_COVERAGE: 1
+          E2E_EVIDENCE: 1
+        run: npm run e2e:full
+
+      - name: Upload end-to-end coverage for SonarQube
+        # Not `if: failure()` like the diagnostics below — this is the
+        # artifact a *successful* run exists to produce.
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-coverage
+          path: coverage-e2e.xml
+          retention-days: 1
+
+      - name: Collect the evidence (Playwright's HTML report, browser coverage)
+        if: ${{ inputs.evidence }}
+        run: |
+          mkdir -p evidence
+          cp -r tests/e2e/playwright-report evidence/playwright-report
+          cp coverage-e2e.xml evidence/coverage-e2e.xml
+
+      - name: Upload the evidence (Playwright)
+        if: ${{ inputs.evidence }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidence-e2e-tests
+          path: evidence/
+          retention-days: 7
+
+      - name: Upload Playwright diagnostics
+        # Failure only: a green run produces no trace, screenshot, or
+        # video (see tests/e2e/playwright.config.js), so uploading after
+        # every run would just publish an empty report.
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-e2e-report
+          path: |
+            tests/e2e/playwright-report
+            tests/e2e/test-results
+          retention-days: 7
+
+  authorization-matrix:
+    name: Authorization matrix
+    runs-on: ubuntu-latest
+    # 534 routes replayed as 6 roles — 3204 (route, role) pairs — each
+    # answer compared to the role_min the route declares (SECURITY.md
+    # § 36). No scanner and no browser, so it is fast enough to be a
+    # blocking check on every push — which is the point: an
+    # over-permissive route should fail the commit that introduced it,
+    # not a scan somebody remembers to run.
+    #
+    # 20, raised from 10: the job is not slow, it outgrew its budget. It
+    # took 10m15s on af70f87c and was cancelled mid-run, having passed on
+    # the commit before — the ceiling was already being grazed, and the
+    # route count crossing 528 to 534 was enough to breach it. The cost
+    # of the old value was a red job that reported nothing about
+    # authorization, which is worse than no check at all: it trains
+    # readers to ignore the one signal that would catch an over-permissive
+    # route.
+    #
+    # 20 is roughly twice the measured time, so ordinary growth in the
+    # route table will not breach it again for a long while. It stays a
+    # real ceiling rather than a formality: the work is arithmetic over a
+    # fixed matrix with no network and no browser, so a run still going at
+    # 20 minutes is hung, not busy, and the timeout should end it instead
+    # of letting it burn the 360-minute default.
+    timeout-minutes: 20
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test_password
+          # scripts/dast.sh creates and drops its own database.
+          MYSQL_DATABASE: test_db
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
+        with:
+          php-version: '8.4'
+          # pcntl runs the TLS terminator, openssl generates the run's
+          # certificate: the matrix signs in over real HTTPS because the
+          # session cookie's Secure flag depends on it.
+          extensions: mbstring, pdo, pdo_mysql, openssl, pcntl, imagick
+
+      - name: Install PHP dependencies
+        run: composer install --prefer-dist --no-progress
+
+      - name: Run the authorization matrix
+        env:
+          DAST_DB_HOST: 127.0.0.1
+          DAST_DB_PORT: 3306
+          DAST_DB_USER: root
+          DAST_DB_PASSWORD: test_password
+        run: ./scripts/dast.sh --profile=standard
+
+      - name: Upload the matrix report
+        # Always: the report lists the refusals that are STRICTER than
+        # role_min as well as the failures, and that list is worth
+        # reading on a green run too.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: authorization-matrix
+          path: dast-report/authz-matrix.json
+          retention-days: 7
+
+      - name: Upload the evidence (authorization matrix)
+        if: ${{ inputs.evidence }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidence-authorization-matrix
+          path: dast-report/authz-matrix.json
+          retention-days: 7
+
+  dast-passive:
+    name: Dynamic scan (passive)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # No security-events: write. This job used to publish ZAP's SARIF to
+      # code scanning; it no longer does, and the reason is worth keeping —
+      # see "Why the findings are not in the Security tab" below.
+    # The Playwright suite replayed through OWASP ZAP, with the passive
+    # rules reading the traffic (SECURITY.md § 9, scripts/dast.sh). The
+    # bound covers a cold 1.2 GB image pull plus the full browser suite.
+    timeout-minutes: 40
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test_password
+          MYSQL_DATABASE: test_db
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
+        with:
+          php-version: '8.4'
+          extensions: mbstring, pdo, pdo_mysql, openssl, pcntl, imagick
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install PHP dependencies
+        run: composer install --prefer-dist --no-progress
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Install the Chromium runtime
+        run: npm run e2e:install
+
+      - name: Pull the OWASP ZAP image
+        # scripts/dast.sh deliberately refuses to download 1.2 GB on a
+        # caller's behalf, so the pull is explicit here — the one place
+        # where downloading it is the expected thing to happen.
+        run: docker pull ghcr.io/zaproxy/zaproxy:stable
+
+      - name: Run the passive scan
+        env:
+          DAST_DB_HOST: 127.0.0.1
+          DAST_DB_PORT: 3306
+          DAST_DB_USER: root
+          DAST_DB_PASSWORD: test_password
+        run: ./scripts/dast.sh --profile=passive
+
+      # Why the findings are not in the Security tab
+      # ------------------------------------------------------------
+      # There used to be an upload-sarif step here. It failed every run:
+      #   SARIF URI scheme "https" did not match the checkout URI
+      #   scheme "file"
+      # and the failure was not a misconfiguration to tune away — it is
+      # the two tools disagreeing about what a finding IS. Code scanning
+      # anchors a result to a path inside the checkout it can blame a
+      # commit and a line for. A DAST result is an observation about a
+      # RUNNING instance: ZAP writes the URL it actually requested, and
+      # scripts/dast.sh serves that instance on a free port picked at run
+      # time, so the locations read `https://localhost:<random>/...` — an
+      # origin that never existed outside that one job and is different on
+      # the next one. Rewriting those URIs to repo-relative paths would
+      # make the upload succeed by inventing a source location for a
+      # finding that has none, pinning a header or cookie observation onto
+      # whichever file was picked to carry it.
+      #
+      # So the findings stay where they are true. The gate is not weakened
+      # by this: scripts/dast.sh exits non-zero on anything at or above
+      # Medium (SECURITY.md § 9), which fails this job on the very push
+      # that introduced it — enforcement the Security tab never provided.
+      # The HTML report and ZAP's own SARIF both ship in the artifact
+      # below, for whoever reads a failing run.
+
+      - name: Upload the HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dast-passive-report
+          path: dast-report/
+          retention-days: 7
+
+      # The FULL report goes into the evidence pack, and that is a decision
+      # rather than an oversight. This repository is public, so Release
+      # assets are public — and so are the workflow artifacts the step
+      # above already publishes on every run, which is less widely known
+      # than it should be. The scan describes a throwaway instance on
+      # 127.0.0.1 built for the occasion, running code anybody can already
+      # read; what survives that objection is that a header or cookie
+      # finding on it is a finding about the shipped configuration, and
+      # publishing one publishes a to-do list before it is done. That is
+      # the trade: a pack anybody can audit without a GitHub account, at
+      # the cost of saying out loud what the scan reports today. It is
+      # worth making only while the report stays clean — and the gate
+      # above is what keeps it clean, since a Medium finding fails the run
+      # before any pack is built. The counts per level beside it are for a
+      # reader who wants the verdict without opening ZAP's HTML.
+      - name: Summarise the scan, then keep it as evidence
+        if: ${{ inputs.evidence }}
+        run: |
+          php -r '
+            $sarif = json_decode((string) file_get_contents("dast-report/dast-passive.sarif"), true);
+            $counts = [];
+            foreach (($sarif["runs"][0]["results"] ?? []) as $result) {
+                $level = (string) ($result["level"] ?? "none");
+                $counts[$level] = ($counts[$level] ?? 0) + 1;
+            }
+            ksort($counts);
+            echo json_encode(["profile" => "passive", "results_by_level" => $counts,
+                "total" => array_sum($counts)], JSON_PRETTY_PRINT), PHP_EOL;
+          ' > dast-report/dast-severity-summary.json
+          cat dast-report/dast-severity-summary.json
+
+      - name: Upload the evidence (dynamic scan)
+        if: ${{ inputs.evidence }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidence-dast-passive
+          path: dast-report/
+          retention-days: 7
+
+      - name: Upload Playwright diagnostics
+        # The scan is only as complete as the traffic it was given, so a
+        # failed browser suite fails the run (scripts/dast.sh) — and its
+        # traces are then the first thing to look at.
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-dast-report
+          path: |
+            tests/e2e/playwright-report
+            tests/e2e/test-results
+          retention-days: 7
+
+  security:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
+        with:
+          php-version: '8.4'
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress
+
+      - name: Audit dependencies
+        # `tee` rather than a redirect so the output stays in the job log
+        # in both modes, and pipefail so the step's status stays
+        # composer's own. The file is only uploaded on an evidence run.
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p evidence
+          composer audit | tee evidence/composer-audit.txt
+
+      - name: Upload the evidence (composer audit)
+        if: ${{ inputs.evidence }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidence-security
+          path: evidence/
+          retention-days: 7
+
+  sonarqube:
+    name: SonarQube Cloud
+    runs-on: ubuntu-latest
+    needs: [test, javascript-tests, e2e-tests]
+    # Secrets aren't exposed to pull_request runs triggered from a fork, so
+    # SONAR_TOKEN wouldn't be available there — skip cleanly instead of
+    # failing the check for external contributors. Same-repo pushes and PRs
+    # always run this job.
+    #
+    # Skipped on an evidence run too: that run is triggered by a tag, and a
+    # tag is not a branch SonarCloud should analyse. The tagged commit was
+    # analysed by this job when it was pushed to main; release.yml reads
+    # that analysis back instead (scripts/sonar-evidence.php), waiting for
+    # it if CI has not finished yet.
+    if: >-
+      !inputs.evidence &&
+      (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository)
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # SonarQube Cloud needs full history for accurate blame/new-code
+          # detection and pull request analysis.
+          fetch-depth: 0
+
+      - name: Download PHP coverage and test reports
+        uses: actions/download-artifact@v4
+        with:
+          name: phpunit-reports
+
+      - name: Download JavaScript coverage report
+        uses: actions/download-artifact@v4
+        with:
+          name: javascript-coverage
+          # javascript-tests uploaded a single file (coverage/js/lcov.info),
+          # so actions/upload-artifact placed it at the artifact's root —
+          # this "path" is where it lands on download, reconstructing
+          # coverage/js/lcov.info exactly as sonar-project.properties'
+          # sonar.javascript.lcov.reportPaths expects.
+          path: coverage/js
+
+      - name: Download end-to-end coverage report
+        uses: actions/download-artifact@v4
+        with:
+          name: e2e-coverage
+          # A single file, so it lands at the artifact's root — this puts
+          # it back at coverage-e2e.xml, where sonar-project.properties'
+          # sonar.php.coverage.reportPaths expects it next to PHPUnit's
+          # own coverage.xml.
+          path: .
+
+      - name: SonarQube Cloud Scan
+        uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8
+        with:
+          # Fails this job (and therefore the GitHub check) when the Quality
+          # Gate computed from this analysis is not OK, so the gate result is
+          # visible directly as a GitHub Actions check, not just on SonarQube
+          # Cloud's own dashboard.
+          args: >
+            -Dsonar.qualitygate.wait=true
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

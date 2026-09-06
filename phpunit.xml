@@ -54,6 +54,17 @@
         <include>
             <directory>core</directory>
             <directory>modules</directory>
+            <!--
+                scripts/ too, so the PHP under it that tests exercise
+                (scripts/e2e-support.php, scripts/dependency-inventory.php,
+                scripts/sonar-evidence.php) reports the coverage it actually
+                has. SonarQube Cloud already counted every scripts/*.php as
+                0% covered — sonar.sources lists the directory and nothing
+                fed it a report — so nothing here reads lower than before;
+                what changes is that a tested script stops reading as an
+                untested one.
+            -->
+            <directory>scripts</directory>
         </include>
     </source>
 </phpunit>

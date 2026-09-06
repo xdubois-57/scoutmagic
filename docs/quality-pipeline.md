@@ -23,6 +23,7 @@ catches what, and what each one cannot see.
 | **AI triage** | Every issue opened or reopened, plus a nightly pass over the untriaged backlog | Whether a report is a real defect, the one fact a blocked report is missing, and the workaround when the behaviour is correct | Anything only a running installation shows — it reads the code but reproduces nothing, changes nothing, and gates nothing |
 | **AI review** | Pull requests it is eligible for — not drafts, and `Claude review` not on forks | Cross-file reasoning, stale documentation, intent mismatches | Nothing reliably — it is a reader, not a gate |
 | **Release gates** | `scripts/release.sh` | Deployment state, security advisories, dependency freshness, Sonar, PHPStan + the full PHPUnit suite, `e2e:full`, both DAST profiles | What the AI reviewers read — intent, cross-file reasoning, stale docs. It reads CodeQL's open alerts but runs no scan of its own |
+| **Release workflow** | `.github/workflows/release.yml`, on the tag | The same gates a second time, on a runner nobody configured by hand, with each tool's native output kept, signed and attached to the Release | Nothing the gates themselves are blind to — it is a record of them, not a new judge |
 
 No single layer is trusted alone, and the ones that overlap do so on
 purpose: the `test` job and `database-mariadb` run the same suite against
@@ -139,19 +140,45 @@ never for hiding what you just introduced.
 ## Continuous integration
 
 `.github/workflows/ci.yml`, on every push to `main` and every pull request
-against it.
+against it. **The gates themselves live in `.github/workflows/checks.yml`**,
+a reusable workflow that `ci.yml` and `release.yml` both call — one
+definition of what "green" means, so the fast loop and the release pass
+cannot drift apart. Because they are called, a pull request shows them as
+`Checks / <job>`:
 
 | Job | What it runs | Engine |
 |---|---|---|
-| `test` | `phpstan analyse --memory-limit=512M`, then `phpunit --coverage-clover --log-junit` | MySQL 8 |
-| `database-mariadb` | the whole PHPUnit suite | MariaDB 10.11 |
-| `javascript-tests` | `npm ci`, `npm run typecheck`, `npm run test:coverage` | — |
-| `End-to-end (browser)` | `npm run e2e` with `E2E_COVERAGE=1` | MySQL 8 |
-| `Authorization matrix` | `./scripts/dast.sh --profile=standard` | MySQL 8 |
-| `Dynamic scan (passive)` | `./scripts/dast.sh --profile=passive` | MySQL 8 |
-| `security` | `composer install`, then `composer audit` | — |
-| `SonarQube Cloud` | scanner + Quality Gate, consuming the coverage artifacts | — |
+| `Checks / test` | `phpstan analyse --memory-limit=512M`, then `phpunit --coverage-clover --log-junit` | MySQL 8 |
+| `Checks / database-mariadb` | the whole PHPUnit suite, `--log-junit` | MariaDB 10.11 |
+| `Checks / javascript-tests` | `npm ci`, `npm run typecheck`, `npm run test:coverage` | — |
+| `Checks / End-to-end (browser)` | `npm run e2e` with `E2E_COVERAGE=1` | MySQL 8 |
+| `Checks / Authorization matrix` | `./scripts/dast.sh --profile=standard` | MySQL 8 |
+| `Checks / Dynamic scan (passive)` | `./scripts/dast.sh --profile=passive` | MySQL 8 |
+| `Checks / security` | `composer install`, then `composer audit` | — |
+| `Checks / SonarQube Cloud` | scanner + Quality Gate, consuming the coverage artifacts | — |
+| `All checks` | nothing of its own: needs every job above, runs whatever they concluded, red unless all succeeded | — |
 | `Analyze (…)` | CodeQL, GitHub-managed default setup | — |
+
+**`All checks` is one status check standing for every gate.** The ruleset
+on `main` blocks a merge only on the checks it is told to require, by
+name, and a check it is not told about blocks nothing — red or still
+running (issue #170: three jobs gated nothing, and #168 merged with a scan
+in flight). Requiring every job by name is the fragile fix: each name is a
+merge that stalls forever the day that job is renamed or removed, since
+the ruleset keeps waiting for a check that will never report again. So
+`ci.yml` carries one job whose name never changes and whose `needs:` is
+reviewed like any other line; it runs with `if: always()` so an upstream
+failure leaves it red rather than *skipped* (a skipped required check
+reads as "expected" — the misreading #152 lost an hour to). Whether it is
+actually required is a ruleset setting: § Branch ruleset on `main` below.
+
+`checks.yml` takes one input, `evidence`. Off, it is what the table shows.
+On — only `release.yml` sets it — each job also keeps what its tool emits
+natively and uploads it as an `evidence-*` artifact, the end-to-end job
+runs the full tier (`npm run e2e:full`, the release standard) with a
+screenshot per test, and `SonarQube Cloud` is skipped, because a tag is not
+a branch SonarCloud should analyse. § Releases below says what becomes of
+those artifacts.
 
 `.github/workflows/dev-build.yml` is separate: every push to `main` builds
 the installable artifact and attaches it to a rolling **prerelease** tagged
@@ -437,9 +464,109 @@ emergencies. Each prints a warning naming exactly what was not checked.
 Using one to route around a real finding is how a release ships a known
 defect.
 
-After the gates pass, the script bumps `VERSION`, commits, tags `vX.Y.Z`,
-builds the installable artifact through `scripts/build-artifact.sh`, and
-publishes a GitHub release with that artifact and `bootstrap/bootstrap.php`.
+After the gates pass, the script bumps `VERSION`, commits, tags `vX.Y.Z`
+and pushes the tag — and that push starts the second half.
+
+### The Release workflow and the evidence pack
+
+`.github/workflows/release.yml` runs on every `v*` tag (and on
+`workflow_dispatch`, which is how the chain is rehearsed without cutting a
+version — a dispatch run keeps the pack as a workflow artifact and creates
+no Release). It calls `checks.yml` with `evidence: true`, so **every gate
+runs a second time, on a runner nobody configured by hand**, with each
+tool's native output kept. Beside them it records the repository's open
+CodeQL and Dependabot alerts as GitHub's API returns them (or a file
+saying the call was refused and where to read by hand), and fetches
+SonarCloud's complete analysis **of the released commit** through
+`scripts/sonar-evidence.php` — waiting for `ci.yml`'s analysis of that
+commit if it is still running, and refusing if it never arrives, because
+"not analysed yet" and "analysed and clean" are different answers.
+
+Only if all of that is green does the last job build the pack: every
+`evidence-*` artifact, a `manifest.json` naming the repository, the commit
+and the run URL, a `SHA256SUMS` over every file, all in
+`evidence-vX.Y.Z.tar.gz`. It **signs the archive** through
+`actions/attest-build-provenance` — GitHub's own identity via Sigstore —
+and creates the Release as a **draft** carrying it. A red gate creates no
+draft at all.
+
+| Evidence | Where it comes from |
+|---|---|
+| PHP tests on MySQL 8, with coverage | PHPUnit `--log-junit`, `--coverage-clover` (`Checks / test`) |
+| PHP tests on MariaDB 10.11 | PHPUnit `--log-junit` (`Checks / database-mariadb`) |
+| PHP static analysis | PHPStan's verdict, its version, level, paths, baseline size, **and the list of every file it analysed** (from `--debug`; the JSON report lists only files with errors, so on a clean run it is empty) |
+| JavaScript static analysis | `tsc`'s verdict through `npm run typecheck`, its version, baseline size, and the files it checked |
+| JavaScript tests, with coverage | Vitest `--reporter=junit`, plus the lcov |
+| End-to-end | Playwright's own HTML report, full tier, one screenshot per test, plus the browser-side Clover |
+| Authorization matrix | `authz-matrix.json`, every (route, role) pair and its verdict |
+| Dynamic scan | ZAP's full HTML report and SARIF, plus counts per level — published deliberately, see below |
+| Dependency audit | `composer audit`'s output |
+| GitHub security alerts | open CodeQL and Dependabot alerts, and the commit's `Analyze (…)` check runs |
+| SonarCloud | quality gate, every measure, the same per file, every open issue sorted by the release rule, every hotspot, and a French front page |
+| Provenance | `manifest.json`, `SHA256SUMS`, and the Sigstore attestation |
+
+**How an auditor checks it.** The reports are produced by the same
+pipeline they attest to, and anybody who can change that pipeline can
+change what it emits — so the pack is built to be cross-checked rather
+than trusted. `manifest.json` names the run; that run's log is
+timestamped, retained by GitHub and editable by nobody with write access
+here. `SHA256SUMS` detects a pack edited after the fact. And the
+signature is the part nobody in this repository can forge:
+
+```
+gh attestation verify evidence-vX.Y.Z.tar.gz --repo xdubois-57/scoutmagic
+```
+
+fails if the archive was altered by a byte, or built anywhere other than
+this workflow in this repository.
+
+**The full DAST report is in the pack, on purpose.** This repository is
+public, so Release assets are public — and so are the workflow artifacts
+`Checks / Dynamic scan (passive)` already uploads on every run. The scan
+describes a throwaway instance on `127.0.0.1` running code anybody can
+read; what survives that is that a header or cookie finding on it is a
+finding about the shipped configuration, so publishing one publishes a
+to-do list before it is done. The trade is a pack anybody can audit
+without a GitHub account, at the cost of saying out loud what the scan
+reports — worth making only while the report stays clean, which the gate
+(red at Medium and above, before any pack is built) is what ensures. One
+`if:` in `checks.yml` reverses it.
+
+**The evidence pack must never be a `.zip`.** Every installed site takes
+the first Release asset whose name ends in `.zip` as the application
+(`Core\Maintenance\GitHubReleaseClient::selectZipAssetUrl()`, and
+`bootstrap.php`), GitHub sorts assets alphabetically, and those sites run
+the code they already have — so `evidence-v1.0.42.zip` would be installed
+as ScoutMagic on every site that updates, and no fix here would reach
+them first. `tests/Architecture/ReleasePipelineIsWiredTest` pins the
+extension, and `release.sh` counts the zips before publishing.
+
+### Finishing the draft
+
+`release.sh` does not create a Release of its own — two would target the
+same tag, the workflow lands last, and it would quietly turn a published
+Release back into a draft. While the runners work it builds the
+installable artifact through `scripts/build-artifact.sh`; then it waits
+for the run, **refuses on anything but `success`** (the tag then exists
+and points at nothing: fix the cause on `main`, delete the tag, re-run —
+the script recomputes the same version and leaves an already-bumped
+`VERSION` alone), attaches `release-vX.Y.Z.zip` and `bootstrap/bootstrap.php`
+to the draft, checks that exactly one `.zip` and the evidence pack are on
+it, writes the notes, and publishes with `--latest`. A release is one
+command, and it takes about an hour: the local gates, then the runner's.
+
+The notes are four parts, and only the first is written by a person: the
+note (or GitHub's generated commit list), the **Vérifications effectuées**
+block (one line per local gate, as it ran or was bypassed), the
+workflow's own description of the pack and how to verify it, and the
+**dependency inventory** — `scripts/dependency-inventory.php`, every PHP
+and JavaScript package at the version the lock files record, every
+vendored front-end library at the version its banner declares, each with
+its licence, and a table saying licence by licence why it may be
+combined with this project's AGPL-3.0. A licence that table has never
+seen is printed as *à examiner* rather than reassured about, and
+`tests/Core/System/DependencyInventoryTest` fails the build the day one
+appears without a written verdict. Nobody writes that list by hand.
 
 **Release notes are mandatory when releasing from Claude**: write a French
 Markdown file and pass `--notes-file`. The auto-generated commit list is for
@@ -465,7 +592,7 @@ change to either.
 
 | Secret | Used by | Without it |
 |---|---|---|
-| `SONAR_TOKEN` | the `sonarqube` CI job, `check-sonar-release.sh` | no Quality Gate on pull requests; the release gate fails closed |
+| `SONAR_TOKEN` | the `sonarqube` job in `checks.yml`, `check-sonar-release.sh`, `release.yml`'s SonarCloud evidence job | no Quality Gate on pull requests; the release gate fails closed; a tag's Release workflow refuses for want of the analysis |
 | `CLAUDE_CODE_OAUTH_TOKEN` | `claude-review.yml`, `issue-triage.yml`, `issue-backlog-scan.yml` | the review job fails at authentication, and no issue is ever triaged — neither on arrival nor overnight |
 
 `CLAUDE_CODE_OAUTH_TOKEN` is generated with `claude setup-token` and spends
@@ -494,7 +621,18 @@ an error.
   itself a merge.
 - **Require status checks to pass.** A check only appears in GitHub's list
   after it has run at least once, so add each one after its first run, not
-  before. `Claude review` is the one required context.
+  before. `Claude review` is the one required context **as of 2026-09-06**.
+  `All checks` (§ Continuous integration) was built to be the second: one
+  name standing for every `Checks / …` job, stable across renames, red
+  whenever any gate is red or was cancelled. Adding it closes issue #170
+  at the source — a red `database-mariadb`, `Authorization matrix` or
+  `Dynamic scan (passive)`, or one still running, then blocks the merge
+  and holds an armed auto-merge — and it is the one manual step this
+  repository cannot make for itself: add it after its first run on
+  `main`, then confirm with `GET /repos/xdubois-57/scoutmagic/rules/branches/main`
+  that `required_status_checks` lists both contexts, and update this
+  line. Do not add the individual `Checks / …` names as well: that is
+  the fragile form, and `All checks` already waits for all of them.
 - **Require branches to be up to date before merging** — *deliberately off.*
   It is the sub-option of the rule above, and turning it on again brings back
   the failure it was turned off for: with it on, a pull request must be even
@@ -552,10 +690,11 @@ And note what it does *not* wait for. The required-check list is one
 context, `Claude review`, and the `code_scanning` rule above waits on CodeQL
 and SonarCloud — so `database-mariadb`, `Authorization matrix` and
 `Dynamic scan (passive)` gate nothing at all. An armed pull request whose
-`database-mariadb` is red still merges. Widening the required list would fix
-that at the source; until then the gate is the person or agent arming it,
-which is why AGENTS.md § Merging a pull request puts "every check green on
-the current head" first among the things to confirm.
+`database-mariadb` is red still merges. Requiring `All checks` fixes that
+at the source (§ Branch ruleset on `main` above says whether it has been
+done); until then the gate is the person or agent arming it, which is why
+AGENTS.md § Merging a pull request puts "every check green on the current
+head" first among the things to confirm.
 
 ### Private vulnerability reporting
 
@@ -711,7 +850,22 @@ nothing**:
   reproduce.
 - The release **Security gate passes on a permission gap**: denied access to
   the CodeQL or Dependabot alert API is a warning, not a refusal, so a
-  release can be published with those two sources never consulted.
+  release can be published with those two sources never consulted. The
+  evidence pack records the same two sources with the same honesty — a
+  file saying `UNAVAILABLE` and why, rather than no file — so read the
+  pack's `codeql-open-alerts.json` before reading its absence as clean.
+- **A draft Release is invisible and stays so.** `release.yml` creates the
+  Release as a draft, and `release.sh` is what publishes it; a script that
+  died between the two — a laptop asleep, a network gone — leaves a tag,
+  a draft with the evidence pack and no zip, and no installed site any the
+  wiser. Nothing reports it. `gh release list` shows drafts; finish one by
+  hand with `gh release upload` and `gh release edit --draft=false --latest`.
+- **A required status check that is *skipped* reads as "expected".** GitHub
+  shows it exactly like a check that has not reported yet, and the ruleset
+  waits rather than refuses. This is why `All checks` runs under
+  `if: always()`: without it, a failed gate would leave the verdict job
+  skipped, and the pull request would sit looking like one whose CI is
+  still running rather than one whose CI failed.
 - **Auto-merge is disarmed in silence** by a push from someone without write
   access or by a change of base branch. The pull request simply stops being
   on its way to `main`, looking exactly like one nobody has merged yet.

@@ -1,3 +1,33 @@
+# The fast feedback loop: every gate, on every push to main and every pull
+# request against it.
+#
+# The gates themselves live in checks.yml, which this workflow and
+# release.yml both call — so a CI run and a release run can never disagree
+# about what "green" means. Read that file for what each job does; this one
+# only decides WHEN they run and adds the one job that turns eight verdicts
+# into one.
+#
+# THE ONE VERDICT (`All checks`)
+# ---------------------------------------------------------------------------
+# GitHub's branch ruleset blocks a merge on the status checks it is told to
+# require, by name — and a check that is not on that list blocks nothing,
+# red or still running (issue #170 records `database-mariadb`, `Authorization
+# matrix` and `Dynamic scan (passive)` doing exactly that, and #168 merging
+# with a scan still in flight). Listing every job there is the obvious fix
+# and the fragile one: each required name is a merge that stalls forever the
+# day that job is renamed or removed, because the ruleset keeps waiting for
+# a check that will never report again.
+#
+# So there is one job to require instead. `All checks` needs every other
+# job, runs whatever they concluded (`if: always()`), and goes red unless
+# each of them succeeded. Its name never changes when a gate is added,
+# renamed or split; the list of what it waits for is in this file, reviewed
+# like any other change. Adding it to the ruleset — Settings → Rules →
+# Rulesets → Main → Require status checks to pass — is the one manual step,
+# and it can only be done after this job has run once (a check only appears
+# in GitHub's picker after its first run). docs/quality-pipeline.md § Branch
+# ruleset on `main` carries the current state of that setting.
+
 name: CI
 
 on:
@@ -10,545 +40,36 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  checks:
+    name: Checks
+    uses: ./.github/workflows/checks.yml
+    # evidence is left at its default (false): a CI run produces a verdict,
+    # not an evidence pack. SONAR_TOKEN reaches the sonarqube job this way.
+    secrets: inherit
+
+  all-checks:
+    name: All checks
     runs-on: ubuntu-latest
-
-    # The whole PHP suite runs in this one job, `database`-tagged tests
-    # included (phpunit.xml no longer excludes them anywhere) — which is
-    # why it needs MySQL. Most of that group actually runs on in-memory
-    # SQLite, but the six files reading TEST_DB_* below need a real
-    # server. This used to be a separate `database-tests` job with no
-    # coverage instrumentation, so those tests never reached the Clover
-    # report the sonarqube job consumes and every module tested mainly
-    # through them read as near-zero coverage on new code.
-    services:
-      mysql:
-        image: mysql:8.0
-        env:
-          MYSQL_ROOT_PASSWORD: test_password
-          MYSQL_DATABASE: test_db
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=3
-
+    needs: [checks]
+    # Runs even when a needed job failed or was cancelled — that is the
+    # whole point: without it a failure upstream would leave this job
+    # *skipped*, and a skipped required check is one GitHub treats as
+    # "expected", which reads on the pull request exactly like a check that
+    # never ran (the same misreading #152 cost an hour to).
+    if: always()
     steps:
-      - uses: actions/checkout@v4
-        with:
-          # Full history, not just the checked-out commit: SonarQube Cloud's
-          # analysis (sonarqube job below) needs it for accurate blame/new-code
-          # detection, and this checkout's coverage/report artifacts are what
-          # that job consumes.
-          fetch-depth: 0
-
-      - name: Install Ghostscript (PDF rasterization for Core\File\PdfRasterizer)
-        run: sudo apt-get update && sudo apt-get install -y ghostscript
-
-      - name: Setup PHP
-        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
-        with:
-          php-version: '8.4'
-          extensions: mbstring, pdo, pdo_mysql, openssl, imagick
-          coverage: pcov
-
-      - name: PHP syntax check
-        run: find core/ modules/ public/ -name '*.php' -exec php -l {} \; | grep -v 'No syntax errors' | head -20 && find core/ modules/ public/ -name '*.php' -exec php -l {} \; | grep -q 'Parse error' && exit 1 || true
-
-      - name: Install dependencies
-        run: composer install --prefer-dist --no-progress
-
-      - name: Run PHPStan
-        run: vendor/bin/phpstan analyse --memory-limit=512M
-
-      - name: Run tests
-        # The complete suite, with no group excluded — coverage (Clover XML)
-        # and the JUnit report are generated here, once, for SonarQube Cloud
-        # to consume in the sonarqube job below (see
-        # sonar.php.coverage.reportPaths / sonar.php.tests.reportPath in
-        # sonar-project.properties). Nothing re-runs PHPUnit a second time.
+      - name: Every gate must have succeeded
         env:
-          TEST_DB_HOST: 127.0.0.1
-          TEST_DB_PORT: 3306
-          TEST_DB_NAME: test_db
-          TEST_DB_USER: root
-          TEST_DB_PASSWORD: test_password
-        run: vendor/bin/phpunit --coverage-clover coverage.xml --log-junit phpunit-report.xml
-
-      - name: Upload coverage and test reports for SonarQube
-        uses: actions/upload-artifact@v4
-        with:
-          name: phpunit-reports
-          path: |
-            coverage.xml
-            phpunit-report.xml
-          retention-days: 1
-
-  # The same suite, against the engine production actually runs.
-  #
-  # `test` above runs everything on MySQL 8 with coverage, and until this
-  # job existed that was the only engine CI ever saw — while the reference
-  # installation is MariaDB 10.11 on shared hosting. The asymmetry pointed
-  # the wrong way: code correct on MySQL and wrong on MariaDB passed CI and
-  # reached production. Not hypothetical — SchemaComparator once never
-  # reached a "nothing to do" steady state there, and the site's requests
-  # appeared to hang (ARCHITECTURE.md § early session lock release).
-  #
-  # The WHOLE suite rather than `--group=database`, deliberately. Every
-  # file reading TEST_DB_* happens to carry that group today, so the narrow
-  # form would cover the same ground — but only until someone adds one that
-  # does not, and the failure mode of that omission is the silent one: it
-  # passes here and breaks production. Two extra minutes buys away the
-  # entire question of which tests are engine-sensitive.
-  #
-  # No coverage: the `test` job stays the single source of the Clover
-  # report SonarQube consumes, and duplicating it would double the cost of
-  # the slowest job here for nothing.
-  database-mariadb:
-    runs-on: ubuntu-latest
-
-    services:
-      mariadb:
-        image: mariadb:10.11
-        env:
-          MARIADB_ROOT_PASSWORD: test_password
-          MARIADB_DATABASE: test_db
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="healthcheck.sh --connect --innodb_initialized"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
-
-    steps:
-      - uses: actions/checkout@v4
-
-      # Same dependency as the `test` job, and its absence is not a subtle
-      # failure: PdfRasterizer, the two file-serving tests behind it and
-      # the receipt-extraction handler all go red, which reads exactly
-      # like four MariaDB divergences until you look at the names. This
-      # job's whole value is telling engine differences apart from
-      # everything else, so it has to run on the same footing.
-      - name: Install Ghostscript (PDF rasterization for Core\File\PdfRasterizer)
-        run: sudo apt-get update && sudo apt-get install -y ghostscript
-
-      - name: Setup PHP
-        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
-        with:
-          php-version: '8.4'
-          extensions: mbstring, pdo, pdo_mysql, openssl, imagick
-          coverage: none
-
-      - name: Install dependencies
-        run: composer install --prefer-dist --no-progress
-
-      - name: Run the full suite against MariaDB
-        env:
-          TEST_DB_HOST: 127.0.0.1
-          TEST_DB_PORT: 3306
-          TEST_DB_NAME: test_db
-          TEST_DB_USER: root
-          TEST_DB_PASSWORD: test_password
-        run: vendor/bin/phpunit
-
-  javascript-tests:
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: '22'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run JavaScript static analysis
-        # TypeScript's checkJs (allowJs/checkJs/noEmit — see tsconfig.json),
-        # wrapped by scripts/js-typecheck.mjs so pre-existing findings
-        # (js-typecheck-baseline.json, the same baseline model as
-        # phpstan-baseline.neon) don't re-fail every run while a genuinely
-        # new finding still does. The PHPStan-equivalent gate for
-        # JavaScript — catches unresolved identifiers, wrong argument
-        # counts, and statically-detectable invalid property access before
-        # Vitest/Playwright/SonarQube ever run. Runs first: cheap,
-        # deterministic, and fails fast on the kind of mistake a unit test
-        # wouldn't otherwise catch. See AGENTS.md § Static analysis and
-        # README.md § Analyse statique JavaScript.
-        run: npm run typecheck
-
-      - name: Run JavaScript unit tests with coverage
-        # Isolated jsdom-simulated DOM tests for first-party public/assets/js/
-        # — no PHP server, no MySQL, no network (see vitest.config.js and
-        # tests/js/). Produces coverage/js/lcov.info for the sonarqube job
-        # below (sonar.javascript.lcov.reportPaths in sonar-project.properties).
-        run: npm run test:coverage
-
-      - name: Upload JavaScript coverage for SonarQube
-        uses: actions/upload-artifact@v4
-        with:
-          name: javascript-coverage
-          path: coverage/js/lcov.info
-          retention-days: 1
-
-  e2e-tests:
-    name: End-to-end (browser)
-    runs-on: ubuntu-latest
-    # A blocking check like every other job here. The bound is generous
-    # enough for a cold Chromium download plus a full schema migration,
-    # and tight enough that a hung PHP server fails the run instead of
-    # occupying a runner for six hours.
-    timeout-minutes: 20
-    services:
-      mysql:
-        image: mysql:8.0
-        env:
-          MYSQL_ROOT_PASSWORD: test_password
-          # scripts/e2e.sh creates and drops its own database
-          # (E2E_DB_NAME), so nothing needs to be pre-created here.
-          MYSQL_DATABASE: test_db
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=3
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup PHP
-        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
-        with:
-          php-version: '8.4'
-          extensions: mbstring, pdo, pdo_mysql, openssl, imagick
-          # pcov so the `php -S` process this job drives can record which
-          # application lines the browser actually executed — see
-          # scripts/e2e-coverage-prepend.php. Without it scripts/e2e.sh
-          # fails closed rather than producing an empty report.
-          coverage: pcov
-
-      - name: Setup Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: '22'
-          cache: 'npm'
-
-      - name: Install PHP dependencies
-        run: composer install --prefer-dist --no-progress
-
-      - name: Install Node dependencies
-        run: npm ci
-
-      - name: Install the Chromium runtime
-        # Same command developers run once locally (README.md
-        # § Tests end-to-end) — no CI-specific browser setup to drift.
-        run: npm run e2e:install
-
-      - name: Run end-to-end tests
-        # The same canonical command a developer runs; the orchestration
-        # lives in scripts/e2e.sh, never duplicated here. `npm run e2e` is
-        # the CONFIDENCE tier (every scenario not tagged @full — AGENTS.md
-        # § Tests); the costly @full scenarios (the per-module boot
-        # matrix) run in scripts/release.sh's E2E gate via
-        # `npm run e2e:full`, not on every push. No display server is
-        # involved — Chromium runs headless and the application is served
-        # by `php -S` on a local port the harness picks itself.
-        env:
-          E2E_DB_HOST: 127.0.0.1
-          E2E_DB_PORT: 3306
-          E2E_DB_USER: root
-          E2E_DB_PASSWORD: test_password
-          # Produces coverage-e2e.xml (Clover) for the sonarqube job below.
-          # This is the only coverage there is for public/index.php: PHPUnit
-          # never executes the composition root, so without this the file
-          # SonarQube sees at 0% is exactly the one the browser exercises
-          # most.
-          E2E_COVERAGE: 1
-        run: npm run e2e
-
-      - name: Upload end-to-end coverage for SonarQube
-        # Not `if: failure()` like the diagnostics below — this is the
-        # artifact a *successful* run exists to produce.
-        uses: actions/upload-artifact@v4
-        with:
-          name: e2e-coverage
-          path: coverage-e2e.xml
-          retention-days: 1
-
-      - name: Upload Playwright diagnostics
-        # Failure only: a green run produces no trace, screenshot, or
-        # video (see tests/e2e/playwright.config.js), so uploading after
-        # every run would just publish an empty report.
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-e2e-report
-          path: |
-            tests/e2e/playwright-report
-            tests/e2e/test-results
-          retention-days: 7
-
-  authorization-matrix:
-    name: Authorization matrix
-    runs-on: ubuntu-latest
-    # 534 routes replayed as 6 roles — 3204 (route, role) pairs — each
-    # answer compared to the role_min the route declares (SECURITY.md
-    # § 36). No scanner and no browser, so it is fast enough to be a
-    # blocking check on every push — which is the point: an
-    # over-permissive route should fail the commit that introduced it,
-    # not a scan somebody remembers to run.
-    #
-    # 20, raised from 10: the job is not slow, it outgrew its budget. It
-    # took 10m15s on af70f87c and was cancelled mid-run, having passed on
-    # the commit before — the ceiling was already being grazed, and the
-    # route count crossing 528 to 534 was enough to breach it. The cost
-    # of the old value was a red job that reported nothing about
-    # authorization, which is worse than no check at all: it trains
-    # readers to ignore the one signal that would catch an over-permissive
-    # route.
-    #
-    # 20 is roughly twice the measured time, so ordinary growth in the
-    # route table will not breach it again for a long while. It stays a
-    # real ceiling rather than a formality: the work is arithmetic over a
-    # fixed matrix with no network and no browser, so a run still going at
-    # 20 minutes is hung, not busy, and the timeout should end it instead
-    # of letting it burn the 360-minute default.
-    timeout-minutes: 20
-    services:
-      mysql:
-        image: mysql:8.0
-        env:
-          MYSQL_ROOT_PASSWORD: test_password
-          # scripts/dast.sh creates and drops its own database.
-          MYSQL_DATABASE: test_db
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=3
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup PHP
-        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
-        with:
-          php-version: '8.4'
-          # pcntl runs the TLS terminator, openssl generates the run's
-          # certificate: the matrix signs in over real HTTPS because the
-          # session cookie's Secure flag depends on it.
-          extensions: mbstring, pdo, pdo_mysql, openssl, pcntl, imagick
-
-      - name: Install PHP dependencies
-        run: composer install --prefer-dist --no-progress
-
-      - name: Run the authorization matrix
-        env:
-          DAST_DB_HOST: 127.0.0.1
-          DAST_DB_PORT: 3306
-          DAST_DB_USER: root
-          DAST_DB_PASSWORD: test_password
-        run: ./scripts/dast.sh --profile=standard
-
-      - name: Upload the matrix report
-        # Always: the report lists the refusals that are STRICTER than
-        # role_min as well as the failures, and that list is worth
-        # reading on a green run too.
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: authorization-matrix
-          path: dast-report/authz-matrix.json
-          retention-days: 7
-
-  dast-passive:
-    name: Dynamic scan (passive)
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      # No security-events: write. This job used to publish ZAP's SARIF to
-      # code scanning; it no longer does, and the reason is worth keeping —
-      # see "Why the findings are not in the Security tab" below.
-    # The Playwright suite replayed through OWASP ZAP, with the passive
-    # rules reading the traffic (SECURITY.md § 9, scripts/dast.sh). The
-    # bound covers a cold 1.2 GB image pull plus the full browser suite.
-    timeout-minutes: 40
-    services:
-      mysql:
-        image: mysql:8.0
-        env:
-          MYSQL_ROOT_PASSWORD: test_password
-          MYSQL_DATABASE: test_db
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=3
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup PHP
-        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
-        with:
-          php-version: '8.4'
-          extensions: mbstring, pdo, pdo_mysql, openssl, pcntl, imagick
-
-      - name: Setup Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: '22'
-          cache: 'npm'
-
-      - name: Install PHP dependencies
-        run: composer install --prefer-dist --no-progress
-
-      - name: Install Node dependencies
-        run: npm ci
-
-      - name: Install the Chromium runtime
-        run: npm run e2e:install
-
-      - name: Pull the OWASP ZAP image
-        # scripts/dast.sh deliberately refuses to download 1.2 GB on a
-        # caller's behalf, so the pull is explicit here — the one place
-        # where downloading it is the expected thing to happen.
-        run: docker pull ghcr.io/zaproxy/zaproxy:stable
-
-      - name: Run the passive scan
-        env:
-          DAST_DB_HOST: 127.0.0.1
-          DAST_DB_PORT: 3306
-          DAST_DB_USER: root
-          DAST_DB_PASSWORD: test_password
-        run: ./scripts/dast.sh --profile=passive
-
-      # Why the findings are not in the Security tab
-      # ------------------------------------------------------------
-      # There used to be an upload-sarif step here. It failed every run:
-      #   SARIF URI scheme "https" did not match the checkout URI
-      #   scheme "file"
-      # and the failure was not a misconfiguration to tune away — it is
-      # the two tools disagreeing about what a finding IS. Code scanning
-      # anchors a result to a path inside the checkout it can blame a
-      # commit and a line for. A DAST result is an observation about a
-      # RUNNING instance: ZAP writes the URL it actually requested, and
-      # scripts/dast.sh serves that instance on a free port picked at run
-      # time, so the locations read `https://localhost:<random>/...` — an
-      # origin that never existed outside that one job and is different on
-      # the next one. Rewriting those URIs to repo-relative paths would
-      # make the upload succeed by inventing a source location for a
-      # finding that has none, pinning a header or cookie observation onto
-      # whichever file was picked to carry it.
-      #
-      # So the findings stay where they are true. The gate is not weakened
-      # by this: scripts/dast.sh exits non-zero on anything at or above
-      # Medium (SECURITY.md § 9), which fails this job on the very push
-      # that introduced it — enforcement the Security tab never provided.
-      # The HTML report and ZAP's own SARIF both ship in the artifact
-      # below, for whoever reads a failing run.
-
-      - name: Upload the HTML report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: dast-passive-report
-          path: dast-report/
-          retention-days: 7
-
-      - name: Upload Playwright diagnostics
-        # The scan is only as complete as the traffic it was given, so a
-        # failed browser suite fails the run (scripts/dast.sh) — and its
-        # traces are then the first thing to look at.
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-dast-report
-          path: |
-            tests/e2e/playwright-report
-            tests/e2e/test-results
-          retention-days: 7
-
-  security:
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup PHP
-        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
-        with:
-          php-version: '8.4'
-
-      - name: Install dependencies
-        run: composer install --prefer-dist --no-progress
-
-      - name: Audit dependencies
-        run: composer audit
-
-  sonarqube:
-    name: SonarQube Cloud
-    runs-on: ubuntu-latest
-    needs: [test, javascript-tests, e2e-tests]
-    # Secrets aren't exposed to pull_request runs triggered from a fork, so
-    # SONAR_TOKEN wouldn't be available there — skip cleanly instead of
-    # failing the check for external contributors. Same-repo pushes and PRs
-    # always run this job.
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          # SonarQube Cloud needs full history for accurate blame/new-code
-          # detection and pull request analysis.
-          fetch-depth: 0
-
-      - name: Download PHP coverage and test reports
-        uses: actions/download-artifact@v4
-        with:
-          name: phpunit-reports
-
-      - name: Download JavaScript coverage report
-        uses: actions/download-artifact@v4
-        with:
-          name: javascript-coverage
-          # javascript-tests uploaded a single file (coverage/js/lcov.info),
-          # so actions/upload-artifact placed it at the artifact's root —
-          # this "path" is where it lands on download, reconstructing
-          # coverage/js/lcov.info exactly as sonar-project.properties'
-          # sonar.javascript.lcov.reportPaths expects.
-          path: coverage/js
-
-      - name: Download end-to-end coverage report
-        uses: actions/download-artifact@v4
-        with:
-          name: e2e-coverage
-          # A single file, so it lands at the artifact's root — this puts
-          # it back at coverage-e2e.xml, where sonar-project.properties'
-          # sonar.php.coverage.reportPaths expects it next to PHPUnit's
-          # own coverage.xml.
-          path: .
-
-      - name: SonarQube Cloud Scan
-        uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8
-        with:
-          # Fails this job (and therefore the GitHub check) when the Quality
-          # Gate computed from this analysis is not OK, so the gate result is
-          # visible directly as a GitHub Actions check, not just on SonarQube
-          # Cloud's own dashboard.
-          args: >
-            -Dsonar.qualitygate.wait=true
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          # The reusable workflow's result is the roll-up of every job in it:
+          # failure if any failed, cancelled if any was cancelled. A job
+          # skipped by its own `if:` (SonarQube Cloud on a pull request from
+          # a fork) does not turn it red — that pull request cannot merge
+          # anyway, since `Claude review` cannot run without the secret
+          # either (docs/quality-pipeline.md § What forks cannot have).
+          CHECKS_RESULT: ${{ needs.checks.result }}
+        run: |
+          echo "Checks: ${CHECKS_RESULT}"
+          if [ "${CHECKS_RESULT}" != "success" ]; then
+            echo "::error::at least one gate did not succeed (${CHECKS_RESULT}) — see the Checks jobs above."
+            exit 1
+          fi

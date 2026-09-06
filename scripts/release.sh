@@ -16,7 +16,41 @@ set -euo pipefail
 # Whichever notes are used (this auto-generated list, or --notes-file's
 # content), a "Vérifications effectuées" section reporting every gate's
 # outcome (verified, with details, or bypassed) is always appended at the
-# end — see ${GATE_REPORT} and the "Gate execution" block below.
+# end — see ${GATE_REPORT} and the "Gate execution" block below — followed
+# by the description of the evidence pack the Release workflow wrote, and
+# by the dependency inventory scripts/dependency-inventory.php generates:
+# every package that shipped, its version read from the lock files and the
+# vendored banners, its licence, and why that licence may be combined with
+# this project's AGPL-3.0. Never write that list by hand into a notes file.
+#
+# WHAT HAPPENS AFTER THE TAG IS PUSHED
+# ---------------------------------------------------------------
+# Pushing the tag starts .github/workflows/release.yml, which re-runs every
+# gate in .github/workflows/checks.yml on GitHub's runners with each tool's
+# native output kept, fetches SonarCloud's complete analysis of the
+# commit and the repository's open security alerts, signs the whole pack
+# (Sigstore, through GitHub's own identity) and creates the Release as a
+# DRAFT carrying it. That draft is the only Release this script ever
+# touches: it does NOT create one of its own — two would target the same
+# tag, the workflow lands last, and it would quietly turn a published
+# Release back into a draft. Instead it builds the deployable zip while
+# the workflow runs, waits for the run, refuses on anything but success,
+# attaches the zip and bootstrap.php to the draft, writes the notes, and
+# publishes. Nothing reaches the Releases page unless every gate went
+# green twice: here, on this machine, and there, on a runner nobody
+# configured by hand.
+#
+# THE ONE THING NEVER TO ATTACH: a second `.zip`. Every installed site
+# takes the FIRST asset whose name ends in .zip as the application
+# (Core\Maintenance\GitHubReleaseClient::selectZipAssetUrl(), and
+# bootstrap.php), GitHub sorts assets alphabetically, and those sites run
+# the code they already have. The evidence pack is a .tar.gz for exactly
+# that reason, and this script counts the zips before publishing.
+#
+# IF THE WORKFLOW IS RED, the tag exists and points at nothing published.
+# Fix the cause on main, delete the tag (`git push --delete origin vX.Y.Z
+# && git tag -d vX.Y.Z`) and run this script again: it recomputes the same
+# version, and leaves VERSION alone when it already reads it.
 #
 #   --notes-file <path>        Use the release notes from this file
 #                               instead of the auto-generated commit list.
@@ -185,6 +219,14 @@ if [[ "${SKIP_E2E_GATE}" -eq 0 || "${SKIP_DAST_GATE}" -eq 0 ]]; then
         exit 1
     fi
 fi
+
+# GitHub CLI: two gates already need it (security, dependency freshness),
+# but a releaser skipping both would only discover its absence AFTER the
+# tag is pushed — at the point where the draft Release the workflow
+# creates has to be finished from here, which nothing else does. Checked
+# once, up front, so a missing gh costs a message rather than a tag
+# pointing at a draft nobody publishes.
+command -v gh &> /dev/null || { echo "ERROR: GitHub CLI (gh) is required — this script finishes the release by attaching the artifact to the draft the Release workflow creates and publishing it. Install it and run gh auth login." >&2; exit 1; }
 
 # ZAP: only the dynamic-scan gate needs Docker or this image, and —
 # same fail-closed-not-silent-fetch philosophy as every other gate in
@@ -1085,145 +1127,258 @@ trap - EXIT
 # version (Core\Maintenance\VersionFile, read by the Configuration >
 # Maintenance "Mise à jour" section) — it must be committed as part of the
 # release commit so the tag, the file, and the artifact all agree.
+#
+# Skipped, not failed, when VERSION already reads this version: that is
+# what a re-run after a red Release workflow looks like (the header says
+# how to get there), and `git commit` with nothing staged would otherwise
+# stop the release right here, after every gate had passed again.
 echo "${NEW_VERSION}" > VERSION
-git add VERSION
-git commit -m "chore: bump VERSION to ${NEW_VERSION}"
-git push origin HEAD
+if git diff --quiet -- VERSION; then
+    echo "VERSION already reads ${NEW_VERSION} (a re-run after a deleted tag) — nothing to commit."
+else
+    git add VERSION
+    git commit -m "chore: bump VERSION to ${NEW_VERSION}"
+    git push origin HEAD
+fi
 
 # Create annotated tag
 git tag -a "${TAG}" -m "Release ${TAG}"
 git push origin "${TAG}"
 
-# Create GitHub release (requires gh CLI)
-if command -v gh &> /dev/null; then
-    # Build release artifact — delegated to scripts/build-artifact.sh,
-    # which is the ONE implementation of "what an installable ScoutMagic
-    # artifact is": the --no-dev/--optimize-autoloader Composer install,
-    # the exclusion list, the flat `zip -r <artifact> .` shape, the
-    # vendor/autoload.php and root-.htaccess assertions, and the trap that
-    # puts this checkout's dev dependencies back on any exit. The
-    # development channel's CI build (.github/workflows/dev-build.yml)
-    # calls the same script, so the two can never drift — a second,
-    # hand-maintained copy of that list is how the dev channel ended up
-    # shipping tests/ and no vendor/ at all in the first place.
-    #
-    # Everything Composer-related therefore lives inside that script,
-    # including the restore: by the time it returns, this working tree has
-    # its dev dependencies back. The trap registered here only cleans up
-    # this script's own two temp files; it is single-quoted so bash
-    # expands the variables at trap-fire time, and registered before they
-    # exist (as empty strings) so an early failure still triggers it.
-    LISTING_FILE=""
-    FINAL_NOTES_FILE=""
-    trap 'rm -f "${LISTING_FILE}" "${FINAL_NOTES_FILE}"' EXIT
-    ARTIFACT="release-${TAG}.zip"
-    ARTIFACT_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    "${ARTIFACT_SCRIPT_DIR}/build-artifact.sh" "${ARTIFACT}"
+# Pushing the tag started the Release workflow (see the header). The
+# artifact is built HERE, while the runners work, and attached to the
+# workflow's draft once they are done.
+#
+# Build release artifact — delegated to scripts/build-artifact.sh,
+# which is the ONE implementation of "what an installable ScoutMagic
+# artifact is": the --no-dev/--optimize-autoloader Composer install,
+# the exclusion list, the flat `zip -r <artifact> .` shape, the
+# vendor/autoload.php and root-.htaccess assertions, and the trap that
+# puts this checkout's dev dependencies back on any exit. The
+# development channel's CI build (.github/workflows/dev-build.yml)
+# calls the same script, so the two can never drift — a second,
+# hand-maintained copy of that list is how the dev channel ended up
+# shipping tests/ and no vendor/ at all in the first place.
+#
+# Everything Composer-related therefore lives inside that script,
+# including the restore: by the time it returns, this working tree has
+# its dev dependencies back. The trap registered here only cleans up
+# this script's own two temp files; it is single-quoted so bash
+# expands the variables at trap-fire time, and registered before they
+# exist (as empty strings) so an early failure still triggers it.
+LISTING_FILE=""
+FINAL_NOTES_FILE=""
+trap 'rm -f "${LISTING_FILE}" "${FINAL_NOTES_FILE}"' EXIT
+ARTIFACT="release-${TAG}.zip"
+ARTIFACT_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+"${ARTIFACT_SCRIPT_DIR}/build-artifact.sh" "${ARTIFACT}"
 
-    # Listed to a real file rather than piped live into grep -q: with
-    # `set -o pipefail` (line 2), a `grep -q` that matches early closes its
-    # read end, SIGPIPE-killing whatever wrote to that pipe — pipefail then
-    # reports the pipeline's exit status as the writer's 141, not grep's
-    # own (successful) 0, even though the match was genuinely found. On a
-    # large listing (thousands of entries, as this artifact has grown to)
-    # there's enough left to write that the race reliably loses — this bit
-    # both checks below in the wild despite the artifact being correct
-    # both times. Grepping a file has no live writer to kill, so no race.
-    # Trap already registered above (before these existed, as empty
-    # strings) — assigning the real paths here is enough, no need to
-    # re-register it.
-    #
-    # The two assertions build-artifact.sh already makes (vendor/autoload.php
-    # present, no root-level .htaccess) are NOT repeated here: they belong
-    # to the artifact itself and therefore to both channels. The ones
-    # below are release-specific — they guard what a *published release*
-    # must never contain — and stay here.
-    LISTING_FILE="$(mktemp)"
-    FINAL_NOTES_FILE="$(mktemp)"
-    unzip -l "${ARTIFACT}" > "${LISTING_FILE}"
+# Listed to a real file rather than piped live into grep -q: with
+# `set -o pipefail` (line 2), a `grep -q` that matches early closes its
+# read end, SIGPIPE-killing whatever wrote to that pipe — pipefail then
+# reports the pipeline's exit status as the writer's 141, not grep's
+# own (successful) 0, even though the match was genuinely found. On a
+# large listing (thousands of entries, as this artifact has grown to)
+# there's enough left to write that the race reliably loses — this bit
+# both checks below in the wild despite the artifact being correct
+# both times. Grepping a file has no live writer to kill, so no race.
+# Trap already registered above (before these existed, as empty
+# strings) — assigning the real paths here is enough, no need to
+# re-register it.
+#
+# The two assertions build-artifact.sh already makes (vendor/autoload.php
+# present, no root-level .htaccess) are NOT repeated here: they belong
+# to the artifact itself and therefore to both channels. The ones
+# below are release-specific — they guard what a *published release*
+# must never contain — and stay here.
+LISTING_FILE="$(mktemp)"
+FINAL_NOTES_FILE="$(mktemp)"
+unzip -l "${ARTIFACT}" > "${LISTING_FILE}"
 
-    # The contextual help ships as Markdown under docs/help/ (ARCHITECTURE.md
-    # §8.64) and is read at runtime — docs/ is deliberately NOT in the -x
-    # exclusion list above, and this assertion is what keeps a future
-    # "exclude docs/ from the artifact" cleanup from silently shipping a
-    # release whose /aide is empty. Same file-based grep as
-    # build-artifact.sh's own two checks, for the same SIGPIPE reason.
-    if ! grep -q 'docs/help/' "${LISTING_FILE}"; then
-        echo "ERROR: release artifact is missing docs/help/ (contextual help) — aborting release." >&2
-        rm -f "${ARTIFACT}"
-        exit 1
-    fi
-
-    # node_modules/ and coverage/ are development/test-only (Vitest — see
-    # build-artifact.sh's -x list); a leftover local install of either must
-    # never reach a release artifact regardless of how it got there.
-    if grep -qE '[[:space:]](node_modules|coverage)/' "${LISTING_FILE}"; then
-        echo "ERROR: release artifact contains node_modules/ or coverage/ — aborting release." >&2
-        rm -f "${ARTIFACT}"
-        exit 1
-    fi
-
-    # The reference dataset (tests/fixtures/reference-dataset/ — its own
-    # README.md) is a test harness: fake member exports, fake bank
-    # statements, a CLI builder that writes massively to the database, and
-    # documented demo passwords. It is already covered by the "tests/*"
-    # entry of build-artifact.sh's -x list, so this check has nothing of
-    # its own to exclude — it exists so that exclusion stops being tacit.
-    # Anything that moves this dataset out from under tests/ (or a -x list
-    # someone trims) fails the release here instead of shipping a builder
-    # into an installable artifact.
-    #
-    # Matched as a DIRECTORY (trailing slash), not as a bare substring: the
-    # dataset is always a directory of files, whereas
-    # docs/chantiers/reference-dataset.md — documentation ABOUT it, which
-    # does ship and should — carries the same word in its filename and
-    # blocked a release here once, after every gate had already passed.
-    if grep -q 'reference-dataset/' "${LISTING_FILE}"; then
-        echo "ERROR: release artifact contains reference-dataset — the test dataset must never ship; aborting release." >&2
-        rm -f "${ARTIFACT}"
-        exit 1
-    fi
-
-    # Release notes always end with the "Vérifications effectuées" block
-    # (${GATE_REPORT}, built above as each gate ran or was bypassed) — this
-    # is added here in the script itself, never left to whoever wrote
-    # NOTES_FILE, so it can't be forgotten or drift from what actually
-    # ran. --generate-notes only supports *prepending* custom text via
-    # --notes, not appending after it, so the auto-generated notes are
-    # instead pre-fetched through the same GitHub API endpoint that flag
-    # uses (`releases/generate-notes`) — this way both paths (custom
-    # NOTES_FILE or auto-generated) end up going through the same
-    # "write base notes, then append the gate report" logic below,
-    # always passed to gh via --notes-file.
-    if [[ -n "${NOTES_FILE}" ]]; then
-        cat "${NOTES_FILE}" > "${FINAL_NOTES_FILE}"
-    else
-        gh api "repos/{owner}/{repo}/releases/generate-notes" \
-            -f tag_name="${TAG}" --jq '.body' > "${FINAL_NOTES_FILE}" \
-            || { echo "ERROR: cannot generate release notes." >&2; rm -f "${ARTIFACT}"; exit 1; }
-    fi
-
-    {
-        echo ""
-        echo "---"
-        echo ""
-        echo "## Vérifications effectuées pour cette release"
-        echo ""
-        printf '%s' "${GATE_REPORT}"
-    } >> "${FINAL_NOTES_FILE}"
-
-    # bootstrap.php is published as a second asset. GitHub does not
-    # preserve this command's argument order in the assets array (observed:
-    # it sorts alphabetically, putting bootstrap.php before the zip) — both
-    # Core\Maintenance\GitHubReleaseClient and bootstrap.php's own
-    # resolveArchiveUrl() select the artifact by its .zip filename, never
-    # by array position, so upload order here doesn't matter.
-    gh release create "${TAG}" "${ARTIFACT}" "bootstrap/bootstrap.php" \
-        --title "Release ${TAG}" \
-        --notes-file "${FINAL_NOTES_FILE}"
-
+# The contextual help ships as Markdown under docs/help/ (ARCHITECTURE.md
+# §8.64) and is read at runtime — docs/ is deliberately NOT in the -x
+# exclusion list above, and this assertion is what keeps a future
+# "exclude docs/ from the artifact" cleanup from silently shipping a
+# release whose /aide is empty. Same file-based grep as
+# build-artifact.sh's own two checks, for the same SIGPIPE reason.
+if ! grep -q 'docs/help/' "${LISTING_FILE}"; then
+    echo "ERROR: release artifact is missing docs/help/ (contextual help) — aborting release." >&2
     rm -f "${ARTIFACT}"
-    echo "GitHub release ${TAG} created with artifact and bootstrap.php."
-else
-    echo "Tag ${TAG} pushed. Install GitHub CLI (gh) to auto-create releases."
+    exit 1
 fi
+
+# node_modules/ and coverage/ are development/test-only (Vitest — see
+# build-artifact.sh's -x list); a leftover local install of either must
+# never reach a release artifact regardless of how it got there.
+if grep -qE '[[:space:]](node_modules|coverage)/' "${LISTING_FILE}"; then
+    echo "ERROR: release artifact contains node_modules/ or coverage/ — aborting release." >&2
+    rm -f "${ARTIFACT}"
+    exit 1
+fi
+
+# The reference dataset (tests/fixtures/reference-dataset/ — its own
+# README.md) is a test harness: fake member exports, fake bank
+# statements, a CLI builder that writes massively to the database, and
+# documented demo passwords. It is already covered by the "tests/*"
+# entry of build-artifact.sh's -x list, so this check has nothing of
+# its own to exclude — it exists so that exclusion stops being tacit.
+# Anything that moves this dataset out from under tests/ (or a -x list
+# someone trims) fails the release here instead of shipping a builder
+# into an installable artifact.
+#
+# Matched as a DIRECTORY (trailing slash), not as a bare substring: the
+# dataset is always a directory of files, whereas
+# docs/chantiers/reference-dataset.md — documentation ABOUT it, which
+# does ship and should — carries the same word in its filename and
+# blocked a release here once, after every gate had already passed.
+if grep -q 'reference-dataset/' "${LISTING_FILE}"; then
+    echo "ERROR: release artifact contains reference-dataset — the test dataset must never ship; aborting release." >&2
+    rm -f "${ARTIFACT}"
+    exit 1
+fi
+
+# ---------------------------------------------------------------
+# Wait for the Release workflow — every gate again, on GitHub's runners,
+# then the signed evidence pack and the draft Release it is attached to.
+# Waiting here is what makes the whole chain one command: the alternative
+# is a human remembering to come back an hour later to finish a release by
+# hand, which is how a version ships with a red gate nobody looked at.
+#
+# The run is found by tag rather than by commit: a tag push sets the run's
+# head_branch to the tag name, and the release commit also has a CI run of
+# its own against main.
+# ---------------------------------------------------------------
+echo ""
+echo "Waiting for the Release workflow (every gate on a runner, then the evidence pack)..."
+
+RELEASE_RUN_ID=""
+for _ in $(seq 1 30); do
+    RELEASE_RUN_ID="$(gh run list --workflow=release.yml --branch "${TAG}" \
+        --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null || true)"
+    [[ -n "${RELEASE_RUN_ID}" && "${RELEASE_RUN_ID}" != "null" ]] && break
+    sleep 10
+done
+
+if [[ -z "${RELEASE_RUN_ID}" || "${RELEASE_RUN_ID}" == "null" ]]; then
+    echo "ERROR: no Release workflow run appeared for ${TAG} after 5 minutes." >&2
+    echo "The tag is pushed and nothing is published. Check the Actions tab; if the workflow" >&2
+    echo "never started, re-run it for the tag rather than cutting another version, then" >&2
+    echo "finish by hand: gh release upload ${TAG} ${ARTIFACT} bootstrap/bootstrap.php && gh release edit ${TAG} --draft=false --latest" >&2
+    exit 1
+fi
+
+# Watched for the live job list, but NOT trusted for the verdict: `gh run
+# watch` refuses a run that has already completed, and a fast failure can
+# finish before the poll above even finds it. The conclusion is read
+# separately afterwards, so the decision is the same whether the run was
+# watched or was already over.
+if [[ "$(gh run view "${RELEASE_RUN_ID}" --json status -q .status)" != "completed" ]]; then
+    gh run watch "${RELEASE_RUN_ID}" --interval 15 || true
+fi
+
+RELEASE_RUN_CONCLUSION="$(gh run view "${RELEASE_RUN_ID}" --json conclusion -q .conclusion)"
+if [[ "${RELEASE_RUN_CONCLUSION}" != "success" ]]; then
+    echo "" >&2
+    echo "ERROR: the Release workflow concluded '${RELEASE_RUN_CONCLUSION}' — a gate is red on the runner." >&2
+    echo "Nothing was published: the workflow creates no draft when a gate is red." >&2
+    echo "Tag ${TAG} exists and points at nothing. Fix the cause on main, then:" >&2
+    echo "  git push --delete origin ${TAG} && git tag -d ${TAG}" >&2
+    echo "and run this script again (it recomputes ${NEW_VERSION} and leaves VERSION alone)." >&2
+    exit 1
+fi
+
+# ---------------------------------------------------------------
+# Attach the deployable zip and bootstrap.php to the draft.
+#
+# The workflow's draft carries the evidence pack only. The artifact built
+# above is the other half — the copy of the site somebody actually
+# installs — and the two belong on the same Release. --clobber so a re-run
+# replaces the asset instead of failing on a name that is already there.
+#
+# GitHub does not preserve this command's argument order in the assets
+# array (observed: it sorts alphabetically, putting bootstrap.php before
+# the zip) — both Core\Maintenance\GitHubReleaseClient and bootstrap.php's
+# own resolveArchiveUrl() select the artifact by its .zip filename, never
+# by array position, so upload order here doesn't matter. What DOES matter
+# is that the zip is the only .zip — see the header, and the count below.
+# ---------------------------------------------------------------
+EVIDENCE_ASSET="evidence-${TAG}.tar.gz"
+
+echo ""
+echo "Attaching ${ARTIFACT} and bootstrap.php to the draft Release..."
+gh release upload "${TAG}" "${ARTIFACT}" "bootstrap/bootstrap.php" --clobber
+
+RELEASE_ASSETS="$(gh release view "${TAG}" --json assets -q '.assets[].name')"
+ZIP_COUNT="$(grep -c '\.zip$' <<< "${RELEASE_ASSETS}" || true)"
+if [[ "${ZIP_COUNT}" -ne 1 ]]; then
+    echo "ERROR: the draft Release ${TAG} carries ${ZIP_COUNT} .zip asset(s); exactly one is allowed:" >&2
+    printf '  %s\n' ${RELEASE_ASSETS} >&2
+    echo "Every installed site installs the FIRST .zip it finds. Release NOT published — remove the extra asset(s) and finish by hand: gh release edit ${TAG} --draft=false --latest" >&2
+    exit 1
+fi
+if ! grep -qx "${EVIDENCE_ASSET}" <<< "${RELEASE_ASSETS}"; then
+    echo "ERROR: the draft Release ${TAG} does not carry ${EVIDENCE_ASSET} — the workflow's evidence pack is missing." >&2
+    echo "Release NOT published. Read the workflow run (${RELEASE_RUN_ID}) before finishing by hand." >&2
+    exit 1
+fi
+
+# ---------------------------------------------------------------
+# Compose the notes. Four parts, in this order, and only the first is
+# written by a person:
+#
+#   1. The note itself — NOTES_FILE, or the commit list GitHub generates.
+#      --generate-notes only supports *prepending* custom text via
+#      --notes, so the auto-generated list is pre-fetched through the same
+#      endpoint that flag uses (`releases/generate-notes`) and both paths
+#      go through the same appends below.
+#   2. "Vérifications effectuées" — ${GATE_REPORT}, one line per local
+#      gate as it ran or was bypassed. Added here in the script itself,
+#      never left to whoever wrote NOTES_FILE, so it cannot be forgotten
+#      or drift from what actually ran.
+#   3. The evidence pack — the body the Release workflow wrote on its
+#      draft: what is in the archive and how to verify its signature. Kept
+#      rather than overwritten, since it is the part a reader auditing the
+#      release needs.
+#   4. The dependency inventory — scripts/dependency-inventory.php, read
+#      from the lock files and the vendored banners so it says what
+#      shipped rather than what a constraint allowed. Last because it is
+#      the longest.
+# ---------------------------------------------------------------
+if [[ -n "${NOTES_FILE}" ]]; then
+    cat "${NOTES_FILE}" > "${FINAL_NOTES_FILE}"
+else
+    gh api "repos/{owner}/{repo}/releases/generate-notes" \
+        -f tag_name="${TAG}" --jq '.body' > "${FINAL_NOTES_FILE}" \
+        || { echo "ERROR: cannot generate release notes. Release ${TAG} is still a draft; nothing was published." >&2; exit 1; }
+fi
+
+{
+    echo ""
+    echo "---"
+    echo ""
+    echo "## Vérifications effectuées pour cette release"
+    echo ""
+    printf '%s' "${GATE_REPORT}"
+    echo ""
+    gh release view "${TAG}" --json body -q .body
+    echo ""
+    php "${ARTIFACT_SCRIPT_DIR}/dependency-inventory.php"
+} >> "${FINAL_NOTES_FILE}" \
+    || { echo "ERROR: could not compose the release notes (evidence body or dependency inventory). Release ${TAG} is still a draft; nothing was published." >&2; exit 1; }
+
+gh release edit "${TAG}" --title "Release ${TAG}" --notes-file "${FINAL_NOTES_FILE}"
+
+# Publishing here rather than leaving the draft for a human is deliberate,
+# and it is not a loosening: the draft exists so that nothing is published
+# before the gates have spoken, and by this line they have — twice. What
+# is given up is a pair of eyes on the evidence BEFORE the Release is
+# public; the pack stays attached to the published Release, so it is still
+# read, just not as a blocking step. --latest re-asserted rather than left
+# to GitHub's default, since the stable update channel reads
+# `releases/latest` and nothing else.
+gh release edit "${TAG}" --draft=false --latest
+
+rm -f "${ARTIFACT}"
+echo ""
+echo "GitHub release ${TAG} published: ${ARTIFACT}, bootstrap.php and ${EVIDENCE_ASSET} attached."
+echo "  https://github.com/$(gh repo view --json nameWithOwner -q .nameWithOwner)/releases/tag/${TAG}"
