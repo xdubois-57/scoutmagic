@@ -298,9 +298,7 @@ class TriageExtractServiceTest extends TestCase
         $this->attachArchive();
         $this->serve();
 
-        $rows = $this->pdo->query(
-            "SELECT context FROM event_log WHERE event_type = 'support_triage_extract_served'"
-        )->fetchAll(\PDO::FETCH_COLUMN);
+        $rows = $this->contexts('support_triage_extract_served');
 
         $this->assertCount(1, $rows);
         $context = json_decode((string) $rows[0], true);
@@ -320,18 +318,14 @@ class TriageExtractServiceTest extends TestCase
         $this->serve(reference: 'SUP-ZZZ999');
         $this->serve(token: 'wrong');
 
-        $refused = $this->pdo->query(
-            "SELECT context FROM event_log WHERE event_type = 'support_triage_extract_refused'"
-        )->fetchAll(\PDO::FETCH_COLUMN);
+        $refused = $this->contexts('support_triage_extract_refused');
         $this->assertCount(1, $refused);
         $this->assertSame(
             ['reason' => TriageExtractResult::REJECT_UNKNOWN_REFERENCE, 'github_issue_number' => 181],
             json_decode((string) $refused[0], true)
         );
 
-        $unauthenticated = $this->pdo->query(
-            "SELECT context FROM event_log WHERE event_type = 'support_triage_extract_unauthenticated'"
-        )->fetchAll(\PDO::FETCH_COLUMN);
+        $unauthenticated = $this->contexts('support_triage_extract_unauthenticated');
         $this->assertCount(1, $unauthenticated);
         $this->assertStringNotContainsString('203.0.113.1', (string) $unauthenticated[0]);
     }
@@ -391,6 +385,19 @@ class TriageExtractServiceTest extends TestCase
     /**
      * @return list<array{event_type: string, level: string}>
      */
+    /**
+     * The `context` JSON of every journal entry of $type, oldest first.
+     *
+     * @return list<string|null>
+     */
+    private function contexts(string $type): array
+    {
+        $stmt = $this->pdo->prepare('SELECT context FROM event_log WHERE event_type = ? ORDER BY id');
+        $stmt->execute([$type]);
+
+        return $stmt->fetchAll(\PDO::FETCH_COLUMN);
+    }
+
     private function journal(string $type): array
     {
         $stmt = $this->pdo->prepare('SELECT event_type, level FROM event_log WHERE event_type = ? ORDER BY id');
