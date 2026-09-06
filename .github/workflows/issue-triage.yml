@@ -55,7 +55,10 @@
 #     it is now the price of the guarantee. A rename fails CLOSED — the
 #     run goes red and the issue keeps `triage:pending` — whereas naming
 #     the server fails OPEN the day the server gains a write tool nobody
-#     here has heard of. Whoever bumps the pinned action SHA below should
+#     here has heard of. That price was paid the first time this ran: the
+#     list named `issue_read` and the server offers `get_issue`, so the
+#     agent triaged #181 without ever reading it. Both spellings are in
+#     the list now, and whoever bumps the pinned action SHA below should
 #     re-check these tool names in the same change.
 #
 # WHY THE AGENT RUNS TWICE AND THE JOB CHECKS ITS OWN WORK. Because a run
@@ -437,15 +440,43 @@ jobs:
       # nothing already unpublished, and a reporter who links to a page is
       # a case the skill file expects.
       #
+      # THE SERVER SPELLS THE ISSUE-READING TOOLS `get_issue` AND
+      # `get_issue_comments`, and it took the first real run to find out.
+      # On 2026-09-06 the triage of #181 asked for those two names 48
+      # times and was denied 48 times, because this list named only
+      # `issue_read` — the spelling this repository's own session tools
+      # use. The agent therefore never read the issue it was triaging: it
+      # read files and searched code around a report it could not see,
+      # spent 66 turns retrying the same two denied calls, overran the
+      # turn ceiling, and the action failed the step without returning a
+      # verdict. That is the rename-fails-CLOSED cost named in the header,
+      # arriving on the first issue rather than on some future SHA bump.
+      #
+      # Both spellings are listed. `issue_read` is what a newer image
+      # would expose, `get_issue` and `get_issue_comments` are what the
+      # pinned one does, and naming a tool the server does not have costs
+      # nothing — the permission never comes up. What costs everything is
+      # naming none of the ones it does.
+      #
+      # If a triage is ever red with no verdict again, this is the first
+      # thing to check, and the transcript says it in one line:
+      # `Claude requested permissions to use mcp__github__<name>, but you
+      # haven't granted it yet`. The name in that message goes in this
+      # list.
+      #
       # --max-turns bounds the work the way timeout-minutes bounds the
-      # clock. 60, not the 30 this started with: a real triage of #173
-      # spent 26 turns and still wrote nothing, close enough to a 30-turn
-      # ceiling that the ceiling stopped being a safety net and became a
-      # plausible cause.
+      # clock. 100, not the 30 this started with and not the 60 that
+      # replaced it: a real triage of #173 spent 26 turns and still wrote
+      # nothing, and #181 was cut off at 66. The ceiling is not only a
+      # budget — the action treats a run that OVERRUNS it as a failure
+      # even when the agent finished successfully, so a ceiling close to
+      # the real cost of the work turns good triages red. A thread with
+      # several comments, read alongside the code it accuses, is that
+      # work.
       TRIAGE_ARGS: >-
         --disallowedTools "Agent,Task,ScheduleWakeup,Bash,Read,Glob,Grep,Write,Edit,NotebookEdit"
-        --allowedTools "mcp__github__issue_read,mcp__github__get_file_contents,mcp__github__search_issues,mcp__github__list_issues,mcp__github__search_code,mcp__github__get_commit,mcp__github__list_commits"
-        --max-turns 60
+        --allowedTools "mcp__github__get_issue,mcp__github__get_issue_comments,mcp__github__issue_read,mcp__github__get_file_contents,mcp__github__search_issues,mcp__github__list_issues,mcp__github__search_code,mcp__github__get_commit,mcp__github__list_commits"
+        --max-turns 100
 
     steps:
       # SEND THE ISSUE BACK TO TRIAGE BEFORE TRIAGING IT, and the order
