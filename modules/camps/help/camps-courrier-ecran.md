@@ -6,6 +6,7 @@ category: Espace animateurs
 role_min: chief
 question: Où lire les e-mails reçus au sujet d'un camp ?
 question: Que veut dire retirer un message d'un séjour ?
+question: Comment faire disparaître un courrier qui ne concerne pas les camps ?
 paths: /chefs/camps/courrier
 related: camps-courrier, courrier-unite
 ---
@@ -29,6 +30,18 @@ séjour » ouvre une recherche — un lieu, un mois, une année — et
 Le courrier automatique — lettres d'information, réponses automatiques,
 rapports de non-remise — est masqué par défaut ; « Afficher le courrier
 automatique » le fait revenir.
+
+## Écarter un courrier qui ne vous concerne pas
+
+Sur une boîte dédiée, tout arrive ici, y compris ce qui n'a rien à voir
+avec un camp. « Écarter ce courrier », sous un message que rien ne
+rattache, le sort de cette liste-ci.
+
+Il n'est pas supprimé : il reste dans le courrier de l'unité, un autre
+module qui s'y intéresse continue de le voir, et il est supprimé
+automatiquement au terme du même délai de conservation qu'avant — écarter
+ne conserve rien de plus. Un onglet « Écartés » apparaît dès qu'il y en a
+un, et « Remettre dans la liste » annule la décision.
 
 « Retirer » enlève le rattachement à un séjour ; le message ne disparaît
 pas pour autant — il reste dans le courrier de l'unité, que le chef

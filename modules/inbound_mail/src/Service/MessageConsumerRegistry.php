@@ -191,7 +191,12 @@ class MessageConsumerRegistry
                 continue;
             }
 
-            if (!$result->isEmpty()) {
+            // A reading that FAILED is empty and still has to travel: it
+            // is what tells the deferred pass to come back, and dropping
+            // it here is what made #172 permanent — a booking contract
+            // read on an OCR provider's bad minute, marked « aucune
+            // période de séjour lisible » for ever.
+            if (!$result->isEmpty() || $result->readingFailed) {
                 $results[$consumer->consumerId()] = $result;
             }
         }

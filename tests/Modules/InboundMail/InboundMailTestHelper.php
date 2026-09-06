@@ -81,6 +81,7 @@ class InboundMailTestHelper
             sent_at TEXT NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             stored_analysis_at TEXT,
+            stored_analysis_attempts INTEGER NOT NULL DEFAULT 0,
             is_bulk INTEGER NOT NULL DEFAULT 0,
             last_unlinked_at TEXT,
             UNIQUE (mailbox_id, message_id_blind_index)
@@ -119,6 +120,15 @@ class InboundMailTestHelper
             message_id_blind_index TEXT NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE (consumer_id, message_id_blind_index)
+        )');
+
+        $pdo->exec('CREATE TABLE inbound_message_dismissals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            message_id INTEGER NOT NULL,
+            consumer_id TEXT NOT NULL,
+            dismissed_by_user_account_id INTEGER,
+            dismissed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (message_id, consumer_id)
         )');
 
         $pdo->exec('CREATE TABLE inbound_message_attachments (

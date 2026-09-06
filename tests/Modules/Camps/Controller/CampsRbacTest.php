@@ -282,6 +282,11 @@ class CampsRbacTest extends TestCase
             'attach a message' => ['/chefs/camps/courrier/{message}/rattacher', 'mail', 'attach', 'chief', 'intendant'],
             're-run the analysis' => ['/chefs/camps/courrier/relancer', 'mail', 'reanalyze', 'chief', 'intendant'],
             'discard a message' => ['/chefs/camps/courrier/{message}/supprimer', 'mail', 'discard', 'chief', 'intendant'],
+            'set a message aside' => ['/chefs/camps/courrier/{message}/ecarter', 'mail', 'setAside', 'chief', 'intendant'],
+            'put a message back' => [
+                '/chefs/camps/courrier/{message}/reprendre',
+                'mail', 'restore', 'chief', 'intendant',
+            ],
             'apply a proposal' => ['/chefs/camps/propositions/{proposal}/appliquer', 'mail', 'applyProposal', 'chief', 'intendant'],
             'dismiss a proposal' => ['/chefs/camps/propositions/{proposal}/ignorer', 'mail', 'dismissProposal', 'chief', 'intendant'],
             'confirm a proposition' => [

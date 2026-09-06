@@ -461,6 +461,24 @@
       "label": ""
     },
     {
+      "path": "/chefs/camps/courrier/{id}/ecarter",
+      "method": "POST",
+      "controller": "Modules\\Camps\\Controller\\CampsMailController",
+      "action": "setAside",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/courrier/{id}/reprendre",
+      "method": "POST",
+      "controller": "Modules\\Camps\\Controller\\CampsMailController",
+      "action": "restore",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
       "path": "/chefs/camps/courrier/{id}/proposition/confirmation",
       "method": "POST",
       "controller": "Modules\\Camps\\Controller\\CampsMailController",

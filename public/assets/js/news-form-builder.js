@@ -180,7 +180,12 @@
 
         var editable = document.createElement('div');
         editable.contentEditable = 'true';
-        editable.className = 'form-control';
+        // `rich-text` is what bounds an inserted image, and it belongs here
+        // as much as on the rendered article: this is the same HTML, seen
+        // while it is being written. Without it a 4000px photo pushed the
+        // editor sideways on a phone while the published page — which does
+        // carry the class — showed it correctly (#181).
+        editable.className = 'form-control rich-text';
         editable.style.minHeight = '100px';
         // role: Chromium already maps a contenteditable to `textbox`, but
         // not every assistive technology does — and the name below is only
@@ -1322,6 +1327,12 @@
     // is the client half of a DOM-to-DOM round trip, not a replacement.
     globalThis.ScoutMagicNewsFormBuilderInternals = {
         sanitizeHtml: sanitizeHtml,
+        // Exposed for the one assertion no source-grep can make honestly:
+        // that the editor it BUILDS bounds an inserted image the way the
+        // published article does (#181). A test reading this file for a
+        // class name would go red on a refactor to classList.add() that
+        // changed nothing.
+        createRichTextEditor: createRichTextEditor,
         sanitizeHtmlChildren: sanitizeHtmlChildren,
         sanitizeHtmlAttributes: sanitizeHtmlAttributes,
         isSafeUrlScheme: isSafeUrlScheme,

@@ -26,10 +26,28 @@ class AnalysisResult
     /**
      * @param MessageLink[] $links
      * @param MessageCandidate[] $candidates
+     * @param bool $readingFailed see {@see self::$readingFailed}
      */
     public function __construct(
         public readonly array $links = [],
-        public readonly array $candidates = []
+        public readonly array $candidates = [],
+        /**
+         * « Je n'ai pas pu lire ce message, redemande-moi. »
+         *
+         * Not a third kind of answer about the mail — an answer about the
+         * READING. A consumer sets it when something it depends on failed
+         * in a way that may not hold next time: an OCR provider that
+         * returned an error, a scan that could not be rasterised. Every
+         * other empty answer, including « ce document est illisible », is
+         * final and leaves this false.
+         *
+         * The deferred pass is the only thing that reads it, and what it
+         * does with it is bounded by
+         * `Repository\InboundMessageRepository::requeueStoredAnalysis()`.
+         * Nothing here promises a retry; a consumer that sets it on every
+         * empty answer gets its budget spent and the same silence back.
+         */
+        public readonly bool $readingFailed = false
     ) {
     }
 
@@ -50,6 +68,20 @@ class AnalysisResult
         int $attachmentId = 0
     ): self {
         return new self([new MessageLink($consumerId, $businessReference, $origin, $attachmentId)]);
+    }
+
+    /**
+     * « Rien trouvé, et c'est parce que je n'ai pas pu lire. »
+     *
+     * The answer #172 was missing: an unattributed booking whose contract
+     * was a scan, an OCR call that came back with an error, and a message
+     * marked « aucune période de séjour lisible » for ever — on a document
+     * whose dates the very same reading found the moment a chief pressed
+     * « Créer un camp depuis ce message ».
+     */
+    public static function readingFailed(): self
+    {
+        return new self([], [], true);
     }
 
     /** One proposition and nothing else. */

@@ -25,12 +25,20 @@
                    Counts on the tabs rather than beside them: « rien à
                    trier » and « le filtre cache tout » look identical on an
                    empty list, and only a number tells them apart. #}
+                {# « Écartés » only once there is something in it, and
+                   always while it is the filter being read: a tab reading
+                   0 on every unit that never uses the button is a
+                   permanent invitation to a page that says « rien ». #}
+                {% set filters = {
+                    'non_rattaches': 'À trier',
+                    'rattaches': 'Rattachés',
+                    'tous': 'Tous',
+                } %}
+                {% if counts.ecartes > 0 or status == 'ecartes' %}
+                    {% set filters = filters|merge({ 'ecartes': 'Écartés' }) %}
+                {% endif %}
                 <ul class="nav nav-pills gap-1 mb-0" aria-label="Filtrer le courrier">
-                    {% for key, label in {
-                        'non_rattaches': 'À trier',
-                        'rattaches': 'Rattachés',
-                        'tous': 'Tous',
-                    } %}
+                    {% for key, label in filters %}
                         <li class="nav-item">
                             <a class="nav-link{{ status == key ? ' active' : '' }}"
                                href="?statut={{ key }}{{ include_bulk ? '&automatique=1' : '' }}"
@@ -61,9 +69,11 @@
             } only %}
         {% elseif messages is empty %}
             {% include 'partials/empty_state.html.twig' with {
-                message: counts.tous > 0
-                    ? 'Aucun message dans ce filtre. Les autres sont sous les onglets ci-dessus.'
-                    : 'Aucun message à trier.',
+                message: status == 'ecartes'
+                    ? 'Aucun courrier écarté.'
+                    : (counts.tous > 0
+                        ? 'Aucun message dans ce filtre. Les autres sont sous les onglets ci-dessus.'
+                        : 'Aucun message à trier.'),
                 icon: 'bi-envelope-check',
             } only %}
         {% else %}
@@ -117,6 +127,21 @@
                                 </div>
                             {% endif %}
 
+                            {% if status == 'ecartes' %}
+                                {# Nothing to decide about a message that was
+                                   set aside except whether to take it back:
+                                   showing the picker and the propositions
+                                   here would put a chief one click from
+                                   filing mail they had just written off. #}
+                                <form method="post" class="mt-3"
+                                      action="/chefs/camps/courrier/{{ row.message.id }}/reprendre">
+                                    {{ csrf_field()|raw }}
+                                    <button type="submit" class="btn btn-outline-secondary btn-sm">
+                                        <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i>
+                                        Remettre dans la liste
+                                    </button>
+                                </form>
+                            {% else %}
                             {# What THIS module made of it and nothing else:
                                another module's associations are not this
                                screen's business. #}
@@ -225,6 +250,33 @@
                                         </form>
                                     {% endfor %}
                                 </div>
+                            {% endif %}
+
+                            {# « Ce courrier ne concerne pas les camps »
+                               (#174). Offered only on a message this module
+                               filed nowhere: one that IS on a stay is
+                               removed from the list by detaching it, and two
+                               buttons meaning almost the same thing is how a
+                               chief ends up pressing the wrong one.
+
+                               The wording says what actually happens, because
+                               the button does less than « écarter » suggests:
+                               nothing is deleted, the unit's mail still has
+                               it, and the retention takes it on exactly the
+                               day it would have anyway. #}
+                            {% if row.links is empty %}
+                                <div class="mt-2">
+                                    <form method="post"
+                                          action="/chefs/camps/courrier/{{ row.message.id }}/ecarter"
+                                          data-confirm="Écarter ce courrier de la liste des camps ? Il reste dans le courrier de l'unité et vous pourrez le remettre.">
+                                        {{ csrf_field()|raw }}
+                                        <button type="submit" class="btn btn-link btn-sm p-0 text-body-secondary">
+                                            <i class="bi bi-eye-slash" aria-hidden="true"></i>
+                                            Écarter ce courrier
+                                        </button>
+                                    </form>
+                                </div>
+                            {% endif %}
                             {% endif %}
                         </div>
                     </div>

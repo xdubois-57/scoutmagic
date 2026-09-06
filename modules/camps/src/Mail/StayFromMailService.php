@@ -181,6 +181,9 @@ class StayFromMailService
         self::SKIP_NO_PLACE =>
             'aucun terrain connu ne correspond, et aucun nom de lieu n\'a pu être lu dans le message',
         self::SKIP_REFUSED => 'la création du séjour a été refusée',
+        self::SKIP_UNREADABLE =>
+            'la pièce jointe n\'a pas pu être lue cette fois-ci (service de lecture indisponible) — '
+            . 'le message sera réexaminé automatiquement',
     ];
 
     public const SKIP_NOT_AUTOMATIC = 'not_automatic';
@@ -188,6 +191,16 @@ class StayFromMailService
     public const SKIP_NO_DATES = 'no_dates';
     public const SKIP_NO_PLACE = 'no_place';
     public const SKIP_REFUSED = 'refused';
+
+    /**
+     * Not « rien à lire » but « je n'ai pas pu lire ».
+     *
+     * The two were one reason until #172, and a chief reading the journal
+     * had no way to tell a message that says nothing about a stay from a
+     * contract the OCR service refused to transcribe that minute. The
+     * first is final; the second is the deferred pass's cue to come back.
+     */
+    public const SKIP_UNREADABLE = 'unreadable_attachment';
 
     /**
      * Whether a message may become a stay on its own. Off means the
@@ -324,14 +337,18 @@ class StayFromMailService
         // message would otherwise be billed for the privilege of being
         // refused.
         if ($this->reader->readDateRange($this->textOf($message)) === null) {
-            $this->journalSkip($message->id, self::SKIP_NO_DATES);
+            // « aucune période lisible » only when the reading actually
+            // happened. A contract whose transcription failed says nothing
+            // about its dates for a reason that may be gone in an hour,
+            // and calling that a final answer is #172.
+            $this->journalSkip($message->id, $this->skipReasonForNoDates($message));
 
             return null;
         }
 
         $values = $this->readValues($message);
         if (!$this->isUsable($values)) {
-            $this->journalSkip($message->id, self::SKIP_NO_DATES);
+            $this->journalSkip($message->id, $this->skipReasonForNoDates($message));
 
             return null;
         }
@@ -391,6 +408,18 @@ class StayFromMailService
         // association — one place that creates associations rather than
         // two, which is what the consumer contract asks for.
         return $campId;
+    }
+
+    /**
+     * Which of the two silences this is.
+     *
+     * {@see self::SKIP_UNREADABLE} when the attachment reading gave up on
+     * a document it meant to read, {@see self::SKIP_NO_DATES} otherwise.
+     * The difference decides whether the deferred pass ever looks again.
+     */
+    private function skipReasonForNoDates(InboundMessage $message): string
+    {
+        return $this->readingFailedFor($message) ? self::SKIP_UNREADABLE : self::SKIP_NO_DATES;
     }
 
     /**
@@ -832,6 +861,17 @@ class StayFromMailService
     private array $textCache = [];
 
     /**
+     * Whether that same reading failed, per message.
+     *
+     * Memoised with the text rather than asked of the reader on demand:
+     * `Mail\AttachmentTextReader::readingFailed()` speaks about its last
+     * call, and the text above is deliberately read once.
+     *
+     * @var array<int, bool>
+     */
+    private array $readingFailedCache = [];
+
+    /**
      * The model is asked once per message, whatever asks.
      *
      * `createFrom()` reads the values and then resolves the place, and the
@@ -870,11 +910,40 @@ class StayFromMailService
     {
         if (!isset($this->textCache[$message->id])) {
             $attachments = $this->attachmentText?->read($message->attachments) ?? '';
+            // Read here and not on demand: the reader answers about its
+            // LAST call, and this one is memoised — asking it later, after
+            // another message went through, would report somebody else's
+            // failure.
+            $this->readingFailedCache[$message->id] = $this->attachmentText?->readingFailed() ?? false;
             $this->textCache[$message->id] = trim(
                 $message->subject . "\n" . $message->bodyText . ($attachments === '' ? '' : "\n" . $attachments)
             );
         }
 
         return $this->textCache[$message->id];
+    }
+
+    /**
+     * Whether reading this message's attachments gave up on a document it
+     * meant to read — an OCR provider that answered with an error, a scan
+     * that could not be rasterised.
+     *
+     * Distinct from « il n'y avait rien à lire », which is a complete
+     * answer: this one says the question was never actually put. #172 is
+     * what happens when the two are the same to the caller — a booking
+     * contract read once, on the provider's bad minute, marked « aucune
+     * période de séjour lisible » and never opened again, on a document
+     * whose dates the identical reading found the moment a chief pressed
+     * « Créer un camp depuis ce message ».
+     *
+     * Answers about the reading this service already did for that message,
+     * so a caller asking after {@see createFrom()} or {@see readValues()}
+     * pays nothing.
+     */
+    public function readingFailedFor(InboundMessage $message): bool
+    {
+        $this->textOf($message);
+
+        return $this->readingFailedCache[$message->id] ?? false;
     }
 }

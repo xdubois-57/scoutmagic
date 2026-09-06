@@ -167,7 +167,29 @@ class FinanceMessageConsumer implements
          * (`Mail\FinanceMailNotifier`). Null: nobody is told, and the
          * proposition still waits in « Courrier à trier ».
          */
-        private ?FinanceMailNotifier $notifier = null
+        private ?FinanceMailNotifier $notifier = null,
+        /**
+         * Says that a receipt this consumer claimed was NOT filed, and
+         * why.
+         *
+         * The catch below is right to let the association stand — the
+         * message belongs on that account whether or not the file could
+         * be stored — but for a long time it was also the last silent
+         * hole on this path. Every other refusal here says something:
+         * an unreadable attachment is journalled by the reader closure
+         * both composition roots install, a MIME type outside the store's
+         * list is skipped by a rule written down next to it. A throw from
+         * the store said nothing at all, so a receipt that never arrived
+         * looked exactly like one nobody had sent — which is how #175 was
+         * reported and why it could not be diagnosed from the outside.
+         *
+         * Null keeps the old behaviour, silence included: it is a trace,
+         * never a gate, and a consumer built without one still files
+         * every receipt it can.
+         *
+         * @var (\Closure(\Throwable, string, int): void)|null
+         */
+        private ?\Closure $onFilingFailed = null
     ) {
     }
 
@@ -457,11 +479,29 @@ class FinanceMessageConsumer implements
                     $actor['member_ids'],
                     $link->createdByUserAccountId
                 );
-            } catch (\Throwable) {
+            } catch (\Throwable $e) {
                 // Finance refused the account, or the bytes could not be
                 // read. Neither is worth failing the association over: the
                 // message is on the account either way, and a treasurer
                 // can attach the file by hand from the receipts screen.
+                //
+                // But it is worth SAYING. Swallowed without a word, this
+                // is indistinguishable from a receipt nobody sent: the
+                // message shows as filed, the receipts screen is empty,
+                // and there is nothing anywhere to read (#175).
+                if ($this->onFilingFailed !== null) {
+                    try {
+                        ($this->onFilingFailed)($e, $attachment->mimeType, $attachment->id);
+                    } catch (\Throwable) {
+                        // What the composition roots install here writes a
+                        // row: a database that is down would turn SAYING
+                        // that a receipt was not filed into a second,
+                        // louder failure, and the rest of this message's
+                        // attachments would never be looked at. A trace is
+                        // worth having and worth nothing at that price.
+                    }
+                }
+
                 continue;
             }
         }

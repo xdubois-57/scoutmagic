@@ -150,7 +150,119 @@ final class UnattendedReceiptFilingTest extends TestCase
         $this->assertSame($accountId, $filed[0]->accountId);
     }
 
-    private function consumer(): FinanceMessageConsumer
+    /**
+     * The half of the silence the file reader does not cover.
+     *
+     * The bytes are read, finance refuses to file them — an unknown
+     * account, a refused type, a full disk — and the consumer swallows the
+     * throw on purpose, because the message really does belong on that
+     * account whatever happened to its attachment. What it must NOT do is
+     * swallow it without a word: the courrier screen then shows the
+     * message as filed, the receipts screen is empty, and #175 is somebody
+     * asking why their receipt never appeared with nothing anywhere to
+     * read.
+     *
+     * The association still standing is asserted here too, in the same
+     * test: a report that came at the cost of dropping the link would be
+     * the opposite trade.
+     */
+    public function testAReceiptFinanceRefusesIsReportedInsteadOfSwallowed(): void
+    {
+        $reported = [];
+
+        $this->consumer(
+            new RefusingExpenseReceipts(new \Modules\Finance\Api\FinanceException('Compte introuvable.')),
+            function (\Throwable $e, string $mimeType, int $attachmentId) use (&$reported): void {
+                $reported[] = ['message' => $e->getMessage(), 'mime' => $mimeType, 'id' => $attachmentId];
+            }
+        )->onLinked(
+            $this->message($this->inboundAttachment()),
+            new MessageLink(
+                FinanceMessageConsumer::CONSUMER_ID,
+                FinanceMessageConsumer::REFERENCE_UNKNOWN,
+                LinkOrigin::ATTACHMENT
+            )
+        );
+
+        $this->assertCount(1, $reported, 'a receipt finance refused must leave a trace somewhere');
+        // What the composition roots journal: enough to find the
+        // attachment and to know why, and no filename — that is personal
+        // data (ARCHITECTURE.md §7.9).
+        $this->assertSame('Compte introuvable.', $reported[0]['message']);
+        $this->assertSame('image/png', $reported[0]['mime']);
+        $this->assertSame(88, $reported[0]['id']);
+        $this->assertStringNotContainsString('ticket.png', json_encode($reported, JSON_THROW_ON_ERROR));
+
+        $this->assertSame([], $this->attachments->findActiveOrdered(), 'nothing was filed — that is the premise');
+    }
+
+    /**
+     * Saying that a receipt was not filed must not become the next thing
+     * that fails.
+     *
+     * What the composition roots install here writes a journal row. A
+     * database that is down would turn the trace into a second, louder
+     * failure, `onLinked()` would leave its loop, and every other
+     * attachment of that message would go unlooked at — a message
+     * carrying an invoice and a photo losing the photo because the
+     * invoice's refusal could not be written down.
+     */
+    public function testAReporterThatThrowsDoesNotCostTheOtherAttachments(): void
+    {
+        $seen = [];
+
+        $this->consumer(
+            new RefusingExpenseReceipts(new \Modules\Finance\Api\FinanceException('Compte introuvable.')),
+            function (\Throwable $e, string $mimeType, int $attachmentId) use (&$seen): void {
+                $seen[] = $attachmentId;
+
+                throw new \RuntimeException('the journal is down too');
+            }
+        )->onLinked(
+            $this->messageWithTwoAttachments($this->inboundAttachment(), $this->inboundAttachment()),
+            new MessageLink(
+                FinanceMessageConsumer::CONSUMER_ID,
+                FinanceMessageConsumer::REFERENCE_UNKNOWN,
+                LinkOrigin::ATTACHMENT
+            )
+        );
+
+        $this->assertSame([88, 89], $seen, 'the second attachment must still be looked at');
+    }
+
+    private function messageWithTwoAttachments(int $firstFileId, int $secondFileId): InboundMessage
+    {
+        $base = $this->message($firstFileId);
+
+        return new InboundMessage(
+            id: $base->id,
+            mailboxId: $base->mailboxId,
+            consumerId: $base->consumerId,
+            businessReference: $base->businessReference,
+            linkOrigin: $base->linkOrigin,
+            subject: $base->subject,
+            fromEmail: $base->fromEmail,
+            fromName: $base->fromName,
+            messageId: $base->messageId,
+            inReplyTo: $base->inReplyTo,
+            sentAt: $base->sentAt,
+            bodyText: $base->bodyText,
+            bodyHtml: '',
+            toEmails: $base->toEmails,
+            attachments: [
+                new InboundAttachment(88, 55, $firstFileId, 'ticket.png', 'image/png', 120, 'hash-a'),
+                new InboundAttachment(89, 55, $secondFileId, 'plan.png', 'image/png', 120, 'hash-b'),
+            ]
+        );
+    }
+
+    /**
+     * @param (\Closure(\Throwable, string, int): void)|null $onFilingFailed
+     */
+    private function consumer(
+        ?\Modules\Finance\Api\ExpenseReceiptInterface $receipts = null,
+        ?\Closure $onFilingFailed = null
+    ): FinanceMessageConsumer
     {
         $receiptService = new ReceiptService(
             $this->attachments,
@@ -170,7 +282,7 @@ final class UnattendedReceiptFilingTest extends TestCase
             $this->pdo,
             $this->encryption,
             1,
-            new ExpenseReceiptService(
+            $receipts ?? new ExpenseReceiptService(
                 $this->accounts,
                 new TreasurerScopeService(
                     Connection::withPdo($this->pdo),
@@ -184,7 +296,11 @@ final class UnattendedReceiptFilingTest extends TestCase
             // The production closure, verbatim in shape: whatever the
             // composition roots install has to be able to read a file the
             // inbound-mail sync wrote.
-            fn(int $fileId): ?string => $this->reader->read($fileId)
+            fn(int $fileId): ?string => $this->reader->read($fileId),
+            null,
+            null,
+            null,
+            $onFilingFailed
         );
     }
 

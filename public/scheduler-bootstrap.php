@@ -512,7 +512,36 @@ function scoutmagic_bootstrap_scheduler(
                             new \Core\Badge\MemberBadgeRepository($pdo),
                             $userAccountRepo,
                             $financeScoutYearId
-                        )
+                        ),
+                        // The other silence on this path: the bytes were
+                        // read, finance refused to file them, and the
+                        // consumer swallowed the throw to keep the
+                        // association standing — message filed, receipts
+                        // screen empty, nothing anywhere saying why
+                        // (#175). And THIS is the path that matters: the
+                        // relève runs from the scheduler, where no user is
+                        // watching a request fail.
+                        //
+                        // The reason goes in the context, not the
+                        // description: that column is a VARCHAR(500) and a
+                        // throwable's message is not bounded. An id and a
+                        // mime type, never the filename — personal data
+                        // (§7.9).
+                        static function (\Throwable $e, string $mimeType, int $attachmentId) use ($journalService): void {
+                            $journalService->log(
+                                'finance',
+                                'inbound_receipt_not_filed',
+                                'warning',
+                                "Reçu reçu par courriel non classé : le module finances l'a refusé",
+                                [
+                                    'attachment_id' => $attachmentId,
+                                    'mime_type' => $mimeType,
+                                    'exception' => $e::class,
+                                    'reason' => $e->getMessage(),
+                                ],
+                                null
+                            );
+                        }
                     ));
                 }
 

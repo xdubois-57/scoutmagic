@@ -71,6 +71,19 @@ class StayFromMailServiceTest extends TestCase
         $this->asked = [];
     }
 
+    protected function tearDown(): void
+    {
+        if ($this->scanStorage === null) {
+            return;
+        }
+
+        foreach (glob($this->scanStorage . '/inbound/*') ?: [] as $file) {
+            @unlink($file);
+        }
+        @rmdir($this->scanStorage . '/inbound');
+        @rmdir($this->scanStorage);
+    }
+
     private function service(
         ?LlmConnectorInterface $llm = null,
         ?\Modules\Camps\Mail\AttachmentTextReader $attachments = null
@@ -85,6 +98,268 @@ class StayFromMailServiceTest extends TestCase
             $llm,
             $attachments,
             new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo))
+        );
+    }
+
+    // ── « rien à lire » is not « je n\'ai pas pu lire » (#172) ──────────
+
+    /**
+     * The reported bug, from this service\'s side.
+     *
+     * A booking contract arrives as a scan; the OCR service has a bad
+     * minute; the reading comes back empty; the message is journalled
+     * « le message n\'annonce pas de période de séjour lisible » — and the
+     * deferred pass reads each message once for ever, so nothing ever looks
+     * again. The reporter\'s own evidence was exactly that: `reason:
+     * no_dates` in the journal, and « si je clique sur le bouton pour créer
+     * le camp le site trouve les dates seul », because pressing the button
+     * runs the identical reading a second time.
+     *
+     * What the fix changes here is the WORD: a reason that says the
+     * reading failed, which is what the pass reads to decide whether to
+     * come back.
+     */
+    public function testAnOcrOutageIsNotJournalledAsAMessageWithoutDates(): void
+    {
+        $service = $this->service(null, $this->readerWhoseProviderIsDown());
+
+        $this->assertNull($service->createFrom($this->messageWithAScan()));
+
+        $entry = $this->lastSkipEntry();
+        $this->assertSame(
+            StayFromMailService::SKIP_UNREADABLE,
+            $entry['reason'],
+            'a provider outage must not be recorded as a message that says nothing about dates'
+        );
+    }
+
+    /**
+     * The answer the deferred pass actually acts on.
+     *
+     * Journalling the right word is for the human reading /admin/journal;
+     * this is what makes the message come back.
+     */
+    public function testTheServiceSaysTheReadingFailed(): void
+    {
+        $service = $this->service(null, $this->readerWhoseProviderIsDown());
+        $message = $this->messageWithAScan();
+
+        $service->createFrom($message);
+
+        $this->assertTrue($service->readingFailedFor($message));
+    }
+
+    /**
+     * And the other direction, which is what keeps the retry bounded: a
+     * message that simply says nothing about a stay has been read. Asking
+     * again would cost another provider call for the same answer, hourly,
+     * for as long as the mailbox exists.
+     */
+    public function testAMessageThatSaysNothingHasStillBeenRead(): void
+    {
+        $service = $this->service();
+        $message = $this->message(subject: 'Bonjour', body: 'Merci pour votre message.');
+
+        $this->assertNull($service->createFrom($message));
+
+        $this->assertFalse($service->readingFailedFor($message));
+        $this->assertSame(StayFromMailService::SKIP_NO_DATES, $this->lastSkipEntry()['reason']);
+    }
+
+    /**
+     * The whole point of the retry, end to end: the séjour that #172 was
+     * about actually gets created on the second reading.
+     *
+     * The two halves are proved separately elsewhere — the pass puts a
+     * message whose reading failed back in the queue
+     * ({@see \Tests\Modules\InboundMail\Task\AnalyzeStoredMessagesHandlerTest}),
+     * and a readable contract becomes a stay
+     * ({@see self::testAContractInAPdfBecomesAStay}) — and two green halves
+     * that never meet are exactly the kind of proof
+     * docs/quality-pipeline.md warns about. What is checked here is the
+     * JOIN: the same message, the same service, the OCR service down on
+     * the first pass and answering on the second, and a stay at the end of
+     * it. Without the fix the first pass is the only pass there is.
+     */
+    public function testTheSecondReadingCreatesTheStayTheFirstOneMissed(): void
+    {
+        $llm = $this->llmDownOnceThenTranscribing('Arrivee: 18-09-26 Depart: 20-09-26');
+        $message = $this->messageWithAScan($llm);
+
+        // Pass one: the provider answers with an error. Nothing is
+        // created, and the journal says why in the word the deferred pass
+        // reads to decide whether to come back.
+        $this->assertNull($this->service($llm, $this->readerWith($llm))->createFrom($message));
+        $this->assertSame(StayFromMailService::SKIP_UNREADABLE, $this->lastSkipEntry()['reason']);
+
+        // Pass two, an hour later: a new service, as the task builds one
+        // per run, so nothing is memoised from the failure.
+        $campId = $this->service($llm, $this->readerWith($llm))->createFrom($message);
+
+        $this->assertNotNull($campId, 'the retry has to end in a séjour, or it bought nothing');
+        $camp = $this->camps->findById($campId);
+        $this->assertSame('2026-09-18', $camp?->startDate);
+        $this->assertSame('2026-09-20', $camp?->endDate);
+        $this->assertNotNull($this->places->findById((int) $camp?->placeId), 'and the lieu with it');
+    }
+
+    /**
+     * One connector answering two different questions, as production's
+     * does: the transcription at `LlmTier::OCR` and the venue name at
+     * `LlmTier::CHEAP`. The OCR side fails exactly once — a provider
+     * having a bad minute, not a document that says nothing.
+     */
+    private function llmDownOnceThenTranscribing(string $transcript): LlmConnectorInterface
+    {
+        $ocrCalls = 0;
+        $llm = $this->createStub(LlmConnectorInterface::class);
+        $llm->method('isAvailable')->willReturn(true);
+        $llm->method('isTierAvailable')->willReturn(true);
+        $llm->method('complete')->willReturnCallback(
+            function (LlmRequest $request) use ($transcript, &$ocrCalls): LlmResponse {
+                $this->asked[] = $request;
+
+                if ($request->tier !== \Modules\LlmConnector\Api\LlmTier::OCR) {
+                    $payload = ['place_name' => 'Centre de camp Le Grand Pré'];
+
+                    return new LlmResponse((string) json_encode($payload), $payload, 100, 10);
+                }
+
+                if (++$ocrCalls === 1) {
+                    throw new \Modules\LlmConnector\Api\LlmException('provider down');
+                }
+
+                return new LlmResponse($transcript, null, 100, 10);
+            }
+        );
+
+        return $llm;
+    }
+
+    /**
+     * The most recent « aucun séjour créé » line, decoded.
+     *
+     * @return array{reason: string, message_id: int}
+     */
+    private function lastSkipEntry(): array
+    {
+        $row = $this->pdo->query(
+            "SELECT context FROM event_log WHERE event_type = 'camps_stay_from_mail_skipped' ORDER BY id DESC LIMIT 1"
+        );
+        $this->assertNotFalse($row);
+        $context = $row->fetchColumn();
+        $this->assertIsString($context, 'the skip must be journalled at all — a silent one is the bug next door');
+
+        /** @var array{reason: string, message_id: int} $decoded */
+        $decoded = json_decode($context, true, 512, JSON_THROW_ON_ERROR);
+
+        return $decoded;
+    }
+
+    /**
+     * A reader wired to a connector that throws, over a stored picture big
+     * enough to be worth transcribing — the real path, not a stub of it:
+     * what this test is about is precisely that an exception inside the
+     * OCR call reaches the journal as a different word.
+     */
+    private function readerWhoseProviderIsDown(): \Modules\Camps\Mail\AttachmentTextReader
+    {
+        $llm = $this->createStub(LlmConnectorInterface::class);
+        $llm->method('isTierAvailable')->willReturn(true);
+        $llm->method('complete')->willThrowException(new \Modules\LlmConnector\Api\LlmException('provider down'));
+
+        return $this->readerWith($llm);
+    }
+
+    /**
+     * A reader over a stored picture big enough to be worth transcribing —
+     * the real path, not a stub of it: what these tests are about is
+     * precisely what happens inside the OCR call.
+     */
+    private function readerWith(LlmConnectorInterface $llm): \Modules\Camps\Mail\AttachmentTextReader
+    {
+        $files = new \Core\File\FileRepository($this->pdo);
+        if ($this->scanFileId === 0) {
+            $bytes = str_repeat('x', 60000);
+            file_put_contents($this->scanStoragePath() . '/inbound/scan.jpg', $bytes);
+            $this->scanFileId = $files->create(
+                'inbound/scan.jpg',
+                'scan.jpg',
+                'image/jpeg',
+                strlen($bytes),
+                'chief',
+                'inbound_mail',
+                null,
+                false
+            );
+        }
+
+        return new \Modules\Camps\Mail\AttachmentTextReader(
+            new \Core\File\StoredFileReader(
+                $files,
+                new \Core\File\EncryptedFileStorageService(
+                    $files,
+                    new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)),
+                    $this->scanStoragePath()
+                ),
+                $this->scanStoragePath()
+            ),
+            null,
+            $llm
+        );
+    }
+
+    private ?string $scanStorage = null;
+    private int $scanFileId = 0;
+
+    private function scanStoragePath(): string
+    {
+        if ($this->scanStorage === null) {
+            $this->scanStorage = sys_get_temp_dir() . '/stayfromscan_' . uniqid();
+            mkdir($this->scanStorage . '/inbound', 0700, true);
+        }
+
+        return $this->scanStorage;
+    }
+
+    /**
+     * The covering note the reporter actually received: a greeting, and
+     * everything that matters inside the attachment.
+     */
+    private function messageWithAScan(?LlmConnectorInterface $llm = null): InboundMessage
+    {
+        // The file has to exist before a message can point at it, and
+        // building a reader is what stores it.
+        if ($llm !== null) {
+            $this->readerWith($llm);
+        }
+        $this->assertNotSame(0, $this->scanFileId, 'build the reader before the message it reads');
+        $base = $this->message(fromName: 'Emeline', subject: 'Contrat', body: 'Bonjour,');
+
+        return new InboundMessage(
+            id: $base->id,
+            mailboxId: $base->mailboxId,
+            consumerId: '',
+            businessReference: '',
+            linkOrigin: $base->linkOrigin,
+            subject: $base->subject,
+            fromEmail: $base->fromEmail,
+            fromName: $base->fromName,
+            messageId: $base->messageId,
+            inReplyTo: $base->inReplyTo,
+            sentAt: $base->sentAt,
+            bodyText: $base->bodyText,
+            bodyHtml: '',
+            toEmails: [],
+            attachments: [new \Modules\InboundMail\Api\InboundAttachment(
+                1,
+                $base->id,
+                $this->scanFileId,
+                'scan.jpg',
+                'image/jpeg',
+                60000,
+                'hash'
+            )]
         );
     }
 
