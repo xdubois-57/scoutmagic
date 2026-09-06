@@ -9,6 +9,8 @@ declare(strict_types=1);
 namespace Modules\SupportDashboard\Service;
 
 use Modules\SupportDashboard\TicketCategory;
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
+use PhpOffice\PhpSpreadsheet\Reader\IReadFilter;
 use PhpOffice\PhpSpreadsheet\Reader\Xlsx as XlsxReader;
 
 /**
@@ -63,6 +65,20 @@ final class TriageExtractBuilder
 
     /** Well above a real archive's text, well below the 60 MB intake cap. */
     public const MAX_TOTAL_BYTES = 40 * 1024 * 1024;
+
+    /**
+     * A spreadsheet is a zip inside the zip, and its ceiling is measured
+     * on what it UNPACKS to, not on its 8 MB of compressed bytes: a sheet
+     * XML of a few hundred megabytes zips to almost nothing, and
+     * PhpSpreadsheet keeps about a kilobyte per cell once loaded. So the
+     * declared size of the sheet and shared-string parts is read off the
+     * inner zip's directory before anything is loaded, and past this
+     * the entry is omitted and named. Then the reader itself is bounded
+     * — rows, columns, no empty cells — in case the directory lied.
+     */
+    public const MAX_SHEET_XML_BYTES = 16 * 1024 * 1024;
+    public const MAX_SHEET_ROWS = 50000;
+    public const MAX_SHEET_COLUMNS = 64;
 
     /** The usage report, whose two identifying fields are removed before the scrub. */
     private const STATISTICS_ENTRY = 'statistics.json';
@@ -187,7 +203,7 @@ final class TriageExtractBuilder
                     $outputName = $spreadsheet['csv'];
                     $output = self::spreadsheetToCsv($content, $spreadsheet['tokenise'], $scrubber);
                     if ($output === null) {
-                        $omitted[$name] = 'feuille de calcul illisible, non copiée';
+                        $omitted[$name] = 'feuille de calcul illisible ou trop volumineuse une fois décompressée, non copiée';
                         continue;
                     }
                 } else {
@@ -286,8 +302,20 @@ final class TriageExtractBuilder
                 return null;
             }
 
+            if (self::declaredSheetBytes($path) > self::MAX_SHEET_XML_BYTES) {
+                return null;
+            }
+
             $reader = new XlsxReader();
             $reader->setReadDataOnly(true);
+            $reader->setReadEmptyCells(false);
+            $reader->setReadFilter(new class implements IReadFilter {
+                public function readCell(string $columnAddress, int $row, string $worksheetName = ''): bool
+                {
+                    return $row <= TriageExtractBuilder::MAX_SHEET_ROWS
+                        && Coordinate::columnIndexFromString($columnAddress) <= TriageExtractBuilder::MAX_SHEET_COLUMNS;
+                }
+            });
 
             try {
                 $spreadsheet = $reader->load($path);
@@ -356,6 +384,38 @@ final class TriageExtractBuilder
             $strip($decoded),
             JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
         );
+    }
+
+    /**
+     * What the workbook's sheet and shared-string parts say they unpack
+     * to, summed off the inner zip's directory. A file that is not a zip
+     * at all answers the ceiling, so the reader is never asked to open
+     * it — the same fail-closed answer as an oversized one.
+     */
+    private static function declaredSheetBytes(string $path): int
+    {
+        $inner = new \ZipArchive();
+        if ($inner->open($path, \ZipArchive::RDONLY) !== true) {
+            return self::MAX_SHEET_XML_BYTES + 1;
+        }
+
+        $bytes = 0;
+        try {
+            for ($i = 0; $i < $inner->numFiles; $i++) {
+                $stat = $inner->statIndex($i);
+                if ($stat === false) {
+                    continue;
+                }
+                $name = (string) $stat['name'];
+                if (str_starts_with($name, 'xl/worksheets/') || $name === 'xl/sharedStrings.xml') {
+                    $bytes += (int) $stat['size'];
+                }
+            }
+        } finally {
+            $inner->close();
+        }
+
+        return $bytes;
     }
 
     /**

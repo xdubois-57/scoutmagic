@@ -171,6 +171,14 @@ CREATE TABLE support_tickets (
     -- re-pointed.
     github_issue_number INT UNSIGNED NULL,
     github_issue_linked_at DATETIME NULL,
+    -- What the sender's archive box said when this ticket left: the
+    -- consent scope the sending version declares (`archive_consent` in
+    -- the body, Core\Support\Ticket\SupportTicketSender). The triage
+    -- extract route serves an archive only when this equals the scope
+    -- it requires, so an archive transmitted under an older sentence —
+    -- one that never named the triage — reaches no triage. NULL for a
+    -- ticket from a version that declared nothing.
+    archive_consent_scope VARCHAR(40) NULL,
     -- The usage report exactly as it stood when the ticket was written.
     --
     -- **The whole point is that this one cannot drift.** The installation

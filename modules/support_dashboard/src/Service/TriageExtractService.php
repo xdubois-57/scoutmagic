@@ -10,6 +10,8 @@ namespace Modules\SupportDashboard\Service;
 
 use Core\File\StoredFileReader;
 use Core\Journal\JournalService;
+use Core\Security\EncryptionService;
+use Modules\SupportDashboard\Repository\SupportReportRateLimitRepository;
 use Modules\SupportDashboard\Repository\SupportTicketRepository;
 
 /**
@@ -48,12 +50,37 @@ class TriageExtractService
     /** A JSON body naming an issue is a few dozen bytes; anything past this is not one. */
     public const MAX_BODY_BYTES = 4096;
 
+    /**
+     * The consent a ticket must carry for its archive to be served here:
+     * the scope the sender's archive box declared when the ticket left
+     * (`Core\Support\Ticket\SupportTicketSender::ARCHIVE_CONSENT_SCOPE`,
+     * stored as `support_tickets.archive_consent_scope`). An archive
+     * transmitted under a sentence that never named the triage — every
+     * ticket from before this scope existed — is refused, whatever the
+     * reporter cites: the consent is the sender's, given on their page,
+     * and it cannot be inferred from somebody citing a reference later.
+     */
+    public const REQUIRED_CONSENT_SCOPE = 'triage-extract-v1';
+
+    /**
+     * Unauthenticated attempts journaled per source address per hour.
+     * A wrong token costs one hash comparison, which is cheap; the
+     * `security` journal row it writes is not free, and a stranger must
+     * not be able to fill the journal with them or bury a real guessing
+     * attempt under thousands of decoys. Past the limit the answer is the
+     * same 403 and nothing is written.
+     */
+    public const UNAUTHENTICATED_JOURNAL_LIMIT = 20;
+    public const UNAUTHENTICATED_WINDOW_MINUTES = 60;
+
     public function __construct(
         private TriageTokenService $tokens,
         private SupportTicketRepository $tickets,
         private StoredFileReader $files,
         private TriageExtractBuilder $builder,
-        private JournalService $journal
+        private JournalService $journal,
+        private SupportReportRateLimitRepository $rateLimits,
+        private EncryptionService $encryption
     ) {
     }
 
@@ -92,6 +119,13 @@ class TriageExtractService
         $ticket = $this->tickets->findByReference($reference);
         if ($ticket === null) {
             return $this->refuse(TriageExtractResult::REJECT_UNKNOWN_REFERENCE, $clientIp, $issueNumber);
+        }
+
+        // Before the link and before the file: a ticket whose sender was
+        // never shown the sentence naming this use has given no consent
+        // to it, and nothing done on GitHub afterwards can supply one.
+        if ($ticket['archive_consent_scope'] !== self::REQUIRED_CONSENT_SCOPE) {
+            return $this->refuse(TriageExtractResult::REJECT_NO_CONSENT, $clientIp, $issueNumber, $reference);
         }
 
         // Linked to another issue: refused, and NOT re-pointed. Linked to
@@ -201,6 +235,17 @@ class TriageExtractService
 
     private function rejectUnauthenticated(string $clientIp): TriageExtractResult
     {
+        // Same table and same blind-index shape as the statistics intake's
+        // per-address limit, under its own purpose so the two never
+        // count each other's attempts.
+        $ipHash = $this->encryption->blindIndex('support_triage_ip:' . $clientIp);
+        $since = (new \DateTimeImmutable('-' . self::UNAUTHENTICATED_WINDOW_MINUTES . ' minutes'))
+            ->format('Y-m-d H:i:s');
+        if ($this->rateLimits->countSince($ipHash, $since) >= self::UNAUTHENTICATED_JOURNAL_LIMIT) {
+            return TriageExtractResult::rejected(TriageExtractResult::REJECT_UNAUTHENTICATED);
+        }
+        $this->rateLimits->record($ipHash);
+
         $this->journal->log(
             'support_dashboard',
             'support_triage_extract_unauthenticated',

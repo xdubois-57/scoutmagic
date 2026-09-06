@@ -81,7 +81,7 @@ for ((i=0; i<${#args[@]}; i++)); do
     -o) out="${args[i+1]}"; i=$((i+1)) ;;
     -H) headers+=("${args[i+1]}"); i=$((i+1)) ;;
     --data) data="${args[i+1]}"; i=$((i+1)) ;;
-    -w|-X|--max-time) i=$((i+1)) ;;
+    -w|-X|--max-time|--proto|--proto-redir) i=$((i+1)) ;;
     -*) ;;
     *) url="${args[i]}" ;;
   esac
@@ -237,6 +237,14 @@ ok=true
 [[ ! -s "${CURL_LOG}" ]] || ok=false
 [[ "${stdout}" == *"no SUPPORT_TRIAGE_TOKEN"* ]] || ok=false
 check 'without a token the reference is reported and nothing is fetched' "${ok}"
+
+# --- A support site that is not HTTPS never sees the token ------------
+ok=false
+if ! SUPPORT_SITE_URL='http://support.example.be' run_extract 181 >/dev/null 2>&1; then
+  ok=true
+fi
+[[ ! -s "${CURL_LOG}" ]] || ok=false
+check 'a non-HTTPS SUPPORT_SITE_URL fails the step before any request is made' "${ok}"
 
 # --- An issue number that is not one ----------------------------------
 ok=false

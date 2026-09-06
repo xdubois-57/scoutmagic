@@ -25,6 +25,7 @@ final class TriageExtractResult
     public const REJECT_MALFORMED = 'malformed_request';
     public const REJECT_UNKNOWN_REFERENCE = 'unknown_reference';
     public const REJECT_NO_ARCHIVE = 'no_archive';
+    public const REJECT_NO_CONSENT = 'no_consent';
     public const REJECT_ISSUE_MISMATCH = 'issue_mismatch';
     public const REJECT_UNBUILDABLE = 'extract_unbuildable';
 

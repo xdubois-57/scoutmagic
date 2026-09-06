@@ -57,6 +57,14 @@ class SupportTicketSender
 
     /** No identity could be provisioned — `secrets.enc` is unavailable. */
     public const FAILURE_NO_IDENTITY = 'no_identity';
+
+    /**
+     * The consent the archive box on Configuration > Support asks for,
+     * as a version: `triage-extract-v1` is the sentence that names the
+     * anonymised extract read by the GitHub triage. The receiver
+     * compares it against the scope the extract route requires.
+     */
+    public const ARCHIVE_CONSENT_SCOPE = 'triage-extract-v1';
     /** The receiver never answered, or answered nothing readable. */
     public const FAILURE_UNREACHABLE = 'unreachable';
     /** It answered, and refused. The reason it named travels with it. */
@@ -119,6 +127,15 @@ class SupportTicketSender
             'contact_email' => $contactEmail,
             'site_version' => $this->appVersion,
             'php_version' => PHP_VERSION,
+            // WHAT THE ARCHIVE BOX ON THIS VERSION'S PAGE SAID. The
+            // receiver serves an anonymised extract of the archive to the
+            // GitHub triage (ARCHITECTURE.md §8.49sexies) only for a ticket
+            // whose sender ticked a consent sentence that named that use —
+            // and the sentence is a property of the page that showed it,
+            // which is this version. A ticket from an older version
+            // carries no scope, and its archive reaches no triage. Bump
+            // the scope when the sentence changes what it covers.
+            'archive_consent' => self::ARCHIVE_CONSENT_SCOPE,
             // The usage report travels WITH the ticket, always, even on an
             // installation that keeps the daily report switched off.
             //

@@ -5130,7 +5130,11 @@ if ($isEnabled('support_dashboard')) {
                 $supportTicketRepo,
                 $storedFileReader,
                 new \Modules\SupportDashboard\Service\TriageExtractBuilder(),
-                $journalService
+                $journalService,
+                // The per-address limit on journaled unauthenticated
+                // attempts shares the statistics intake's table.
+                $supportRateLimitRepo,
+                $encryptionService
             )
         )
     );

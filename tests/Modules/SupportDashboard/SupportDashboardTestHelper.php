@@ -97,6 +97,7 @@ class SupportDashboardTestHelper
             archive_received_at TEXT NULL,
             github_issue_number INTEGER NULL,
             github_issue_linked_at TEXT NULL,
+            archive_consent_scope TEXT NULL,
             statistics_snapshot_encrypted BLOB NULL
         )');
 

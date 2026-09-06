@@ -82,7 +82,8 @@ class SupportTicketRepository
         string $contactEmail,
         ?string $siteVersion,
         ?string $phpVersion,
-        ?string $statisticsSnapshot = null
+        ?string $statisticsSnapshot = null,
+        ?string $archiveConsentScope = null
     ): string {
         $reference = $this->uniqueReference();
 
@@ -90,8 +91,8 @@ class SupportTicketRepository
             'INSERT INTO support_tickets
                 (reference, installation_id, category, description_encrypted, contact_email_encrypted,
                  contact_email_blind_index, site_version, php_version, status, created_at,
-                 statistics_snapshot_encrypted)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                 statistics_snapshot_encrypted, archive_consent_scope)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $reference,
@@ -110,6 +111,7 @@ class SupportTicketRepository
             $statisticsSnapshot !== null && trim($statisticsSnapshot) !== ''
                 ? $this->encryption->encrypt($statisticsSnapshot, 'support_tickets.statistics_snapshot')
                 : null,
+            $archiveConsentScope,
         ]);
 
         return $reference;
@@ -513,6 +515,9 @@ class SupportTicketRepository
                 : null,
             'github_issue_linked_at' => ($row['github_issue_linked_at'] ?? null) !== null
                 ? (string) $row['github_issue_linked_at']
+                : null,
+            'archive_consent_scope' => ($row['archive_consent_scope'] ?? null) !== null
+                ? (string) $row['archive_consent_scope']
                 : null,
             'statistics_snapshot' => self::decodeSnapshot(
                 ($row['statistics_snapshot_encrypted'] ?? null) !== null

@@ -442,6 +442,26 @@ class TicketIntakeServiceTest extends TestCase
     }
 
     /**
+     * The consent scope the sending version declares travels with the
+     * ticket and is stored as it is — when it is one this receiver
+     * knows. An unknown scope is stored as nothing, never as what was
+     * sent: the extract route compares it for equality, and a body must
+     * not be able to write the value that passes that comparison.
+     */
+    public function testTheArchiveConsentScopeIsStoredOnlyWhenKnown(): void
+    {
+        $known = $this->receive(['archive_consent' => 'triage-extract-v1']);
+        $unknown = $this->receive(['archive_consent' => 'anything-v9']);
+        $absent = $this->receive();
+        $notAString = $this->receive(['archive_consent' => ['triage-extract-v1']]);
+
+        $this->assertSame('triage-extract-v1', $this->tickets->findByReference((string) $known->ticketReference)['archive_consent_scope']);
+        $this->assertNull($this->tickets->findByReference((string) $unknown->ticketReference)['archive_consent_scope']);
+        $this->assertNull($this->tickets->findByReference((string) $absent->ticketReference)['archive_consent_scope']);
+        $this->assertNull($this->tickets->findByReference((string) $notAString->ticketReference)['archive_consent_scope']);
+    }
+
+    /**
      * @param array<string, mixed> $overrides
      */
     private function body(array $overrides = []): string

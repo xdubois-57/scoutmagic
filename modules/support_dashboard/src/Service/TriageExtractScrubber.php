@@ -103,16 +103,21 @@ final class TriageExtractScrubber
 
     /**
      * A JSON or `key=value` field whose name says it holds a person's
-     * id: `"member_id": 42`, `user_account_id=7`, `"user": 3`.
+     * id: `"member_id": 42`, `user_account_id=7`, `"user": 3` — and the
+     * camel-cased spellings a JavaScript payload uses, `memberId`,
+     * `userAccountId`, matched case-sensitively so that `valid` is not
+     * read as `val` + `id`.
      */
-    private const PERSON_FIELD_ID = '/((?:"|\b)(?:[a-z_]*_id|member|user|account|parent|chef)"?\s*[:=]\s*"?)'
+    private const PERSON_FIELD_ID = '/((?:"|\b)(?:[a-z_]*_id|(?-i:[a-zA-Z]*[a-z]Id)|member|user|account|parent|chef)"?\s*[:=]\s*"?)'
         . '(\d+)(?="?(?:[,}\s&]|$))/i';
 
     /**
      * Every query-string value that is not a bare number. `?page=2` keeps
      * its 2; `?q=Dupont`, `?token=…` and `?email=…` lose what was typed.
+     * The name is anything up to the `=`, so a dotted `filter.name` or a
+     * percent-encoded `%66ilter` is a name too.
      */
-    private const QUERY_VALUE = '/([?&][A-Za-z0-9_\[\]\-]+=)(?!\d+(?:[&\s"\'<>]|$))[^&\s"\'<>]+/';
+    private const QUERY_VALUE = '/([?&][^=&\s"\'<>]+=)(?!\d+(?:[&\s"\'<>]|$))[^&\s"\'<>]+/';
 
     public function scrub(string $text): string
     {

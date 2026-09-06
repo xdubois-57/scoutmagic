@@ -18,6 +18,7 @@ use Core\Journal\JournalService;
 use Core\Security\EncryptionService;
 use Modules\SupportDashboard\Controller\TriageExtractController;
 use Modules\SupportDashboard\Repository\SupportInstallationRepository;
+use Modules\SupportDashboard\Repository\SupportReportRateLimitRepository;
 use Modules\SupportDashboard\Repository\SupportTicketRepository;
 use Modules\SupportDashboard\Service\TriageExtractBuilder;
 use Modules\SupportDashboard\Service\TriageExtractService;
@@ -82,7 +83,16 @@ class TriageExtractControllerTest extends TestCase
             '{}',
             []
         );
-        $this->reference = $tickets->create($installationId, TicketCategory::of('other'), 'Description.', 'chef@unite.be', '1.0.41', '8.4.0');
+        $this->reference = $tickets->create(
+            $installationId,
+            TicketCategory::of('other'),
+            'Description.',
+            'chef@unite.be',
+            '1.0.41',
+            '8.4.0',
+            null,
+            TriageExtractService::REQUIRED_CONSENT_SCOPE
+        );
 
         $path = tempnam(sys_get_temp_dir(), 'sm-triage-ctrl-');
         $zip = new \ZipArchive();
@@ -101,7 +111,9 @@ class TriageExtractControllerTest extends TestCase
                 $tickets,
                 new StoredFileReader($files, $storage, $this->storagePath),
                 new TriageExtractBuilder(),
-                $journal
+                $journal,
+                new SupportReportRateLimitRepository($this->pdo),
+                $encryption
             )
         );
     }
@@ -128,7 +140,14 @@ class TriageExtractControllerTest extends TestCase
         $this->assertStringContainsString($this->reference, $response->getHeaders()['Content-Disposition']);
     }
 
-    public function testEveryRefusalIsTheSameBareForbidden(): void
+    /**
+     * The end-to-end half of the uniform 403: a real service, a real
+     * database, every refusal reason the service can reach. The half that
+     * needs no database — that the CONTROLLER answers the same bytes
+     * whatever reason the service gives — lives in
+     * TriageExtractControllerRefusalTest, which cannot skip.
+     */
+    public function testEveryRefusalTheServiceReachesIsTheSameBareForbidden(): void
     {
         $refusals = [
             'wrong token' => $this->controller->serve($this->request(token: 'nope'), ['reference' => $this->reference]),

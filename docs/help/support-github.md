@@ -40,9 +40,11 @@ conservée, et est lue par un service d'intelligence artificielle, sur
 l'infrastructure de GitHub, qui rédige la première réponse. Chaque envoi
 est inscrit au journal de l'équipe de support.
 
-Seule la personne qui a envoyé le ticket connaît sa référence, et seul
-l'auteur d'un signalement peut la citer dans le sien : personne ne peut
-faire lire au triage l'archive d'une autre unité.
+Seule la personne qui a envoyé le ticket connaît sa référence, et seuls
+l'auteur du signalement et le mainteneur du logiciel peuvent la citer
+sur celui-ci, dans le formulaire ou en réponse ; une référence écrite
+par quelqu'un d'autre n'est pas lue. Personne ne peut donc faire lire au
+triage l'archive d'une autre unité.
 
 ## Ce qu'il ne faut jamais faire
 
@@ -53,4 +55,8 @@ faire lire au triage l'archive d'une autre unité.
 > et rien d'autre ne doit sortir de votre serveur.
 
 Ce que la case d'acceptation, sur la page Support, vous demande d'accepter
-avant l'envoi d'une archive couvre aussi cette copie anonymisée.
+avant l'envoi d'une archive couvre aussi cette copie anonymisée — et
+c'est elle qui compte : un ticket envoyé depuis une version du site dont
+la case ne mentionnait pas encore le triage ne donne accès à aucune
+copie, quelle que soit la référence citée. Renvoyez alors un ticket depuis
+la version à jour.

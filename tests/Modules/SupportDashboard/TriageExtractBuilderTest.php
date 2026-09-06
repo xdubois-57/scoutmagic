@@ -120,6 +120,33 @@ class TriageExtractBuilderTest extends TestCase
         $this->assertArrayHasKey('logs/error.log', $entries, 'the other entries still travel');
     }
 
+    /**
+     * A workbook is a zip inside the zip, and 8 MB of it can hold a sheet
+     * of hundreds of megabytes that PhpSpreadsheet would try to keep in
+     * memory a kilobyte per cell. The ceiling is read off the inner
+     * directory before anything is loaded.
+     */
+    public function testAWorkbookThatUnpacksPastTheCeilingIsOmittedBeforeItIsLoaded(): void
+    {
+        $path = tempnam(sys_get_temp_dir(), 'sm-triage-hostile-');
+        $zip = new \ZipArchive();
+        self::assertTrue($zip->open($path, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) === true);
+        $zip->addFromString('[Content_Types].xml', '<Types/>');
+        $zip->addFromString('xl/workbook.xml', '<workbook/>');
+        // Highly compressible, far past the ceiling once unpacked.
+        $zip->addFromString('xl/worksheets/sheet1.xml', str_repeat('<row/>', intdiv(TriageExtractBuilder::MAX_SHEET_XML_BYTES, 6) + 1000));
+        $zip->close();
+        $hostile = (string) file_get_contents($path);
+        @unlink($path);
+        $this->assertLessThan(TriageExtractBuilder::MAX_ENTRY_BYTES, strlen($hostile), 'the hostile workbook passes the entry ceiling');
+
+        $entries = $this->extract($this->archive(['event-journal.xlsx' => $hostile]));
+
+        $this->assertArrayNotHasKey('event-journal.csv', $entries);
+        $this->assertStringContainsString('event-journal.xlsx : feuille de calcul illisible ou trop volumineuse', $entries[TriageExtractBuilder::README_ENTRY]);
+        $this->assertArrayHasKey('logs/error.log', $entries, 'the rest of the extract is unaffected');
+    }
+
     public function testBytesThatAreNotAZipAreRefused(): void
     {
         $this->expectException(\RuntimeException::class);

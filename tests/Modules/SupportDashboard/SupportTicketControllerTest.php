@@ -314,22 +314,58 @@ class SupportTicketControllerTest extends TestCase
 
         $this->assertSame(302, $response->getStatusCode());
 
-        $flash = \Core\Http\FlashMessage::get();
-        $this->assertNotNull($flash);
-        $this->assertSame(1, preg_match('/[0-9a-f]{64}/', (string) $flash['message'], $found));
-        $token = $found[0];
+        // The page the redirect lands on renders the flash — and consumes
+        // it. The token is read off THAT render, the way the superadmin
+        // reads it, rather than off the flash store.
+        $landing = $this->frontController('/support-dashboard/tickets', 'index', 'GET', withTriageTokens: true)
+            ->handle(new Request('GET', '/support-dashboard/tickets', [], [], [], []))
+            ->getBody();
+        $this->assertSame(
+            1,
+            preg_match('/Nouveau jeton de triage : ([0-9a-f]{64})/', $landing, $found),
+            'the landing page shows the token once'
+        );
+        $token = $found[1];
+        $this->assertStringContainsString('SUPPORT_TRIAGE_TOKEN', $landing);
+        $this->assertStringContainsString('Jeton actif', $landing);
+        $this->assertStringContainsString('/support-dashboard/tickets/triage-token/revoke', $landing);
 
         $stored = (string) $this->pdo->query(
             "SELECT setting_value FROM settings WHERE setting_key = 'support_triage_token_hash'"
         )->fetchColumn();
         $this->assertSame(hash('sha256', $token), $stored);
 
+        $again = $this->frontController('/support-dashboard/tickets', 'index', 'GET', withTriageTokens: true)
+            ->handle(new Request('GET', '/support-dashboard/tickets', [], [], [], []))
+            ->getBody();
+        $this->assertStringNotContainsString($token, $again, 'shown once, never again');
+    }
+
+    public function testRevokingTheTokenClearsTheHashAndThePageSaysSo(): void
+    {
+        AuthSession::login(1, 'superadmin@test.com', 'superadmin');
+
+        $this->frontController('/support-dashboard/tickets/triage-token', 'issueTriageToken', 'POST', withTriageTokens: true)
+            ->handle(new Request('POST', '/support-dashboard/tickets/triage-token', [], ['_csrf_token' => \Core\Security\CsrfGuard::generateToken()], [], []));
+        \Core\Http\FlashMessage::get();
+        $this->assertNotSame('', (string) $this->pdo->query(
+            "SELECT setting_value FROM settings WHERE setting_key = 'support_triage_token_hash'"
+        )->fetchColumn());
+
+        $response = $this->frontController('/support-dashboard/tickets/triage-token/revoke', 'revokeTriageToken', 'POST', withTriageTokens: true)
+            ->handle(new Request('POST', '/support-dashboard/tickets/triage-token/revoke', [], ['_csrf_token' => \Core\Security\CsrfGuard::generateToken()], [], []));
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('', (string) $this->pdo->query(
+            "SELECT setting_value FROM settings WHERE setting_key = 'support_triage_token_hash'"
+        )->fetchColumn());
+
         $page = $this->frontController('/support-dashboard/tickets', 'index', 'GET', withTriageTokens: true)
             ->handle(new Request('GET', '/support-dashboard/tickets', [], [], [], []))
             ->getBody();
-        $this->assertStringContainsString('Jeton actif', $page);
-        $this->assertStringContainsString('/support-dashboard/tickets/triage-token/revoke', $page);
-        $this->assertStringNotContainsString($token, $page, 'shown once, in the flash, never again');
+        $this->assertStringContainsString('révoqué', $page);
+        $this->assertStringContainsString('Aucun jeton', $page);
+        $this->assertStringNotContainsString('Jeton actif', $page);
     }
 
     public function testIssuingATokenNeedsTheCsrfToken(): void

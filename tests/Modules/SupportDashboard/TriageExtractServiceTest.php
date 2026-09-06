@@ -13,6 +13,7 @@ use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Security\EncryptionService;
 use Modules\SupportDashboard\Repository\SupportInstallationRepository;
+use Modules\SupportDashboard\Repository\SupportReportRateLimitRepository;
 use Modules\SupportDashboard\Repository\SupportTicketRepository;
 use Modules\SupportDashboard\Service\TriageExtractBuilder;
 use Modules\SupportDashboard\Service\TriageExtractResult;
@@ -41,6 +42,7 @@ class TriageExtractServiceTest extends TestCase
     private string $token;
     private string $reference;
     private int $ticketId;
+    private int $installationId;
 
     protected function setUp(): void
     {
@@ -73,20 +75,13 @@ class TriageExtractServiceTest extends TestCase
         $this->tokens = new TriageTokenService(new SettingService($settingRepository), $journal);
         $this->token = $this->tokens->issue();
 
-        $installationId = (new SupportInstallationRepository($this->pdo))->register(
+        $this->installationId = (new SupportInstallationRepository($this->pdo))->register(
             'unite-de-test',
             password_hash('secret', PASSWORD_DEFAULT),
             '{}',
             []
         );
-        $this->reference = $this->tickets->create(
-            $installationId,
-            TicketCategory::of('desk_import'),
-            "L'import Desk s'arrête à mi-parcours.",
-            'chef@unite.be',
-            '1.0.41',
-            '8.4.0'
-        );
+        $this->reference = $this->createTicket(TriageExtractService::REQUIRED_CONSENT_SCOPE);
         $this->ticketId = (int) $this->tickets->findByReference($this->reference)['id'];
 
         $this->service = new TriageExtractService(
@@ -94,7 +89,9 @@ class TriageExtractServiceTest extends TestCase
             $this->tickets,
             new StoredFileReader($files, $this->storage, $this->storagePath),
             new TriageExtractBuilder(),
-            $journal
+            $journal,
+            new SupportReportRateLimitRepository($this->pdo),
+            $encryption
         );
     }
 
@@ -219,6 +216,64 @@ class TriageExtractServiceTest extends TestCase
         $this->assertSame(TriageExtractResult::REJECT_UNKNOWN_REFERENCE, $this->serve(reference: strtolower($this->reference))->rejectionReason);
     }
 
+    /**
+     * The consent is the sender's, given on the page that showed the
+     * sentence naming the triage; a ticket from a version whose page
+     * never said so carries no scope, and nothing a reporter does on
+     * GitHub afterwards can supply one.
+     */
+    public function testATicketSentUnderAnOlderConsentSentenceIsRefusedAndNeverBound(): void
+    {
+        $older = $this->createTicket(null);
+        $this->attachArchive($older);
+
+        $result = $this->serve(reference: $older);
+
+        $this->assertFalse($result->accepted);
+        $this->assertSame(TriageExtractResult::REJECT_NO_CONSENT, $result->rejectionReason);
+        $this->assertNull($this->tickets->findByReference($older)['github_issue_number']);
+    }
+
+    public function testAnUnknownConsentScopeIsNotTheRequiredOne(): void
+    {
+        $other = $this->createTicket('triage-extract-v0');
+        $this->attachArchive($other);
+
+        $this->assertSame(TriageExtractResult::REJECT_NO_CONSENT, $this->serve(reference: $other)->rejectionReason);
+    }
+
+    /**
+     * A wrong token is refused every time; it is JOURNALED at most
+     * twenty times an hour per address, so a stranger cannot fill the
+     * journal or bury a real guessing attempt under decoys.
+     */
+    public function testUnauthenticatedAttemptsAreJournaledUpToALimitPerAddress(): void
+    {
+        for ($i = 0; $i < TriageExtractService::UNAUTHENTICATED_JOURNAL_LIMIT + 5; $i++) {
+            $this->assertSame(TriageExtractResult::REJECT_UNAUTHENTICATED, $this->serve(token: 'wrong')->rejectionReason);
+        }
+
+        $this->assertCount(
+            TriageExtractService::UNAUTHENTICATED_JOURNAL_LIMIT,
+            $this->journal('support_triage_extract_unauthenticated')
+        );
+
+        // Another address starts its own count.
+        $result = $this->service->serve(
+            $this->reference,
+            '{"github_issue_number":181}',
+            'Bearer wrong',
+            '198.51.100.9',
+            true,
+            new \DateTimeImmutable()
+        );
+        $this->assertSame(TriageExtractResult::REJECT_UNAUTHENTICATED, $result->rejectionReason);
+        $this->assertCount(
+            TriageExtractService::UNAUTHENTICATED_JOURNAL_LIMIT + 1,
+            $this->journal('support_triage_extract_unauthenticated')
+        );
+    }
+
     public function testATicketWithoutAnArchiveIsRefusedButStillBound(): void
     {
         $result = $this->serve();
@@ -274,7 +329,21 @@ class TriageExtractServiceTest extends TestCase
         );
     }
 
-    private function attachArchive(): int
+    private function createTicket(?string $consentScope): string
+    {
+        return $this->tickets->create(
+            $this->installationId,
+            TicketCategory::of('desk_import'),
+            "L'import Desk s'arrête à mi-parcours.",
+            'chef@unite.be',
+            '1.0.41',
+            '8.4.0',
+            null,
+            $consentScope
+        );
+    }
+
+    private function attachArchive(?string $reference = null): int
     {
         $path = tempnam(sys_get_temp_dir(), 'sm-triage-svc-');
         $zip = new \ZipArchive();
@@ -286,7 +355,10 @@ class TriageExtractServiceTest extends TestCase
         @unlink($path);
 
         $fileId = $this->storage->store($bytes, 'application/zip', 'support.zip', 'support-tickets', 'superadmin');
-        $this->tickets->attachArchive($this->ticketId, $fileId);
+        $ticketId = $reference === null
+            ? $this->ticketId
+            : (int) $this->tickets->findByReference($reference)['id'];
+        $this->tickets->attachArchive($ticketId, $fileId);
 
         return $fileId;
     }

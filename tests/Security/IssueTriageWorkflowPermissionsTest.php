@@ -1214,7 +1214,14 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
             );
         }
 
-        foreach (['Read(//proc/**)', 'Read(~/.claude/**)', 'Read(//home/runner/work/_temp/**)'] as $rule) {
+        $rules = [
+            'Read(//proc/**)',
+            'Read(~/.claude/**)',
+            'Read(//home/runner/.claude/**)',
+            'Read(//home/runner/work/_temp/**)',
+        ];
+
+        foreach ($rules as $rule) {
             self::assertContains(
                 $rule,
                 $listed,

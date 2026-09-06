@@ -129,6 +129,20 @@ class TriageExtractScrubberTest extends TestCase
         $this->assertSame('GET /reset?token=…&page=2&email=…&q=…&sort=…&ids[]=4 HTTP/1.1', $out);
     }
 
+    public function testADottedOrPercentEncodedParameterNameIsStillAParameter(): void
+    {
+        $out = $this->scrubber->scrub('GET /members?filter.name=Marie&%66ilter=Dupont&page=1 HTTP/1.1');
+
+        $this->assertSame('GET /members?filter.name=…&%66ilter=…&page=1 HTTP/1.1', $out);
+    }
+
+    public function testACamelCasedPersonIdIsTokenisedAndAWordEndingInIdIsNot(): void
+    {
+        $out = $this->scrubber->scrub('{"memberId":42,"userId":7,"userAccountId":42,"valid":3,"paid":1}');
+
+        $this->assertSame('{"memberId":id-1,"userId":id-2,"userAccountId":id-1,"valid":3,"paid":1}', $out);
+    }
+
     public function testATokenIsAllocatedOnceWhateverTheKindLooksLike(): void
     {
         $this->assertSame('user-1', $this->scrubber->token('user', '42'));

@@ -53,6 +53,16 @@ set -euo pipefail
 SUPPORT_SITE_URL="${SUPPORT_SITE_URL:-}"
 SUPPORT_TRIAGE_TOKEN="${SUPPORT_TRIAGE_TOKEN:-}"
 
+# The token goes out as a bearer header, so it goes out over HTTPS or not
+# at all: a variable set to `http://` — a typo is enough — would hand the
+# credential to every hop between the runner and the site. Refused here,
+# before any issue is read, and curl below refuses to follow a redirect
+# off HTTPS for the same reason.
+if [[ -n "${SUPPORT_SITE_URL}" && "${SUPPORT_SITE_URL}" != https://* ]]; then
+  echo "::error title=Support site is not HTTPS::SUPPORT_SITE_URL must start with https://; the token was not sent anywhere." >&2
+  exit 1
+fi
+
 # Exactly what the receiver issues: `SUP-` and six characters of an
 # alphabet with no O/0 or I/1 (Modules\SupportDashboard\Repository\
 # SupportTicketRepository). Anything else is prose.
@@ -116,6 +126,7 @@ for issue in ${ISSUE_NUMBERS//,/ }; do
   # written; `--max-time` bounds a site that hangs; the token is a
   # header. `-sS` keeps curl quiet except for a real transport error.
   status="$(curl -sS --fail-with-body --max-time 120 \
+    --proto '=https' --proto-redir '=https' \
     -o "${archive}" -w '%{http_code}' \
     -X POST \
     -H "Authorization: Bearer ${SUPPORT_TRIAGE_TOKEN}" \
