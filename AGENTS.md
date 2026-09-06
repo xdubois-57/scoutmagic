@@ -97,9 +97,10 @@ of the two it is, that is a sign you have not finished establishing the problem
 
 The **labels** are a different matter, and mostly not yours. They are the
 issue's state, `scripts/sync-issue-labels.sh` is the taxonomy's only source,
-and `.claude/skills/triage` is what sets them: `issue-triage.yml` fires on
+and `.claude/skills/triage` is what decides them: `issue-triage.yml` fires on
 every issue opened, including the one you just filed, and applies the verdict
-plus `triage:done`. So:
+plus `triage:done` — the workflow does the applying, from a verdict the agent
+returns, which is why no label the model spells can ever reach an issue. So:
 
 - Apply `bug:confirmed` when you filed a defect — it means "A real defect,
   understood", which is what this rule required you to establish before
@@ -396,7 +397,7 @@ backlog » — and it is a standing instruction, not a one-off. It means:
 2. **Take every OPEN issue carrying `status:accepted`.** That label, and
    only that label, selects the work. It is applied by hand and means the
    maintainer has decided the work is to be done; nothing automatic ever
-   applies it (`.claude/skills/triage/SKILL.md` § 5 forbids it), which is
+   applies it (`.claude/skills/triage/SKILL.md` § 6 forbids it), which is
    what makes it a decision rather than an opinion. `bug:confirmed` alone
    selects nothing — a confirmed defect nobody has accepted is still a
    backlog item, not an instruction.
