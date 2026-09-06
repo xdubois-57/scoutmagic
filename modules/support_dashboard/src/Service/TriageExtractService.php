@@ -237,14 +237,16 @@ class TriageExtractService
     {
         // Same table and same blind-index shape as the statistics intake's
         // per-address limit, under its own purpose so the two never
-        // count each other's attempts.
+        // count each other's attempts. The count and the row are ONE
+        // reservation, not a check followed by a write: a burst of
+        // parallel wrong tokens must not all count nineteen and all
+        // write (SupportReportRateLimitRepository::reserve()).
         $ipHash = $this->encryption->blindIndex('support_triage_ip:' . $clientIp);
         $since = (new \DateTimeImmutable('-' . self::UNAUTHENTICATED_WINDOW_MINUTES . ' minutes'))
             ->format('Y-m-d H:i:s');
-        if ($this->rateLimits->countSince($ipHash, $since) >= self::UNAUTHENTICATED_JOURNAL_LIMIT) {
+        if (!$this->rateLimits->reserve($ipHash, $since, self::UNAUTHENTICATED_JOURNAL_LIMIT)) {
             return TriageExtractResult::rejected(TriageExtractResult::REJECT_UNAUTHENTICATED);
         }
-        $this->rateLimits->record($ipHash);
 
         $this->journal->log(
             'support_dashboard',
