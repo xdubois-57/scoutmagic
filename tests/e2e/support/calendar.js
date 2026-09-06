@@ -42,50 +42,41 @@ async function expectWeekIsAGridRow(week) {
 }
 
 /**
- * @param {import('@playwright/test').Locator} grid A `.daygrid` element.
+ * The first two day cells of a week, measured together and waited for
+ * rather than sampled once.
+ *
+ * Two hazards, and the second is the one that kept coming back.
+ *
+ * A cell measured a millisecond ago can be DETACHED by the time the next
+ * line asks for its neighbour: these grids are live —
+ * public/assets/js/rental-calendar.js replaces #rental-calendar-fragment's
+ * innerHTML, calendar-chief.js rebuilds the month on a page. evaluateAll()
+ * runs once inside the page, so both rectangles come out of the same
+ * layout pass and a re-render cannot slip between them.
+ *
+ * But a single layout pass is not the same as a FINISHED one. Waiting only
+ * for the two rectangles to be readable returns as soon as the cells
+ * exist, which is before the grid has been laid out — both cells still at
+ * x = 0, stacked at the left edge. The caller's assertion then read that
+ * transient as a broken calendar: `two days of one week must sit side by
+ * side / Expected: > 0 / Received: 0`, intermittently and only under
+ * scripts/dast.sh, where every request crosses ZAP and a TLS terminator so
+ * every window is widest. The browser suite passed the same spec in the
+ * same run, which is what says it was never the calendar (#171).
+ *
+ * So the poll waits for what its message claims: the cells laid out side
+ * by side. This is exactly what expectWeekIsAGridRow() above does for
+ * `display`, and it weakens nothing for the same reason — a page that
+ * genuinely stacks its days never reaches that state, the poll times out,
+ * and the failure still names the symptom.
+ *
+ * @param {import('@playwright/test').Locator} days the week's day cells
+ * @returns {Promise<{first: {x: number, y: number, height: number}, second: {x: number, y: number}}>}
  */
-export async function expectRendersAsACalendar(grid) {
-    await expect(grid).toBeVisible();
+async function measureFirstTwoDays(days) {
+    /** @type {{first: {x: number, y: number, height: number}, second: {x: number, y: number}}|null} */
+    let box = null;
 
-    const week = grid.locator('.daygrid-week').first();
-
-    await expectWeekIsAGridRow(week);
-
-    // The observable consequence of that grid, stated in geometry: two
-    // days of the same week sit side by side. A future CSS change that
-    // keeps `display: grid` but loses the seven columns still fails here.
-    //
-    // A week is seven days — partials/month_day_grid.html.twig emits
-    // exactly that, padding included — so this is an invariant of the
-    // markup and not of any one month.
-    const days = week.locator('.daygrid-day');
-    await expect(days).toHaveCount(7);
-
-    // Both boxes measured in ONE page evaluation, and retried until the
-    // cells are there to measure.
-    //
-    // On the rental pages this grid is LIVE:
-    // public/assets/js/rental-calendar.js replaces
-    // #rental-calendar-fragment's innerHTML when a month is paged or an
-    // estimate recomputed. Two separate boundingBox() calls are two
-    // separate round trips to the browser, so the cell measured a
-    // millisecond ago can be detached — answering null — by the time the
-    // next line asks for its neighbour.
-    //
-    // Polling the pair until both answer fixes the null half and NOT the
-    // other half, which is the one that actually cost time: two non-null
-    // rectangles can still come from two DIFFERENT renders, and then the
-    // comparison below is between cells that never coexisted. That is how
-    // this read « two days of one week must share a row » as 8 px apart,
-    // intermittently, and only under scripts/dast.sh — where every request
-    // crosses ZAP and a TLS terminator, so the window between the two
-    // round trips is widest. The browser suite passed the same spec in the
-    // same run, which is what says it was never the calendar.
-    //
-    // evaluateAll() runs once inside the page: both rectangles come out of
-    // the same layout pass, and a re-render cannot slip between them.
-    /** @type {{first: {x: number, y: number, height: number}, second: {x: number}}} */
-    let box;
     await expect
         .poll(async () => {
             // ONE evaluation in the page, so both rectangles come from
@@ -107,9 +98,41 @@ export async function expectRendersAsACalendar(grid) {
             }
             box = pair;
 
-            return true;
-        }, { message: "the week's first two day cells must both be laid out at the same moment" })
+            // Not merely readable: actually laid out as a row.
+            return pair.second.x > pair.first.x;
+        }, { message: "the week's first two day cells must be laid out side by side" })
         .toBe(true);
+
+    if (box === null) {
+        throw new Error('unreachable: the poll only succeeds once both cells were measured');
+    }
+
+    return box;
+}
+
+/**
+ * @param {import('@playwright/test').Locator} grid A `.daygrid` element.
+ */
+export async function expectRendersAsACalendar(grid) {
+    await expect(grid).toBeVisible();
+
+    const week = grid.locator('.daygrid-week').first();
+
+    await expectWeekIsAGridRow(week);
+
+    // The observable consequence of that grid, stated in geometry: two
+    // days of the same week sit side by side. A future CSS change that
+    // keeps `display: grid` but loses the seven columns still fails here.
+    //
+    // A week is seven days — partials/month_day_grid.html.twig emits
+    // exactly that, padding included — so this is an invariant of the
+    // markup and not of any one month.
+    const days = week.locator('.daygrid-day');
+    await expect(days).toHaveCount(7);
+
+    // Measured together, and waited for until the row is actually laid
+    // out — see measureFirstTwoDays() for the two hazards that shape it.
+    const box = await measureFirstTwoDays(days);
 
     expect(box.second.x, 'two days of one week must sit side by side').toBeGreaterThan(box.first.x);
     expect(Math.abs(box.second.y - box.first.y), 'and share a row').toBeLessThan(2);
@@ -139,36 +162,10 @@ export async function expectRendersAsAnEventCalendar(container) {
     const days = week.locator('.calendar-day-cell');
     await expect(days).toHaveCount(7);
 
-    // The same paired poll as the day grid above, for the same reason:
+    // The same measurement as the day grid above, for the same reasons:
     // this month is live too — public/assets/js/calendar-chief.js rebuilds
-    // it on a month change — so measuring the two cells separately can
-    // measure one that no longer exists.
-    /** @type {{first: {x: number, y: number}, second: {x: number, y: number}}} */
-    let box;
-    await expect
-        .poll(async () => {
-            // ONE evaluation in the page, so both rectangles come from
-            // the same layout pass.
-            const pair = await days.evaluateAll((nodes) => {
-                if (nodes.length < 2) {
-                    return null;
-                }
-                const a = nodes[0].getBoundingClientRect();
-                const b = nodes[1].getBoundingClientRect();
-
-                return {
-                    first: { x: a.x, y: a.y, height: a.height },
-                    second: { x: b.x, y: b.y },
-                };
-            });
-            if (pair === null) {
-                return false;
-            }
-            box = pair;
-
-            return true;
-        }, { message: "the week's first two day cells must both be laid out at the same moment" })
-        .toBe(true);
+    // it on a month change.
+    const box = await measureFirstTwoDays(days);
 
     expect(box.second.x, 'two days of one week must sit side by side').toBeGreaterThan(box.first.x);
     expect(Math.abs(box.second.y - box.first.y), 'and share a row').toBeLessThan(2);
