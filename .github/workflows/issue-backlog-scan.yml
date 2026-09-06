@@ -559,9 +559,10 @@ jobs:
 
           applied=0
           refused=0
+          unlanded=0
 
           # Through a file rather than a pipe: `… | while read` runs the
-          # loop in a subshell, and the two counters this step exits on
+          # loop in a subshell, and the counters this step exits on
           # would be lost when it ended.
           entries="$(mktemp)"
           # `unique_by` because the selection bounds WHICH issues this
@@ -614,6 +615,20 @@ jobs:
             gh api "repos/${GITHUB_REPOSITORY}/issues/${issue}/labels" \
               -X POST -f 'labels[]=triage:done' --silent
 
+            # A verdict REPLACES the previous one — see the same loop
+            # in issue-triage.yml for the issue that arrived carrying
+            # two contradictory `bug:*` labels at once. This job picks
+            # up issues the per-issue run failed on, so a stale verdict
+            # label from that run is exactly what it meets.
+            for stale in 'bug:confirmed' 'bug:not-a-bug' 'bug:needs-info'; do
+              if [ "${stale}" != "${bug_label}" ]; then
+                gh api \
+                  "repos/${GITHUB_REPOSITORY}/issues/${issue}/labels/${stale//:/%3A}" \
+                  -X DELETE --silent \
+                  || echo "Removing ${stale} from #${issue} did not succeed; counted below."
+              fi
+            done
+
             if [ -n "${bug_label}" ]; then
               gh api "repos/${GITHUB_REPOSITORY}/issues/${issue}/labels" \
                 -X POST -f "labels[]=${bug_label}" --silent
@@ -630,18 +645,51 @@ jobs:
                 -X PATCH -f state=closed -f state_reason=not_planned --silent
             fi
 
+            # READ BACK BEFORE COUNTING IT APPLIED. The label removals
+            # above tolerate a failure, because the usual reason one
+            # fails is that the label was not there — so what makes
+            # that safe is reading the result. An issue left carrying
+            # two contradictory `bug:*` labels reads as triaged to the
+            # backlog count below while saying nothing to a human, and
+            # would be counted here as one more verdict delivered.
+            labels="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${issue}/labels" \
+              --jq '[.[].name]')"
+
+            # `triage:done` and the verdict labels, deliberately NOT
+            # the absence of `triage:pending`: that half is the
+            # candidate predicate, it lives in ${CANDIDATE_FILTER}
+            # alone, and a leftover `triage:pending` is already what
+            # the backlog count at the end of this job measures. Two
+            # copies of the selection rule is the failure that check
+            # exists to refuse.
+            state="$(printf '%s' "${labels}" | jq -r --arg expected "${bug_label}" '
+              (index("triage:done") != null)
+              and ((map(select(startswith("bug:"))) | sort)
+                    == (if $expected == "" then [] else [$expected] end))')"
+
+            if [ "${state}" != 'true' ]; then
+              echo "::error title=Verdict did not land::Issue #${issue} should carry triage:done \
+              and exactly ${bug_label:-no bug:* label} after this run, and does not. Its labels \
+              are ${labels}."
+              unlanded=$(( unlanded + 1 ))
+              continue
+            fi
+
             echo "Applied ${verdict} to issue #${issue}."
             applied=$(( applied + 1 ))
           done < "${entries}"
 
           rm -f "${entries}"
 
-          echo "Applied ${applied} verdict(s); refused ${refused}."
+          echo "Applied ${applied} verdict(s); refused ${refused}; ${unlanded} did not land."
 
           # A refused entry is not a detail to log and move past: it is
           # either a model that ignored its selection or an issue body
           # that talked it into doing so, and both are worth a red run.
-          if [ "${refused}" -gt 0 ]; then
+          # An entry that did not land is a different failure with the
+          # same remedy — the issue is in a state no human asked for —
+          # and it is counted apart so the log says which happened.
+          if [ "${refused}" -gt 0 ] || [ "${unlanded}" -gt 0 ]; then
             exit 1
           fi
 

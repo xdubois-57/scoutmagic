@@ -800,6 +800,30 @@ jobs:
           gh api "repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}/labels" \
             -X POST -f 'labels[]=triage:done' --silent
 
+          # A VERDICT REPLACES THE PREVIOUS ONE; it does not join it.
+          # The reset step strips the old `bug:*` labels when a comment
+          # brings an issue back, but that step is skipped on the
+          # `issues:` path — and an issue can be re-triaged from there
+          # too, by being reopened. #181 came out of that path carrying
+          # `bug:confirmed` AND `bug:not-a-bug`, which says nothing at
+          # all to a maintainer reading the list and is worse than
+          # either label alone. So the labels the verdict is NOT are
+          # removed here, next to the one it is, on every path.
+          for stale in 'bug:confirmed' 'bug:not-a-bug' 'bug:needs-info'; do
+            # An `if`, not `[ … ] && continue`: under `set -e` a test
+            # that ends a line is a status the shell may act on, and
+            # this loop must not be the reason a verdict is half
+            # applied.
+            if [ "${stale}" != "${bug_label}" ]; then
+              # Absent is a 404 and the normal case; the state read
+              # back in the next step settles anything else.
+              gh api \
+                "repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}/labels/${stale//:/%3A}" \
+                -X DELETE --silent \
+                || echo "Removing ${stale} did not succeed; the state is checked below."
+            fi
+          done
+
           if [ -n "${bug_label}" ]; then
             gh api "repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}/labels" \
               -X POST -f "labels[]=${bug_label}" --silent
@@ -820,6 +844,10 @@ jobs:
               -X PATCH -f state=closed -f state_reason=not_planned --silent
           fi
 
+          # Published for the read-back below, which is what makes the
+          # tolerated 404s above safe to tolerate.
+          echo "bug_label=${bug_label}" >> "${GITHUB_OUTPUT}"
+
           echo "Applied ${verdict} to issue #${ISSUE_NUMBER}."
 
       # The point of the whole exercise: an issue nobody triaged must not
@@ -830,6 +858,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
+          # The `bug:*` label the verdict called for, empty for a
+          # feature request. What the issue must carry, and the only
+          # one of the three it may.
+          BUG_LABEL: ${{ steps.apply.outputs.bug_label }}
         run: |
           set -euo pipefail
 
@@ -837,17 +869,37 @@ jobs:
           # so a label read that fails must fail the job rather than be
           # reported as an issue nobody triaged — or, worse, as one
           # somebody did.
-          landed="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}/labels" \
-            --jq 'map(.name)
-                  | if (index("triage:done") != null) and (index("triage:pending") == null)
-                    then "true" else "false" end')"
+          labels="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}/labels" \
+            --jq '[.[].name]')"
 
-          if [ "${landed}" = "true" ]; then
-            echo "Issue #${ISSUE_NUMBER} carries a triage verdict."
-            exit 0
+          landed="$(printf '%s' "${labels}" \
+            | jq -r '(index("triage:done") != null) and (index("triage:pending") == null)')"
+
+          if [ "${landed}" != 'true' ]; then
+            echo "::error title=Issue triage did not land::Issue #${ISSUE_NUMBER} does not carry \
+            triage:done, or still carries triage:pending, after the verdict was applied. The \
+            nightly backlog scan will retry it."
+            exit 1
           fi
 
-          echo "::error title=Issue triage did not land::Issue #${ISSUE_NUMBER} does not carry \
-          triage:done, or still carries triage:pending, after the verdict was applied. The \
-          nightly backlog scan will retry it."
-          exit 1
+          # AND IT CARRIES ONE VERDICT, not two. Removing the stale
+          # `bug:*` labels tolerates a failed DELETE, because the usual
+          # reason one fails is that the label was not there — so what
+          # makes that safe is reading the result rather than trusting
+          # the calls. An issue left carrying `bug:confirmed` AND
+          # `bug:not-a-bug` reads as triaged to every other part of this
+          # pipeline while saying nothing to a human, which is the
+          # failure this whole step exists to refuse.
+          verdict_state="$(printf '%s' "${labels}" | jq -r --arg expected "${BUG_LABEL}" '
+            (map(select(startswith("bug:"))) | sort)
+              == (if $expected == "" then [] else [$expected] end)')"
+
+          if [ "${verdict_state}" != 'true' ]; then
+            echo "::error title=Contradictory verdict labels::Issue #${ISSUE_NUMBER} should carry \
+            exactly ${BUG_LABEL:-no bug:* label} after this run, and does not. Its labels are \
+            ${labels}. A stale verdict from an earlier pass was not removed; fix the labels by \
+            hand, because the nightly scan skips triage:done."
+            exit 1
+          fi
+
+          echo "Issue #${ISSUE_NUMBER} carries a triage verdict, and only one."
