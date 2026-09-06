@@ -66,7 +66,38 @@ class TriageExtractScrubberTest extends TestCase
 
     public function testATimeAndAClassMethodAreNotIpv6Addresses(): void
     {
-        $line = '[2026-09-06 12:30:45] Modules\\Groups\\Service\\ModerationService::isAvailable() face::cafe';
+        $line = '[2026-09-06 12:30:45] Modules\\Groups\\Service\\ModerationService::isAvailable()';
+
+        $this->assertSame($line, $this->scrubber->scrub($line));
+    }
+
+    public function testAnIpv6AddressMadeOfLettersOnlyIsStillAnAddress(): void
+    {
+        $this->assertSame('client ip-1 puis ip-2', $this->scrubber->scrub('client dead:beef::cafe puis face::1'));
+    }
+
+    public function testAPersonsIdIsTokenisedWhereItIsRecognisable(): void
+    {
+        $out = $this->scrubber->scrub(
+            "GET /members/42/edit HTTP/1.1\nGET /membres/42 HTTP/1.1\nGET /users/7/photo\n"
+            . '{"member_id":42,"user_account_id":7,"source_ip":"203.0.113.9"} member_id=42 page=3'
+        );
+
+        $this->assertStringNotContainsString('/members/42', $out);
+        $this->assertStringContainsString('GET /members/id-1/edit', $out);
+        $this->assertStringContainsString('GET /membres/id-1 ', $out, 'the same id is the same token whatever the path spelling');
+        $this->assertStringContainsString('GET /users/id-2/photo', $out);
+        $this->assertSame('GET /mass-mail/recipients/id-1 GET /passage/membre/id-1', $this->scrubber->scrub('GET /mass-mail/recipients/42 GET /passage/membre/42'));
+        $this->assertStringContainsString('"member_id":id-1', $out);
+        $this->assertStringContainsString('"user_account_id":id-2', $out);
+        $this->assertStringContainsString('member_id=id-1', $out);
+        $this->assertStringContainsString('page=3', $out, 'a plain number outside those shapes is left alone');
+        $this->assertSame(2, $this->scrubber->count('id'));
+    }
+
+    public function testAPathThatIsNotAboutAPersonKeepsItsNumbers(): void
+    {
+        $line = 'GET /articles/12 GET /calendar/2026/9 GET /files/3081/thumb GET /finance/accounts/5';
 
         $this->assertSame($line, $this->scrubber->scrub($line));
     }
@@ -91,11 +122,11 @@ class TriageExtractScrubberTest extends TestCase
         $this->assertStringContainsString('file deadbeef01234567', $out);
     }
 
-    public function testTheValueOfASensitiveQueryParameterIsMasked(): void
+    public function testEveryQueryValueThatIsNotABareNumberIsMasked(): void
     {
-        $out = $this->scrubber->scrub('GET /reset?token=abc.def-123&page=2&email=x%40y.be HTTP/1.1');
+        $out = $this->scrubber->scrub('GET /reset?token=abc.def-123&page=2&email=x%40y.be&q=Dupont&sort=name&ids[]=4 HTTP/1.1');
 
-        $this->assertSame('GET /reset?token=…&page=2&email=… HTTP/1.1', $out);
+        $this->assertSame('GET /reset?token=…&page=2&email=…&q=…&sort=…&ids[]=4 HTTP/1.1', $out);
     }
 
     public function testATokenIsAllocatedOnceWhateverTheKindLooksLike(): void

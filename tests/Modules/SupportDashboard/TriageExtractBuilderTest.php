@@ -74,30 +74,38 @@ class TriageExtractBuilderTest extends TestCase
         $this->assertStringContainsString('source_ip', $csv);
     }
 
-    public function testTheTicketFileCarriesTheDescriptionButNeverTheContactAddress(): void
+    public function testTheTicketFileCarriesTheFactsAndNeitherTheDescriptionNorTheContactAddress(): void
     {
         $entries = $this->extract($this->archive());
 
         $ticket = $entries[TriageExtractBuilder::TICKET_ENTRY];
         $this->assertStringContainsString('Ticket de support SUP-ABC234', $ticket);
         $this->assertStringContainsString('Import Desk', $ticket);
-        $this->assertStringContainsString("L'import Desk s'arrête", $ticket);
+        $this->assertStringContainsString('1.0.41', $ticket);
+        // A free text an administrator may have written a name into:
+        // nothing here can anonymise it, so it does not travel.
+        $this->assertStringNotContainsString("L'import Desk s'arrête", $ticket);
+        $this->assertStringNotContainsString('Marie Dupont', $ticket);
         $this->assertStringNotContainsString(self::CONTACT, $ticket);
-        // The description mentioned an address; scrubbed there too.
-        $this->assertStringNotContainsString('203.0.113.50', $ticket);
 
         $whole = implode("\n", $entries);
         $this->assertStringNotContainsString(self::CONTACT, $whole);
-        $this->assertStringNotContainsString('unite-de-test.example.be', $whole);
+        $this->assertStringNotContainsString('Marie Dupont', $whole);
     }
 
-    public function testALongDescriptionIsClamped(): void
+    public function testTheUsageReportLosesItsInstallationIdAndUrlAndKeepsTheRest(): void
     {
-        $ticket = $this->ticket(['description' => str_repeat('x', 3000)]);
-        $entries = $this->extract($this->archive(), $ticket);
+        $entries = $this->extract($this->archive());
 
-        $this->assertStringContainsString(str_repeat('x', TriageExtractBuilder::DESCRIPTION_MAX_CHARS) . ' […]', $entries[TriageExtractBuilder::TICKET_ENTRY]);
-        $this->assertStringNotContainsString(str_repeat('x', TriageExtractBuilder::DESCRIPTION_MAX_CHARS + 1), $entries[TriageExtractBuilder::TICKET_ENTRY]);
+        $statistics = $entries['statistics.json'];
+        $this->assertStringNotContainsString('0a1b2c3d4e5f60718293a4b5c6d7e8f9', $statistics);
+        $this->assertStringNotContainsString('unite-de-test.example.be', $statistics);
+        $this->assertStringContainsString('"installation_id": "[retiré]"', $statistics);
+        $this->assertStringContainsString('"instance_url": "[retiré]"', $statistics);
+        $this->assertStringContainsString('"version": "1.0.41"', $statistics);
+        $this->assertStringContainsString('"active_members": 118', $statistics);
+
+        $this->assertStringContainsString('installation_id et instance_url', $entries[TriageExtractBuilder::README_ENTRY]);
     }
 
     public function testAnEntryOverTheCeilingIsOmittedAndNamed(): void
@@ -129,7 +137,7 @@ class TriageExtractBuilderTest extends TestCase
             'reference' => 'SUP-ABC234',
             'installation_id' => 1,
             'category' => TicketCategory::of('desk_import'),
-            'description' => "L'import Desk s'arrête à mi-parcours depuis 203.0.113.50.",
+            'description' => "L'import Desk s'arrête à mi-parcours pour Marie Dupont depuis 203.0.113.50.",
             'contact_email' => self::CONTACT,
             'site_version' => '1.0.41',
             'php_version' => '8.4.0',
@@ -161,7 +169,13 @@ class TriageExtractBuilderTest extends TestCase
         $zip->addFromString('logs/error.log', "[06-Sep-2026 12:30:45] PHP Fatal error: Uncaught Error at 203.0.113.7 for parent@example.org\n");
         $zip->addFromString('logs/summary.txt', "# Journaux serveur\n");
         $zip->addFromString('webserver/summary.txt', "Apache/2.4\n");
-        $zip->addFromString('statistics.json', '{"scoutmagic":{"version":"1.0.41"}}');
+        $zip->addFromString('statistics.json', (string) json_encode([
+            'statistics_schema_version' => 1,
+            'installation_id' => '0a1b2c3d4e5f60718293a4b5c6d7e8f9',
+            'instance_url' => 'https://unite-de-test.example.be',
+            'scoutmagic' => ['version' => '1.0.41'],
+            'usage' => ['active_members' => 118],
+        ]));
         $zip->addFromString('collection-status.json', '{"collectors":[]}');
         $zip->addFromString('phpinfo.html', '<html>PHP Version 8.4.0 DOCUMENT_ROOT=/var/www</html>');
         $zip->addFromString('configuration-parameters.xlsx', TabularSpreadsheet::build(['Clé', 'Valeur'], [['site_name', 'Unité de test']], 'Paramètres'));

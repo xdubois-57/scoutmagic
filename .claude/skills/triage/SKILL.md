@@ -80,9 +80,12 @@ transformed: every IP address is a stable token (`ip-3` on every line it
 appears on, so twelve failures from one client still read as one
 client), e-mail addresses and user accounts are tokens too, long
 identifiers are masked, `phpinfo` and the site's parameters are absent.
-`ticket.txt` carries the ticket's category, versions and description;
-`logs/` the web-server logs; `event-journal.csv` the site's own journal
-of the last 48 hours; the rest is what the archive's README names.
+`ticket.txt` carries the ticket's category, versions and dates — never
+its description, a free text nobody can anonymise; the reporter's words
+on the issue are the words you have. `logs/` holds the web-server logs,
+`event-journal.csv` the site's own journal of the last 48 hours; the rest
+is what the archive's README names. A member's id is `id-N` wherever it
+was recognisable as one.
 
 **What it is for.** The fatal error the reporter did not paste, the
 version that was actually running, the request that failed and the one

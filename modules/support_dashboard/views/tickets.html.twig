@@ -65,10 +65,12 @@
         <p class="small mb-2">
             Quand un signalement GitHub cite la référence d'un ticket, le triage automatique peut
             demander à ce site une <strong>copie réduite et anonymisée</strong> de l'archive de
-            diagnostic : journaux et journal des événements avec les adresses IP, les comptes et les
-            adresses e-mail remplacés par des jetons, sans la configuration détaillée de PHP ni les
-            paramètres du site. L'extrait est produit à la demande et jamais conservé ; chaque envoi
-            est inscrit au journal.
+            diagnostic : journaux et journal des événements avec les adresses IP, les comptes, les
+            adresses e-mail et les identifiants de membres reconnaissables remplacés par des jetons,
+            sans la configuration détaillée de PHP, sans les paramètres du site, sans la description
+            du ticket. L'extrait est produit à la demande et jamais conservé ; chaque envoi est inscrit
+            au journal. Tant qu'un jeton existe, GitHub et le fournisseur d'IA du triage figurent parmi
+            les sous-traitants de la page RGPD de ce site.
         </p>
         <p class="small mb-3">
             {% if triage_token_configured %}

@@ -163,8 +163,10 @@ body:
       description: >-
         Facultatif. Si vous avez envoyé un ticket depuis Configuration ›
         Support de votre site, recopiez ici la référence affichée (par
-        exemple `SUP-ABC234`) : le triage automatique pourra lire une copie
-        réduite et anonymisée de l'archive de diagnostic jointe au ticket.
+        exemple `SUP-ABC234`) : le triage automatique — un service
+        d'intelligence artificielle exécuté sur GitHub — pourra lire une
+        copie réduite et anonymisée de l'archive de diagnostic jointe au
+        ticket, sans adresse IP, sans compte, sans adresse e-mail.
         **Ne joignez jamais le paquet de support lui-même à ce signalement**
         — tout ce qui est déposé ici est visible par tous, et le reste.
       placeholder: "SUP-ABC234"

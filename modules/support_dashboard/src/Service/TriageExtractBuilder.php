@@ -24,10 +24,21 @@ use PhpOffice\PhpSpreadsheet\Reader\Xlsx as XlsxReader;
  * the other design is a new file leaking on the day it appears.
  *
  * **Left out on purpose**: `phpinfo.html`, which describes the hosting
- * in a detail a triage never needs and a reader could quote; and
+ * in a detail a triage never needs and a reader could quote;
  * `configuration-parameters.xlsx`, whose rows include the unit's name
- * and addresses. The ticket's contact address, the installation id and
- * the instance URL are not in the archive and are not added here.
+ * and addresses; the ticket's description, a free text an administrator
+ * may have written a member's name into and that nothing here could
+ * anonymise — the reporter's own words on the public issue are the
+ * words the triage reads; and, inside `statistics.json`, the
+ * `installation_id` and `instance_url` fields the usage report carries
+ * (the report is not anonymous by design, ARCHITECTURE.md §8.47). The
+ * ticket's contact address is not in the archive and is not added.
+ *
+ * **What the extract does not claim.** A site's own address can still
+ * appear where the server wrote it — a log file's path, a virtual host
+ * name in `webserver/summary.txt`. That names an organisation, not a
+ * person, and the README says it may be there rather than promising it
+ * is not.
  *
  * **Bounded, because the input is another installation's upload.** The
  * intake caps the archive at 60 MB and the generator's own limits put a
@@ -46,8 +57,6 @@ final class TriageExtractBuilder
     public const README_ENTRY = 'LISEZ-MOI.txt';
     public const TICKET_ENTRY = 'ticket.txt';
 
-    /** Same clamp the cross-ticket analysis applies to a description. */
-    public const DESCRIPTION_MAX_CHARS = 1500;
 
     /** The generator caps a single log at 2 MB; four times that is generous. */
     public const MAX_ENTRY_BYTES = 8 * 1024 * 1024;
@@ -55,12 +64,18 @@ final class TriageExtractBuilder
     /** Well above a real archive's text, well below the 60 MB intake cap. */
     public const MAX_TOTAL_BYTES = 40 * 1024 * 1024;
 
+    /** The usage report, whose two identifying fields are removed before the scrub. */
+    private const STATISTICS_ENTRY = 'statistics.json';
+
+    /** @var list<string> keys dropped from the usage report, at any depth */
+    private const STATISTICS_DROPPED_KEYS = ['installation_id', 'instance_url'];
+
     /**
      * Entries copied as text, once scrubbed. Exact names, as the
      * collectors under `core/Support/Collector/` write them.
      */
     private const TEXT_ENTRIES = [
-        'statistics.json',
+        self::STATISTICS_ENTRY,
         'database-structure.sql',
         'event-journal-resume.txt',
         'request-timelines.csv',
@@ -177,7 +192,9 @@ final class TriageExtractBuilder
                     }
                 } else {
                     $outputName = $name;
-                    $output = $scrubber->scrub($content);
+                    $output = $scrubber->scrub(
+                        $name === self::STATISTICS_ENTRY ? self::withoutIdentity($content) : $content
+                    );
                 }
 
                 if ($totalBytes + strlen($output) > self::MAX_TOTAL_BYTES) {
@@ -192,7 +209,7 @@ final class TriageExtractBuilder
 
             $source->close();
 
-            $target->addFromString(self::TICKET_ENTRY, self::renderTicket($ticket, $scrubber));
+            $target->addFromString(self::TICKET_ENTRY, self::renderTicket($ticket));
             $target->addFromString(
                 self::README_ENTRY,
                 self::renderReadme($ticket, $issueNumber, $now, $copied, $omitted, $scrubber)
@@ -310,19 +327,44 @@ final class TriageExtractBuilder
     }
 
     /**
-     * The ticket as the triage may see it: category, versions, dates and
-     * the description — scrubbed and clamped. Never the contact address,
-     * never the installation.
+     * The usage report without the two fields that identify the
+     * installation, at any depth. Bytes that do not parse as JSON are
+     * returned as they are, for the scrub to do what it can.
+     */
+    private static function withoutIdentity(string $json): string
+    {
+        $decoded = json_decode($json, true);
+        if (!is_array($decoded)) {
+            return $json;
+        }
+
+        $strip = static function (array $node) use (&$strip): array {
+            foreach ($node as $key => $value) {
+                if (is_string($key) && in_array($key, self::STATISTICS_DROPPED_KEYS, true)) {
+                    $node[$key] = '[retiré]';
+                    continue;
+                }
+                if (is_array($value)) {
+                    $node[$key] = $strip($value);
+                }
+            }
+
+            return $node;
+        };
+
+        return (string) json_encode($strip($decoded), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    }
+
+    /**
+     * The ticket as the triage may see it: category, versions, dates.
+     * Never the description (a free text nobody can anonymise), never
+     * the contact address, never the installation.
      *
      * @param array<string, mixed> $ticket
      */
-    private static function renderTicket(array $ticket, TriageExtractScrubber $scrubber): string
+    private static function renderTicket(array $ticket): string
     {
         $category = $ticket['category'] ?? null;
-        $description = trim((string) ($ticket['description'] ?? ''));
-        if (mb_strlen($description) > self::DESCRIPTION_MAX_CHARS) {
-            $description = mb_substr($description, 0, self::DESCRIPTION_MAX_CHARS) . ' […]';
-        }
 
         $lines = [
             '# Ticket de support ' . (string) ($ticket['reference'] ?? ''),
@@ -333,8 +375,8 @@ final class TriageExtractBuilder
             'Version de PHP         : ' . (string) ($ticket['php_version'] ?? 'non renseignée'),
             'Archive reçue le       : ' . (string) ($ticket['archive_received_at'] ?? ''),
             '',
-            '## Description (anonymisée, tronquée à ' . self::DESCRIPTION_MAX_CHARS . ' caractères)',
-            $scrubber->scrub($description),
+            'La description écrite par l\'administrateur n\'est pas copiée : c\'est un texte libre',
+            'qui peut nommer quelqu\'un. Ce que le rapporteur a écrit sur l\'issue est ce qui compte.',
         ];
 
         return implode("\n", $lines) . "\n";
@@ -372,8 +414,11 @@ final class TriageExtractBuilder
         foreach ($omitted as $name => $why) {
             $lines[] = '- ' . $name . ' : ' . $why;
         }
-        $lines[] = '- l\'adresse de contact, l\'identifiant d\'installation et l\'URL de l\'instance ne';
-        $lines[] = '  figurent nulle part : ils ne sont pas dans l\'archive et ne sont pas ajoutés ici.';
+        $lines[] = '- la description du ticket : un texte libre que rien ne peut anonymiser ; ce que le';
+        $lines[] = '  rapporteur a écrit sur l\'issue publique est ce que le triage lit.';
+        $lines[] = '- dans statistics.json, les champs installation_id et instance_url du rapport';
+        $lines[] = '  d\'utilisation, remplacés par « [retiré] ».';
+        $lines[] = '- l\'adresse de contact du ticket : elle n\'est pas dans l\'archive et n\'est pas ajoutée.';
         $lines[] = '';
         $lines[] = '## Ce qui a été transformé';
         $lines[] = '';
@@ -384,15 +429,26 @@ final class TriageExtractBuilder
         $lines[] = '- Chaque adresse e-mail devient email-N (' . $scrubber->count('email') . ' distincte(s)),';
         $lines[] = '  chaque compte utilisateur du journal user-N (' . $scrubber->count('user') . '),';
         $lines[] = '  chaque identifiant hexadécimal long — session, jeton, fichier — hex-N';
-        $lines[] = '  (' . $scrubber->count('hex') . ').';
-        $lines[] = '- La valeur des paramètres d\'URL sensibles (token, key, email…) est masquée.';
+        $lines[] = '  (' . $scrubber->count('hex') . '), et chaque identifiant de membre ou de compte';
+        $lines[] = '  reconnaissable — après /members/, /users/ et leurs variantes dans un chemin,';
+        $lines[] = '  ou dans un champ member_id, user_id, *_id — id-N (' . $scrubber->count('id') . ').';
+        $lines[] = '- La valeur de tout paramètre d\'URL qui n\'est pas un simple nombre est masquée :';
+        $lines[] = '  une recherche, un filtre par nom, un jeton de réinitialisation voyagent ainsi.';
         $lines[] = '- Les feuilles de calcul sont converties en CSV ; les colonnes « Compte';
         $lines[] = '  utilisateur » et « Adresse IP » du journal des événements sont tokenisées';
         $lines[] = '  en entier.';
         $lines[] = '';
+        $lines[] = '## Ce qui peut rester';
+        $lines[] = '';
+        $lines[] = '- L\'adresse du site lui-même, là où le serveur l\'a écrite : chemin d\'un fichier';
+        $lines[] = '  de journal, nom d\'hôte dans webserver/summary.txt. Elle désigne une unité, pas';
+        $lines[] = '  une personne, et le rapporteur la donne en général sur l\'issue.';
+        $lines[] = '- Des identifiants numériques hors des formes reconnues ci-dessus, qui ne';
+        $lines[] = '  désignent rien sans la base de données du site.';
+        $lines[] = '';
         $lines[] = '## Contenu';
         $lines[] = '';
-        $lines[] = '- ' . self::TICKET_ENTRY . ' : le ticket — catégorie, versions, description anonymisée.';
+        $lines[] = '- ' . self::TICKET_ENTRY . ' : le ticket — catégorie, versions, dates. Pas la description.';
         foreach ($copied as $name) {
             $lines[] = '- ' . $name;
         }

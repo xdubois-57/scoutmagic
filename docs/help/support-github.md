@@ -29,12 +29,15 @@ la demande dans sa réponse — répondez-lui alors en la citant.
 
 Le triage demande alors à l'équipe de support une **copie réduite et
 anonymisée** de l'archive transmise avec le ticket. Les adresses IP, les
-comptes utilisateurs et les adresses e-mail y sont remplacés par des
-jetons sans correspondance conservée ; la configuration détaillée du
-serveur et les paramètres du site en sont retirés ; l'adresse de contact
-et l'adresse de votre site n'y figurent pas. Cette copie est produite à
-la demande, n'est jamais conservée, et est lue par un service
-d'intelligence artificielle qui rédige la première réponse. Chaque envoi
+comptes utilisateurs, les adresses e-mail et les identifiants de membres
+reconnaissables y sont remplacés par des jetons sans correspondance
+conservée ; la configuration détaillée du serveur, les paramètres du site
+et le texte de votre description en sont retirés ; l'adresse de contact
+n'y figure pas. L'adresse de votre site peut y rester là où le serveur
+l'a écrite, dans le chemin d'un journal par exemple : elle désigne l'unité,
+pas une personne. Cette copie est produite à la demande, n'est jamais
+conservée, et est lue par un service d'intelligence artificielle, sur
+l'infrastructure de GitHub, qui rédige la première réponse. Chaque envoi
 est inscrit au journal de l'équipe de support.
 
 Seule la personne qui a envoyé le ticket connaît sa référence, et seul

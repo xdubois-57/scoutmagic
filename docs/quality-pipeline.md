@@ -541,6 +541,16 @@ Tickets › « Générer un nouveau jeton » — shown once, and pasted here; th
 site keeps only its hash (ARCHITECTURE.md §8.49sexies). Generating a new
 one there invalidates this one at once, so the two are rotated together.
 
+One thing about `CLAUDE_CODE_OAUTH_TOKEN` that the extract makes worth
+writing down: the extract is anonymised before it leaves the support site
+(SECURITY.md §18ter), so what the triage agent reads is not personal data
+— but which of the provider's terms govern what it reads depends on the
+kind of token that authenticates the run (a subscription token and a
+metered API key are not under the same terms), and that is the
+maintainer's to check against the provider's current terms, not something
+this repository can assert. Until it is checked, the anonymisation is the
+guarantee, and it is the one the tests hold.
+
 ### Repository variables
 
 *Settings → Secrets and variables → Actions → Variables*

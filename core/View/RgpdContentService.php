@@ -790,12 +790,14 @@ support ScoutMagic en la joignant à un ticket, après avoir vu son contenu et s
 l'accepte — et que cette transmission fait de l'équipe ScoutMagic une **sous-traitante** au sens de l'article 28 RGPD
 pour les adresses IP et identifiants internes que l'archive contient ; ne présente jamais cette transmission comme
 automatique, ni comme impossible ; (d bis) qu'une **copie réduite et anonymisée** de cette archive — adresses IP,
-comptes et adresses e-mail remplacés par des jetons sans correspondance conservée, configuration détaillée du serveur
-et paramètres du site retirés — peut être lue par le triage automatique des signalements sur le dépôt public du
-logiciel, mais **uniquement** si un administrateur a lui-même cité la référence du ticket dans un signalement
-public ; qu'elle est produite à la demande, jamais conservée, et lue par un service d'intelligence artificielle qui
-rédige la première réponse au signalement — dis-le tel quel, sans présenter cette copie comme l'archive elle-même ni
-comme un envoi automatique ; (e) qu'elle peut contenir des adresses IP issues des journaux du serveur web et des
+comptes, adresses e-mail et identifiants de membres reconnaissables remplacés par des jetons sans correspondance
+conservée ; configuration détaillée du serveur, paramètres du site, description du ticket et identifiant de
+l'installation retirés — peut être lue par le triage automatique des signalements sur le dépôt public du logiciel,
+mais **uniquement** si un administrateur a lui-même cité la référence du ticket dans un signalement public ; qu'elle
+est produite à la demande, jamais conservée, et lue par un service d'intelligence artificielle exécuté sur
+l'infrastructure de GitHub, ces deux prestataires établis aux États-Unis étant alors sous-traitants pour cette copie
+(section 4 et section 5.2) — dis-le tel quel, sans présenter cette copie comme l'archive elle-même ni comme un envoi
+automatique ; (e) qu'elle peut contenir des adresses IP issues des journaux du serveur web et des
 identifiants internes de membres, mais aucun nom, adresse email ni contenu de membre. (f) que **l'ouverture d'un
 ticket de support transmet toujours un rapport d'utilisation**, même sur une installation où l'envoi quotidien est
 désactivé : c'est ce qui permet au mainteneur de savoir quelle version et quel hébergement ont produit le problème
@@ -824,7 +826,8 @@ rien ne repart vers l'instance émettrice : le ticket est à sens unique et la r
 valeur est « Non configuré », n'écris rien à ce sujet : aucun extrait ne peut quitter cette installation. Sinon, dis
 que, lorsqu'un signalement public sur le dépôt GitHub du logiciel cite la référence d'un ticket, cette installation
 sert au triage automatique de ce signalement une **copie réduite et anonymisée** de l'archive du ticket — adresses IP,
-comptes et adresses e-mail remplacés par des jetons, configuration détaillée et paramètres du site retirés —, produite
+comptes, adresses e-mail et identifiants de membres reconnaissables remplacés par des jetons ; configuration
+détaillée, paramètres du site, description du ticket et identifiant de l'installation retirés —, produite
 à la demande et jamais conservée, chaque envoi étant inscrit au journal ; cette copie est lue par un service
 d'intelligence artificielle sur l'infrastructure de GitHub, et les prestataires nommés ci-dessus sont des
 sous-traitants pour ce traitement, à décrire en section 4 et, puisqu'ils traitent hors UE/EEE, en section 5.2 avec
