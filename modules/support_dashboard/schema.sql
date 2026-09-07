@@ -53,6 +53,41 @@ CREATE TABLE support_installations (
     -- true the day a real report arrives, because the reason for the mark
     -- has gone.
     telemetry_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    -- Who registered the domain this installation answers on, asked of the
+    -- registry when a daily report arrives (Core\Net\WhoisClient).
+    --
+    -- **The installation cannot report this about itself.** « Ce domaine
+    -- expire dans trois semaines » and « ce registrar ne répond plus »
+    -- reach support as « le site ne marche plus », and telemetry has
+    -- nothing to say about either: a site does not know who holds its
+    -- name. The receiver does, by asking.
+    --
+    -- The name actually asked about, which is not always the host: a
+    -- subdomain has no registration of its own, so the lookup walks up
+    -- until a registry recognises something (DomainName::whoisCandidates()).
+    whois_domain VARCHAR(255) NULL,
+    whois_server VARCHAR(255) NULL,
+    -- 'found', 'not_found' (the registry answered, the name is registered
+    -- nowhere) or 'unavailable' (nobody answered — port 43 firewalled, a
+    -- TLD with no WHOIS service, a registry that was down). Three states,
+    -- because « pas de registration » and « je n'ai pas pu demander » are
+    -- opposite diagnoses and a NULL would tell them apart from neither.
+    whois_status VARCHAR(20) NULL,
+    whois_checked_at DATETIME NULL,
+    -- What Core\Net\WhoisRegistration read: registrar, the three dates,
+    -- the status and the name servers. **Organisational by construction** —
+    -- the registrant fields are deliberately not parsed, because a unit's
+    -- domain is often registered by a volunteer in their own name and a
+    -- parsed copy would be a searchable, exportable clear-text column of a
+    -- natural person's identity (§7.9). What is here may be shown on a
+    -- page; what the registry actually sent may not, and is next door.
+    whois_registration JSON NULL,
+    -- The response verbatim, encrypted: a reading is not evidence, and the
+    -- only way to tell a right one from a wrong one is to look at what the
+    -- server wrote — the same reason support_mail_probes keeps its header
+    -- block beside the verdict. Encrypted rather than clear because THIS
+    -- one may well carry a registrant's name, address and e-mail.
+    whois_raw_encrypted BLOB NULL,
     INDEX idx_support_installations_last_received (last_received_at),
     INDEX idx_support_installations_version (scoutmagic_version)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -191,6 +226,20 @@ CREATE TABLE support_tickets (
     -- Encrypted like the description: it is a document about somebody
     -- else's installation, carrying its URL among other things.
     statistics_snapshot_encrypted BLOB NULL,
+    -- The DNS of the installation's own host, as it stood when the ticket
+    -- arrived (Core\Net\DnsRecordReader).
+    --
+    -- **The whole point is the moment.** A ticket is answered days after
+    -- it is written, and half of « le site ne répond plus », « les e-mails
+    -- n'arrivent pas » or « le certificat est invalide » is a record the
+    -- reporter has corrected in the meantime. Reading the zone when the
+    -- maintainer finally looks answers a question nobody asked.
+    --
+    -- Encrypted for the same reason as the snapshot above: it is a
+    -- document about somebody else's installation, and it carries its host
+    -- and every address that host resolves to.
+    dns_snapshot_encrypted BLOB NULL,
+    dns_read_at DATETIME NULL,
     INDEX idx_support_tickets_installation (installation_id, created_at),
     INDEX idx_support_tickets_status (status, created_at),
     INDEX idx_support_tickets_contact (contact_email_blind_index),

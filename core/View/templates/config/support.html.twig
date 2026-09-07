@@ -3,10 +3,35 @@
 {% block content %}
 {% include 'partials/page_header.html.twig' with { title: 'Support' } only %}
 
+{# Repliée par défaut, comme « Mesurer une lenteur » plus bas : ce qui
+   amène quelqu'un sur cette page est presque toujours un problème à
+   signaler, et deux pavés de texte sur la vie privée poussaient ce
+   bouton-là sous la ligne de flottaison. Ce qui est replié doit
+   néanmoins se lire fermé — l'en-tête porte donc l'état, sans quoi
+   replier revient à cacher la seule chose qu'on venait vérifier. #}
 <div class="card mb-3">
     <div class="card-body">
-        <h2 class="h5 mb-3">Statistiques d'utilisation</h2>
+        <button type="button"
+                class="btn w-100 d-flex align-items-center gap-2 border rounded-3 p-3 text-start collapsed"
+                data-bs-toggle="collapse" data-bs-target="#support-statistics"
+                aria-expanded="false" aria-controls="support-statistics">
+            <span class="flex-grow-1">
+                <span class="h5 mb-0 d-block">Statistiques d'utilisation</span>
+                <span class="text-body-secondary small d-block">
+                    {% if statistics_enabled %}Envoi automatique activé{% else %}Envoi automatique désactivé{% endif %} —
+                    {% if is_statistics_receiver %}
+                        ce site est la destination des rapports.
+                    {% elseif last_success_at %}
+                        dernier envoi réussi le {{ last_success_at|french_date }}.
+                    {% else %}
+                        aucun envoi n'a encore abouti.
+                    {% endif %}
+                </span>
+            </span>
+            <i class="bi bi-chevron-down text-body-tertiary" aria-hidden="true"></i>
+        </button>
 
+        <div class="collapse mt-3" id="support-statistics">
         <p class="small text-body-secondary">
             ScoutMagic peut envoyer chaque jour un rapport d'utilisation agrégé à l'équipe qui développe le logiciel.
             Ce rapport sert à trois choses : vous fournir un meilleur support lorsque vous signalez un problème
@@ -72,20 +97,120 @@
                 Activez l'envoi automatique ci-dessus, puis enregistrez, pour pouvoir envoyer un rapport de test.
             </p>
         {% endif %}
+
+        <hr>
+
+        {# « État des envois » était une carte à part, juste en dessous.
+           Deux boîtes pour un seul sujet : on réglait l'envoi dans l'une
+           et on allait voir s'il avait marché dans l'autre. #}
+        <h3 class="h6">État des envois</h3>
+
+        {# This installation is the one every other installation reports to,
+           so it has nothing to send itself. Said plainly here, because the
+           alternative — recording it as the latest failure, dated, for ever
+           — read as a fault to go and fix. #}
+        {% if is_statistics_receiver %}
+            <p class="small mb-1">
+                <i class="bi bi-info-circle" aria-hidden="true"></i>
+                Ce site est la destination des statistiques : il ne s'envoie pas de rapport à lui-même.
+                Le bouton « Envoyer un rapport de test » ci-dessus reste disponible pour vérifier la chaîne.
+            </p>
+        {% elseif last_success_at %}
+            <p class="small mb-1">
+                Dernier envoi réussi : <strong>{{ last_success_at|french_date }}</strong>
+                <span class="text-body-secondary">({{ last_success_at }})</span>
+            </p>
+        {% else %}
+            <p class="small mb-1 text-body-secondary">Aucun envoi n'a encore abouti.</p>
+        {% endif %}
+
+        {% if last_failure_at %}
+            <p class="small mb-0 {% if last_failure_superseded %}text-body-secondary{% endif %}">
+                Dernier échec ou envoi sauté : <strong>{{ last_failure_at|french_date }}</strong>
+                <span class="text-body-secondary">({{ last_failure_at }})</span>
+                {% if last_failure_reason %}<br>Motif : <code>{{ last_failure_reason }}</code>{% endif %}
+                {% if last_failure_superseded %}
+                    <br><em>Un envoi a abouti depuis : cet échec est résolu.</em>
+                {% endif %}
+            </p>
+        {% endif %}
+        </div>
+    </div>
+</div>
+
+{# **Tout passe par GitHub, et cette carte le dit avant tout le reste.**
+   Le support décrivait un guichet : on écrivait, ça partait, une réponse
+   arrivait un jour par e-mail, et personne d'autre n'en savait rien — ni
+   l'unité d'à côté qui avait le même problème, ni la personne qui l'avait
+   déjà signalé le mois dernier. Un signalement public est suivi,
+   commenté, retrouvable et refermé devant tout le monde.
+
+   Hors de `ticket_available`, et c'est le point : une installation dont
+   l'envoi d'informations n'est pas configuré doit quand même pouvoir
+   signaler. Le formulaire est un complément, jamais la porte d'entrée. #}
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h5 mb-3">Signaler un problème</h2>
+
+        <p class="small">
+            <strong>Tout se signale sur GitHub</strong>, bugs comme demandes : c'est là que ça se suit,
+            que ça se commente et que ça se referme, et vous voyez l'avancement sans attendre qu'on
+            pense à vous répondre. Vous verrez aussi si quelqu'un a déjà signalé la même chose.
+        </p>
+
+        {# Le lien direct, et le seul bouton primaire de la page : ce qu'on
+           veut de quelqu'un qui arrive ici, c'est qu'il signale. #}
+        <p class="mb-2">
+            <a class="btn btn-primary" href="{{ github_issues_url }}" target="_blank" rel="noopener noreferrer">
+                <i class="bi bi-github" aria-hidden="true"></i>
+                Signaler un problème sur GitHub
+            </a>
+        </p>
+        <p class="small text-body-secondary mb-0">
+            Un compte GitHub est nécessaire — il est gratuit et se crée en une minute. C'est ce compte
+            qui vous permet de suivre votre signalement et d'en recevoir les réponses.
+            <strong>N'hésitez jamais à signaler</strong> : un problème que personne ne raconte est un
+            problème que personne ne corrige, et une gêne minuscule chez vous est souvent le même
+            défaut chez trente autres unités.
+            {% if ticket_available %}
+                S'il s'agit d'un dysfonctionnement technique, envoyez d'abord vos informations
+                ci-dessous et citez la référence obtenue dans votre signalement.
+            {% endif %}
+        </p>
     </div>
 </div>
 
 {% if ticket_available %}
 {% if measurement_available %}
+{# Repliée par défaut : c'est un outil qu'on vient chercher, jamais une
+   chose à régler en passant. L'en-tête dit si une mesure tourne — c'est
+   le seul état de cette boîte dont on puisse avoir besoin sans
+   l'ouvrir, et c'est aussi celui qu'on oublie d'arrêter. #}
 <div class="card mb-3">
     <div class="card-body">
-        <h2 class="h5 mb-3">Mesurer une lenteur</h2>
+        <button type="button"
+                class="btn w-100 d-flex align-items-center gap-2 border rounded-3 p-3 text-start collapsed"
+                data-bs-toggle="collapse" data-bs-target="#support-measurement"
+                aria-expanded="false" aria-controls="support-measurement">
+            <span class="flex-grow-1">
+                <span class="h5 mb-0 d-block">Mesurer une lenteur</span>
+                <span class="text-body-secondary small d-block">
+                    {% if measurement_open %}
+                        Mesure en cours jusqu'à {{ measurement_expires_at }}.
+                    {% else %}
+                        Enregistre le temps passé dans chaque page pendant {{ measurement_minutes }} minutes.
+                    {% endif %}
+                </span>
+            </span>
+            <i class="bi bi-chevron-down text-body-tertiary" aria-hidden="true"></i>
+        </button>
 
+        <div class="collapse mt-3" id="support-measurement">
         <p class="small text-body-secondary">
             Pendant {{ measurement_minutes }} minutes, chaque page servie par le site enregistre dans le journal le
             temps passé dans chacune de ses étapes et le nombre de requêtes à la base de données — pour tous les
             comptes, pas seulement le vôtre. Parcourez les pages qui vous paraissent lentes, puis générez un nouveau
-            paquet de support et joignez-le à un ticket : l'archive contient ces mesures. Seul le chemin des pages
+            paquet de support et envoyez vos informations : l'archive contient ces mesures. Seul le chemin des pages
             est enregistré, jamais leur contenu ni leurs paramètres. La mesure s'arrête d'elle-même et ne concerne
             que le serveur : le réseau et l'appareil du visiteur ne sont pas mesurés.
         </p>
@@ -105,7 +230,7 @@
             {% if measurement_requests > 0 %}
                 <p class="small">
                     La dernière mesure a enregistré {{ measurement_requests }} requête(s). Générez un nouveau paquet
-                    de support avant d'envoyer le ticket : c'est lui qui les emporte.
+                    de support avant d'envoyer vos informations : c'est lui qui les emporte.
                 </p>
             {% endif %}
             <form method="post" action="/config/support/measure"
@@ -115,45 +240,59 @@
                 <button type="submit" class="btn btn-outline-primary">Mesurer pendant {{ measurement_minutes }} minutes</button>
             </form>
         {% endif %}
+        </div>
     </div>
 </div>
 {% endif %}
+{# Ce formulaire ne porte plus une demande : il porte les PREUVES
+   techniques, que l'on ne peut pas coller dans un dépôt public sans y
+   déverser des journaux entiers. On envoie, on obtient une référence, et
+   on cite la référence dans le signalement — la demande elle-même vit
+   sur GitHub, dans la carte au-dessus. #}
 <div class="card mb-3">
     <div class="card-body">
-        <h2 class="h5 mb-3">Contacter le support</h2>
+        <h2 class="h5 mb-3">Envoyer des informations techniques</h2>
 
         <p class="small text-body-secondary">
-            Décrivez le problème rencontré. Le ticket part vers l'équipe qui développe ScoutMagic ;
-            la réponse vous arrivera par e-mail, à l'adresse indiquée ci-dessous. Il n'y a pas de fil
-            de discussion sur ce site.
+            S'il s'agit d'un dysfonctionnement technique, envoyez vos informations depuis ce
+            formulaire : elles ne peuvent pas être collées dans un dépôt public. Vous recevez une
+            <strong>référence</strong> ; indiquez-la dans votre signalement GitHub, et il devient
+            possible d'aller regarder ce qui s'est réellement passé sur votre site.
+            <strong>Ne joignez jamais le paquet de support à un signalement GitHub</strong> : tout ce
+            qui y est déposé est visible par tous.
         </p>
 
         {# Tout ce qui part est dit AVANT le bouton, jamais après : une case
            cochée rétrospectivement ne serait pas un consentement. C'est
            aussi ici que se dit la chose la plus inattendue — le rapport
-           d'utilisation part avec le ticket même si l'envoi quotidien est
+           d'utilisation part avec l'envoi même si l'envoi quotidien est
            coupé. #}
         <div class="alert alert-info small">
-            <strong>Partent avec votre message :</strong> l'identifiant de cette installation,
+            <strong>Partent avec vos informations :</strong> l'identifiant de cette installation,
             la version du site, la version de PHP, et le <strong>rapport d'utilisation</strong>
             (compteurs agrégés, usage par module et informations techniques — aucune donnée de membre,
             et jamais le détail page par page).
             {% if not statistics_enabled %}
-                L'envoi <em>quotidien</em> de statistiques reste désactivé : seul ce ticket en emporte un,
+                L'envoi <em>quotidien</em> de statistiques reste désactivé : seul cet envoi en emporte un,
                 et seulement parce que vous cliquez.
             {% endif %}
             S'y ajoutent l'archive de diagnostic et un e-mail de test, décrits ci-dessous.
         </div>
 
+        {# Le formulaire peut être indisponible ; le signalement, jamais.
+           La phrase le redit ici plutôt que de laisser quelqu'un repartir
+           en croyant que le support est fermé. #}
         {% if ticket_guard %}
             <div class="alert alert-warning small mb-0">
                 {% if ticket_guard == 'no_destination' %}
-                    Aucune destination de support n'est configurée sur cette installation : le formulaire est indisponible.
+                    Aucune destination n'est configurée sur cette installation : ce formulaire est indisponible.
                 {% elseif ticket_guard == 'insecure_destination' %}
-                    La destination du support n'est pas en HTTPS : le formulaire est indisponible.
+                    La destination n'est pas en HTTPS : ce formulaire est indisponible.
                 {% else %}
-                    La destination du support n'est pas un nom public : le formulaire est indisponible.
+                    La destination n'est pas un nom public : ce formulaire est indisponible.
                 {% endif %}
+                Signalez tout de même votre problème sur GitHub : décrivez-le au mieux, et dites que
+                l'envoi d'informations techniques n'est pas disponible chez vous.
             </div>
         {% else %}
             <form method="post" action="/config/support/ticket">
@@ -180,9 +319,16 @@
                     rows: 6,
                     required: true,
                     value: ticket_form.description|default(''),
-                    help: "Ce que vous avez fait, ce que vous attendiez, ce qui s'est passé.",
+                    help: "Ce que vous avez fait, ce que vous attendiez, ce qui s'est passé. "
+                        ~ "Le récit complet a sa place dans le signalement GitHub ; ici, deux lignes "
+                        ~ "suffisent à retrouver le bon envoi.",
                 } only %}
 
+                {# L'adresse ne sert plus à répondre — les réponses sont sur
+                   GitHub — mais à savoir qui a envoyé quoi quand deux
+                   unités écrivent le même jour, et à revenir vers vous si
+                   l'archive elle-même pose question. Le dire évite
+                   d'attendre ici une réponse qui arrivera là-bas. #}
                 {% include 'partials/form_field.html.twig' with {
                     field_id: 'ticket_contact_email',
                     field_name: 'ticket_contact_email',
@@ -190,7 +336,8 @@
                     type: 'email',
                     required: true,
                     value: ticket_form.contact_email|default(ticket_contact_default),
-                    help: "C'est à cette adresse que la réponse arrivera.",
+                    help: "Pour rattacher cet envoi à quelqu'un. Les réponses, elles, "
+                        ~ "arrivent sur votre signalement GitHub.",
                 } only %}
 
                 <h3 class="h6 mt-4">Ce que vous acceptez d'envoyer</h3>
@@ -224,7 +371,7 @@
                     {% if _entries > 0 %}
                         contient {{ _entries }} rubrique{{ _entries > 1 ? 's' }} technique{{ _entries > 1 ? 's' }}.
                     {% else %}
-                        sera jointe à ce ticket.
+                        sera jointe à cet envoi.
                     {% endif %}
                 </p>
 
@@ -254,7 +401,7 @@
                            hors de cette page, sans quoi une unité se demanderait
                            si elle est censée la changer. #}
                         J'ai pris connaissance du contenu de cette archive et j'accepte de la transmettre
-                        à l'équipe qui développe ScoutMagic. Si je cite ensuite la référence de ce ticket
+                        à l'équipe qui développe ScoutMagic. Si je cite ensuite la référence de cet envoi
                         dans un signalement public sur GitHub, j'accepte qu'une copie réduite et anonymisée
                         de cette archive — sans adresse IP, sans compte, sans adresse e-mail, sans le texte
                         de ma description, sans la configuration détaillée du serveur — soit lue par le
@@ -267,25 +414,28 @@
                     <input class="form-check-input" type="checkbox" value="1"
                            id="probe_acknowledged" name="probe_acknowledged" required>
                     <label class="form-check-label small" for="probe_acknowledged">
-                        J'accepte que le site envoie un e-mail de test au support, pour vérifier que mes
-                        e-mails arrivent bien. Il ne contient qu'une clé de corrélation, aucune donnée personnelle.
+                        J'accepte que le site envoie un e-mail de test, pour vérifier que mes e-mails
+                        arrivent bien. Il ne contient qu'une clé de corrélation, aucune donnée personnelle.
                     </label>
                 </div>
 
-                <button type="submit" class="btn btn-primary">Envoyer le ticket</button>
+                <button type="submit" class="btn btn-outline-primary">Envoyer mes informations techniques</button>
             </form>
         {% endif %}
 
-        {% if ticket_last_sent %}
+        {# **Cinq, et non plus un seul.** Une référence ne sert qu'à être
+           recopiée dans un signalement GitHub, et on ne signale pas
+           toujours dans la minute : n'afficher que la dernière rendait
+           irrécupérable la référence de l'avant-veille, celle qu'on
+           cherche justement en revenant ici. Chacune est repliée — la
+           liste doit se parcourir d'un coup d'œil, et le détail ne
+           concerne qu'une ligne à la fois. #}
+        {% if ticket_recent is not empty %}
             <hr>
-            <h3 class="h6">Dernier ticket</h3>
-            <p class="small mb-0">
-                {% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Envoyé' } only %}
-                Référence <code>{{ ticket_last_sent.reference }}</code>
-                {% if ticket_last_sent.sent_at %}— {{ ticket_last_sent.sent_at }}{% endif %}
-            </p>
-            <p class="small text-body-secondary mb-0 mt-1">
-                Le site n'interroge pas le serveur ensuite : la suite se passe par e-mail.
+            <h3 class="h6">Vos derniers envois</h3>
+            <p class="small text-body-secondary">
+                Recopiez la référence dans votre signalement GitHub. Ce site n'interroge pas le serveur
+                ensuite : la suite se passe sur le signalement, pas ici.
             </p>
             {# Le pont vers GitHub : la référence est ce que le rapporteur
                colle dans le formulaire de signalement, et c'est tout ce
@@ -301,80 +451,75 @@
                 tout ce qui y est déposé est visible par tous.
             </p>
 
-            {% if probe_last_run %}
-                <p class="small text-body-secondary mb-0 mt-1">
-                    Dernier e-mail de test : clé <code>{{ probe_last_run.key }}</code>{% if probe_last_run.sent_at %}, {{ probe_last_run.sent_at }}{% endif %}.
-                    Son résultat se lit chez le support, pas ici.
-                </p>
-            {% endif %}
+            <div class="d-flex flex-column gap-2">
+                {% for sent in ticket_recent %}
+                    {% set _latest = loop.first %}
+                    <details class="border rounded-3 p-2">
+                        <summary class="small">
+                            {% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Envoyé' } only %}
+                            <code>{{ sent.reference }}</code>
+                            {% if sent.sent_at %}<span class="text-body-secondary">— {{ sent.sent_at }}</span>{% endif %}
+                        </summary>
 
-            {% if archive_available %}
-                {% if archive_transmitted %}
-                    <p class="small mb-0 mt-2">
-                        {% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Archive transmise' } only %}
-                        {% if archive_transmitted_at %}— {{ archive_transmitted_at }}{% endif %}
-                    </p>
-                {% else %}
-                    {# Le seul chemin manuel restant : un renvoi quand
-                       l'envoi automatique n'a pas abouti. Il n'apparaît
-                       donc que dans ce cas. #}
-                    <p class="small text-body-secondary mb-1 mt-2">
-                        {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'Archive non transmise' } only %}
-                        {% if archive_size_bytes is null %}
-                            Elle est peut-être encore en cours de génération : revenez dans quelques minutes.
-                        {% endif %}
-                    </p>
-                    {% if archive_size_bytes %}
-                        <form method="post" action="/config/support/ticket/archive">
-                            {{ csrf_field()|raw }}
-                            <input type="hidden" name="archive_acknowledged" value="1">
-                            <button type="submit" class="btn btn-sm btn-outline-primary">
-                                Réessayer la transmission de l'archive
-                            </button>
-                        </form>
-                    {% endif %}
-                {% endif %}
-            {% endif %}
+                        <div class="mt-2">
+                            {% if sent.category_label %}
+                                <p class="small text-body-secondary mb-1">Catégorie : {{ sent.category_label }}</p>
+                            {% endif %}
+
+                            {# L'e-mail de test, l'archive et son renvoi ne
+                               sont connus que du DERNIER envoi : ce que le
+                               site retient d'un envoi plus ancien est sa
+                               référence et sa date, et prétendre le
+                               contraire ferait lire l'état d'aujourd'hui
+                               comme celui d'avant-hier. #}
+                            {% if _latest %}
+                                {% if probe_last_run %}
+                                    <p class="small text-body-secondary mb-1">
+                                        E-mail de test : clé <code>{{ probe_last_run.key }}</code>{% if probe_last_run.sent_at %}, {{ probe_last_run.sent_at }}{% endif %}.
+                                        Son résultat se lit à l'arrivée, pas ici.
+                                    </p>
+                                {% endif %}
+
+                                {% if archive_available %}
+                                    {% if archive_transmitted %}
+                                        <p class="small mb-0">
+                                            {% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Archive transmise' } only %}
+                                            {% if archive_transmitted_at %}— {{ archive_transmitted_at }}{% endif %}
+                                        </p>
+                                    {% else %}
+                                        {# Le seul chemin manuel restant : un renvoi quand
+                                           l'envoi automatique n'a pas abouti. Il n'apparaît
+                                           donc que dans ce cas. #}
+                                        <p class="small text-body-secondary mb-1">
+                                            {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'Archive non transmise' } only %}
+                                            {% if archive_size_bytes is null %}
+                                                Elle est peut-être encore en cours de génération : revenez dans quelques minutes.
+                                            {% endif %}
+                                        </p>
+                                        {% if archive_size_bytes %}
+                                            <form method="post" action="/config/support/ticket/archive">
+                                                {{ csrf_field()|raw }}
+                                                <input type="hidden" name="archive_acknowledged" value="1">
+                                                <button type="submit" class="btn btn-sm btn-outline-primary">
+                                                    Réessayer la transmission de l'archive
+                                                </button>
+                                            </form>
+                                        {% endif %}
+                                    {% endif %}
+                                {% endif %}
+                            {% else %}
+                                <p class="small text-body-secondary mb-0">
+                                    Ce site ne conserve d'un envoi plus ancien que sa référence et sa date.
+                                </p>
+                            {% endif %}
+                        </div>
+                    </details>
+                {% endfor %}
+            </div>
         {% endif %}
     </div>
 </div>
 {% endif %}
-
-<div class="card mb-3">
-    <div class="card-body">
-        <h2 class="h5 mb-3">État des envois</h2>
-
-        {# This installation is the one every other installation reports to,
-           so it has nothing to send itself. Said plainly here, because the
-           alternative — recording it as the latest failure, dated, for ever
-           — read as a fault to go and fix. #}
-        {% if is_statistics_receiver %}
-            <p class="small mb-1">
-                <i class="bi bi-info-circle" aria-hidden="true"></i>
-                Ce site est la destination des statistiques : il ne s'envoie pas de rapport à lui-même.
-                Le bouton « Envoyer un rapport de test » ci-dessous reste disponible pour vérifier la chaîne.
-            </p>
-        {% elseif last_success_at %}
-            <p class="small mb-1">
-                Dernier envoi réussi : <strong>{{ last_success_at|french_date }}</strong>
-                <span class="text-body-secondary">({{ last_success_at }})</span>
-            </p>
-        {% else %}
-            <p class="small mb-1 text-body-secondary">Aucun envoi n'a encore abouti.</p>
-        {% endif %}
-
-        {% if last_failure_at %}
-            <p class="small mb-0 {% if last_failure_superseded %}text-body-secondary{% endif %}">
-                Dernier échec ou envoi sauté : <strong>{{ last_failure_at|french_date }}</strong>
-                <span class="text-body-secondary">({{ last_failure_at }})</span>
-                {% if last_failure_reason %}<br>Motif : <code>{{ last_failure_reason }}</code>{% endif %}
-                {% if last_failure_superseded %}
-                    <br><em>Un envoi a abouti depuis : cet échec est résolu.</em>
-                {% endif %}
-            </p>
-        {% endif %}
-    </div>
-</div>
 
 {# Collapsed by default: the payload is a couple of dozen lines of JSON
    that answer a question most visitors to this page are not asking, and
@@ -413,25 +558,28 @@
         <div class="alert alert-warning small">
             L'archive de support générée peut contenir des informations propres à votre système. Elle n'a pas
             vocation à contenir de données personnelles, mais cela ne peut pas être garanti. Merci de vérifier son
-            contenu avant de l'envoyer au support ScoutMagic.
+            contenu avant de la transmettre.
             <br><br>
             Cela vaut particulièrement pour les informations PHP (configuration détaillée du serveur), les journaux
             d'accès et d'erreurs du serveur web (qui contiennent des adresses IP de visiteurs) et les diagnostics
             de système de fichiers.
+            <br><br>
+            <strong>Ne la déposez jamais sur un signalement GitHub</strong> : un dépôt public est public.
+            Elle se transmet depuis « Signaler un problème », qui l'envoie de site à site.
         </div>
 
-        <p class="small">
-            Adresse du support ScoutMagic :
-            {% if support_email %}<a href="mailto:{{ support_email }}">{{ support_email }}</a>{% else %}<span class="text-body-secondary">non renseignée</span>{% endif %}
-        </p>
-
+        {# Aucune adresse de support n'est nommée ici, et ce n'est pas un
+           oubli : tout passe par un signalement GitHub, où la demande est
+           suivie devant tout le monde. Donner une adresse à côté, c'est
+           rouvrir le guichet privé qu'on vient de fermer, et y renvoyer
+           précisément les gens les moins à l'aise avec l'outil public. #}
         <p class="small text-body-secondary">
             L'archive est générée en tâche de fond, conservée chiffrée sur le serveur, accessible aux seuls
             super-administrateurs, et supprimée automatiquement après {{ package_retention_days }} jours. Une seule
             archive est conservée : en générer une nouvelle remplace la précédente. Rien n'est jamais transmis
             automatiquement : ni tâche planifiée, ni courriel, ni envoi déclenché par le site. Vous pouvez en
-            revanche la transmettre vous-même, en la joignant à un ticket depuis « Contacter le support » —
-            son contenu et sa taille sont affichés avant que vous acceptiez.
+            revanche la transmettre vous-même depuis « Signaler un problème » — son contenu et sa taille sont
+            affichés avant que vous acceptiez.
         </p>
 
         <div class="d-flex flex-wrap gap-2 align-items-center">

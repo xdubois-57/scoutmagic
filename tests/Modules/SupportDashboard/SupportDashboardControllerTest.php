@@ -14,6 +14,7 @@ use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\Security\EncryptionService;
 use Core\View\TwigFactory;
 use Modules\SupportDashboard\Controller\SupportDashboardController;
 use Modules\SupportDashboard\Repository\SupportInstallationRepository;
@@ -32,6 +33,8 @@ use Twig\Environment;
 class SupportDashboardControllerTest extends TestCase
 {
     private \PDO $pdo;
+    private EncryptionService $encryption;
+    private SupportInstallationRepository $installations;
     private Environment $twig;
     private SupportDashboardController $controller;
     private int $installationId;
@@ -50,7 +53,14 @@ class SupportDashboardControllerTest extends TestCase
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         SupportDashboardTestHelper::createTables($this->pdo);
 
-        $installations = new SupportInstallationRepository($this->pdo);
+        // Built BEFORE the repository, and named here because it was not:
+        // an undeclared `$this->encryption` read as null, the repository
+        // stored `whois_raw_encrypted` as NULL, and every assertion below
+        // about the raw response never reaching the screen passed on a
+        // column that was empty. A test that cannot fail proves nothing.
+        $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+
+        $installations = $this->installations = new SupportInstallationRepository($this->pdo, $this->encryption);
         $this->installationId = $installations->register(
             'aaaabbbbccccdddd',
             password_hash(self::SENDER_SECRET, PASSWORD_DEFAULT),
@@ -220,6 +230,87 @@ class SupportDashboardControllerTest extends TestCase
             $this->assertStringNotContainsString('$2y$', $body);
             $this->assertStringNotContainsString('secret_hash', $body);
         }
+    }
+
+    // ── The domain registration (roadmap: le WHOIS du domaine) ──────────
+
+    /**
+     * An installation cannot report who registered its own name, so the
+     * receiver asks the registry. « Ce domaine expire dans trois
+     * semaines » reaches support as « le site ne marche plus ».
+     */
+    public function testTheDialogShowsWhoHoldsTheDomain(): void
+    {
+        AuthSession::login(1, 'superadmin@test.com', 'superadmin');
+        $this->recordWhois('found', ['registrar' => 'Example Hosting SA', 'expires_at' => '2027-03-04']);
+
+        $body = $this->detailBody();
+
+        $this->assertStringContainsString('Enregistrement du domaine', $body);
+        $this->assertStringContainsString('Example Hosting SA', $body);
+        $this->assertStringContainsString('2027-03-04', $body);
+    }
+
+    /**
+     * **The verbatim response never renders.** It routinely names the
+     * volunteer who registered the domain, with an address and a
+     * telephone number; it belongs in the ticket's support dossier, a file
+     * somebody downloads on purpose.
+     */
+    public function testTheRawResponseNeverReachesTheScreen(): void
+    {
+        AuthSession::login(1, 'superadmin@test.com', 'superadmin');
+        $this->recordWhois(
+            'found',
+            ['registrar' => 'Example Hosting SA'],
+            "Registrar: Example Hosting SA\nRegistrant Name: Marie Dupont\nRegistrant Phone: +32.81000000\n"
+        );
+
+        $body = $this->detailBody();
+
+        $this->assertStringNotContainsString('Marie Dupont', $body);
+        $this->assertStringNotContainsString('+32.81000000', $body);
+    }
+
+    /**
+     * The three states, said in three different sentences. « Le registre
+     * n'a pas répondu » read as « ce domaine n'est pas enregistré » would
+     * be confidently wrong about somebody whose domain is fine.
+     */
+    public function testTheThreeOutcomesReadDifferently(): void
+    {
+        AuthSession::login(1, 'superadmin@test.com', 'superadmin');
+
+        $this->assertStringContainsString('Pas encore consulté', $this->detailBody());
+
+        $this->recordWhois('unavailable', null);
+        $this->assertStringContainsString('n\'a pas répondu', $this->detailBody());
+
+        $this->recordWhois('not_found', null);
+        $this->assertStringContainsString('n\'est enregistré nulle part', $this->detailBody());
+    }
+
+    /**
+     * @param array<string, mixed>|null $registration
+     */
+    private function recordWhois(string $status, ?array $registration, ?string $raw = null): void
+    {
+        $this->installations->recordWhois(
+            $this->installationId,
+            'unite-exemple.be',
+            'whois.dnsbelgium.be',
+            $status,
+            $registration,
+            $raw,
+            new \DateTimeImmutable('2026-09-01 03:00:00')
+        );
+    }
+
+    private function detailBody(): string
+    {
+        return $this->frontController('/support-dashboard/installations/{id}', 'detail')
+            ->handle(new Request('GET', '/support-dashboard/installations/' . $this->installationId, [], [], [], []))
+            ->getBody();
     }
 
     public function testTheDetailDialogCarriesTheExactRawJson(): void

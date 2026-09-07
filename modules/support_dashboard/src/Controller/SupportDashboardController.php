@@ -83,6 +83,10 @@ class SupportDashboardController extends AbstractController
             // chain is IP addresses and server names, and this dialog is
             // already `role_min: superadmin`.
             'probes' => $this->probeService?->resultsFor((int) $installation['id']) ?? [],
+            // The parsed registration only. The verbatim WHOIS may name a
+            // natural person and belongs in the ticket's support dossier, a
+            // file somebody downloads on purpose.
+            'whois' => $installation['whois'] ?? ['status' => null],
         ]);
     }
 

@@ -60,6 +60,7 @@ class SupportTicketSenderTest extends TestCase
             SupportTicketSender::LAST_REFERENCE_SETTING,
             SupportTicketSender::LAST_SENT_AT_SETTING,
             SupportTicketSender::CATEGORIES_SETTING,
+            SupportTicketSender::RECENT_SETTING,
         ] as $key) {
             $this->settings->register($key, '', 'text', 'L', 'D', null, null, null, false);
         }
@@ -141,6 +142,126 @@ class SupportTicketSenderTest extends TestCase
         $last = $sender->lastSent();
         $this->assertNotNull($last);
         $this->assertSame('SUP-7KQ4F2', $last['reference']);
+    }
+
+    // ── The last five references ────────────────────────────────────────
+
+    /**
+     * A reference exists to be copied into a GitHub issue, and nobody
+     * reports within the minute: they send the evidence, look at the
+     * problem some more, and write the issue that evening. Keeping only
+     * the latest made the reference of two days ago unrecoverable —
+     * exactly the one somebody comes back to the page for.
+     */
+    public function testTheLastFewReferencesAreKeptNewestFirst(): void
+    {
+        foreach (['SUP-AAAAAA', 'SUP-BBBBBB', 'SUP-CCCCCC'] as $reference) {
+            $this->sender($this->transport(200, ['status' => 'accepted', 'ticket_reference' => $reference]))
+                ->send('other', 'Bonjour', 'chef@unite.be');
+        }
+
+        $recent = $this->sender($this->transport(200, []))->recentlySent();
+
+        $this->assertSame(
+            ['SUP-CCCCCC', 'SUP-BBBBBB', 'SUP-AAAAAA'],
+            array_column($recent, 'reference')
+        );
+        $this->assertNotSame('', $recent[0]['sent_at']);
+    }
+
+    public function testTheListNeverGrowsPastWhatThePageShows(): void
+    {
+        for ($i = 0; $i < SupportTicketSender::RECENT_KEPT + 3; $i++) {
+            $this->sender($this->transport(200, ['status' => 'accepted', 'ticket_reference' => 'SUP-' . $i]))
+                ->send('other', 'Bonjour', 'chef@unite.be');
+        }
+
+        $this->assertCount(SupportTicketSender::RECENT_KEPT, $this->sender($this->transport(200, []))->recentlySent());
+    }
+
+    /**
+     * The category is stored as its VALUE and turned into a label only at
+     * display time: a label is the receiver's wording of the moment, and a
+     * frozen copy would print last year's vocabulary beside a reference
+     * for as long as the row survives.
+     */
+    public function testTheCategoryIsShownAsALabelAndStoredAsAValue(): void
+    {
+        $this->sender($this->transport(200, ['status' => 'accepted', 'ticket_reference' => 'SUP-7KQ4F2']))
+            ->send('other', 'Bonjour', 'chef@unite.be');
+
+        $stored = (string) $this->settings->get(SupportTicketSender::RECENT_SETTING);
+        $this->assertStringContainsString('"category":"other"', $stored);
+
+        $recent = $this->sender($this->transport(200, []))->recentlySent();
+        $this->assertNotNull($recent[0]['category_label']);
+        $this->assertNotSame('other', $recent[0]['category_label']);
+    }
+
+    /**
+     * An installation that has been sending for a year must not read as
+     * one that never sent anything, just because this list is newer than
+     * its own history.
+     */
+    public function testAnInstallationOlderThanTheListStillShowsItsLastReference(): void
+    {
+        $this->settings->setInternal(SupportTicketSender::LAST_REFERENCE_SETTING, 'SUP-OLD123');
+        $this->settings->setInternal(SupportTicketSender::LAST_SENT_AT_SETTING, '2026-01-02 03:04:05');
+
+        $recent = $this->sender($this->transport(200, []))->recentlySent();
+
+        $this->assertSame(['SUP-OLD123'], array_column($recent, 'reference'));
+        $this->assertSame('2026-01-02 03:04:05', $recent[0]['sent_at']);
+    }
+
+    public function testAnInstallationThatNeverSentAnythingShowsNothing(): void
+    {
+        $this->assertSame([], $this->sender($this->transport(200, []))->recentlySent());
+    }
+
+    /**
+     * Bookkeeping is never allowed to make a ticket that WAS accepted read
+     * as one that was not — the same posture every other write on this
+     * path takes.
+     */
+    public function testAStoredListThatIsNotOneIsNotFatal(): void
+    {
+        $this->settings->setInternal(SupportTicketSender::RECENT_SETTING, 'pas du json');
+
+        $result = $this->sender($this->transport(200, ['status' => 'accepted', 'ticket_reference' => 'SUP-7KQ4F2']))
+            ->send('other', 'Bonjour', 'chef@unite.be');
+
+        $this->assertTrue($result->sent);
+        $this->assertSame(['SUP-7KQ4F2'], array_column($this->sender($this->transport(200, []))->recentlySent(), 'reference'));
+    }
+
+    /**
+     * Valid JSON of the wrong SHAPE is the case a plain `is_array()` walks
+     * straight past: a JSON object decodes to an array, the loop finds no
+     * entry in it, and an installation with a year of history reads as one
+     * that never sent anything.
+     */
+    public function testAStoredObjectIsTreatedAsNoHistoryAtAll(): void
+    {
+        $this->settings->setInternal(SupportTicketSender::RECENT_SETTING, '{"reference":"SUP-BADSHP"}');
+        $this->settings->setInternal(SupportTicketSender::LAST_REFERENCE_SETTING, 'SUP-OLD123');
+        $this->settings->setInternal(SupportTicketSender::LAST_SENT_AT_SETTING, '2026-01-02 03:04:05');
+
+        $recent = $this->sender($this->transport(200, []))->recentlySent();
+
+        $this->assertSame(['SUP-OLD123'], array_column($recent, 'reference'));
+    }
+
+    /** And the next accepted send replaces it rather than prepending onto it. */
+    public function testASendAfterAStoredObjectWritesAListAgain(): void
+    {
+        $this->settings->setInternal(SupportTicketSender::RECENT_SETTING, '{"reference":"SUP-BADSHP"}');
+
+        $result = $this->sender($this->transport(200, ['status' => 'accepted', 'ticket_reference' => 'SUP-7KQ4F2']))
+            ->send('other', 'Bonjour', 'chef@unite.be');
+
+        $this->assertTrue($result->sent);
+        $this->assertSame(['SUP-7KQ4F2'], array_column($this->sender($this->transport(200, []))->recentlySent(), 'reference'));
     }
 
     /**

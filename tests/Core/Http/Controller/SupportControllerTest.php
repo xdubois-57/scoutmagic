@@ -287,6 +287,7 @@ class SupportControllerTest extends TestCase
         $this->settings->register(SupportTicketSender::LAST_REFERENCE_SETTING, '', 'text', 'L', 'D', null, null, null, false);
         $this->settings->register(SupportTicketSender::LAST_SENT_AT_SETTING, '', 'text', 'L', 'D', null, null, null, false);
         $this->settings->register(SupportTicketSender::CATEGORIES_SETTING, '', 'text', 'L', 'D', null, null, null, false);
+        $this->settings->register(SupportTicketSender::RECENT_SETTING, '', 'text', 'L', 'D', null, null, null, false);
         $this->settings->register(SupportArchiveSender::ARCHIVE_SENT_AT_SETTING, '', 'text', 'L', 'D', null, null, null, false);
         $this->settings->register(SupportArchiveSender::ARCHIVE_REFERENCE_SETTING, '', 'text', 'L', 'D', null, null, null, false);
         InstallationDateService::register($this->settings);
@@ -366,7 +367,7 @@ class SupportControllerTest extends TestCase
     {
         $body = $this->controller->index(new Request('GET', '/config/support', [], [], [], []), [])->getBody();
 
-        $this->assertStringContainsString('Contacter le support', $body);
+        $this->assertStringContainsString('Envoyer des informations techniques', $body);
         $this->assertStringContainsString('Import Desk', $body);
         $this->assertStringContainsString("l'identifiant de cette installation", $body);
         $this->assertStringContainsString('la version du site', $body);
@@ -485,9 +486,50 @@ class SupportControllerTest extends TestCase
 
         $body = $this->controller->index(new Request('GET', '/config/support', [], [], [], []), [])->getBody();
 
-        $this->assertStringContainsString('Contacter le support', $body);
+        $this->assertStringContainsString('Envoyer des informations techniques', $body);
         $this->assertStringContainsString("n'est pas en HTTPS", $body);
         $this->assertStringNotContainsString('name="ticket_description"', $body);
+        // The form can be unavailable; reporting never is. Somebody must
+        // not leave this page believing support itself is closed.
+        $this->assertStringContainsString(SupportController::GITHUB_ISSUES_URL, $body);
+    }
+
+    // ── Reporting goes to GitHub, and says so first ─────────────────────
+
+    /**
+     * A support address is a private queue beside a public one: the unit
+     * next door with the same fault learns nothing, and the person who
+     * already reported it is asked again. The page now names one route.
+     */
+    public function testThePageSendsPeopleToGithubAndNamesNoSupportAddress(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/config/support', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString(SupportController::GITHUB_ISSUES_URL, $body);
+        $this->assertStringContainsString('Signaler un problème sur GitHub', $body);
+        $this->assertStringContainsString('gratuit', $body);
+        // The line that used to print `support_email` next to the support
+        // package. Naming an address beside a public tracker reopens the
+        // private queue this change closed, and catches precisely the
+        // people least at ease with the public one.
+        $this->assertStringNotContainsString('Adresse du support ScoutMagic', $body);
+    }
+
+    /**
+     * The two boxes somebody scrolls past on the way to reporting are
+     * folded, so the report button is what the page opens on.
+     */
+    public function testTheStatisticsAndMeasurementBoxesOpenFolded(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/config/support', [], [], [], []), [])->getBody();
+
+        foreach (['#support-statistics', '#support-measurement'] as $target) {
+            $this->assertStringContainsString('data-bs-target="' . $target . '"', $body);
+        }
+        // « État des envois » was a card of its own directly underneath —
+        // one setting the sending, the other saying whether it worked.
+        $this->assertStringContainsString('État des envois', $body);
+        $this->assertSame(1, substr_count($body, 'État des envois'));
     }
 
     private RecordingProbeSender $probeSender;
@@ -729,12 +771,17 @@ class SupportControllerTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString('Statistiques d\'utilisation', $body);
+        // Now a heading inside the statistics box rather than a card of
+        // its own: one subject, one place.
         $this->assertStringContainsString('État des envois', $body);
         $this->assertStringContainsString('Aperçu de ce qui est envoyé', $body);
         $this->assertStringContainsString('Paquet de support', $body);
         $this->assertStringContainsString('alert-warning', $body);
         $this->assertStringContainsString('mais cela ne peut pas être garanti', $body);
-        $this->assertStringContainsString('support@scoutmagic.be', $body);
+        // The support address used to be printed here. It is not printed
+        // anywhere any more — see
+        // testThePageSendsPeopleToGithubAndNamesNoSupportAddress().
+        $this->assertStringContainsString('Signaler un problème', $body);
     }
 
     public function testTheExplanationDoesNotClaimTheReportIsAnonymous(): void

@@ -8,6 +8,9 @@ declare(strict_types=1);
 
 namespace Modules\SupportDashboard\Repository;
 
+use Core\Security\DecryptionException;
+use Core\Security\EncryptionService;
+
 /**
  * The receiver's record of every installation that reports to it
  * (ARCHITECTURE.md §8.49).
@@ -18,7 +21,21 @@ namespace Modules\SupportDashboard\Repository;
  */
 class SupportInstallationRepository
 {
-    public function __construct(private \PDO $pdo)
+    public function __construct(
+        private \PDO $pdo,
+        /**
+         * Needed only by the WHOIS half, and optional so that the dozen
+         * callers that never touch it — the purge task, the dashboard's
+         * own reads — keep constructing this the way they always have.
+         *
+         * Null means the raw response is neither written nor read: the
+         * response may carry a registrant's name and address, and a
+         * repository without a key writes plaintext or nothing. Nothing is
+         * the only acceptable answer (SECURITY.md §5), and the parsed
+         * registration beside it is organisational and survives either way.
+         */
+        private ?EncryptionService $encryption = null
+    )
     {
     }
 
@@ -145,6 +162,104 @@ class SupportInstallationRepository
      * ended, and it must survive the disappearance of any installation that
      * fed it. See ARCHITECTURE.md §8.51.
      */
+    /**
+     * What the registry said about this installation's domain.
+     *
+     * Written by the statistics intake when a daily report arrives and the
+     * registration this receiver holds has gone stale — never on every
+     * report. A WHOIS query per installation per day is a few hundred
+     * queries a day at a registry that rate-limits by address, and being
+     * refused is how a diagnostic stops working exactly when somebody
+     * needs it.
+     *
+     * @param string $status one of found / not_found / unavailable
+     * @param array<string, mixed>|null $registration what was read out of
+     *   the response — organisational fields only, see the schema
+     * @param string|null $raw the response verbatim, encrypted here
+     */
+    public function recordWhois(
+        int $id,
+        ?string $domain,
+        ?string $server,
+        string $status,
+        ?array $registration,
+        ?string $raw,
+        \DateTimeImmutable $at
+    ): void {
+        $stmt = $this->pdo->prepare(
+            'UPDATE support_installations
+                SET whois_domain = ?, whois_server = ?, whois_status = ?,
+                    whois_registration = ?, whois_raw_encrypted = ?, whois_checked_at = ?
+              WHERE id = ?'
+        );
+
+        $stmt->execute([
+            $domain,
+            $server,
+            $status,
+            $registration === null ? null : self::encodeRegistration($registration),
+            $raw === null || $this->encryption === null
+                ? null
+                : $this->encryption->encrypt($raw, 'support_installations.whois_raw'),
+            $at->format('Y-m-d H:i:s'),
+            $id,
+        ]);
+    }
+
+    /**
+     * The parsed registration as the JSON the column takes.
+     *
+     * `JSON_INVALID_UTF8_SUBSTITUTE` because the input is another
+     * registry's bytes: WHOIS has no declared encoding, plenty of servers
+     * still answer in Latin-1, and one bad byte in a registrar's name
+     * made `json_encode()` return `false` — which PDO wrote as an empty
+     * string, leaving the dialog with no registration at all. Substituting
+     * the offending byte keeps the five facts that were read; throwing on
+     * anything else keeps a silent empty column impossible.
+     *
+     * @param array<string, mixed> $registration
+     */
+    private static function encodeRegistration(array $registration): string
+    {
+        return json_encode(
+            $registration,
+            JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR
+        );
+    }
+
+    /**
+     * The verbatim response, read on its own rather than with the row.
+     *
+     * The dashboard lists every installation on every render and has no use
+     * for thirty kilobytes of registry prose apiece; the two places that do
+     * — the detail dialog and the ticket's support dossier — ask for one.
+     */
+    public function findWhoisRaw(int $id): ?string
+    {
+        if ($this->encryption === null) {
+            return null;
+        }
+
+        $stmt = $this->pdo->prepare('SELECT whois_raw_encrypted FROM support_installations WHERE id = ?');
+        $stmt->execute([$id]);
+        $raw = $stmt->fetchColumn();
+
+        if (!is_string($raw) || $raw === '') {
+            return null;
+        }
+
+        try {
+            return $this->encryption->decrypt($raw, 'support_installations.whois_raw');
+        } catch (DecryptionException) {
+            // Ciphertext this key cannot read — a restored database, a
+            // rotated key, a truncated column. The only caller is the
+            // ticket dossier, where the WHOIS is one optional file among
+            // twenty: an unreadable one must read as absent, not abort
+            // the download of everything else somebody asked for.
+            return null;
+        }
+    }
+
     public function delete(int $id): bool
     {
         $stmt = $this->pdo->prepare('DELETE FROM support_installations WHERE id = ?');

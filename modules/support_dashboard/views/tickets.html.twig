@@ -53,9 +53,31 @@
 </div>
 
 {% if triage_token_available %}
+{# Repliée par défaut : on la configure une fois, et elle occupait ensuite
+   le haut d'une page dont l'objet est la file des tickets. L'en-tête
+   porte l'état — c'est la seule chose qu'on revient y vérifier, et
+   replier une boîte dont l'état ne se lit pas fermée revient à cacher la
+   réponse. #}
 <div class="card mb-3">
     <div class="card-body">
-        <h2 class="h5 mb-3">Triage automatique des issues GitHub</h2>
+        <button type="button"
+                class="btn w-100 d-flex align-items-center gap-2 border rounded-3 p-3 text-start collapsed"
+                data-bs-toggle="collapse" data-bs-target="#triage-token"
+                aria-expanded="false" aria-controls="triage-token">
+            <span class="flex-grow-1">
+                <span class="h5 mb-0 d-block">Triage automatique des issues GitHub</span>
+                <span class="text-body-secondary small d-block">
+                    {% if triage_token_configured %}
+                        Jeton actif : le triage peut lire un extrait anonymisé de l'archive d'un ticket cité.
+                    {% else %}
+                        Aucun jeton : aucun extrait n'est servi au triage.
+                    {% endif %}
+                </span>
+            </span>
+            <i class="bi bi-chevron-down text-body-tertiary" aria-hidden="true"></i>
+        </button>
+
+        <div class="collapse mt-3" id="triage-token">
 
         {# Ce qui part, dit avant les boutons : un extrait réduit et
            anonymisé de l'archive d'un ticket, servi au triage
@@ -83,6 +105,33 @@
             {% endif %}
         </p>
 
+        {# Les noms exacts, et où les saisir. Ils ne se lisent nulle part
+           ailleurs qu'au fond d'un fichier de workflow : sans cette
+           liste, configurer le triage commence par une fouille dans
+           .github/workflows, et se termine souvent par un secret nommé
+           presque juste. #}
+        <div class="alert alert-secondary small mb-3">
+            <p class="mb-2">
+                <strong>À configurer dans le dépôt GitHub</strong>, sous
+                <em>Settings → Secrets and variables → Actions</em> :
+            </p>
+            <ul class="mb-2">
+                <li>
+                    Onglet <em>Variables</em> — <code>SUPPORT_SITE_URL</code> : l'adresse publique de
+                    ce site, celle que le triage interrogera pour obtenir l'extrait.
+                </li>
+                <li>
+                    Onglet <em>Secrets</em> — <code>SUPPORT_TRIAGE_TOKEN</code> : le jeton généré
+                    ci-dessous. C'est l'unique clé de cette route.
+                </li>
+            </ul>
+            <p class="mb-0">
+                Le triage lui-même a besoin d'un troisième réglage, indépendant de cette page :
+                le secret <code>CLAUDE_CODE_OAUTH_TOKEN</code>, qui autorise l'action à appeler le
+                modèle. Sans lui, aucun signalement n'est trié, avec ou sans jeton ici.
+            </p>
+        </div>
+
         <div class="d-flex flex-wrap gap-2">
             <form method="post" action="/support-dashboard/tickets/triage-token"
                   data-confirm="Générer un nouveau jeton ? Le jeton actuel cesse immédiatement de fonctionner, et le nouveau devra être copié dans le secret SUPPORT_TRIAGE_TOKEN du dépôt GitHub.">
@@ -96,6 +145,7 @@
                     <button type="submit" class="btn btn-outline-danger">Révoquer le jeton</button>
                 </form>
             {% endif %}
+        </div>
         </div>
     </div>
 </div>

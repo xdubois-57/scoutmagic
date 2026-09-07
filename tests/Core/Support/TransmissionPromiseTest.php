@@ -36,7 +36,7 @@ final class TransmissionPromiseTest extends TestCase
             "the archive's own README" => ['core/Support/SupportPackageService.php', ['Configuration > Support']],
             'the RGPD default content' => ['core/View/rgpd_default.html', ['sous-traitante']],
             'the RGPD prompt' => ['core/View/RgpdContentService.php', ['sous-traitante']],
-            'the support page' => ['core/View/templates/config/support.html.twig', ['Contacter le support']],
+            'the support page' => ['core/View/templates/config/support.html.twig', ['Envoyer des informations techniques']],
             'the help topic' => ['docs/help/support.md', ['archive non transmise']],
         ];
     }

@@ -76,7 +76,14 @@ class StatisticsIntakeService
         private SupportReportRateLimitRepository $rateLimits,
         private EncryptionService $encryption,
         private JournalService $journal,
-        private ?SupportMonthlyAggregateRepository $monthlyAggregates = null
+        private ?SupportMonthlyAggregateRepository $monthlyAggregates = null,
+        /**
+         * Keeps the WHOIS registration of each installation's domain
+         * fresh. Null leaves the field empty and the intake unchanged —
+         * a receiver on a host with no outbound port 43 is the ordinary
+         * case for this one, not a broken one.
+         */
+        private ?DomainRegistrationRefresher $registrations = null
     ) {
     }
 
@@ -126,7 +133,7 @@ class StatisticsIntakeService
         $unknownFields = self::unknownFieldsOf($payload);
 
         if ($existing === null) {
-            $this->installations->register(
+            $rowId = $this->installations->register(
                 $installationId,
                 password_hash($secret, PASSWORD_DEFAULT),
                 $rawBody,
@@ -135,6 +142,7 @@ class StatisticsIntakeService
 
             $this->recordMonthlyContribution($installationId);
             $this->journalAcceptance($installationId, true, $unknownFields);
+            $this->refreshRegistration($rowId);
 
             return StatisticsIntakeResult::accepted(true, $unknownFields);
         }
@@ -146,8 +154,35 @@ class StatisticsIntakeService
         $this->installations->recordReport((int) $existing['id'], $rawBody, $denormalized);
         $this->recordMonthlyContribution($installationId);
         $this->journalAcceptance($installationId, false, $unknownFields);
+        $this->refreshRegistration((int) $existing['id']);
 
         return StatisticsIntakeResult::accepted(false, $unknownFields);
+    }
+
+    /**
+     * Ask the registry who holds this installation's domain — but only
+     * when what this receiver holds has gone stale.
+     *
+     * **Last, and after the report is stored**, like every other piece of
+     * bookkeeping on this path: the report is what the sender came to
+     * deliver, and a registry having a bad afternoon must not turn a
+     * successful delivery into an error the sender would only retry.
+     *
+     * The row is re-read rather than reused, because the report just
+     * accepted may have carried a NEW `instance_url`: refreshing against
+     * the previous one would ask the registry about a domain the unit has
+     * left, and record the answer against the domain it moved to.
+     */
+    private function refreshRegistration(int $installationRowId): void
+    {
+        if ($this->registrations === null) {
+            return;
+        }
+
+        $row = $this->installations->findById($installationRowId);
+        if ($row !== null) {
+            $this->registrations->refresh($row, new \DateTimeImmutable());
+        }
     }
 
     /**

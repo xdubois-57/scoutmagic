@@ -40,6 +40,36 @@ class SupportTicketSender
     /** Where the last accepted ticket's reference is kept, for display. */
     public const LAST_REFERENCE_SETTING = 'support_last_ticket_reference';
     public const LAST_SENT_AT_SETTING = 'support_last_ticket_sent_at';
+
+    /**
+     * The last few accepted references, newest first (JSON).
+     *
+     * **A reference exists to be copied into a GitHub issue**, and nobody
+     * reports within the minute: they send the evidence, look at the
+     * problem some more, and write the issue that evening or the next
+     * morning. Keeping only the latest made the reference of two days ago
+     * unrecoverable — which is exactly the one somebody comes back to this
+     * page for.
+     *
+     * A JSON list in one setting rather than a table: it is five short
+     * rows that only this page ever reads, it is written on a path that
+     * must never fail over bookkeeping, and a table would need a schema, a
+     * repository and a retention rule for something a unit sends a handful
+     * of times a year. {@see self::LAST_REFERENCE_SETTING} stays beside it
+     * — `SupportArchiveSender` compares against that one to know whether
+     * the archive it transmitted belongs to the current ticket.
+     */
+    public const RECENT_SETTING = 'support_recent_tickets';
+
+    /**
+     * How many are kept.
+     *
+     * Five. Enough that a reference is still there a week later, few
+     * enough that the list stays something you scan rather than read, and
+     * few enough that this setting cannot grow without bound on an
+     * installation having a very bad month.
+     */
+    public const RECENT_KEPT = 5;
     /** The category list the receiver last published (JSON). */
     public const CATEGORIES_SETTING = 'support_ticket_categories';
 
@@ -193,8 +223,10 @@ class SupportTicketSender
             return $this->refuse(self::FAILURE_MALFORMED_ANSWER, $category);
         }
 
+        $sentAt = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
         $this->writeSetting(self::LAST_REFERENCE_SETTING, $reference);
-        $this->writeSetting(self::LAST_SENT_AT_SETTING, (new \DateTimeImmutable())->format('Y-m-d H:i:s'));
+        $this->writeSetting(self::LAST_SENT_AT_SETTING, $sentAt);
+        $this->rememberSent($reference, $sentAt, $category);
 
         $this->journalService->log(
             'core',
@@ -302,6 +334,102 @@ class SupportTicketSender
             'reference' => $reference,
             'sent_at' => (string) ($this->settingService->get(self::LAST_SENT_AT_SETTING) ?? ''),
         ];
+    }
+
+    /**
+     * The last {@see self::RECENT_KEPT} accepted references, newest first.
+     *
+     * The category travels with each one as its **label**, resolved here
+     * against what the receiver published: a page rendering `module_camps`
+     * beside a reference would be showing its reader an identifier rather
+     * than an answer, and the list exists to be recognised at a glance.
+     * An entry whose category no longer resolves — a module since removed,
+     * a vocabulary the receiver has changed — keeps its reference and
+     * loses only the label, which is the half that matters.
+     *
+     * @return array<int, array{reference: string, sent_at: string, category_label: ?string}>
+     */
+    public function recentlySent(): array
+    {
+        $stored = json_decode((string) ($this->settingService->get(self::RECENT_SETTING) ?? ''), true);
+        if (!is_array($stored) || !array_is_list($stored)) {
+            // Nothing kept yet, or a value this version cannot read —
+            // `array_is_list()` because a JSON OBJECT decodes to an array
+            // too, and one would walk straight past a plain `is_array()`
+            // into the loop below, come out empty, and report an
+            // installation that has been sending for a year as one that
+            // never sent anything. The
+            // last reference is still worth showing on its own — an
+            // installation that has been sending for a year must not read
+            // as one that never sent anything, just because this list is
+            // newer than its history.
+            $last = $this->lastSent();
+
+            return $last === null
+                ? []
+                : [['reference' => $last['reference'], 'sent_at' => $last['sent_at'], 'category_label' => null]];
+        }
+
+        $labels = [];
+        foreach ($this->categories() as $category) {
+            $labels[(string) $category['value']] = (string) $category['label'];
+        }
+
+        $entries = [];
+        foreach (array_slice($stored, 0, self::RECENT_KEPT) as $entry) {
+            $reference = is_array($entry) ? (string) ($entry['reference'] ?? '') : '';
+            if ($reference === '') {
+                continue;
+            }
+
+            $category = is_array($entry) ? (string) ($entry['category'] ?? '') : '';
+            $entries[] = [
+                'reference' => $reference,
+                'sent_at' => is_array($entry) ? (string) ($entry['sent_at'] ?? '') : '',
+                'category_label' => $labels[$category] ?? null,
+            ];
+        }
+
+        return $entries;
+    }
+
+    /**
+     * Push one accepted reference onto the list.
+     *
+     * The category is stored as its VALUE and turned into a label only at
+     * display time: a label is the receiver's wording of the moment, and a
+     * copy frozen here would go on printing last year's vocabulary beside
+     * a reference for as long as the row survives.
+     *
+     * Written through {@see self::writeSetting()} like everything else on
+     * this path, so a bookkeeping failure can never make a ticket that WAS
+     * accepted read as one that was not.
+     */
+    private function rememberSent(string $reference, string $sentAt, string $category): void
+    {
+        $stored = json_decode((string) ($this->settingService->get(self::RECENT_SETTING) ?? ''), true);
+        // Same guard as the reader, and for the same reason: prepending
+        // onto a decoded JSON object would write back a value neither
+        // side can read.
+        //
+        // Read-modify-write without a lock, deliberately: two accepted
+        // sends in the same few milliseconds on one installation would
+        // lose one reference from this list (#199). Serialising it means
+        // giving this service a database handle or this list a table of
+        // its own, for an aide-mémoire whose entries were each shown to
+        // the person who sent them.
+        $entries = is_array($stored) && array_is_list($stored) ? $stored : [];
+
+        array_unshift($entries, [
+            'reference' => $reference,
+            'sent_at' => $sentAt,
+            'category' => $category,
+        ]);
+
+        $this->writeSetting(
+            self::RECENT_SETTING,
+            (string) json_encode(array_slice($entries, 0, self::RECENT_KEPT), JSON_UNESCAPED_UNICODE)
+        );
     }
 
     private function rememberCategories(mixed $categories): void
