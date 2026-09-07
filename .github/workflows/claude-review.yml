@@ -96,12 +96,14 @@ jobs:
     # So the rest of these outputs come from the action's `execution_file`,
     # the transcript the SDK writes: how many turns were spent, how many
     # tool calls were REFUSED and which ones, and how many review agents
-    # were actually launched. The command this job runs
+    # were launched and how many came back. The command this job runs
     # (plugins/code-review in anthropics/claude-code) is built entirely on
     # subagents — "Launch a haiku agent", "Launch 4 agents in parallel" —
-    # so zero agent calls means the procedure never started, whatever the
-    # exit status says. That signal needs no threshold, which is the point:
-    # the previous two readers were both a number standing in for a fact.
+    # so zero agent calls means the procedure never started, and fewer
+    # finished than launched means it stopped in the middle, whatever the
+    # exit status says. Neither signal needs a threshold, which is the
+    # point: the previous two readers were both a number standing in for a
+    # fact.
     outputs:
       conclusion: ${{ steps.claude.outputs.conclusion }}
       evidence: ${{ steps.evidence.outputs.evidence }}
@@ -111,6 +113,8 @@ jobs:
       denials: ${{ steps.evidence.outputs.denials }}
       denied_tools: ${{ steps.evidence.outputs.denied_tools }}
       agent_calls: ${{ steps.evidence.outputs.agent_calls }}
+      subagents_spawned: ${{ steps.evidence.outputs.subagents_spawned }}
+      subagents_completed: ${{ steps.evidence.outputs.subagents_completed }}
       tools_used: ${{ steps.evidence.outputs.tools_used }}
       models: ${{ steps.evidence.outputs.models }}
       cost: ${{ steps.evidence.outputs.cost }}
@@ -227,19 +231,26 @@ jobs:
           # and left everything the reviewing procedure needs to reach it
           # ungranted.
           #
-          # WHETHER THAT IS WHAT THE ONE DENIAL WAS IS NOT PROVEN, and this
-          # file is not going to pretend otherwise on a change whose whole
-          # subject is claims nobody checked. What is established: one tool
-          # call was refused in every run sampled, no review agent was ever
-          # launched, and the console summary does not name the tool. What
-          # is NOT established is that the refused tool was `Task` —
-          # issue-triage.yml records the opposite-looking observation, an
-          # agent running `date` and `ls` with --allowedTools naming only
-          # the GitHub MCP server, so built-in tools may not be gated by
-          # this list at all. Granting them eliminates the hypothesis
-          # rather than confirming it; `show_full_output` and the
-          # `denied_tools` output below are what will name the tool on the
-          # next run that is not this pull request's own.
+          # THE FIRST RUN THAT NAMED ITS DENIALS SETTLED IT, and the answer
+          # was not `Task`. Pull request #208, run 34155412607: four
+          # refusals, and the first one is the entire review.
+          #
+          #   Skill{skill: "code-review:code-review",
+          #         args: "--comment xdubois-57/scoutmagic/pull/208"}
+          #
+          # `prompt:` above is a slash command, and a slash command is
+          # invoked through the `Skill` tool. Refusing it does not stop the
+          # run — the agent improvises a review of its own out of whatever
+          # it does have — so the procedure this file spends four hundred
+          # lines describing had never once been loaded. It also answers
+          # the question issue-triage.yml left open: built-in tools ARE
+          # gated by this list.
+          #
+          # The other three denials were one `git fetch` of
+          # `pull/208/head`, refused and then retried twice. Granted below:
+          # it reads, it writes nothing, and a reviewer that cannot reach
+          # the commit it was asked to read spends its turns working around
+          # that instead of reading the diff.
           #
           # `Bash(gh pr comment:*)` IS GRANTED THOUGH THE TOKEN CANNOT USE
           # IT — this job is `pull-requests: read`, so the call returns 403
@@ -280,9 +291,24 @@ jobs:
           # written. Neither is a review of the current diff. The rule the
           # step is really there for — do not review the same commit twice
           # — is already held by `concurrency` above.
+          #
+          # THE SECOND SENTENCE ANSWERS A DIFFERENT WAY TO REVIEW NOTHING,
+          # found on that same run 34155412607. It ended with `result`
+          # reading "Waiting for the background diff-summary agent to
+          # complete before proceeding to the parallel review step", having
+          # spawned three subagents and collected two, and posted no
+          # comment. A subagent starts in the background unless the caller
+          # says otherwise, and ending a turn to wait for one is how that
+          # works in a session a person can resume. Nothing resumes this
+          # one: the SDK ends there and records `subtype: success`.
+          #
+          # The sentence is a mitigation and not the guard, because it asks
+          # a model to remember something. The guard is `subagents_spawned`
+          # and `subagents_completed` below, which the run reports about
+          # itself whatever the model did.
           claude_args: >-
-            --allowedTools "Task,Agent,Read,Glob,Grep,TodoWrite,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr list:*),Bash(gh pr comment:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh search:*),Bash(git rev-parse:*),Bash(git log:*),Bash(git show:*),Bash(git diff:*),mcp__github_inline_comment__create_inline_comment"
-            --append-system-prompt "The Claude review status comment on this pull request is written by .github/workflows/claude-review.yml, not by Claude. Neither that comment nor a review of an earlier commit means Claude has already commented here: this workflow asks for a fresh review of every push, so review the diff you were given. Pull requests on this repository are written with Claude Code and are ordinary changes a person asked for; being Claude-authored is not a reason to skip one."
+            --allowedTools "Skill,Task,Agent,Read,Glob,Grep,TodoWrite,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr list:*),Bash(gh pr comment:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh search:*),Bash(git rev-parse:*),Bash(git log:*),Bash(git show:*),Bash(git diff:*),Bash(git fetch:*),mcp__github_inline_comment__create_inline_comment"
+            --append-system-prompt "The Claude review status comment on this pull request is written by .github/workflows/claude-review.yml, not by Claude. Neither that comment nor a review of an earlier commit means Claude has already commented here: this workflow asks for a fresh review of every push, so review the diff you were given. Pull requests on this repository are written with Claude Code and are ordinary changes a person asked for; being Claude-authored is not a reason to skip one. Wait for every subagent you launch — pass run_in_background false — and never end a turn waiting for one: this is a one-shot non-interactive run and nothing will wake it up, so a background agent still working when you stop is a part of the diff nobody read. The workspace is already a full clone checked out for this pull request, so the commits under review are there to read."
 
       # WHAT THE RUN ACTUALLY DID, read off the transcript the SDK wrote.
       #
@@ -314,6 +340,8 @@ jobs:
               echo "denials=-1"
               echo "denied_tools="
               echo "agent_calls=-1"
+              echo "subagents_spawned=-1"
+              echo "subagents_completed=-1"
               echo "tools_used="
               echo "models="
               echo "cost="
@@ -360,6 +388,13 @@ jobs:
           # The array is what the SDK documents, so its absence means the
           # message is not the shape this step knows — `-1`, never `0`.
           #
+          # `subagent_stats` IS READ THE SAME WAY AND FOR THE SAME REASON.
+          # `spawned` counts the review agents the run started, `completed`
+          # the ones it collected, and a run that ends between the two
+          # ended in the middle of reading the diff. Both are absent-means
+          # `-1`: a nested field this step cannot find must never be
+          # allowed to look like agreement between two zeros.
+          #
           # WRITTEN ASIDE FIRST, appended only once jq has succeeded. This
           # step runs under `set -euo pipefail`, so a jq that dies partway
           # — a `modelUsage` that is not an object, any shape this filter
@@ -376,6 +411,7 @@ jobs:
                 | .name
               ] as $calls
             | ($calls | map(select(. == "Task" or . == "Agent")) | length) as $agents
+            | (if ($r.subagent_stats | type) == "object" then $r.subagent_stats else {} end) as $sub
             | def flat: gsub("[\r\n]"; " ");
               [
                 "evidence=present",
@@ -385,6 +421,8 @@ jobs:
                 "denials=" + ((if ($r | has("permission_denials")) then (($r.permission_denials // []) | length) else -1 end) | tostring),
                 "denied_tools=" + ([$r.permission_denials[]? | (.tool_name // .toolName // .name // "unnamed")] | unique | join(", ") | flat),
                 "agent_calls=" + ($agents | tostring),
+                "subagents_spawned=" + ((if ($sub | has("spawned")) and ($sub.spawned | type) == "number" then $sub.spawned else -1 end) | tostring),
+                "subagents_completed=" + ((if ($sub | has("completed")) and ($sub.completed | type) == "number" then $sub.completed else -1 end) | tostring),
                 "tools_used=" + ($calls | unique | join(", ") | flat),
                 "models=" + ((($r.modelUsage // {}) | keys | join(", ")) | flat),
                 "cost=" + (($r.total_cost_usd // 0) | tostring)
@@ -443,12 +481,21 @@ jobs:
   # ends its turn normally is a successful agent.
   #
   # SO IT NOW READS THE RUN'S OWN RECORD: how many review agents were
-  # launched, and how many tool calls were refused. Both come from the
-  # transcript, both are facts about this run rather than estimates of it,
-  # and neither needs a threshold — the question "were any agents launched
-  # at all" has no borderline. A refusal is disqualifying on its own: the
-  # agent asked for a tool this workflow did not grant, so whatever it
-  # concluded, it concluded without something it judged it needed.
+  # launched, how many of them FINISHED, and how many tool calls were
+  # refused. All three come from the transcript, all three are facts about
+  # this run rather than estimates of it, and none needs a threshold — the
+  # question "were any agents launched at all" has no borderline, and
+  # neither has "did they all come back". A refusal is disqualifying on its
+  # own: the agent asked for a tool this workflow did not grant, so whatever
+  # it concluded, it concluded without something it judged it needed.
+  #
+  # THE FINISHED COUNT WAS ADDED ON 2026-09-07 AFTER THE OTHER TWO WOULD
+  # HAVE PASSED A RUN THAT REVIEWED NOTHING. On #208 the reviewer spawned
+  # three agents, collected two, and ended on "Waiting for the background
+  # diff-summary agent to complete" with no comment posted. Agents launched
+  # was 3 and, once the tools it had been refused were granted, refusals
+  # would have been 0 — "Reviewed, nothing to report" over a review that
+  # stopped in the middle. Launched is not finished.
   #
   # AND IT GOES RED when it cannot say a review happened. A reader that can
   # only ever report good news is the failure it was built to catch, one
@@ -501,6 +548,11 @@ jobs:
           DENIALS: ${{ needs.review.outputs.denials }}
           DENIED_TOOLS: ${{ needs.review.outputs.denied_tools }}
           AGENT_CALLS: ${{ needs.review.outputs.agent_calls }}
+          # How many review agents the run started, and how many it
+          # collected. Equal is the only reading that says the procedure
+          # ran to its end.
+          SUBAGENTS_SPAWNED: ${{ needs.review.outputs.subagents_spawned }}
+          SUBAGENTS_COMPLETED: ${{ needs.review.outputs.subagents_completed }}
           TOOLS_USED: ${{ needs.review.outputs.tools_used }}
           MODELS: ${{ needs.review.outputs.models }}
           COST: ${{ needs.review.outputs.cost }}
@@ -553,8 +605,25 @@ jobs:
             verdict="**A tool was refused, so this is not a review.** The agent asked for \`${DENIED_TOOLS:-a tool this run did not name}\` and this workflow had not granted it, so it worked around the gap or gave up — either way it reached its conclusion without something it judged it needed. Grant the tool in \`claude_args\` or say in this file why it must stay denied."
           elif [[ "${AGENT_CALLS}" == "0" ]]; then
             verdict="**The review agents never ran.** Every step of the code-review command launches a subagent, and this run launched none, so nothing read the diff for bugs. The run log carries the full transcript; start at the first tool call."
+          elif [[ "${SUBAGENTS_SPAWNED}" == "-1" || "${SUBAGENTS_COMPLETED}" == "-1" ]]; then
+            # AFTER the two branches above, not folded into the `-1` test
+            # they share. A run that launched no agent at all may well
+            # carry no `subagent_stats` either, and "the review agents
+            # never ran" is the more useful of the two things to be told;
+            # reaching here means agents did run and only their tally is
+            # missing.
+            verdict="**Unverified.** ${AGENT_CALLS} review agents were launched with no tool refused, but the transcript does not say how many of them finished — so this check cannot rule out a run that ended mid-review. That is a defect in the reader: \`subagent_stats\` is not where it expects."
+          elif [[ "${SUBAGENTS_COMPLETED}" != "${SUBAGENTS_SPAWNED}" ]]; then
+            # Launched is not finished, and the gap between them is a whole
+            # way to review nothing that the two signals above cannot see.
+            # A subagent starts in the background, so an agent that ends its
+            # turn to wait for one leaves this run with nobody to resume it:
+            # the SDK closes it `subtype: success`, and the part of the diff
+            # that agent was reading was never read (PR #208, three agents
+            # spawned, two collected, no comment posted).
+            verdict="**The review stopped part-way through.** ${SUBAGENTS_SPAWNED} review agents were launched and ${SUBAGENTS_COMPLETED} finished, so at least one was still reading when the run ended — and whatever it would have found is not on this pull request. Read the run log from the last agent launched."
           else
-            verdict="**Reviewed, nothing to report.** ${AGENT_CALLS} review agents ran over ${TURNS} turns with no tool refused. Findings, when there are any, arrive as inline comments on the diff rather than here; this comment is only the proof that the reviewer ran."
+            verdict="**Reviewed, nothing to report.** ${AGENT_CALLS} review agents ran over ${TURNS} turns, all of them finished, and no tool was refused. Findings, when there are any, arrive as inline comments on the diff rather than here; this comment is only the proof that the reviewer ran."
             unreviewed=0
           fi
 
@@ -571,6 +640,19 @@ jobs:
           agents_cell="${AGENT_CALLS:--}"
           if [[ "${agents_cell}" == "-1" ]]; then
             agents_cell="unknown"
+          fi
+
+          # Reported as "finished of spawned" so the row carries its own
+          # denominator: a bare "2" says nothing about whether that was all
+          # of them, and that gap is the whole point of the row.
+          finished_cell="${SUBAGENTS_COMPLETED:--}"
+          if [[ "${finished_cell}" == "-1" ]]; then
+            finished_cell="unknown"
+          fi
+          if [[ "${SUBAGENTS_SPAWNED:--1}" == "-1" ]]; then
+            finished_cell="${finished_cell} of unknown"
+          else
+            finished_cell="${finished_cell} of ${SUBAGENTS_SPAWNED}"
           fi
 
           turns_cell="${TURNS:--}"
@@ -590,8 +672,8 @@ jobs:
           models_cell="${MODELS:--}"
           tools_cell="${TOOLS_USED:--}"
 
-          body="$(printf '%s\n\n## Claude review\n\n%s\n\n| | |\n|---|---|\n| Commit | `%s` |\n| Job result | `%s` |\n| Claude ran | `%s` |\n| Review agents launched | %s |\n| Tool calls refused | %s |\n| Turns | %s |\n| Tools used | %s |\n| Models | %s |\n| Cost | %s USD |\n| Took | %s |\n| Run | %s |\n\nPosted by `.github/workflows/claude-review.yml`, rewritten in place on every run. The verdict comes from what the run recorded — agents launched, tools refused — never from its duration or its exit status, both of which have already been wrong here. See `docs/quality-pipeline.md` for what each layer does and does not prove.\n' \
-            "${MARKER}" "${verdict}" "${HEAD_SHA}" "${REVIEW_RESULT}" "${conclusion_cell}" "${agents_cell}" "${denials_cell}" "${turns_cell}" "${tools_cell}" "${models_cell}" "${cost_cell}" "${elapsed}" "${RUN_URL}")"
+          body="$(printf '%s\n\n## Claude review\n\n%s\n\n| | |\n|---|---|\n| Commit | `%s` |\n| Job result | `%s` |\n| Claude ran | `%s` |\n| Review agents launched | %s |\n| Review agents finished | %s |\n| Tool calls refused | %s |\n| Turns | %s |\n| Tools used | %s |\n| Models | %s |\n| Cost | %s USD |\n| Took | %s |\n| Run | %s |\n\nPosted by `.github/workflows/claude-review.yml`, rewritten in place on every run. The verdict comes from what the run recorded — agents launched, agents finished, tools refused — never from its duration or its exit status, both of which have already been wrong here. See `docs/quality-pipeline.md` for what each layer does and does not prove.\n' \
+            "${MARKER}" "${verdict}" "${HEAD_SHA}" "${REVIEW_RESULT}" "${conclusion_cell}" "${agents_cell}" "${finished_cell}" "${denials_cell}" "${turns_cell}" "${tools_cell}" "${models_cell}" "${cost_cell}" "${elapsed}" "${RUN_URL}")"
 
           jq -n --arg body "${body}" '{body: $body}' > payload.json
 

@@ -480,16 +480,32 @@ agents are by definition. Meanwhile CodeRabbit was finding real defects in
 the same diffs. What the reader above said about all of it was "Reviewed,
 nothing to report".
 
-**Which tool was refused is still not known**, and that is worth stating
-plainly on a page about claims nobody checked. The action's console summary
-counts denials without naming them, and no run kept a transcript. `Task`
-was the leading candidate and is now granted, but this document is not
-going to record a hypothesis as the cause: `issue-triage.yml` records an
-agent running `date` and `ls` with `--allowedTools` naming only the GitHub
-MCP server, which suggests built-in tools may not be gated by that list at
-all. The grant eliminates the hypothesis; the `denied_tools` row of the
-status comment is what will settle it, on the first pull request that does
-not edit this workflow.
+**The refused tool was `Skill`, and it was not `Task`.** The first run that
+kept a transcript naming its denials was #208, and it named four. The first
+is the whole story: `Skill{skill: "code-review:code-review"}`. The `prompt:`
+this workflow passes is a slash command, and a slash command is invoked
+through the `Skill` tool — so on all 105 runs the code-review procedure was
+never loaded, and what ran was an agent improvising a review from the diff
+with whatever tools it happened to hold. It also settles the question
+`issue-triage.yml` left open: built-in tools **are** gated by
+`--allowedTools`. The other three denials were one `git fetch` of the pull
+request head, refused and retried twice; both are granted now.
+
+**And that same run found a third way to review nothing.** It ended with
+`result` reading *"Waiting for the background diff-summary agent to
+complete before proceeding to the parallel review step"* — three review
+agents spawned, two collected, no comment posted, `subtype: success`. A
+subagent starts in the background unless the caller says otherwise, and
+ending a turn to wait for one works in a session a person can resume;
+nothing resumes a workflow run. Launched was 3 and, with the refused tools
+granted, refusals would have been 0 — so **both signals added on 2026-09-07
+would have passed it**, and the comment would have read "Reviewed, nothing
+to report" over a review that stopped in the middle. The status job now
+reads a third number, `subagent_stats.completed` against `spawned`, and
+goes red when they differ; the reviewer is also told in
+`--append-system-prompt` to wait for the agents it launches, which is a
+mitigation rather than the guard, because it asks a model to remember
+something.
 
 Three things changed on 2026-09-07, and the third is the one that
 generalises:
@@ -503,12 +519,13 @@ generalises:
   fixes to the issue triage could not find its cause because no run kept
   one; the first that did explained it in a line.
 - **The status job reads that transcript instead of the exit status**, and
-  **goes red when it cannot show a review happened**. Its two signals are
-  how many review agents were launched and how many tool calls were
-  refused: facts about the run, not estimates of it, and neither needs a
-  threshold. A refusal is disqualifying on its own — the agent asked for
-  something this workflow had not granted. `tests/Architecture/ClaudeReviewIsVerifiableTest`
-  pins each of these against the single edit that would undo it.
+  **goes red when it cannot show a review happened**. Its signals are how
+  many review agents were launched, how many of them finished, and how many
+  tool calls were refused: facts about the run, not estimates of it, and
+  none needs a threshold. A refusal is disqualifying on its own — the agent
+  asked for something this workflow had not granted.
+  `tests/Architecture/ClaudeReviewIsVerifiableTest` pins each of these
+  against the single edit that would undo it.
 
 **SonarQube Cloud** — posts a Quality Gate on each pull request. It is
 skipped entirely on pull requests from forks, because `SONAR_TOKEN` is not
@@ -781,7 +798,8 @@ an error.
   — and `All checks` already waits for all of them.
   **`Claude review status` is deliberately not on the list**, though since
   2026-09-07 it can go red (§ Code review). It warns rather than blocks
-  while its two signals — review agents launched, tool calls refused —
+  while its signals — review agents launched, review agents finished, tool
+  calls refused —
   build a run history: a check that has never been wrong on this repository
   is not yet a check worth deadlocking every merge on. Promoting it is a
   one-line change here and in the ruleset, and it is the maintainer's call.
@@ -1069,8 +1087,9 @@ nothing**:
   and ends its turn normally sets it, which is what every run sampled on
   2026-09-07 was doing — see § Code review. A heuristic standing in for a fact,
   then a fact standing in for a different fact: the same defect one level
-  up, twice. It now reads the run's own transcript — agents launched, tool
-  calls refused — and goes red when neither can show a review happened.
+  up, twice. It now reads the run's own transcript — agents launched,
+  agents finished, tool calls refused — and goes red when none of them can
+  show a review happened.
 - **An agent's own report of success means only that its turn ended.** It
   is the same reading error as the bullet above and it deserves its own
   line, because it applies to every job in this repository that runs one.

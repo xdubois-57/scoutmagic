@@ -125,6 +125,45 @@ final class ClaudeReviewIsVerifiableTest extends TestCase
     }
 
     /**
+     * WHAT THE 106th RUN TURNED OUT TO BE. The first run whose transcript
+     * named its refusals named `Skill` first, on #208, and the input said
+     * what it wanted: `code-review:code-review`. The `prompt:` this
+     * workflow passes is a slash command, and a slash command is invoked
+     * through the `Skill` tool — so the reviewing procedure had never been
+     * loaded at all, and every "review" so far was an agent improvising
+     * from the diff with the tools it happened to have.
+     *
+     * The failure is silent by construction: a refused `Skill` call does
+     * not stop the run, it just leaves the command unread.
+     */
+    public function testTheReviewerMayRunTheCommandItWasGiven(): void
+    {
+        $this->assertStringContainsString(
+            'Skill',
+            self::claudeArgs(),
+            'The `prompt:` above is a slash command, which the agent invokes through the `Skill` tool. '
+            . 'Ungranted, that call is refused, the code-review procedure is never loaded, and the run '
+            . 'improvises a review instead of failing — which is exactly how the first 105 looked.',
+        );
+    }
+
+    /**
+     * The other three refusals on that run were one `git fetch` of the
+     * pull request head, retried after each one. It reads and writes
+     * nothing; a reviewer that cannot reach the commit it was asked to
+     * read spends its turns working around that.
+     */
+    public function testTheReviewerCanFetchTheCommitItReviews(): void
+    {
+        $this->assertStringContainsString(
+            'Bash(git fetch:*)',
+            self::claudeArgs(),
+            'The reviewer was refused `git fetch` of the pull request ref three times in a row on #208 '
+            . 'before giving up on reading the commit locally.',
+        );
+    }
+
+    /**
      * The tool that was already there, and the one thing the old list got
      * right: the action installs the inline-comment MCP server only when
      * `claude_args` names a tool from it. Remove it and findings have
@@ -216,7 +255,9 @@ final class ClaudeReviewIsVerifiableTest extends TestCase
     {
         [$review] = self::jobs();
 
-        foreach (['evidence', 'turns', 'denials', 'denied_tools', 'agent_calls'] as $output) {
+        $outputs = ['evidence', 'turns', 'denials', 'denied_tools', 'agent_calls', 'subagents_spawned', 'subagents_completed'];
+
+        foreach ($outputs as $output) {
             $this->assertMatchesRegularExpression(
                 '/^\s+' . preg_quote($output, '/') . ':\s*\$\{\{\s*steps\.evidence\.outputs\./m',
                 $review,
@@ -295,6 +336,61 @@ final class ClaudeReviewIsVerifiableTest extends TestCase
             $status,
             'The status job cannot fail any more, so a review that never ran is once again a green check '
             . 'and a comment saying so.',
+        );
+    }
+
+    /**
+     * LAUNCHED IS NOT FINISHED, and the gap between them is a third way to
+     * review nothing that the first two signals cannot see.
+     *
+     * On #208 the reviewer spawned three agents, collected two, and ended
+     * its turn on "Waiting for the background diff-summary agent to
+     * complete before proceeding to the parallel review step". A subagent
+     * runs in the background unless the caller says otherwise, and waiting
+     * for one by ending a turn works in a session somebody can resume;
+     * nothing resumes a workflow run, so the SDK closed it `subtype:
+     * success` with no comment posted. Agents launched said 3, and with
+     * the tools that run had been refused now granted, refusals would say
+     * 0 — the two signals of 2026-09-07 would both have passed it.
+     */
+    public function testAnUnfinishedReviewIsNotAReview(): void
+    {
+        [, $status] = self::jobs();
+
+        $this->assertStringContainsString(
+            'SUBAGENTS_COMPLETED',
+            $status,
+            'The status job no longer reads how many review agents came back, so a run that stopped '
+            . 'half-way through the diff is once again indistinguishable from one that finished it.',
+        );
+
+        $matched = preg_match(
+            '/elif \[\[ "\$\{SUBAGENTS_COMPLETED\}" != "\$\{SUBAGENTS_SPAWNED\}" \]\]; then\n(?:\s+#[^\n]*\n)*\s+verdict=/',
+            $status,
+            $found,
+        );
+
+        $this->assertSame(
+            1,
+            $matched,
+            'Nothing compares the review agents launched against the ones that finished, so the verdict '
+            . 'can again read "Reviewed, nothing to report" over a run that ended mid-review.',
+        );
+    }
+
+    /**
+     * The mitigation for the same failure, on the other side of the same
+     * run. It asks a model to remember something, so it is not the guard —
+     * the comparison above is — but a reviewer told to wait for its agents
+     * does not reach that guard in the first place.
+     */
+    public function testTheReviewerIsToldNotToWaitOnABackgroundAgent(): void
+    {
+        $this->assertStringContainsString(
+            'run_in_background',
+            self::claudeArgs(),
+            'The prompt no longer tells the reviewer to wait for the agents it launches. Subagents start '
+            . 'in the background, and a turn ended waiting for one ends this run — nothing will wake it.',
         );
     }
 
