@@ -131,7 +131,7 @@
             + '&q=' + encodeURIComponent(input.value);
 
         return api.getJson(url).then(function (res) {
-            if (!res.data || !res.data.success) {
+            if (!res.data?.success) {
                 close();
                 return;
             }

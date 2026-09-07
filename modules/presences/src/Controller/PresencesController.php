@@ -142,21 +142,30 @@ class PresencesController extends AbstractController
             (string) ($request->getQuery('q') ?? '')
         );
 
-        return $this->json([
-            'success' => true,
-            'events' => array_map(static fn (RegisterEvent $event): array => [
+        $events = array_map(
+            static fn (RegisterEvent $event): array => [
                 'url' => '/chefs/presences/feuille/' . $event->eventId,
                 'title' => $event->title,
                 'date' => $event->startDate,
                 'pointed' => $event->pointed,
                 'rate' => $event->rate,
-            ], $results['events']),
-            'animes' => array_map(static fn (RegisterAnime $anime): array => [
+            ],
+            $results['events']
+        );
+        $animes = array_map(
+            static fn (RegisterAnime $anime): array => [
                 'url' => '/chefs/presences/anime/' . $anime->memberId,
                 'name' => $anime->lastName . ', ' . $anime->firstName,
                 'rate' => $anime->rate,
                 'tone' => $anime->tone(),
-            ], $results['animes']),
+            ],
+            $results['animes']
+        );
+
+        return $this->json([
+            'success' => true,
+            'events' => $events,
+            'animes' => $animes,
         ]);
     }
 
@@ -304,7 +313,13 @@ class PresencesController extends AbstractController
             }
 
             $recorded = $this->sheetService->recordStatus(
-                $eventId, $memberId, $status, $email, $role->value, $year->id, $userId
+                $eventId,
+                $memberId,
+                $status,
+                $email,
+                $role->value,
+                $year->id,
+                $userId
             );
 
             return $recorded

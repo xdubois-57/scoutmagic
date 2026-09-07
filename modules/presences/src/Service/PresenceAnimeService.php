@@ -66,10 +66,11 @@ class PresenceAnimeService
         }
 
         $events = $this->registerService->sectionEvents($sectionId, $scoutYearId);
-        $records = $this->repository->findByMemberAndEvents($memberId, array_map(
+        $eventIds = array_map(
             static fn(\Modules\Calendar\Api\SectionEvent $event): int => $event->id,
             $events
-        ));
+        );
+        $records = $this->repository->findByMemberAndEvents($memberId, $eventIds);
 
         // Only POINTED evenings feed the months, for the same reason they
         // are the only ones in the register's graph: a Saturday nobody

@@ -68,8 +68,7 @@
                             {# Quatre cibles larges, toujours visibles : un
                                menu déroulant demanderait deux gestes par
                                animé, debout, pour vingt-cinq noms. #}
-                            <div class="btn-group flex-shrink-0" role="group"
-                                 aria-label="État de {{ line_name }}">
+                            <div class="btn-group flex-shrink-0">
                                 {% for status in statuses %}
                                     <button type="button"
                                             class="btn tap-target presence-state {{ line.status.value == status.value ? 'btn-' ~ status.tone : 'btn-outline-secondary' }}"

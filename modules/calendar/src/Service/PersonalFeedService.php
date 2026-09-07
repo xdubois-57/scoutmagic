@@ -164,14 +164,20 @@ class PersonalFeedService
             $lines = [];
 
             $board = $this->retroEventLinkLookup?->findLinkedBoardLink(
-                $event->id, $role, $userAccount->email, $scoutYearId
+                $event->id,
+                $role,
+                $userAccount->email,
+                $scoutYearId
             );
             if ($board !== null) {
                 $lines[] = 'Rétrospective : ' . $board->url;
             }
 
             $sheet = $this->presenceSheetLinkLookup?->findSheetLink(
-                $event->id, $role, $userAccount->email, $scoutYearId
+                $event->id,
+                $role,
+                $userAccount->email,
+                $scoutYearId
             );
             if ($sheet !== null) {
                 $lines[] = 'Prendre les présences : ' . $sheet->url;

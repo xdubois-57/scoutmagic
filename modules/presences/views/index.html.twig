@@ -194,8 +194,10 @@
                                 <span class="flex-grow-1 text-truncate">
                                     <strong>{{ anime.lastName|normalize_name }}</strong>, {{ anime.firstName|normalize_name }}
                                 </span>
+                                {# Purement décorative : le pourcentage est
+                                   écrit juste à côté, en toutes lettres. #}
                                 <span class="progress flex-shrink-0 d-none d-sm-block" style="width: 6rem; height: 0.4rem;"
-                                      role="img" aria-label="{{ anime.rate }} % de présence">
+                                      aria-hidden="true">
                                     <span class="progress-bar bg-{{ anime.tone }}" style="width: {{ anime.rate }}%;"></span>
                                 </span>
                                 <span class="fw-semibold text-{{ anime.tone }} flex-shrink-0">{{ anime.rate }} %</span>

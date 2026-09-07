@@ -214,13 +214,12 @@ class PresenceSheetService
      */
     private static function sortedByName(array $lines): array
     {
-        usort($lines, static fn(SheetLine $a, SheetLine $b): int => [
-            TextNormalizerService::fold($a->lastName),
-            TextNormalizerService::fold($a->firstName),
-        ] <=> [
-            TextNormalizerService::fold($b->lastName),
-            TextNormalizerService::fold($b->firstName),
-        ]);
+        usort(
+            $lines,
+            static fn(SheetLine $a, SheetLine $b): int
+                => [TextNormalizerService::fold($a->lastName), TextNormalizerService::fold($a->firstName)]
+                <=> [TextNormalizerService::fold($b->lastName), TextNormalizerService::fold($b->firstName)]
+        );
 
         return $lines;
     }

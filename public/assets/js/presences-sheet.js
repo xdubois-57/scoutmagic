@@ -27,7 +27,7 @@
     var data = api ? api.pageData('presences-sheet-data') : null;
 
     // A no-op on every other page of the site.
-    if (!container || !data || !data.endpoint) {
+    if (!container || !data?.endpoint) {
         return;
     }
 
@@ -144,16 +144,16 @@
      * @returns {Promise<boolean>}
      */
     function save(memberId, payload) {
-        return api.postJson(data.endpoint, Object.assign({ member_id: Number(memberId) }, payload))
+        return api.postJson(data.endpoint, { member_id: Number(memberId), ...payload })
             .then(function (res) {
-                if (res.data && res.data.success) {
+                if (res.data?.success) {
                     return true;
                 }
 
                 window.ScoutMagicToast.show(
                     res.status === 0
                         ? 'Erreur réseau : cet appui n\'a pas été enregistré.'
-                        : (res.data && res.data.error) || 'Erreur lors de l\'enregistrement.',
+                        : res.data?.error || 'Erreur lors de l\'enregistrement.',
                     { variant: 'error' }
                 );
                 return false;

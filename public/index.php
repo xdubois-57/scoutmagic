@@ -3234,10 +3234,20 @@ $frontController->registerController(ConfigBadgesController::class,
     new ConfigBadgesController($twig, $badgeService, $journalService));
 $frontController->registerController(SuperAdminAccountsController::class,
     new SuperAdminAccountsController($twig, $userAccountRepo, $superAdminService));
-$frontController->registerController(FunctionsController::class,
-    new FunctionsController($twig, $functionRepo, $journalService, $sectionService, $unitStaffSectionService,
-        $scoutYearResolver, $badgeService, $ageBranchRepo, $moduleHooks)
-    );
+$frontController->registerController(
+    FunctionsController::class,
+    new FunctionsController(
+        $twig,
+        $functionRepo,
+        $journalService,
+        $sectionService,
+        $unitStaffSectionService,
+        $scoutYearResolver,
+        $badgeService,
+        $ageBranchRepo,
+        $moduleHooks
+    )
+);
 $frontController->registerController(PlaceholderController::class, new PlaceholderController($twig));
 
 // Module controllers with dependencies (only wired when the module is enabled).
@@ -3377,8 +3387,14 @@ if ($isEnabled('calendar')) {
         $calendarEventRepo, $calendarService, $calendarNotificationService, $calendarRetroAutoCreateService
     );
     $calendarPersonalFeedService = new \Modules\Calendar\Service\PersonalFeedService(
-        $calendarPersonalTokenRepo, $calendarService, $calendarEventRepo,
-        $roleResolver, $memberService, $userAccountRepo, $sectionService, $calendarRetroLinks,
+        $calendarPersonalTokenRepo,
+        $calendarService,
+        $calendarEventRepo,
+        $roleResolver,
+        $memberService,
+        $userAccountRepo,
+        $sectionService,
+        $calendarRetroLinks,
         $calendarPresenceSheetLinks
     );
     $calendarPickerService = new \Modules\Calendar\Service\CalendarPickerService(
@@ -3477,8 +3493,14 @@ if ($isEnabled('presences') && $calendarSectionEventLookupForOthers !== null) {
     $frontController->registerController(
         \Modules\Presences\Controller\PresencesController::class,
         new \Modules\Presences\Controller\PresencesController(
-            $twig, $presenceAuthorization, $presenceSheetService, $presenceRegisterService,
-            $presenceAnimeService, $presenceExportService, $memberService, $scoutYearResolver,
+            $twig,
+            $presenceAuthorization,
+            $presenceSheetService,
+            $presenceRegisterService,
+            $presenceAnimeService,
+            $presenceExportService,
+            $memberService,
+            $scoutYearResolver,
             $journalService
         )
     );
@@ -5562,8 +5584,12 @@ if ($isEnabled('camps')) {
     // place may be named from the message body; without it, a message can
     // still join a place already known, and nothing else is ever created.
     $campsStayFromMail = new \Modules\Camps\Mail\StayFromMailService(
-        $campsCampRepo, $campsCampService, $campsPlaceService,
-        $campsDuplicateDetector, $campsMessageReader, $settingService,
+        $campsCampRepo,
+        $campsCampService,
+        $campsPlaceService,
+        $campsDuplicateDetector,
+        $campsMessageReader,
+        $settingService,
         $llmConnectorForOthers ?? null,
         // A booking arrives as a PDF contract with a one-word covering
         // note: everything worth reading is in the attachment, which is
@@ -6030,7 +6056,11 @@ if ($isEnabled('registration')) {
     $frontController->registerController(
         \Modules\Registration\Controller\DeparturesController::class,
         new \Modules\Registration\Controller\DeparturesController(
-            $twig, $sectionStaffAuthorizationService, $sectionService, $departureService, $scoutYearResolver,
+            $twig,
+            $sectionStaffAuthorizationService,
+            $sectionService,
+            $departureService,
+            $scoutYearResolver,
             $registrationReenrollmentDeparture
         )
     );

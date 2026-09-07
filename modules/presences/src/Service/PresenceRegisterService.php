@@ -250,9 +250,12 @@ class PresenceRegisterService
         // Least present first — this list exists to be acted on, and the
         // action is a phone call. Ties are broken by name so the order is
         // stable between two loads of the same page.
-        usort($ranked, static fn(RegisterAnime $a, RegisterAnime $b): int
-            => [$a->rate, TextNormalizerService::fold($a->lastName), TextNormalizerService::fold($a->firstName)]
-            <=> [$b->rate, TextNormalizerService::fold($b->lastName), TextNormalizerService::fold($b->firstName)]);
+        usort(
+            $ranked,
+            static fn(RegisterAnime $a, RegisterAnime $b): int
+                => [$a->rate, TextNormalizerService::fold($a->lastName), TextNormalizerService::fold($a->firstName)]
+                <=> [$b->rate, TextNormalizerService::fold($b->lastName), TextNormalizerService::fold($b->firstName)]
+        );
 
         return $ranked;
     }
@@ -263,9 +266,12 @@ class PresenceRegisterService
      */
     private static function byName(array $animes): array
     {
-        usort($animes, static fn(RegisterAnime $a, RegisterAnime $b): int
-            => [TextNormalizerService::fold($a->lastName), TextNormalizerService::fold($a->firstName)]
-            <=> [TextNormalizerService::fold($b->lastName), TextNormalizerService::fold($b->firstName)]);
+        usort(
+            $animes,
+            static fn(RegisterAnime $a, RegisterAnime $b): int
+                => [TextNormalizerService::fold($a->lastName), TextNormalizerService::fold($a->firstName)]
+                <=> [TextNormalizerService::fold($b->lastName), TextNormalizerService::fold($b->firstName)]
+        );
 
         return $animes;
     }
