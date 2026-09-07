@@ -272,6 +272,36 @@ class SupportTicketRepository
     }
 
     /**
+     * Just what the DNS snapshot task needs to decide and to act.
+     *
+     * `findByReference()` would do, and decrypts a description and a
+     * contact address to answer a question about a timestamp. A scheduled
+     * pass that only wants to know « which host, and has this already been
+     * read » has no business holding what somebody wrote about their
+     * problem (SECURITY.md §5 keeps decryption in the repository; the way
+     * not to decrypt at all is not to ask).
+     *
+     * @return array{installation_id: int, dns_read_at: ?string}|null
+     */
+    public function findDnsTarget(string $reference): ?array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT installation_id, dns_read_at FROM support_tickets WHERE reference = ?'
+        );
+        $stmt->execute([$reference]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        if (!is_array($row)) {
+            return null;
+        }
+
+        return [
+            'installation_id' => (int) $row['installation_id'],
+            'dns_read_at' => ($row['dns_read_at'] ?? null) !== null ? (string) $row['dns_read_at'] : null,
+        ];
+    }
+
+    /**
      * Record that this ticket's diagnostic archive arrived (roadmap
      * IT-26). Written only once — the caller checks first, and a second
      * copy of the same archive would be storage nobody asked for.

@@ -24,6 +24,9 @@ use Core\Net\DnsRecordReader;
  */
 class ScriptedDnsReader extends DnsRecordReader
 {
+    /** @var array<int, array{0: string, 1: int}> */
+    private array $asked = [];
+
     /** @param array<int, array<int, array<string, mixed>>|false> $answers */
     public function __construct(private array $answers)
     {
@@ -32,6 +35,22 @@ class ScriptedDnsReader extends DnsRecordReader
 
     protected function query(string $host, int $type): array|false
     {
+        $this->asked[] = [$host, $type];
+
         return $this->answers[$type] ?? [];
+    }
+
+    /**
+     * What was asked of the resolver, in order.
+     *
+     * Empty is a claim worth being able to make: « this pass did not read
+     * the zone at all » is the property that keeps a second run from
+     * overwriting the reading a ticket arrived with.
+     *
+     * @return array<int, array{0: string, 1: int}>
+     */
+    public function asked(): array
+    {
+        return $this->asked;
     }
 }

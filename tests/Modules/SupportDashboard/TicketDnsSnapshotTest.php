@@ -4,14 +4,24 @@ declare(strict_types=1);
 
 namespace Tests\Modules\SupportDashboard;
 
+use Core\Config\SettingRepository;
+use Core\Config\SettingService;
+use Core\Database\Connection;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
+use Core\Mail\DkimManager;
+use Core\Mail\MailService;
 use Core\Net\DnsRecordReader;
+use Core\Scheduler\SchedulerRepository;
+use Core\Scheduler\SchedulerService;
+use Core\Scheduler\TaskContext;
 use Core\Security\EncryptionService;
+use Core\Security\UserAccountRepository;
 use Modules\SupportDashboard\Repository\SupportInstallationRepository;
 use Modules\SupportDashboard\Repository\SupportTicketRepository;
 use Modules\SupportDashboard\Service\StatisticsIntakeService;
 use Modules\SupportDashboard\Service\TicketIntakeService;
+use Modules\SupportDashboard\Task\SnapshotTicketDnsHandler;
 use PHPUnit\Framework\TestCase;
 use Tests\Core\Net\ScriptedDnsReader;
 use Tests\DatabaseTestHelper;
@@ -30,6 +40,13 @@ use Tests\DatabaseTestHelper;
  * with no URL, a database that went away — every one of them is a ticket
  * without a snapshot, which is what every ticket written before this
  * existed is.
+ *
+ * **Nor may it cost the REQUEST.** Since issue #198 the intake only
+ * queues the read, and `SnapshotTicketDnsHandler` does it on the next
+ * scheduler pass: `dns_get_record()` takes no timeout and cannot be
+ * interrupted once in flight, so one unreachable authoritative server
+ * used to hold the intake worker on every ticket that installation sent.
+ * Each test below therefore files the ticket, then runs the queued pass.
  */
 final class TicketDnsSnapshotTest extends TestCase
 {
@@ -171,10 +188,69 @@ final class TicketDnsSnapshotTest extends TestCase
     }
 
     /**
+     * The point of issue #198: the request that files the ticket does not
+     * talk to a resolver at all.
+     *
+     * `dns_get_record()` takes no timeout and cannot be interrupted once
+     * it is in flight, so an installation whose `instance_url` names a
+     * host with unresponsive authoritative servers held the intake worker
+     * on every ticket it sent — past the eight-second budget, which bounds
+     * the walk between types and nothing else. Answer first, read after.
+     */
+    public function testTheRequestFilesTheTicketAndOnlyQUEUESTheZoneRead(): void
+    {
+        $this->registerInstallation('https://unite.example.be');
+
+        $this->assertTrue($this->file(withScheduler: true));
+
+        // Answered, stored — and not a single record read yet.
+        $this->assertSame(1, $this->countTickets());
+        $this->assertNull($this->column('dns_snapshot_encrypted'));
+        $this->assertNull($this->column('dns_read_at'));
+
+        $this->assertSame(
+            [['reference' => $this->storedReference()]],
+            $this->queuedSnapshots(),
+            'the read has to be waiting in the queue, named by the ticket it annotates'
+        );
+
+        // And the pass that follows fills it in.
+        $this->runQueuedSnapshot(new ScriptedDnsReader([
+            DNS_A => [['type' => 'A', 'ip' => '192.0.2.10', 'ttl' => 300]],
+        ]));
+
+        $this->assertSame(["300\t192.0.2.10"], $this->storedSnapshot()['records']['A']['values']);
+    }
+
+    /**
+     * A pass that runs twice — retried after a crash, or queued twice by a
+     * receiver having a strange day — must not re-read the zone.
+     *
+     * The whole value of the snapshot is that it is the zone AS THE TICKET
+     * ARRIVED. A second reading overwriting the first would quietly turn
+     * it into the zone as of whenever the scheduler last stumbled.
+     */
+    public function testASecondPassLeavesTheFirstReadingAlone(): void
+    {
+        $this->registerInstallation('https://unite.example.be');
+        $this->file(withScheduler: true);
+
+        $this->runQueuedSnapshot(new ScriptedDnsReader([
+            DNS_A => [['type' => 'A', 'ip' => '192.0.2.10', 'ttl' => 300]],
+        ]));
+
+        $second = new ScriptedDnsReader([DNS_A => [['type' => 'A', 'ip' => '203.0.113.99', 'ttl' => 300]]]);
+        $this->runQueuedSnapshot($second);
+
+        $this->assertSame(["300\t192.0.2.10"], $this->storedSnapshot()['records']['A']['values']);
+        $this->assertSame([], $second->asked(), 'a ticket that already has its zone must not be re-read');
+    }
+
+    /**
      * Wiring nothing leaves the intake exactly as it was — the §7.5 shape
      * of a degradation, and what every receiver looked like before this.
      */
-    public function testWithoutAReaderATicketIsStoredExactlyAsBefore(): void
+    public function testWithoutASchedulerATicketIsStoredExactlyAsBefore(): void
     {
         $this->registerInstallation('https://unite.example.be');
 
@@ -188,14 +264,33 @@ final class TicketDnsSnapshotTest extends TestCase
 
     // ── Helpers ─────────────────────────────────────────────────────────
 
+    /**
+     * File a ticket, then run the zone read it queued — the two halves of
+     * what used to be one call, in the order the receiver performs them.
+     *
+     * $dns null stands for a receiver with no scheduler wired: the ticket
+     * is filed and nothing is queued (§7.5).
+     */
     private function receive(?DnsRecordReader $dns, bool $failing = false): bool
+    {
+        $accepted = $this->file($dns !== null);
+
+        if ($dns !== null) {
+            $this->runQueuedSnapshot($dns, $failing);
+        }
+
+        return $accepted;
+    }
+
+    /** The request half: store the ticket, queue the read, answer. */
+    private function file(bool $withScheduler): bool
     {
         $service = new TicketIntakeService(
             $this->installations,
-            $failing ? new BrokenTicketRepository($this->pdo, $this->encryption) : $this->tickets,
+            $this->tickets,
             new JournalService(new JournalRepository($this->pdo)),
             null,
-            $dns
+            $withScheduler ? new SchedulerService(new SchedulerRepository($this->pdo)) : null
         );
 
         return $service->receive(
@@ -211,6 +306,71 @@ final class TicketDnsSnapshotTest extends TestCase
         )->accepted;
     }
 
+    /**
+     * The scheduler half: run every queued snapshot the way a cron pass
+     * would, with a reader that answers from a script.
+     */
+    private function runQueuedSnapshot(DnsRecordReader $dns, bool $failing = false): int
+    {
+        $handler = $failing ? new FailingSnapshotHandler($dns) : new SnapshotTicketDnsHandler($dns);
+        $ran = 0;
+
+        foreach ($this->queuedSnapshots() as $payload) {
+            $handler->handle($payload, $this->taskContext());
+            $ran++;
+        }
+
+        return $ran;
+    }
+
+    /**
+     * What the intake put in the queue, decoded.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function queuedSnapshots(): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT payload FROM scheduled_actions WHERE module_id = ? AND task_key = ? ORDER BY id ASC'
+        );
+        $stmt->execute(['support_dashboard', SnapshotTicketDnsHandler::TASK_KEY]);
+
+        return array_map(
+            static function (mixed $payload): array {
+                $decoded = json_decode((string) $payload, true);
+
+                return is_array($decoded) ? $decoded : [];
+            },
+            $stmt->fetchAll(\PDO::FETCH_COLUMN)
+        );
+    }
+
+    private function taskContext(): TaskContext
+    {
+        $storagePath = sys_get_temp_dir() . '/ticket_dns_' . uniqid();
+        @mkdir($storagePath . '/keys', 0o777, true);
+
+        $connection = $this->createMock(Connection::class);
+        $connection->method('getPdo')->willReturn($this->pdo);
+
+        return new TaskContext(
+            $connection,
+            $this->encryption,
+            new MailService(
+                'local',
+                'unite@exemple.be',
+                'Unité',
+                'EX',
+                new DkimManager($storagePath . '/keys'),
+                's1'
+            ),
+            new JournalService(new JournalRepository($this->pdo)),
+            new SettingService(new SettingRepository($this->pdo)),
+            new UserAccountRepository($this->pdo, $this->encryption),
+            $storagePath
+        );
+    }
+
     private function registerInstallation(?string $instanceUrl): void
     {
         $this->installations->register(
@@ -222,6 +382,14 @@ final class TicketDnsSnapshotTest extends TestCase
                 'instance_url' => $instanceUrl,
             ], static fn(mixed $value): bool => $value !== null))
         );
+    }
+
+    private function storedReference(): string
+    {
+        $stmt = $this->pdo->prepare('SELECT reference FROM support_tickets ORDER BY id ASC LIMIT 1');
+        $stmt->execute();
+
+        return (string) $stmt->fetchColumn();
     }
 
     /**
@@ -291,5 +459,14 @@ final class BrokenTicketRepository extends SupportTicketRepository
     public function recordDnsSnapshot(string $reference, array $snapshot, \DateTimeImmutable $readAt): void
     {
         throw new \RuntimeException('the database went away');
+    }
+}
+
+/** The pass, against a database that went away between read and write. */
+final class FailingSnapshotHandler extends SnapshotTicketDnsHandler
+{
+    protected function tickets(\PDO $pdo, TaskContext $context): SupportTicketRepository
+    {
+        return new BrokenTicketRepository($pdo, $context->encryption);
     }
 }

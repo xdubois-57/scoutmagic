@@ -105,6 +105,29 @@ class SettingService
     }
 
     /**
+     * Replace a value only if it still holds $expected, atomically — see
+     * SettingRepository::replaceIfUnchanged().
+     *
+     * For values the application maintains by READING them, changing them
+     * and writing them back: a list something appends to, where two
+     * concurrent appends would otherwise lose one. The caller re-reads and
+     * retries on false. Bypasses the `editable` guard and the type/regex
+     * validation like setInternal(), for the same reason: nothing here
+     * came from a form.
+     */
+    public function replaceIfUnchanged(
+        string $key,
+        string $expected,
+        string $value,
+        ?string $moduleId = null
+    ): bool {
+        $replaced = $this->repository->replaceIfUnchanged($moduleId, $key, $expected, $value);
+        $this->clearCache();
+
+        return $replaced;
+    }
+
+    /**
      * Register a setting if it doesn't exist yet.
      *
      * Decided against the already-loaded settings cache: an existing row

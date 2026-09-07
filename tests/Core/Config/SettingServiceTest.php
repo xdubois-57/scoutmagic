@@ -478,6 +478,54 @@ class SettingServiceTest extends TestCase
         $this->service->register('anything', 'v', 'text', 'L', 'D');
     }
 
+    /**
+     * The compare-and-swap sibling of claimIfEmpty(), for values the
+     * application reads, changes and writes back (issue #199).
+     */
+    public function testReplaceIfUnchangedWritesOnlyWhileTheValueIsTheOneRead(): void
+    {
+        $this->service->register('appendable', '', 'text', 'L', 'D');
+        $this->assertTrue($this->service->replaceIfUnchanged('appendable', '', 'first'));
+        $this->assertSame('first', $this->service->get('appendable'));
+
+        // Somebody else got there in between: the writer holding « first »
+        // is refused, and the value it had not seen survives.
+        $this->assertTrue($this->service->replaceIfUnchanged('appendable', 'first', 'second'));
+        $this->assertFalse($this->service->replaceIfUnchanged('appendable', 'first', 'third'));
+        $this->assertSame('second', $this->service->get('appendable'));
+    }
+
+    public function testReplaceIfUnchangedTreatsNullAsEmpty(): void
+    {
+        $this->service->register('appendable_null', '', 'text', 'L', 'D');
+        $this->pdo->exec("UPDATE settings SET setting_value = NULL WHERE setting_key = 'appendable_null'");
+        $this->service->clearCache();
+
+        $this->assertTrue($this->service->replaceIfUnchanged('appendable_null', '', 'value'));
+        $this->assertSame('value', $this->service->get('appendable_null'));
+    }
+
+    /**
+     * Without `MYSQL_ATTR_FOUND_ROWS`, MySQL counts rows it CHANGED, so an
+     * UPDATE writing back an identical value answers 0 and reads exactly
+     * like « somebody else won ». A caller retrying on false would spin
+     * for ever, and the state it wanted is already the state on disk.
+     */
+    public function testReplaceIfUnchangedReportsAWriteOfTheSameValueAsWon(): void
+    {
+        $this->service->register('idempotent', '', 'text', 'L', 'D');
+        $this->service->replaceIfUnchanged('idempotent', '', 'same');
+
+        $this->assertTrue($this->service->replaceIfUnchanged('idempotent', 'same', 'same'));
+        $this->assertSame('same', $this->service->get('idempotent'));
+    }
+
+    public function testReplaceIfUnchangedReportsFalseForAnUnknownSetting(): void
+    {
+        $this->assertFalse($this->service->replaceIfUnchanged('never_registered_either', '', 'value'));
+        $this->assertNull($this->service->get('never_registered_either'));
+    }
+
     public function testClaimIfEmptyReportsFalseForAnUnknownSetting(): void
     {
         $this->assertFalse($this->service->claimIfEmpty('never_registered', 'value'));

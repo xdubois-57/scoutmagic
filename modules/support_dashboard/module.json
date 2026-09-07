@@ -229,6 +229,10 @@
     {
       "key": "purge_tickets",
       "handler": "Modules\\SupportDashboard\\Task\\PurgeTicketsHandler"
+    },
+    {
+      "key": "snapshot_ticket_dns",
+      "handler": "Modules\\SupportDashboard\\Task\\SnapshotTicketDnsHandler"
     }
   ],
   "storage": {}
