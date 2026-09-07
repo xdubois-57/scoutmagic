@@ -131,12 +131,22 @@ that `ci.yml` calls — which is why a pull request shows them as
 | `Checks / SonarQube Cloud` | no local equivalent — read the bot's PR comment |
 | `Analyze (…)` (CodeQL) | no local equivalent — see `AGENTS.md` § CodeQL |
 
-The issue workflows — `issue-triage.yml` and `issue-backlog-scan.yml` — are
-deliberately absent from that table, and adding a row for either would make
-it wrong. They never run on a pull request: one fires on `issues:`, the
-other on a cron, and neither can turn a check red or block a merge. There
-is nothing to reproduce when one misbehaves, and nothing to reproduce it
-with. `docs/quality-pipeline.md` covers them instead.
+The issue workflows — `issue-triage.yml`, `issue-backlog-scan.yml` and
+`issue-fixed-comment.yml` — are deliberately absent from that table, and
+adding a row for any of them would make it wrong. None can turn a pull
+request check red or block a merge: the first fires on `issues:`, the
+second on a cron, and the third on `pull_request: [closed]` filtered to a
+merge, so it starts only once the merge it reacts to has happened. There is
+nothing to reproduce when one misbehaves, and nothing to reproduce it with.
+`docs/quality-pipeline.md` covers them instead.
+
+`issue-fixed-comment.yml` is still worth watching after you merge: it says
+on each issue the body named that the fix landed, then closes it, and it
+exits non-zero when it could not say so — a comment the API refused, a
+state it could not read back. That red run is on the merge commit rather
+than on the pull request, and it means an issue is fixed and does not say
+so. Finish that one by hand: comment, then close as `completed`, per
+AGENTS.md § Fix the backlog, step 6.
 
 The flags are not decoration — each is a failure the shorter command
 cannot show you:

@@ -417,20 +417,28 @@ backlog » — and it is a standing instruction, not a one-off. It means:
    arming auto-merge still holds without exception: every check green on
    the current head, every review thread answered, the template's checklist
    honestly filled.
-5. **Attach the pull request to the issue.** The body names each issue with
-   a closing keyword — `Closes #158`, one per issue — which is what puts
-   the pull request in that issue's *Development* section and makes the
-   issue say what is fixing it. A PR number mentioned in prose links
-   nothing. Do this when the PR is opened, not afterwards.
-6. **Close the issue once the fix is on `main`.** The closing keyword does
-   it on merge, and `issue-fixed-comment.yml` posts the sentence that says
-   so — which pull request, which commit, that the fix is on `main` — so a
-   reporter never finds their report closed in silence. Your job is to
-   *verify* both happened, on each issue, and to close by hand any that
-   stayed open (`state_reason: completed` — the fix shipped), saying on it
-   what landed. An accepted issue whose fix is merged and which is still
-   open is the backlog lying about itself; one closed with nothing written
-   on it is the backlog being rude.
+5. **Name each issue in the pull request body with `Corrige #158`** — that
+   word, one line per issue, when the PR is opened rather than afterwards.
+   `Corrige` is deliberately **not** one of GitHub's closing keywords
+   (`Closes`, `Fixes`, `Resolves` and their inflections): a keyword makes
+   GitHub close the issue itself, server-side, at the instant of the merge,
+   which is seconds *before* `issue-fixed-comment.yml` can say anything —
+   so the reporter's first notification is a bare closure. Leaving the
+   closing to that workflow is what buys the sentence-then-closure order.
+   The cost is the issue's *Development* sidebar link, which only a closing
+   keyword creates; `Corrige #158` still cross-references the pull request
+   on the issue's timeline, and the workflow's comment names the pull
+   request and the merge commit outright. **Do not "fix" a body by putting
+   a closing keyword back** — that is the bug, not the convention.
+6. **Close the issue once the fix is on `main`.** `issue-fixed-comment.yml`
+   does it on merge: one comment per issue naming the pull request, the
+   commit and the branch, and *then* the closure as `completed`. An issue
+   it could not comment on is left open on purpose and the run goes red.
+   Your job is to *verify* both happened, on each issue, and to finish by
+   hand any it left open (comment first, then `state_reason: completed` —
+   the fix shipped). An accepted issue whose fix is merged and which is
+   still open is the backlog lying about itself; one closed with nothing
+   written on it is the backlog being rude.
 
 **Do not wait for the maintainer at any point of this.** Not to start, not
 to merge, not to close. The instruction covers the whole sequence — fix,
