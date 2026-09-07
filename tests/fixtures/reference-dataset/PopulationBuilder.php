@@ -63,6 +63,20 @@ final class PopulationBuilder
     private array $scenarioTiers = [];
 
     /**
+     * Every home the filler has opened, oldest first. Kept for the whole
+     * build rather than per year, which is the point: a member created in A2
+     * moves in with a family built in A1, and that home then changes size
+     * between two years on its own.
+     *
+     * The scenario fratries are deliberately absent — ScenarioPeople owns
+     * theirs, and a filler member moving in with the Delvaux would change the
+     * household sizes the import test pins.
+     *
+     * @var list<Household>
+     */
+    private array $households = [];
+
+    /**
      * How many cadres of each gender still have to be created for every
      * portrait of the photo lot to find a holder. See {@see nextCadreGender()}.
      *
@@ -98,6 +112,7 @@ final class PopulationBuilder
         $this->designateSectionLeads();
         $this->designateSectionSpecialists();
         $this->assignHouseholdTariffs();
+        $this->staleTheOldestTariffOfSomeHouseholds();
 
         return $this->people;
     }
@@ -135,18 +150,10 @@ final class PopulationBuilder
     private function assignHouseholdTariffs(): void
     {
         foreach (UnitBlueprint::YEARS as $year) {
-            $sizes = [];
-            foreach ($this->people as $person) {
-                if (!$person->isPresentIn($year)) {
-                    continue;
-                }
-                $key = self::householdKey($person);
-                if ($key === '') {
-                    continue;
-                }
-                $sizes[$key] ??= 0;
-                $sizes[$key]++;
-            }
+            $sizes = array_map(
+                static fn (array $members): int => count($members),
+                $this->groupHouseholds($year),
+            );
 
             foreach ($this->people as $person) {
                 $personYear = $person->years[$year] ?? null;
@@ -171,6 +178,113 @@ final class PopulationBuilder
                 );
             }
         }
+    }
+
+    /**
+     * Let a few homes a year keep a tariff nobody re-encoded — issue #201.
+     *
+     * `assignHouseholdTariffs()` above is a perfect clerk: every member comes
+     * out carrying exactly the tariff their household size implies. A unit is
+     * not, and « Justesse des tarifs »
+     * (`Modules\Fees\Service\FeeAccuracyService`) exists precisely for the
+     * one that forgot — a third child arrived, the home became famille, and
+     * the eldest stayed on couple because nobody went back to their row. With
+     * a flawless export that screen's « à corriger » tab and its banner are
+     * empty forever, and a demonstration instance shows half a feature.
+     *
+     * So the eldest of a few homes keeps the tariff of the home as it was one
+     * member ago. It is a **real Desk code** in every case (#194 is about the
+     * fourth code Desk does not offer, and stays fixed), it is always genuinely
+     * wrong for the size, and it is applied per year — the same home can be
+     * right in A1 and stale in A2, which is what the screen is read for.
+     *
+     * Chosen in normalized-address order over homes holding no scenario
+     * member: the hand-written fratries are what ReferenceDatasetImportTest
+     * pins tariff by tariff, and a pass that could reach them would make those
+     * assertions depend on this one. A post-pass like the two above it, and
+     * like them it draws nothing from the Rng — the dataset must not move
+     * because this number changed.
+     */
+    private function staleTheOldestTariffOfSomeHouseholds(): void
+    {
+        foreach (UnitBlueprint::YEARS as $year) {
+            $eligible = [];
+
+            foreach ($this->groupHouseholds($year) as $key => $members) {
+                if (count($members) < 2) {
+                    continue;
+                }
+                foreach ($members as $tiers) {
+                    if (isset($this->scenarioTiers[$tiers])) {
+                        continue 2;
+                    }
+                }
+                $eligible[$key] = $members;
+            }
+
+            ksort($eligible);
+            $stalled = 0;
+
+            foreach ($eligible as $members) {
+                if ($stalled >= UnitBlueprint::STALE_TARIFF_HOUSEHOLDS_PER_YEAR) {
+                    break;
+                }
+
+                // The eldest of the home: the row that was already correct
+                // before the newcomer, and therefore the one nobody thought
+                // to open again.
+                $forgotten = $members[0];
+                $this->rewriteFeeCode(
+                    $forgotten,
+                    $year,
+                    count($members) >= 3 ? UnitBlueprint::FEE_CODES['couple'] : UnitBlueprint::FEE_CODES['normal'],
+                );
+                $stalled++;
+            }
+        }
+    }
+
+    /**
+     * Who lives with whom in one year, keyed by normalized home address, each
+     * list in Tiers order — `$this->people` has been ksorted by the time any
+     * of the post-passes runs.
+     *
+     * @return array<string, list<string>>
+     */
+    private function groupHouseholds(string $year): array
+    {
+        $groups = [];
+
+        foreach ($this->people as $tiers => $person) {
+            if (!$person->isPresentIn($year)) {
+                continue;
+            }
+            $key = self::householdKey($person);
+            if ($key === '') {
+                continue;
+            }
+            $groups[$key][] = $tiers;
+        }
+
+        return $groups;
+    }
+
+    /** Swap one year's tariff on one member, leaving the rest of the year alone. */
+    private function rewriteFeeCode(string $tiers, string $year, string $feeCode): void
+    {
+        $personYear = $this->people[$tiers]->years[$year] ?? null;
+        if ($personYear === null) {
+            return;
+        }
+
+        $this->people[$tiers]->years[$year] = new PersonYear(
+            functions: $personYear->functions,
+            feeCode: $feeCode,
+            totem: $personYear->totem,
+            quali: $personYear->quali,
+            patrol: $personYear->patrol,
+            formationLevel: $personYear->formationLevel,
+        );
     }
 
     /**
@@ -465,7 +579,17 @@ final class PopulationBuilder
         $birthYear = $reference - $age;
 
         $tiers = $this->nextFillerTiers();
-        $this->people[$tiers] = $this->factory->make($tiers, $birthYear, $branch);
+        $household = $this->homeFor($year, $branch);
+        $this->people[$tiers] = $this->factory->make(
+            $tiers,
+            $birthYear,
+            $branch,
+            $household?->lastName,
+            $household?->address,
+            $household?->email,
+            $household?->secondAddress,
+        );
+        $this->moveIn($household, $tiers);
         $this->filler[$tiers] = [
             'birthYear' => $birthYear,
             'track' => $branch === 'Iama' ? 'iama' : 'canonical',
@@ -481,7 +605,21 @@ final class PopulationBuilder
     {
         $birthYear = UnitBlueprint::referenceYear($year) - $this->rng->int(19, 38);
         $tiers = $this->nextFillerTiers();
-        $this->people[$tiers] = $this->factory->make($tiers, $birthYear, null, forcedGender: $this->nextCadreGender());
+        // Only ever joins a home, never founds one: a home nobody but cadres
+        // may join is a flatshare, and the mixed home this exists for is an
+        // animateur moving in ON a family that is already there.
+        $household = $this->joinOpenHome($year, UnitBlueprint::HOUSEHOLD_CADRE_JOIN_PERCENT);
+        $this->people[$tiers] = $this->factory->make(
+            $tiers,
+            $birthYear,
+            null,
+            $household?->lastName,
+            $household?->address,
+            $household?->email,
+            $household?->secondAddress,
+            forcedGender: $this->nextCadreGender(),
+        );
+        $this->moveIn($household, $tiers);
         $this->filler[$tiers] = [
             'birthYear' => $birthYear,
             'track' => 'cadre',
@@ -522,6 +660,109 @@ final class PopulationBuilder
         $this->unitStaffCreated++;
 
         $this->appendUnitStaffYear($tiers, $year);
+    }
+
+    // ---------------------------------------------------------------- homes
+
+    /**
+     * Where this new animé lives: with a family that already has room, or in
+     * a home of their own that later arrivals may join, or nowhere in
+     * particular. Issue #201.
+     *
+     * Drawn BEFORE the person is built, because a home decides four of the
+     * things PersonFactory would otherwise draw — surname, address, second
+     * address, mailbox — and a person cannot be moved into one afterwards
+     * without contradicting what was already written on their row.
+     */
+    private function homeFor(string $year, ?string $branch): ?Household
+    {
+        $joined = $this->joinOpenHome($year, UnitBlueprint::HOUSEHOLD_JOIN_PERCENT);
+        if ($joined !== null) {
+            return $joined;
+        }
+
+        if (!$this->rng->chance(UnitBlueprint::HOUSEHOLD_FOUND_PERCENT)) {
+            return null;
+        }
+
+        return $this->foundHome($branch);
+    }
+
+    /**
+     * Pick a home that still has room and somebody living in it this year,
+     * or nothing.
+     *
+     * "Somebody living in it this year" is what keeps a newcomer from moving
+     * into a house whose whole family left two years ago: the address would
+     * be reused by strangers, and the fratrie the tariff is about would be a
+     * coincidence of the generator rather than a family.
+     */
+    private function joinOpenHome(string $year, int $joinPercent): ?Household
+    {
+        $open = [];
+        foreach ($this->households as $household) {
+            if (!$household->isFull() && $this->isOccupiedIn($household, $year)) {
+                $open[] = $household;
+            }
+        }
+
+        if ($open === [] || !$this->rng->chance($joinPercent)) {
+            return null;
+        }
+
+        return $this->rng->pick($open);
+    }
+
+    /**
+     * Open a home: a surname, an address, the second address its children
+     * will all carry, and one parent mailbox for the lot.
+     *
+     * The mailbox is the reason this is a draw of its own rather than a
+     * by-product of the first member. `DeskImportService::ensureUserAccount()`
+     * keys an account on the email blind index, so one mailbox over three
+     * children is one parent account linked to three members — the commonest
+     * shape on the public site, and one this dataset did not have outside the
+     * two hand-written fratries.
+     */
+    private function foundHome(?string $branch): Household
+    {
+        $lastName = $this->factory->nextLastName();
+        $address = $this->factory->makeAddress('Domicile');
+        $secondAddress = $this->rng->chance(PersonFactory::secondAddressChance($branch))
+            ? $this->factory->makeAddress('Adresse secondaire')
+            : null;
+
+        $household = new Household(
+            lastName: $lastName,
+            address: $address,
+            email: $this->factory->makeHouseholdEmail($lastName),
+            targetSize: $this->rng->pick(UnitBlueprint::HOUSEHOLD_TARGET_SIZES),
+            secondAddress: $secondAddress,
+        );
+        $this->households[] = $household;
+
+        return $household;
+    }
+
+    private function moveIn(?Household $household, string $tiers): void
+    {
+        if ($household === null) {
+            return;
+        }
+
+        $household->members[] = $tiers;
+    }
+
+    /** Whether anybody assigned to this home is a member of the unit in $year. */
+    private function isOccupiedIn(Household $household, string $year): bool
+    {
+        foreach ($household->members as $tiers) {
+            if (($this->people[$tiers] ?? null)?->isPresentIn($year) === true) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     // --------------------------------------------------------- year building

@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Tests\Integration;
 
 use Core\Import\MemberYearRepository;
+use Core\Member\Household\HouseholdRepository;
+use Core\Member\HouseholdFeeCategory;
 use Core\Member\UnitStaffSectionService;
 use Core\Security\EncryptionService;
 use PHPUnit\Framework\Attributes\Group;
@@ -528,6 +530,210 @@ final class ReferenceDatasetImportTest extends TestCase
         );
     }
 
+    /**
+     * Issue #201. A unit where 98 % of the addresses hold one person is not a
+     * unit — fratries are the norm in a real one, and they are the reason the
+     * federation offers a couple and a famille tariff at all. The generator
+     * used to produce exactly two multi-member homes in the whole dataset,
+     * both of them hand-written scenarios, which left « Justesse des tarifs »
+     * with nothing to show and `Core\Member\FeeEstimationService` with nobody
+     * to count.
+     *
+     * Read through the repository the screen itself reads, not through a
+     * grouping written here: a dataset whose homes the site would group
+     * differently would be quietly testing nothing.
+     *
+     * The floors are floors, well under what the generator produces today
+     * (2024-2025: 22 couples, 23 familles). They are not the numbers to chase
+     * — they are the level below which the screen goes back to being empty.
+     */
+    public function testEveryHouseholdSizeIsRepresentedWithVolume(): void
+    {
+        $repository = new HouseholdRepository($this->pdo);
+
+        foreach (UnitBlueprint::YEARS as $label) {
+            $households = $repository->findHouseholdsForYear($this->yearIds[$label]);
+            self::assertNotEmpty($households, "Aucun foyer en {$label}.");
+
+            $alone = 0;
+            $couples = 0;
+            $families = 0;
+            foreach ($households as $household) {
+                match (true) {
+                    $household->deskSize() >= 3 => $families++,
+                    $household->deskSize() === 2 => $couples++,
+                    default => $alone++,
+                };
+            }
+
+            self::assertGreaterThanOrEqual(15, $couples, "Trop peu de foyers de deux en {$label}.");
+            self::assertGreaterThanOrEqual(10, $families, "Trop peu de foyers de trois ou plus en {$label}.");
+            self::assertLessThan(
+                0.85 * count($households),
+                $alone,
+                "Presque tous les foyers de {$label} ne comptent qu'une personne.",
+            );
+        }
+    }
+
+    /**
+     * Issue #201, the member's side of the same fact: it is not enough that
+     * multi-member homes exist, a real share of the unit has to live in one.
+     * `Modules\Registration`'s HouseholdRegistrationCountProvider and the
+     * fee suggestion on the inscription form both do nothing until they have
+     * a second person at the address.
+     */
+    public function testAGoodThirdOfTheUnitSharesAHomeWithSomebody(): void
+    {
+        $repository = new HouseholdRepository($this->pdo);
+
+        foreach (UnitBlueprint::YEARS as $label) {
+            $sharing = [];
+            foreach ($repository->findHouseholdsForYear($this->yearIds[$label]) as $household) {
+                if ($household->deskSize() < 2) {
+                    continue;
+                }
+                foreach ($household->memberYearIds() as $memberYearId) {
+                    $sharing[$memberYearId] = true;
+                }
+            }
+
+            $members = $this->countMembersIn($label);
+            self::assertGreaterThanOrEqual(
+                (int) round($members / 3),
+                count($sharing),
+                "Moins d'un tiers de l'unité de {$label} partage son domicile.",
+            );
+        }
+    }
+
+    /**
+     * Issue #201 again, and the case the report singled out: a big brother
+     * animateur and a little sister baladine at the same address. It is
+     * common in a real unit, it was absent here, and it is the shape that
+     * produces the interesting arbitration on « Justesse des tarifs » —
+     * two members of one home encoded through two different Desk routes.
+     */
+    public function testAtLeastOneHouseholdMixesAnAnimeAndACadre(): void
+    {
+        foreach (UnitBlueprint::YEARS as $label) {
+            self::assertGreaterThanOrEqual(
+                1,
+                $this->householdsMixingAnimesAndCadres($label),
+                "Aucun foyer de {$label} ne mêle un animé et un cadre.",
+            );
+        }
+    }
+
+    /**
+     * Issue #201, last piece. Since #194 every member's Tarif is DEDUCED from
+     * the size of their home, so the export is perfectly coherent and
+     * `Modules\Fees\Service\FeeAccuracyService` has, by construction,
+     * nothing to report: the « à corriger » tab and its banner would be empty
+     * on the demonstration instance forever. That screen exists for the unit
+     * that forgot to re-encode a tariff when a sibling arrived, so a few homes
+     * forget on purpose (PopulationBuilder::staleTheOldestTariffOfSomeHouseholds).
+     *
+     * The check is the service's own rule, not the generator's: a member whose
+     * encoded category differs from the one their household's size implies.
+     * Only the Domicile grouping is counted, which is the one the tariff was
+     * derived from.
+     */
+    public function testSomeHouseholdsCarryATariffNobodyUpdated(): void
+    {
+        $repository = new HouseholdRepository($this->pdo);
+
+        foreach (UnitBlueprint::YEARS as $label) {
+            // What the generator undertook, on the Domicile grouping it
+            // derived the tariffs from: exactly this many homes forget.
+            $forgetful = 0;
+            foreach ($this->homeGroupsOf($label) as $feeCodes) {
+                if (self::anyDisagreesWithSize($feeCodes)) {
+                    $forgetful++;
+                }
+            }
+
+            self::assertSame(
+                UnitBlueprint::STALE_TARIFF_HOUSEHOLDS_PER_YEAR,
+                $forgetful,
+                "Le nombre de foyers en écart de tarif en {$label} n'est plus celui que le blueprint déclare.",
+            );
+
+            // What the SCREEN will see, which is not the same grouping:
+            // FeeAccuracyService reads the households the site derives, and
+            // those are grouped on every address rather than on the home one.
+            // A dataset that satisfied the line above and left this one at
+            // zero would have exercised nothing.
+            $encoded = $this->feeCodesByMemberYear($label);
+            $reported = 0;
+            foreach ($repository->findHouseholdsForYear($this->yearIds[$label]) as $household) {
+                $expected = UnitBlueprint::FEE_CODES[$household->deskCategory()->value];
+                foreach ($household->memberYearIds() as $memberYearId) {
+                    if (($encoded[$memberYearId] ?? $expected) !== $expected) {
+                        $reported++;
+                        break;
+                    }
+                }
+            }
+
+            self::assertGreaterThanOrEqual(
+                1,
+                $reported,
+                "« Justesse des tarifs » n'aurait rien à corriger en {$label}.",
+            );
+        }
+    }
+
+    /**
+     * Whether one home's members do not all carry the tariff their number
+     * implies — `FeeAccuracyService`'s rule, over the three Desk codes this
+     * dataset uses.
+     *
+     * @param list<string> $feeCodes
+     */
+    private static function anyDisagreesWithSize(array $feeCodes): bool
+    {
+        $expected = UnitBlueprint::FEE_CODES[
+            HouseholdFeeCategory::fromHouseholdSize(count($feeCodes))->value
+        ];
+
+        foreach ($feeCodes as $feeCode) {
+            if ($feeCode !== $expected) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Issue #201. One parent mailbox over several children is the commonest
+     * shape on the public site — `DeskImportService::ensureUserAccount()`
+     * keys an account on the email blind index, so a shared mailbox is one
+     * account linked to several members. Outside the two hand-written
+     * fratries the dataset never exercised it.
+     *
+     * The floors are set above what those two fratries alone can supply (one
+     * mailbox over three members in A1, two over two): an assertion they
+     * could satisfy on their own would keep passing on the day the filler
+     * stops sharing anything, which is exactly the state this issue is about.
+     */
+    public function testParentAccountsCoverSeveralMembers(): void
+    {
+        foreach (UnitBlueprint::YEARS as $label) {
+            self::assertGreaterThanOrEqual(
+                15,
+                $this->mailboxesCovering($label, 2),
+                "Trop peu de boîtes partagées en {$label} : le compte parent reste inexercé.",
+            );
+            self::assertGreaterThanOrEqual(
+                5,
+                $this->mailboxesCovering($label, 3),
+                "Aucune boîte de {$label} ne couvre trois membres ou plus, ou presque.",
+            );
+        }
+    }
+
     // ------------------------------------------------------------ robustesse
 
     public function testTheMemberWithNoEmailGetsNoUserAccount(): void
@@ -878,6 +1084,115 @@ final class ReferenceDatasetImportTest extends TestCase
         )?->fetchAll() ?: [];
 
         return array_map(static fn (array $row): string => (string) $row['address_type'], $rows);
+    }
+
+    /**
+     * The Domicile groups of one year: every home, as a list of the Desk
+     * tariff codes its members carry. Same grouping key as the site's
+     * (`address_normalized_blind_index`), restricted to the home address —
+     * which is the one PopulationBuilder derived the tariff from.
+     *
+     * @return list<list<string>>
+     */
+    private function homeGroupsOf(string $label): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT ma.address_normalized_blind_index AS blind_index, fc.desk_code AS fee_code
+             FROM member_years my
+             JOIN member_addresses ma ON ma.member_year_id = my.id
+             JOIN fee_categories fc ON fc.id = my.fee_category_id
+             WHERE my.scout_year_id = ? AND my.is_active = 1 AND ma.address_type = \'Domicile\'
+               AND ma.address_normalized_blind_index IS NOT NULL'
+        );
+        $stmt->execute([$this->yearIds[$label]]);
+
+        $groups = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $groups[(string) $row['blind_index']][] = (string) $row['fee_code'];
+        }
+
+        return array_values($groups);
+    }
+
+    /** How many mailboxes of a year are shared by at least $members members. */
+    private function mailboxesCovering(string $label, int $members): int
+    {
+        // Grouped in SQL, counted in PHP. The derived table this replaces
+        // needed its threshold in a HAVING, and a placeholder there came
+        // back as zero matches — which is how the concatenation got in.
+        // Without the wrapper there is nothing left to concatenate.
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(DISTINCT my.member_id) AS holders
+             FROM member_years my
+             WHERE my.scout_year_id = ? AND my.is_active = 1
+               AND my.email_blind_index IS NOT NULL
+             GROUP BY my.email_blind_index'
+        );
+        $stmt->execute([$this->yearIds[$label]]);
+
+        $shared = 0;
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            if ((int) $row['holders'] >= $members) {
+                $shared++;
+            }
+        }
+
+        return $shared;
+    }
+
+    /**
+     * The Desk tariff code each member_year of a year carries.
+     *
+     * @return array<int, string>
+     */
+    private function feeCodesByMemberYear(string $label): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT my.id AS member_year_id, fc.desk_code AS fee_code
+             FROM member_years my
+             JOIN fee_categories fc ON fc.id = my.fee_category_id
+             WHERE my.scout_year_id = ? AND my.is_active = 1'
+        );
+        $stmt->execute([$this->yearIds[$label]]);
+
+        $codes = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $codes[(int) $row['member_year_id']] = (string) $row['fee_code'];
+        }
+
+        return $codes;
+    }
+
+    /** How many homes of a year hold at least one animé AND at least one cadre. */
+    private function householdsMixingAnimesAndCadres(string $label): int
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT ma.address_normalized_blind_index AS blind_index,
+                    my.id AS member_year_id,
+                    MAX(CASE WHEN f.desk_code = \'Animé\' THEN 1 ELSE 0 END) AS is_anime
+             FROM member_years my
+             JOIN member_addresses ma ON ma.member_year_id = my.id
+             JOIN member_functions mf ON mf.member_year_id = my.id
+             JOIN functions f ON f.id = mf.function_id
+             WHERE my.scout_year_id = ? AND my.is_active = 1
+               AND ma.address_normalized_blind_index IS NOT NULL
+             GROUP BY ma.address_normalized_blind_index, my.id'
+        );
+        $stmt->execute([$this->yearIds[$label]]);
+
+        $homes = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $homes[(string) $row['blind_index']][(int) $row['is_anime']] = true;
+        }
+
+        $mixed = 0;
+        foreach ($homes as $kinds) {
+            if (isset($kinds[0], $kinds[1])) {
+                $mixed++;
+            }
+        }
+
+        return $mixed;
     }
 
     private function feeCodeOf(string $tiers, string $label): ?string

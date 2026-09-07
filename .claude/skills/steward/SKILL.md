@@ -182,15 +182,23 @@ one did. Read that comment; it is the answer the check alone cannot give.
 
 **And a green `Claude review` did not always mean a review happened even
 when Claude ran.** For its first 105 runs the reviewer was refused one tool
-call per run — which one is still not known, the summary counts them
-without naming them — and on every run anybody has looked at, it launched
-no review agent, posted nothing, and reported success (2026-09-07, the
-tools its procedure needs now granted
-in `claude_args`; the story is in that file's header and in
+call per run, launched no review agent, posted nothing, and reported
+success. The first transcript that named the refusal named `Skill`: the
+`prompt:` is a slash command, a slash command is invoked through that tool,
+and the code-review procedure had therefore never been loaded on any of
+them (#208, 2026-09-07; the story is in that file's header and in
 docs/quality-pipeline.md § Code review). Which is why the comment's verdict
-now rests on two rows — **`Review agents launched`** and **`Tool calls
-refused`** — read from the run's own transcript. Agents launched at zero,
-or any tool refused, and no review happened, whatever the check says.
+now rests on three rows — **`Review agents launched`**, **`Review agents
+finished`** and **`Tool calls refused`** — read from the run's own
+transcript. Agents launched at zero, fewer finished than launched, or any
+tool refused, and no review happened, whatever the check says.
+
+**`Review agents finished` is the one that catches a run that stopped
+half-way.** Subagents start in the background, and a reviewer that ends its
+turn waiting for one ends the run — nothing wakes a workflow up, so the SDK
+closes it a success with part of the diff unread. That is what #208 did:
+three spawned, two collected, no comment.
+
 A refusal names the tool: grant it in `claude_args`, or write down in that
 file why it must stay denied.
 
